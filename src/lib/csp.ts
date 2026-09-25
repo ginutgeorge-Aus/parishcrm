@@ -108,6 +108,7 @@ export function isPublicPath(pathname: string): boolean {
 // nonce. Next.js auto-applies the nonce to the styles IT injects (next/font,
 // framework), and our own `<style>` tags carry the nonce explicitly (the chart
 // component via NonceProvider context, the print/report pages via headers()).
+// Radix's runtime scroll-lock <style> gets it via get-nonce (NonceProvider).
 // Dev keeps `'unsafe-inline'` because HMR injects un-nonced styles.
 // `style-src-attr 'unsafe-inline'` keeps element-level inline style attributes
 // working (React `style={{}}` props, recharts' dynamic indicator colour) — a
