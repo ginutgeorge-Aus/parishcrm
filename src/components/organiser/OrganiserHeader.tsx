@@ -9,6 +9,7 @@ export function OrganiserHeader() {
   return (
     <header className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
       <Link href="/my-events" className="flex items-center gap-2">
+        {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode */}
         <span className="rounded bg-white p-0.5">
           <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-8 w-auto" unoptimized />
         </span>

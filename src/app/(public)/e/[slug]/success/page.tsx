@@ -305,7 +305,7 @@ export default async function SuccessPage(props: Props) {
               Total: {fmtAUD(centsToNumber(toCents(registration.totalAmount)))}
             </p>
             {freeCount > 0 && (
-              <p className="text-sm text-green-700 mt-1">
+              <p className="text-sm text-success mt-1">
                 Family waiver applied — {freeCount} member{freeCount === 1 ? "" : "s"} free.
               </p>
             )}

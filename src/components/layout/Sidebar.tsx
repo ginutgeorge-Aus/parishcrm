@@ -295,6 +295,7 @@ export function Sidebar({
         >
           <Menu className="w-5 h-5" />
         </button>
+        {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode */}
         <span className="ml-2 flex items-center rounded bg-white p-0.5">
           <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-9 w-auto" unoptimized />
         </span>
@@ -329,6 +330,7 @@ export function Sidebar({
         )}
       >
         <div className="px-4 py-4 border-b border-white/10 flex items-start justify-between">
+          {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: logo artwork, must stay white in dark mode */}
           <span className="rounded-lg bg-white p-2 shadow-sm">
             <Image src="/api/branding/logo" alt={churchName} width={512} height={466} className="h-24 w-auto" priority unoptimized />
           </span>
@@ -360,10 +362,12 @@ export function Sidebar({
           )}
         >
           {railCollapsed ? (
+            // eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode
             <span className="rounded bg-white p-0.5">
               <Image src="/api/branding/crest" alt={churchName} width={128} height={145} className="h-9 w-auto" unoptimized />
             </span>
           ) : (
+            // eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: logo artwork, must stay white in dark mode
             <span className="rounded-lg bg-white p-2 shadow-sm">
               <Image src="/api/branding/logo" alt={churchName} width={512} height={466} className="h-24 w-auto" priority unoptimized />
             </span>

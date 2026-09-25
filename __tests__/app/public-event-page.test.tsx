@@ -81,7 +81,6 @@ it("passes the pasted imageUrl as bannerSrc to EventHero when no image is upload
   })
   const ui = await render("hero-test")
   // The page returns a React element tree. Find the EventHero element and verify its props.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function findEventHeroProps(node: any): Record<string, unknown> | null {
     if (!node || typeof node !== "object") return null
     if (node.type === mockEventHero || node.type === EventHero) return node.props

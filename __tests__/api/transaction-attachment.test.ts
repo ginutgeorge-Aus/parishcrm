@@ -89,7 +89,6 @@ it("uses an ASCII-safe fallback filename plus a UTF-8 param for non-ASCII names"
   const cd = res.headers.get("Content-Disposition") ?? ""
   // Legacy ASCII fallback: non-ASCII replaced with "_", no raw non-ASCII bytes.
   expect(cd).toMatch(/filename="[\x20-\x7e]+"/)
-  // eslint-disable-next-line no-control-regex
   expect(/filename="[^"]*[^\x00-\x7f]/.test(cd)).toBe(false)
   // RFC 5987 UTF-8 param carries the real name percent-encoded.
   expect(cd).toContain("filename*=UTF-8''")

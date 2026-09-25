@@ -249,10 +249,10 @@ export function MembershipForm({
       <header className="border-b-2 border-primary pb-4 mb-6">
         {/* Official church letterhead (crest + name + address + ABN). eslint-disable:
             plain <img> — a static public asset, no next/image optimisation needed. */}
-        { }
         {/* Intrinsic width/height (natural 3000×514) reserve the aspect-ratio box
             before the PNG loads — without them the header collapses to a thin bar
             on slow mobile connections, reading as "letterhead missing". */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/api/branding/letterhead"
           alt={churchName}

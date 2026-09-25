@@ -130,7 +130,7 @@ export default async function MembershipDetailPage({ params }: { params: Promise
         <Field label="Signed at" value={[app.placeSigned, app.signedDate?.toLocaleDateString(APP_LOCALE)].filter(Boolean).join(" · ")} />
         <div className="mt-2">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Signature</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* eslint-disable-next-line @next/next/no-img-element, no-restricted-syntax -- white backdrop is intentional: signature ink is dark, must stay white in dark mode */}
           <img src={signature} alt="Applicant signature" className="mt-1 max-h-36 rounded border bg-white" />
         </div>
       </section>

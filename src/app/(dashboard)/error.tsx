@@ -23,7 +23,7 @@ export default function DashboardError({
         <p className="text-sm text-muted-foreground mb-4">If this keeps happening, use the Feedback button to report it.</p>
         <button
           onClick={reset}
-          className="rounded bg-slate-900 min-w-[44px] min-h-[44px] px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+          className="rounded bg-primary min-w-[44px] min-h-[44px] px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Try again
         </button>

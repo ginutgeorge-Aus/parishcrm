@@ -34,7 +34,7 @@ export default function PublicError({
         </p>
         <button
           onClick={reset}
-          className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Try again
         </button>
