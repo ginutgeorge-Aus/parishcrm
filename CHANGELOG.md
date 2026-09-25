@@ -10,6 +10,17 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.0.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.0.0...v1.0.1) (2026-09-25)
+
+
+### Dependencies
+
+* Bump @testing-library/jest-dom from 7.0.0 to 7.0.1 ([#13](https://github.com/ginutgeorge-Aus/parishcrm/issues/13)) ([dcee12b](https://github.com/ginutgeorge-Aus/parishcrm/commit/dcee12bea0d135fac47886ccfe7bae900985e2ad))
+* Bump @testing-library/user-event from 14.6.1 to 14.6.7 ([#2](https://github.com/ginutgeorge-Aus/parishcrm/issues/2)) ([4c0a2f8](https://github.com/ginutgeorge-Aus/parishcrm/commit/4c0a2f8ecccdb776da0684deba40dbef40f9934a))
+* Bump jest-environment-jsdom from 30.4.1 to 30.5.1 ([#12](https://github.com/ginutgeorge-Aus/parishcrm/issues/12)) ([fe12969](https://github.com/ginutgeorge-Aus/parishcrm/commit/fe12969e8587afc2e7a4b6f79058724baeda5fde))
+* Bump nodemailer from 9.1.1 to 10.0.10 ([#1](https://github.com/ginutgeorge-Aus/parishcrm/issues/1)) ([de76fd8](https://github.com/ginutgeorge-Aus/parishcrm/commit/de76fd8db0ca621919e0297d098765f2e2698481))
+* Bump tsx from 4.23.12 to 4.23.13 ([#14](https://github.com/ginutgeorge-Aus/parishcrm/issues/14)) ([cf2832b](https://github.com/ginutgeorge-Aus/parishcrm/commit/cf2832b5fc01cde2c9e8084606f3a46eedc51579))
+
 ## 1.0.0 (2026-09-25)
 
 Initial public release.
