@@ -25,22 +25,33 @@ jobs:
           repository: ${{ github.repository }}.wiki
           path: wiki
           persist-credentials: false
-      - id: lychee
+      # Two passes: repo docs resolve relative links as local files; the wiki's
+      # relative page links resolve against the wiki URL.
+      - id: repo
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
             --no-progress --max-concurrency 8 --accept 200,206,429
-            --exclude-path node_modules
+            --root-dir ${{ github.workspace }}
+            README.md CONTRIBUTING.md 'docs/**/*.md'
+          output: lychee-repo.md
+          fail: false
+      - id: wiki
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress --max-concurrency 8 --accept 200,206,429
             --base-url https://github.com/${{ github.repository }}/wiki/
-            README.md 'docs/**/*.md' 'wiki/*.md'
-          output: lychee-report.md
+            'wiki/*.md'
+          output: lychee-wiki.md
           fail: false
       - name: Open or update issue
-        if: steps.lychee.outputs.exit_code != 0
+        if: steps.repo.outputs.exit_code != 0 || steps.wiki.outputs.exit_code != 0
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          cat lychee-repo.md lychee-wiki.md > lychee-report.md
           n=$(gh issue list --state open --search 'in:title "Broken links"' --json number --jq '.[0].number')
           if [ -n "$n" ]; then gh issue comment "$n" --body-file lychee-report.md
           else gh issue create --title "Broken links" --body-file lychee-report.md; fi
