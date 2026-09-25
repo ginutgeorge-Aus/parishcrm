@@ -1,0 +1,163 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --min-width-table-narrow: 480px;
+  --min-width-table: 560px;
+  --min-width-table-wide: 640px;
+
+  --color-gold: hsl(var(--gold));
+  --color-gold-foreground: hsl(var(--gold-foreground));
+
+  --color-income: hsl(var(--income));
+  --color-expense: hsl(var(--expense));
+
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+@utility tabular {
+  /* Money + any aligned numeric column: equal-width digits so figures line up
+     and don't jitter as values change. Apply on amounts, totals, balances. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+@layer utilities {
+  @media print {
+    body {
+      background: white !important;
+    }
+
+    @page {
+      margin: 1.5cm;
+    }
+  }
+}
+
+@layer base {
+  :root {
+    /* Neutral visual system — cool slate neutrals, monochrome by default.
+       Primary/dark surface = slate-800 #1E293B; the accent is a light slate chip
+       for active/emphasis states. A deploy restores its own brand colours via
+       THEME_PRIMARY/THEME_ACCENT env (injected as a :root override by the root
+       layout) with zero source edits (OSS Phase 2).
+       Money has its own semantic green/red, never the accent hue. */
+    --background: 210 40% 98%;        /* slate-50 #F8FAFC */
+    --foreground: 222 47% 11%;        /* slate-900 #0F172A */
+    --card: 0 0% 100%;                /* pure white — cards lift off the cool bg */
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 217 33% 17%;           /* slate-800 #1E293B (cool navy) */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;         /* slate-100 #F1F5F9 */
+    --secondary-foreground: 217 33% 17%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 35%;  /* slate-600 #475569 — slate-500 failed WCAG AA (~4.4:1) on the slate-50 bg */
+    --accent: 210 40% 96%;            /* neutral hover bg (shadcn uses this for menu/hover) */
+    --accent-foreground: 217 33% 17%;
+    --destructive: 0 74% 42%;         /* danger red #B91C1C */
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;            /* slate-200 #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 215 20% 65%;              /* slate-400 focus ring (neutral); THEME_ACCENT overrides */
+    --radius: 0.5rem;
+
+    /* Emphasis accent — distinct from shadcn --accent (the neutral hover bg).
+       Neutral default = slate-200 chip; THEME_ACCENT env restores a brand colour.
+       --gold-foreground stays dark so it pairs with both the slate chip and any
+       light brand accent (e.g. gold). */
+    --gold: 214 32% 91%;              /* slate-200 (neutral) */
+    --gold-foreground: 217 33% 17%;   /* dark slate text on the accent (contrast) */
+    /* Money semantics */
+    --income: 142 72% 29%;            /* green #15803D */
+    --expense: 0 74% 42%;             /* red #B91C1C */
+    --info: 214 80% 42%;              /* informational blue #1565D8 */
+    --info-foreground: 0 0% 100%;
+    --warning: 32 81% 36%;            /* amber-700 #B45309 — AA on white + on bg-warning/10 */
+    --warning-foreground: 0 0% 100%;
+    --success: 142 72% 29%;           /* green #15803D — mirrors --income */
+    --success-foreground: 0 0% 100%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Single sans family (Public Sans). Headings differentiate by weight + tight
+     tracking, not a separate face — modern SaaS look. */
+  h1, h2, h3 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+}

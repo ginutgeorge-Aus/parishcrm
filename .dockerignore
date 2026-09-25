@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+__tests__
+docs
+.env*
+*.pdf
+README.md
+SECURITY.md
+CLAUDE.md
+.swc
+.claude
+test-results/

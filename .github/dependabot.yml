@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    ignore:
+      # @types/node major tracks the Node major; engines.node is 24, so v25+ types
+      # describe runtime APIs we don't have. Stay on 24.x until the Node engine bumps.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Tailwind v4 is a breaking CSS-first rewrite — handled as a dedicated
+      # migration, not an auto-bump. Stay on v3 until that lands.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+    groups:
+      next-ecosystem:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "@next/*"
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      prisma-ecosystem:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+
+  # SHA-pinned actions don't auto-update — Dependabot bumps the pins (and the
+  # version comment) so workflows stay on current, patched action releases.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"

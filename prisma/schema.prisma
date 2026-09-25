@@ -1,0 +1,1063 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Family {
+  id                     Int                      @id @default(autoincrement())
+  name                   String
+  memberNo               String?                  @unique
+  address                String?
+  suburb                 String?
+  state                  String?
+  postcode               String?
+  homePhone              String?
+  status                 FamilyStatus             @default(ACTIVE)
+  joinedDate             DateTime?
+  marriageDate           DateTime?
+  monthlyDues            Decimal?                 @db.Decimal(10, 2)
+  notes                  String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  archivedAt             DateTime?
+  people                 Person[]
+  transactions           Transaction[]
+  updateInvites          FamilyUpdateInvite[]
+  updateSubmissions      FamilyUpdateSubmission[]
+  membershipApplications MembershipApplication[]  @relation("MembershipFamily")
+
+  @@unique([name])
+  @@index([archivedAt])
+  @@index([status])
+}
+
+model Person {
+  id                    Int                @id @default(autoincrement())
+  familyId              Int
+  family                Family             @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  firstName             String
+  lastName              String
+  middleName            String?
+  title                 String?
+  suffix                String?
+  gender                Gender?
+  dateOfBirth           String?
+  role                  FamilyRole         @default(OTHER)
+  classification        Classification     @default(MEMBER)
+  email                 String?
+  // Deterministic blind index of email (HMAC, see crypto-core.hmacEmail) so the
+  // person-export matches registrations by an indexed lookup instead of a
+  // full-table decrypt scan. Set wherever `email` is written.
+  emailHash             String?
+  mobile                String?
+  // Deterministic blind index of mobile (HMAC, see crypto-core.hmacMobile) so
+  // MembershipApplication family-match can look up an encrypted mobile by an
+  // indexed lookup instead of a decrypt scan. Set wherever `mobile` is written.
+  mobileHash            String?
+  workPhone             String?
+  homePhone             String?
+  photoUrl              String?
+  membershipDate        DateTime?
+  baptismDate           DateTime?
+  notes                 String? // encrypted at rest
+  profession            String?
+  motherParish          String?
+  maritalStatus         String?
+  pastoralNotes         String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  emailConsent          Boolean            @default(true)
+  consentUpdatedAt      DateTime?
+  archivedAt            DateTime?
+  bankingName           String?
+  transactions          Transaction[]
+  pettyCashSessions     PettyCashSession[]
+  pettyCashReceipts     PettyCashReceipt[]
+  dgrReceipts           DgrReceipt[]
+  celebrationSends      CelebrationSend[]
+
+  @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
+  @@index([archivedAt])
+  @@index([familyId])
+  @@index([classification])
+  @@index([emailHash])
+  @@index([mobileHash])
+  // Default /people list sort is (lastName, firstName) — supports the ORDER BY
+  // as the person table grows. The `contains`-insensitive name search is
+  // a leading-wildcard ILIKE and can't use a b-tree, so no index helps there.
+  @@index([lastName, firstName])
+  // /people role filter always rides archivedAt:null; composite narrows before the
+  // (lastName,firstName) sort. mobile is exact-match lookup in membership import.
+  @@index([archivedAt, role])
+  @@index([mobile])
+}
+
+model User {
+  id                     Int                      @id @default(autoincrement())
+  name                   String
+  email                  String                   @unique
+  passwordHash           String
+  role                   UserRole                 @default(VIEWER)
+  failedLoginAttempts    Int                      @default(0)
+  lockedUntil            DateTime?
+  otpCode                String?
+  otpExpiresAt           DateTime?
+  failedOtpAttempts      Int                      @default(0)
+  otpLockedUntil         DateTime?
+  passwordResetToken     String?                  @unique
+  passwordResetExpires   DateTime?
+  // server-side logout/invalidation anchor. Logout sets this to now; the
+  // jwtCallback rejects any token issued (token.loginAt) before it, so a stolen
+  // token is dead after logout instead of valid until the 24h JWT maxAge.
+  sessionsValidFrom      DateTime?
+  // soft-delete. deleteUser() can't hard-delete a user who has ever logged
+  // in — AuditLog rows are append-only (DB trigger) and RESTRICT the FK, so the
+  // delete throws P2003. Archiving instead preserves the audit trail + actor
+  // accountability. Archived users are filtered from every list and rejected at
+  // login; deleteUser tombstones their email so the address frees for re-invite.
+  archivedAt             DateTime?
+  createdAt              DateTime                 @default(now())
+  receiptSends           ReceiptSend[]
+  paymentReminderSends   PaymentReminderSend[]
+  auditLogs              AuditLog[]
+  invitesCreated         FamilyUpdateInvite[]     @relation("InviteCreatedBy")
+  submissionsReviewed    FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
+  trustedDevices         TrustedDevice[]
+  reports                Report[]
+  checkpointResults      CheckpointResult[]
+  dgrReceiptsCreated     DgrReceipt[]             @relation("DgrReceiptCreatedBy")
+  dgrReceiptsSent        DgrReceipt[]             @relation("DgrReceiptSentBy")
+  membershipReviews      MembershipApplication[]  @relation("MembershipReviewedBy")
+  transactionAttachments TransactionAttachment[]  @relation("TransactionAttachmentUploadedBy")
+  managedEvents          EventManager[]
+}
+
+model TrustedDevice {
+  id         String   @id @default(cuid())
+  userId     Int
+  tokenHash  String   @unique
+  label      String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  expiresAt  DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// In-app feedback (bug / feature / suggestion) mirrored from the GitHub issue it
+// files, so a reporter can see their own submissions and their resolution status
+// without GitHub access. Status is synced lazily on the /reports page load.
+model Report {
+  id          Int          @id @default(autoincrement())
+  userId      Int
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        ReportType
+  title       String
+  summary     String
+  issueNumber Int          @unique
+  status      ReportStatus @default(OPEN)
+  pageUrl     String?
+  createdAt   DateTime     @default(now())
+  syncedAt    DateTime?
+
+  @@index([userId])
+}
+
+model CheckpointResult {
+  id           Int              @id @default(autoincrement())
+  checkpointId String           @unique
+  status       CheckpointStatus
+  testedById   Int?
+  testedBy     User?            @relation(fields: [testedById], references: [id], onDelete: SetNull)
+  testedAt     DateTime?
+  issueNumber  Int?
+  note         String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model FamilyUpdateInvite {
+  id          Int                      @id @default(autoincrement())
+  familyId    Int
+  family      Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  tokenHash   String                   @unique
+  email       String // destination email, AES-256-GCM encrypted at rest
+  status      InviteStatus             @default(SENT)
+  expiresAt   DateTime
+  createdById Int
+  createdBy   User                     @relation("InviteCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime                 @default(now())
+  submittedAt DateTime?
+  submissions FamilyUpdateSubmission[]
+
+  @@index([familyId])
+  @@index([status])
+}
+
+model FamilyUpdateSubmission {
+  id           Int                @id @default(autoincrement())
+  familyId     Int
+  family       Family             @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  inviteId     Int
+  invite       FamilyUpdateInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  payload      Json
+  status       SubmissionStatus   @default(PENDING)
+  reviewedById Int?
+  reviewedBy   User?              @relation("SubmissionReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime           @default(now())
+
+  @@index([familyId])
+  @@index([status])
+}
+
+model AccountGroup {
+  id        Int         @id @default(autoincrement())
+  name      String
+  type      AccountType
+  sortOrder Int         @default(0)
+  accounts  Account[]
+
+  @@unique([name, type])
+}
+
+model Fund {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  isActive          Boolean            @default(true)
+  sortOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  transactions      Transaction[]
+  pettyCashReceipts PettyCashReceipt[]
+  pettyCashExpenses PettyCashExpense[]
+}
+
+model Account {
+  id                Int                @id @default(autoincrement())
+  code              String             @unique
+  name              String
+  type              AccountType
+  description       String?
+  isActive          Boolean            @default(true)
+  groupId           Int?
+  group             AccountGroup?      @relation(fields: [groupId], references: [id])
+  createdAt         DateTime           @default(now())
+  transactions      Transaction[]
+  budgets           Budget[]
+  pettyCashReceipts PettyCashReceipt[]
+  pettyCashExpenses PettyCashExpense[]
+}
+
+model Transaction {
+  id                  Int                     @id @default(autoincrement())
+  date                DateTime
+  description         String
+  amount              Decimal                 @db.Decimal(10, 2)
+  type                TransactionType
+  accountId           Int
+  account             Account                 @relation(fields: [accountId], references: [id])
+  familyId            Int?
+  family              Family?                 @relation(fields: [familyId], references: [id])
+  personId            Int?
+  person              Person?                 @relation(fields: [personId], references: [id])
+  isGiving            Boolean                 @default(false)
+  paymentAccountId    Int?
+  paymentAccountRel   PaymentAccount?         @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  reference           String?
+  bankRef             String?                 @unique
+  reconciled          Boolean                 @default(false)
+  notes               String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  receiptSends        ReceiptSend[]
+  attachments         TransactionAttachment[]
+  pettyCashReceiptId  Int?                    @unique
+  pettyCashReceipt    PettyCashReceipt?       @relation(fields: [pettyCashReceiptId], references: [id], onDelete: Cascade)
+  pettyCashExpenseId  Int?                    @unique
+  pettyCashExpense    PettyCashExpense?       @relation(fields: [pettyCashExpenseId], references: [id], onDelete: Cascade)
+  pettyCashTransferId Int?                    @unique
+  pettyCashTransfer   PettyCashTransfer?      @relation(fields: [pettyCashTransferId], references: [id], onDelete: Cascade)
+  fundId              Int?
+  fund                Fund?                   @relation(fields: [fundId], references: [id])
+
+  @@index([date])
+  @@index([accountId])
+  @@index([familyId])
+  @@index([personId])
+  @@index([type])
+  @@index([fundId])
+  @@index([paymentAccountId])
+  @@index([reconciled])
+  @@index([isGiving])
+  @@index([paymentAccountId, reconciled, date])
+  @@index([paymentAccountId, type, date])
+  @@index([isGiving, type, date])
+  // Family/person giving views filter (familyId|personId + isGiving) ORDER BY date desc.
+  // Singles only forced bitmap-AND of 2-3 indexes; composites give a usable prefix.
+  @@index([familyId, isGiving, date])
+  @@index([personId, isGiving, date])
+  // givingSummary groupBy familyId WHERE isGiving + date range; [isGiving,type,date] needs
+  // a `type` predicate it doesn't supply, so add a familyId-leading composite.
+  @@index([isGiving, familyId, date])
+}
+
+// Receipt/invoice image (or PDF) attached to a transaction — mirrors Xero's
+// "attach files". Stored as a DB BYTEA blob served via an auth-gated
+// route, reusing the EventImage storage pattern (no object-storage dependency /
+// secret to provision). uploadedBy is a required, delete-restricting FK, same
+// convention as DgrReceipt.createdBy / FamilyUpdateInvite.createdBy.
+model TransactionAttachment {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  filename      String
+  contentType   String
+  size          Int
+  data          Bytes
+  uploadedById  Int
+  uploadedBy    User        @relation("TransactionAttachmentUploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt    DateTime    @default(now())
+
+  @@index([transactionId])
+}
+
+model ReceiptSend {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  sentTo        String
+  sentAt        DateTime    @default(now())
+  sentById      Int
+  sentBy        User        @relation(fields: [sentById], references: [id])
+  status        String
+  errorMessage  String?
+
+  // FK + audit indexes. Postgres does not auto-index FK scalars: the
+  // per-send debounce check and every Transaction.receiptSends relation load
+  // filter by transactionId; the receipt-audit page filters + orders by sentAt.
+  @@index([transactionId])
+  @@index([sentAt])
+}
+
+model PaymentReminderSend {
+  id             Int          @id @default(autoincrement())
+  registrationId Int
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  sentTo         String // encrypt(email) — recipient email is PII (see ReceiptSend.sentTo)
+  sentAt         DateTime     @default(now())
+  sentById       Int
+  sentBy         User         @relation(fields: [sentById], references: [id])
+  status         String // "SUCCESS" | "FAILED"
+  errorMessage   String?
+
+  @@index([registrationId])
+  @@index([sentAt])
+}
+
+model Budget {
+  id        Int     @id @default(autoincrement())
+  year      Int
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id])
+  amount    Decimal @db.Decimal(10, 2)
+  // Optional explanation for a flagged budget-vs-actual variance.
+  // Editable by accounting admins on the budget-vs-actual report.
+  note      String?
+
+  @@unique([year, accountId])
+}
+
+// Atomic delivery reservation for the celebration sweep. Overlapping
+// invocations (cron+cron, or manual+cron) both used to read an in-memory
+// "already sent today" set before sending — a pure read-then-write race that
+// let both send. The unique key here is the reservation: the DB row insert
+// itself is the atomic decision point (caught P2002 = another invocation
+// already holds or resolved this slot), created BEFORE the email is sent so
+// the claim, not the send, is what's raced on. Also used by manual
+// celebration sends so cron + manual share one dedupe ledger.
+model CelebrationSend {
+  id        Int      @id @default(autoincrement())
+  personId  Int
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  action    String // "BIRTHDAY_EMAIL_SENT" | "ANNIVERSARY_EMAIL_SENT" — mirrors the AuditLog action
+  // Sydney calendar date (YYYY-MM-DD) the send is reserved for — matches how
+  // "today" is computed elsewhere in the sweep (sydneyTodayYMD), not a UTC day.
+  sendDate  String
+  // "PENDING" (claimed, send in flight) | "SENT" (delivered) | "FAILED"
+  // (send attempt errored — retryable: a later run may reclaim a FAILED slot) |
+  // "UNKNOWN" (terminal, non-retryable: the mail may already be out but
+  // the reservation can't be confirmed SENT, e.g. an ambiguous post-submission
+  // SMTP error or a delivery whose SENT write failed; never reclaimed).
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([personId, action, sendDate])
+  @@index([sendDate])
+}
+
+enum FamilyStatus {
+  ACTIVE
+  INACTIVE
+  VISITOR
+}
+
+enum FamilyRole {
+  HEAD
+  SPOUSE
+  CHILD
+  OTHER
+}
+
+enum Classification {
+  MEMBER
+  VISITOR
+  INACTIVE
+  STUDENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum InviteStatus {
+  SENT
+  SUBMITTED
+  REVOKED
+}
+
+enum SubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum UserRole {
+  ADMIN
+  PASTOR
+  VIEWER
+  AUDITOR
+  OFFICE_ADMIN
+  EVENT_ORGANISER
+}
+
+enum AccountType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum AccountKind {
+  BANK
+  CASH
+}
+
+model PaymentAccount {
+  id                  Int                       @id @default(autoincrement())
+  name                String                    @unique
+  kind                AccountKind
+  isDefault           Boolean                   @default(false)
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  transactions        Transaction[]
+  openingBalance      AccountOpeningBalance?
+  reconciliationStmts ReconciliationStatement[]
+}
+
+model Event {
+  id                    Int               @id @default(autoincrement())
+  title                 String
+  description           String?
+  category              String            @default("worship") // worship|youth|fellowship|education|parish|special — maps to website tag
+  kind                  String            @default("one_off") // one_off | recurring
+  date                  DateTime? // one-off only (null for recurring)
+  endDate               DateTime?
+  recurs                String? // recurring only: every-sunday|2nd-sunday|3rd-sunday|4th-sunday
+  recursLabel           String? // recurring only: display label e.g. "2nd Sun"
+  startTime             String? // recurring only: display time e.g. "5:00 PM"
+  location              String?
+  slug                  String            @unique
+  // Volunteer view: null = disabled. When set, a CSPRNG token that
+  // opens the read-only public status page /e/[slug]/crew/[token]. Regenerating
+  // mints a new value so a leaked link 404s. @unique so findUnique can resolve it.
+  volunteerToken        String?           @unique
+  isPublished           Boolean           @default(false)
+  registrationClosed    Boolean           @default(false)
+  registrationDeadline  DateTime?
+  bankBsb               String?
+  bankAccount           String?
+  onlinePaymentEnabled  Boolean           @default(false)
+  // When true AND onlinePaymentEnabled, the Stripe card fee is grossed-up onto
+  // the registrant's total (exact recovery). Ignored on the bank-transfer path.
+  passCardFee           Boolean           @default(false)
+  // Family fee waiver (per-event, opt-in). When enabled, once a single
+  // registration has more than `familyWaiverThreshold` attendees on ticket
+  // types flagged countsTowardWaiver, the extra attendees are free (cheapest
+  // counted units waived first). Excluded types (e.g. Visitor) always pay.
+  familyWaiverEnabled   Boolean           @default(false)
+  familyWaiverThreshold Int               @default(4)
+  // Tiered family pricing (per-event, opt-in). When enabled, the registration
+  // total is looked up by total attendee count in `familyPricingTiers` (an
+  // ordered dollar list; index 0 = price for 1 attendee). The list length is
+  // the hard max group size — registrations exceeding it are rejected.
+  // Mutually exclusive with the family fee waiver. Ignored when disabled.
+  tieredPricingEnabled  Boolean           @default(false)
+  familyPricingTiers    Json?
+  customQuestions       Json?
+  // Public-facing organiser contacts: array of { name, phone? }. Parsed/validated
+  // by src/lib/eventOrganizers.ts. Shown on the public event page (/e/[slug]).
+  organizers            Json?
+  imageUrl              String?
+  // Automated reminder. Opt-in: null = no reminder. N = email
+  // registrants N days before `date` (one-off events only). reminderSentAt is
+  // the durable once-per-event idempotency marker, set only AFTER delivery
+  // work completes (at least one send succeeded) — never before the send
+  // loop runs. reminderClaimedAt is a recoverable lease: set when a
+  // sweep begins claiming the event, cleared on success (alongside
+  // reminderSentAt) or on total-failure release. A crash/timeout mid-loop
+  // leaves reminderClaimedAt set but reminderSentAt still null, so a later
+  // sweep can reclaim it once the lease (REMINDER_LEASE_MS) goes stale —
+  // instead of the event being permanently marked sent with reminders
+  // undelivered.
+  reminderDaysBefore    Int?
+  reminderSentAt        DateTime?
+  reminderClaimedAt     DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  ticketTypes           TicketType[]
+  registrations         Registration[]
+  waitlist              Waitlist[]
+  images                EventImage[]
+  checkoutSessions      CheckoutSession[]
+  managers              EventManager[]
+}
+
+model EventManager {
+  id        Int      @id @default(autoincrement())
+  eventId   Int
+  userId    Int
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+enum EventImageKind {
+  BANNER
+  POSTER
+}
+
+enum CheckoutStatus {
+  OPEN
+  COMPLETED
+  EXPIRED
+  // Card charged but the registration could NOT be created (capacity gone,
+  // event deleted, or amount mismatch). Money is retained for manual ops
+  // resolution (no-refund policy) — this terminal state lets the success page
+  // tell the customer explicitly instead of showing "being finalised" forever
+  //.
+  UNFULFILLED
+}
+
+// Staging row for a pay-now (Stripe) event registration. No Registration row is
+// created until the webhook confirms payment (spec: "create only after payment");
+// the validated+priced payload lives here across the Stripe redirect. `payload`
+// is the encrypted PricedRegistration JSON — no plaintext PII at rest.
+model CheckoutSession {
+  id              Int            @id @default(autoincrement())
+  stripeSessionId String         @unique
+  eventId         Int
+  event           Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  status          CheckoutStatus @default(OPEN)
+  payload         String // encrypted PricedRegistration JSON
+  totalAmount     Decimal        @db.Decimal(10, 2)
+  // Card surcharge (integer cents) snapshotted at checkout so the webhook's
+  // amount-match compares against the exact amount charged — immune to a
+  // fee-rate or passCardFee change in the checkout→webhook window. 0 when the
+  // event does not pass the card fee.
+  surchargeCents  Int            @default(0)
+  publicToken     String? // set by webhook on success → lets the success page resolve the created Registration
+  expiresAt       DateTime
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+  // Set by the retention purge when `payload` has been scrubbed for an
+  // event past the same retention window as Registration.anonymizedAt.
+  // Idempotency marker — already-scrubbed rows are skipped.
+  anonymizedAt    DateTime?
+  // When set, this checkout pays an EXISTING PENDING Registration (the pay-now
+  // flow reached from the payment-reminder success page) rather than staging a
+  // new one. The webhook marks that registration PAID instead of persisting a
+  // fresh registration. `payload` is "" on this path (no PII to stage — the
+  // registration already holds it). SetNull so the DRAFT-event registration
+  // reset (EVENT_REGISTRATIONS_RESET hard-delete) never errors on this FK.
+  registrationId  Int?
+  registration    Registration?  @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([status, expiresAt])
+  @@index([registrationId])
+}
+
+model EventImage {
+  id        Int            @id @default(autoincrement())
+  eventId   Int
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kind      EventImageKind
+  data      Bytes
+  mimeType  String
+  createdAt DateTime       @default(now())
+
+  @@unique([eventId, kind])
+}
+
+model TicketType {
+  id                 Int                @id @default(autoincrement())
+  eventId            Int
+  event              Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name               String
+  price              Decimal            @db.Decimal(10, 2)
+  capacity           Int?
+  // Does this ticket type count toward (and receive) the family waiver?
+  // Unchecked for categories that must always pay full price (e.g. Visitor).
+  countsTowardWaiver Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  registrationItems  RegistrationItem[]
+  waitlist           Waitlist[]
+}
+
+model Waitlist {
+  id           Int        @id @default(autoincrement())
+  eventId      Int
+  event        Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypeId Int
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  name         String
+  email        String // encrypted at rest
+  emailHash    String? // blind index (HMAC) — dedupes joins without decrypt
+  notifiedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  // Set by the retention purge when this row's PII has been scrubbed —
+  // same policy/window as Registration.anonymizedAt. Idempotency marker.
+  anonymizedAt DateTime?
+
+  // One join per email per sold-out ticket type. emailHash is nullable so
+  // pre-existing rows (no hash) stay distinct under Postgres NULL semantics.
+  @@unique([eventId, ticketTypeId, emailHash])
+  @@index([eventId])
+}
+
+model Registration {
+  id               Int                   @id @default(autoincrement())
+  eventId          Int
+  event            Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  // Opaque CSPRNG ref shown on the public success page. The page looks up
+  // by this token, never the sequential id, so REG-1..N can't be enumerated.
+  // Non-null: every registration must carry a token; a nullable column
+  // lets Postgres store multiple NULLs under @unique, weakening the invariant.
+  publicToken      String                @unique
+  firstName        String
+  lastName         String
+  email            String
+  // Blind index of email so the person-export can find a member's registrations
+  // via an indexed lookup keyed on Person.emailHash, without scanning + decrypting
+  // the whole table. Set on registration create.
+  emailHash        String?
+  phone            String?
+  customAnswers    Json?
+  paymentStatus    PaymentStatus         @default(PENDING)
+  paymentRef       String?
+  totalAmount      Decimal               @db.Decimal(10, 2)
+  createdAt        DateTime              @default(now())
+  // Set by the retention purge when this row's PII has been scrubbed.
+  // Doubles as the idempotency marker — already-anonymised rows are skipped.
+  anonymizedAt     DateTime?
+  items            RegistrationItem[]
+  paymentReminders PaymentReminderSend[]
+  checkoutSessions CheckoutSession[]
+
+  @@index([emailHash])
+  // FK + per-event filter indexes. Postgres does not auto-index FK
+  // scalars; every per-event path filters by eventId, and CANCELLED-excluding
+  // capacity checks filter (eventId, paymentStatus).
+  @@index([eventId])
+  @@index([eventId, paymentStatus])
+  // settings page: findMany orderBy createdAt desc take 5 — index avoids full-table sort.
+  @@index([createdAt])
+}
+
+model RegistrationItem {
+  id             Int          @id @default(autoincrement())
+  registrationId Int
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  ticketTypeId   Int
+  ticketType     TicketType   @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  quantity       Int
+  unitPrice      Decimal      @db.Decimal(10, 2)
+  attendees      Attendee[]
+
+  // FK indexes. ticketTypeId is aggregated inside the Serializable
+  // register hot path; registrationId is the cascade/join key.
+  @@index([ticketTypeId])
+  @@index([registrationId])
+}
+
+model Attendee {
+  id                 Int              @id @default(autoincrement())
+  registrationItemId Int
+  registrationItem   RegistrationItem @relation(fields: [registrationItemId], references: [id], onDelete: Cascade)
+  name               String
+  answers            Json? // encrypt(JSON.stringify({questionId: answer})) — pattern
+  checkedInAt        DateTime? // , unused until PR2
+
+  @@index([registrationItemId])
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum PettyCashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum ReportType {
+  BUG
+  FEATURE
+  SUGGESTION
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DECLINED
+}
+
+enum CheckpointStatus {
+  WORKING
+  BROKEN
+}
+
+model ServiceType {
+  id        Int                @id @default(autoincrement())
+  name      String             @unique
+  isActive  Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  receipts  PettyCashReceipt[]
+}
+
+model PettyCashSession {
+  id              Int                    @id @default(autoincrement())
+  title           String
+  status          PettyCashSessionStatus @default(OPEN)
+  custodianId     Int
+  custodian       Person                 @relation(fields: [custodianId], references: [id])
+  openingBalance  Decimal                @db.Decimal(10, 2)
+  openedAt        DateTime               @default(now())
+  closedAt        DateTime?
+  notes           String?
+  countedCash     Decimal?               @db.Decimal(10, 2)
+  closingVariance Decimal?               @db.Decimal(10, 2)
+  receipts        PettyCashReceipt[]
+  expenses        PettyCashExpense[]
+  transfers       PettyCashTransfer[]
+
+  @@unique([title])
+  @@index([custodianId])
+  @@index([status])
+  @@index([openedAt])
+}
+
+model PettyCashReceipt {
+  id            Int              @id @default(autoincrement())
+  sessionId     Int
+  session       PettyCashSession @relation(fields: [sessionId], references: [id])
+  date          DateTime
+  serviceTypeId Int?
+  serviceType   ServiceType?     @relation(fields: [serviceTypeId], references: [id])
+  accountId     Int
+  account       Account          @relation(fields: [accountId], references: [id])
+  personId      Int?
+  person        Person?          @relation(fields: [personId], references: [id])
+  amount        Decimal          @db.Decimal(10, 2)
+  notes         String?
+  importKey     String?
+  createdAt     DateTime         @default(now())
+  transaction   Transaction?
+  fundId        Int?
+  fund          Fund?            @relation(fields: [fundId], references: [id])
+
+  // @unique (not just @@index) so a concurrent double-import can't both pass the
+  // app-side read dedup and double-count the mirrored ledger. Postgres
+  // treats NULLs as distinct, so legacy rows (null importKey) are unaffected.
+  @@unique([importKey])
+  // FK indexes — loaded per-session on the petty-cash detail page.
+  @@index([sessionId])
+  @@index([accountId])
+  @@index([fundId])
+  // pettyCashImport.ts filters by date range — same index Transaction
+  // already has for the equivalent bank-import date-range query.
+  @@index([date])
+}
+
+model PettyCashExpense {
+  id          Int              @id @default(autoincrement())
+  sessionId   Int
+  session     PettyCashSession @relation(fields: [sessionId], references: [id])
+  date        DateTime
+  payee       String
+  accountId   Int
+  account     Account          @relation(fields: [accountId], references: [id])
+  amount      Decimal          @db.Decimal(10, 2)
+  description String
+  receiptRef  String?
+  importKey   String?
+  createdAt   DateTime         @default(now())
+  transaction Transaction?
+  fundId      Int?
+  fund        Fund?            @relation(fields: [fundId], references: [id])
+
+  // @unique (not just @@index) so a concurrent double-import can't both pass the
+  // app-side read dedup and double-count the mirrored ledger. Postgres
+  // treats NULLs as distinct, so legacy rows (null importKey) are unaffected.
+  @@unique([importKey])
+  // FK indexes.
+  @@index([sessionId])
+  @@index([accountId])
+  @@index([fundId])
+  // pettyCashImport.ts filters by date range — same index Transaction
+  // already has for the equivalent bank-import date-range query.
+  @@index([date])
+}
+
+model PettyCashTransfer {
+  id              Int              @id @default(autoincrement())
+  sessionId       Int
+  // No onDelete: Cascade here (unlike Transaction.pettyCashTransfer) by design:
+  // deleteSession blocks while entries > 0, so a session carrying transfers can
+  // never be deleted — transfers must be removed first via deleteTransfer. No
+  // orphan path exists, so the cascade would never fire.
+  session         PettyCashSession @relation(fields: [sessionId], references: [id])
+  date            DateTime
+  amount          Decimal          @db.Decimal(10, 2)
+  retainedFloat   Decimal          @default(0) @db.Decimal(10, 2)
+  depositSlipRef  String?
+  depositedByName String
+  notes           String?
+  createdAt       DateTime         @default(now())
+  transaction     Transaction?
+
+  // FK index.
+  @@index([sessionId])
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+enum BrandingSlot {
+  LOGO
+  CREST
+  CREST_HEADER
+  ICON
+  LETTERHEAD
+}
+
+// Church branding assets uploaded by an admin, served via /api/branding/[slot].
+// Binary in-DB (single-tenant, low volume) so the public OSS image can ship
+// neutral placeholders while an instance's own DB carries its real branding.
+model BrandingAsset {
+  slot      BrandingSlot @id
+  bytes     Bytes
+  mimeType  String
+  width     Int?
+  height    Int?
+  updatedAt DateTime     @updatedAt
+}
+
+// Append-only. A DB trigger (`audit_log_no_mutate`, migration
+// 20260613000000_audit_log_append_only) blocks UPDATE/DELETE at the
+// database layer — Prisma does not model triggers, so it lives only in the
+// migration SQL. Insert via logAudit() only; never update/delete from app code.
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  // Nullable so background jobs (celebration/reminder crons) can write audit
+  // rows with no logged-in actor — a null userId reads as the "System" actor.
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action       String
+  resourceType String
+  resourceId   Int?
+  metadata     Json?
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([resourceType, resourceId])
+  // getFamilyLastUpdate filters resourceType+action then evaluates a metadata JSON path in
+  // memory; this narrows the row set before the JSON eval (no GIN on metadata).
+  @@index([resourceType, action, createdAt])
+  // users/page.tsx rolls up last-login per user: groupBy(userId) where action=USER_LOGIN,
+  // _max(createdAt). Composite lets Postgres skip-scan for the per-user max instead of
+  // aggregating the full ever-growing USER_LOGIN set.
+  @@index([action, userId, createdAt])
+}
+
+model AccountOpeningBalance {
+  id               Int            @id @default(autoincrement())
+  paymentAccountId Int            @unique
+  paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  amount           Decimal        @db.Decimal(10, 2)
+  asOfDate         DateTime
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model ReconciliationStatement {
+  id               Int            @id @default(autoincrement())
+  paymentAccountId Int
+  paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  statementDate    DateTime
+  closingBalance   Decimal        @db.Decimal(10, 2)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([paymentAccountId, statementDate])
+}
+
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
+model EmailTemplate {
+  key       String   @id // welcome | familyUpdate | receipt
+  subject   String
+  intro     String   @db.Text
+  body      String   @db.Text
+  signoff   String   @db.Text
+  updatedAt DateTime @updatedAt
+  updatedBy Int?
+}
+
+model DgrReceipt {
+  id           Int       @id @default(autoincrement())
+  receiptNo    String    @unique
+  fyEndYear    Int
+  seq          Int
+  personId     Int?
+  person       Person?   @relation(fields: [personId], references: [id])
+  donorName    String
+  donorEmail   String
+  lines        Json
+  totalAmount  Decimal   @db.Decimal(10, 2)
+  status       String    @default("DRAFT")
+  sentAt       DateTime?
+  sentById     Int?
+  sentBy       User?     @relation("DgrReceiptSentBy", fields: [sentById], references: [id])
+  createdAt    DateTime  @default(now())
+  createdById  Int
+  createdBy    User      @relation("DgrReceiptCreatedBy", fields: [createdById], references: [id])
+  errorMessage String?
+
+  @@unique([fyEndYear, seq])
+  // One DGR receipt per donor per FY is enforced only at the app level
+  // (findFirst guard in createDgrReceipt). The DB-level @@unique backstop
+  // was reverted: a donor can legitimately hold more than one DGR
+  // receipt in a financial year (e.g. per-donation receipts issued separately),
+  // and prod already carried such rows, so a hard unique index is the wrong
+  // invariant. receiptNo stays @unique, so true duplicates remain impossible.
+  @@index([personId])
+  @@index([fyEndYear])
+  @@index([createdAt])
+}
+
+enum MembershipStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model MembershipApplication {
+  id             Int              @id @default(autoincrement())
+  status         MembershipStatus @default(PENDING)
+  payload        Json // full form; AES-256-GCM encrypted JSON string stored in a Json column
+  signature      String // drawn signature PNG data-URL, encrypted at rest
+  applicantName  String // plaintext, review-list display only
+  email          String // applicant email, encrypted at rest
+  emailHash      String? // HMAC blind index of email → family match
+  mobile         String? // applicant mobile, encrypted at rest
+  mobileHash     String? // HMAC blind index of mobile → family match
+  placeSigned    String?
+  signedDate     DateTime?
+  monthlyDues    Decimal?         @db.Decimal(10, 2)
+  linkedFamilyId Int?
+  linkedFamily   Family?          @relation("MembershipFamily", fields: [linkedFamilyId], references: [id], onDelete: SetNull)
+  reviewedById   Int?
+  reviewedBy     User?            @relation("MembershipReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime         @default(now())
+  // Set by the retention purge when this row's PII (payload/signature/
+  // email/mobile) has been scrubbed for a reviewed application past the
+  // retention window. Idempotency marker.
+  anonymizedAt   DateTime?
+
+  @@index([status])
+  @@index([emailHash])
+  @@index([mobileHash])
+}
+
+// Captures logged/uncaught prod errors so the weekly error-issues cron can file
+// deduped GitHub issues. No PII, no stacktraces, no User relation — an
+// error may be unauthenticated and we never tie a failure to a person. Rows are
+// purged at 90 days by the cron.
+model ErrorLog {
+  id            Int      @id @default(autoincrement())
+  fingerprint   String // sha256(normalizedMessage | route)[:12] — dedupe key
+  errorType     String // err.name (onRequestError) or "LoggedError"
+  message       String // scrubbed + truncated (<=500). NO stack, NO PII.
+  route         String?
+  method        String?
+  correlationId String? // OTel traceId = App Insights operation id
+  createdAt     DateTime @default(now())
+
+  @@index([fingerprint, createdAt])
+  @@index([createdAt])
+}
+
+// Aggregate-only read counter ( Phase 3). One row per route per UTC day.
+// PRIVACY: NO userId, NO session, NO per-person path — only "route X had N views
+// on day D". A bare counter is not a browsing log. Purged at 90 days.
+model RouteViewDaily {
+  id    Int      @id @default(autoincrement())
+  route String
+  date  DateTime @db.Date
+  count Int      @default(0)
+
+  @@unique([route, date])
+  @@index([date])
+}

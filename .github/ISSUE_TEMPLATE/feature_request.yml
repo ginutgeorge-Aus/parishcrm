@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / need
+      description: What are you trying to do that the CRM doesn't support today?
+      placeholder: As a treasurer, I need to ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working. Rough is fine.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Families / People
+        - Events
+        - Accounting
+        - Petty cash
+        - Auth / users
+        - Receipts / email
+        - Reports
+        - Other
+    validations:
+      required: true

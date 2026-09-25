@@ -1,0 +1,26 @@
+# gitleaks config for the secret-scan workflow.
+# Extends the default ruleset, then allowlists known-safe NON-secrets so the
+# scan fails only on genuine leaks. Auto-loaded from the repo root by
+# `gitleaks detect`.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "CI/e2e test fixtures + planning docs — deliberate fake credentials, never real secrets"
+# Base64 + plaintext forms of the e2e test ENCRYPTION_KEYs and the placeholder
+# AUTH_SECRETs used in CI. These are fixtures, not live secrets.
+regexes = [
+  '''ZTJlLXRlc3QtZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=''',
+  '''dGVzdC1lMmUta2V5LTMyLWJ5dGVzLWxvbmctZW5vdWdoIQ==''',
+  '''e2e-test-encryption-key-32bytes!''',
+  '''ci-e2e-placeholder-secret-not-real''',
+  '''ci-placeholder-secret-for-build-only-not-real''',
+  # Env var NAMES in test cleanup lists (generic-api-key reads the next
+  # quoted string as a value).
+  '''^ENCRYPTION_KEY_V\d+$''',
+]
+# Planning docs may contain illustrative example keys, not live secrets.
+paths = [
+  '''docs/superpowers/plans/.*''',
+]

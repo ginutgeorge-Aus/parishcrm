@@ -1,0 +1,83 @@
+# Project-specific Semgrep rules.
+#
+# Community rulesets (p/typescript, p/react, p/owasp-top-ten) cover generic
+# web-vuln classes. These rules encode invariants unique to THIS codebase that
+# no off-the-shelf ruleset knows about.
+#
+# All rules are ERROR severity; the workflow runs with --error so a match fails CI.
+# Suppress a verified false positive inline with `// nosemgrep: <rule-id>` + reason.
+# The generated Prisma client (src/lib/generated/**) is excluded in the workflow.
+
+rules:
+  - id: crm-no-raw-sql
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Raw SQL is banned in this codebase — all DB access must go through the typed
+      Prisma client (prisma.X.findMany/create/update/...) from @/lib/prisma.
+      $queryRawUnsafe/$executeRawUnsafe allow SQL injection; even the tagged-template
+      $queryRaw/$executeRaw forms bypass the typed-access policy.
+    patterns:
+      - pattern-either:
+          - pattern: $P.$queryRawUnsafe(...)
+          - pattern: $P.$executeRawUnsafe(...)
+          - pattern: $P.$queryRaw(...)
+          - pattern: $P.$executeRaw(...)
+          - pattern: $P.$queryRaw`...`
+          - pattern: $P.$executeRaw`...`
+
+  - id: crm-xff-leftmost-spoofable
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      The leftmost x-forwarded-for entry is client-spoofable. Behind a trusted
+      reverse proxy, use the RIGHTMOST entry — `.split(",").at(-1)?.trim()` — which
+      the proxy appends and a client cannot forge. Using [0] lets attackers spoof
+      the IP used for rate-limiting and audit logs.
+    patterns:
+      - pattern-either:
+          - pattern: $H.get("x-forwarded-for")?.split(",")[0]
+          - pattern: $H.get("x-forwarded-for").split(",")[0]
+          - pattern: $H.get("x-forwarded-for")?.split(",")?.[0]
+
+  - id: crm-no-float-money
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Inline parseFloat()/Number() of a money field inside a Prisma write usually means
+      raw, unvalidated input (FormData / JSON) goes straight to a Decimal(10,2) column —
+      NaN, Infinity, >2 decimal places and out-of-range values slip through. Validate the
+      string first (MONEY_DECIMAL_RE / SIGNED_MONEY_DECIMAL_RE in src/lib/validation.ts), then
+      convert outside the write. A validated <=2dp value passed as number, string or
+      Prisma.Decimal is fine. Scoped to Prisma writes only
+      — Number() in audit-log metadata / JSON serialization is intentionally not flagged.
+    patterns:
+      - pattern-either:
+          - pattern: "$KEY: parseFloat(...)"
+          - pattern: "$KEY: Number(...)"
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: ^(amount|openingBalance|closingBalance|unitPrice|totalAmount|price|monthlyDues|countedCash|closingVariance|retainedFloat)$
+      - pattern-inside: $DB.$MODEL.$OP({...})
+      - metavariable-regex:
+          metavariable: $DB
+          regex: (prisma|tx)
+
+  - id: crm-session-userid-needs-parseint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      session.user.id is a STRING but User.id (and every userId FK) is an Int in Prisma.
+      Passing it raw into a Prisma id/userId field silently fails to match or throws.
+      Wrap it: parseInt(session.user.id).
+    patterns:
+      - pattern-either:
+          - pattern: "{..., id: $S.user.id, ...}"
+          - pattern: "{..., userId: $S.user.id, ...}"
+      - pattern-inside: $DB.$MODEL.$OP({...})
+      - metavariable-regex:
+          metavariable: $S
+          regex: (session|auth)
+      - metavariable-regex:
+          metavariable: $DB
+          regex: (prisma|tx)

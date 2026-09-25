@@ -1,0 +1,7 @@
+date,type,account,payee_or_donor,amount,notes
+2026-06-01,receipt,Sunday Collection,,250.00,Morning service plate
+2026-06-01,receipt,Donations,Sample Donor,100.00,Building fund
+07/06/2026,receipt,Sunday Collection,,180.50,Evening service plate
+2026-06-02,expense,Office Supplies,Office Supplier,45.90,Printer paper and toner
+2026-06-03,expense,Utilities,Energy Provider,132.75,Electricity bill May
+08/06/2026,expense,Maintenance,Hardware Store,67.40,Garden hose and cleaning supplies

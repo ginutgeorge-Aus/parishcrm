@@ -1,0 +1,72 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+.env.e2e
+.env.docker
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+/src/lib/generated/prisma/
+.superpowers/
+
+# tooling
+.codegraph/
+.truecourse/
+.claude/*
+!.claude/commands/
+!.claude/rules/
+.claude.local.md
+CLAUDE.original.md
+.agents/
+Bankstatements/
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/webserver-*.log
+.*-db-credentials
+
+# Private per-instance production runbook (real infra/PII) — never publish.
+# Tracked docs/{deployment,disaster-recovery,operations,environment}.md are the generic OSS versions.
+docs/private/
+.migrate.tmp.mjs
+.apptest.tmp.cjs
+.wtest.tmp.cjs
+.gstack/
+
+# Instance-specific one-off ops scripts — never ship in the public OSS repo
+scripts/private/
