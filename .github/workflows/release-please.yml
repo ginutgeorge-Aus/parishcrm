@@ -1,0 +1,45 @@
+name: Release
+
+# Keeps an open "chore(main): release x.y.z" PR that bumps package.json and
+# writes CHANGELOG.md from the conventional-commit PR titles merged since the
+# last release. Merging that PR tags vX.Y.Z, creates the GitHub release, and
+# publishes the container image.
+#
+# The release PR is opened by GITHUB_TOKEN, so CI does not auto-run on it —
+# close + reopen it (or push an empty commit to its branch) to trigger checks.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: ./.github/workflows/publish-image.yml # zizmor: ignore[self-repository]
+    with:
+      tag: ${{ needs.release.outputs.tag_name }}

@@ -44,3 +44,11 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # Dockerfile base images (node, etc.) — keeps the published image patched.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3

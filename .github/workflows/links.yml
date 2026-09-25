@@ -1,0 +1,46 @@
+name: Link check
+
+# Weekly broken-link check over the README, docs/ and the wiki. Opens (or
+# updates) one "Broken links" issue when something fails.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+          persist-credentials: false
+      - id: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress --max-concurrency 8 --accept 200,206,429
+            --exclude-path node_modules
+            --base-url https://github.com/${{ github.repository }}/wiki/
+            README.md 'docs/**/*.md' 'wiki/*.md'
+          output: lychee-report.md
+          fail: false
+      - name: Open or update issue
+        if: steps.lychee.outputs.exit_code != 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          n=$(gh issue list --state open --search 'in:title "Broken links"' --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file lychee-report.md
+          else gh issue create --title "Broken links" --body-file lychee-report.md; fi

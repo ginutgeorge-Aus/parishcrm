@@ -12,7 +12,7 @@
 
 - [ ] Tests pass (`npm test -- --no-coverage`) and lint is clean (`npm run lint`)
 - [ ] Types check (`npx tsc --noEmit`) for component/action changes
-- [ ] `CHANGELOG.md` updated under `[Unreleased]`
+- [ ] PR title follows Conventional Commits (`feat:`, `fix:`, …) — it becomes the CHANGELOG entry
 - [ ] Schema change? migration committed (`prisma migrate dev`) + client regenerated
 - [ ] Role checks enforced at **both** page and action for any new mutation
 - [ ] No secrets, member PII, or real credentials in the diff
