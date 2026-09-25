@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   release:
+    # Dispatch from any other ref would tag/publish off the wrong commit.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
