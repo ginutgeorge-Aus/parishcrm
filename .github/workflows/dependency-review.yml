@@ -32,10 +32,5 @@ jobs:
             AGPL-3.0-or-later
           # argparse (via js-yaml) is Python-2.0 — a dev/build-time JS port, OK
           # per-package; the licence itself stays off the general allowlist.
-          # mcp (Python-2.0), protobuf (LicenseRef-scancode-protobuf) and
-          # typing-extensions (PSF-2.0) come from the hash-locked Semgrep in
-          # .github/requirements — CI-only tooling, never shipped in the image.
-          allow-dependencies-licenses: >-
-            pkg:npm/argparse, pkg:pypi/mcp, pkg:pypi/protobuf,
-            pkg:pypi/typing-extensions
+          allow-dependencies-licenses: pkg:npm/argparse
           comment-summary-in-pr: on-failure
