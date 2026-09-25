@@ -7,16 +7,19 @@ set -euo pipefail
 range=$1 wiki=$2 title=${3:-}
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 
-# page<TAB>cited-path for every `src/…`, `prisma/…`, `scripts/…` the wiki cites.
+# page<TAB>cited-path for every `src/…`, `prisma/…`, `scripts/…` the wiki cites
+# (a `path::symbol` citation matches on the path).
 cites=$(grep -oE '`(src|prisma|scripts)/[^` ]+`' "$wiki"/*.md | tr -d '`' |
-  sed -E 's#^.*/([^/:]+)\.md:#\1\t#' | sort -u || true)
+  sed -E 's#^.*/([^/:]+)\.md:#\1\t#; s#::.*$##' | sort -u || true)
 
 page_for() { # prints pages citing $1 (exact path, or a cited directory prefix)
   awk -F'\t' -v f="$1" '$2 == f || (substr($2, length($2)) == "/" && index(f, $2) == 1) { print $1 }' <<<"$cites"
 }
 
-mapfile -t changed < <(git diff --name-only --diff-filter=AMR "$range" -- src prisma scripts)
-mapfile -t added < <(git diff --name-only --diff-filter=A "$range" -- src/app src/lib scripts |
+# --no-renames splits a rename into delete + add, so the old (now stale) path
+# is checked too; deleted files are included for the same reason.
+mapfile -t changed < <(git diff --name-only --no-renames --diff-filter=AMD "$range" -- src prisma scripts)
+mapfile -t added < <(git diff --name-only --no-renames --diff-filter=A "$range" -- src/app src/lib scripts |
   grep -vE '(__tests__|\.test\.|/generated/)' || true)
 
 declare -A hits=()
@@ -27,7 +30,9 @@ done
 uncovered=()
 for f in "${added[@]}"; do [ -z "$(page_for "$f")" ] && uncovered+=("$f"); done
 
-feats=$( { [ -n "$title" ] && echo "$title"; git log --format=%s "$range"; } |
+# A...B diffs from the merge base, but `git log A...B` is symmetric — log
+# A..B so only commits on the PR side count.
+feats=$( { [ -n "$title" ] && echo "$title"; git log --format=%s "${range/.../..}"; } |
   grep -E '^feat(\([^)]*\))?!?:' | sort -u || true)
 
 {

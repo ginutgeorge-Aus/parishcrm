@@ -30,8 +30,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
         run: |
-          if [[ "$HEAD_REF" == release-please--* ]]; then
+          # Release mode only for release-please's own branch, never a fork's.
+          if [[ "$HEAD_REF" == release-please--* && "$HEAD_REPO" == "$REPO" ]]; then
             tag=$(git describe --tags --abbrev=0 "$BASE_SHA" 2>/dev/null || git rev-list --max-parents=0 HEAD)
             .github/scripts/wiki-check.sh "$tag..$BASE_SHA" .wiki
           else
