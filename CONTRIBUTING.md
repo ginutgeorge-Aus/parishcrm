@@ -39,6 +39,17 @@ npm test -- --no-coverage    # unit tests (Jest)
 npm run build                # production build
 ```
 
+### Keeping the wiki current
+
+The [wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki) is maintained by hand — each page
+cites the source files it describes. The **Wiki check** job on every PR lists the pages that cite
+files you changed; review them. A `feat:` PR must add or extend a wiki page explaining what the
+feature does, who can use it (roles) and any configuration. On the release PR the same job covers
+everything since the last tag — clear it before merging a release. The release PR is opened
+with `GITHUB_TOKEN`, which doesn't trigger CI, so close and reopen it (or push an empty commit) to
+get the Wiki check run. The wiki is a separate repo:
+`git clone https://github.com/ginutgeorge-Aus/parishcrm.wiki.git`.
+
 ### Commit messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`
