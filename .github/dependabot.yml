@@ -9,6 +9,9 @@ updates:
     # malicious package versions are caught and yanked within days).
     cooldown:
       default-days: 7
+    # Conventional-Commit title so the PR-title check + release-please accept it.
+    commit-message:
+      prefix: "deps"
     open-pull-requests-limit: 5
     ignore:
       # @types/node major tracks the Node major; engines.node is 24, so v25+ types
@@ -47,6 +50,9 @@ updates:
     # malicious package versions are caught and yanked within days).
     cooldown:
       default-days: 7
+    # Conventional-Commit title so the PR-title check + release-please accept it.
+    commit-message:
+      prefix: "ci"
     open-pull-requests-limit: 5
     groups:
       actions:
@@ -63,4 +69,7 @@ updates:
     # malicious package versions are caught and yanked within days).
     cooldown:
       default-days: 7
+    # Conventional-Commit title so the PR-title check + release-please accept it.
+    commit-message:
+      prefix: "deps"
     open-pull-requests-limit: 3
