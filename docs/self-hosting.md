@@ -49,6 +49,16 @@ USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
 
 Repeat `npx prisma migrate deploy` (from the new tag) before every upgrade.
 
+Accounting starts empty. Optionally add a generic starter chart of accounts
+(income/expense groups and categories) plus a "Main Bank Account" and
+"Petty Cash" payment account — it creates no users, and each part is skipped
+if that table already has rows. Preview first, then apply:
+
+```bash
+npx tsx --env-file=.env scripts/seed-starter-accounts.ts               # dry run
+npx tsx --env-file=.env scripts/seed-starter-accounts.ts --apply --yes
+```
+
 Don't use `npm run db:push` or `npm run db:seed` here — they're for local
 development. `db push` records no migration history, so later
 `migrate deploy` upgrades would fail. The seed creates demo users whose
@@ -79,6 +89,9 @@ Sign in as the admin you created, then:
 - **Settings** — church details, branding (logo, letterhead), letters,
   membership, email templates, receipts
 - **Accounting → Settings** — bank/cash accounts, opening balances, period lock
+- **Accounting → Categories** — if you skipped the starter script, create a
+  group (**Manage Groups**) and a category, and a payment account under
+  **Acct. Settings → Payment Accounts**, before recording the first transaction
 
 ## Scheduled jobs (optional)
 
