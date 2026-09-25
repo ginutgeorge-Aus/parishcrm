@@ -73,6 +73,13 @@ jobs:
           if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qxF "$f.sigstore.json"; then
             echo "$TAG already signed"; exit 0
           fi
-          git archive --format=tar.gz --prefix="parishcrm-${TAG}/" -o "$f" HEAD
+          # Never --clobber: after a partial upload, sign the published archive.
+          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qxF "$f"; then
+            gh release download "$TAG" -p "$f"
+            upload=("$f.sigstore.json")
+          else
+            git archive --format=tar.gz --prefix="parishcrm-${TAG}/" -o "$f" HEAD
+            upload=("$f" "$f.sigstore.json")
+          fi
           cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
-          gh release upload "$TAG" "$f" "$f.sigstore.json" --clobber
+          gh release upload "$TAG" "${upload[@]}"
