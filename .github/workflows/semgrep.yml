@@ -26,7 +26,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - run: pip install semgrep==1.178.0
+      # Hash-locked (Scorecard Pinned-Dependencies). Regenerate after editing semgrep.in:
+      #   uv pip compile --python-version 3.13 --python-platform x86_64-manylinux_2_28 \
+      #     --generate-hashes --no-header .github/requirements/semgrep.in -o .github/requirements/semgrep.txt
+      - run: pip install --require-hashes -r .github/requirements/semgrep.txt
       - name: Scan
         run: >-
           semgrep scan --metrics=off --error

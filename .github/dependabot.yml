@@ -73,3 +73,19 @@ updates:
     commit-message:
       prefix: "deps"
     open-pull-requests-limit: 3
+
+  # Hash-locked Semgrep used by .github/workflows/semgrep.yml.
+  - package-ecosystem: "pip"
+    directory: "/.github/requirements"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 2
+    groups:
+      semgrep:
+        patterns:
+          - "*"

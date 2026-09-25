@@ -19,7 +19,7 @@ expected to keep their deployment reasonably up to date.
 **Do not open a public GitHub issue for security vulnerabilities.**
 
 Report privately using **GitHub's private vulnerability reporting** — the
-[**Security → Report a vulnerability**](../../security/advisories/new) tab on this repository.
+[**Security → Report a vulnerability**](https://github.com/ginutgeorge-Aus/parishcrm/security/advisories/new) tab on this repository.
 
 Include:
 - A description of the vulnerability
