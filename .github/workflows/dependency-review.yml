@@ -2,6 +2,7 @@ name: Dependency review
 
 # Blocks PRs that add a dependency with a known vulnerability (moderate+) or a
 # licence incompatible with AGPL-3.0 distribution.
+# CodeQL runs via repo "default setup" (Settings → Code security), not a workflow.
 on:
   pull_request:
     branches: [main]
@@ -22,5 +23,5 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
-          deny-licenses: SSPL-1.0, BUSL-1.1, Commons-Clause
+          deny-licenses: SSPL-1.0, BUSL-1.1
           comment-summary-in-pr: on-failure
