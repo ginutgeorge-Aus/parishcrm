@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability (private)
-    url: https://github.com/ginutgeorge-aus/parishcrm/security/policy
+    url: https://github.com/ginutgeorge-Aus/parishcrm/security/policy
     about: Do NOT file security issues publicly. Report privately per SECURITY.md.
+  - name: Documentation wiki
+    url: https://github.com/ginutgeorge-Aus/parishcrm/wiki
+    about: How every feature works and how to configure it.

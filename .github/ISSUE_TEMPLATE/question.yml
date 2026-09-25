@@ -1,0 +1,23 @@
+name: Question
+description: Ask how to set up, configure or use ParishCRM
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki) and
+        [self-hosting guide](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/self-hosting.md) first.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and what have you tried?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ParishCRM version
+      placeholder: v1.0.0
+    validations:
+      required: false

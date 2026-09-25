@@ -1,0 +1,26 @@
+name: Documentation
+description: Something in the README, docs/ or wiki is wrong, missing or unclear
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Page or file
+      description: Link to the wiki page, or path to the file.
+      placeholder: docs/self-hosting.md or https://github.com/ginutgeorge-Aus/parishcrm/wiki/...
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+      placeholder: Step 3 says X, but the app actually does Y.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Proposed wording or what you expected to find. Optional.
+    validations:
+      required: false
