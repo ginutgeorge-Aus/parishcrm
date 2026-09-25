@@ -14,6 +14,6 @@ export function getStripe(): Stripe {
   if (!key) throw new Error("Stripe not configured")
   // Pin the API version so a Stripe account-default drift can't change the
   // webhook payload shape. Value = the installed SDK's bundled version.
-  if (!_stripe) _stripe = new Stripe(key, { apiVersion: "2026-06-24.dahlia" })
+  if (!_stripe) _stripe = new Stripe(key, { apiVersion: "2026-08-26.dahlia" })
   return _stripe
 }
