@@ -14,6 +14,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.1.0",
+    date: "2026-09-25",
+    highlights: [
+      "New installs can add an optional starter chart of accounts (common income and expense categories plus bank and petty-cash accounts) instead of setting up accounting from scratch.",
+      "Pop-up dialogs and menus no longer trigger browser security warnings when they open.",
+    ],
+  },
+  {
     version: "v1.50.1",
     date: "2026-09-25",
     highlights: [
