@@ -10,6 +10,32 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.1.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.0.0...v1.1.0) (2026-09-25)
+
+
+### Added
+
+* **scripts:** add opt-in starter chart of accounts ([#30](https://github.com/ginutgeorge-Aus/parishcrm/issues/30)) ([ee0af6b](https://github.com/ginutgeorge-Aus/parishcrm/commit/ee0af6b7cb78d90898a56e56ec2a199a06977c6f))
+
+
+### Fixed
+
+* **csp:** nonce Radix scroll-lock style tag ([#29](https://github.com/ginutgeorge-Aus/parishcrm/issues/29)) ([0c441b0](https://github.com/ginutgeorge-Aus/parishcrm/commit/0c441b0206138a2abe4a9dcc82653ed018cc304f)), closes [#7](https://github.com/ginutgeorge-Aus/parishcrm/issues/7)
+
+
+### Dependencies
+
+* bump @playwright/test from 1.61.1 to 1.63.0 ([#23](https://github.com/ginutgeorge-Aus/parishcrm/issues/23)) ([1e9ac39](https://github.com/ginutgeorge-Aus/parishcrm/commit/1e9ac39918a58e376d741f342411a52f1f63c90d))
+* Bump @testing-library/jest-dom from 7.0.0 to 7.0.1 ([#13](https://github.com/ginutgeorge-Aus/parishcrm/issues/13)) ([dcee12b](https://github.com/ginutgeorge-Aus/parishcrm/commit/dcee12bea0d135fac47886ccfe7bae900985e2ad))
+* Bump @testing-library/user-event from 14.6.1 to 14.6.7 ([#2](https://github.com/ginutgeorge-Aus/parishcrm/issues/2)) ([4c0a2f8](https://github.com/ginutgeorge-Aus/parishcrm/commit/4c0a2f8ecccdb776da0684deba40dbef40f9934a))
+* bump @types/nodemailer from 8.0.1 to 8.0.2 ([#21](https://github.com/ginutgeorge-Aus/parishcrm/issues/21)) ([d0cbbdc](https://github.com/ginutgeorge-Aus/parishcrm/commit/d0cbbdc82fa1affa1f16751a8b1e92414d3fc440))
+* bump @types/pg from 8.21.0 to 8.23.1 ([#24](https://github.com/ginutgeorge-Aus/parishcrm/issues/24)) ([d825a91](https://github.com/ginutgeorge-Aus/parishcrm/commit/d825a91572dfcec7d646f402f4b3b1085e4ab089))
+* Bump jest-environment-jsdom from 30.4.1 to 30.5.1 ([#12](https://github.com/ginutgeorge-Aus/parishcrm/issues/12)) ([fe12969](https://github.com/ginutgeorge-Aus/parishcrm/commit/fe12969e8587afc2e7a4b6f79058724baeda5fde))
+* bump node from `a0b9bf0` to `ebfe2f9` ([#20](https://github.com/ginutgeorge-Aus/parishcrm/issues/20)) ([b588d8e](https://github.com/ginutgeorge-Aus/parishcrm/commit/b588d8e72c28b7908358c5fbf5ce1d1a7e2d3cc9))
+* Bump nodemailer from 9.1.1 to 10.0.10 ([#1](https://github.com/ginutgeorge-Aus/parishcrm/issues/1)) ([de76fd8](https://github.com/ginutgeorge-Aus/parishcrm/commit/de76fd8db0ca621919e0297d098765f2e2698481))
+* bump stripe from 22.3.2 to 22.6.2 ([#25](https://github.com/ginutgeorge-Aus/parishcrm/issues/25)) ([ef25b64](https://github.com/ginutgeorge-Aus/parishcrm/commit/ef25b64fd55d6c66073b9289ced3577bba02e2fc))
+* Bump tsx from 4.23.12 to 4.23.13 ([#14](https://github.com/ginutgeorge-Aus/parishcrm/issues/14)) ([cf2832b](https://github.com/ginutgeorge-Aus/parishcrm/commit/cf2832b5fc01cde2c9e8084606f3a46eedc51579))
+
 ## 1.0.0 (2026-09-25)
 
 Initial public release.
