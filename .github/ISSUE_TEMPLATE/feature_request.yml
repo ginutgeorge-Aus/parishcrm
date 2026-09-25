@@ -23,12 +23,15 @@ body:
       label: Area
       options:
         - Families / People
-        - Events
+        - Membership
+        - Events / Ticketing
         - Accounting
         - Petty cash
-        - Auth / users
         - Receipts / email
         - Reports
+        - Auth / users
+        - Settings / configuration
+        - Install / upgrade / deployment
         - Other
     validations:
       required: true
