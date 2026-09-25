@@ -1,21 +1,23 @@
 name: Release
 
-# Keeps an open "chore(main): release x.y.z" PR that bumps package.json and
-# writes CHANGELOG.md from the conventional-commit PR titles merged since the
-# last release. Merging that PR tags vX.Y.Z, creates the GitHub release, and
-# publishes the container image.
+# Manual only — nothing releases on merge. Run from Actions → Release → Run workflow:
+#   1st run: opens/updates the "chore(main): release x.y.z" PR (package.json bump +
+#            CHANGELOG.md from conventional-commit PR titles since the last release).
+#   Merge that PR when ready.
+#   2nd run: tags vX.Y.Z, creates the GitHub release, and publishes the container image.
 #
 # The release PR is opened by GITHUB_TOKEN, so CI does not auto-run on it —
 # close + reopen it (or push an empty commit to its branch) to trigger checks.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   release:
+    # Dispatch from any other ref would tag/publish off the wrong commit.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
