@@ -5,6 +5,8 @@ event ticketing, petty cash, membership, and receipts, in one app your church ru
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
+📖 **[Documentation wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki)** — every feature in detail: how to use it, how it works, and how to configure it.
+
 > **Single-tenant by design.** One deployment per church, driven by settings a church
 > types in — not a multi-tenant SaaS. Your data stays on your server, encrypted at rest.
 
@@ -140,6 +142,8 @@ docs/                   topic docs + specs/plans
 - **Membership** — public application form, approval workflow, letters/receipts.
 - **Family self-update** — secure tokenised links let families review and update their own details.
 - **Ops** — in-app bug/feature reporting, "What's New" changelog, audit log, admin-customisable email templates.
+
+Full per-feature guides (usage by role, internals, configuration) live in the **[wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki)**.
 
 ## Architecture
 
