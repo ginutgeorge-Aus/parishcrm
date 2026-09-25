@@ -322,7 +322,7 @@ export function BankReviewTable({
                         }
                       >
                         <SelectTrigger
-                          className="w-full border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
+                          className="w-full border-warning/40 bg-warning/10 text-warning"
                           aria-label="Set transaction direction"
                           aria-invalid
                         >
@@ -613,7 +613,7 @@ export function BankReviewTable({
                     }
                   >
                     <SelectTrigger
-                      className="w-full border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
+                      className="w-full border-warning/40 bg-warning/10 text-warning"
                       aria-label="Set transaction direction"
                       aria-invalid
                     >

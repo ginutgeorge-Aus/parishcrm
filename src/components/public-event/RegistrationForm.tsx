@@ -189,7 +189,7 @@ export function RegistrationForm(props: RegistrationFormProps) {
           </span>
         </div>
         {submitBlockers.length > 0 && (
-          <div id="reg-blockers" role="status" aria-live="polite" className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
+          <div id="reg-blockers" role="status" aria-live="polite" className="mb-3 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
             <p className="font-medium mb-1">Before you can reserve:</p>
             <ul className="list-disc pl-4 space-y-0.5">
               {submitBlockers.map(b => <li key={b}>{b}</li>)}

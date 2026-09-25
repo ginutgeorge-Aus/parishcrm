@@ -168,6 +168,7 @@ export function SignaturePad({
         aria-label={canvasLabel}
         aria-describedby={describedBy}
         tabIndex={mode === "draw" ? 0 : -1}
+        // eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: canvas ink is dark, must stay white in dark mode
         className="w-full max-w-[480px] touch-none rounded border border-input bg-white"
         onPointerDown={mode === "draw" ? start : undefined}
         onPointerMove={mode === "draw" ? drawMove : undefined}
