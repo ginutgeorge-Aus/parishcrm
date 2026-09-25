@@ -52,9 +52,10 @@ Repeat `npx prisma migrate deploy` (from the new tag) before every upgrade.
 Accounting starts empty. Optionally add a generic starter chart of accounts
 (income/expense groups and categories) plus a "Main Bank Account" and
 "Petty Cash" payment account — it creates no users, and each part is skipped
-if that table already has rows. Run without `--apply --yes` first to preview:
+if that table already has rows. Preview first, then apply:
 
 ```bash
+npx tsx --env-file=.env scripts/seed-starter-accounts.ts               # dry run
 npx tsx --env-file=.env scripts/seed-starter-accounts.ts --apply --yes
 ```
 

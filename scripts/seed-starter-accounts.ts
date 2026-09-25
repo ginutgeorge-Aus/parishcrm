@@ -24,8 +24,10 @@ const prisma = new PrismaClient({ adapter })
 
 type Kind = "INCOME" | "EXPENSE"
 
+// 4001 must stay the subscription account: the dues report resolves
+// subscription income by that code (accounting/dues/page.tsx).
 const CHART: { group: string; type: Kind; accounts: [code: string, name: string][] }[] = [
-  { group: "Regular Giving", type: "INCOME", accounts: [["4001", "Offertory"], ["4002", "Tithes"], ["4003", "Membership Subscriptions"]] },
+  { group: "Regular Giving", type: "INCOME", accounts: [["4001", "Membership Subscriptions"], ["4002", "Offertory"], ["4003", "Tithes"]] },
   { group: "Donations", type: "INCOME", accounts: [["4004", "General Donations"], ["4005", "Charity Appeals"]] },
   { group: "Events & Programs", type: "INCOME", accounts: [["4006", "Event Income"], ["4007", "Sunday School"]] },
   { group: "Other Income", type: "INCOME", accounts: [["4008", "Interest"], ["4009", "Miscellaneous Income"]] },
