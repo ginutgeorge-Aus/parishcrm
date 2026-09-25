@@ -50,6 +50,12 @@ with `GITHUB_TOKEN`, which doesn't trigger CI, so close and reopen it (or push a
 get the Wiki check run. The wiki is a separate repo:
 `git clone https://github.com/ginutgeorge-Aus/parishcrm.wiki.git`.
 
+### Releasing
+
+Releases are manual — merging PRs never releases. Run **Actions → Release → Run workflow** to
+open or update the `chore(main): release x.y.z` PR, merge it when ready, then run the workflow
+again to tag `vX.Y.Z`, create the GitHub release and publish the container image.
+
 ### Commit messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`
