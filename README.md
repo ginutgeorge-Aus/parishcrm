@@ -5,6 +5,7 @@ event ticketing, petty cash, membership, and receipts, in one app your church ru
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![CI](https://github.com/ginutgeorge-Aus/parishcrm/actions/workflows/ci.yml/badge.svg)](https://github.com/ginutgeorge-Aus/parishcrm/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ginutgeorge-Aus/parishcrm/graph/badge.svg)](https://codecov.io/gh/ginutgeorge-Aus/parishcrm)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ginutgeorge-Aus/parishcrm/badge)](https://scorecard.dev/viewer/?uri=github.com/ginutgeorge-Aus/parishcrm)
 
 📖 **[Documentation wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki)** — every feature in detail: how to use it, how it works, and how to configure it.

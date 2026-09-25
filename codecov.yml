@@ -1,0 +1,14 @@
+# Codecov PR checks. The hard floor lives in jest.config.ts coverageThreshold;
+# these only stop a PR from lowering coverage relative to main.
+coverage:
+  status:
+    project:
+      default:
+        target: auto # compare against the base commit
+        threshold: 1% # tolerate small noise from refactors
+    patch:
+      default:
+        informational: true # report new-code coverage, never block on it
+comment:
+  layout: "condensed_header, diff, flags, files"
+  require_changes: true # skip the comment when coverage is unchanged
