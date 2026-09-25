@@ -887,6 +887,15 @@ describe("authorizeCredentials — enumeration timing defence", () => {
     expect(compare).toHaveBeenCalledWith("whatever123", expect.stringMatching(/^\$2[aby]\$12\$/))
   })
 
+  it("generates the dummy hash once and reuses it across unknown-email logins", async () => {
+    const { compare } = await import("bcryptjs") as unknown as { compare: jest.Mock }
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
+    await authorizeCredentials({ email: "a@example.com", password: "whatever123" })
+    await authorizeCredentials({ email: "b@example.com", password: "whatever123" })
+    expect(compare).toHaveBeenCalledTimes(2)
+    expect(compare.mock.calls[0][1]).toBe(compare.mock.calls[1][1])
+  })
+
   it("does not run the dummy compare on the known-email path", async () => {
     const { compare } = await import("bcryptjs") as unknown as { compare: jest.Mock }
     const passwordHash = await hash("correctpassword", 10)
