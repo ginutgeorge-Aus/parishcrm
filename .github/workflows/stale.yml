@@ -1,0 +1,34 @@
+name: Stale
+
+# Nudge, then close, issues/PRs with no activity. Anything labelled
+# pinned / security / help wanted is never touched.
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # stale persists its _state cache between runs
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-stale: 60
+          days-before-close: 14
+          exempt-issue-labels: pinned,security,help wanted
+          exempt-pr-labels: pinned,security,help wanted
+          exempt-all-milestones: true
+          stale-issue-message: >-
+            This issue has had no activity for 60 days. It will be closed in 14 days
+            unless there is new activity — comment if it is still relevant.
+          stale-pr-message: >-
+            This PR has had no activity for 60 days. It will be closed in 14 days
+            unless there is new activity.
+          close-issue-reason: not_planned
