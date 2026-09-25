@@ -69,6 +69,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           f="parishcrm-${TAG}.tar.gz"
+          # Re-run of a finished job: keep the published, already-signed assets.
+          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qxF "$f.sigstore.json"; then
+            echo "$TAG already signed"; exit 0
+          fi
           git archive --format=tar.gz --prefix="parishcrm-${TAG}/" -o "$f" HEAD
           cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           gh release upload "$TAG" "$f" "$f.sigstore.json" --clobber
