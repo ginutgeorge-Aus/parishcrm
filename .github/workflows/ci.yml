@@ -19,6 +19,9 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Codecov OIDC upload, no stored token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +40,13 @@ jobs:
       # runs at boot only).
       - run: npm run build
       - run: npm test -- --coverage
+      # Fork PRs get no OIDC token, so the upload fails there; non-fatal.
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: coverage/lcov.info
+          disable_search: true
+          fail_ci_if_error: false
 
   # Self-hosters install from prisma/migrations. Prove the migrations build the
   # exact schema.prisma database: apply them to an empty Postgres, then diff the
