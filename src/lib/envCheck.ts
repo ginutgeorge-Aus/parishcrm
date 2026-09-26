@@ -20,6 +20,120 @@ function isLoopbackAuthUrl(url: string | undefined): boolean {
   }
 }
 
+// Either name works at runtime (otp.ts and website-sync.ts carry the same
+// fallback), so a half-renamed env boots; finish the rename via.
+//
+// Both names accepted via fallback (otp.ts, website-sync.ts), but if both are
+// set to *different* values they silently disagree — OTP HMAC reads one,
+// NextAuth JWT signing the other — so OTPs/sessions break unpredictably during
+// a half-finished rename. Fail boot rather than diverge (AUDIT-010).
+function checkAuthSecret(): string[] {
+  const errors: string[] = []
+  if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
+    errors.push("AUTH_SECRET is not set")
+  }
+  if (
+    process.env.AUTH_SECRET &&
+    process.env.NEXTAUTH_SECRET &&
+    process.env.AUTH_SECRET !== process.env.NEXTAUTH_SECRET
+  ) {
+    errors.push("AUTH_SECRET and NEXTAUTH_SECRET are both set but differ — they must be identical")
+  }
+  return errors
+}
+
+// currentKeyId() loads the full keyring: throws when no key is set, the
+// current key id has no key, or any key is not 32 bytes.
+function checkCryptoKeyring(): string[] {
+  try {
+    currentKeyId()
+    return []
+  } catch (e) {
+    return [e instanceof Error ? e.message : String(e)]
+  }
+}
+
+// DISABLE_OTP silently removes the second factor — dev/e2e only.
+// Playwright must exercise the real production build (`next start` forces
+// NODE_ENV=production), so playwright.config.ts webServer env sets the
+// explicit override below. Never set E2E_ALLOW_TEST_OVERRIDES on a real
+// deployment — it exists solely for the e2e suite.
+function checkDisableOtp(): string[] {
+  if (
+    process.env.DISABLE_OTP === "true" &&
+    process.env.NODE_ENV === "production" &&
+    process.env.E2E_ALLOW_TEST_OVERRIDES !== "true"
+  ) {
+    return ["DISABLE_OTP=true is not allowed in production"]
+  }
+  return []
+}
+
+// E2E_MOCK_EMAIL swaps the SMTP transport for an in-memory stub that console.logs
+// recipients — must never run in production (AUDIT-005). Exempted for the
+// e2e suite the same way DISABLE_OTP is: the suite runs a production build but
+// sets E2E_ALLOW_TEST_OVERRIDES.
+function checkMockEmail(): string[] {
+  if (
+    process.env.E2E_MOCK_EMAIL === "true" &&
+    process.env.NODE_ENV === "production" &&
+    process.env.E2E_ALLOW_TEST_OVERRIDES !== "true"
+  ) {
+    return ["E2E_MOCK_EMAIL=true is not allowed in production"]
+  }
+  return []
+}
+
+// E2E_ALLOW_TEST_OVERRIDES is the single flag that unlocks FOUR security
+// controls — DISABLE_OTP + per-IP login throttle (src/auth.ts), the
+// auth.config.ts opt-out, and the trustedDevice.ts prod-guard bypass — yet the
+// e2e suite runs a genuine production build (`next start` → NODE_ENV=production),
+// so the flag alone cannot separate e2e from real prod. Fail-CLOSED: allow it
+// ONLY when AUTH_URL is loopback (the e2e/local signal); any other host —
+// including a custom, migrated, or misconfigured prod domain — hard-fails boot
+//.
+function checkE2EOverridesAllowed(): string[] {
+  if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true" && !isLoopbackAuthUrl(process.env.AUTH_URL)) {
+    return [
+      "E2E_ALLOW_TEST_OVERRIDES=true is not allowed unless AUTH_URL is loopback (e2e/local only) — it disables OTP, the login throttle, and trusted-device guards, so it must never run on a real deployment",
+    ]
+  }
+  return []
+}
+
+// OTP emails are login-critical, so Gmail creds are required unless OTP is
+// explicitly disabled (dev/e2e only — never production).
+function checkGmailCreds(): string[] {
+  if (process.env.DISABLE_OTP === "true") return []
+  const errors: string[] = []
+  if (!process.env.GMAIL_USER) errors.push("GMAIL_USER is not set (required while OTP is enabled)")
+  if (!process.env.GMAIL_APP_PASSWORD) errors.push("GMAIL_APP_PASSWORD is not set (required while OTP is enabled)")
+  return errors
+}
+
+// Event→website sync: if the URL is configured the HMAC secret must be too,
+// else website-sync.ts silently no-ops and the church website stops getting
+// event updates with no alert. Unset URL = sync disabled = fine.
+function checkWebsiteSync(): string[] {
+  if (process.env.WEBSITE_SYNC_URL && !process.env.WEBSITE_SYNC_SECRET) {
+    return ["WEBSITE_SYNC_SECRET is not set but WEBSITE_SYNC_URL is — event sync would silently no-op"]
+  }
+  return []
+}
+
+// Regional config (APP_FY_START_MONTH / APP_TIMEZONE / APP_LOCALE /
+// APP_CURRENCY). Importing appConfig runs its module-load validation, which
+// throws on a bad value — surface that as a boot error rather than a silent
+// mis-format. Unset values default to the AU config and never throw.
+function checkAppConfig(): string[] {
+  try {
+    require("@/lib/appConfig")
+    return []
+  } catch (e) {
+    return [e instanceof Error ? e.message : String(e)]
+  }
+}
+
 // Boot-time env validation. A missing/invalid required var must crash
 // the container at startup — a revision-based host then keeps the previous
 // revision serving (free rollback) instead of shipping a silently broken
@@ -29,25 +143,7 @@ function isLoopbackAuthUrl(url: string | undefined): boolean {
 // Called from instrumentation.ts register() — server boot only, never during
 // `next build` (no env in the Docker build stage; same trap as/).
 export function collectEnvErrors(): string[] {
-  const errors: string[] = []
-
-  // Either name works at runtime (otp.ts and website-sync.ts carry the same
-  // fallback), so a half-renamed env boots; finish the rename via.
-  if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
-    errors.push("AUTH_SECRET is not set")
-  }
-
-  // Both names accepted via fallback (otp.ts, website-sync.ts), but if both are
-  // set to *different* values they silently disagree — OTP HMAC reads one,
-  // NextAuth JWT signing the other — so OTPs/sessions break unpredictably during
-  // a half-finished rename. Fail boot rather than diverge (AUDIT-010).
-  if (
-    process.env.AUTH_SECRET &&
-    process.env.NEXTAUTH_SECRET &&
-    process.env.AUTH_SECRET !== process.env.NEXTAUTH_SECRET
-  ) {
-    errors.push("AUTH_SECRET and NEXTAUTH_SECRET are both set but differ — they must be identical")
-  }
+  const errors: string[] = [...checkAuthSecret()]
 
   if (!process.env.DATABASE_URL) {
     errors.push("DATABASE_URL is not set")
@@ -61,76 +157,13 @@ export function collectEnvErrors(): string[] {
     errors.push("AUTH_URL is not set")
   }
 
-  // currentKeyId() loads the full keyring: throws when no key is set, the
-  // current key id has no key, or any key is not 32 bytes.
-  try {
-    currentKeyId()
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e))
-  }
-
-  // DISABLE_OTP silently removes the second factor — dev/e2e only.
-  // Playwright must exercise the real production build (`next start` forces
-  // NODE_ENV=production), so playwright.config.ts webServer env sets the
-  // explicit override below. Never set E2E_ALLOW_TEST_OVERRIDES on a real
-  // deployment — it exists solely for the e2e suite.
-  if (
-    process.env.DISABLE_OTP === "true" &&
-    process.env.NODE_ENV === "production" &&
-    process.env.E2E_ALLOW_TEST_OVERRIDES !== "true"
-  ) {
-    errors.push("DISABLE_OTP=true is not allowed in production")
-  }
-
-  // E2E_MOCK_EMAIL swaps the SMTP transport for an in-memory stub that console.logs
-  // recipients — must never run in production (AUDIT-005). Exempted for the
-  // e2e suite the same way DISABLE_OTP is: the suite runs a production build but
-  // sets E2E_ALLOW_TEST_OVERRIDES.
-  if (
-    process.env.E2E_MOCK_EMAIL === "true" &&
-    process.env.NODE_ENV === "production" &&
-    process.env.E2E_ALLOW_TEST_OVERRIDES !== "true"
-  ) {
-    errors.push("E2E_MOCK_EMAIL=true is not allowed in production")
-  }
-
-  // E2E_ALLOW_TEST_OVERRIDES is the single flag that unlocks FOUR security
-  // controls — DISABLE_OTP + per-IP login throttle (src/auth.ts), the
-  // auth.config.ts opt-out, and the trustedDevice.ts prod-guard bypass — yet the
-  // e2e suite runs a genuine production build (`next start` → NODE_ENV=production),
-  // so the flag alone cannot separate e2e from real prod. Fail-CLOSED: allow it
-  // ONLY when AUTH_URL is loopback (the e2e/local signal); any other host —
-  // including a custom, migrated, or misconfigured prod domain — hard-fails boot
-  //.
-  if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true" && !isLoopbackAuthUrl(process.env.AUTH_URL)) {
-    errors.push(
-      "E2E_ALLOW_TEST_OVERRIDES=true is not allowed unless AUTH_URL is loopback (e2e/local only) — it disables OTP, the login throttle, and trusted-device guards, so it must never run on a real deployment",
-    )
-  }
-
-  // OTP emails are login-critical, so Gmail creds are required unless OTP is
-  // explicitly disabled (dev/e2e only — never production).
-  if (process.env.DISABLE_OTP !== "true") {
-    if (!process.env.GMAIL_USER) errors.push("GMAIL_USER is not set (required while OTP is enabled)")
-    if (!process.env.GMAIL_APP_PASSWORD) errors.push("GMAIL_APP_PASSWORD is not set (required while OTP is enabled)")
-  }
-
-  // Event→website sync: if the URL is configured the HMAC secret must be too,
-  // else website-sync.ts silently no-ops and the church website stops getting
-  // event updates with no alert. Unset URL = sync disabled = fine.
-  if (process.env.WEBSITE_SYNC_URL && !process.env.WEBSITE_SYNC_SECRET) {
-    errors.push("WEBSITE_SYNC_SECRET is not set but WEBSITE_SYNC_URL is — event sync would silently no-op")
-  }
-
-  // Regional config (APP_FY_START_MONTH / APP_TIMEZONE / APP_LOCALE /
-  // APP_CURRENCY). Importing appConfig runs its module-load validation, which
-  // throws on a bad value — surface that as a boot error rather than a silent
-  // mis-format. Unset values default to the AU config and never throw.
-  try {
-    require("@/lib/appConfig")
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e))
-  }
+  errors.push(...checkCryptoKeyring())
+  errors.push(...checkDisableOtp())
+  errors.push(...checkMockEmail())
+  errors.push(...checkE2EOverridesAllowed())
+  errors.push(...checkGmailCreds())
+  errors.push(...checkWebsiteSync())
+  errors.push(...checkAppConfig())
 
   return errors
 }

@@ -15,6 +15,7 @@ import { renderMembershipPdf } from "@/lib/pdf/MembershipPdf"
 import { logAudit } from "@/lib/audit"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { isP2002 } from "@/lib/validation"
+import { Prisma } from "@/lib/generated/prisma/client"
 import { membershipPayloadSchema, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
@@ -250,6 +251,156 @@ async function uniqueFamilyName(tx: { family: { findFirst: (a: unknown) => Promi
   }
 }
 
+const FAMILY_FILL_FIELDS = ["address", "suburb", "state", "postcode"] as const
+
+type MergeableFamily = {
+  address: string | null
+  suburb: string | null
+  state: string | null
+  postcode: string | null
+  marriageDate: Date | null
+  monthlyDues: Prisma.Decimal | null
+  notes: string | null
+}
+
+// Build the Family.update patch for a merge approval: fill only blank contact
+// fields (never clobber existing data, encrypting the new values same as
+// person.ts), carry over marriageDate/monthlyDues if still unset, and append
+// the new notes to any existing (decrypted) note block.
+function buildFamilyPatch(
+  fam: MergeableFamily,
+  p: MembershipPayload,
+  marriageDate: Date | null,
+  dues: Prisma.Decimal | null,
+  notes: string,
+): Record<string, unknown> {
+  const fill: Record<string, string | null> = {}
+  for (const field of FAMILY_FILL_FIELDS) {
+    if (!fam[field] && p.personal[field]) fill[field] = p.personal[field]
+  }
+  encryptFamilyFields(fill as never)
+  const patch: Record<string, unknown> = { ...fill }
+  if (!fam.marriageDate && marriageDate) patch.marriageDate = marriageDate
+  if (fam.monthlyDues == null && dues != null) patch.monthlyDues = dues
+  // Family.notes is encrypted at rest. Decrypt the existing note before
+  // concatenating, then re-encrypt the whole block — concatenating raw
+  // ciphertext with the plaintext note (and storing it unencrypted) both
+  // corrupts the existing note and leaks the new PII in cleartext.
+  const existingNotes = fam.notes ? safeDecrypt(fam.notes) : ""
+  patch.notes = encrypt(existingNotes ? `${existingNotes}\n\n${notes}` : notes)
+  return patch
+}
+
+// Only ACTIVE members count as "already present" — an archived person with
+// the same name must not suppress creating the new active member, which
+// would leave the applicant with no active Person row.
+async function insertMissingMembers(
+  tx: Pick<Prisma.TransactionClient, "person">,
+  familyId: number,
+  seeds: PersonSeed[],
+): Promise<void> {
+  const existing = await tx.person.findMany({ where: { familyId, archivedAt: null }, select: { firstName: true, lastName: true } })
+  const key = (f: string, l: string) => `${f.toLowerCase()}|${l.toLowerCase()}`
+  const have = new Set(existing.map((e) => key(e.firstName, e.lastName)))
+  const missing = seeds.filter((s) => !have.has(key(s.firstName, s.lastName)))
+  if (missing.length)
+    await tx.person.createMany({ data: missing.map((s) => personCreateData(familyId, s)) as never })
+}
+
+// Create a new family for a "create" approval, encrypting fields exactly as
+// person.ts does, then batch-insert the seeded members.
+async function createApprovedFamily(
+  tx: Pick<Prisma.TransactionClient, "family" | "person">,
+  p: MembershipPayload,
+  seeds: PersonSeed[],
+  marriageDate: Date | null,
+  dues: Prisma.Decimal | null,
+  notes: string,
+): Promise<number> {
+  const name = await uniqueFamilyName(tx as never, deriveFamilyName(p), seeds[0].firstName)
+  const famData: Record<string, unknown> = {
+    name, address: p.personal.address, suburb: p.personal.suburb, state: p.personal.state, postcode: p.personal.postcode,
+    marriageDate, monthlyDues: dues, notes,
+  }
+  encryptFamilyFields(famData as never)
+  const fam = await tx.family.create({ data: famData as never })
+  // Batch the family-member inserts into one round trip. No mirror
+  // row / generated-id dependency, so createMany is safe.
+  await tx.person.createMany({ data: seeds.map((s) => personCreateData(fam.id, s)) as never })
+  return fam.id
+}
+
+// Merge the applicant's household into an existing active family.
+async function mergeApprovedFamily(
+  tx: Pick<Prisma.TransactionClient, "family" | "person">,
+  familyId: number,
+  p: MembershipPayload,
+  seeds: PersonSeed[],
+  marriageDate: Date | null,
+  dues: Prisma.Decimal | null,
+  notes: string,
+): Promise<void> {
+  const fam = await tx.family.findUnique({ where: { id: familyId } })
+  if (!fam) throw new Error("Target family not found")
+  // Merging into a soft-archived family would attach active members to a
+  // deleted family and mutate its contact info.
+  if (fam.archivedAt) throw new ArchivedFamilyError()
+
+  const patch = buildFamilyPatch(fam, p, marriageDate, dues, notes)
+  await tx.family.update({ where: { id: familyId }, data: patch })
+  await insertMissingMembers(tx, familyId, seeds)
+}
+
+// Runs inside prisma.$transaction: atomically claims the pending application,
+// creates or merges the family + members, and links it back. Throws
+// AlreadyReviewedError / ArchivedFamilyError to abort the transaction with a
+// clean, caller-mapped error.
+async function runApprovalTransaction(
+  tx: Prisma.TransactionClient,
+  id: number,
+  reviewerId: number,
+  opts: { mode: "create" } | { mode: "merge"; familyId: number },
+  p: MembershipPayload,
+  seeds: PersonSeed[],
+  marriageDate: Date | null,
+  dues: Prisma.Decimal | null,
+  notes: string,
+): Promise<number> {
+  // Atomically claim PENDING→APPROVED before creating the family/members. The
+  // status read in approveMembershipApplication is outside the transaction,
+  // so two concurrent approvals could both pass it and each create a family +
+  // members. The guarded updateMany matches 0 rows for the loser, which
+  // aborts it before any writes. linkedFamilyId is set below once the family
+  // id is known, in the same transaction.
+  const claimed = await tx.membershipApplication.updateMany({
+    where: { id, status: "PENDING" },
+    data: { status: "APPROVED", reviewedById: reviewerId, reviewedAt: new Date() },
+  })
+  if (claimed.count === 0) throw new AlreadyReviewedError()
+
+  let familyId: number
+  if (opts.mode === "create") {
+    familyId = await createApprovedFamily(tx, p, seeds, marriageDate, dues, notes)
+  } else {
+    familyId = opts.familyId
+    await mergeApprovedFamily(tx, familyId, p, seeds, marriageDate, dues, notes)
+  }
+
+  // Status/reviewer already set by the atomic claim above; link the family.
+  await tx.membershipApplication.update({ where: { id }, data: { linkedFamilyId: familyId } })
+  return familyId
+}
+
+// Maps a rejected approval transaction to a caller-facing result, or null to
+// signal the retry-once-on-P2002 loop should try again.
+function approvalErrorResult(e: unknown, attempt: number): ActionResultWithSuccess | null {
+  if (e instanceof AlreadyReviewedError) return { error: "This application has already been reviewed." }
+  if (e instanceof ArchivedFamilyError) return { error: "That family is archived — restore it before merging, or create a new family." }
+  if (isP2002(e) && attempt === 0) return null
+  logger.error("approveMembershipApplication failed", { message: e instanceof Error ? e.message : "unknown" })
+  return { error: "Another approval just used the same family — please try again." }
+}
+
 export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
@@ -278,80 +429,13 @@ export async function approveMembershipApplication(
   let familyId: number
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await prisma.$transaction(async (tx) => {
-        // Atomically claim PENDING→APPROVED before creating the family/members.
-        // The status read at line 220 is outside the transaction, so two
-        // concurrent approvals could both pass it and each create a family +
-        // members. The guarded updateMany matches 0 rows for the loser, which
-        // aborts it before any writes. linkedFamilyId is set below once
-        // the family id is known, in the same transaction.
-        const claimed = await tx.membershipApplication.updateMany({
-          where: { id, status: "PENDING" },
-          data: { status: "APPROVED", reviewedById: reviewerId, reviewedAt: new Date() },
-        })
-        if (claimed.count === 0) throw new AlreadyReviewedError()
-        if (opts.mode === "create") {
-          const name = await uniqueFamilyName(tx as never, deriveFamilyName(p), seeds[0].firstName)
-          const famData: Record<string, unknown> = {
-            name, address: p.personal.address, suburb: p.personal.suburb, state: p.personal.state, postcode: p.personal.postcode,
-            marriageDate, monthlyDues: dues, notes,
-          }
-          encryptFamilyFields(famData as never)
-          const fam = await tx.family.create({ data: famData as never })
-          familyId = fam.id
-          // Batch the family-member inserts into one round trip. No mirror
-          // row / generated-id dependency, so createMany is safe.
-          await tx.person.createMany({ data: seeds.map((s) => personCreateData(familyId, s)) as never })
-        } else {
-          familyId = opts.familyId
-          const fam = await tx.family.findUnique({ where: { id: familyId } })
-          if (!fam) throw new Error("Target family not found")
-          // Merging into a soft-archived family would attach active members to a
-          // deleted family and mutate its contact info.
-          if (fam.archivedAt) throw new ArchivedFamilyError()
-          // Fill only blank fields — never clobber existing data. Encrypt the new
-          // values; leave already-populated (already-encrypted) fields untouched.
-          const patch: Record<string, unknown> = {}
-          const fill: Record<string, string | null> = {}
-          if (!fam.address && p.personal.address) fill.address = p.personal.address
-          if (!fam.suburb && p.personal.suburb) fill.suburb = p.personal.suburb
-          if (!fam.state && p.personal.state) fill.state = p.personal.state
-          if (!fam.postcode && p.personal.postcode) fill.postcode = p.personal.postcode
-          encryptFamilyFields(fill as never)
-          Object.assign(patch, fill)
-          if (!fam.marriageDate && marriageDate) patch.marriageDate = marriageDate
-          if (fam.monthlyDues == null && dues != null) patch.monthlyDues = dues
-          // Family.notes is encrypted at rest. Decrypt the existing note before
-          // concatenating, then re-encrypt the whole block — concatenating raw
-          // ciphertext with the plaintext note (and storing it unencrypted) both
-          // corrupts the existing note and leaks the new PII in cleartext.
-          const existingNotes = fam.notes ? safeDecrypt(fam.notes) : ""
-          patch.notes = encrypt(existingNotes ? `${existingNotes}\n\n${notes}` : notes)
-          await tx.family.update({ where: { id: familyId }, data: patch })
-
-          // Only ACTIVE members count as "already present" — an archived person
-          // with the same name must not suppress creating the new active member,
-          // which would leave the applicant with no active Person row.
-          const existing = await tx.person.findMany({ where: { familyId, archivedAt: null }, select: { firstName: true, lastName: true } })
-          const key = (f: string, l: string) => `${f.toLowerCase()}|${l.toLowerCase()}`
-          const have = new Set(existing.map((e) => key(e.firstName, e.lastName)))
-          const missing = seeds.filter((s) => !have.has(key(s.firstName, s.lastName)))
-          if (missing.length)
-            await tx.person.createMany({ data: missing.map((s) => personCreateData(familyId, s)) as never })
-        }
-        // Status/reviewer already set by the atomic claim above; link the family.
-        await tx.membershipApplication.update({
-          where: { id },
-          data: { linkedFamilyId: familyId },
-        })
-      })
+      familyId = await prisma.$transaction((tx) =>
+        runApprovalTransaction(tx, id, reviewerId, opts, p, seeds, marriageDate, dues, notes)
+      )
       break
     } catch (e) {
-      if (e instanceof AlreadyReviewedError) return { error: "This application has already been reviewed." }
-      if (e instanceof ArchivedFamilyError) return { error: "That family is archived — restore it before merging, or create a new family." }
-      if (isP2002(e) && attempt === 0) continue
-      logger.error("approveMembershipApplication failed", { message: e instanceof Error ? e.message : "unknown" })
-      return { error: "Another approval just used the same family — please try again." }
+      const result = approvalErrorResult(e, attempt)
+      if (result) return result
     }
   }
 

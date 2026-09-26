@@ -50,6 +50,47 @@ const TOTAL_SECTION_H = 9 + 34
 
 type LetterheadAsset = Awaited<ReturnType<typeof getLetterheadAsset>>
 
+// Largest prefix (by word count) of `words` whose joined text still fits
+// within `limitY` when drawn starting at `startY`. Binary search over word
+// count — used to find how much of a paragraph fits on the current page.
+function largestFittingWordPrefix(
+  doc: PDFKit.PDFDocument,
+  words: string[],
+  startY: number,
+  limitY: number,
+  opts: PDFKit.Mixins.TextOptions
+): number {
+  let lo = 0
+  let hi = words.length - 1
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (startY + doc.heightOfString(words.slice(0, mid).join(" "), opts) <= limitY) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
+// Largest prefix (by character count) of `word` that still fits within
+// `limitY` when drawn starting at `startY`. Used when a single token is
+// taller than a fresh page (e.g. adjacent {churchName} expansions) and must
+// be split by characters instead of at a word boundary.
+function largestFittingCharPrefix(
+  doc: PDFKit.PDFDocument,
+  word: string,
+  startY: number,
+  limitY: number,
+  opts: PDFKit.Mixins.TextOptions
+): number {
+  let c = 1
+  let hi = word.length - 1
+  while (c < hi) {
+    const mid = Math.ceil((c + hi) / 2)
+    if (startY + doc.heightOfString(word.slice(0, mid), opts) <= limitY) c = mid
+    else hi = mid - 1
+  }
+  return c
+}
+
 // Draws the official church letterhead banner (or a neutral text header when
 // no branding letterhead has been uploaded) across the top and the document
 // title beneath it. Returns the Y coordinate where receipt content should begin.
@@ -220,13 +261,7 @@ function drawDgrReceipt(doc: PDFKit.PDFDocument, m: DgrPdfModel, letterhead: Let
       }
       // Largest word prefix that fits in the space left on this page.
       const words = rest.split(" ")
-      let lo = 0
-      let hi = words.length - 1
-      while (lo < hi) {
-        const mid = Math.ceil((lo + hi) / 2)
-        if (y + doc.heightOfString(words.slice(0, mid).join(" "), opts) <= maxY) lo = mid
-        else hi = mid - 1
-      }
+      const lo = largestFittingWordPrefix(doc, words, y, maxY, opts)
       if (lo === 0 && !freshPage) {
         breakPage()
         continue
@@ -235,13 +270,7 @@ function drawDgrReceipt(doc: PDFKit.PDFDocument, m: DgrPdfModel, letterhead: Let
         // One token taller than a fresh page (e.g. adjacent {churchName} expansions):
         // split it by characters so PDFKit never auto-overflows past newPage().
         const word = words[0]
-        let c = 1
-        let hiC = word.length - 1
-        while (c < hiC) {
-          const mid = Math.ceil((c + hiC) / 2)
-          if (y + doc.heightOfString(word.slice(0, mid), opts) <= maxY) c = mid
-          else hiC = mid - 1
-        }
+        const c = largestFittingCharPrefix(doc, word, y, maxY, opts)
         doc.text(word.slice(0, c), margin, y, opts)
         rest = [word.slice(c), ...words.slice(1)].join(" ")
       } else {

@@ -14,6 +14,48 @@ import { exceedsBodyLimit } from "@/lib/bodyLimit"
 // duplicate-lookup findMany below. Reject up front.
 const MAX_IMPORT_ROWS = 5000
 
+// Every CSV row's family.memberNo, if present, mapped to every CSV family name
+// that carries it. A plain memberNo→name map kept only the last row, so when
+// the CSV had the same memberNo on two different families only one got
+// flagged and the other slipped through to a silent unique-constraint failure
+// at import. Use a Map, not a plain object: a memberNo like "constructor"/
+// "__proto__" would collide with Object.prototype keys and either crash
+// (`.add` on an inherited function) or silently mis-key.
+function buildMemberNoToFamilyNames(rows: CheckResult["rows"]): Map<string, Set<string>> {
+  const memberNoToFamilyNames = new Map<string, Set<string>>()
+  for (const r of rows) {
+    if (!r.family.memberNo) continue
+    let names = memberNoToFamilyNames.get(r.family.memberNo)
+    if (!names) {
+      names = new Set()
+      memberNoToFamilyNames.set(r.family.memberNo, names)
+    }
+    names.add(r.family.name)
+  }
+  return memberNoToFamilyNames
+}
+
+// (a) memberNo already exists in the DB → flag every CSV family sharing it.
+// (b) the same memberNo appears on 2+ distinct family names within the CSV
+// itself → all but one would collide on import. Flag them all.
+function collectDuplicateFamilyNames(
+  matchedByName: Array<{ name: string }>,
+  matchedByMemberNo: Array<{ name: string; memberNo: string | null }>,
+  memberNoToFamilyNames: Map<string, Set<string>>,
+): Set<string> {
+  const duplicateSet = new Set<string>()
+  for (const f of matchedByName) duplicateSet.add(f.name)
+
+  for (const f of matchedByMemberNo) {
+    const names = f.memberNo ? memberNoToFamilyNames.get(f.memberNo) : undefined
+    if (names) for (const name of names) duplicateSet.add(name)
+  }
+  for (const names of memberNoToFamilyNames.values()) {
+    if (names.size > 1) for (const name of names) duplicateSet.add(name)
+  }
+  return duplicateSet
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -64,36 +106,8 @@ export async function POST(req: NextRequest) {
       : Promise.resolve([]),
   ])
 
-  const duplicateSet = new Set<string>()
-  for (const f of matchedByName) duplicateSet.add(f.name)
-  // Map each memberNo to ALL the CSV family names that carry it. A plain
-  // memberNo→name map kept only the last row, so when the CSV had the same
-  // memberNo on two different families only one got flagged and the other
-  // slipped through to a silent unique-constraint failure at import.
-  // Use a Map, not a plain object: a memberNo like "constructor"/"__proto__"
-  // would collide with Object.prototype keys and either crash (`.add` on an
-  // inherited function) or silently mis-key.
-  const memberNoToFamilyNames = new Map<string, Set<string>>()
-  for (const r of rows) {
-    if (r.family.memberNo) {
-      let names = memberNoToFamilyNames.get(r.family.memberNo)
-      if (!names) {
-        names = new Set()
-        memberNoToFamilyNames.set(r.family.memberNo, names)
-      }
-      names.add(r.family.name)
-    }
-  }
-  // (a) memberNo already exists in the DB → flag every CSV family sharing it.
-  for (const f of matchedByMemberNo) {
-    const names = f.memberNo ? memberNoToFamilyNames.get(f.memberNo) : undefined
-    if (names) for (const name of names) duplicateSet.add(name)
-  }
-  // (b) the same memberNo appears on 2+ distinct family names within the CSV
-  // itself → all but one would collide on import. Flag them all.
-  for (const names of memberNoToFamilyNames.values()) {
-    if (names.size > 1) for (const name of names) duplicateSet.add(name)
-  }
+  const memberNoToFamilyNames = buildMemberNoToFamilyNames(rows)
+  const duplicateSet = collectDuplicateFamilyNames(matchedByName, matchedByMemberNo, memberNoToFamilyNames)
 
   const result: CheckResult = {
     rows,

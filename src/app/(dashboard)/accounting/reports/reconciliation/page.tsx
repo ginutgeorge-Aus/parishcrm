@@ -14,6 +14,9 @@ import { sydneyToday } from "@/lib/dates"
 import { currentFYYear } from "@/lib/fiscalYear"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
+import { fetchIf } from "@/lib/asyncOr"
+import { pickDefaultAccount } from "@/lib/reports/pickDefaultAccount"
+import { computeReconciliationEquation, centsToNumberOrNull } from "@/lib/reports/reconciliationEquation"
 
 // statementDate is UTC-midnight anchored (sydneyToday / parseISODate both build
 // via Date.UTC), so read it with UTC getters — local getters shift the calendar
@@ -37,11 +40,7 @@ export default async function ReconciliationReportPage(props: {
   // Reports show all accounts (incl. deactivated-with-history), not just active ones.
   const accounts = await getPaymentAccounts({ activeOnly: false })
   const parsedAccountId = searchParams.paymentAccount ? Number.parseInt(searchParams.paymentAccount, 10) : Number.NaN
-  const selectedAccount =
-    accounts.find((a) => a.id === parsedAccountId) ??
-    accounts.find((a) => a.kind === "BANK") ??
-    accounts[0] ??
-    null
+  const selectedAccount = pickDefaultAccount(accounts, parsedAccountId)
 
   const today = sydneyToday()
   const statementDate = parseDate(searchParams.statementDate) ?? today
@@ -93,8 +92,10 @@ export default async function ReconciliationReportPage(props: {
         },
       },
     }),
-    openingBalance
-      ? prisma.transaction.findMany({
+    fetchIf(
+      openingBalance,
+      () =>
+        prisma.transaction.findMany({
           where: {
             paymentAccountId: selectedAccount.id,
             type: TransactionType.INCOME,
@@ -102,7 +103,7 @@ export default async function ReconciliationReportPage(props: {
             // Anchored to asOfDate like the equation aggregates —
             // fyStart left pre-anchor uncleared rows in these lists but out
             // of the equation, corrupting the difference display.
-            date: { gte: openingBalance.asOfDate, lte: statementEndOfDay },
+            date: { gte: openingBalance!.asOfDate, lte: statementEndOfDay },
           },
           orderBy: { date: "asc" },
           select: {
@@ -112,16 +113,19 @@ export default async function ReconciliationReportPage(props: {
             amount: true,
             family: { select: { name: true } },
           },
-        })
-      : Promise.resolve([] as Array<{
-          id: number
-          date: Date
-          description: string
-          amount: { toString(): string }
-          family: { name: string } | null
-        }>),
-    openingBalance
-      ? prisma.transaction.findMany({
+        }),
+      [] as Array<{
+        id: number
+        date: Date
+        description: string
+        amount: { toString(): string }
+        family: { name: string } | null
+      }>
+    ),
+    fetchIf(
+      openingBalance,
+      () =>
+        prisma.transaction.findMany({
           where: {
             paymentAccountId: selectedAccount.id,
             type: TransactionType.EXPENSE,
@@ -129,7 +133,7 @@ export default async function ReconciliationReportPage(props: {
             // Anchored to asOfDate like the equation aggregates —
             // fyStart left pre-anchor uncleared rows in these lists but out
             // of the equation, corrupting the difference display.
-            date: { gte: openingBalance.asOfDate, lte: statementEndOfDay },
+            date: { gte: openingBalance!.asOfDate, lte: statementEndOfDay },
           },
           orderBy: { date: "asc" },
           select: {
@@ -139,38 +143,45 @@ export default async function ReconciliationReportPage(props: {
             amount: true,
             family: { select: { name: true } },
           },
-        })
-      : Promise.resolve([] as Array<{
-          id: number
-          date: Date
-          description: string
-          amount: { toString(): string }
-          family: { name: string } | null
-        }>),
-    openingBalance
-      ? prisma.transaction.aggregate({
+        }),
+      [] as Array<{
+        id: number
+        date: Date
+        description: string
+        amount: { toString(): string }
+        family: { name: string } | null
+      }>
+    ),
+    fetchIf(
+      openingBalance,
+      () =>
+        prisma.transaction.aggregate({
           where: {
             paymentAccountId: selectedAccount.id,
             type: TransactionType.INCOME,
             reconciled: true,
-            date: { gte: openingBalance.asOfDate, lte: statementEndOfDay },
+            date: { gte: openingBalance!.asOfDate, lte: statementEndOfDay },
           },
           _sum: { amount: true },
           _count: true,
-        })
-      : Promise.resolve({ _sum: { amount: null }, _count: 0 }),
-    openingBalance
-      ? prisma.transaction.aggregate({
+        }),
+      { _sum: { amount: null }, _count: 0 }
+    ),
+    fetchIf(
+      openingBalance,
+      () =>
+        prisma.transaction.aggregate({
           where: {
             paymentAccountId: selectedAccount.id,
             type: TransactionType.EXPENSE,
             reconciled: true,
-            date: { gte: openingBalance.asOfDate, lte: statementEndOfDay },
+            date: { gte: openingBalance!.asOfDate, lte: statementEndOfDay },
           },
           _sum: { amount: true },
           _count: true,
-        })
-      : Promise.resolve({ _sum: { amount: null }, _count: 0 }),
+        }),
+      { _sum: { amount: null }, _count: 0 }
+    ),
   ])
 
   const decryptedDeposits = outstandingDeposits.map((tx) => ({
@@ -188,31 +199,31 @@ export default async function ReconciliationReportPage(props: {
   const clearedInCents = toCents(clearedIncomeAgg._sum.amount ?? 0)
   const clearedOutCents = toCents(clearedExpenseAgg._sum.amount ?? 0)
   const openingCents = openingBalance ? toCents(openingBalance.amount) : null
-  const calculatedCents =
-    openingCents !== null ? openingCents + clearedInCents - clearedOutCents : null
 
   const outstandingDepositsCents = sumCents(decryptedDeposits.map((tx) => tx.amount))
   const outstandingPaymentsCents = sumCents(decryptedPayments.map((tx) => tx.amount))
 
   const statementClosingCents = savedStatement ? toCents(savedStatement.closingBalance) : null
-  const adjustedCents =
-    statementClosingCents !== null
-      ? statementClosingCents + outstandingDepositsCents - outstandingPaymentsCents
-      : null
 
-  const differenceCents =
-    calculatedCents !== null && adjustedCents !== null ? calculatedCents - adjustedCents : null
+  const { calculatedCents, adjustedCents, differenceCents } = computeReconciliationEquation({
+    openingCents,
+    clearedInCents,
+    clearedOutCents,
+    statementClosingCents,
+    outstandingDepositsCents,
+    outstandingPaymentsCents,
+  })
   const differenceIsZero = differenceCents === 0
 
   const clearedIn = centsToNumber(clearedInCents)
   const clearedOut = centsToNumber(clearedOutCents)
-  const opening = openingCents !== null ? centsToNumber(openingCents) : null
-  const calculated = calculatedCents !== null ? centsToNumber(calculatedCents) : null
+  const opening = centsToNumberOrNull(openingCents)
+  const calculated = centsToNumberOrNull(calculatedCents)
   const outstandingDepositsTotal = centsToNumber(outstandingDepositsCents)
   const outstandingPaymentsTotal = centsToNumber(outstandingPaymentsCents)
-  const statementClosing = statementClosingCents !== null ? centsToNumber(statementClosingCents) : null
-  const adjusted = adjustedCents !== null ? centsToNumber(adjustedCents) : null
-  const difference = differenceCents !== null ? centsToNumber(differenceCents) : null
+  const statementClosing = centsToNumberOrNull(statementClosingCents)
+  const adjusted = centsToNumberOrNull(adjustedCents)
+  const difference = centsToNumberOrNull(differenceCents)
 
   const { name: churchName } = await getChurchSettings()
 
