@@ -1,7 +1,7 @@
 import NextAuth, { CredentialsSignin } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
-import { compare } from "bcryptjs"
-import { timingSafeEqual } from "crypto"
+import { compare, hash } from "bcryptjs"
+import { randomBytes, timingSafeEqual } from "crypto"
 import { prisma } from "@/lib/prisma"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { authConfig } from "@/auth.config"
@@ -13,13 +13,16 @@ import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
 import { auditIpFromHeaders } from "@/lib/clientIp"
 
-// fixed bcrypt hash (cost 12, matching the real hash cost used at
+// bcrypt hash (cost 12, matching the real hash cost used at
 // signup/reset — src/lib/actions/auth.ts, src/lib/actions/user.ts) for a dummy
 // compare when the submitted email doesn't exist. Running this on the
 // "unknown user" fast path equalises response time with the real ~100ms
 // bcrypt.compare below, closing the email-enumeration timing oracle (an
 // unknown email otherwise returns near-instantly, a known one doesn't).
-const DUMMY_PASSWORD_HASH = "$2b$12$UfoYw.uY09RAtkA3gmfUhOt5RV52khveTGWTTXy6anQpVWz8mORnK"
+// Generated at module load from random bytes (never a literal in source, so
+// no credential-shaped string for secret scanners to flag); kicked off eagerly
+// so the first unknown-email login doesn't also pay the hash cost.
+const DUMMY_PASSWORD_HASH = hash(randomBytes(32).toString("hex"), 12)
 
 export class AccountLocked extends CredentialsSignin {
   code = "AccountLocked"
@@ -205,7 +208,7 @@ export async function authorizeCredentials(
   if (!user) {
     // burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
-    await compare(password, DUMMY_PASSWORD_HASH)
+    await compare(password, await DUMMY_PASSWORD_HASH)
     logger.warn("credential login rejected", { reason: "no_user", ipPresent: !!ip })
     return null
   }
