@@ -90,22 +90,35 @@ export async function setDefaultAccount(id: number): Promise<ActionResultWithSuc
   return { success: "Default set" }
 }
 
+// Validates an activate/deactivate request against the cash/default-account
+// invariants. Returns an error message, or null when the change is allowed.
+async function checkAccountActiveChange(
+  acct: { isDefault: boolean; kind: string },
+  active: boolean
+): Promise<string | null> {
+  if (!active) {
+    if (acct.isDefault) return "Reassign the default account before deactivating this one"
+    if (acct.kind === "CASH") {
+      const activeCash = await prisma.paymentAccount.count({ where: { kind: "CASH", isActive: true } })
+      if (activeCash <= 1) return "Cannot deactivate the only active cash account"
+    }
+    return null
+  }
+  if (acct.kind === "CASH") {
+    const activeCash = await prisma.paymentAccount.count({ where: { kind: "CASH", isActive: true } })
+    if (activeCash >= 1) return "Only one active cash account is allowed"
+  }
+  return null
+}
+
 export async function setAccountActive(id: number, active: boolean): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
   const acct = await prisma.paymentAccount.findUnique({ where: { id } })
   if (!acct) return { error: "Account not found" }
-  if (!active) {
-    if (acct.isDefault) return { error: "Reassign the default account before deactivating this one" }
-    if (acct.kind === "CASH") {
-      const activeCash = await prisma.paymentAccount.count({ where: { kind: "CASH", isActive: true } })
-      if (activeCash <= 1) return { error: "Cannot deactivate the only active cash account" }
-    }
-  } else if (acct.kind === "CASH") {
-    const activeCash = await prisma.paymentAccount.count({ where: { kind: "CASH", isActive: true } })
-    if (activeCash >= 1) return { error: "Only one active cash account is allowed" }
-  }
+  const activeChangeError = await checkAccountActiveChange(acct, active)
+  if (activeChangeError) return { error: activeChangeError }
   try {
     await prisma.paymentAccount.update({ where: { id }, data: { isActive: active } })
   } catch {

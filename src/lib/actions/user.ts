@@ -206,6 +206,78 @@ export async function createUser(
   redirect("/users")
 }
 
+type UserUpdateData = {
+  name: string
+  email: string
+  role: UserRole
+  passwordHash?: string
+  sessionsValidFrom?: Date
+  failedLoginAttempts?: number
+  lockedUntil?: Date | null
+  failedOtpAttempts?: number
+  otpLockedUntil?: Date | null
+}
+
+async function buildUserUpdateData(parsedData: {
+  name: string
+  email: string
+  role: UserRole
+  password?: string
+}): Promise<UserUpdateData> {
+  const data: UserUpdateData = {
+    name: parsedData.name,
+    email: parsedData.email,
+    role: parsedData.role,
+  }
+  if (parsedData.password) {
+    data.passwordHash = await hash(parsedData.password, 12)
+    // Admin-forced password change must terminate the target's live sessions —
+    // the change is usually a response to compromise.
+    data.sessionsValidFrom = new Date()
+    // Clear all four lockout fields, matching the self-service resetPassword
+    // path — otherwise an admin resetting the password of a locked-out
+    // user leaves lockedUntil/otpLockedUntil in place, so the target still
+    // hits AccountLocked until the timer expires or a separate unlockUser call.
+    data.failedLoginAttempts = 0
+    data.lockedUntil = null
+    data.failedOtpAttempts = 0
+    data.otpLockedUntil = null
+  }
+  return data
+}
+
+// Demotion's last-admin recount and the write itself run in one Serializable
+// transaction — closes the check-then-act race described above the
+// assertNotLastAdmin definition. The target role is reloaded INSIDE the
+// transaction — otherwise a concurrent promotion between the outer pre-tx
+// read and this transaction starting could demote a newly-promoted sole
+// admin with no recount ever running (the stale pre-tx role said "not
+// ADMIN", so the guard was skipped entirely).
+async function applyUserUpdate(
+  tx: Prisma.TransactionClient,
+  id: number,
+  newRole: UserRole,
+  data: UserUpdateData
+): Promise<void> {
+  const current = await tx.user.findUnique({ where: { id }, select: { role: true, archivedAt: true } })
+  if (!current || current.archivedAt) throw new TargetGoneError("User not found")
+  if (current.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+    await assertNotLastAdmin(tx, id, "Cannot remove the last administrator")
+  }
+  await tx.user.update({ where: { id }, data })
+}
+
+// Maps the errors applyUserUpdate's transaction can throw to a clean
+// ActionResult message. Returns undefined for anything else, which the
+// caller rethrows.
+function updateUserErrorMessage(e: unknown): string | undefined {
+  if (e instanceof TargetGoneError) return e.message
+  if (e instanceof LastAdminError) return e.message
+  if (isP2002(e)) return "Email already in use"
+  if (isP2034(e)) return "Cannot remove the last administrator — please try again."
+  return undefined
+}
+
 export async function updateUser(
   id: number,
   _prev: ActionResult,
@@ -234,63 +306,18 @@ export async function updateUser(
   })
   if (existing) return { error: "Email already in use" }
 
-  const data: {
-    name: string
-    email: string
-    role: UserRole
-    passwordHash?: string
-    sessionsValidFrom?: Date
-    failedLoginAttempts?: number
-    lockedUntil?: Date | null
-    failedOtpAttempts?: number
-    otpLockedUntil?: Date | null
-  } = {
-    name: parsed.data.name,
-    email: parsed.data.email,
-    role: parsed.data.role,
-  }
-  if (parsed.data.password) {
-    data.passwordHash = await hash(parsed.data.password, 12)
-    // Admin-forced password change must terminate the target's live sessions —
-    // the change is usually a response to compromise.
-    data.sessionsValidFrom = new Date()
-    // Clear all four lockout fields, matching the self-service resetPassword
-    // path — otherwise an admin resetting the password of a locked-out
-    // user leaves lockedUntil/otpLockedUntil in place, so the target still
-    // hits AccountLocked until the timer expires or a separate unlockUser call.
-    data.failedLoginAttempts = 0
-    data.lockedUntil = null
-    data.failedOtpAttempts = 0
-    data.otpLockedUntil = null
-  }
+  const data = await buildUserUpdateData(parsed.data)
 
-  // Demotion's last-admin recount and the write itself run in one Serializable
-  // transaction — closes the check-then-act race described above the
-  // assertNotLastAdmin definition. `target` above is read BEFORE this
-  // transaction starts, so it's only trustworthy for the authorization checks
-  // already done with it; the recount decision below reloads the target
-  // INSIDE the transaction — otherwise a concurrent promotion between
-  // that read and this transaction starting could demote a newly-promoted
-  // sole admin with no recount ever running (the stale pre-tx role said "not
-  // ADMIN", so the guard was skipped entirely). The P2002 catch is a backstop
-  // for the email-collision race: the findFirst check above is itself
-  // check-then-act.
+  // The P2002 catch below is a backstop for the email-collision race: the
+  // findFirst check above is itself check-then-act.
   try {
-    await prisma.$transaction(async (tx) => {
-      const current = await tx.user.findUnique({ where: { id }, select: { role: true, archivedAt: true } })
-      if (!current || current.archivedAt) throw new TargetGoneError("User not found")
-      if (current.role === UserRole.ADMIN && parsed.data.role !== UserRole.ADMIN) {
-        await assertNotLastAdmin(tx, id, "Cannot remove the last administrator")
-      }
-      await tx.user.update({ where: { id }, data })
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    await prisma.$transaction(
+      (tx) => applyUserUpdate(tx, id, parsed.data.role, data),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
   } catch (e) {
-    if (e instanceof TargetGoneError) return { error: e.message }
-    if (e instanceof LastAdminError) return { error: e.message }
-    if (isP2002(e)) return { error: "Email already in use" }
-    if (isP2034(e)) {
-      return { error: "Cannot remove the last administrator — please try again." }
-    }
+    const message = updateUserErrorMessage(e)
+    if (message) return { error: message }
     throw e
   }
   if (parsed.data.password) {

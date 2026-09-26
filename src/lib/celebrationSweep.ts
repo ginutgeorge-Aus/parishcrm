@@ -55,6 +55,59 @@ export async function sendDueCelebrations(
   return { status: 200, body: { birthdays, anniversaries } }
 }
 
+type BirthdayCandidateRow = {
+  id: number
+  firstName: string
+  lastName: string
+  dateOfBirth: string | null
+  email: string | null
+  emailConsent: boolean
+  gender: BirthdayPerson["gender"]
+  family: BirthdayPerson["family"]
+}
+
+// Decrypts one candidate row into a BirthdayPerson, or null when it can't be
+// used (no DOB, undecryptable field, or a garbage decrypted date). Split out
+// of the per-row try/catch below — one corrupt/legacy ciphertext must not
+// abort the batch for everyone. Mirrors the manual bulk send exactly.
+function toBirthdayPersonOrNull(p: BirthdayCandidateRow): BirthdayPerson | null {
+  if (!p.dateOfBirth) return null
+  try {
+    const dateOfBirth = new Date(decrypt(p.dateOfBirth))
+    if (Number.isNaN(dateOfBirth.getTime())) return null
+    return {
+      id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth,
+      email: p.email ? decrypt(p.email) : null, emailConsent: p.emailConsent,
+      gender: p.gender, family: p.family,
+    }
+  } catch {
+    logger.error("[celebration] skipped a member with an undecryptable field (run the rotation/backfill script to repair)")
+    return null
+  }
+}
+
+// Attempts to send one person's due birthday email under the atomic delivery
+// claim. Returns which bucket the attempt landed in so the caller just tallies.
+async function sendCelebrationBirthday(
+  p: BirthdayPerson,
+  template: Awaited<ReturnType<typeof readBirthdayTemplate>>,
+  churchName: string,
+  sendDate: string,
+): Promise<"sent" | "skipped" | "failed"> {
+  if (!p.emailConsent || !p.email) return "skipped"
+  // Atomic claim BEFORE sending — see claimCelebrationSend. A false
+  // return means another invocation already holds or resolved today's slot
+  // for this person; this invocation must not send.
+  const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
+  if (!claimed) return "skipped"
+  const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
+  if (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) {
+    await logAudit(null, BIRTHDAY_ACTION, "Person", p.id)
+    return "sent"
+  }
+  return "failed"
+}
+
 async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> {
   const rows = await prisma.person.findMany({
     where: { dateOfBirth: { not: null }, archivedAt: null },
@@ -64,22 +117,10 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
     },
   })
 
-  // Decrypt per-row in try/catch — one corrupt/legacy ciphertext must not abort
-  // the batch for everyone. Mirror the manual bulk send exactly.
   const people: BirthdayPerson[] = []
   for (const p of rows) {
-    if (!p.dateOfBirth) continue
-    try {
-      const dateOfBirth = new Date(decrypt(p.dateOfBirth))
-      if (Number.isNaN(dateOfBirth.getTime())) continue
-      people.push({
-        id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth,
-        email: p.email ? decrypt(p.email) : null, emailConsent: p.emailConsent,
-        gender: p.gender, family: p.family,
-      })
-    } catch {
-      logger.error("[celebration] skipped a member with an undecryptable field (run the rotation/backfill script to repair)")
-    }
+    const person = toBirthdayPersonOrNull(p)
+    if (person) people.push(person)
   }
 
   const due = upcomingBirthdays(people, 0, today)
@@ -88,17 +129,10 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
 
   let sent = 0, skipped = 0, failed = 0
   for (const p of due) {
-    if (!p.emailConsent || !p.email) { skipped++; continue }
-    // Atomic claim BEFORE sending — see claimCelebrationSend. A false
-    // return means another invocation already holds or resolved today's slot
-    // for this person; this invocation must not send.
-    const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
-    if (!claimed) { skipped++; continue }
-    const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
-    if (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) {
-      await logAudit(null, BIRTHDAY_ACTION, "Person", p.id)
-      sent++
-    } else failed++
+    const result = await sendCelebrationBirthday(p, template, churchName, sendDate)
+    if (result === "sent") sent++
+    else if (result === "skipped") skipped++
+    else failed++
   }
   // Total-failure signal: the birthday window is exact-day-only, so a
   // failed send is never retried. If every attempted send failed (likely an SMTP

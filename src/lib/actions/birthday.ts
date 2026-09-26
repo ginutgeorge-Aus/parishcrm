@@ -55,6 +55,69 @@ export async function sendBirthdayEmail(personId: number): Promise<ActionResultW
   return { success: `Birthday email sent to ${person.firstName}` }
 }
 
+type BirthdayCandidateRow = {
+  id: number
+  firstName: string
+  lastName: string
+  dateOfBirth: string | null
+  email: string | null
+  emailConsent: boolean
+  gender: BirthdayPerson["gender"]
+  family: BirthdayPerson["family"]
+}
+
+// Decrypts one candidate row into a BirthdayPerson, or null when it can't be
+// used (no DOB, undecryptable field, or a garbage decrypted date). A single
+// corrupt/legacy ciphertext must not abort the whole batch for everyone.
+function toBirthdayPersonOrNull(p: BirthdayCandidateRow): BirthdayPerson | null {
+  // The where clause filters `dateOfBirth: { not: null }`, but the Prisma
+  // select types it `string | null`. Guard explicitly instead of casting so a
+  // null never reaches decrypt() (which would throw / return garbage).
+  if (!p.dateOfBirth) return null
+  try {
+    const dateOfBirth = new Date(decrypt(p.dateOfBirth))
+    // A decrypt that returns non-date text yields an Invalid Date that would
+    // poison the whole window calc/sort. Skip the record.
+    if (Number.isNaN(dateOfBirth.getTime())) return null
+    return {
+      id: p.id,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      dateOfBirth,
+      email: p.email ? decrypt(p.email) : null,
+      emailConsent: p.emailConsent,
+      gender: p.gender,
+      family: p.family,
+    }
+  } catch {
+    // Skip — but do NOT log the member id or the raw exception: this stdout is
+    // readable by anyone with log access and would couple a member identifier
+    // with the failure. Repair undecryptable rows via the rotation /
+    // encrypt-* backfill scripts, not by reading logs.
+    logger.error("[birthday] skipped a member with an undecryptable field (run the rotation/backfill script to repair)")
+    return null
+  }
+}
+
+// Attempts to send one due person's bulk birthday email under the atomic
+// delivery claim shared with the cron sweep and the single-recipient send.
+// Returns which bucket the attempt landed in so the caller just tallies.
+async function sendBulkBirthdayEmail(
+  p: BirthdayPerson,
+  template: Awaited<ReturnType<typeof getBirthdayTemplate>>,
+  churchName: string,
+  sendDate: string,
+): Promise<"sent" | "skipped" | "failed"> {
+  if (!p.emailConsent || !p.email) return "skipped"
+  // Atomic delivery reservation, shared with the cron sweep and the
+  // single-recipient send — a person is never emailed twice on the same
+  // Sydney day regardless of which path triggers it.
+  const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
+  if (!claimed) return "skipped"
+  const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
+  return (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) ? "sent" : "failed"
+}
+
 export async function sendBirthdayEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {
@@ -72,37 +135,10 @@ export async function sendBirthdayEmailsBulk(
     },
   })
 
-  // Decrypt per-row inside try/catch — a single corrupt/legacy ciphertext must
-  // not throw out of the .map() and abort the whole batch for everyone.
-  // Send errors are already caught per-row below; decrypt errors need the same.
   const people: BirthdayPerson[] = []
   for (const p of rows) {
-    // The where clause filters `dateOfBirth: { not: null }`, but the Prisma
-    // select types it `string | null`. Guard explicitly instead of casting so a
-    // null never reaches decrypt() (which would throw / return garbage).
-    if (!p.dateOfBirth) continue
-    try {
-      const dateOfBirth = new Date(decrypt(p.dateOfBirth))
-      // A decrypt that returns non-date text yields an Invalid Date that would
-      // poison the whole window calc/sort. Skip the record.
-      if (Number.isNaN(dateOfBirth.getTime())) continue
-      people.push({
-        id: p.id,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        dateOfBirth,
-        email: p.email ? decrypt(p.email) : null,
-        emailConsent: p.emailConsent,
-        gender: p.gender,
-        family: p.family,
-      })
-    } catch {
-      // Skip — but do NOT log the member id or the raw exception: this stdout is
-      // readable by anyone with log access and would couple a member identifier
-      // with the failure. Repair undecryptable rows via the rotation /
-      // encrypt-* backfill scripts, not by reading logs.
-      logger.error("[birthday] skipped a member with an undecryptable field (run the rotation/backfill script to repair)")
-    }
+    const person = toBirthdayPersonOrNull(p)
+    if (person) people.push(person)
   }
 
   const upcoming = upcomingBirthdays(people, windowDays, sydneyToday())
@@ -114,20 +150,9 @@ export async function sendBirthdayEmailsBulk(
   let failed = 0
   let skipped = 0
   for (const p of upcoming) {
-    if (!p.emailConsent || !p.email) {
-      skipped++
-      continue
-    }
-    // Atomic delivery reservation, shared with the cron sweep and the
-    // single-recipient send — a person is never emailed twice on the same
-    // Sydney day regardless of which path triggers it.
-    const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
-    if (!claimed) {
-      skipped++
-      continue
-    }
-    const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
-    if (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) sent++
+    const result = await sendBulkBirthdayEmail(p, template, churchName, sendDate)
+    if (result === "sent") sent++
+    else if (result === "skipped") skipped++
     else failed++
   }
 

@@ -91,6 +91,12 @@ export function overseasFieldLabels(p: MembershipPayload, s: OverseasLabels): { 
   }
 }
 
+// One "Relatives in Australia" line: name plus whichever of place/relationship/
+// contact were supplied.
+function formatRelativeLine(r: { name: string; place: string | null; relationship: string | null; phoneEmail: string | null }): string {
+  return `  - ${r.name}${r.place ? `, ${r.place}` : ""}${r.relationship ? ` (${r.relationship})` : ""}${r.phoneEmail ? ` — ${r.phoneEmail}` : ""}`
+}
+
 export function buildNotesBlock(p: MembershipPayload, labels: OverseasLabels): string {
   const L: string[] = ["--- Membership form (intake) ---"]
   const pe = p.personal
@@ -102,7 +108,7 @@ export function buildNotesBlock(p: MembershipPayload, labels: OverseasLabels): s
   if (p.spouse?.parish) L.push(`Spouse's church: ${p.spouse.parish}`)
   if (p.relativesInAustralia.length) {
     L.push("Relatives in Australia:")
-    for (const r of p.relativesInAustralia) L.push(`  - ${r.name}${r.place ? `, ${r.place}` : ""}${r.relationship ? ` (${r.relationship})` : ""}${r.phoneEmail ? ` — ${r.phoneEmail}` : ""}`)
+    for (const r of p.relativesInAustralia) L.push(formatRelativeLine(r))
   }
   return L.join("\n")
 }

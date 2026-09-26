@@ -81,6 +81,58 @@ function buildReceiptData(
   }
 }
 
+// Consent gate for the single-send path: mirrors sendBatchReceipts — an
+// opted-out recipient must not receive a receipt regardless of which send
+// path (single vs batch) is used. Returns the block reason, or null when the
+// send may proceed.
+function checkSingleReceiptConsent(
+  tx: {
+    person: { emailConsent: boolean } | null
+    family: { people: { email: string | null; emailConsent: boolean }[] } | null
+  },
+  toEmail: string
+): string | null {
+  const consentBlocked = "Recipient has not consented to email receipts"
+  if (tx.person && tx.person.emailConsent === false) {
+    return consentBlocked
+  }
+  if (!tx.person && tx.family) {
+    const member = tx.family.people?.find((p) => {
+      if (!p.email) return false
+      try {
+        return decrypt(p.email).toLowerCase() === toEmail.toLowerCase()
+      } catch {
+        // Corrupt/legacy member ciphertext can't be compared — treat as no-match.
+        return false
+      }
+    })
+    if (member && member.emailConsent === false) {
+      return consentBlocked
+    }
+  }
+  return null
+}
+
+// Debounce: if an identical SUCCESS send to this recipient landed in the
+// last few seconds, skip the resend. sentTo is encrypted with a random IV, so it
+// can't be matched with a WHERE clause — decrypt the small recent set and compare.
+//
+// Residual race (best-effort): this check-then-send is NOT atomic — two
+// concurrent requests for the same transaction+recipient can both pass this
+// check before either has written a SUCCESS row, and both deliver the email.
+// Running the check as late as possible (right before the send, after the
+// church-settings/data-build work above) minimizes — but cannot eliminate —
+// that window. A real fix needs a deterministic recipient key (e.g. an HMAC
+// hash column with a DB `@@unique`) so the database itself rejects the
+// duplicate; that's a schema migration and is intentionally out of scope here.
+async function wasReceiptRecentlySent(transactionId: number, toEmail: string): Promise<boolean> {
+  const recent = await prisma.receiptSend.findMany({
+    where: { transactionId, status: "SUCCESS", sentAt: { gte: new Date(Date.now() - RECEIPT_DEBOUNCE_MS) } },
+    select: { sentTo: true },
+  })
+  return recent.some((r) => safeDecrypt(r.sentTo).toLowerCase() === toEmail.toLowerCase())
+}
+
 export async function sendSingleReceipt(
   transactionId: number,
   toEmail: string
@@ -102,49 +154,15 @@ export async function sendSingleReceipt(
 
   const sentById = actorId(session)
 
-  // Consent gate: mirrors sendBatchReceipts — an opted-out recipient must
-  // not receive a receipt regardless of which send path (single vs batch) is used.
-  const consentBlocked = "Recipient has not consented to email receipts"
-  if (tx.person && tx.person.emailConsent === false) {
-    return { error: consentBlocked }
-  }
-  if (!tx.person && tx.family) {
-    const member = tx.family.people?.find((p) => {
-      if (!p.email) return false
-      try {
-        return decrypt(p.email).toLowerCase() === toEmail.toLowerCase()
-      } catch {
-        // Corrupt/legacy member ciphertext can't be compared — treat as no-match.
-        return false
-      }
-    })
-    if (member && member.emailConsent === false) {
-      return { error: consentBlocked }
-    }
-  }
+  const consentError = checkSingleReceiptConsent(tx, toEmail)
+  if (consentError) return { error: consentError }
 
   const churchRes = await getChurchSettingsForReceipt()
   if ("error" in churchRes) return { error: churchRes.error }
   const church = churchRes.church
   const data = buildReceiptData(tx, church)
 
-  // Debounce: if an identical SUCCESS send to this recipient landed in the
-  // last few seconds, skip the resend. sentTo is encrypted with a random IV, so it
-  // can't be matched with a WHERE clause — decrypt the small recent set and compare.
-  //
-  // Residual race (best-effort): this check-then-send is NOT atomic — two
-  // concurrent requests for the same transaction+recipient can both pass this
-  // check before either has written a SUCCESS row, and both deliver the email.
-  // Running the check as late as possible (right before the send, after the
-  // church-settings/data-build work above) minimizes — but cannot eliminate —
-  // that window. A real fix needs a deterministic recipient key (e.g. an HMAC
-  // hash column with a DB `@@unique`) so the database itself rejects the
-  // duplicate; that's a schema migration and is intentionally out of scope here.
-  const recent = await prisma.receiptSend.findMany({
-    where: { transactionId, status: "SUCCESS", sentAt: { gte: new Date(Date.now() - RECEIPT_DEBOUNCE_MS) } },
-    select: { sentTo: true },
-  })
-  if (recent.some((r) => safeDecrypt(r.sentTo).toLowerCase() === toEmail.toLowerCase())) {
+  if (await wasReceiptRecentlySent(transactionId, toEmail)) {
     return { success: `Receipt already sent to ${toEmail}` }
   }
 

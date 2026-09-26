@@ -76,6 +76,42 @@ export async function previewImport(formData: FormData): Promise<PreviewResult> 
 
 export type CommitResult = { error: string } | { success: string }
 
+// Shared csv-size/parse/empty guard for commitImport (previewImport keeps its
+// own inline copy — not touched here to keep this change scoped).
+function parseImportRows(csv: string): { error: string } | { rows: ReturnType<typeof parseRows> } {
+  if (csv.length > 2 * 1024 * 1024) return { error: "File too large (max 2MB)" }
+  let parsed: ReturnType<typeof parseRows>
+  try {
+    parsed = parseRows(csv)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Parse error" }
+  }
+  if (parsed.length === 0) return { error: "No data rows" }
+  return { rows: parsed }
+}
+
+// Period lock: the whole import is rejected if any row is dated on/before the
+// lock date — same gate as the single-entry and bank-import write paths. Row
+// dates are Date at UTC midnight (resolveRows), matching the lock's anchor.
+async function findLockedRowsMessage(rows: ResolvedRow[]): Promise<string | null> {
+  const lockDate = await getAccountingLockDate()
+  if (lockDate && rows.some((r) => isDateLocked(r.date!, lockDate)))
+    return `One or more rows fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.`
+  return null
+}
+
+// Validates client-supplied donor overrides against ACTIVE people — the
+// single-entry createReceipt rejects unknown/archived donors, so the import
+// path must too (else a bogus or archived personId would be linked).
+async function findInvalidDonorOverrideMessage(overrides: Record<string, number | null>): Promise<string | null> {
+  const overrideIds = [...new Set(Object.values(overrides).filter((v): v is number => typeof v === "number" && v > 0))]
+  if (!overrideIds.length) return null
+  const valid = await prisma.person.findMany({ where: { id: { in: overrideIds }, archivedAt: null }, select: { id: true } })
+  const validSet = new Set(valid.map((p) => p.id))
+  const bad = overrideIds.filter((id) => !validSet.has(id))
+  return bad.length ? `Invalid donor selection: ${bad.join(", ")}` : null
+}
+
 export async function commitImport(formData: FormData): Promise<CommitResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -86,14 +122,9 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   if (!isValidPgId(custodianId)) return { error: "Select a custodian" }
 
   const csv = String(formData.get("csv") ?? "")
-  if (csv.length > 2 * 1024 * 1024) return { error: "File too large (max 2MB)" }
-  let parsed: ReturnType<typeof parseRows>
-  try {
-    parsed = parseRows(csv)
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Parse error" }
-  }
-  if (parsed.length === 0) return { error: "No data rows" }
+  const parsedRows = parseImportRows(csv)
+  if ("error" in parsedRows) return { error: parsedRows.error }
+  const parsed = parsedRows.rows
 
   // Single accounts/people fetch shared by row resolution and the ledger
   // account-name map below — previewImport used to re-run both.
@@ -109,12 +140,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   if (hardErrorCount > 0)
     return { error: `${hardErrorCount} row(s) have errors — fix the CSV and retry` }
 
-  // Period lock: reject the whole import if any row is dated on/before the
-  // lock date — same gate as the single-entry and bank-import write paths. Row
-  // dates are Date at UTC midnight (resolveRows), matching the lock's anchor.
-  const lockDate = await getAccountingLockDate()
-  if (lockDate && rows.some((r) => isDateLocked(r.date!, lockDate)))
-    return { error: `One or more rows fall in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}). Adjust the lock date or exclude those rows.` }
+  const lockedMessage = await findLockedRowsMessage(rows)
+  if (lockedMessage) return { error: lockedMessage }
 
   let overrides: Record<string, number | null> = {}
   try { overrides = JSON.parse(String(formData.get("donorOverrides") ?? "{}")) } catch { /* ignore */ }
@@ -124,16 +151,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   const custodian = await prisma.person.findFirst({ where: { id: custodianId, archivedAt: null }, select: { id: true } })
   if (!custodian) return { error: "Custodian not found" }
 
-  // Validate client-supplied donor overrides against ACTIVE people — the
-  // single-entry createReceipt rejects unknown/archived donors, so the import
-  // path must too (else a bogus or archived personId would be linked).
-  const overrideIds = [...new Set(Object.values(overrides).filter((v): v is number => typeof v === "number" && v > 0))]
-  if (overrideIds.length) {
-    const valid = await prisma.person.findMany({ where: { id: { in: overrideIds }, archivedAt: null }, select: { id: true } })
-    const validSet = new Set(valid.map((p) => p.id))
-    const bad = overrideIds.filter((id) => !validSet.has(id))
-    if (bad.length) return { error: `Invalid donor selection: ${bad.join(", ")}` }
-  }
+  const donorOverrideError = await findInvalidDonorOverrideMessage(overrides)
+  if (donorOverrideError) return { error: donorOverrideError }
 
   // Account names for the encrypted ledger description (reuses the fetch above).
   const accountName = new Map(accounts.map((a) => [a.id, a.name]))
