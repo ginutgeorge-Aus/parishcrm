@@ -242,18 +242,18 @@ function tryParseAnzAmountLine(line: string): AnzAmountMatch | null {
   if (wdOnly) return { desc: null, amountStr: amountMagnitude(wdOnly[1]), balance: parseBalance(wdOnly[2]), explicitType: "EXPENSE" }
   // "blank" format — deposit inline: "DESCRIPTION blank 60.00 51,768.94"
   const inlineDep = line.match(INLINE_DEPOSIT_RE)
-  if (inlineDep && inlineDep[1].trim())
+  if (inlineDep?.[1].trim())
     return { desc: inlineDep[1].trim(), amountStr: amountMagnitude(inlineDep[2]), balance: parseBalance(inlineDep[3]), explicitType: "INCOME" }
   // "blank" format — withdrawal inline: "DESCRIPTION 6,000.00 blank 46,793.04"
   const inlineWd = line.match(INLINE_WITHDRAWAL_RE)
-  if (inlineWd && inlineWd[1].trim())
+  if (inlineWd?.[1].trim())
     return { desc: inlineWd[1].trim(), amountStr: amountMagnitude(inlineWd[2]), balance: parseBalance(inlineWd[3]), explicitType: "EXPENSE" }
   // Legacy format — exactly two amounts: "60.00 51,768.94"
   const exact = line.match(TWO_AMOUNTS_ONLY_RE)
   if (exact) return { desc: null, amountStr: amountMagnitude(exact[1]), balance: parseBalance(exact[2]), explicitType: null }
   // Legacy format — inline: "PAYMENT FROM JACK 60.00 51,768.94"
   const inline = line.match(ENDS_WITH_TWO_AMOUNTS_RE)
-  if (inline && inline[1].trim()) return { desc: inline[1].trim(), amountStr: amountMagnitude(inline[2]), balance: parseBalance(inline[3]), explicitType: null }
+  if (inline?.[1].trim()) return { desc: inline[1].trim(), amountStr: amountMagnitude(inline[2]), balance: parseBalance(inline[3]), explicitType: null }
   return null
 }
 

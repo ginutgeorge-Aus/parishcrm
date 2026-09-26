@@ -94,7 +94,7 @@ async function getFamilyGiving(familyId: number, canView: boolean) {
 
 type GivingTxn = Awaited<ReturnType<typeof getFamilyGiving>>["byYear"][number][number]
 
-function LastUpdateLine({ lastUpdate }: { lastUpdate: Awaited<ReturnType<typeof getFamilyLastUpdate>> }) {
+function LastUpdateLine({ lastUpdate }: Readonly<{ lastUpdate: Awaited<ReturnType<typeof getFamilyLastUpdate>> }>) {
   if (!lastUpdate) return null
   return (
     <p className="text-sm text-muted-foreground mt-1">
@@ -118,13 +118,13 @@ function FamilyActionButtons({
   userCanEdit,
   userIsAdmin,
   primaryEmail,
-}: {
+}: Readonly<{
   familyId: number
   memberCount: number
   userCanEdit: boolean
   userIsAdmin: boolean
   primaryEmail: string
-}) {
+}>) {
   return (
     <div className="flex flex-wrap gap-2 print:hidden">
       <PrintButton />
@@ -143,7 +143,7 @@ function FamilyActionButtons({
   )
 }
 
-function PendingUpdateBanner({ submissionId }: { submissionId: number }) {
+function PendingUpdateBanner({ submissionId }: Readonly<{ submissionId: number }>) {
   return (
     <div className="rounded-md bg-warning/10 border border-warning/40 px-4 py-3 text-sm text-warning print:hidden">
       This family submitted updates awaiting review.{" "}
@@ -152,7 +152,7 @@ function PendingUpdateBanner({ submissionId }: { submissionId: number }) {
   )
 }
 
-function FamilyInfoCard({ family }: { family: DisplayFamily }) {
+function FamilyInfoCard({ family }: Readonly<{ family: DisplayFamily }>) {
   return (
     <Card>
       <CardHeader>
@@ -208,11 +208,11 @@ function MembersSection({
   familyId,
   people,
   userCanEdit,
-}: {
+}: Readonly<{
   familyId: number
   people: DisplayFamily["people"]
   userCanEdit: boolean
-}) {
+}>) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -260,11 +260,11 @@ function GivingYearTable({
   year,
   transactions,
   userCanEditGiving,
-}: {
+}: Readonly<{
   year: number
   transactions: GivingTxn[]
   userCanEditGiving: boolean
-}) {
+}>) {
   // Sum in integer cents, matching person/[id] and giving/page —
   // float addition of Decimal amounts risks precision drift.
   const total = centsToNumber(sumCents(transactions.map((t) => t.amount)))
@@ -321,12 +321,12 @@ function GivingHistoryCard({
   byYear,
   years,
   userCanEditGiving,
-}: {
+}: Readonly<{
   familyId: number
   byYear: Record<number, GivingTxn[]>
   years: number[]
   userCanEditGiving: boolean
-}) {
+}>) {
   return (
     <Card>
       <CardHeader>
