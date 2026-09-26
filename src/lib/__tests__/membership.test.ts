@@ -77,8 +77,13 @@ it("notes block includes India address, mother parish, relatives", () => {
   const n = buildNotesBlock(base as never, { homeAddressLabel: "Address in India", arrivalDateLabel: "" })
   expect(n).toContain("Address in India: Chennai")
   expect(n).toContain("Relatives in Australia")
-  expect(n).toContain("Sam")
+  expect(n).toContain("  - Sam, Sydney (Brother) — sam@x.com")
   expect(n).toContain("Spouse's church: Grace")
+})
+it("notes block omits unavailable relative details", () => {
+  const p = { ...base, relativesInAustralia: [{ name: "Lee", place: null, relationship: null, phoneEmail: null }] }
+  const n = buildNotesBlock(p as never, { homeAddressLabel: "Address in India", arrivalDateLabel: "" })
+  expect(n).toMatch(/^  - Lee$/m)
 })
 it("notes block falls back to generic overseas labels when unconfigured", () => {
   const n = buildNotesBlock(base as never, { homeAddressLabel: "", arrivalDateLabel: "" })
