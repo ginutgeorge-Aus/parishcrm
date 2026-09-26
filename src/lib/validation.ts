@@ -35,7 +35,7 @@ export function isRealCalendarDate(ymd: string): boolean {
 // matching each caller's existing `where: seenAt ? { id, updatedAt: seenAt } : { id }`.
 export function parseOptimisticUpdatedAt(formData: FormData): Date | null {
   const seenRaw = formData.get("updatedAt")
-  return typeof seenRaw === "string" && seenRaw && !isNaN(Date.parse(seenRaw)) ? new Date(seenRaw) : null
+  return typeof seenRaw === "string" && seenRaw && !Number.isNaN(Date.parse(seenRaw)) ? new Date(seenRaw) : null
 }
 
 // Shared "possible duplicate" check for manually-keyed ledger entries
@@ -83,6 +83,14 @@ export function isValidEmail(email: string): boolean {
 // (security.md route-param checklist).
 export function isValidPgId(id: number): boolean {
   return Number.isInteger(id) && id > 0 && id <= 2147483647
+}
+
+// Parse a route/query id param. Digits only — "12abc" or "1.5" is rejected
+// rather than coerced to 12 / passed through as a float. Null when invalid.
+export function parseRouteId(raw: string | null | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null
+  const id = Number(raw)
+  return isValidPgId(id) ? id : null
 }
 
 // Reject a P2002 (unique constraint) error from a Prisma write — used to retry

@@ -10,7 +10,7 @@ export const TransactionSchema = z.object({
     // Zod does not validate transform output, so a malformed string ("foo",
     // "2026-99-01") yields an Invalid Date that would reach Prisma and throw an
     // unhandled 500 on the DateTime column. Reject it here.
-    .refine((d) => !isNaN(d.getTime()), "Invalid date"),
+    .refine((d) => !Number.isNaN(d.getTime()), "Invalid date"),
   description: z.string().min(1, "Description is required").max(1000),
   accountId: z.string().min(1, "Category is required").transform((v) => Number(v)),
   type: z.enum(["INCOME", "EXPENSE"]),
@@ -23,11 +23,11 @@ export const TransactionSchema = z.object({
     // artifacts (e.g. 10.99 → 10.989999…), corrupting balance/reconciliation math.
     // Same pattern as reconciliation.ts and petty-cash openingBalance.
     .regex(MONEY_DECIMAL_RE, "Amount must be positive")
-    .refine((v) => parseFloat(v) > 0, "Amount must be positive")
+    .refine((v) => Number.parseFloat(v) > 0, "Amount must be positive")
     // The 15-char cap is not a magnitude bound — "1000000000.00" passes it yet
     // overflows the Decimal(10,2) column and 500s at Prisma. Bound it like
     // reconciliation.ts's closingBalance.
-    .refine((v) => parseFloat(v) <= 99_999_999.99, "Amount too large"),
+    .refine((v) => Number.parseFloat(v) <= 99_999_999.99, "Amount too large"),
   // CASH-kind accounts excluded (enforced in transaction.ts's
   // validatePaymentAccount): PETTY_CASH ledger rows are created only by the
   // petty-cash actions (mirrored, FK-linked). A manual entry against the cash

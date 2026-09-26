@@ -23,7 +23,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 function parseDate(s: string | undefined): Date | null {
   if (!s || !ISO_DATE.test(s)) return null
   const d = new Date(s)
-  return isNaN(d.getTime()) ? null : d
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 // UTC getters throughout — the rest of the accounting pages read/display dates in
@@ -50,7 +50,7 @@ export default async function ReconciliationPage(props: {
 
   // Reports show all accounts (incl. deactivated-with-history), not just active ones.
   const accounts = await getPaymentAccounts({ activeOnly: false })
-  const parsedAccountId = searchParams.paymentAccount ? parseInt(searchParams.paymentAccount, 10) : NaN
+  const parsedAccountId = searchParams.paymentAccount ? Number.parseInt(searchParams.paymentAccount, 10) : Number.NaN
   const selectedAccount =
     accounts.find((a) => a.id === parsedAccountId) ??
     accounts.find((a) => a.kind === "BANK") ??

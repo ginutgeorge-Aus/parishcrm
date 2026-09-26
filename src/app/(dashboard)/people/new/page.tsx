@@ -25,7 +25,7 @@ export default async function NewPersonPage() {
   async function goToFamily(formData: FormData): Promise<void> {
     "use server"
     const raw = formData.get("familyId")
-    const id = parseInt(String(raw), 10)
+    const id = Number.parseInt(String(raw), 10)
     if (!Number.isFinite(id) || id <= 0) return
     redirect(`/families/${id}/people/new`)
   }

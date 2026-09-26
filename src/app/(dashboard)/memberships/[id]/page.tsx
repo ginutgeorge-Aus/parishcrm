@@ -10,6 +10,7 @@ import { findMembershipMatches } from "@/lib/actions/membership"
 import { MEMBERSHIP_STATUS_LABELS } from "@/lib/membershipLabels"
 import { ReviewPanel } from "./ReviewPanel"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null
@@ -27,8 +28,8 @@ export default async function MembershipDetailPage({ params }: { params: Promise
   if (!canEdit(session.user.role)) redirect("/")
 
   const { id: idStr } = await params
-  const id = parseInt(idStr, 10)
-  if (isNaN(id) || id <= 0) notFound()
+  const id = parseRouteId(idStr)
+  if (id === null) notFound()
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) notFound()

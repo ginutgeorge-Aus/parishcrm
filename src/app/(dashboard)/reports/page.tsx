@@ -25,7 +25,7 @@ export default async function ReportsPage() {
   const session = await auth()
   if (!session?.user) redirect("/login")
 
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   // Refresh open reports' status from GitHub before rendering (lazy on-load sync).
   await syncMyReports()
 

@@ -66,7 +66,7 @@ export async function trustDevice(): Promise<{ success: true } | { error: string
 
 export async function revokeTrustedDevice(id: string): Promise<{ success: true } | { error: string }> {
   const session = await auth()
-  const userId = session?.user?.id ? parseInt(session.user.id, 10) : NaN
+  const userId = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
   if (!isValidPgId(userId)) return { error: "Unauthorized" }
   // Bound the client-supplied id before the query (project convention: bound all
   // inputs). cuid ids are short; reject anything implausibly long. The userId
@@ -81,7 +81,7 @@ export async function listTrustedDevices(): Promise<
   Array<{ id: string; label: string | null; createdAt: Date; lastUsedAt: Date }>
 > {
   const session = await auth()
-  const userId = session?.user?.id ? parseInt(session.user.id, 10) : NaN
+  const userId = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
   if (!isValidPgId(userId)) return []
   return prisma.trustedDevice.findMany({
     where: { userId, NOT: { tokenHash: { startsWith: DEVICE_TRUST_GRANT_PREFIX } } },

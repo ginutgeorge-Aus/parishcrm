@@ -36,7 +36,7 @@ export type BudgetVsActualData = {
  */
 export function resolveBudgetYear(rawYear: string | undefined): number {
   const fyNow = currentFYYear()
-  const parsed = parseInt(rawYear ?? String(fyNow), 10)
+  const parsed = Number.parseInt(rawYear ?? String(fyNow), 10)
   return parsed >= 2000 && parsed <= 2100 ? parsed : fyNow
 }
 

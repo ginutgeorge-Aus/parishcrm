@@ -4,14 +4,15 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { updateFund } from "@/lib/actions/fund"
 import { FundForm } from "@/components/accounting/FundForm"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditFundPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/settings/funds")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const fund = await prisma.fund.findUnique({ where: { id } })
   if (!fund) notFound()

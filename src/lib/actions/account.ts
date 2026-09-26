@@ -29,7 +29,7 @@ async function nextCode(type: "INCOME" | "EXPENSE"): Promise<string> {
   })
   const base = type === "INCOME" ? 4000 : 5000
   const max = accounts
-    .map((a) => parseInt(a.code, 10))
+    .map((a) => Number.parseInt(a.code, 10))
     .filter((n) => !Number.isNaN(n))
     .reduce((m, n) => Math.max(m, n), base)
   return String(max + 1)

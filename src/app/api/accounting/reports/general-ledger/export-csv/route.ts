@@ -10,6 +10,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { generateGeneralLedgerCsv, withRunningBalance } from "@/lib/generalLedgerExport"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { parseRouteId } from "@/lib/validation"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -33,8 +34,8 @@ export async function GET(req: NextRequest) {
   const year = parsedYear
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
-  const accountId = parseInt(sp.get("account") ?? "", 10)
-  if (isNaN(accountId) || accountId <= 0 || accountId > 2147483647) {
+  const accountId = parseRouteId(sp.get("account") ?? "")
+  if (accountId === null) {
     return NextResponse.json({ error: "Invalid account" }, { status: 400 })
   }
 

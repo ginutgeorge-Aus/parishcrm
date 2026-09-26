@@ -170,7 +170,7 @@ export function MembershipForm({
     e.preventDefault()
     setError(null)
 
-    const amount = parseFloat(subscription)
+    const amount = Number.parseFloat(subscription)
     if (!name || !email || !address || !suburb || !state || !postcode) {
       setError("Please complete your name, email, and full residential address.")
       focusFirstInvalidField(e.currentTarget)

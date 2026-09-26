@@ -42,7 +42,7 @@ export function GeneralLedgerControls({
         aria-label="Account"
         className={selectClass}
         value={accountId ?? ""}
-        onChange={(e) => push({ accountId: e.target.value ? parseInt(e.target.value, 10) : null })}
+        onChange={(e) => push({ accountId: e.target.value ? Number.parseInt(e.target.value, 10) : null })}
       >
         <option value="">Select account…</option>
         {accounts.map((a) => (
@@ -55,7 +55,7 @@ export function GeneralLedgerControls({
         aria-label="Financial year"
         className={selectClass}
         value={year}
-        onChange={(e) => push({ year: parseInt(e.target.value, 10) })}
+        onChange={(e) => push({ year: Number.parseInt(e.target.value, 10) })}
       >
         {years.map((y) => (
           <option key={y} value={y}>

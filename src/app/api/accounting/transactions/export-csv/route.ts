@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   function parseId(s: string | null): number | null | undefined {
     if (s === null) return undefined
     if (!ID.test(s)) return null
-    const n = parseInt(s, 10)
+    const n = Number.parseInt(s, 10)
     return n <= 0 || n > 2147483647 ? null : n
   }
 

@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GivingTrendChartLazy } from "@/components/accounting/GivingTrendChartLazy"
 import { currentFYYear } from "@/lib/fiscalYear"
 import { MONTH_ABBR, toCents, centsToNumber, sumCents, fmtAUD } from "@/lib/formatting"
+import { parseRouteId } from "@/lib/validation"
 
 // FY month order: Jul–Jun (calendar month indexes). Module-level so it isn't
 // rebuilt per request.
@@ -35,8 +36,8 @@ export default async function FamilyGivingPage(props: Props) {
   if (!session) redirect("/login")
   if (!canViewAccounting(session.user.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const family = await prisma.family.findUnique({
     where: { id },
@@ -47,7 +48,7 @@ export default async function FamilyGivingPage(props: Props) {
   if (!family || family.archivedAt) notFound()
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
   const fyStart = new Date(`${year}-07-01`)

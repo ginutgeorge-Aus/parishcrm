@@ -89,7 +89,7 @@ export default async function SettingsPage() {
         <AppSettingsForm
           ownerNotificationEmail={get("ownerNotificationEmail")}
           membershipSecretaryEmail={get("membershipSecretaryEmail")}
-          idleTimeoutMinutes={parseInt(get("SESSION_IDLE_TIMEOUT_MINUTES") || "60", 10) || 60}
+          idleTimeoutMinutes={Number.parseInt(get("SESSION_IDLE_TIMEOUT_MINUTES") || "60", 10) || 60}
           cardFeePercent={get("cardFeePercent") || "1.7"}
           cardFeeFixed={get("cardFeeFixed") || "0.30"}
         />

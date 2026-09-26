@@ -7,6 +7,7 @@ import { updateReceipt } from "@/lib/actions/pettyCashReceipt"
 import { getActiveFunds } from "@/lib/actions/fund"
 import { ReceiptForm } from "@/components/petty-cash/ReceiptForm"
 import { safeDecrypt } from "@/lib/crypto"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditReceiptPage(props: {
   params: Promise<{ id: string; receiptId: string }>
@@ -16,10 +17,10 @@ export default async function EditReceiptPage(props: {
   // canAccessAccounting matches createReceipt + updateReceipt action (/AUDIT-033).
   if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
 
-  const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
-  const receiptId = Number(params.receiptId)
-  if (isNaN(receiptId) || receiptId <= 0 || receiptId > 2147483647) notFound()
+  const sessionId = parseRouteId(params.id)
+  if (sessionId === null) notFound()
+  const receiptId = parseRouteId(params.receiptId)
+  if (receiptId === null) notFound()
   const receipt = await prisma.pettyCashReceipt.findUnique({
     where: { id: receiptId },
     include: { session: { select: { id: true, title: true, status: true } } },

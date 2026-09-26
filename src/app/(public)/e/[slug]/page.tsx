@@ -41,7 +41,7 @@ export default async function PublicEventPage(props: Props) {
     id: tt.id,
     name: tt.name,
     capacity: tt.capacity,
-    price: parseFloat(tt.price.toString()),
+    price: Number.parseFloat(tt.price.toString()),
   }))
 
   const soldCounts: Record<number, number> = {}

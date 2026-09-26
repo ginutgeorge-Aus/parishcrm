@@ -43,11 +43,11 @@ export function StatementBalanceInput({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const statementAmt = value !== "" ? parseFloat(value) : null
+  const statementAmt = value !== "" ? Number.parseFloat(value) : null
   // Compare in integer cents to avoid IEEE-754 noise (e.g. 1e-15) from
   // subtracting two floats; the input is constrained to ≤2 decimal places.
   const diffCents =
-    statementAmt !== null && !isNaN(statementAmt)
+    statementAmt !== null && !Number.isNaN(statementAmt)
       ? Math.round(calculatedBalance * 100) - Math.round(statementAmt * 100)
       : null
   const difference = diffCents !== null ? diffCents / 100 : null
@@ -103,7 +103,7 @@ export function StatementBalanceInput({
           </>
         ) : (
           <span className="text-sm tabular text-muted-foreground">
-            {value !== "" && !isNaN(parseFloat(value)) ? fmt(parseFloat(value)) : "—"}
+            {value !== "" && !Number.isNaN(Number.parseFloat(value)) ? fmt(Number.parseFloat(value)) : "—"}
           </span>
         )}
       </div>

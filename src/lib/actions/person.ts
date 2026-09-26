@@ -31,7 +31,7 @@ const PersonSchema = z.object({
     // A malformed value becomes an Invalid Date that crashes the person/family
     // pages with a RangeError. Reject it at write instead of persisting
     // a landmine. `null` (no DOB) always passes.
-    .refine((v) => v === null || !isNaN(new Date(v).getTime()), "Invalid date of birth"),
+    .refine((v) => v === null || !Number.isNaN(new Date(v).getTime()), "Invalid date of birth"),
   role: z.enum(["HEAD", "SPOUSE", "CHILD", "OTHER"]).default("OTHER"),
   classification: z.enum(["MEMBER", "VISITOR", "INACTIVE", "STUDENT"]).default("MEMBER"),
   email: z.string().email("Invalid email address").max(255).optional().or(z.literal("")).transform((v) => v || null),
@@ -44,12 +44,12 @@ const PersonSchema = z.object({
     .transform((v) => (v ? new Date(v) : null))
     // Zod does not validate transform output — a malformed string yields an
     // Invalid Date that Postgres rejects with an unhandled 500. Reject it here.
-    .refine((d) => d === null || !isNaN(d.getTime()), "Invalid membership date"),
+    .refine((d) => d === null || !Number.isNaN(d.getTime()), "Invalid membership date"),
   baptismDate: z
     .string()
     .optional()
     .transform((v) => (v ? new Date(v) : null))
-    .refine((d) => d === null || !isNaN(d.getTime()), "Invalid baptism date"),
+    .refine((d) => d === null || !Number.isNaN(d.getTime()), "Invalid baptism date"),
   // General notes share the 2000-char limit with Family.notes — both are brief
   // administrative annotations. pastoralNotes below is deliberately larger.
   notes: z.string().max(2000).optional().transform((v) => v?.trim() || null),

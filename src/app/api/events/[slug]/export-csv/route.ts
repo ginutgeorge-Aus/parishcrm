@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ slug: str
   // an organiser can force that full query against events they don't manage.
   const eventStub = await prisma.event.findUnique({ where: { slug }, select: { id: true } })
   if (!eventStub) return NextResponse.json({ error: "Not found" }, { status: 404 })
-  if (!isEditor && !(await isEventManager(parseInt(session.user.id, 10), eventStub.id))) {
+  if (!isEditor && !(await isEventManager(Number.parseInt(session.user.id, 10), eventStub.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
   // Draft events are exportable by editors: this route already requires a

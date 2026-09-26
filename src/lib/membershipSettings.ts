@@ -25,7 +25,7 @@ const MAX_MIN_DUES = 100_000
 export function parseMembershipSettings(rows: { key: string; value: string }[]): MembershipSettings {
   const g = (key: string) => rows.find((r) => r.key === key)?.value.trim() ?? ""
   const raw = g("membershipMinDues")
-  const n = raw === "" ? NaN : Number(raw)
+  const n = raw === "" ? Number.NaN : Number(raw)
   return {
     parishFields: g("membershipParishFields") === "true",
     minDues: Number.isFinite(n) && n >= 0 && n <= MAX_MIN_DUES ? n : null,

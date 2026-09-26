@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 function field(label: string, value: string | null | undefined) {
   return (
@@ -36,8 +37,8 @@ export default async function PersonDetailPage(props: { params: Promise<{ id: st
   const session = await auth()
   if (!canViewPeople(session?.user?.role)) redirect("/") // AUDITOR is accounting-only
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const person = await prisma.person.findUnique({
     where: { id },

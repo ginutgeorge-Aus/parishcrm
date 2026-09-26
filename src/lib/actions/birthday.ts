@@ -85,7 +85,7 @@ export async function sendBirthdayEmailsBulk(
       const dateOfBirth = new Date(decrypt(p.dateOfBirth))
       // A decrypt that returns non-date text yields an Invalid Date that would
       // poison the whole window calc/sort. Skip the record.
-      if (isNaN(dateOfBirth.getTime())) continue
+      if (Number.isNaN(dateOfBirth.getTime())) continue
       people.push({
         id: p.id,
         firstName: p.firstName,

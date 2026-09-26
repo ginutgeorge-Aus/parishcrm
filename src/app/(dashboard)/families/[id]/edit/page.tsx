@@ -7,6 +7,7 @@ import { updateFamily } from "@/lib/actions/family"
 import { FamilyForm } from "@/components/families/FamilyForm"
 import { safeDecrypt } from "@/lib/crypto"
 import { toFloat } from "@/lib/utils"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditFamilyPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -14,8 +15,8 @@ export default async function EditFamilyPage(props: { params: Promise<{ id: stri
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const family = await prisma.family.findUnique({ where: { id } })
   // Archived families are frozen — editing them via a direct URL would

@@ -14,7 +14,7 @@ export default async function AnniversariesPage(props: { searchParams: Promise<{
   if (!canViewPeople(session.user.role)) redirect("/")
 
   const searchParams = await props.searchParams
-  const parsed = parseInt(searchParams.window ?? "", 10)
+  const parsed = Number.parseInt(searchParams.window ?? "", 10)
   const windowDays = (ANNIVERSARY_WINDOWS as readonly number[]).includes(parsed) ? parsed : 7
 
   const rows = await prisma.family.findMany({

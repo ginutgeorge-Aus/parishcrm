@@ -33,7 +33,7 @@ const CreateSessionSchema = z.object({
     // Keep the validated string — Prisma writes it to Decimal exactly; a
     // parseFloat round-trip through binary float is avoidable drift.
     .transform((v) => v || "0")
-    .refine((v) => parseFloat(v) >= 0, "Opening balance must be non-negative"),
+    .refine((v) => Number.parseFloat(v) >= 0, "Opening balance must be non-negative"),
 })
 
 export async function createSession(

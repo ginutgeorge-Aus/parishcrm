@@ -6,6 +6,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { formatSydneyDate } from "@/lib/dates"
 import Link from "next/link"
 import { WaitlistNotifyToggle } from "@/components/events/WaitlistNotifyToggle"
+import { parseRouteId } from "@/lib/validation"
 import {
   Table,
   TableBody,
@@ -23,8 +24,8 @@ export default async function WaitlistPage(props: Props) {
   if (!session) redirect("/login")
   if (!canViewPeople(session.user.role)) redirect("/")
 
-  const eventId = parseInt(params.id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(params.id)
+  if (eventId === null) notFound()
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },

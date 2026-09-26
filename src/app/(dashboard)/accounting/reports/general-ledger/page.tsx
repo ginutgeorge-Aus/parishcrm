@@ -11,7 +11,8 @@ import { PrintButton } from "@/components/ui/PrintButton"
 import { Button } from "@/components/ui/button"
 import { fmtAUD as fmt, formatDMY, centsToNumber } from "@/lib/formatting"
 import { withRunningBalance, signedCents } from "@/lib/generalLedgerExport"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { searchParams: Promise<{ account?: string; year?: string }> }
 
@@ -30,12 +31,10 @@ export default async function GeneralLedgerPage(props: Props) {
 
   const sp = await props.searchParams
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(sp.year ?? String(fyNow), 10)
-  const year = parsedYear >= 2000 && parsedYear <= fyNow + 10 ? parsedYear : fyNow
+  const year = parseFyYearParam(sp.year, fyNow) ?? fyNow
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
-  const accountId = sp.account ? parseInt(sp.account, 10) : NaN
-  const validAccountId = !isNaN(accountId) && accountId > 0 && accountId <= 2147483647 ? accountId : null
+  const validAccountId = parseRouteId(sp.account)
 
   const accounts = await prisma.account.findMany({
     orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],

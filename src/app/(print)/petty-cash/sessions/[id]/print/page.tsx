@@ -11,6 +11,7 @@ import { sumCents, centsToNumber, fmtAUD as fmt } from "@/lib/formatting"
 import { safeDecrypt } from "@/lib/crypto"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -23,8 +24,8 @@ export default async function PettyCashPrintPage(props: Props) {
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = (await headers()).get("x-nonce") ?? undefined
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const pcSession = await prisma.pettyCashSession.findUnique({
     where: { id },

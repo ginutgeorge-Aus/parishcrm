@@ -7,6 +7,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { currentFyEndYear, type DgrLine } from "@/lib/dgr"
 import DgrReceiptForm from "@/components/accounting/DgrReceiptForm"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -15,8 +16,8 @@ export default async function EditDgrReceiptPage(props: Props) {
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 
   const { id: idParam } = await props.params
-  const id = parseInt(idParam, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) redirect("/accounting/dgr-receipts")
+  const id = parseRouteId(idParam)
+  if (id === null) redirect("/accounting/dgr-receipts")
 
   const receipt = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!receipt) redirect("/accounting/dgr-receipts")

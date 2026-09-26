@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { SendReceiptDialog } from "@/components/accounting/SendReceiptDialog"
 import { RiskFlagBadges } from "@/components/accounting/RiskFlagBadges"
 import { TransactionAttachments } from "@/components/accounting/TransactionAttachments"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -38,8 +39,8 @@ export default async function TransactionDetailPage(props: Props) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const tx = await prisma.transaction.findUnique({
     where: { id },

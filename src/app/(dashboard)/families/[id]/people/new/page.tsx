@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit, canSeePastoralNotes } from "@/lib/roleGuard"
 import { createPerson } from "@/lib/actions/person"
 import { PersonForm } from "@/components/people/PersonForm"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function NewPersonPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -12,8 +13,8 @@ export default async function NewPersonPage(props: { params: Promise<{ id: strin
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
 
-  const familyId = parseInt(params.id, 10)
-  if (isNaN(familyId) || familyId <= 0 || familyId > 2147483647) notFound()
+  const familyId = parseRouteId(params.id)
+  if (familyId === null) notFound()
 
   const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
   // mirror the archived-family guard on edit/page.tsx, giving/page.tsx,

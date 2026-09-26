@@ -12,7 +12,7 @@ export async function getAccountingLockDate(): Promise<Date | null> {
   const row = await prisma.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
   if (!row || !row.value) return null
   const d = new Date(row.value) // "YYYY-MM-DD" → UTC midnight
-  return isNaN(d.getTime()) ? null : d
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 /** Pure: a date is locked when it falls on or before the lock date (inclusive). */

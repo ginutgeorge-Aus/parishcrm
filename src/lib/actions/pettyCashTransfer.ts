@@ -34,7 +34,7 @@ const TransferSchema = z.object({
     .transform((v) => new Date(v))
     // Zod does not validate transform output — a malformed string yields an
     // Invalid Date (NaN) that Postgres rejects with an unhandled 500.
-    .refine((d) => !isNaN(d.getTime()), "Invalid date"),
+    .refine((d) => !Number.isNaN(d.getTime()), "Invalid date"),
   amount: z
     .string()
     .min(1, "Amount is required")

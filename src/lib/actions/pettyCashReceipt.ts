@@ -22,11 +22,11 @@ import type { ActionResult } from "./types"
 // --- Receipts ---
 
 const ReceiptSchema = z.object({
-  accountId: z.string().min(1, "Select a category").transform((v) => parseInt(v, 10)).refine((v) => v > 0, "Select a category"),
+  accountId: z.string().min(1, "Select a category").transform((v) => Number.parseInt(v, 10)).refine((v) => v > 0, "Select a category"),
   personId: z
     .string()
     .optional()
-    .transform((v) => (v && v !== "" ? parseInt(v, 10) : undefined))
+    .transform((v) => (v && v !== "" ? Number.parseInt(v, 10) : undefined))
     .refine((v) => v === undefined || (Number.isInteger(v) && v > 0), "Invalid donor"),
   serviceTypeId: z
     .string()

@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  const parsed = parseInt(req.nextUrl.searchParams.get("year") ?? String(currentFYYear()), 10)
+  const parsed = Number.parseInt(req.nextUrl.searchParams.get("year") ?? String(currentFYYear()), 10)
   const year = parsed >= 2000 && parsed <= 2100 ? parsed : currentFYYear()
 
   // Primary email is member PII — AUDITOR is accounting-only and must not

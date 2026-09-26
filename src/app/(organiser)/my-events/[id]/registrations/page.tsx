@@ -14,6 +14,7 @@ import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
 import type { PendingReminderRow } from "@/components/events/SendPaymentRemindersClient"
 import { Button } from "@/components/ui/button"
+import { parseRouteId } from "@/lib/validation"
 
 // Same defensive cap as the admin twin (events/[id]/registrations/page.tsx,
 // ) on the registration rows decrypted (email/phone) and shipped to the
@@ -30,11 +31,11 @@ export default async function OrganiserRegistrationsPage(props: Props) {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const eventId = parseInt(id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(id)
+  if (eventId === null) notFound()
 
   // IDOR gate: an unassigned event is indistinguishable from a missing one.
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   if (!(await canManageEvent(userId, eventId, session.user.role))) notFound()
 
   const event = await prisma.event.findUnique({
@@ -124,7 +125,7 @@ export default async function OrganiserRegistrationsPage(props: Props) {
           ...r,
           email: r.email ? safeDecrypt(r.email) : "",
           phone: r.phone ? safeDecrypt(r.phone) : null,
-          totalAmount: parseFloat(r.totalAmount.toString()),
+          totalAmount: Number.parseFloat(r.totalAmount.toString()),
         }))}
         total={totalRegistrations}
         eventId={eventId}

@@ -14,6 +14,7 @@ import { redirect, notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -41,8 +42,8 @@ export default async function MembershipPrintPage(props: Props) {
   // print pages (VIEWER/AUDITOR must not reach it directly).
   if (!canEdit(session?.user?.role)) redirect("/")
 
-  const id = parseInt(idStr, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(idStr)
+  if (id === null) notFound()
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) notFound()

@@ -1,18 +1,13 @@
 import { notFound, redirect } from "next/navigation"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canAccessAccounting } from "@/lib/roleGuard"
+import { requirePettyCashSessionId } from "@/lib/pettyCashPageGuard"
 import { closeSession } from "@/lib/actions/pettyCashSession"
 import { CloseSessionForm } from "@/components/petty-cash/CloseSessionForm"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 
 export default async function CloseSessionPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const session = await auth()
-  if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
-
-  const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({
     where: { id: sessionId },
     include: {

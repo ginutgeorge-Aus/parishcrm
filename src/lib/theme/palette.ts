@@ -51,7 +51,7 @@ export const GREEN = "#16a34a" // income / positive
 export function hexToHslTriple(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
   if (!m) return "217 33% 17%"
-  const n = parseInt(m[1], 16)
+  const n = Number.parseInt(m[1], 16)
   const r = ((n >> 16) & 0xff) / 255
   const g = ((n >> 8) & 0xff) / 255
   const b = (n & 0xff) / 255

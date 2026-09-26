@@ -122,7 +122,7 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
   const { where, type, paymentAccountId: rawPaymentAccountId } = buildTransactionWhere(sp)
 
   const q = sp.q?.trim() ?? ""
-  const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1)
+  const page = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1)
 
   // Reports/filters show all accounts (incl. deactivated-with-history), not
   // just active ones — a deactivated account can still have transactions.

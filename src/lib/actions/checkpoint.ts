@@ -27,7 +27,7 @@ export async function markWorking(checkpointId: string): Promise<ActionResultWit
   const checkpoint = findCheckpoint(checkpointId)
   if (!checkpoint) return { error: "Unknown checkpoint" }
 
-  const userId = parseInt(session!.user!.id, 10)
+  const userId = Number.parseInt(session!.user!.id, 10)
   if (Number.isNaN(userId)) return { error: "Unauthorized" }
   const now = new Date()
   await prisma.checkpointResult.upsert({
@@ -55,7 +55,7 @@ export async function markBroken(
   if (!parsedNote.success) return { error: parsedNote.error.issues[0].message }
   const cleanNote = parsedNote.data
 
-  const userId = parseInt(session!.user!.id, 10)
+  const userId = Number.parseInt(session!.user!.id, 10)
   if (Number.isNaN(userId)) return { error: "Unauthorized" }
   const reporter = `${escapeMarkdown(session!.user!.name ?? "Unknown")} (${session!.user!.role}, user #${userId})`
   const submittedAt = new Date()

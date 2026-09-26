@@ -23,6 +23,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { fmtAUD, safeDobDate, sumCents, centsToNumber } from "@/lib/formatting"
 import { getFamilyLastUpdate } from "@/lib/actions/familyActivity"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function FamilyDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -30,8 +31,8 @@ export default async function FamilyDetailPage(props: { params: Promise<{ id: st
   if (!session) redirect("/login") // explicit guard before any DB query
   if (!canViewPeople(session?.user?.role)) redirect("/") // AUDITOR is accounting-only
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const family = await prisma.family.findUnique({
     where: { id },

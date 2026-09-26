@@ -71,7 +71,7 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
     if (!p.dateOfBirth) continue
     try {
       const dateOfBirth = new Date(decrypt(p.dateOfBirth))
-      if (isNaN(dateOfBirth.getTime())) continue
+      if (Number.isNaN(dateOfBirth.getTime())) continue
       people.push({
         id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth,
         email: p.email ? decrypt(p.email) : null, emailConsent: p.emailConsent,

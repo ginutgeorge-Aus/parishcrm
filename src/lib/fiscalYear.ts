@@ -32,3 +32,14 @@ export function fyDateRange(year: number): { start: Date; end: Date } {
     end: new Date(Date.UTC(year + 1, FY_START_MONTH - 1, 1)),
   }
 }
+
+/**
+ * Parse a `?year=` FY param. Absent → current FY. Digits only, within
+ * 2000..fyNow+10; anything else → null so the caller picks 400 vs fallback.
+ */
+export function parseFyYearParam(raw: string | null | undefined, fyNow: number = currentFYYear()): number | null {
+  if (raw == null) return fyNow
+  if (!/^\d+$/.test(raw)) return null
+  const year = Number(raw)
+  return year >= 2000 && year <= fyNow + 10 ? year : null
+}

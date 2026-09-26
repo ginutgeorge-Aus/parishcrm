@@ -8,6 +8,7 @@ import { resolveEmailHash } from "@/lib/personExport"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
+import { parseRouteId } from "@/lib/validation"
 
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
@@ -20,8 +21,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) {
+  const id = parseRouteId(params.id)
+  if (id === null) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
   }
 

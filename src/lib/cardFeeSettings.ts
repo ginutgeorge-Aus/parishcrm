@@ -18,7 +18,7 @@ export async function getCardFeeConfig(): Promise<{ pct: number; fixedCents: num
   // a raw DB edit — can't gross up checkout against an out-of-range rate.
   const get = (key: string, fallback: number, max: number) => {
     const raw = rows.find((r) => r.key === key)?.value
-    const n = raw != null ? Number(raw) : NaN
+    const n = raw != null ? Number(raw) : Number.NaN
     return Number.isFinite(n) && n >= 0 && n <= max ? n : fallback
   }
   return {

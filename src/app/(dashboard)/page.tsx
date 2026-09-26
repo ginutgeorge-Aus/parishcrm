@@ -171,7 +171,7 @@ export default async function DashboardPage() {
         // ciphertext; new Date() of that is Invalid Date, which would poison
         // the whole window calc. Drop the record instead.
         const dateOfBirth = new Date(safeDecrypt(p.dateOfBirth!))
-        if (isNaN(dateOfBirth.getTime())) return null
+        if (Number.isNaN(dateOfBirth.getTime())) return null
         return {
           id: p.id,
           firstName: p.firstName,

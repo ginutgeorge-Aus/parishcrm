@@ -21,6 +21,7 @@ import { EventManagersPanel } from "@/components/events/EventManagersPanel"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { parseRouteId } from "@/lib/validation"
 
 // Defensive cap on the registration rows we decrypt (email/phone) and ship to
 // the client table. Church events run to the hundreds; 2000 is headroom.
@@ -36,8 +37,7 @@ export default async function RegistrationsPage(props: Props) {
   if (!session) redirect("/login")
   if (!canViewPeople(session.user.role)) redirect("/")
 
-  const eventId = parseInt(params.id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(params.id) ?? notFound()
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -191,7 +191,7 @@ export default async function RegistrationsPage(props: Props) {
           ...r,
           email: r.email ? safeDecrypt(r.email) : "",
           phone: r.phone ? safeDecrypt(r.phone) : null,
-          totalAmount: parseFloat(r.totalAmount.toString()),
+          totalAmount: Number.parseFloat(r.totalAmount.toString()),
         }))}
         total={totalRegistrations}
         eventId={eventId}

@@ -17,8 +17,8 @@ export async function upsertBudgets(
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
   const yearStr = formData.get("year") as string
-  const year = parseInt(yearStr, 10)
-  if (isNaN(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid year" }
+  const year = Number.parseInt(yearStr, 10)
+  if (Number.isNaN(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid year" }
 
   const MAX_AMOUNT = 99999999.99
   const MAX_BUDGET_ENTRIES = 500
@@ -30,17 +30,17 @@ export async function upsertBudgets(
     if (!key.startsWith("amount_")) continue
     const valueStr = (value as string).trim()
     if (!valueStr) continue
-    const accountId = parseInt(key.slice("amount_".length), 10)
+    const accountId = Number.parseInt(key.slice("amount_".length), 10)
     // isNaN alone isn't enough — an out-of-int4-range value parses fine but
     // overflows the Prisma/PG column later, surfacing as an unhandled 500
     // instead of a clean validation error (security.md).
-    if (isNaN(accountId) || !isValidPgId(accountId)) continue
+    if (Number.isNaN(accountId) || !isValidPgId(accountId)) continue
     // Validate format before parse, then pass the string straight to the
     // Decimal(10,2) column — parseFloat would round-trip through binary float
     // and drift budget-vs-actual variances (matches).
     if (!SIGNED_MONEY_DECIMAL_RE.test(valueStr))
       return { error: "Budget amounts must have at most 2 decimal places" }
-    const amount = parseFloat(valueStr)
+    const amount = Number.parseFloat(valueStr)
     if (amount < 0 || amount > MAX_AMOUNT)
       return { error: "Budget amounts must be between 0 and 99,999,999.99" }
     entries.push({ accountId, amount: valueStr })

@@ -5,14 +5,15 @@ import { canManageUsers, isAdmin } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { updateUser } from "@/lib/actions/user"
 import { UserForm } from "@/components/users/UserForm"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditUserPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   // Select only the fields UserForm needs. The full row includes passwordHash,
   // OTP/reset-token state and lockout timestamps; passing it into a Client

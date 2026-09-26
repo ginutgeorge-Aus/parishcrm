@@ -29,7 +29,7 @@ export default async function AuditLogPage(props: Props) {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 
-  const rawPage = parseInt(searchParams.page ?? "1", 10)
+  const rawPage = Number.parseInt(searchParams.page ?? "1", 10)
   const page = Number.isSafeInteger(rawPage) ? Math.min(Math.max(1, rawPage), MAX_PAGE) : 1
 
   const createdAtFilter = buildCreatedAtFilter(searchParams.from, searchParams.to)
