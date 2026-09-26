@@ -81,6 +81,10 @@ export class UrlRedactingSpanProcessor implements SpanProcessor {
       )
     }
   }
-  async forceFlush(): Promise<void> {}
-  async shutdown(): Promise<void> {}
+  async forceFlush(): Promise<void> {
+    // no-op: redaction is synchronous; nothing buffered to flush
+  }
+  async shutdown(): Promise<void> {
+    // no-op: holds no resources; the Azure Monitor exporter owns shutdown
+  }
 }
