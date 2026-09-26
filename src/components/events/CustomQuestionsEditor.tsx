@@ -63,6 +63,10 @@ export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicke
   const remove = (i: number) => setRows(r => r.filter((_, idx) => idx !== i))
   const update = <K extends keyof QuestionRow>(i: number, field: K, value: QuestionRow[K]) =>
     setRows(r => r.map((row, idx) => idx === i ? { ...row, [field]: value } : row))
+  const toggleTicketScope = (i: number, selected: string[], tn: string, checked: boolean) => {
+    const next = checked ? selected.filter((s) => s !== tn) : [...selected, tn]
+    update(i, "ticketTypeNames", JSON.stringify(next))
+  }
   const addPreset = (preset: typeof QUESTION_PRESETS[number]) =>
     setRows(r => [...r, {
       id: crypto.randomUUID(),
@@ -207,10 +211,7 @@ export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicke
                         <Checkbox
                           aria-label={tn}
                           checked={checked}
-                          onCheckedChange={() => {
-                            const next = checked ? selected.filter((s) => s !== tn) : [...selected, tn]
-                            update(i, "ticketTypeNames", JSON.stringify(next))
-                          }}
+                          onCheckedChange={() => toggleTicketScope(i, selected, tn, checked)}
                         />
                         {tn}
                       </label>
