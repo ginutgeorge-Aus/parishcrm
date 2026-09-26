@@ -10,7 +10,7 @@ describe("parseRouteId", () => {
   })
 
   it.each([
-    "", "0", "-1", "2147483648", "1.5", "12abc", "abc", " 7", "1e3", "0x10",
+    "", "0", "-1", "2147483648", "1.5", "12abc", "abc", " 7", "1e3", "0x10", "12\n",
   ])("rejects %p", (raw) => {
     expect(parseRouteId(raw)).toBeNull()
   })
