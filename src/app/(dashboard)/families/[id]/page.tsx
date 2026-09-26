@@ -30,8 +30,8 @@ export default async function FamilyDetailPage(props: { params: Promise<{ id: st
   if (!session) redirect("/login") // explicit guard before any DB query
   if (!canViewPeople(session?.user?.role)) redirect("/") // AUDITOR is accounting-only
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const family = await prisma.family.findUnique({
     where: { id },

@@ -30,7 +30,7 @@ export default async function CashFlowPage(props: Props) {
 
   const sp = await props.searchParams
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(sp.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(sp.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= fyNow + 10 ? parsedYear : fyNow
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 

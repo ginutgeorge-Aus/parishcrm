@@ -15,8 +15,8 @@ export default async function EditDgrReceiptPage(props: Props) {
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 
   const { id: idParam } = await props.params
-  const id = parseInt(idParam, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) redirect("/accounting/dgr-receipts")
+  const id = Number.parseInt(idParam, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) redirect("/accounting/dgr-receipts")
 
   const receipt = await prisma.dgrReceipt.findUnique({ where: { id } })
   if (!receipt) redirect("/accounting/dgr-receipts")

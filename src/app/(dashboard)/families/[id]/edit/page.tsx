@@ -14,8 +14,8 @@ export default async function EditFamilyPage(props: { params: Promise<{ id: stri
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const family = await prisma.family.findUnique({ where: { id } })
   // Archived families are frozen — editing them via a direct URL would

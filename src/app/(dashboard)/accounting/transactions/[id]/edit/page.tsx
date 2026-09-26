@@ -14,8 +14,8 @@ export default async function EditTransactionPage(props: { params: Promise<{ id:
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 
-  const txId = parseInt(params.id, 10)
-  if (isNaN(txId) || txId <= 0 || txId > 2147483647) notFound()
+  const txId = Number.parseInt(params.id, 10)
+  if (Number.isNaN(txId) || txId <= 0 || txId > 2147483647) notFound()
 
   const [transaction, accounts, families, funds, paymentAccounts] = await Promise.all([
     prisma.transaction.findUnique({

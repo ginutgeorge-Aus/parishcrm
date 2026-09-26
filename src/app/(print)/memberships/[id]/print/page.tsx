@@ -41,8 +41,8 @@ export default async function MembershipPrintPage(props: Props) {
   // print pages (VIEWER/AUDITOR must not reach it directly).
   if (!canEdit(session?.user?.role)) redirect("/")
 
-  const id = parseInt(idStr, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(idStr, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) notFound()

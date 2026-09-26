@@ -52,7 +52,7 @@ export default async function ReceiptAuditPage(props: Props) {
   const parseISODate = (value: string | undefined): Date | null => {
     if (!value || !ISO_DATE.test(value)) return null
     const d = new Date(value)
-    if (isNaN(d.getTime())) return null
+    if (Number.isNaN(d.getTime())) return null
     const [y, m, day] = value.split("-").map(Number)
     if (d.getUTCFullYear() !== y || d.getUTCMonth() !== m - 1 || d.getUTCDate() !== day) return null
     return d
@@ -68,7 +68,7 @@ export default async function ReceiptAuditPage(props: Props) {
     ? searchParams.status
     : undefined
 
-  const rawPage = parseInt(searchParams.page ?? "1", 10)
+  const rawPage = Number.parseInt(searchParams.page ?? "1", 10)
   const MAX_PAGE = 10000
   // parseInt accepts oversized decimal strings and can yield Infinity (or
   // lossy large ints), which flows into `skip` and crashes Prisma's integer

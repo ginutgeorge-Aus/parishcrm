@@ -27,7 +27,7 @@ export default async function GivingSummaryPage(props: Props) {
   })
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
   // Primary email is member PII — AUDITOR is accounting-only and must not see

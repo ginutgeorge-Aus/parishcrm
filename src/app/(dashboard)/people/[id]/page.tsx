@@ -36,8 +36,8 @@ export default async function PersonDetailPage(props: { params: Promise<{ id: st
   const session = await auth()
   if (!canViewPeople(session?.user?.role)) redirect("/") // AUDITOR is accounting-only
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const person = await prisma.person.findUnique({
     where: { id },

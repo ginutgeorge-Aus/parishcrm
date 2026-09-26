@@ -12,8 +12,8 @@ export default async function NewPersonPage(props: { params: Promise<{ id: strin
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
 
-  const familyId = parseInt(params.id, 10)
-  if (isNaN(familyId) || familyId <= 0 || familyId > 2147483647) notFound()
+  const familyId = Number.parseInt(params.id, 10)
+  if (Number.isNaN(familyId) || familyId <= 0 || familyId > 2147483647) notFound()
 
   const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true, archivedAt: true } })
   // mirror the archived-family guard on edit/page.tsx, giving/page.tsx,

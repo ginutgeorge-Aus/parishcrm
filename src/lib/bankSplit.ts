@@ -21,7 +21,7 @@ export type SplitLine = {
 
 /** Integer cents from an amount string — avoids float drift when summing splits. */
 export function toCents(amount: string): number {
-  return Math.round(parseFloat(amount) * 100)
+  return Math.round(Number.parseFloat(amount) * 100)
 }
 
 export function isSplit(row: { splits?: SplitLine[] }): boolean {

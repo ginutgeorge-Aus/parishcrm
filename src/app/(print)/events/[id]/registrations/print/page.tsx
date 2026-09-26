@@ -21,14 +21,14 @@ export default async function PrintPage(props: Props) {
   if (!session) redirect("/login")
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = (await headers()).get("x-nonce") ?? undefined
-  const eventId = parseInt(params.id, 10)
+  const eventId = Number.parseInt(params.id, 10)
   // Reject non-numeric/out-of-range ids before they reach Postgres, matching the
   // petty-cash print page guard.
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
   // Renders decrypted registrant PII + payment status — gate to edit roles or an
   // assigned event organiser for this event. VIEWER/AUDITOR must not reach it
   // directly.
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   if (!(await canManageEvent(userId, eventId, session.user.role))) redirect("/")
   const event = await prisma.event.findUnique({
     where: { id: eventId },

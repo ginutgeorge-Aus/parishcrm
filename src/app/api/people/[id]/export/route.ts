@@ -20,8 +20,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) {
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
   }
 

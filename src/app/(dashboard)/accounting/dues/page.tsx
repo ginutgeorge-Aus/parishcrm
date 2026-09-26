@@ -36,7 +36,7 @@ export default async function DuesReportPage(props: Props) {
   )
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
   const owingOnly = searchParams.filter === "owing"
 

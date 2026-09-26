@@ -258,7 +258,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: P
                   </div>
                 </TableCell>
                 <TableCell className="tabular font-semibold text-foreground">
-                  {fmtAUD(parseFloat(reg.totalAmount.toString()))}
+                  {fmtAUD(Number.parseFloat(reg.totalAmount.toString()))}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs">
                   {paymentMethod(reg.paymentRef)}
@@ -302,7 +302,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: P
                 <p className="text-xs text-muted-foreground">{reg.phone ?? "—"}</p>
               </div>
               <span className="shrink-0 tabular font-semibold whitespace-nowrap text-foreground">
-                {fmtAUD(parseFloat(reg.totalAmount.toString()))}
+                {fmtAUD(Number.parseFloat(reg.totalAmount.toString()))}
               </span>
             </div>
             <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">

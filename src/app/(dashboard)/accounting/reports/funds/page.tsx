@@ -26,7 +26,7 @@ export default async function FundReportPage(props: Props) {
   void logAudit(actorId(session), "VIEW_FINANCIAL_REPORT", "Transaction", undefined, { report: "funds" })
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
   // Half-open FY range — `lt`, not `lte` (fyDateRange's `end` is the exclusive

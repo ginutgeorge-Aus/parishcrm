@@ -35,7 +35,7 @@ const MAX_ATTENDEES_PER_REGISTRATION = 100
 function canonicalizeTickets(tickets: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {}
   for (const [key, qty] of Object.entries(tickets)) {
-    const canonicalKey = String(parseInt(key, 10))
+    const canonicalKey = String(Number.parseInt(key, 10))
     out[canonicalKey] = (out[canonicalKey] ?? 0) + qty
   }
   return out
@@ -48,7 +48,7 @@ function canonicalizeByTicketTypeId<V>(map: Record<string, V[]> | undefined): Re
   if (!map) return {}
   const out: Record<string, V[]> = {}
   for (const [key, arr] of Object.entries(map)) {
-    const canonicalKey = String(parseInt(key, 10))
+    const canonicalKey = String(Number.parseInt(key, 10))
     out[canonicalKey] = [...(out[canonicalKey] ?? []), ...arr]
   }
   return out
@@ -240,7 +240,7 @@ export async function validateAndPriceRegistration(
   const selectedTicketNames = new Set(
     Object.entries(tickets)
       .filter(([, q]) => q > 0)
-      .map(([idStr]) => event.ticketTypes.find((t) => t.id === parseInt(idStr, 10))?.name)
+      .map(([idStr]) => event.ticketTypes.find((t) => t.id === Number.parseInt(idStr, 10))?.name)
       .filter((n): n is string => Boolean(n))
   )
 
@@ -289,7 +289,7 @@ export async function validateAndPriceRegistration(
 
   for (const [ticketTypeIdStr, quantity] of Object.entries(tickets)) {
     if (quantity === 0) continue
-    const ticketTypeId = parseInt(ticketTypeIdStr, 10)
+    const ticketTypeId = Number.parseInt(ticketTypeIdStr, 10)
     const tt = event.ticketTypes.find(t => t.id === ticketTypeId)
     if (!tt) return { ok: false, status: 400, error: "Invalid ticket type" }
 

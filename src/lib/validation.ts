@@ -35,7 +35,7 @@ export function isRealCalendarDate(ymd: string): boolean {
 // matching each caller's existing `where: seenAt ? { id, updatedAt: seenAt } : { id }`.
 export function parseOptimisticUpdatedAt(formData: FormData): Date | null {
   const seenRaw = formData.get("updatedAt")
-  return typeof seenRaw === "string" && seenRaw && !isNaN(Date.parse(seenRaw)) ? new Date(seenRaw) : null
+  return typeof seenRaw === "string" && seenRaw && !Number.isNaN(Date.parse(seenRaw)) ? new Date(seenRaw) : null
 }
 
 // Shared "possible duplicate" check for manually-keyed ledger entries

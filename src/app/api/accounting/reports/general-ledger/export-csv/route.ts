@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
   const year = parsedYear
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
-  const accountId = parseInt(sp.get("account") ?? "", 10)
-  if (isNaN(accountId) || accountId <= 0 || accountId > 2147483647) {
+  const accountId = Number.parseInt(sp.get("account") ?? "", 10)
+  if (Number.isNaN(accountId) || accountId <= 0 || accountId > 2147483647) {
     return NextResponse.json({ error: "Invalid account" }, { status: 400 })
   }
 

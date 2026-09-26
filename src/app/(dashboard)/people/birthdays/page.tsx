@@ -18,7 +18,7 @@ export default async function BirthdaysPage(props: {
   if (!canViewPeople(session.user.role)) redirect("/")
 
   const searchParams = await props.searchParams
-  const parsed = parseInt(searchParams.window ?? "", 10)
+  const parsed = Number.parseInt(searchParams.window ?? "", 10)
   const windowDays = (BIRTHDAY_WINDOWS as readonly number[]).includes(parsed) ? parsed : 7
 
   const rows = await prisma.person.findMany({

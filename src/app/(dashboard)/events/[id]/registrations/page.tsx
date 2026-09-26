@@ -36,8 +36,8 @@ export default async function RegistrationsPage(props: Props) {
   if (!session) redirect("/login")
   if (!canViewPeople(session.user.role)) redirect("/")
 
-  const eventId = parseInt(params.id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = Number.parseInt(params.id, 10)
+  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -191,7 +191,7 @@ export default async function RegistrationsPage(props: Props) {
           ...r,
           email: r.email ? safeDecrypt(r.email) : "",
           phone: r.phone ? safeDecrypt(r.phone) : null,
-          totalAmount: parseFloat(r.totalAmount.toString()),
+          totalAmount: Number.parseFloat(r.totalAmount.toString()),
         }))}
         total={totalRegistrations}
         eventId={eventId}

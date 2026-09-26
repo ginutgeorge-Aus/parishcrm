@@ -27,8 +27,8 @@ export default async function MembershipDetailPage({ params }: { params: Promise
   if (!canEdit(session.user.role)) redirect("/")
 
   const { id: idStr } = await params
-  const id = parseInt(idStr, 10)
-  if (isNaN(id) || id <= 0) notFound()
+  const id = Number.parseInt(idStr, 10)
+  if (Number.isNaN(id) || id <= 0) notFound()
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) notFound()

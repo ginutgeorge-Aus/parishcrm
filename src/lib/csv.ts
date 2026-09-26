@@ -226,9 +226,9 @@ export function parseCsv(content: string): CsvParseResult {
       const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dobRaw)
       const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobRaw)
       if (ddmmyyyy) {
-        const day = parseInt(ddmmyyyy[1], 10)
-        const month = parseInt(ddmmyyyy[2], 10)
-        const year = parseInt(ddmmyyyy[3], 10)
+        const day = Number.parseInt(ddmmyyyy[1], 10)
+        const month = Number.parseInt(ddmmyyyy[2], 10)
+        const year = Number.parseInt(ddmmyyyy[3], 10)
         if (month < 1 || month > 12 || day < 1 || day > 31) {
           errors.push({ row: rowNum, message: `dob "${dobRaw}" is not a valid date (expected DD/MM/YYYY)` })
         } else {
@@ -243,9 +243,9 @@ export function parseCsv(content: string): CsvParseResult {
           }
         }
       } else if (yyyymmdd) {
-        const year = parseInt(yyyymmdd[1], 10)
-        const month = parseInt(yyyymmdd[2], 10)
-        const day = parseInt(yyyymmdd[3], 10)
+        const year = Number.parseInt(yyyymmdd[1], 10)
+        const month = Number.parseInt(yyyymmdd[2], 10)
+        const day = Number.parseInt(yyyymmdd[3], 10)
         const parsed = new Date(Date.UTC(year, month - 1, day))
         if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
           errors.push({ row: rowNum, message: `dob "${dobRaw}" is not a valid calendar date` })

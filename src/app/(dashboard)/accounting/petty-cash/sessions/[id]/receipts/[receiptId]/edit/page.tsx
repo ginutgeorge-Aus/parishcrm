@@ -17,9 +17,9 @@ export default async function EditReceiptPage(props: {
   if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
 
   const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  if (Number.isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
   const receiptId = Number(params.receiptId)
-  if (isNaN(receiptId) || receiptId <= 0 || receiptId > 2147483647) notFound()
+  if (Number.isNaN(receiptId) || receiptId <= 0 || receiptId > 2147483647) notFound()
   const receipt = await prisma.pettyCashReceipt.findUnique({
     where: { id: receiptId },
     include: { session: { select: { id: true, title: true, status: true } } },

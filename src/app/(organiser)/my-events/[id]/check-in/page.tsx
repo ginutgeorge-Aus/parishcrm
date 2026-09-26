@@ -12,11 +12,11 @@ export default async function OrganiserCheckInPage(props: Props) {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const eventId = parseInt(params.id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = Number.parseInt(params.id, 10)
+  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
 
   // IDOR gate: an unassigned event is indistinguishable from a missing one.
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   if (!(await canManageEvent(userId, eventId, session.user.role))) notFound()
 
   const event = await prisma.event.findUnique({

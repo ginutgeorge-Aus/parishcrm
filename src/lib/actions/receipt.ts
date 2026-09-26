@@ -327,7 +327,7 @@ export async function fetchTransactionsForReceipt(
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return { error: "Invalid date range" }
   const fromDate = new Date(from)
   const toDate = new Date(to)
-  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()))
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()))
     return { error: "Invalid date range" }
 
   const rows = await prisma.transaction.findMany({

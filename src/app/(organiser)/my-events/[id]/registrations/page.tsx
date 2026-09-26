@@ -30,11 +30,11 @@ export default async function OrganiserRegistrationsPage(props: Props) {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const eventId = parseInt(id, 10)
-  if (isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = Number.parseInt(id, 10)
+  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
 
   // IDOR gate: an unassigned event is indistinguishable from a missing one.
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   if (!(await canManageEvent(userId, eventId, session.user.role))) notFound()
 
   const event = await prisma.event.findUnique({
@@ -124,7 +124,7 @@ export default async function OrganiserRegistrationsPage(props: Props) {
           ...r,
           email: r.email ? safeDecrypt(r.email) : "",
           phone: r.phone ? safeDecrypt(r.phone) : null,
-          totalAmount: parseFloat(r.totalAmount.toString()),
+          totalAmount: Number.parseFloat(r.totalAmount.toString()),
         }))}
         total={totalRegistrations}
         eventId={eventId}

@@ -10,8 +10,8 @@ export default async function EditAccountPage(props: { params: Promise<{ id: str
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/accounts")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const [account, groups] = await Promise.all([
     prisma.account.findUnique({ where: { id } }),

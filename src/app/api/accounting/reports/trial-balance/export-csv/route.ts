@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
   // FY — reject it explicitly, mirroring general-ledger's ?account=
   // 400. Absent param still defaults to the current FY.
   const yearParam = sp.get("year")
-  const parsedYear = yearParam === null ? fyNow : parseInt(yearParam, 10)
-  if (isNaN(parsedYear) || parsedYear < 2000 || parsedYear > fyNow + 10) {
+  const parsedYear = yearParam === null ? fyNow : Number.parseInt(yearParam, 10)
+  if (Number.isNaN(parsedYear) || parsedYear < 2000 || parsedYear > fyNow + 10) {
     return NextResponse.json({ error: "Invalid year" }, { status: 400 })
   }
   const year = parsedYear

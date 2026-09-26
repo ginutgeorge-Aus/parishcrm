@@ -12,8 +12,8 @@ export default async function EditPersonPage(props: { params: Promise<{ id: stri
   const session = await auth()
   if (!canEdit(session?.user?.role)) redirect("/families")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const person = await prisma.person.findUnique({ where: { id } })
   // Archived persons are hidden everywhere and only ever archived via their

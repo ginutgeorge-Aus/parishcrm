@@ -23,8 +23,8 @@ export default async function PettyCashPrintPage(props: Props) {
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = (await headers()).get("x-nonce") ?? undefined
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const pcSession = await prisma.pettyCashSession.findUnique({
     where: { id },

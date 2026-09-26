@@ -38,8 +38,8 @@ export default async function TransactionDetailPage(props: Props) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const tx = await prisma.transaction.findUnique({
     where: { id },

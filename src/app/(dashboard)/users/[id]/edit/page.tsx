@@ -11,8 +11,8 @@ export default async function EditUserPage(props: { params: Promise<{ id: string
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   // Select only the fields UserForm needs. The full row includes passwordHash,
   // OTP/reset-token state and lockout timestamps; passing it into a Client

@@ -12,7 +12,7 @@ export default async function CloseSessionPage(props: { params: Promise<{ id: st
   if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
 
   const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  if (Number.isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
   const pcSession = await prisma.pettyCashSession.findUnique({
     where: { id: sessionId },
     include: {

@@ -8,7 +8,7 @@ import { formatSydneyDate } from "@/lib/dates"
 export default async function MyEventsPage() {
   const session = await auth()
   if (!session) redirect("/login")
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
 
   // Editors see nothing special here (they use the main dashboard); organisers
   // see exactly their assigned events.

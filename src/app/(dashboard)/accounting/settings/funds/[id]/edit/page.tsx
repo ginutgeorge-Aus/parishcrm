@@ -10,8 +10,8 @@ export default async function EditFundPage(props: { params: Promise<{ id: string
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/settings/funds")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const fund = await prisma.fund.findUnique({ where: { id } })
   if (!fund) notFound()

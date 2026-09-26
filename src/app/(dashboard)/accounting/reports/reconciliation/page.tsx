@@ -36,7 +36,7 @@ export default async function ReconciliationReportPage(props: {
 
   // Reports show all accounts (incl. deactivated-with-history), not just active ones.
   const accounts = await getPaymentAccounts({ activeOnly: false })
-  const parsedAccountId = searchParams.paymentAccount ? parseInt(searchParams.paymentAccount, 10) : NaN
+  const parsedAccountId = searchParams.paymentAccount ? Number.parseInt(searchParams.paymentAccount, 10) : Number.NaN
   const selectedAccount =
     accounts.find((a) => a.id === parsedAccountId) ??
     accounts.find((a) => a.kind === "BANK") ??

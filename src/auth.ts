@@ -347,7 +347,7 @@ async function getIdleMs(): Promise<number> {
     // Only honour a positive value — 0 (or a blank) would zero the idle window
     // and invalidate every non-remembered session on its next request.
     if (s && /^\d+$/.test(s.value)) {
-      const parsed = parseInt(s.value, 10)
+      const parsed = Number.parseInt(s.value, 10)
       if (parsed > 0) minutes = parsed
     }
   } catch {
@@ -386,7 +386,7 @@ export async function jwtCallback({
   if (token.id) {
     // A malformed id parseInt's to NaN, which Prisma rejects with an unhandled
     // validation error that crashes the JWT callback. Kill the session.
-    const userId = parseInt(token.id as string, 10)
+    const userId = Number.parseInt(token.id as string, 10)
     if (Number.isNaN(userId)) return null
     const dbUser = await prisma.user.findUnique({
       where: { id: userId },

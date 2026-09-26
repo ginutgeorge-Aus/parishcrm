@@ -26,7 +26,7 @@ export default async function ArchivedFamiliesPage({
   if (!isAdmin(session?.user?.role)) redirect("/")
 
   const { page: rawPage } = (await searchParams) ?? {}
-  const page = Math.max(1, parseInt(rawPage || "1", 10) || 1)
+  const page = Math.max(1, Number.parseInt(rawPage || "1", 10) || 1)
   const pageSize = 50
 
   const families = await prisma.family.findMany({

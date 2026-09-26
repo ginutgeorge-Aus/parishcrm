@@ -28,7 +28,7 @@ const Schema = z.object({
   statementDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
-    .refine((v) => !isNaN(new Date(v).getTime()), "Invalid date")
+    .refine((v) => !Number.isNaN(new Date(v).getTime()), "Invalid date")
     // Cap to plausible years so a far-future date can't reconcile the whole
     // forward ledger in one save — mirrors the bound the old bulkReconcile had.
     .refine(
@@ -40,7 +40,7 @@ const Schema = z.object({
     .max(15)
     // Negative allowed — an overdrawn account still gets reconciled.
     .regex(SIGNED_MONEY_DECIMAL_RE, "Amount must be a valid number")
-    .refine((v) => Math.abs(parseFloat(v)) <= 99_999_999.99, "Amount too large"),
+    .refine((v) => Math.abs(Number.parseFloat(v)) <= 99_999_999.99, "Amount too large"),
 })
 
 export async function saveStatementBalance(
@@ -190,7 +190,7 @@ async function reconcileIfBalanced(
   // that pre-check and this commit.
   const lockRow = await tx.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
   const lockDate = lockRow?.value ? new Date(lockRow.value) : null
-  if (lockDate && !isNaN(lockDate.getTime()) && isDateLocked(opening.asOfDate, lockDate)) {
+  if (lockDate && !Number.isNaN(lockDate.getTime()) && isDateLocked(opening.asOfDate, lockDate)) {
     return {
       result: {
         success: `Saved. Part of this reconciliation (from ${opening.asOfDate.toISOString().slice(0, 10)}) falls in a locked accounting period (on or before ${lockDate.toISOString().slice(0, 10)}) — transactions not reconciled.`,

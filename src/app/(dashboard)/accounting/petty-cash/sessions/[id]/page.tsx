@@ -23,7 +23,7 @@ export default async function SessionDetailPage(
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 
   const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  if (Number.isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
 
   const userCanEdit = canAccessAccounting(session?.user?.role)
   const userIsAdmin = isAdmin(session?.user?.role)

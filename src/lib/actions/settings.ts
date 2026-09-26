@@ -146,7 +146,7 @@ export async function getIdleTimeoutMinutes(): Promise<number> {
   try {
     const setting = await prisma.appSetting.findUnique({ where: { key: "SESSION_IDLE_TIMEOUT_MINUTES" } })
     if (!setting || !IDLE_TIMEOUT_OPTIONS.has(setting.value)) return 60
-    return parseInt(setting.value, 10)
+    return Number.parseInt(setting.value, 10)
   } catch {
     return 60
   }
@@ -414,7 +414,7 @@ const PettyCashCustodianSchema = z.object({
   custodianId: z
     .string()
     .refine((v) => v === "" || /^\d+$/.test(v), "Invalid custodian")
-    .transform((v) => (v === "" ? ("" as const) : parseInt(v, 10))),
+    .transform((v) => (v === "" ? ("" as const) : Number.parseInt(v, 10))),
 })
 
 export async function updatePettyCashCustodian(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
@@ -453,7 +453,7 @@ export async function getPettyCashDefaultCustodianId(): Promise<number | null> {
   try {
     const row = await prisma.appSetting.findUnique({ where: { key: "pettyCashDefaultCustodianId" } })
     if (!row || !/^\d+$/.test(row.value)) return null
-    const id = parseInt(row.value, 10)
+    const id = Number.parseInt(row.value, 10)
     return id > 0 ? id : null
   } catch {
     return null

@@ -24,7 +24,7 @@ import type { ActionResult } from "./types"
 
 const ExpenseSchema = z.object({
   payee: z.string().min(1, "Payee is required").max(200),
-  accountId: z.string().min(1, "Select a category").transform((v) => parseInt(v, 10)).refine((v) => v > 0, "Select a category"),
+  accountId: z.string().min(1, "Select a category").transform((v) => Number.parseInt(v, 10)).refine((v) => v > 0, "Select a category"),
   amount: z
     .string()
     .min(1, "Amount is required")

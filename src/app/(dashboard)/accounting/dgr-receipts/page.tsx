@@ -32,7 +32,7 @@ export default async function DgrReceiptsPage(props: Props) {
   })
 
   const fyEndNow = currentFyEndYear()
-  const parsedFy = parseInt(searchParams.fy ?? "", 10)
+  const parsedFy = Number.parseInt(searchParams.fy ?? "", 10)
   const fyEndYear =
     Number.isInteger(parsedFy) && parsedFy >= 2000 && parsedFy <= 2100 ? parsedFy : undefined
 

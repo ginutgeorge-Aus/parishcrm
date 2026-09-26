@@ -37,7 +37,7 @@ export function SendReceiptsClient({ accounts }: { accounts: Account[] }) {
     setResult(null)
     startFetch(async () => {
       try {
-        const res = await fetchTransactionsForReceipt(from, to, accountId ? parseInt(accountId) : undefined)
+        const res = await fetchTransactionsForReceipt(from, to, accountId ? Number.parseInt(accountId) : undefined)
         if ("error" in res) { setFetchError(res.error); return }
         setRows(res.transactions)
         const initialEmails: Record<number, string> = {}

@@ -88,7 +88,7 @@ export async function toggleAttendeeCheckIn(
   // organiser-delegation feature exists to let a non-admin volunteer run
   // their event, and check-in is the one action day-of that only admins
   // could previously perform.
-  if (!session?.user || !(await canManageEvent(parseInt(session.user.id, 10), eventId, session.user.role))) {
+  if (!session?.user || !(await canManageEvent(Number.parseInt(session.user.id, 10), eventId, session.user.role))) {
     return { error: "Unauthorized" }
   }
 
@@ -232,7 +232,7 @@ export async function getRegistrationDetail(registrationId: number): Promise<Reg
   })
   if (!probe) return notFound
 
-  const userId = parseInt(session.user.id, 10)
+  const userId = Number.parseInt(session.user.id, 10)
   const allowed =
     canViewPeople(session.user.role) ||
     (await canManageEvent(userId, probe.eventId, session.user.role))
@@ -310,7 +310,7 @@ export async function sendPaymentReminders(
   message: string
 ): Promise<SendRemindersResult> {
   const session = await auth()
-  const userId = parseInt(session?.user?.id ?? "", 10)
+  const userId = Number.parseInt(session?.user?.id ?? "", 10)
   if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
     return { error: "Unauthorized" }
   }
@@ -415,7 +415,7 @@ export async function lastRemindedAtByRegistration(eventId: number): Promise<Rec
   // enumerate reminder activity for an arbitrary event. Unauthorized → empty
   // (the calling pages are already access-gated, so legit callers pass).
   const session = await auth()
-  const userId = parseInt(session?.user?.id ?? "", 10)
+  const userId = Number.parseInt(session?.user?.id ?? "", 10)
   if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
     return {}
   }

@@ -15,7 +15,7 @@ export default async function BudgetPage(props: Props) {
   if (!isAdmin(session?.user?.role)) redirect("/")
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
   const [accounts, budgetRows] = await Promise.all([

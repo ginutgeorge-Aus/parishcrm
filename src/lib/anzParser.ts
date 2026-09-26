@@ -39,8 +39,8 @@ function toIso(day: string, month: string, year: number): string | null {
   // Reject impossible calendar dates (31 APR, 29 FEB in a non-leap year). Without
   // this the string "2026-02-31" passes downstream shape checks, then new Date()
   // rolls it into March and posts the transaction under the wrong period.
-  const d = parseInt(day, 10)
-  const mo = parseInt(code, 10)
+  const d = Number.parseInt(day, 10)
+  const mo = Number.parseInt(code, 10)
   const dt = new Date(Date.UTC(year, mo - 1, d))
   if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null
   return `${year}-${code}-${day.padStart(2, "0")}`
@@ -60,8 +60,8 @@ function parsePeriod(text: string, periodRe: RegExp): PeriodParse {
     return { ok: false, period: { from: "", to: "" }, error: "Could not find statement period" }
   }
   const [, fromDay, fromMonth, fromYearStr, toDay, toMonth, toYearStr] = periodMatch
-  const fromYear = parseInt(fromYearStr)
-  const toYear = parseInt(toYearStr)
+  const fromYear = Number.parseInt(fromYearStr)
+  const toYear = Number.parseInt(toYearStr)
   const fromIso = toIso(fromDay, fromMonth, fromYear)
   const toIsoDate = toIso(toDay, toMonth, toYear)
   if (!fromIso || !toIsoDate) {
@@ -290,7 +290,7 @@ export function parseAnzStatement(text: string): ParseResult {
     if (!dateMatch) continue
     const [, day, month, firstLineRest] = dateMatch
 
-    const monthNum = parseInt(MONTH_MAP[month])
+    const monthNum = Number.parseInt(MONTH_MAP[month])
     if (prevMonthNum !== null && monthNum < prevMonthNum) currentYear++
     prevMonthNum = monthNum
 
@@ -479,7 +479,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
     (line) => {
       const sep = line.match(MONTH_YEAR_SEPARATOR_RE)
       if (sep && MONTH_MAP[sep[1]]) {
-        currentYear = parseInt(sep[2])
+        currentYear = Number.parseInt(sep[2])
         return true
       }
       if (REPORT_SKIP_RE.some((re) => re.test(line))) return true

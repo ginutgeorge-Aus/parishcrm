@@ -17,9 +17,9 @@ export const EventSchema = z.object({
   // Validate the exact string sydneyDatetimeLocalToUTC parses (`v + ":00.000Z"`),
   // not a bare `new Date(v)` — a date-only value like "2026-08-01" is valid to
   // `new Date` but becomes Invalid Date once the converter appends the time.
-  date: z.string().optional().refine(v => !v || !isNaN(new Date(v + ":00.000Z").getTime()), "Invalid date"),
-  endDate: z.string().optional().refine(v => !v || !isNaN(new Date(v + ":00.000Z").getTime()), "Invalid end date"),
-  registrationDeadline: z.string().optional().refine(v => !v || !isNaN(new Date(v + ":00.000Z").getTime()), "Invalid registration deadline"),
+  date: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid date"),
+  endDate: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid end date"),
+  registrationDeadline: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid registration deadline"),
   recurs: z.enum(RECURS).optional(),
   recursLabel: z.string().max(40).optional(),
   startTime: z.string().max(40).optional(),
@@ -193,7 +193,7 @@ function parseTicketTypes(formData: FormData): { error: string } | { types: Tick
     if (i >= MAX_TICKET_TYPES) return { error: `Too many ticket types (max ${MAX_TICKET_TYPES})` }
     const idRaw = ((formData.get(`ticketType.${i}.id`) as string | null) ?? "").trim()
     // Digit-only: rejects "5abc"/"1e9"-style strings that parseInt would truncate.
-    const id = /^\d+$/.test(idRaw) ? parseInt(idRaw, 10) : null
+    const id = /^\d+$/.test(idRaw) ? Number.parseInt(idRaw, 10) : null
     const name = (formData.get(`ticketType.${i}.name`) as string).trim()
     // Validate the money format on the raw string and store it as-is in the
     // Decimal(10,2) column — never parseFloat (rejects "1e3"/"9.999" that would
@@ -208,8 +208,8 @@ function parseTicketTypes(formData: FormData): { error: string } | { types: Tick
       if (Number(price) > MAX_TICKET_PRICE) return { error: `Invalid price for ticket type "${name}"` }
       let capacity: number | null = null
       if (capRaw) {
-        const n = parseInt(capRaw, 10)
-        if (isNaN(n) || n <= 0 || n > MAX_INT4)
+        const n = Number.parseInt(capRaw, 10)
+        if (Number.isNaN(n) || n <= 0 || n > MAX_INT4)
           return { error: `Capacity for "${name}" must be a whole number between 1 and ${MAX_INT4}` }
         capacity = n
       }

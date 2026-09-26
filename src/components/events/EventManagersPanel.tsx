@@ -30,7 +30,7 @@ export function EventManagersPanel({
     setError(null)
     startTransition(async () => {
       try {
-        const res = await addEventManager(eventId, parseInt(selected, 10))
+        const res = await addEventManager(eventId, Number.parseInt(selected, 10))
         if (res && "error" in res) setError(res.error)
         else setSelected("")
       } catch {

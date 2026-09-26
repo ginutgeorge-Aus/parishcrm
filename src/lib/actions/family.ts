@@ -32,12 +32,12 @@ const FamilySchema = z.object({
     .transform((v) => (v ? new Date(v) : null))
     // Zod does not validate transform output — a malformed string yields an
     // Invalid Date that Postgres rejects with an unhandled 500. Reject it here.
-    .refine((d) => d === null || !isNaN(d.getTime()), "Invalid joined date"),
+    .refine((d) => d === null || !Number.isNaN(d.getTime()), "Invalid joined date"),
   marriageDate: z
     .string()
     .optional()
     .transform((v) => (v ? new Date(v) : null))
-    .refine((d) => d === null || !isNaN(d.getTime()), "Invalid marriage date"),
+    .refine((d) => d === null || !Number.isNaN(d.getTime()), "Invalid marriage date"),
   // Expected monthly subscription dues (custom per family). Blank → null (no obligation).
   monthlyDues: z
     .string()

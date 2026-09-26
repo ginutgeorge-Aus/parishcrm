@@ -25,8 +25,8 @@ export function MergeClient({ families }: { families: Family[] }) {
 
   function handlePreview() {
     setError(null)
-    const src = parseInt(sourceId, 10)
-    const tgt = parseInt(targetId, 10)
+    const src = Number.parseInt(sourceId, 10)
+    const tgt = Number.parseInt(targetId, 10)
     if (!src || !tgt) { setError("Select both families."); return }
     startTransition(async () => {
       const result = await previewMerge(src, tgt)

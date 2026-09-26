@@ -16,9 +16,9 @@ export default async function EditExpensePage(props: {
   if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
 
   const sessionId = Number(params.id)
-  if (isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  if (Number.isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
   const expenseId = Number(params.expenseId)
-  if (isNaN(expenseId) || expenseId <= 0 || expenseId > 2147483647) notFound()
+  if (Number.isNaN(expenseId) || expenseId <= 0 || expenseId > 2147483647) notFound()
   const expense = await prisma.pettyCashExpense.findUnique({
     where: { id: expenseId },
     include: { session: { select: { id: true, title: true, status: true } } },

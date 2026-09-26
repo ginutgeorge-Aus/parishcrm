@@ -6,5 +6,5 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function toFloat(d: { toString(): string } | number): number {
-  return typeof d === "number" ? d : parseFloat(d.toString())
+  return typeof d === "number" ? d : Number.parseFloat(d.toString())
 }

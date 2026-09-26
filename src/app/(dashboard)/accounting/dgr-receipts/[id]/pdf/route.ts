@@ -17,8 +17,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) {
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
   }
 

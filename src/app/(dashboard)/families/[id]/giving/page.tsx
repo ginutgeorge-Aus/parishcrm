@@ -35,8 +35,8 @@ export default async function FamilyGivingPage(props: Props) {
   if (!session) redirect("/login")
   if (!canViewAccounting(session.user.role)) redirect("/")
 
-  const id = parseInt(params.id, 10)
-  if (isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = Number.parseInt(params.id, 10)
+  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
 
   const family = await prisma.family.findUnique({
     where: { id },
@@ -47,7 +47,7 @@ export default async function FamilyGivingPage(props: Props) {
   if (!family || family.archivedAt) notFound()
 
   const fyNow = currentFYYear()
-  const parsedYear = parseInt(searchParams.year ?? String(fyNow), 10)
+  const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
   const fyStart = new Date(`${year}-07-01`)

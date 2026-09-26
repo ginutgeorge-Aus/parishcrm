@@ -50,7 +50,7 @@ export function toCents(m: Money): number {
   const s = m.toString().trim()
   const neg = s.startsWith("-")
   const [whole, frac = ""] = s.replace(/^-/, "").split(".")
-  const cents = parseInt(whole || "0", 10) * 100 + parseInt((frac + "00").slice(0, 2), 10)
+  const cents = Number.parseInt(whole || "0", 10) * 100 + Number.parseInt((frac + "00").slice(0, 2), 10)
   return neg ? -cents : cents
 }
 
@@ -143,7 +143,7 @@ export function parseISODate(s: string | null | undefined): Date | null {
   const [y, m, d] = s.split("-").map(Number)
   if (m < 1 || m > 12 || d < 1 || d > 31) return null
   const dt = new Date(Date.UTC(y, m - 1, d))
-  return isNaN(dt.getTime()) ? null : dt
+  return Number.isNaN(dt.getTime()) ? null : dt
 }
 
 // Parse a decrypted date-of-birth string into a Date, tolerating bad data.
@@ -154,7 +154,7 @@ export function parseISODate(s: string | null | undefined): Date | null {
 export function safeDobDate(value: string | null | undefined): Date | null {
   if (!value) return null
   const d = new Date(value)
-  return isNaN(d.getTime()) ? null : d
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 // Mask an email for display next to who-updated info: keep the first character

@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma"
 // intended behaviour for an explicit logout. Then clears the cookie + redirects.
 export async function logout(): Promise<void> {
   const session = await auth()
-  const id = session?.user?.id ? parseInt(session.user.id, 10) : NaN
+  const id = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
   if (!Number.isNaN(id)) {
     // Swallow ONLY a P2025 (user since deleted) so signOut still runs. Any other
     // failure (DB outage, timeout) must propagate — proceeding to signOut would

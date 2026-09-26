@@ -32,7 +32,7 @@ function BalanceRow({ paymentAccountId, label, current }: BalanceRowProps) {
           aria-label={`${label} opening amount`}
           step="0.01"
           min="0"
-          defaultValue={current ? parseFloat(current.amount).toFixed(2) : ""}
+          defaultValue={current ? Number.parseFloat(current.amount).toFixed(2) : ""}
           placeholder="0.00"
           required
           className="w-32 text-right"

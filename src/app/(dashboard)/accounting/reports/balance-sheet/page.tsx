@@ -23,7 +23,7 @@ function parseDate(s: string | undefined): Date | null {
   if (!s || !ISO_DATE.test(s)) return null
   const [y, m, day] = s.split("-").map(Number)
   const d = new Date(s)
-  if (isNaN(d.getTime())) return null
+  if (Number.isNaN(d.getTime())) return null
   if (d.getUTCFullYear() !== y || d.getUTCMonth() + 1 !== m || d.getUTCDate() !== day) return null
   return d
 }
