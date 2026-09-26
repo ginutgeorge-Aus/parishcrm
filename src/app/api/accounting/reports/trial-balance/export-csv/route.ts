@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { guardAccountingExport } from "@/lib/reports/exportGuard"
+import { fyYearParamOr400, guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { generateTrialBalanceCsv, type TrialBalanceRow } from "@/lib/reports/trialBalanceExport"
 import { groupByAccountGroup } from "@/lib/reports/accountGrouping"
-import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
+import { fyDateRange } from "@/lib/fiscalYear"
 import { toCents } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 
@@ -13,15 +13,8 @@ export async function GET(req: NextRequest) {
   const guard = await guardAccountingExport("trial-balance")
   if (guard instanceof NextResponse) return guard
 
-  const sp = req.nextUrl.searchParams
-  const fyNow = currentFYYear()
-  // A malformed/out-of-range ?year= used to silently fall back to the current
-  // FY — reject it explicitly, mirroring general-ledger's ?account=
-  // 400. Absent param still defaults to the current FY.
-  const year = parseFyYearParam(sp.get("year"), fyNow)
-  if (year === null) {
-    return NextResponse.json({ error: "Invalid year" }, { status: 400 })
-  }
+  const year = fyYearParamOr400(req.nextUrl.searchParams)
+  if (year instanceof NextResponse) return year
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
   // Mirrors the Trial Balance page query exactly so the export never drifts from screen totals.
