@@ -10,7 +10,7 @@ import { YearSelector } from "@/components/accounting/YearSelector"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { Button } from "@/components/ui/button"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
 import { toCents, centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
 
 type Props = { searchParams: Promise<{ year?: string }> }
@@ -33,8 +33,7 @@ export default async function TrialBalancePage(props: Props) {
 
   const sp = await props.searchParams
   const fyNow = currentFYYear()
-  const parsedYear = Number.parseInt(sp.year ?? String(fyNow), 10)
-  const year = parsedYear >= 2000 && parsedYear <= fyNow + 10 ? parsedYear : fyNow
+  const year = parseFyYearParam(sp.year, fyNow) ?? fyNow
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
   const [accounts, totals] = await Promise.all([

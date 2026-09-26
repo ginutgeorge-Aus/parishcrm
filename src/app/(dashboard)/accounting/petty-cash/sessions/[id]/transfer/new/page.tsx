@@ -1,19 +1,13 @@
 import { notFound, redirect } from "next/navigation"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canAccessAccounting } from "@/lib/roleGuard"
+import { requirePettyCashSessionId } from "@/lib/pettyCashPageGuard"
 import { createTransfer } from "@/lib/actions/pettyCashTransfer"
 import { TransferForm } from "@/components/petty-cash/TransferForm"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
-import { parseRouteId } from "@/lib/validation"
 
 export default async function NewTransferPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const session = await auth()
-  if (!canAccessAccounting(session?.user?.role)) redirect("/accounting/petty-cash")
-
-  const sessionId = parseRouteId(params.id)
-  if (sessionId === null) notFound()
+  const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({
     where: { id: sessionId },
     include: {

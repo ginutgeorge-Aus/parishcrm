@@ -1,4 +1,4 @@
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
 
 describe("currentFYYear", () => {
   it("returns the calendar year for Jul–Dec", () => {
@@ -24,5 +24,20 @@ describe("fyDateRange", () => {
     const { start, end } = fyDateRange(2025)
     expect(start).toEqual(new Date("2025-07-01"))
     expect(end).toEqual(new Date("2026-07-01"))
+  })
+})
+
+describe("parseFyYearParam", () => {
+  it("defaults to the current FY when absent", () => {
+    expect(parseFyYearParam(null, 2025)).toBe(2025)
+    expect(parseFyYearParam(undefined, 2025)).toBe(2025)
+  })
+
+  it.each([["2000", 2000], ["2024", 2024], ["2035", 2035]])("accepts %p", (raw, expected) => {
+    expect(parseFyYearParam(raw, 2025)).toBe(expected)
+  })
+
+  it.each(["", "1999", "2036", "2025abc", "20.5", "abc", "-2025"])("rejects %p", (raw) => {
+    expect(parseFyYearParam(raw, 2025)).toBeNull()
   })
 })

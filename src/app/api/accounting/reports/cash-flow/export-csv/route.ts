@@ -8,7 +8,7 @@ import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { generateCashFlowCsv, type CashFlowOperatingRow, type CashFlowPositionRow } from "@/lib/reports/cashFlowExport"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
 import { toCents } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyTodayYMD } from "@/lib/dates"
@@ -31,12 +31,10 @@ export async function GET(req: NextRequest) {
   // A malformed/out-of-range ?year= used to silently fall back to the current
   // FY — reject it explicitly, mirroring general-ledger's ?account=
   // 400. Absent param still defaults to the current FY.
-  const yearParam = sp.get("year")
-  const parsedYear = yearParam === null ? fyNow : Number.parseInt(yearParam, 10)
-  if (Number.isNaN(parsedYear) || parsedYear < 2000 || parsedYear > fyNow + 10) {
+  const year = parseFyYearParam(sp.get("year"), fyNow)
+  if (year === null) {
     return NextResponse.json({ error: "Invalid year" }, { status: 400 })
   }
-  const year = parsedYear
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
   // Mirrors the Cash Flow page query exactly so the export never drifts from screen totals.
