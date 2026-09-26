@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { fyYearParamOr400, guardAccountingExport } from "@/lib/reports/exportGuard"
-import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { generateTrialBalanceCsv, type TrialBalanceRow } from "@/lib/reports/trialBalanceExport"
 import { groupByAccountGroup } from "@/lib/reports/accountGrouping"
 import { fyDateRange } from "@/lib/fiscalYear"
-import { toCents } from "@/lib/formatting"
+import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { sydneyTodayYMD } from "@/lib/dates"
 
 export async function GET(req: NextRequest) {
@@ -17,23 +16,7 @@ export async function GET(req: NextRequest) {
   if (year instanceof NextResponse) return year
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
-  // Mirrors the Trial Balance page query exactly so the export never drifts from screen totals.
-  const [accounts, totals] = await Promise.all([
-    prisma.account.findMany({
-      // Exclude XFER — see the on-screen Trial Balance query comment.
-      where: { code: { not: "XFER" }, OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }] },
-      orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
-      include: { group: { select: { id: true, name: true, sortOrder: true } } },
-    }),
-    prisma.transaction.groupBy({
-      by: ["accountId"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
-      _sum: { amount: true },
-    }),
-  ])
-
-  const totalMap = new Map<number, number>(totals.map((g) => [g.accountId, toCents(g._sum.amount)]))
-  const totalFor = (id: number) => totalMap.get(id) ?? 0
+  const { accounts, totalFor } = await loadFyAccountTotals(fyStart, fyEnd)
 
   type Row = { id: number; code: string; name: string; type: string; group: { id: number; name: string; sortOrder: number } | null }
   const incomeGroups = groupByAccountGroup(accounts.filter((a) => a.type === "INCOME") as Row[])

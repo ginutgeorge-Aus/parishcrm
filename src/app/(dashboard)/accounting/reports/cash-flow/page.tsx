@@ -10,6 +10,7 @@ import { PrintButton } from "@/components/ui/PrintButton"
 import { Button } from "@/components/ui/button"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
 import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
+import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { toCents, centsToNumber, fmtAUD as fmt } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { getPaymentAccounts, type PaymentAccountLite } from "@/lib/paymentAccounts"
@@ -34,27 +35,7 @@ export default async function CashFlowPage(props: Props) {
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
   // Section 1 — operating activities by account group
-  const [accounts, totals] = await Promise.all([
-    prisma.account.findMany({
-      where: {
-        // Exclude the internal-transfer clearing account: its
-        // internal petty-cash↔bank legs are not operating cash flow, and the
-        // type-grouped `_sum.amount` here would otherwise inflate Total Cash
-        // Out the same way it inflated P&L Total Expenses. See xferAccount.ts.
-        code: { not: "XFER" },
-        OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }],
-      },
-      orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
-      include: { group: { select: { id: true, name: true, sortOrder: true } } },
-    }),
-    prisma.transaction.groupBy({
-      by: ["accountId"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
-      _sum: { amount: true },
-    }),
-  ])
-  const totalMap = new Map<number, number>(totals.map((g) => [g.accountId, toCents(g._sum.amount)]))
-  const totalFor = (id: number) => totalMap.get(id) ?? 0
+  const { accounts, totalFor } = await loadFyAccountTotals(fyStart, fyEnd)
 
   const incomeGroups = groupByAccountGroup(accounts.filter((a) => a.type === "INCOME") as Row[])
   const expenseGroups = groupByAccountGroup(accounts.filter((a) => a.type === "EXPENSE") as Row[])

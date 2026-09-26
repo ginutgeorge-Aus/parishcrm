@@ -6,6 +6,7 @@ import { getClientIp } from "@/lib/clientIp"
 import { generateCashFlowCsv, type CashFlowOperatingRow, type CashFlowPositionRow } from "@/lib/reports/cashFlowExport"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
 import { fyDateRange } from "@/lib/fiscalYear"
+import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { toCents } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyTodayYMD } from "@/lib/dates"
@@ -21,22 +22,7 @@ export async function GET(req: NextRequest) {
   if (year instanceof NextResponse) return year
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
-  // Mirrors the Cash Flow page query exactly so the export never drifts from screen totals.
-  const [accounts, totals] = await Promise.all([
-    prisma.account.findMany({
-      // Exclude XFER — see the on-screen Cash Flow query comment.
-      where: { code: { not: "XFER" }, OR: [{ isActive: true }, { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } }] },
-      orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
-      include: { group: { select: { id: true, name: true, sortOrder: true } } },
-    }),
-    prisma.transaction.groupBy({
-      by: ["accountId"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
-      _sum: { amount: true },
-    }),
-  ])
-  const totalMap = new Map<number, number>(totals.map((g) => [g.accountId, toCents(g._sum.amount)]))
-  const totalFor = (id: number) => totalMap.get(id) ?? 0
+  const { accounts, totalFor } = await loadFyAccountTotals(fyStart, fyEnd)
 
   const incomeGroups = groupByAccountGroup(accounts.filter((a) => a.type === "INCOME") as Row[])
   const expenseGroups = groupByAccountGroup(accounts.filter((a) => a.type === "EXPENSE") as Row[])
