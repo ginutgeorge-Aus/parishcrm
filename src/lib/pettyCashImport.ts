@@ -76,6 +76,18 @@ function parseDate(s: string): Date | null {
   return date
 }
 
+function parseAmount(rawAmount: string, errors: string[]): number | null {
+  if (!/^\d+(\.\d{1,2})?$/.test(rawAmount)) {
+    if (/^\d+\.\d{3,}$/.test(rawAmount)) errors.push("Amount must have at most 2 decimal places")
+    else errors.push("Amount must be positive")
+    return null
+  }
+  // The regex above guarantees a non-negative decimal, so NaN is impossible.
+  const amount = Number.parseFloat(rawAmount)
+  if (amount <= 0) { errors.push("Amount must be positive"); return null }
+  return amount
+}
+
 export function parseRows(text: string): ParsedRow[] {
   const grid = parseCsv(text)
   if (grid.length === 0) throw new Error("Empty file")
@@ -94,14 +106,7 @@ export function parseRows(text: string): ParsedRow[] {
     const type: RowType | null = typeLc === "receipt" || typeLc === "expense" ? typeLc : null
     if (!type) errors.push("Type must be receipt or expense")
 
-    let amount: number | null = null
-    if (!/^\d+(\.\d{1,2})?$/.test(rawAmount)) {
-      if (/^\d+\.\d{3,}$/.test(rawAmount)) errors.push("Amount must have at most 2 decimal places")
-      else errors.push("Amount must be positive")
-    } else {
-      amount = parseFloat(rawAmount)
-      if (!(amount > 0)) { errors.push("Amount must be positive"); amount = null }
-    }
+    const amount = parseAmount(rawAmount, errors)
 
     if (!account) errors.push("Account is required")
 

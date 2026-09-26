@@ -12,12 +12,12 @@ import { DeleteSessionButton } from "@/components/petty-cash/DeleteSessionButton
 import { ensureWeeklySession } from "@/lib/actions/pettyCashSession"
 import { calcRunningBalance, varianceLabel } from "@/lib/pettyCashLedger"
 import { fmtAUD as fmt, sumCents, centsToNumber, sessionDateFromTitle } from "@/lib/formatting"
-import { PettyCashSessionStatus } from "@/lib/generated/prisma/enums"
+import { buildSessionWhere, type PettyCashSearchParams } from "@/lib/pettyCashSessionFilters"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export default async function PettyCashPage(
   props: {
-    searchParams: Promise<{ status?: string; from?: string; to?: string; custodian?: string }>
+    searchParams: Promise<PettyCashSearchParams>
   }
 ) {
   const searchParams = await props.searchParams;
@@ -28,34 +28,7 @@ export default async function PettyCashPage(
   // freshly-created session appears in the same render.
   const ensured = await ensureWeeklySession()
 
-  // Validate URL params before they reach Prisma — a crafted ?custodian=abc or
-  // ?from=notadate would otherwise produce NaN / Invalid Date in the where
-  // clause and either 500 or silently return wrong results.
-  // Allowlist the status param before it reaches Prisma's enum cast — a crafted
-  // ?status=FOO would otherwise throw PrismaClientValidationError → 500.
-  const VALID_STATUSES = new Set<PettyCashSessionStatus>(["OPEN", "CLOSED"])
-  const statusFilter =
-    searchParams.status && VALID_STATUSES.has(searchParams.status as PettyCashSessionStatus)
-      ? (searchParams.status as PettyCashSessionStatus)
-      : undefined
-  const custodianId = searchParams.custodian ? parseInt(searchParams.custodian, 10) : undefined
-  const fromDate = searchParams.from ? new Date(searchParams.from) : undefined
-  const toDate = searchParams.to ? new Date(searchParams.to + "T23:59:59.999") : undefined
-  const fromValid = fromDate && !isNaN(fromDate.getTime())
-  const toValid = toDate && !isNaN(toDate.getTime())
-
-  const where = {
-    ...(statusFilter && { status: statusFilter }),
-    ...(custodianId !== undefined && !isNaN(custodianId) && { custodianId }),
-    ...(fromValid || toValid
-      ? {
-          openedAt: {
-            ...(fromValid && { gte: fromDate }),
-            ...(toValid && { lte: toDate }),
-          },
-        }
-      : {}),
-  }
+  const where = buildSessionWhere(searchParams)
 
   const [sessions, people] = await Promise.all([
     prisma.pettyCashSession.findMany({
