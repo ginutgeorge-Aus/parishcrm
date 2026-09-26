@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { actorId } from "@/lib/actor"
+import { guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
-import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
-import { rateLimit } from "@/lib/rateLimit"
 import { generateBalanceSheetCsv, type BalanceSheetRow } from "@/lib/reports/balanceSheetExport"
 import { toCents, type Money } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
@@ -29,14 +26,8 @@ function toYMD(d: Date): string {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!canViewAccounting(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-  if (!rateLimit(`export:balance-sheet:${actorId(session)}`, 10, 60_000)) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
+  const guard = await guardAccountingExport("balance-sheet")
+  if (guard instanceof NextResponse) return guard
 
   // A malformed ?date= used to silently fall back to today — the
   // caller has no way to tell their filter was ignored and is looking at the
@@ -106,7 +97,7 @@ export async function GET(req: NextRequest) {
   const csv = generateBalanceSheetCsv(rows, totalBalanceCents)
 
   const ip = getClientIp(req)
-  await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "BalanceSheet", undefined, { report: "balance-sheet", date: toYMD(asAtDate) }, ip)
+  await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "BalanceSheet", undefined, { report: "balance-sheet", date: toYMD(asAtDate) }, ip)
 
   return new NextResponse(csv, {
     headers: {

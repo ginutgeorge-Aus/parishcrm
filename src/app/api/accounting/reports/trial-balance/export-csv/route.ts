@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { actorId } from "@/lib/actor"
+import { guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
-import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
-import { rateLimit } from "@/lib/rateLimit"
 import { generateTrialBalanceCsv, type TrialBalanceRow } from "@/lib/reports/trialBalanceExport"
 import { groupByAccountGroup } from "@/lib/reports/accountGrouping"
 import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
@@ -13,14 +10,8 @@ import { toCents } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 
 export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!canViewAccounting(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
-  if (!rateLimit(`export:trial-balance:${actorId(session)}`, 10, 60_000)) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
+  const guard = await guardAccountingExport("trial-balance")
+  if (guard instanceof NextResponse) return guard
 
   const sp = req.nextUrl.searchParams
   const fyNow = currentFYYear()
@@ -74,7 +65,7 @@ export async function GET(req: NextRequest) {
   })
 
   const ip = getClientIp(req)
-  await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "TrialBalance", undefined, { report: "trial-balance", year, rowCount: rows.length }, ip)
+  await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "TrialBalance", undefined, { report: "trial-balance", year, rowCount: rows.length }, ip)
 
   return new NextResponse(csv, {
     headers: {
