@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
 import Link from "next/link"
 import { CheckInList } from "@/components/events/CheckInList"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -13,8 +14,8 @@ export default async function CheckInPage(props: Props) {
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/")
 
-  const eventId = Number.parseInt(params.id, 10)
-  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(params.id)
+  if (eventId === null) notFound()
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },

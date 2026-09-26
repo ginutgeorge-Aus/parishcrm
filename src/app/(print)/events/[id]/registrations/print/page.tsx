@@ -12,6 +12,7 @@ import { redirect, notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { formatSydneyDate, formatSydneyTime } from "@/lib/dates"
 import { PrintButton } from "@/components/ui/PrintButton"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -21,10 +22,10 @@ export default async function PrintPage(props: Props) {
   if (!session) redirect("/login")
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = (await headers()).get("x-nonce") ?? undefined
-  const eventId = Number.parseInt(params.id, 10)
+  const eventId = parseRouteId(params.id)
   // Reject non-numeric/out-of-range ids before they reach Postgres, matching the
   // petty-cash print page guard.
-  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  if (eventId === null) notFound()
   // Renders decrypted registrant PII + payment status — gate to edit roles or an
   // assigned event organiser for this event. VIEWER/AUDITOR must not reach it
   // directly.

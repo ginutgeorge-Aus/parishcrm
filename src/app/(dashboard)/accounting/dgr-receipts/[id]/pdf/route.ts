@@ -8,6 +8,7 @@ import { buildDgrPdfModel, type DgrLine } from "@/lib/dgr"
 import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 import { getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
+import { parseRouteId } from "@/lib/validation"
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
@@ -17,8 +18,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const id = Number.parseInt(params.id, 10)
-  if (Number.isNaN(id) || id <= 0 || id > 2147483647) {
+  const id = parseRouteId(params.id)
+  if (id === null) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
   }
 

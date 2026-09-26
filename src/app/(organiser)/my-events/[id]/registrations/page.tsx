@@ -14,6 +14,7 @@ import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
 import type { PendingReminderRow } from "@/components/events/SendPaymentRemindersClient"
 import { Button } from "@/components/ui/button"
+import { parseRouteId } from "@/lib/validation"
 
 // Same defensive cap as the admin twin (events/[id]/registrations/page.tsx,
 // ) on the registration rows decrypted (email/phone) and shipped to the
@@ -30,8 +31,8 @@ export default async function OrganiserRegistrationsPage(props: Props) {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const eventId = Number.parseInt(id, 10)
-  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(id)
+  if (eventId === null) notFound()
 
   // IDOR gate: an unassigned event is indistinguishable from a missing one.
   const userId = Number.parseInt(session.user.id, 10)

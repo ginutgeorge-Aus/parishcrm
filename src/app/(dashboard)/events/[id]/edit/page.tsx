@@ -10,6 +10,7 @@ import { PublishToggle } from "@/components/events/PublishToggle"
 import { CloseRegistrationToggle } from "@/components/events/CloseRegistrationToggle"
 import { DeleteEventButton } from "@/components/events/DeleteEventButton"
 import { toSydneyDatetimeLocal } from "@/lib/dates"
+import { parseRouteId } from "@/lib/validation"
 
 type Props = {
   params: Promise<{ id: string }>
@@ -23,8 +24,8 @@ export default async function EditEventPage(props: Props) {
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/events")
 
-  const eventId = Number.parseInt(params.id, 10)
-  if (Number.isNaN(eventId) || eventId <= 0 || eventId > 2147483647) notFound()
+  const eventId = parseRouteId(params.id)
+  if (eventId === null) notFound()
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },

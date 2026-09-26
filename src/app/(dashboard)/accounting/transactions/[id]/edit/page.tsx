@@ -8,14 +8,15 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { TransactionForm } from "@/components/accounting/TransactionForm"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditTransactionPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 
-  const txId = Number.parseInt(params.id, 10)
-  if (Number.isNaN(txId) || txId <= 0 || txId > 2147483647) notFound()
+  const txId = parseRouteId(params.id)
+  if (txId === null) notFound()
 
   const [transaction, accounts, families, funds, paymentAccounts] = await Promise.all([
     prisma.transaction.findUnique({

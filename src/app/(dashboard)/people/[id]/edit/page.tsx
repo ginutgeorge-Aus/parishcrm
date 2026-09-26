@@ -6,14 +6,15 @@ import { canEdit, canSeePastoralNotes } from "@/lib/roleGuard"
 import { updatePerson } from "@/lib/actions/person"
 import { PersonForm } from "@/components/people/PersonForm"
 import { safeDecrypt } from "@/lib/crypto"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditPersonPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await auth()
   if (!canEdit(session?.user?.role)) redirect("/families")
 
-  const id = Number.parseInt(params.id, 10)
-  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const person = await prisma.person.findUnique({ where: { id } })
   // Archived persons are hidden everywhere and only ever archived via their

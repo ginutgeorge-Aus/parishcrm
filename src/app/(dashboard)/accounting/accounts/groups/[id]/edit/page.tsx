@@ -4,14 +4,15 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { updateAccountGroup } from "@/lib/actions/accountGroup"
 import { AccountGroupForm } from "@/components/accounting/AccountGroupForm"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function EditAccountGroupPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/accounts/groups")
 
-  const id = Number.parseInt(params.id, 10)
-  if (Number.isNaN(id) || id <= 0 || id > 2147483647) notFound()
+  const id = parseRouteId(params.id)
+  if (id === null) notFound()
 
   const group = await prisma.accountGroup.findUnique({ where: { id } })
   if (!group) notFound()

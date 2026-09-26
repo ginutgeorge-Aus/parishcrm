@@ -12,6 +12,7 @@ import { fmtAUD as fmt } from "@/lib/formatting"
 import { varianceLabel } from "@/lib/pettyCashLedger"
 import { getSessionDetailData } from "./page.data"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { parseRouteId } from "@/lib/validation"
 
 export default async function SessionDetailPage(
   props: {
@@ -22,8 +23,8 @@ export default async function SessionDetailPage(
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 
-  const sessionId = Number(params.id)
-  if (Number.isNaN(sessionId) || sessionId <= 0 || sessionId > 2147483647) notFound()
+  const sessionId = parseRouteId(params.id)
+  if (sessionId === null) notFound()
 
   const userCanEdit = canAccessAccounting(session?.user?.role)
   const userIsAdmin = isAdmin(session?.user?.role)
