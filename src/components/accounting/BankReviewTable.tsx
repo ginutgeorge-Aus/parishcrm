@@ -183,6 +183,15 @@ export function BankReviewTable({
     onUpdateRow(i, { splits })
   }
 
+  function selectSplitMember(row: ReviewRow, i: number, j: number, pid: number | null) {
+    if (pid === null) {
+      patchSplit(row, i, j, { personId: null, familyId: null })
+      return
+    }
+    const family = families.find((f) => f.people.some((p) => p.id === pid))
+    patchSplit(row, i, j, { personId: pid, familyId: family?.id ?? null })
+  }
+
   function addSplitLine(row: ReviewRow, i: number) {
     const allocated = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
     const remainingCents = toCents(row.amount) - allocated
@@ -501,14 +510,7 @@ export function BankReviewTable({
                               families={families}
                               personId={s.personId}
                               disabled={false}
-                              onSelect={(pid) => {
-                                if (pid === null) {
-                                  patchSplit(row, i, j, { personId: null, familyId: null })
-                                  return
-                                }
-                                const family = families.find((f) => f.people.some((p) => p.id === pid))
-                                patchSplit(row, i, j, { personId: pid, familyId: family?.id ?? null })
-                              }}
+                              onSelect={(pid) => selectSplitMember(row, i, j, pid)}
                             />
                           </div>
                           <Button
@@ -763,14 +765,7 @@ export function BankReviewTable({
                           families={families}
                           personId={s.personId}
                           disabled={false}
-                          onSelect={(pid) => {
-                            if (pid === null) {
-                              patchSplit(row, i, j, { personId: null, familyId: null })
-                              return
-                            }
-                            const family = families.find((f) => f.people.some((p) => p.id === pid))
-                            patchSplit(row, i, j, { personId: pid, familyId: family?.id ?? null })
-                          }}
+                          onSelect={(pid) => selectSplitMember(row, i, j, pid)}
                         />
                       </div>
                     </div>

@@ -286,7 +286,7 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
     return { error: e instanceof Error ? e.message : "Import failed" }
   }
 
-  const sortedDates = [...dates].sort()
+  const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
   await logAudit(actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
     receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates[sortedDates.length - 1]}`,
   })

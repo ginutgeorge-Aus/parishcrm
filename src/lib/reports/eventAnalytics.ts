@@ -42,7 +42,7 @@ export function regsOverTime(registrations: RegistrationInput[]) {
     const d = sydneyTodayYMD(r.createdAt)
     byDate.set(d, (byDate.get(d) ?? 0) + 1)
   }
-  const dates = Array.from(byDate.keys()).sort()
+  const dates = Array.from(byDate.keys()).sort((a, b) => a.localeCompare(b))
   let running = 0
   return dates.map(date => {
     running += byDate.get(date)!
