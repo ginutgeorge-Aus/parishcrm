@@ -23,10 +23,10 @@ const value = { fontSize: "14px", color: "#0f172a", margin: "0 0 8px", fontWeigh
 function PaymentDetails({
   churchName,
   payment,
-}: {
+}: Readonly<{
   churchName: string
   payment: NonNullable<RegistrationConfirmationData["payment"]>
-}) {
+}>) {
   return (
     <Section style={{ background: "#f8fafc", borderRadius: "8px", padding: "16px", marginTop: "12px" }}>
       <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
@@ -55,7 +55,7 @@ function PaymentDetails({
   )
 }
 
-function OrganizerList({ organizers }: { organizers: Organizer[] }) {
+function OrganizerList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
   return (
     <Section style={{ marginTop: "16px" }}>
       <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>

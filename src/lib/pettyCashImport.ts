@@ -82,8 +82,9 @@ function parseAmount(rawAmount: string, errors: string[]): number | null {
     else errors.push("Amount must be positive")
     return null
   }
-  const amount = parseFloat(rawAmount)
-  if (!(amount > 0)) { errors.push("Amount must be positive"); return null }
+  // The regex above guarantees a non-negative decimal, so NaN is impossible.
+  const amount = Number.parseFloat(rawAmount)
+  if (amount <= 0) { errors.push("Amount must be positive"); return null }
   return amount
 }
 

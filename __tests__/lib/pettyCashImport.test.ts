@@ -63,6 +63,7 @@ describe("parseRows", () => {
   it("flags a non-positive or >2dp amount", () => {
     expect(parseRows(`${HEADER}\n2025-09-07,receipt,X,,0,`)[0].errors).toContain("Amount must be positive")
     expect(parseRows(`${HEADER}\n2025-09-07,receipt,X,,1.234,`)[0].errors).toContain("Amount must have at most 2 decimal places")
+    expect(parseRows(`${HEADER}\n2025-09-07,receipt,X,,-5,`)[0].errors).toContain("Amount must be positive")
   })
 
   it("requires description and payee on expense rows", () => {
