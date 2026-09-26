@@ -49,13 +49,10 @@ const ExpenseSchema = z.object({
   confirmNegative: z.string().optional().transform((v) => v === "true"),
 })
 
-export async function createExpense(
-  sessionId: number,
-  _prev: ActionResult,
-  formData: FormData
-): Promise<ActionResult> {
-  const session = await auth()
-  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+// Loads the session (with the ledger rows needed for the negative-float check)
+// and runs the open/dated/lock checks shared by createExpense's setup —
+// bundled so the caller sees one guard clause instead of four.
+async function loadOpenExpenseSession(sessionId: number) {
   const existing = await prisma.pettyCashSession.findUnique({
     where: { id: sessionId },
     // Ledger amounts needed for the negative-float check below.
@@ -71,6 +68,44 @@ export async function createExpense(
   if (!sessionDate) return { error: "Invalid session date" }
   const lockError = await assertUnlocked(sessionDate)
   if (lockError) return { error: lockError }
+  return { existing, sessionDate }
+}
+
+// Likely-duplicate check factored out of createExpense: an existing expense in
+// the SAME session matching date + amount + payee + description. payee/description
+// are encrypted with a random IV, so candidates must be decrypted to compare
+// (same approach as createTransaction).
+async function isDuplicateExpense(
+  sessionId: number,
+  sessionDate: Date,
+  data: { amount: string; payee: string; description: string }
+): Promise<boolean> {
+  const candidates = (await prisma.pettyCashExpense.findMany({
+    where: { sessionId, date: sessionDate, amount: data.amount },
+    select: { payee: true, description: true },
+  })) ?? []
+  // safeDecrypt (not decrypt) — a corrupt/unrotated-key candidate row must
+  // not throw and block this create; it just fails to match.
+  return hasEncryptedFieldMatch(
+    candidates,
+    [
+      ["payee", data.payee],
+      ["description", data.description],
+    ],
+    safeDecrypt
+  )
+}
+
+export async function createExpense(
+  sessionId: number,
+  _prev: ActionResult,
+  formData: FormData
+): Promise<ActionResult> {
+  const session = await auth()
+  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const loaded = await loadOpenExpenseSession(sessionId)
+  if (loaded.error !== undefined) return { error: loaded.error }
+  const { existing, sessionDate } = loaded
   const parsed = ExpenseSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const account = await validateAccount(parsed.data.accountId, "EXPENSE")
@@ -82,30 +117,13 @@ export async function createExpense(
   // unique constraint guarding against a re-keyed or double-submitted entry —
   // same class of bug closed for the direct transaction route. Warn
   // (don't hard-block) on an existing expense in the SAME session matching
-  // date + amount + payee + description. payee/description are encrypted with
-  // a random IV, so candidates must be decrypted to compare (same approach as
-  // createTransaction). The form resubmits with confirmDuplicate to post it
-  // anyway.
-  if (!parsed.data.confirmDuplicate) {
-    const candidates = (await prisma.pettyCashExpense.findMany({
-      where: { sessionId, date: sessionDate, amount: parsed.data.amount },
-      select: { payee: true, description: true },
-    })) ?? []
-    // safeDecrypt (not decrypt) — a corrupt/unrotated-key candidate row must
-    // not throw and block this create; it just fails to match.
-    const isDuplicate = hasEncryptedFieldMatch(
-      candidates,
-      [
-        ["payee", parsed.data.payee],
-        ["description", parsed.data.description],
-      ],
-      safeDecrypt
-    )
-    if (isDuplicate) {
-      return {
-        error: "Possible duplicate: an expense with the same date, amount, payee, and description already exists in this session. Submit again to post it anyway.",
-        duplicateWarning: true,
-      }
+  // date + amount + payee + description. The form resubmits with
+  // confirmDuplicate to post it anyway. `&&` short-circuits so the lookup
+  // never runs once the user has already confirmed.
+  if (!parsed.data.confirmDuplicate && (await isDuplicateExpense(sessionId, sessionDate, parsed.data))) {
+    return {
+      error: "Possible duplicate: an expense with the same date, amount, payee, and description already exists in this session. Submit again to post it anyway.",
+      duplicateWarning: true,
     }
   }
 
@@ -117,18 +135,18 @@ export async function createExpense(
   // (mirrors the duplicate-warning UX): the "Record anyway" resubmit sets
   // confirmNegative. The balance is a pre-insert read here (not inside the
   // insert tx) — a soft warning, not the hard concurrency guard transfers need.
-  if (!parsed.data.confirmNegative) {
-    const balance = calcRunningBalance(
-      existing.openingBalance,
-      existing.receipts,
-      existing.expenses,
-      existing.transfers
-    )
-    if (toCents(parsed.data.amount) > toCents(balance)) {
-      return {
-        error: `This expense of ${parsed.data.amount} exceeds the running balance of ${balance.toFixed(2)} and would make the float negative. Submit again to record it anyway.`,
-        negativeBalanceWarning: true,
-      }
+  // Computed unconditionally (pure arithmetic over already-fetched rows, no I/O)
+  // so the confirmNegative check below can be a single condition.
+  const balance = calcRunningBalance(
+    existing.openingBalance,
+    existing.receipts,
+    existing.expenses,
+    existing.transfers
+  )
+  if (!parsed.data.confirmNegative && toCents(parsed.data.amount) > toCents(balance)) {
+    return {
+      error: `This expense of ${parsed.data.amount} exceeds the running balance of ${balance.toFixed(2)} and would make the float negative. Submit again to record it anyway.`,
+      negativeBalanceWarning: true,
     }
   }
 

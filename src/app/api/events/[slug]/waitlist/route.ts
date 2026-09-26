@@ -24,6 +24,107 @@ const BodySchema = z.object({
   turnstileToken: z.string().max(2048).optional(),
 })
 
+// Event no longer accepting waitlist joins — past its close date or explicitly
+// closed. Split out of POST() so the handler's early-exit gate reads as one step.
+function eventCloseResponse(event: {
+  date: Date | null
+  endDate: Date | null
+  registrationClosed: boolean
+  registrationDeadline: Date | null
+}): NextResponse | null {
+  const closesAt = event.endDate ?? event.date
+  if (closesAt && closesAt < new Date()) return NextResponse.json({ error: "Event not found" }, { status: 404 })
+  if (isRegistrationClosed(event)) {
+    return NextResponse.json({ error: "Registration for this event is closed." }, { status: 400 })
+  }
+  return null
+}
+
+// Honeypot + signed timing token + optional CAPTCHA, in that order — same
+// defence-in-depth gate as the sibling register endpoint. Returns the
+// rejection response, or null when all three checks pass.
+async function antiBotRejection(
+  website: string | undefined,
+  formToken: string | undefined,
+  turnstileToken: string | undefined,
+  ip: string,
+): Promise<NextResponse | null> {
+  if (website && website.trim().length > 0) return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
+  switch (verifyFormToken(formToken, Date.now())) {
+    case "ok":
+      break
+    case "tooFast":
+      return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
+    default: // missing | bad | expired
+      return NextResponse.json({ error: "Your session expired. Please refresh the page and try again." }, { status: 400 })
+  }
+
+  // Optional CAPTCHA: defence-in-depth, same gate as register.
+  // No-op unless TURNSTILE_SECRET_KEY is configured; when enabled, a missing/
+  // invalid token is rejected like the honeypot — generic error, no hint which
+  // check failed.
+  if (!(await verifyTurnstile(turnstileToken, ip))) {
+    return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
+  }
+  return null
+}
+
+// Server-side parity with the public page's waitlist gate: only an
+// actually sold-out ticket type may be waitlisted. `sold` counts non-CANCELLED
+// quantity — the same rule as EVENT_CAPACITY_INCLUDE and the public page's
+// `soldOutTypes` (capacity !== null && sold >= capacity). An unlimited type
+// (capacity null) or one with spare seats is never sold out → register instead.
+async function notSoldOutResponse(
+  ticketTypeId: number,
+  ticketType: { id: number; capacity: number | null } | undefined,
+): Promise<NextResponse | null> {
+  if (!ticketType) {
+    return NextResponse.json({ error: "Invalid ticket type" }, { status: 400 })
+  }
+  const soldAgg = await prisma.registrationItem.aggregate({
+    where: { ticketTypeId, registration: { paymentStatus: { not: "CANCELLED" } } },
+    _sum: { quantity: true },
+  })
+  const sold = soldAgg._sum.quantity ?? 0
+  if (ticketType.capacity === null || sold < ticketType.capacity) {
+    return NextResponse.json(
+      { error: "This ticket type still has seats available; please register instead." },
+      { status: 400 },
+    )
+  }
+  return null
+}
+
+// Blind index dedupes joins without decrypting: email is stored with a random
+// IV so the ciphertext differs each time, but hmacEmail is deterministic. The
+// @@unique(eventId, ticketTypeId, emailHash) rejects a repeat join ( A1).
+async function createWaitlistEntry(
+  eventId: number,
+  ticketTypeId: number,
+  name: string,
+  email: string,
+): Promise<NextResponse> {
+  try {
+    await prisma.waitlist.create({
+      data: {
+        eventId,
+        ticketTypeId,
+        name: name.trim(),
+        email: encrypt(email),
+        emailHash: hmacEmail(email),
+      },
+    })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      // Already on this waitlist — treat as success so we don't leak membership
+      // or surface a scary error for a harmless repeat submit.
+      return NextResponse.json({ ok: true })
+    }
+    throw e
+  }
+  return NextResponse.json({ ok: true })
+}
+
 /**
  * Public, unauthenticated. Rate-limited 10 req/min/IP.
  *
@@ -50,11 +151,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
     select: { id: true, isPublished: true, date: true, endDate: true, registrationClosed: true, registrationDeadline: true, ticketTypes: { select: { id: true, capacity: true } } },
   })
   if (!event || !event.isPublished) return NextResponse.json({ error: "Event not found" }, { status: 404 })
-  const closesAt = event.endDate ?? event.date
-  if (closesAt && closesAt < new Date()) return NextResponse.json({ error: "Event not found" }, { status: 404 })
-  if (isRegistrationClosed(event)) {
-    return NextResponse.json({ error: "Registration for this event is closed." }, { status: 400 })
-  }
+  const closeResponse = eventCloseResponse(event)
+  if (closeResponse) return closeResponse
 
   let json: unknown
   try {
@@ -67,66 +165,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   const { ticketTypeId, name, email, website, formToken, turnstileToken } = parsed.data
 
-  if (website && website.trim().length > 0) return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
-  switch (verifyFormToken(formToken, Date.now())) {
-    case "ok":
-      break
-    case "tooFast":
-      return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
-    default: // missing | bad | expired
-      return NextResponse.json({ error: "Your session expired. Please refresh the page and try again." }, { status: 400 })
-  }
-
-  // Optional CAPTCHA: defence-in-depth, same gate as register.
-  // No-op unless TURNSTILE_SECRET_KEY is configured; when enabled, a missing/
-  // invalid token is rejected like the honeypot — generic error, no hint which
-  // check failed.
-  if (!(await verifyTurnstile(turnstileToken, ip))) {
-    return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
-  }
+  const botRejection = await antiBotRejection(website, formToken, turnstileToken, ip)
+  if (botRejection) return botRejection
 
   const ticketType = event.ticketTypes.find(t => t.id === ticketTypeId)
-  if (!ticketType) {
-    return NextResponse.json({ error: "Invalid ticket type" }, { status: 400 })
-  }
+  const soldOutError = await notSoldOutResponse(ticketTypeId, ticketType)
+  if (soldOutError) return soldOutError
 
-  // Server-side parity with the public page's waitlist gate: only an
-  // actually sold-out ticket type may be waitlisted. `sold` counts non-CANCELLED
-  // quantity — the same rule as EVENT_CAPACITY_INCLUDE and the public page's
-  // `soldOutTypes` (capacity !== null && sold >= capacity). An unlimited type
-  // (capacity null) or one with spare seats is never sold out → register instead.
-  const soldAgg = await prisma.registrationItem.aggregate({
-    where: { ticketTypeId, registration: { paymentStatus: { not: "CANCELLED" } } },
-    _sum: { quantity: true },
-  })
-  const sold = soldAgg._sum.quantity ?? 0
-  if (ticketType.capacity === null || sold < ticketType.capacity) {
-    return NextResponse.json(
-      { error: "This ticket type still has seats available; please register instead." },
-      { status: 400 },
-    )
-  }
-
-  // Blind index dedupes joins without decrypting: email is stored with a random
-  // IV so the ciphertext differs each time, but hmacEmail is deterministic. The
-  // @@unique(eventId, ticketTypeId, emailHash) rejects a repeat join ( A1).
-  try {
-    await prisma.waitlist.create({
-      data: {
-        eventId: event.id,
-        ticketTypeId,
-        name: name.trim(),
-        email: encrypt(email),
-        emailHash: hmacEmail(email),
-      },
-    })
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      // Already on this waitlist — treat as success so we don't leak membership
-      // or surface a scary error for a harmless repeat submit.
-      return NextResponse.json({ ok: true })
-    }
-    throw e
-  }
-  return NextResponse.json({ ok: true })
+  return createWaitlistEntry(event.id, ticketTypeId, name, email)
 }

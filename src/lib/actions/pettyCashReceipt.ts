@@ -145,18 +145,10 @@ export async function createReceipt(
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
-export async function updateReceipt(
-  id: number,
-  _prev: ActionResult,
-  formData: FormData
-): Promise<ActionResult> {
-  const session = await auth()
-  // canAccessAccounting (ADMIN|PASTOR), matching createReceipt. Any editor may correct any
-  // entry in an OPEN session — petty-cash sessions are collaborative and both
-  // roles are fully-trusted staff; there is deliberately no per-entry ownership
-  // (every edit is audited and closed sessions are locked). Delete stays
-  // ADMIN-only. By-design, not an IDOR (//AUDIT-033).
-  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+// Loads the receipt (with its session + mirror-reconciled state) and runs the
+// open/reconciled/dated/lock checks shared by updateReceipt's setup — bundled
+// so the caller sees one guard clause instead of five.
+async function loadEditableReceipt(id: number) {
   const receipt = await prisma.pettyCashReceipt.findUnique({
     where: { id },
     include: {
@@ -174,6 +166,40 @@ export async function updateReceipt(
   if (!sessionDate) return { error: "Invalid session date" }
   const lockError = await assertUnlocked(sessionDate)
   if (lockError) return { error: lockError }
+  return { receipt, sessionDate }
+}
+
+// personId === undefined means the field was left unset — nothing to validate.
+// Otherwise the id must resolve to an active (non-archived) Person.
+async function validateReceiptDonor(personId: number | undefined): Promise<string | null> {
+  if (personId === undefined) return null
+  const person = await prisma.person.findUnique({ where: { id: personId, archivedAt: null }, select: { id: true } })
+  return person ? null : "Person not found"
+}
+
+// serviceTypeId === undefined means the field was left unset — nothing to
+// validate. Otherwise the id must resolve to an active ServiceType.
+async function validateReceiptServiceType(serviceTypeId: number | undefined): Promise<string | null> {
+  if (serviceTypeId === undefined) return null
+  const st = await prisma.serviceType.findUnique({ where: { id: serviceTypeId }, select: { isActive: true } })
+  return st?.isActive ? null : "Invalid service type"
+}
+
+export async function updateReceipt(
+  id: number,
+  _prev: ActionResult,
+  formData: FormData
+): Promise<ActionResult> {
+  const session = await auth()
+  // canAccessAccounting (ADMIN|PASTOR), matching createReceipt. Any editor may correct any
+  // entry in an OPEN session — petty-cash sessions are collaborative and both
+  // roles are fully-trusted staff; there is deliberately no per-entry ownership
+  // (every edit is audited and closed sessions are locked). Delete stays
+  // ADMIN-only. By-design, not an IDOR (//AUDIT-033).
+  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const loaded = await loadEditableReceipt(id)
+  if (loaded.error !== undefined) return { error: loaded.error }
+  const { receipt, sessionDate } = loaded
   const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const account = await validateAccount(parsed.data.accountId, "INCOME")
@@ -182,20 +208,10 @@ export async function updateReceipt(
   // fact must remain valid.
   if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId, { allowInactive: true })))
     return { error: "Invalid fund" }
-  if (parsed.data.personId !== undefined) {
-    const person = await prisma.person.findUnique({
-      where: { id: parsed.data.personId, archivedAt: null },
-      select: { id: true },
-    })
-    if (!person) return { error: "Person not found" }
-  }
-  if (parsed.data.serviceTypeId !== undefined) {
-    const st = await prisma.serviceType.findUnique({
-      where: { id: parsed.data.serviceTypeId },
-      select: { isActive: true },
-    })
-    if (!st || !st.isActive) return { error: "Invalid service type" }
-  }
+  const donorError = await validateReceiptDonor(parsed.data.personId)
+  if (donorError) return { error: donorError }
+  const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
+  if (serviceTypeError) return { error: serviceTypeError }
   // confirmDuplicate is a form-only flag (duplicate-confirmation), not a column —
   // strip it before spreading, or Prisma rejects the whole update.
   const { confirmDuplicate: _confirmDuplicate, ...receiptData } = parsed.data

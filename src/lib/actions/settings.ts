@@ -75,18 +75,42 @@ function normaliseRecipientList(value: string): string | null {
   return parts.join(", ")
 }
 
-export async function upsertSetting(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
-  const session = await auth()
-  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
-
-  const key = ((formData.get("key") as string) ?? "").trim()
-  let value = ((formData.get("value") as string) ?? "").trim()
-
-  if (!key) return { error: "Missing key" }
-  if (!ALLOWED_KEYS.has(key)) return { error: "Invalid setting key" }
+// Key-only checks: unknown/blank keys and letter keys (which have their own
+// bounded, cache-invalidated action) are rejected before any value is looked at.
+function validateSettingKey(key: string): string | null {
+  if (!key) return "Missing key"
+  if (!ALLOWED_KEYS.has(key)) return "Invalid setting key"
   // Letter keys are bounded + cache-invalidated only by updateLetterSettings;
   // the generic path would bypass both.
-  if (LETTER_KEY_SET.has(key)) return { error: "Invalid setting key" }
+  if (LETTER_KEY_SET.has(key)) return "Invalid setting key"
+  return null
+}
+
+// Numeric keys (card-fee rate): reject non-numeric / out-of-bounds so checkout
+// never grosses up against a garbage rate.
+function validateNumericSettingValue(key: string, value: string): string | null {
+  const bound = NUMERIC_KEY_BOUNDS[key]
+  if (!bound) return null
+  const n = Number(value)
+  if (value === "" || !Number.isFinite(n) || n < bound.min || n > bound.max) {
+    return "Invalid value"
+  }
+  return null
+}
+
+// Church-info keys carry the same min/max bounds here as the dedicated
+// updateChurchInfo form — this generic action must not be a bypass.
+function validateChurchInfoSettingValue(key: string, value: string): { error: string } | { value: string } {
+  const churchInfoField = CHURCH_INFO_FIELD_SCHEMAS[key as keyof typeof CHURCH_INFO_FIELD_SCHEMAS]
+  if (!churchInfoField) return { value }
+  const parsed = churchInfoField.safeParse(value)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  return { value: parsed.data }
+}
+
+// Validates + normalises a value against its key's type-specific rules.
+// Assumes `key` already passed validateSettingKey.
+function validateSettingValue(key: string, value: string): { error: string } | { value: string } {
   if (key === "SESSION_IDLE_TIMEOUT_MINUTES" && !IDLE_TIMEOUT_OPTIONS.has(value)) {
     return { error: "Invalid timeout value" }
   }
@@ -102,23 +126,24 @@ export async function upsertSetting(_prev: ActionResultWithSuccess, formData: Fo
     if (normalised === null) return { error: "Invalid email address" }
     value = normalised
   }
-  // Numeric keys (card-fee rate): reject non-numeric / out-of-bounds so checkout
-  // never grosses up against a garbage rate.
-  const bound = NUMERIC_KEY_BOUNDS[key]
-  if (bound) {
-    const n = Number(value)
-    if (value === "" || !Number.isFinite(n) || n < bound.min || n > bound.max) {
-      return { error: "Invalid value" }
-    }
-  }
-  // Church-info keys carry the same min/max bounds here as the dedicated
-  // updateChurchInfo form — this generic action must not be a bypass.
-  const churchInfoField = CHURCH_INFO_FIELD_SCHEMAS[key as keyof typeof CHURCH_INFO_FIELD_SCHEMAS]
-  if (churchInfoField) {
-    const parsed = churchInfoField.safeParse(value)
-    if (!parsed.success) return { error: parsed.error.issues[0].message }
-    value = parsed.data
-  }
+  const numericError = validateNumericSettingValue(key, value)
+  if (numericError) return { error: numericError }
+  return validateChurchInfoSettingValue(key, value)
+}
+
+export async function upsertSetting(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+
+  const key = ((formData.get("key") as string) ?? "").trim()
+  const rawValue = ((formData.get("value") as string) ?? "").trim()
+
+  const keyError = validateSettingKey(key)
+  if (keyError) return { error: keyError }
+
+  const validated = validateSettingValue(key, rawValue)
+  if ("error" in validated) return { error: validated.error }
+  const { value } = validated
 
   await prisma.appSetting.upsert({
     where: { key },

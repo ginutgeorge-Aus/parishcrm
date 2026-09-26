@@ -9,7 +9,7 @@ import { canEdit } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { generateInviteToken, hashInviteToken } from "@/lib/familyUpdateToken"
-import { FamilyUpdatePayloadSchema, type FamilyUpdateMember } from "@/lib/familyUpdatePayload"
+import { FamilyUpdatePayloadSchema, type FamilyUpdateMember, type FamilyUpdatePayload } from "@/lib/familyUpdatePayload"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { parseISODate } from "@/lib/formatting"
 import { sendFamilyUpdateInviteEmail } from "@/lib/email"
@@ -199,6 +199,66 @@ function memberToPersonData(m: FamilyUpdateMember) {
   return d
 }
 
+// Payload is encrypted at rest; decode before validating. Legacy rows stored a
+// plaintext JSON object — fall through to it when not an enc string. Re-validates
+// through the allowlist even on decode success — it is untrusted user input even
+// now (defence in depth; the trust boundary is re-applied at apply).
+function decodeSubmissionPayload(payload: unknown): { data: FamilyUpdatePayload } | { error: string } {
+  let raw: unknown = payload
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(safeDecrypt(raw))
+    } catch {
+      return { error: "This submission is malformed and cannot be applied." }
+    }
+  }
+  const parsed = FamilyUpdatePayloadSchema.safeParse(raw)
+  if (!parsed.success) return { error: "This submission is malformed and cannot be applied." }
+  return { data: parsed.data }
+}
+
+// Applies each allowlisted member to the family — update for an existing
+// person (ownership-guarded), create otherwise. Same order/semantics as the
+// inline loop it replaces.
+async function applyFamilyUpdateMembers(
+  tx: Prisma.TransactionClient,
+  familyId: number,
+  members: FamilyUpdateMember[]
+) {
+  for (const m of members) {
+    const data = memberToPersonData(m)
+    if (m.personId) {
+      // Ownership guard: only update a Person that belongs to this family AND
+      // is still active. Without the archivedAt filter, a self-update payload
+      // carrying an archived member's personId would silently overwrite that
+      // soft-deleted record's PII. A non-match (archived / wrong family
+      // / deleted) matches 0 rows → P2025 → the "no longer exist" path below.
+      await tx.person.update({ where: { id: m.personId, familyId, archivedAt: null }, data })
+    } else {
+      await tx.person.create({
+        data: { ...data, familyId, consentUpdatedAt: new Date() } as Prisma.PersonUncheckedCreateInput,
+      })
+    }
+  }
+}
+
+// Maps a caught approval error to a user-facing message, or undefined to
+// signal the caller should rethrow (an unexpected error).
+function mapApprovalError(e: unknown): string | undefined {
+  if (e instanceof AlreadyReviewedError) return "This submission has already been reviewed."
+  const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: unknown }).code : undefined
+  if (code === "P2002") {
+    return "A member with the same name already exists in this family. Resolve it before approving."
+  }
+  // a referenced Person may have been deleted or moved to a different
+  // family between submission and approval — the ownership-guarded
+  // `person.update` above then matches 0 rows and Prisma throws P2025.
+  if (code === "P2025") {
+    return "One or more people in this update no longer exist. Ask the family to resubmit."
+  }
+  return undefined
+}
+
 export async function approveFamilyUpdate(submissionId: number): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -216,22 +276,10 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
     return { error: "This family has been archived and can no longer be updated." }
   }
 
-  // Payload is encrypted at rest; decode before validating. Legacy rows
-  // stored a plaintext JSON object — fall through to it when not an enc string.
-  let raw: unknown = submission.payload
-  if (typeof raw === "string") {
-    try {
-      raw = JSON.parse(safeDecrypt(raw))
-    } catch {
-      return { error: "This submission is malformed and cannot be applied." }
-    }
-  }
-  // Re-validate the stored payload through the allowlist — it is untrusted user
-  // input even now (defence in depth; the trust boundary is re-applied at apply).
-  const parsed = FamilyUpdatePayloadSchema.safeParse(raw)
-  if (!parsed.success) return { error: "This submission is malformed and cannot be applied." }
+  const decoded = decodeSubmissionPayload(submission.payload)
+  if ("error" in decoded) return { error: decoded.error }
 
-  const famContact = parsed.data.family
+  const famContact = decoded.data.family
   // Reuse family.ts's encryptFamilyFields so the encrypted-field list
   // stays in one place — mutates famData in place, encrypting truthy fields.
   const famData: {
@@ -262,34 +310,11 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
       })
       if (claimed.count === 0) throw new AlreadyReviewedError()
       await tx.family.update({ where: { id: submission.familyId }, data: famData })
-      for (const m of parsed.data.members) {
-        const data = memberToPersonData(m)
-        if (m.personId) {
-          // Ownership guard: only update a Person that belongs to this family AND
-          // is still active. Without the archivedAt filter, a self-update payload
-          // carrying an archived member's personId would silently overwrite that
-          // soft-deleted record's PII. A non-match (archived / wrong family
-          // / deleted) matches 0 rows → P2025 → the "no longer exist" path below.
-          await tx.person.update({ where: { id: m.personId, familyId: submission.familyId, archivedAt: null }, data })
-        } else {
-          await tx.person.create({
-            data: { ...data, familyId: submission.familyId, consentUpdatedAt: new Date() } as Prisma.PersonUncheckedCreateInput,
-          })
-        }
-      }
+      await applyFamilyUpdateMembers(tx, submission.familyId, decoded.data.members)
     })
   } catch (e: unknown) {
-    if (e instanceof AlreadyReviewedError) return { error: "This submission has already been reviewed." }
-    const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: unknown }).code : undefined
-    if (code === "P2002") {
-      return { error: "A member with the same name already exists in this family. Resolve it before approving." }
-    }
-    // a referenced Person may have been deleted or moved to a different
-    // family between submission and approval — the ownership-guarded
-    // `person.update` above then matches 0 rows and Prisma throws P2025.
-    if (code === "P2025") {
-      return { error: "One or more people in this update no longer exist. Ask the family to resubmit." }
-    }
+    const message = mapApprovalError(e)
+    if (message) return { error: message }
     throw e
   }
 

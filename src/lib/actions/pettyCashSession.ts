@@ -112,6 +112,39 @@ export async function updateSessionCustodian(
   return { success: "Custodian updated" }
 }
 
+// Picks the source session for opening-balance carry-forward: the session
+// dated latest but strictly before `thisDate`. openedAt is a deterministic
+// tiebreak (titles are unique so dates never actually collide, but keeps the
+// choice stable). Returns null if no eligible prior session exists.
+function findPriorSessionId(
+  candidates: { id: number; title: string; openedAt: Date }[],
+  thisDate: number
+): number | null {
+  let priorId: number | null = null
+  let bestDate = -Infinity
+  let bestOpenedAt = -Infinity
+  for (const c of candidates) {
+    const d = sessionDateFromTitle(c.title)
+    if (!d) continue
+    const t = d.getTime()
+    if (t >= thisDate) continue // only sessions dated before this Sunday
+    const o = c.openedAt.getTime()
+    // Latest date wins; openedAt is a deterministic tiebreak.
+    if (t > bestDate || (t === bestDate && o > bestOpenedAt)) {
+      bestDate = t
+      bestOpenedAt = o
+      priorId = c.id
+    }
+  }
+  return priorId
+}
+
+// Prisma's unique-violation code — used where a check-then-create/upsert race
+// is resolved by treating a concurrent winner's P2002 as "already exists".
+function isUniqueViolation(e: unknown): boolean {
+  return !!(e && typeof e === "object" && "code" in e && e.code === "P2002")
+}
+
 export type EnsureWeeklyResult = {
   status: "created" | "exists" | "skipped-no-custodian" | "skipped-missing-custodian" | "not-editor"
 }
@@ -162,23 +195,7 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   const candidates = await prisma.pettyCashSession.findMany({
     select: { id: true, title: true, openedAt: true },
   })
-  let priorId: number | null = null
-  let bestDate = -Infinity
-  let bestOpenedAt = -Infinity
-  for (const c of candidates) {
-    const d = sessionDateFromTitle(c.title)
-    if (!d) continue
-    const t = d.getTime()
-    if (t >= thisDate) continue // only sessions dated before this Sunday
-    const o = c.openedAt.getTime()
-    // Latest date wins; openedAt is a deterministic tiebreak (titles are unique
-    // so dates never actually collide, but keep the choice stable).
-    if (t > bestDate || (t === bestDate && o > bestOpenedAt)) {
-      bestDate = t
-      bestOpenedAt = o
-      priorId = c.id
-    }
-  }
+  const priorId = findPriorSessionId(candidates, thisDate)
   const prior = priorId
     ? await prisma.pettyCashSession.findUnique({
         where: { id: priorId },
@@ -208,8 +225,7 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
       openingBalance,
     })
   } catch (e) {
-    if (e && typeof e === "object" && "code" in e && e.code === "P2002")
-      return { status: "exists" }
+    if (isUniqueViolation(e)) return { status: "exists" }
     throw e
   }
 

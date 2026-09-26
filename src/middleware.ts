@@ -12,6 +12,15 @@ import {
 
 const { auth } = NextAuth(authConfig)
 
+// Every response — allow, redirect, or block — carries the per-request CSP
+// (nonce-scoped) and the static SECURITY_HEADERS. Centralised so each call
+// site in the middleware is a one-liner instead of a repeated set+loop.
+function withSecurityHeaders<T extends NextResponse>(res: T, csp: string): T {
+  res.headers.set("Content-Security-Policy", csp)
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v)
+  return res
+}
+
 // Middleware now runs on every route (except static assets) so a per-request
 // CSP nonce can be applied everywhere. Auth redirects, previously
 // handled by the matcher excluding public routes, are done inline via
@@ -29,16 +38,16 @@ export default auth(async (req) => {
   if (!isMaintenanceBypassPath(pathname)) {
     const maint = await getMaintenanceState()
     if (maint.enabled) {
-      const res = new NextResponse(renderMaintenanceHtml(maint, nonce), {
-        status: 503,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": csp,
-          "Retry-After": "60",
-        },
-      })
-      for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v)
-      return res
+      return withSecurityHeaders(
+        new NextResponse(renderMaintenanceHtml(maint, nonce), {
+          status: 503,
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Retry-After": "60",
+          },
+        }),
+        csp,
+      )
     }
   }
 
@@ -50,12 +59,7 @@ export default auth(async (req) => {
   // the per-path guard Next lacks — it rejects an oversized public-action body
   // pre-buffer, mirroring the route-handler exceedsBodyLimit checks.
   if (publicBodyTooLarge(req.method, isPublic, req)) {
-    const res = new NextResponse("Payload too large", {
-      status: 413,
-      headers: { "Content-Security-Policy": csp },
-    })
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v)
-    return res
+    return withSecurityHeaders(new NextResponse("Payload too large", { status: 413 }), csp)
   }
 
   // Match the original authorized() gate exactly: logged in === a user on the
@@ -63,20 +67,14 @@ export default auth(async (req) => {
   // the CSP header too — it executes no scripts, but keeping the policy on
   // every response closes the defense-in-depth gap.
   if (!req.auth?.user && !isPublic) {
-    const redirect = NextResponse.redirect(new URL("/login", req.nextUrl))
-    redirect.headers.set("Content-Security-Policy", csp)
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) redirect.headers.set(k, v)
-    return redirect
+    return withSecurityHeaders(NextResponse.redirect(new URL("/login", req.nextUrl)), csp)
   }
 
   // Event organisers are confined to /my-events (+ membership-gated export/print
   // + public/auth/asset paths). Any other path redirects to their home, so a
   // hand-typed /people or /accounting URL never renders.
   if (req.auth?.user?.role === "EVENT_ORGANISER" && !isOrganiserAllowedPath(pathname)) {
-    const redirect = NextResponse.redirect(new URL("/my-events", req.nextUrl))
-    redirect.headers.set("Content-Security-Policy", csp)
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) redirect.headers.set(k, v)
-    return redirect
+    return withSecurityHeaders(NextResponse.redirect(new URL("/my-events", req.nextUrl)), csp)
   }
 
   // Set the nonce on the request headers so Next.js applies it to its own
@@ -88,9 +86,7 @@ export default auth(async (req) => {
   // dashboard layout can record an aggregate route-view counter ( Phase 3).
   requestHeaders.set("x-pathname", req.nextUrl.pathname)
 
-  const res = NextResponse.next({ request: { headers: requestHeaders } })
-  res.headers.set("Content-Security-Policy", csp)
-  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v)
+  const res = withSecurityHeaders(NextResponse.next({ request: { headers: requestHeaders } }), csp)
   // The public event-image route is embedded cross-origin by the external
   // website calendar; the global CORP: same-origin would make the browser
   // block that <img> load. Relax it to cross-origin for this path only

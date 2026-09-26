@@ -24,12 +24,52 @@ export async function getPaymentAccounts(
   }) as Promise<PaymentAccountLite[]>
 }
 
-export async function getCashAccount(): Promise<PaymentAccountLite> {
+async function findActiveCashAccount(): Promise<PaymentAccountLite | null> {
   const existing = await prisma.paymentAccount.findFirst({
     where: { kind: "CASH", isActive: true },
     select,
   })
-  if (existing) return existing as PaymentAccountLite
+  return existing as PaymentAccountLite | null
+}
+
+// Shared P2002-recovery: some other invocation won the race to create/activate
+// the CASH account we were trying to create/activate. In every such case a
+// usable active CASH account now exists, so refetch and adopt it rather than
+// letting the conflict escape and fail the caller's receipt/expense/transfer/import.
+async function adoptCashRaceWinnerOrThrow(e: unknown): Promise<PaymentAccountLite> {
+  if (!isP2002(e)) throw e
+  const winner = await findActiveCashAccount()
+  if (winner) return winner
+  throw e
+}
+
+// The canonical name is held by a non-CASH account — provision the cash
+// account under a distinct name. "Cash" itself can also be taken (a second
+// bank namesake, or a concurrent petty-cash request that reached this branch
+// first), so probe successive names; on a unique-name collision refetch, in
+// case a concurrent invocation already created the active CASH account, and
+// only fall through to the next candidate when the collision was a non-CASH /
+// inactive namesake.
+async function provisionDistinctCashAccount(): Promise<PaymentAccountLite> {
+  for (let i = 0; i < 50; i++) {
+    const name = i === 0 ? "Cash" : `Cash ${i + 1}`
+    try {
+      return (await prisma.paymentAccount.create({
+        data: { name, kind: "CASH", isActive: true },
+        select,
+      })) as PaymentAccountLite
+    } catch (e) {
+      if (!isP2002(e)) throw e
+      const winner = await findActiveCashAccount()
+      if (winner) return winner
+    }
+  }
+  throw new Error("getCashAccount: could not provision an active cash account")
+}
+
+export async function getCashAccount(): Promise<PaymentAccountLite> {
+  const existing = await findActiveCashAccount()
+  if (existing) return existing
   // Self-heal: petty-cash posting assumes a single active CASH account, and its
   // ledger mirrors carry that id. A fresh install provisioned via `migrate
   // deploy` (which never runs the seed) has none, so the mirrors would post
@@ -39,18 +79,7 @@ export async function getCashAccount(): Promise<PaymentAccountLite> {
   // `PaymentAccount_one_active_cash` partial-unique index guards. Between the
   // findFirst above and either write, another path can create or activate a
   // CASH account under a *different* name — the write then loses that race with
-  // a P2002. In every such case a usable active CASH account now exists, so
-  // refetch and adopt it rather than letting the conflict escape and fail the
-  // caller's receipt/expense/transfer/import.
-  const winnerOrThrow = async (e: unknown): Promise<PaymentAccountLite> => {
-    if (!isP2002(e)) throw e
-    const winner = await prisma.paymentAccount.findFirst({
-      where: { kind: "CASH", isActive: true },
-      select,
-    })
-    if (winner) return winner as PaymentAccountLite
-    throw e
-  }
+  // a P2002; adoptCashRaceWinnerOrThrow resolves it.
   // Provision the canonical "Petty Cash" on demand (name matches the seed),
   // mirroring getXferAccountId's self-heal. Upsert-on-name (name is @unique)
   // resolves a concurrent same-name create to the existing row instead of P2002.
@@ -63,7 +92,7 @@ export async function getCashAccount(): Promise<PaymentAccountLite> {
       select,
     })
   } catch (e) {
-    return winnerOrThrow(e)
+    return adoptCashRaceWinnerOrThrow(e)
   }
   // A namesake row can exist that ISN'T an active CASH account (an admin can
   // freely name/rename a BANK account "Petty Cash"). Adopting it would post
@@ -81,31 +110,8 @@ export async function getCashAccount(): Promise<PaymentAccountLite> {
         select,
       })) as PaymentAccountLite
     } catch (e) {
-      return winnerOrThrow(e)
+      return adoptCashRaceWinnerOrThrow(e)
     }
   }
-  // The canonical name is held by a non-CASH account — provision the cash
-  // account under a distinct name. "Cash" itself can also be taken (a second
-  // bank namesake, or a concurrent petty-cash request that reached this branch
-  // first), so probe successive names; on a unique-name collision refetch, in
-  // case a concurrent invocation already created the active CASH account, and
-  // only fall through to the next candidate when the collision was a non-CASH /
-  // inactive namesake.
-  for (let i = 0; i < 50; i++) {
-    const name = i === 0 ? "Cash" : `Cash ${i + 1}`
-    try {
-      return (await prisma.paymentAccount.create({
-        data: { name, kind: "CASH", isActive: true },
-        select,
-      })) as PaymentAccountLite
-    } catch (e) {
-      if (!isP2002(e)) throw e
-      const winner = await prisma.paymentAccount.findFirst({
-        where: { kind: "CASH", isActive: true },
-        select,
-      })
-      if (winner) return winner as PaymentAccountLite
-    }
-  }
-  throw new Error("getCashAccount: could not provision an active cash account")
+  return provisionDistinctCashAccount()
 }

@@ -231,6 +231,40 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   redirect(`/events/${id}/edit?saved=1`)
 }
 
+// Refuse to delete an event that still has active registrations or an
+// in-flight card checkout. CheckoutSession.event is onDelete:Cascade,
+// so deleting an event mid-checkout wipes the staging row — the customer then
+// pays, the webhook finds no staging row, and (pre-fix) silently no-ops:
+// a real charge with zero CRM record. It also destroys paid registration
+// records under the no-refund policy. Mirrors resetEventRegistrations' guard
+//: cancel/refund them individually first. An OPEN CheckoutSession is
+// the live-payment window; non-CANCELLED registrations cover PENDING + PAID.
+async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClient, id: number): Promise<void> {
+  const activeRegistrations = await tx.registration.count({
+    where: { eventId: id, paymentStatus: { not: "CANCELLED" } },
+  })
+  const openCheckouts = await tx.checkoutSession.count({
+    where: { eventId: id, status: "OPEN" },
+  })
+  if (activeRegistrations > 0 || openCheckouts > 0) {
+    throw new Error("GUARDED_DELETE_BLOCKED")
+  }
+}
+
+// Maps a deleteEvent transaction failure to its caller-facing result. The
+// P2034 serialization race is handled by the retry loop in deleteEvent itself
+// (it needs the attempt counter), so it never reaches here.
+function deleteEventFailureResult(e: unknown): ActionResult {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (msg === "GUARDED_DELETE_BLOCKED") {
+    return {
+      error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
+    }
+  }
+  logger.error("[deleteEvent] delete failed", { error: msg })
+  return { error: "Could not delete this event. Please try again." }
+}
+
 export async function deleteEvent(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -243,14 +277,6 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true } })
   if (!exists) return { error: "Event not found" }
 
-  // Refuse to delete an event that still has active registrations or an
-  // in-flight card checkout. CheckoutSession.event is onDelete:Cascade,
-  // so deleting an event mid-checkout wipes the staging row — the customer then
-  // pays, the webhook finds no staging row, and (pre-fix) silently no-ops:
-  // a real charge with zero CRM record. It also destroys paid registration
-  // records under the no-refund policy. Mirrors resetEventRegistrations' guard
-  //: cancel/refund them individually first. An OPEN CheckoutSession is
-  // the live-payment window; non-CANCELLED registrations cover PENDING + PAID.
   // Safety check + deletion must be one serialized operation: a checkout
   // created between a standalone count and the delete would be wiped by the
   // event cascade while Stripe completes the payment. Wrap both in a
@@ -261,15 +287,7 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   for (let attempt = 1; ; attempt++) {
    try {
     await prisma.$transaction(async (tx) => {
-      const activeRegistrations = await tx.registration.count({
-        where: { eventId: id, paymentStatus: { not: "CANCELLED" } },
-      })
-      const openCheckouts = await tx.checkoutSession.count({
-        where: { eventId: id, status: "OPEN" },
-      })
-      if (activeRegistrations > 0 || openCheckouts > 0) {
-        throw new Error("GUARDED_DELETE_BLOCKED")
-      }
+      await assertNoActiveRegistrationsOrCheckouts(tx, id)
       // registrations/ticket types cascade (schema); a future FK or transient
       // error must surface as a friendly message, not a 500.
       // redirect() below must stay OUTSIDE this txn (it throws NEXT_REDIRECT).
@@ -277,19 +295,12 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     break
    } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg === "GUARDED_DELETE_BLOCKED") {
-      return {
-        error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
-      }
-    }
     // Serialization race — retry so count + delete re-run on fresh data.
     if (isP2034(e)) {
       if (attempt < MAX_TX_ATTEMPTS) continue
       return { error: "Someone is registering for this event right now — reload the page and try again." }
     }
-    logger.error("[deleteEvent] delete failed", { error: msg })
-    return { error: "Could not delete this event. Please try again." }
+    return deleteEventFailureResult(e)
    }
   }
   await logAudit(actorId(session), "EVENT_DELETED", "Event", id)

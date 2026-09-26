@@ -9,6 +9,52 @@ import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isValidPgId } from "@/lib/
 
 import type { ActionResultWithSuccess } from "./types"
 
+const MAX_BUDGET_AMOUNT = 99999999.99
+
+type ParsedBudgetEntry = { skip: true } | { error: string } | { accountId: number; amount: string }
+
+// Parses a single `amount_<accountId>` form field into a validated budget
+// entry. `{ skip: true }` covers a field that isn't a real submission (not an
+// amount_ key, blank, or a malformed accountId) — the same "silently ignore"
+// behaviour the original inline loop expressed with `continue`.
+function parseBudgetEntry(key: string, rawValue: FormDataEntryValue): ParsedBudgetEntry {
+  if (!key.startsWith("amount_")) return { skip: true }
+  const valueStr = (rawValue as string).trim()
+  if (!valueStr) return { skip: true }
+  const accountId = Number.parseInt(key.slice("amount_".length), 10)
+  // isNaN alone isn't enough — an out-of-int4-range value parses fine but
+  // overflows the Prisma/PG column later, surfacing as an unhandled 500
+  // instead of a clean validation error (security.md).
+  if (Number.isNaN(accountId) || !isValidPgId(accountId)) return { skip: true }
+  // Validate format before parse, then pass the string straight to the
+  // Decimal(10,2) column — parseFloat would round-trip through binary float
+  // and drift budget-vs-actual variances (matches).
+  if (!SIGNED_MONEY_DECIMAL_RE.test(valueStr)) {
+    return { error: "Budget amounts must have at most 2 decimal places" }
+  }
+  const amount = Number.parseFloat(valueStr)
+  if (amount < 0 || amount > MAX_BUDGET_AMOUNT) {
+    return { error: "Budget amounts must be between 0 and 99,999,999.99" }
+  }
+  return { accountId, amount: valueStr }
+}
+
+// Parses every `amount_<accountId>` field off the form into validated budget
+// entries, skipping fields that aren't a real submission. Bails with the
+// first format/range error, matching the original inline loop's early return.
+function collectBudgetEntries(
+  formData: FormData
+): { error: string } | { entries: Array<{ accountId: number; amount: string }> } {
+  const entries: Array<{ accountId: number; amount: string }> = []
+  for (const [key, value] of Array.from(formData.entries())) {
+    const parsed = parseBudgetEntry(key, value)
+    if ("skip" in parsed) continue
+    if ("error" in parsed) return { error: parsed.error }
+    entries.push(parsed)
+  }
+  return { entries }
+}
+
 export async function upsertBudgets(
   _prev: ActionResultWithSuccess,
   formData: FormData
@@ -20,31 +66,13 @@ export async function upsertBudgets(
   const year = Number.parseInt(yearStr, 10)
   if (Number.isNaN(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid year" }
 
-  const MAX_AMOUNT = 99999999.99
   const MAX_BUDGET_ENTRIES = 500
   const amountKeys = Array.from(formData.keys()).filter((k) => k.startsWith("amount_"))
   if (amountKeys.length > MAX_BUDGET_ENTRIES) return { error: "Too many budget entries" }
 
-  const entries: Array<{ accountId: number; amount: string }> = []
-  for (const [key, value] of Array.from(formData.entries())) {
-    if (!key.startsWith("amount_")) continue
-    const valueStr = (value as string).trim()
-    if (!valueStr) continue
-    const accountId = Number.parseInt(key.slice("amount_".length), 10)
-    // isNaN alone isn't enough — an out-of-int4-range value parses fine but
-    // overflows the Prisma/PG column later, surfacing as an unhandled 500
-    // instead of a clean validation error (security.md).
-    if (Number.isNaN(accountId) || !isValidPgId(accountId)) continue
-    // Validate format before parse, then pass the string straight to the
-    // Decimal(10,2) column — parseFloat would round-trip through binary float
-    // and drift budget-vs-actual variances (matches).
-    if (!SIGNED_MONEY_DECIMAL_RE.test(valueStr))
-      return { error: "Budget amounts must have at most 2 decimal places" }
-    const amount = Number.parseFloat(valueStr)
-    if (amount < 0 || amount > MAX_AMOUNT)
-      return { error: "Budget amounts must be between 0 and 99,999,999.99" }
-    entries.push({ accountId, amount: valueStr })
-  }
+  const parsedEntries = collectBudgetEntries(formData)
+  if ("error" in parsedEntries) return { error: parsedEntries.error }
+  const { entries } = parsedEntries
 
   if (entries.length === 0) return { success: "Budget saved" }
 

@@ -222,6 +222,41 @@ const SKIP_PATTERNS = [
   "Deposits ($)",
 ]
 
+type AnzAmountMatch = {
+  desc: string | null
+  amountStr: string
+  balance: number
+  explicitType: "INCOME" | "EXPENSE" | null
+}
+
+// Tries each Business Extra Statement amount-line shape in turn — "blank"
+// column deposit/withdrawal (own-line and inline-with-description) then the
+// legacy two-bare-amounts formats. Returns null when the line matches none of
+// them (a plain description/detail line).
+function tryParseAnzAmountLine(line: string): AnzAmountMatch | null {
+  // "blank" format — deposit only: "blank 60.00 51,768.94"
+  const depOnly = line.match(DEPOSIT_ONLY_RE)
+  if (depOnly) return { desc: null, amountStr: amountMagnitude(depOnly[1]), balance: parseBalance(depOnly[2]), explicitType: "INCOME" }
+  // "blank" format — withdrawal only: "6,000.00 blank 46,793.04"
+  const wdOnly = line.match(WITHDRAWAL_ONLY_RE)
+  if (wdOnly) return { desc: null, amountStr: amountMagnitude(wdOnly[1]), balance: parseBalance(wdOnly[2]), explicitType: "EXPENSE" }
+  // "blank" format — deposit inline: "DESCRIPTION blank 60.00 51,768.94"
+  const inlineDep = line.match(INLINE_DEPOSIT_RE)
+  if (inlineDep?.[1].trim())
+    return { desc: inlineDep[1].trim(), amountStr: amountMagnitude(inlineDep[2]), balance: parseBalance(inlineDep[3]), explicitType: "INCOME" }
+  // "blank" format — withdrawal inline: "DESCRIPTION 6,000.00 blank 46,793.04"
+  const inlineWd = line.match(INLINE_WITHDRAWAL_RE)
+  if (inlineWd?.[1].trim())
+    return { desc: inlineWd[1].trim(), amountStr: amountMagnitude(inlineWd[2]), balance: parseBalance(inlineWd[3]), explicitType: "EXPENSE" }
+  // Legacy format — exactly two amounts: "60.00 51,768.94"
+  const exact = line.match(TWO_AMOUNTS_ONLY_RE)
+  if (exact) return { desc: null, amountStr: amountMagnitude(exact[1]), balance: parseBalance(exact[2]), explicitType: null }
+  // Legacy format — inline: "PAYMENT FROM JACK 60.00 51,768.94"
+  const inline = line.match(ENDS_WITH_TWO_AMOUNTS_RE)
+  if (inline?.[1].trim()) return { desc: inline[1].trim(), amountStr: amountMagnitude(inline[2]), balance: parseBalance(inline[3]), explicitType: null }
+  return null
+}
+
 const STATEMENT_PERIOD_RE = /(\d{1,2})\s+([A-Z]+)\s+(\d{4})\s+TO\s+(\d{1,2})\s+([A-Z]+)\s+(\d{4})/
 
 export function parseAnzStatement(text: string): ParseResult {
@@ -314,53 +349,12 @@ export function parseAnzStatement(text: string): ParseResult {
       // description-continuation branch below — an early `return` here dropped
       // every detail line that appears AFTER the amount line in a block.
       if (amountStr === null) {
-        // "blank" format — deposit only: "blank 60.00 51,768.94"
-        const depOnly = line.match(DEPOSIT_ONLY_RE)
-        if (depOnly) {
-          amountStr = amountMagnitude(depOnly[1])
-          balance = parseBalance(depOnly[2])
-          explicitType = "INCOME"
-          return
-        }
-        // "blank" format — withdrawal only: "6,000.00 blank 46,793.04"
-        const wdOnly = line.match(WITHDRAWAL_ONLY_RE)
-        if (wdOnly) {
-          amountStr = amountMagnitude(wdOnly[1])
-          balance = parseBalance(wdOnly[2])
-          explicitType = "EXPENSE"
-          return
-        }
-        // "blank" format — deposit inline: "DESCRIPTION blank 60.00 51,768.94"
-        const inlineDep = line.match(INLINE_DEPOSIT_RE)
-        if (inlineDep && inlineDep[1].trim()) {
-          descLines.push(inlineDep[1].trim())
-          amountStr = amountMagnitude(inlineDep[2])
-          balance = parseBalance(inlineDep[3])
-          explicitType = "INCOME"
-          return
-        }
-        // "blank" format — withdrawal inline: "DESCRIPTION 6,000.00 blank 46,793.04"
-        const inlineWd = line.match(INLINE_WITHDRAWAL_RE)
-        if (inlineWd && inlineWd[1].trim()) {
-          descLines.push(inlineWd[1].trim())
-          amountStr = amountMagnitude(inlineWd[2])
-          balance = parseBalance(inlineWd[3])
-          explicitType = "EXPENSE"
-          return
-        }
-        // Legacy format — exactly two amounts: "60.00 51,768.94"
-        const exact = line.match(TWO_AMOUNTS_ONLY_RE)
-        if (exact) {
-          amountStr = amountMagnitude(exact[1])
-          balance = parseBalance(exact[2])
-          return
-        }
-        // Legacy format — inline: "PAYMENT FROM JACK 60.00 51,768.94"
-        const inline = line.match(ENDS_WITH_TWO_AMOUNTS_RE)
-        if (inline && inline[1].trim()) {
-          descLines.push(inline[1].trim())
-          amountStr = amountMagnitude(inline[2])
-          balance = parseBalance(inline[3])
+        const parsed = tryParseAnzAmountLine(line)
+        if (parsed) {
+          if (parsed.desc) descLines.push(parsed.desc)
+          amountStr = parsed.amountStr
+          balance = parsed.balance
+          explicitType = parsed.explicitType
           return
         }
       }
