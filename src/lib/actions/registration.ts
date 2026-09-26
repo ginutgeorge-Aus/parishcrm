@@ -299,6 +299,76 @@ const reminderTextSchema = z.object({
   message: z.string().trim().min(1, "Message is required").max(5000),
 })
 
+type ReminderCandidate = {
+  id: number
+  firstName: string
+  email: string | null
+  paymentStatus: string
+  totalAmount: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number
+  publicToken: string
+}
+
+// Persists one PaymentReminderSend tracking row. A failure here must not abort
+// the batch or be mistaken for a delivery failure — log and carry on (mirrors
+// receipt.ts). Split out of sendPaymentReminders since it's called from both
+// the success and failure paths below.
+async function persistReminderSendRow(
+  registrationId: number,
+  email: string,
+  sentById: number,
+  status: "SUCCESS" | "FAILED",
+  errorMessage?: string,
+): Promise<void> {
+  try {
+    await prisma.paymentReminderSend.create({
+      data: { registrationId, sentTo: encrypt(email), sentById, status, errorMessage },
+    })
+  } catch (writeErr) {
+    logger.error(`[reminder] failed to persist ${status} paymentReminderSend`, {
+      error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+    })
+  }
+}
+
+// Re-validates and sends one payment reminder, tracking the outcome. Split
+// out of sendPaymentReminders' loop to keep that function's cognitive
+// complexity down — each early return here mirrors a `continue` there.
+async function sendOneReminder(
+  registrationId: number,
+  reg: ReminderCandidate | undefined,
+  ctx: { eventTitle: string; eventSlug: string; base: string; message: string; churchName: string; sentById: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!reg) return { ok: false, error: "Registration not found" }
+  if (reg.paymentStatus !== "PENDING") return { ok: false, error: "No longer pending" }
+  const email = reg.email ? safeDecrypt(reg.email) : ""
+  if (!isValidEmail(email)) return { ok: false, error: "No valid email" }
+
+  const eventUrl = new URL(`/e/${ctx.eventSlug}/success?ref=${reg.publicToken}`, ctx.base).toString()
+  try {
+    await sendPaymentReminderEmail(email, {
+      churchName: ctx.churchName,
+      eventTitle: ctx.eventTitle,
+      recipientName: reg.firstName,
+      amountDue: fmtAUD(toFloat(reg.totalAmount)),
+      message: ctx.message,
+      eventUrl,
+    })
+  } catch {
+    // Delivery failed — the email did NOT go out. Never log the raw error:
+    // nodemailer/SMTP messages embed the recipient address. Log
+    // a stable message + the non-PII registrationId only.
+    logger.error("[reminder] sendPaymentReminders failed", { registrationId })
+    await persistReminderSendRow(registrationId, email, ctx.sentById, "FAILED", "Email delivery failed")
+    return { ok: false, error: "Email delivery failed" }
+  }
+  // Delivered. Persist the SUCCESS row separately — a tracking-write failure
+  // here must NOT be caught as a delivery failure (the email already went out)
+  // nor abort the batch. Count it as sent regardless, so any retry is driven by
+  // real delivery state, never a lost DB write.
+  await persistReminderSendRow(registrationId, email, ctx.sentById, "SUCCESS")
+  return { ok: true }
+}
+
 // Bulk payment-reminder send for an event organiser/admin. Every attempt
 // is re-validated server-side (status/email/amount) — the client's selection is
 // only ever a list of ids, never trusted for content. Each send writes its own
@@ -350,56 +420,15 @@ export async function sendPaymentReminders(
   let failed = 0
   const errors: { registrationId: number; error: string }[] = []
 
+  const reminderCtx = { eventTitle: event.title, eventSlug: event.slug, base, message: text.data.message, churchName, sentById }
   for (const registrationId of ids) {
-    const reg = byId.get(registrationId)
-    if (!reg) { failed++; errors.push({ registrationId, error: "Registration not found" }); continue }
-    if (reg.paymentStatus !== "PENDING") {
-      failed++; errors.push({ registrationId, error: "No longer pending" }); continue
-    }
-    const email = reg.email ? safeDecrypt(reg.email) : ""
-    if (!isValidEmail(email)) {
-      failed++; errors.push({ registrationId, error: "No valid email" }); continue
-    }
-    const eventUrl = new URL(`/e/${event.slug}/success?ref=${reg.publicToken}`, base).toString()
-    try {
-      await sendPaymentReminderEmail(email, {
-        churchName,
-        eventTitle: event.title,
-        recipientName: reg.firstName,
-        amountDue: fmtAUD(toFloat(reg.totalAmount)),
-        message: text.data.message,
-        eventUrl,
-      })
-    } catch {
-      // Delivery failed — the email did NOT go out. Never log the raw error:
-      // nodemailer/SMTP messages embed the recipient address. Log
-      // a stable message + the non-PII registrationId only.
-      logger.error("[reminder] sendPaymentReminders failed", { registrationId })
-      try {
-        await prisma.paymentReminderSend.create({
-          data: { registrationId, sentTo: encrypt(email), sentById, status: "FAILED", errorMessage: "Email delivery failed" },
-        })
-      } catch (writeErr) {
-        // A DB error persisting the FAILED row must not abort the remaining rows
-        // or skip the final logAudit — log and carry on (mirror receipt.ts).
-        logger.error("[reminder] failed to persist FAILED paymentReminderSend", { error: writeErr instanceof Error ? writeErr.message : String(writeErr) })
-      }
+    const outcome = await sendOneReminder(registrationId, byId.get(registrationId), reminderCtx)
+    if (outcome.ok) {
+      sent++
+    } else {
       failed++
-      errors.push({ registrationId, error: "Email delivery failed" })
-      continue
+      errors.push({ registrationId, error: outcome.error })
     }
-    // Delivered. Persist the SUCCESS row separately — a tracking-write failure
-    // here must NOT be caught as a delivery failure (the email already went out)
-    // nor abort the batch. Count it as sent regardless, so any retry is driven by
-    // real delivery state, never a lost DB write.
-    try {
-      await prisma.paymentReminderSend.create({
-        data: { registrationId, sentTo: encrypt(email), sentById, status: "SUCCESS" },
-      })
-    } catch (writeErr) {
-      logger.error("[reminder] failed to persist SUCCESS paymentReminderSend", { error: writeErr instanceof Error ? writeErr.message : String(writeErr) })
-    }
-    sent++
   }
 
   await logAudit(sentById, "EVENT_PAYMENT_REMINDER_SENT", "Event", eventId, { sent, failed })

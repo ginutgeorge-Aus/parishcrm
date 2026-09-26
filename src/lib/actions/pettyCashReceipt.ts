@@ -53,6 +53,44 @@ const ReceiptSchema = z.object({
   confirmDuplicate: z.string().optional().transform((v) => v === "true"),
 })
 
+// fundId === null means the field was left unset — nothing to validate.
+// Otherwise the id must resolve to a valid (by default active) Fund.
+async function validateReceiptFund(fundId: number | null): Promise<string | null> {
+  if (fundId == null) return null
+  return (await validateFund(fundId)) ? null : "Invalid fund"
+}
+
+// Likely-duplicate guard: a manually-keyed petty-cash receipt has no
+// unique constraint, so a double-submit silently creates two receipt rows AND
+// two mirrored Transaction ledger rows — inflating the session cash balance
+// and the P&L. Warn (don't hard-block) on an existing receipt in the SAME
+// session matching date + amount + account + donor + notes. Mirrors the
+// createExpense / createTransaction guards. The form resubmits
+// with confirmDuplicate to post it anyway — confirmDuplicate short-circuits
+// straight to "no warning" so the resubmit skips the (now redundant) lookup.
+async function findDuplicateReceiptWarning(
+  sessionId: number,
+  sessionDate: Date,
+  data: { amount: string; accountId: number; personId: number | undefined; notes: string | undefined; confirmDuplicate: boolean }
+): Promise<string | null> {
+  if (data.confirmDuplicate) return null
+  const candidates = await prisma.pettyCashReceipt.findMany({
+    where: {
+      sessionId, date: sessionDate, amount: data.amount,
+      accountId: data.accountId, personId: data.personId ?? null,
+    },
+    select: { notes: true },
+  })
+  // notes is encrypted with a random IV, so decrypt candidates to compare.
+  // safeDecrypt (not decrypt): a corrupt/unrotated-key row must not throw and
+  // block this create; it just fails to match.
+  const wantNotes = data.notes ?? ""
+  const isDuplicate = candidates.some((c) => (c.notes ? safeDecrypt(c.notes) : "") === wantNotes)
+  return isDuplicate
+    ? "Possible duplicate: a receipt with the same date, amount, category, donor, and notes already exists in this session. Submit again to post it anyway."
+    : null
+}
+
 export async function createReceipt(
   sessionId: number,
   _prev: ActionResult,
@@ -71,49 +109,14 @@ export async function createReceipt(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const account = await validateAccount(parsed.data.accountId, "INCOME")
   if (!account) return { error: "Invalid account" }
-  if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId)))
-    return { error: "Invalid fund" }
-  if (parsed.data.personId !== undefined) {
-    const person = await prisma.person.findUnique({
-      where: { id: parsed.data.personId, archivedAt: null },
-      select: { id: true },
-    })
-    if (!person) return { error: "Person not found" }
-  }
-  if (parsed.data.serviceTypeId !== undefined) {
-    const st = await prisma.serviceType.findUnique({
-      where: { id: parsed.data.serviceTypeId },
-      select: { isActive: true },
-    })
-    if (!st || !st.isActive) return { error: "Invalid service type" }
-  }
-  // Likely-duplicate guard: a manually-keyed petty-cash receipt has no
-  // unique constraint, so a double-submit silently creates two receipt rows AND
-  // two mirrored Transaction ledger rows — inflating the session cash balance
-  // and the P&L. Warn (don't hard-block) on an existing receipt in the SAME
-  // session matching date + amount + account + donor + notes. Mirrors the
-  // createExpense / createTransaction guards. The form resubmits
-  // with confirmDuplicate to post it anyway.
-  if (!parsed.data.confirmDuplicate) {
-    const candidates = await prisma.pettyCashReceipt.findMany({
-      where: {
-        sessionId, date: sessionDate, amount: parsed.data.amount,
-        accountId: parsed.data.accountId, personId: parsed.data.personId ?? null,
-      },
-      select: { notes: true },
-    })
-    // notes is encrypted with a random IV, so decrypt candidates to compare.
-    // safeDecrypt (not decrypt): a corrupt/unrotated-key row must not throw and
-    // block this create; it just fails to match.
-    const wantNotes = parsed.data.notes ?? ""
-    const isDuplicate = candidates.some((c) => (c.notes ? safeDecrypt(c.notes) : "") === wantNotes)
-    if (isDuplicate) {
-      return {
-        error: "Possible duplicate: a receipt with the same date, amount, category, donor, and notes already exists in this session. Submit again to post it anyway.",
-        duplicateWarning: true,
-      }
-    }
-  }
+  const fundError = await validateReceiptFund(parsed.data.fundId)
+  if (fundError) return { error: fundError }
+  const donorError = await validateReceiptDonor(parsed.data.personId)
+  if (donorError) return { error: donorError }
+  const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
+  if (serviceTypeError) return { error: serviceTypeError }
+  const dupWarning = await findDuplicateReceiptWarning(sessionId, sessionDate, parsed.data)
+  if (dupWarning) return { error: dupWarning, duplicateWarning: true }
 
   // Resolved once, not per row — mirrors the xferAccountId pattern in
   // pettyCashTransfer.ts.

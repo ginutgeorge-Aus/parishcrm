@@ -52,51 +52,76 @@ export type CheckResult = {
   errors: CsvParseResult["errors"]
 }
 
+type TokenizerState = {
+  records: string[][]
+  record: string[]
+  field: string
+  inQuotes: boolean
+  sawField: boolean // tracks whether the current record has any content
+}
+
+function commitField(state: TokenizerState): void {
+  state.record.push(state.field)
+  state.field = ""
+}
+
+// Skip fully-blank lines so they don't become spurious empty records.
+function commitRecord(state: TokenizerState): void {
+  if (state.sawField || state.record.length > 1 || state.record[0] !== "") {
+    state.records.push(state.record)
+  }
+  state.record = []
+  state.sawField = false
+}
+
+// Handles one character while inside a quoted field. Returns the number of
+// extra characters consumed (1 when an escaped "" is consumed) so the caller
+// can advance its index.
+function consumeQuotedChar(state: TokenizerState, c: string, next: string | undefined): number {
+  if (c !== '"') {
+    state.field += c
+    return 0
+  }
+  if (next === '"') { state.field += '"'; return 1 } // escaped quote
+  state.inQuotes = false
+  return 0
+}
+
+// Handles one character outside a quoted field.
+function consumeUnquotedChar(state: TokenizerState, c: string): void {
+  if (c === '"') { state.inQuotes = true; state.sawField = true; return }
+  if (c === ",") { commitField(state); state.sawField = true; return }
+  if (c === "\r") return
+  if (c === "\n") { commitField(state); commitRecord(state); return }
+  state.field += c
+  state.sawField = true
+}
+
 // RFC-4180-ish tokenizer: splits content into records of fields, honouring
 // double-quoted fields (which may contain commas, CR/LF, and "" escaped quotes).
 // Replaces naive line/comma splitting so a quoted address like "12 St, Apt 4"
 // does not shift every subsequent column.
 function parseCsvRecords(content: string): { records: string[][]; error?: string } {
-  const records: string[][] = []
-  let record: string[] = []
-  let field = ""
-  let inQuotes = false
-  let sawField = false // tracks whether the current record has any content
+  const state: TokenizerState = { records: [], record: [], field: "", inQuotes: false, sawField: false }
 
   for (let i = 0; i < content.length; i++) {
     const c = content[i]
-    if (inQuotes) {
-      if (c === '"') {
-        if (content[i + 1] === '"') { field += '"'; i++ } // escaped quote
-        else inQuotes = false
-      } else {
-        field += c
-      }
-      continue
+    if (state.inQuotes) {
+      i += consumeQuotedChar(state, c, content[i + 1])
+    } else {
+      consumeUnquotedChar(state, c)
     }
-    if (c === '"') { inQuotes = true; sawField = true; continue }
-    if (c === ",") { record.push(field); field = ""; sawField = true; continue }
-    if (c === "\r") continue
-    if (c === "\n") {
-      record.push(field)
-      // Skip fully-blank lines so they don't become spurious empty records.
-      if (sawField || record.length > 1 || record[0] !== "") records.push(record)
-      record = []; field = ""; sawField = false
-      continue
-    }
-    field += c
-    sawField = true
   }
   // An unterminated quoted field has swallowed everything from the opening
   // quote to EOF into one field, silently merging subsequent physical lines.
   // Drop that corrupted trailing record and surface a structural parse error
   // instead of emitting it as if it were valid data.
-  if (inQuotes) {
-    return { records, error: "Unterminated quoted field — check for a missing closing quote (\")" }
+  if (state.inQuotes) {
+    return { records: state.records, error: "Unterminated quoted field — check for a missing closing quote (\")" }
   }
-  record.push(field)
-  if (sawField || record.length > 1 || record[0] !== "") records.push(record)
-  return { records }
+  commitField(state)
+  commitRecord(state)
+  return { records: state.records }
 }
 
 export function parseCsv(content: string): CsvParseResult {

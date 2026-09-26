@@ -350,6 +350,187 @@ export async function handleStripeWebhook(
   }
 }
 
+// Staging row already claimed (or terminal) by a prior delivery. Handles the
+// crash-recovery token backfill and the EXPIRED-after-paid alert; every other
+// terminal status is a benign already-handled redelivery. Split out of
+// completePaidCheckout to keep that function's cognitive complexity in check.
+async function handleNonOpenStaging(
+  session: import("stripe").Stripe.Checkout.Session,
+  staging: {
+    id: number
+    status: import("@/lib/generated/prisma/client").CheckoutStatus
+    publicToken: string | null
+    eventId: number
+  },
+): Promise<{ status: number }> {
+  // Crash-recovery: a prior pass claimed COMPLETED and persisted the
+  // registration, but the process died before the publicToken write (that
+  // write is not inside persistRegistration's transaction), leaving a
+  // COMPLETED row with no token. Stripe redelivers and lands here. Recover
+  // idempotently by matching this session's PaymentIntent to its registration
+  // and backfilling the token so the success page can resolve it. A
+  // genuine withheld-token duplicate never reaches this branch — it's
+  // terminalized UNFULFILLED, not COMPLETED — so no registration for this PI
+  // means a real anomaly worth an ops signal, not the benign dup case.
+  if (staging.status === "COMPLETED" && !staging.publicToken) {
+    const pi = piOf(session.payment_intent)
+    const reg = pi
+      ? await prisma.registration.findFirst({
+          where: { paymentRef: pi, eventId: staging.eventId },
+          select: { publicToken: true },
+        })
+      : null
+    if (reg) {
+      await prisma.checkoutSession.update({
+        where: { id: staging.id },
+        data: { publicToken: reg.publicToken },
+      })
+    } else {
+      console.error(
+        `Stripe webhook: COMPLETED session ${session.id} has no publicToken and no registration matches its PaymentIntent ${pi ?? "?"}; success page cannot resolve it, manual review needed`,
+      )
+      await notifyStripeAlert(
+        "completed checkout missing its registration token",
+        `Session ${session.id}: COMPLETED with no publicToken and no registration matches its PaymentIntent. The success page can't resolve it; resolve manually.`,
+      )
+    }
+    return { status: 200 }
+  }
+  // COMPLETED/UNFULFILLED is a benign already-claimed redelivery race — that
+  // outcome already signalled ops (or succeeded) on its own first pass, so
+  // stay quiet. EXPIRED is different: the sweep scrubbed this row (e.g. the
+  // delayed-settlement or unclaim-retry expiry extensions above still ran
+  // out, or predate this fix) and a paid webhook has now arrived for a row
+  // with no Registration and no PII left to recover it from. Money
+  // is retained (no-refund policy) — that must not be a silent 200.
+  if (staging.status === "EXPIRED") {
+    console.error(
+      `Stripe webhook: paid session ${session.id} matched an already-EXPIRED staging row; no registration exists, money retained, manual review needed`,
+    )
+    await notifyStripeAlert(
+      "charged but no registration — checkout already expired",
+      `Session ${session.id}: payment settled after the staging row had already expired. No registration was created for this payment. Money retained; resolve manually.`,
+    )
+  }
+  return { status: 200 }
+}
+
+// Defense-in-depth: the amount Stripe actually charged must equal the total
+// we priced server-side (net price + the surcharge snapshotted on the staging
+// row at checkout — 0 when not surcharged). line_items are server-set (never
+// payer-mutable), so a mismatch should be unreachable — but if it ever drifts,
+// do NOT create a registration. Money is retained (no-refund policy); ops
+// resolves manually. Row is already COMPLETED so Stripe won't redeliver. Using
+// the stored snapshot — not a live recompute — means a fee-rate or passCardFee
+// change between checkout and webhook can never falsely reject a correct charge.
+// Returns null when the charge matches (caller should proceed).
+async function rejectOnAmountMismatch(
+  session: import("stripe").Stripe.Checkout.Session,
+  staging: { id: number; surchargeCents: number },
+  priced: PricedRegistration,
+  paymentIntent: string | null,
+): Promise<{ status: number } | null> {
+  const expectedCents = toCents(priced.totalAmount) + staging.surchargeCents
+  if (session.amount_total === toStripeAmount(expectedCents)) return null
+
+  console.error(
+    `Stripe webhook: amount mismatch (charged ${session.amount_total}, expected ${toStripeAmount(expectedCents)}) for PI ${paymentIntent ?? "?"}; no registration, money retained, manual review needed`,
+  )
+  await notifyStripeAlert(
+    "amount mismatch — money retained",
+    `Charged ${session.amount_total}, expected ${toStripeAmount(expectedCents)} for PI ${paymentIntent ?? "?"} (session ${session.id}). No registration created.`,
+  )
+  // Terminal: no registration was created and none will be. Mark the row
+  // UNFULFILLED so the success page tells the customer explicitly instead
+  // of "being finalised" forever. Payload is kept — ops needs it to
+  // resolve the retained payment manually.
+  await prisma.checkoutSession.update({ where: { id: staging.id }, data: { status: "UNFULFILLED" } })
+  return { status: 200 }
+}
+
+// Capacity gone / event deleted after the customer paid: keep the money
+// (no-refund policy) and signal ops. No publicToken written.
+async function terminalizeAfterPersistFailure(
+  session: import("stripe").Stripe.Checkout.Session,
+  staging: { id: number },
+  result: { status: number; error: string },
+  paymentIntent: string | null,
+): Promise<{ status: number }> {
+  console.error(
+    `Stripe webhook: registration could not be created after payment for PI ${paymentIntent ?? "?"} (${result.error}); money retained, manual review needed`,
+  )
+  await notifyStripeAlert(
+    "registration not created after payment — money retained",
+    `PI ${paymentIntent ?? "?"} (session ${session.id}): ${result.error}. Customer charged, no seat delivered.`,
+  )
+  // Terminal: capacity gone / event deleted after payment. Mark the row
+  // UNFULFILLED so the success page can tell the customer, rather than
+  // stranding them on "being finalised". Payload retained for ops.
+  await prisma.checkoutSession.update({ where: { id: staging.id }, data: { status: "UNFULFILLED" } })
+  return { status: 200 }
+}
+
+// `duplicate:true` covers TWO different situations that must not be
+// treated the same:
+//  1. A genuine double-charge: two different Checkout Sessions
+//     (different PaymentIntents) for the same event+email both complete
+//     inside persistRegistration's dedupe window. A real second charge —
+//     alert-worthy.
+//  2. An expected SAME-session redelivery: the publicToken `update` below
+//     threw on a PRIOR pass after persistRegistration already succeeded,
+//     the outer catch unclaimed the row, and Stripe redelivered the
+//     identical event. persistRegistration finds its own registration and
+//     reports `duplicate: true`, but only one charge ever happened —
+//     alerting here would be a false "second charge" signal every time.
+// Distinguish them by comparing this event's PaymentIntent against the
+// one stored on the existing registration; only alert when they differ.
+async function finalizeDuplicateOrToken(
+  result: { ref: string; duplicate?: boolean },
+  paymentIntent: string | null,
+  session: import("stripe").Stripe.Checkout.Session,
+  staging: { id: number },
+): Promise<void> {
+  let sameChargeRedelivered = false
+  if (result.duplicate) {
+    const existingReg = await prisma.registration.findUnique({
+      where: { publicToken: result.ref },
+      select: { paymentRef: true },
+    })
+    sameChargeRedelivered = !!paymentIntent && existingReg?.paymentRef === paymentIntent
+    if (!sameChargeRedelivered) {
+      console.error(
+        `Stripe webhook: duplicate registration after payment for PI ${paymentIntent ?? "?"}; second charge retained, manual review needed`,
+      )
+      await notifyStripeAlert(
+        "duplicate charge — second payment retained",
+        `PI ${paymentIntent ?? "?"} (session ${session.id}): a second charge landed for an existing registration (${result.ref}). No new seat; money retained.`,
+      )
+    }
+  }
+  // A genuine duplicate (different payer/charge) must never write the
+  // EXISTING registration's publicToken onto THIS payer's CheckoutSession
+  // — that ref resolves on the success page (incl. the check-in QR),
+  // so doing so would leak another payer's PII/credential to this one.
+  // Only a same-session redelivery (one charge, one owner) may write it.
+  if (!result.duplicate || sameChargeRedelivered) {
+    await prisma.checkoutSession.update({
+      where: { id: staging.id },
+      data: { publicToken: result.ref },
+    })
+  } else {
+    // Genuine duplicate charge: the existing registration's token is
+    // withheld from this second payer. Terminalize the row as UNFULFILLED so
+    // the success page shows the contact-us state, not "being finalised"
+    // forever, and so a later redelivery isn't mistaken for the crash-
+    // recovery case below (a COMPLETED row with no token → a persist that died
+    // before the token write). Ops was already alerted above.
+    await prisma.checkoutSession.update({
+      where: { id: staging.id },
+      data: { status: "UNFULFILLED" },
+    })
+  }
+}
+
 // Claims the staged CheckoutSession (atomic OPEN→COMPLETED) and persists the
 // real Registration as PAID. The ONLY place a paid Registration is created —
 // never trust a success-page redirect. Contains NO refund calls (see the policy
@@ -377,58 +558,7 @@ async function completePaidCheckout(
     )
     return { status: 200 }
   }
-  if (staging.status !== "OPEN") {
-    // Crash-recovery: a prior pass claimed COMPLETED and persisted the
-    // registration, but the process died before the publicToken write (that
-    // write is not inside persistRegistration's transaction), leaving a
-    // COMPLETED row with no token. Stripe redelivers and lands here. Recover
-    // idempotently by matching this session's PaymentIntent to its registration
-    // and backfilling the token so the success page can resolve it. A
-    // genuine withheld-token duplicate never reaches this branch — it's
-    // terminalized UNFULFILLED, not COMPLETED — so no registration for this PI
-    // means a real anomaly worth an ops signal, not the benign dup case.
-    if (staging.status === "COMPLETED" && !staging.publicToken) {
-      const pi = piOf(session.payment_intent)
-      const reg = pi
-        ? await prisma.registration.findFirst({
-            where: { paymentRef: pi, eventId: staging.eventId },
-            select: { publicToken: true },
-          })
-        : null
-      if (reg) {
-        await prisma.checkoutSession.update({
-          where: { id: staging.id },
-          data: { publicToken: reg.publicToken },
-        })
-      } else {
-        console.error(
-          `Stripe webhook: COMPLETED session ${session.id} has no publicToken and no registration matches its PaymentIntent ${pi ?? "?"}; success page cannot resolve it, manual review needed`,
-        )
-        await notifyStripeAlert(
-          "completed checkout missing its registration token",
-          `Session ${session.id}: COMPLETED with no publicToken and no registration matches its PaymentIntent. The success page can't resolve it; resolve manually.`,
-        )
-      }
-      return { status: 200 }
-    }
-    // COMPLETED/UNFULFILLED is a benign already-claimed redelivery race — that
-    // outcome already signalled ops (or succeeded) on its own first pass, so
-    // stay quiet. EXPIRED is different: the sweep scrubbed this row (e.g. the
-    // delayed-settlement or unclaim-retry expiry extensions above still ran
-    // out, or predate this fix) and a paid webhook has now arrived for a row
-    // with no Registration and no PII left to recover it from. Money
-    // is retained (no-refund policy) — that must not be a silent 200.
-    if (staging.status === "EXPIRED") {
-      console.error(
-        `Stripe webhook: paid session ${session.id} matched an already-EXPIRED staging row; no registration exists, money retained, manual review needed`,
-      )
-      await notifyStripeAlert(
-        "charged but no registration — checkout already expired",
-        `Session ${session.id}: payment settled after the staging row had already expired. No registration was created for this payment. Money retained; resolve manually.`,
-      )
-    }
-    return { status: 200 }
-  }
+  if (staging.status !== "OPEN") return handleNonOpenStaging(session, staging)
 
   // Atomically claim the row: flip OPEN→COMPLETED in a single conditional
   // UPDATE before any side effect. Stripe retries delivery, so two near-
@@ -470,30 +600,8 @@ async function completePaidCheckout(
 
     const paymentIntent = piOf(session.payment_intent)
 
-    // Defense-in-depth: the amount Stripe actually charged must equal the total
-    // we priced server-side (net price + the surcharge snapshotted on the staging
-    // row at checkout — 0 when not surcharged). line_items are server-set (never
-    // payer-mutable), so a mismatch should be unreachable — but if it ever drifts,
-    // do NOT create a registration. Money is retained (no-refund policy); ops
-    // resolves manually. Row is already COMPLETED so Stripe won't redeliver. Using
-    // the stored snapshot — not a live recompute — means a fee-rate or passCardFee
-    // change between checkout and webhook can never falsely reject a correct charge.
-    const expectedCents = toCents(priced.totalAmount) + staging.surchargeCents
-    if (session.amount_total !== toStripeAmount(expectedCents)) {
-      console.error(
-        `Stripe webhook: amount mismatch (charged ${session.amount_total}, expected ${toStripeAmount(expectedCents)}) for PI ${paymentIntent ?? "?"}; no registration, money retained, manual review needed`,
-      )
-      await notifyStripeAlert(
-        "amount mismatch — money retained",
-        `Charged ${session.amount_total}, expected ${toStripeAmount(expectedCents)} for PI ${paymentIntent ?? "?"} (session ${session.id}). No registration created.`,
-      )
-      // Terminal: no registration was created and none will be. Mark the row
-      // UNFULFILLED so the success page tells the customer explicitly instead
-      // of "being finalised" forever. Payload is kept — ops needs it to
-      // resolve the retained payment manually.
-      await prisma.checkoutSession.update({ where: { id: staging.id }, data: { status: "UNFULFILLED" } })
-      return { status: 200 }
-    }
+    const mismatch = await rejectOnAmountMismatch(session, staging, priced, paymentIntent)
+    if (mismatch) return mismatch
 
     // `!fullEvent` (the event was deleted between checkout and webhook) is treated
     // exactly like a persist failure: money already taken, row stays COMPLETED,
@@ -506,77 +614,9 @@ async function completePaidCheckout(
         })
       : { ok: false as const, status: 500, error: "Event no longer exists" }
 
-    if (!result.ok) {
-      // Capacity gone / event deleted after the customer paid: keep the money
-      // (no-refund policy) and signal ops. No publicToken written.
-      console.error(
-        `Stripe webhook: registration could not be created after payment for PI ${paymentIntent ?? "?"} (${result.error}); money retained, manual review needed`,
-      )
-      await notifyStripeAlert(
-        "registration not created after payment — money retained",
-        `PI ${paymentIntent ?? "?"} (session ${session.id}): ${result.error}. Customer charged, no seat delivered.`,
-      )
-      // Terminal: capacity gone / event deleted after payment. Mark the row
-      // UNFULFILLED so the success page can tell the customer, rather than
-      // stranding them on "being finalised". Payload retained for ops.
-      await prisma.checkoutSession.update({ where: { id: staging.id }, data: { status: "UNFULFILLED" } })
-      return { status: 200 }
-    }
+    if (!result.ok) return await terminalizeAfterPersistFailure(session, staging, result, paymentIntent)
 
-    // `duplicate:true` covers TWO different situations that must not be
-    // treated the same:
-    //  1. A genuine double-charge: two different Checkout Sessions
-    //     (different PaymentIntents) for the same event+email both complete
-    //     inside persistRegistration's dedupe window. A real second charge —
-    //     alert-worthy.
-    //  2. An expected SAME-session redelivery: the publicToken `update` below
-    //     threw on a PRIOR pass after persistRegistration already succeeded,
-    //     the outer catch unclaimed the row, and Stripe redelivered the
-    //     identical event. persistRegistration finds its own registration and
-    //     reports `duplicate: true`, but only one charge ever happened —
-    //     alerting here would be a false "second charge" signal every time.
-    // Distinguish them by comparing this event's PaymentIntent against the
-    // one stored on the existing registration; only alert when they differ.
-    let sameChargeRedelivered = false
-    if (result.duplicate) {
-      const existingReg = await prisma.registration.findUnique({
-        where: { publicToken: result.ref },
-        select: { paymentRef: true },
-      })
-      sameChargeRedelivered = !!paymentIntent && existingReg?.paymentRef === paymentIntent
-      if (!sameChargeRedelivered) {
-        console.error(
-          `Stripe webhook: duplicate registration after payment for PI ${paymentIntent ?? "?"}; second charge retained, manual review needed`,
-        )
-        await notifyStripeAlert(
-          "duplicate charge — second payment retained",
-          `PI ${paymentIntent ?? "?"} (session ${session.id}): a second charge landed for an existing registration (${result.ref}). No new seat; money retained.`,
-        )
-      }
-    }
-    // A genuine duplicate (different payer/charge) must never write the
-    // EXISTING registration's publicToken onto THIS payer's CheckoutSession
-    // — that ref resolves on the success page (incl. the check-in QR),
-    // so doing so would leak another payer's PII/credential to this one.
-    // Only a same-session redelivery (one charge, one owner) may write it.
-    if (!result.duplicate || sameChargeRedelivered) {
-      await prisma.checkoutSession.update({
-        where: { id: staging.id },
-        data: { publicToken: result.ref },
-      })
-    } else {
-      // Genuine duplicate charge: the existing registration's token is
-      // withheld from this second payer. Terminalize the row as UNFULFILLED so
-      // the success page shows the contact-us state, not "being finalised"
-      // forever, and so a later redelivery isn't mistaken for the crash-
-      // recovery case below (a COMPLETED row with no token → a persist that died
-      // before the token write). Ops was already alerted above.
-      await prisma.checkoutSession.update({
-        where: { id: staging.id },
-        data: { status: "UNFULFILLED" },
-      })
-    }
-
+    await finalizeDuplicateOrToken(result, paymentIntent, session, staging)
     return { status: 200 }
   } catch (err) {
     console.error(

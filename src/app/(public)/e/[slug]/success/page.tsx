@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
@@ -9,6 +10,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { computeFamilyWaiver } from "@/lib/eventWaiver"
 import { PayNowButton } from "./PayNowButton"
 import { stripeConfigured } from "@/lib/stripe"
+import type { Organizer } from "@/lib/eventOrganizers"
 import type { Metadata } from "next"
 
 // Opaque-token page revealing registrant name + church bank details — never
@@ -37,6 +39,318 @@ function getClientIp(h: Headers): string {
 // component body so Date.now() doesn't trip the render-purity lint rule.
 function tokenExpiryFloor(): Date {
   return new Date(Date.now() - TOKEN_TTL_MS)
+}
+
+function RateLimitedNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
+  return (
+    <div className="max-w-lg mx-auto py-12 px-4">
+      <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div aria-hidden="true" className="text-4xl mb-4">⏳</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">Too many requests</h1>
+        <p className="text-muted-foreground">
+          Please wait a moment and reload this page. Questions? Contact us at
+          {" "}{churchEmail}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Throttle the token lookup: only the ?ref=/?token= paths are an oracle, so
+// count a request against the per-IP budget only when one is supplied.
+async function checkSuccessPageRateLimit(
+  ref: string,
+  cardToken: string | null,
+  churchEmail: string,
+): Promise<ReactNode | null> {
+  if (!ref && !cardToken) return null
+  const ip = getClientIp(await headers())
+  if (rateLimit(`success:${ip}`, SUCCESS_LOOKUP_LIMIT, SUCCESS_LOOKUP_WINDOW_MS)) return null
+  return <RateLimitedNotice churchEmail={churchEmail} />
+}
+
+// Resolve a card (pay-now) return to the registration's own publicToken via
+// the CheckoutSession the webhook (Task 5) stamps on payment success. The
+// webhook can lag the Stripe redirect by a moment, so a matching session
+// with no publicToken yet is "payment received, still finalising" — not a
+// 404 — while a token that matches no session at all falls through to the
+// ordinary not-found view below.
+async function resolveCardPaymentRef(
+  cardToken: string | null,
+  ref: string,
+  eventId: number,
+): Promise<{ resolvedRef: string; paymentPending: boolean; paymentUnfulfilled: boolean }> {
+  const noOutcome = { resolvedRef: ref, paymentPending: false, paymentUnfulfilled: false }
+  if (!cardToken || ref) return noOutcome
+
+  const checkoutSession = await prisma.checkoutSession.findUnique({
+    where: { stripeSessionId: cardToken },
+  })
+  // Event-scope the match (style guard) — a session for a different
+  // event must not resolve here even though cs_... ids aren't enumerable.
+  if (!checkoutSession || checkoutSession.eventId !== eventId) return noOutcome
+
+  if (checkoutSession.publicToken) return { ...noOutcome, resolvedRef: checkoutSession.publicToken }
+
+  // Terminal "charged but couldn't register" outcomes where the webhook keeps
+  // the money for manual ops and never writes a publicToken — render the
+  // contact-us state, not "being finalised" forever:
+  //  - UNFULFILLED: capacity gone / event deleted / amount mismatch.
+  //  - EXPIRED: the checkout sweep flipped the row, then a late webhook (e.g.
+  //    BECS async payment) still confirmed the charge.
+  //  - COMPLETED with no token: a genuine duplicate charge whose token
+  //    deliberately withholds for the second payer.
+  // Any other non-terminal status (OPEN) is a real pre-webhook lag → pending.
+  const isUnfulfilled =
+    checkoutSession.status === "UNFULFILLED" ||
+    checkoutSession.status === "EXPIRED" ||
+    checkoutSession.status === "COMPLETED"
+  return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled }
+}
+
+function UnfulfilledNotice({ eventTitle, churchEmail }: Readonly<{ eventTitle: string; churchEmail: string }>) {
+  return (
+    <div className="max-w-lg mx-auto py-12 px-4">
+      <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div aria-hidden="true" className="text-4xl mb-4">⚠️</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">We couldn&apos;t complete your registration</h1>
+        <p className="text-muted-foreground">
+          Your payment reached us, but we were unable to register you for {eventTitle} — the
+          event may have filled up. You are <strong>not</strong> registered. Please contact us at
+          {" "}{churchEmail} and we&apos;ll sort this out for you.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function PendingNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
+  return (
+    <div className="max-w-lg mx-auto py-12 px-4">
+      <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div aria-hidden="true" className="text-4xl mb-4">⏳</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">Payment received</h1>
+        <p className="text-muted-foreground">
+          Your confirmation is being finalised — check your email shortly. Questions? Contact
+          us at {churchEmail}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function NotFoundNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
+  return (
+    <div className="max-w-lg mx-auto py-12 px-4">
+      <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div aria-hidden="true" className="text-4xl mb-4">🔍</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">Registration not found</h1>
+        <p className="text-muted-foreground">
+          We couldn&apos;t find a registration for this link. Please check the link from your
+          confirmation, or register again.
+        </p>
+        <p className="text-xs text-muted-foreground mt-6">
+          Questions? Contact us at {churchEmail}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function CancelledNotice({ eventTitle, churchEmail }: Readonly<{ eventTitle: string; churchEmail: string }>) {
+  return (
+    <div className="max-w-lg mx-auto py-12 px-4">
+      <div className="bg-card rounded-2xl border border-border p-8 text-center">
+        <div aria-hidden="true" className="text-4xl mb-4">🚫</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">Registration cancelled</h1>
+        <p className="text-muted-foreground">
+          This registration for {eventTitle} has been cancelled. No payment is
+          due. If you believe this is a mistake, please contact us at {churchEmail}.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Add-to-calendar — one-off events only (recurring events have no date).
+function buildCalendarLinks(
+  event: { date: Date | null; endDate: Date | null; title: string; description: string | null; location: string | null },
+  publicToken: string,
+): { gcalUrl: string; icsDataUri: string } | null {
+  if (!event.date) return null
+  const start = event.date
+  const end = event.endDate ?? new Date(start.getTime() + 2 * 60 * 60 * 1000)
+  const gcalUrl = googleCalendarUrl({
+    title: event.title,
+    details: event.description ?? undefined,
+    location: event.location ?? undefined,
+    start,
+    end,
+  })
+  const ics = buildIcs({
+    uid: publicToken,
+    title: event.title,
+    description: event.description ?? undefined,
+    location: event.location ?? undefined,
+    start,
+    end,
+  })
+  const icsDataUri = `data:text/calendar;base64,${Buffer.from(ics, "utf8").toString("base64")}`
+  return { gcalUrl, icsDataUri }
+}
+
+type RegistrationSummaryProps = Readonly<{
+  registration: {
+    firstName: string
+    lastName: string
+    totalAmount: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number
+    items: { id: number; quantity: number; ticketType: { name: string } }[]
+  }
+  freeCount: number
+}>
+
+function RegistrationSummary({ registration, freeCount }: RegistrationSummaryProps) {
+  return (
+    <div className="mb-6">
+      <p className="text-sm text-muted-foreground mb-1">
+        <strong>{registration.firstName} {registration.lastName}</strong>
+      </p>
+      {registration.items.map(item => (
+        <p key={item.id} className="text-sm text-muted-foreground">
+          {item.quantity}× {item.ticketType.name}
+        </p>
+      ))}
+      <p className="font-bold text-foreground mt-2">
+        Total: {fmtAUD(centsToNumber(toCents(registration.totalAmount)))}
+      </p>
+      {freeCount > 0 && (
+        <p className="text-sm text-success mt-1">
+          Family waiver applied — {freeCount} member{freeCount === 1 ? "" : "s"} free.
+        </p>
+      )}
+    </div>
+  )
+}
+
+type PaymentStatusBlockProps = Readonly<{
+  registration: {
+    paymentStatus: string
+    paymentRef: string | null
+    publicToken: string
+    totalAmount: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number
+  }
+  event: { bankBsb: string | null; bankAccount: string | null; onlinePaymentEnabled: boolean; passCardFee: boolean }
+  resolvedRef: string
+  isFree: boolean
+  churchName: string
+  slug: string
+}>
+
+function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchName, slug }: PaymentStatusBlockProps) {
+  if (registration.paymentStatus === "PAID") {
+    // Already paid by card (#Stripe event payments) — the church bank
+    // BSB/account is pay-later instructions and must not be shown
+    // alongside a registration that's already settled.
+    return (
+      <div className="bg-muted rounded-xl border border-border p-5 text-center">
+        {/* PAID is set by two paths: the Stripe webhook (stamps paymentRef =
+            PaymentIntent id) and the admin markRegistrationPaid action for a
+            reconciled bank transfer (no paymentRef). Only claim "by card"
+            when a paymentRef proves it — otherwise a bank-transfer payer
+            reopening this link would be wrongly told they paid by card
+. */}
+        <p className="text-sm font-semibold text-foreground">
+          {registration.paymentRef ? "Paid by card" : "Payment received"}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {fmtAUD(centsToNumber(toCents(registration.totalAmount)))} received — no further payment needed.
+        </p>
+      </div>
+    )
+  }
+
+  if (isFree) {
+    // A free ($0) registration stays PENDING (no payment ever occurs) —
+    // showing bank-transfer instructions for $0.00 is nonsensical.
+    return (
+      <div className="bg-muted rounded-xl border border-border p-5 text-center">
+        <p className="text-sm font-semibold text-foreground">No payment required</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          This registration is free — there is nothing further to pay.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-muted rounded-xl border border-border p-5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Bank Transfer Details</p>
+      <div className="flex flex-col gap-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Account name</span>
+          <span className="font-semibold text-foreground">{churchName}</span>
+        </div>
+        {event.bankBsb && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">BSB</span>
+            <span className="font-semibold text-foreground">{event.bankBsb}</span>
+          </div>
+        )}
+        {event.bankAccount && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Account number</span>
+            <span className="font-semibold text-foreground">{event.bankAccount}</span>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Reference</span>
+          <span className="font-bold text-primary">{resolvedRef}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Amount</span>
+          <span className="font-bold text-foreground">
+            {fmtAUD(centsToNumber(toCents(registration.totalAmount)))}
+          </span>
+        </div>
+      </div>
+      {event.onlinePaymentEnabled && stripeConfigured() && (
+        <PayNowButton slug={slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} />
+      )}
+    </div>
+  )
+}
+
+function OrganizersList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
+  if (organizers.length === 0) return null
+  return (
+    <div className="mt-5 rounded-xl border border-border bg-muted p-5">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {organizers.length === 1 ? "Organiser" : "Organisers"}
+      </p>
+      <div className="flex flex-col gap-1 text-sm">
+        {organizers.map((o, i) => (
+          <div key={i} className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-foreground">{o.name}</span>
+            {o.phone && (
+              <a href={`tel:${o.phone.replace(/\s+/g, "")}`} className="text-primary underline">
+                {o.phone}
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ContactFooter({ isSettled, churchEmail }: Readonly<{ isSettled: boolean; churchEmail: string }>) {
+  return (
+    <p className="text-xs text-muted-foreground mt-4 text-center">
+      {isSettled
+        ? <>Questions? Contact us at {churchEmail}</>
+        : <>Your spot is held for 7 days pending payment. Questions? Contact us at {churchEmail}</>}
+    </p>
+  )
 }
 
 export default async function SuccessPage(props: Props) {
@@ -68,91 +382,13 @@ export default async function SuccessPage(props: Props) {
   // (a cs_... id) instead of our own ?ref= registration token.
   const cardToken = token?.startsWith("cs_") ? token : null
 
-  // Throttle the token lookup: only the ?ref=/?token= paths are an
-  // oracle, so count a request against the per-IP budget only when one is supplied.
-  if (ref || cardToken) {
-    const ip = getClientIp(await headers())
-    if (!rateLimit(`success:${ip}`, SUCCESS_LOOKUP_LIMIT, SUCCESS_LOOKUP_WINDOW_MS)) {
-      return (
-        <div className="max-w-lg mx-auto py-12 px-4">
-          <div className="bg-card rounded-2xl border border-border p-8 text-center">
-            <div aria-hidden="true" className="text-4xl mb-4">⏳</div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Too many requests</h1>
-            <p className="text-muted-foreground">
-              Please wait a moment and reload this page. Questions? Contact us at
-              {" "}{churchEmail}
-            </p>
-          </div>
-        </div>
-      )
-    }
-  }
+  const rateLimited = await checkSuccessPageRateLimit(ref, cardToken, churchEmail)
+  if (rateLimited) return rateLimited
 
-  // Resolve a card (pay-now) return to the registration's own publicToken via
-  // the CheckoutSession the webhook (Task 5) stamps on payment success. The
-  // webhook can lag the Stripe redirect by a moment, so a matching session
-  // with no publicToken yet is "payment received, still finalising" — not a
-  // 404 — while a token that matches no session at all falls through to the
-  // ordinary not-found view below.
-  let resolvedRef = ref
-  let paymentPending = false
-  let paymentUnfulfilled = false
-  if (cardToken && !resolvedRef) {
-    const checkoutSession = await prisma.checkoutSession.findUnique({
-      where: { stripeSessionId: cardToken },
-    })
-    // Event-scope the match (style guard) — a session for a different
-    // event must not resolve here even though cs_... ids aren't enumerable.
-    if (checkoutSession && checkoutSession.eventId === event.id) {
-      if (checkoutSession.publicToken) resolvedRef = checkoutSession.publicToken
-      // Terminal "charged but couldn't register" outcomes where the webhook keeps
-      // the money for manual ops and never writes a publicToken — render the
-      // contact-us state, not "being finalised" forever:
-      //  - UNFULFILLED: capacity gone / event deleted / amount mismatch.
-      //  - EXPIRED: the checkout sweep flipped the row, then a late webhook (e.g.
-      //    BECS async payment) still confirmed the charge.
-      //  - COMPLETED with no token: a genuine duplicate charge whose token
-      //    deliberately withholds for the second payer.
-      // Any other non-terminal status (OPEN) is a real pre-webhook lag → pending.
-      else if (
-        checkoutSession.status === "UNFULFILLED" ||
-        checkoutSession.status === "EXPIRED" ||
-        checkoutSession.status === "COMPLETED"
-      ) paymentUnfulfilled = true
-      else paymentPending = true
-    }
-  }
+  const { resolvedRef, paymentPending, paymentUnfulfilled } = await resolveCardPaymentRef(cardToken, ref, event.id)
 
-  if (paymentUnfulfilled) {
-    return (
-      <div className="max-w-lg mx-auto py-12 px-4">
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
-          <div aria-hidden="true" className="text-4xl mb-4">⚠️</div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">We couldn&apos;t complete your registration</h1>
-          <p className="text-muted-foreground">
-            Your payment reached us, but we were unable to register you for {event.title} — the
-            event may have filled up. You are <strong>not</strong> registered. Please contact us at
-            {" "}{churchEmail} and we&apos;ll sort this out for you.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (paymentPending) {
-    return (
-      <div className="max-w-lg mx-auto py-12 px-4">
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
-          <div aria-hidden="true" className="text-4xl mb-4">⏳</div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Payment received</h1>
-          <p className="text-muted-foreground">
-            Your confirmation is being finalised — check your email shortly. Questions? Contact
-            us at {churchEmail}
-          </p>
-        </div>
-      </div>
-    )
-  }
+  if (paymentUnfulfilled) return <UnfulfilledNotice eventTitle={event.title} churchEmail={churchEmail} />
+  if (paymentPending) return <PendingNotice churchEmail={churchEmail} />
 
   // Look up by the opaque CSPRNG token, never the sequential id, so REG-1..N
   // cannot be enumerated; still event-scoped to block cross-event lookups.
@@ -186,66 +422,17 @@ export default async function SuccessPage(props: Props) {
   // render the "registered" confirmation + bank details with the bogus ref as
   // the payment reference — the visitor could pay under an unknown reference
   //. Show an explicit not-found message instead.
-  if (!registration) {
-    return (
-      <div className="max-w-lg mx-auto py-12 px-4">
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
-          <div aria-hidden="true" className="text-4xl mb-4">🔍</div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Registration not found</h1>
-          <p className="text-muted-foreground">
-            We couldn&apos;t find a registration for this link. Please check the link from your
-            confirmation, or register again.
-          </p>
-          <p className="text-xs text-muted-foreground mt-6">
-            Questions? Contact us at {churchEmail}
-          </p>
-        </div>
-      </div>
-    )
-  }
+  if (!registration) return <NotFoundNotice churchEmail={churchEmail} />
 
   // A cancelled registration (refund/dispute → CANCELLED, or admin cancel) must
   // not render as an active booking: otherwise the registrant sees
   // "You're registered!" + bank-transfer details instructing them to pay for a
   // seat that no longer exists. Show an explicit cancelled state instead.
   if (registration.paymentStatus === "CANCELLED") {
-    return (
-      <div className="max-w-lg mx-auto py-12 px-4">
-        <div className="bg-card rounded-2xl border border-border p-8 text-center">
-          <div aria-hidden="true" className="text-4xl mb-4">🚫</div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Registration cancelled</h1>
-          <p className="text-muted-foreground">
-            This registration for {event.title} has been cancelled. No payment is
-            due. If you believe this is a mistake, please contact us at {churchEmail}.
-          </p>
-        </div>
-      </div>
-    )
+    return <CancelledNotice eventTitle={event.title} churchEmail={churchEmail} />
   }
 
-  // Add-to-calendar — one-off events only (recurring events have no date).
-  let gcalUrl: string | null = null
-  let icsDataUri: string | null = null
-  if (event.date) {
-    const start = event.date
-    const end = event.endDate ?? new Date(start.getTime() + 2 * 60 * 60 * 1000)
-    gcalUrl = googleCalendarUrl({
-      title: event.title,
-      details: event.description ?? undefined,
-      location: event.location ?? undefined,
-      start,
-      end,
-    })
-    const ics = buildIcs({
-      uid: registration.publicToken,
-      title: event.title,
-      description: event.description ?? undefined,
-      location: event.location ?? undefined,
-      start,
-      end,
-    })
-    icsDataUri = `data:text/calendar;base64,${Buffer.from(ics, "utf8").toString("base64")}`
-  }
+  const calendarLinks = buildCalendarLinks(event, registration.publicToken)
 
   const { freeCount } = computeFamilyWaiver(
     registration.items.map((item) => ({
@@ -273,7 +460,7 @@ export default async function SuccessPage(props: Props) {
   const totalCents = toCents(registration.totalAmount)
   const isFree = totalCents === 0
 
-  const organizers = (Array.isArray(event.organizers) ? event.organizers : []) as unknown as import("@/lib/eventOrganizers").Organizer[]
+  const organizers = (Array.isArray(event.organizers) ? event.organizers : []) as unknown as Organizer[]
 
   return (
     <div className="max-w-lg mx-auto py-12 px-4">
@@ -291,26 +478,7 @@ export default async function SuccessPage(props: Props) {
         <h1 className="text-2xl font-bold text-foreground mb-2">You&apos;re registered!</h1>
         <p className="text-muted-foreground mb-6">{event.title}</p>
 
-        {registration && (
-          <div className="mb-6">
-            <p className="text-sm text-muted-foreground mb-1">
-              <strong>{registration.firstName} {registration.lastName}</strong>
-            </p>
-            {registration.items.map(item => (
-              <p key={item.id} className="text-sm text-muted-foreground">
-                {item.quantity}× {item.ticketType.name}
-              </p>
-            ))}
-            <p className="font-bold text-foreground mt-2">
-              Total: {fmtAUD(centsToNumber(toCents(registration.totalAmount)))}
-            </p>
-            {freeCount > 0 && (
-              <p className="text-sm text-success mt-1">
-                Family waiver applied — {freeCount} member{freeCount === 1 ? "" : "s"} free.
-              </p>
-            )}
-          </div>
-        )}
+        {registration && <RegistrationSummary registration={registration} freeCount={freeCount} />}
 
         <div className="mb-6 flex flex-col items-center rounded-xl border border-border bg-muted p-5">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Check-in code</p>
@@ -320,74 +488,19 @@ export default async function SuccessPage(props: Props) {
           <p className="mt-3 text-center text-xs text-muted-foreground">Show this at check-in</p>
         </div>
 
-        {registration.paymentStatus === "PAID" ? (
-          // Already paid by card (#Stripe event payments) — the church bank
-          // BSB/account is pay-later instructions and must not be shown
-          // alongside a registration that's already settled.
-          <div className="bg-muted rounded-xl border border-border p-5 text-center">
-            {/* PAID is set by two paths: the Stripe webhook (stamps paymentRef =
-                PaymentIntent id) and the admin markRegistrationPaid action for a
-                reconciled bank transfer (no paymentRef). Only claim "by card"
-                when a paymentRef proves it — otherwise a bank-transfer payer
-                reopening this link would be wrongly told they paid by card
-. */}
-            <p className="text-sm font-semibold text-foreground">
-              {registration.paymentRef ? "Paid by card" : "Payment received"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {fmtAUD(centsToNumber(toCents(registration.totalAmount)))} received — no further payment needed.
-            </p>
-          </div>
-        ) : isFree ? (
-          // A free ($0) registration stays PENDING (no payment ever occurs) —
-          // showing bank-transfer instructions for $0.00 is nonsensical.
-          <div className="bg-muted rounded-xl border border-border p-5 text-center">
-            <p className="text-sm font-semibold text-foreground">No payment required</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              This registration is free — there is nothing further to pay.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-muted rounded-xl border border-border p-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Bank Transfer Details</p>
-            <div className="flex flex-col gap-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Account name</span>
-                <span className="font-semibold text-foreground">{churchName}</span>
-              </div>
-              {event.bankBsb && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">BSB</span>
-                  <span className="font-semibold text-foreground">{event.bankBsb}</span>
-                </div>
-              )}
-              {event.bankAccount && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account number</span>
-                  <span className="font-semibold text-foreground">{event.bankAccount}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Reference</span>
-                <span className="font-bold text-primary">{resolvedRef}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Amount</span>
-                <span className="font-bold text-foreground">
-                  {fmtAUD(centsToNumber(toCents(registration.totalAmount)))}
-                </span>
-              </div>
-            </div>
-            {event.onlinePaymentEnabled && stripeConfigured() && (
-              <PayNowButton slug={params.slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} />
-            )}
-          </div>
-        )}
+        <PaymentStatusBlock
+          registration={registration}
+          event={event}
+          resolvedRef={resolvedRef}
+          isFree={isFree}
+          churchName={churchName}
+          slug={params.slug}
+        />
 
-        {gcalUrl && icsDataUri && (
+        {calendarLinks && (
           <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <a
-              href={gcalUrl}
+              href={calendarLinks.gcalUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 rounded-lg bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground hover:opacity-90"
@@ -395,7 +508,7 @@ export default async function SuccessPage(props: Props) {
               Add to Google Calendar
             </a>
             <a
-              href={icsDataUri}
+              href={calendarLinks.icsDataUri}
               download="event.ics"
               className="flex-1 rounded-lg border border-border px-4 py-2 text-center text-sm font-semibold text-foreground hover:bg-muted"
             >
@@ -404,31 +517,9 @@ export default async function SuccessPage(props: Props) {
           </div>
         )}
 
-        {organizers.length > 0 && (
-          <div className="mt-5 rounded-xl border border-border bg-muted p-5">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {organizers.length === 1 ? "Organiser" : "Organisers"}
-            </p>
-            <div className="flex flex-col gap-1 text-sm">
-              {organizers.map((o, i) => (
-                <div key={i} className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-foreground">{o.name}</span>
-                  {o.phone && (
-                    <a href={`tel:${o.phone.replace(/\s+/g, "")}`} className="text-primary underline">
-                      {o.phone}
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <OrganizersList organizers={organizers} />
 
-        <p className="text-xs text-muted-foreground mt-4 text-center">
-          {registration.paymentStatus === "PAID" || isFree
-            ? <>Questions? Contact us at {churchEmail}</>
-            : <>Your spot is held for 7 days pending payment. Questions? Contact us at {churchEmail}</>}
-        </p>
+        <ContactFooter isSettled={registration.paymentStatus === "PAID" || isFree} churchEmail={churchEmail} />
       </div>
     </div>
   )
