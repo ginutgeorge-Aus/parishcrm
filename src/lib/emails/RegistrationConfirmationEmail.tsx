@@ -20,6 +20,59 @@ export type RegistrationConfirmationData = {
 const label = { fontSize: "13px", color: "#64748b", margin: "0" } as const
 const value = { fontSize: "14px", color: "#0f172a", margin: "0 0 8px", fontWeight: 600 } as const
 
+function PaymentDetails({
+  churchName,
+  payment,
+}: {
+  churchName: string
+  payment: NonNullable<RegistrationConfirmationData["payment"]>
+}) {
+  return (
+    <Section style={{ background: "#f8fafc", borderRadius: "8px", padding: "16px", marginTop: "12px" }}>
+      <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
+        Bank transfer details
+      </Text>
+      <Text style={label}>Account name</Text>
+      <Text style={value}>{churchName}</Text>
+      {payment.bankBsb ? (
+        <>
+          <Text style={label}>BSB</Text>
+          <Text style={value}>{payment.bankBsb}</Text>
+        </>
+      ) : null}
+      {payment.bankAccount ? (
+        <>
+          <Text style={label}>Account number</Text>
+          <Text style={value}>{payment.bankAccount}</Text>
+        </>
+      ) : null}
+      <Text style={label}>Reference</Text>
+      <Text style={{ ...value, color: "#16a34a" }}>{payment.reference}</Text>
+      <Text style={{ fontSize: "12px", color: "#94a3b8", marginTop: "8px" }}>
+        Your spot is held for 7 days pending payment.
+      </Text>
+    </Section>
+  )
+}
+
+function OrganizerList({ organizers }: { organizers: Organizer[] }) {
+  return (
+    <Section style={{ marginTop: "16px" }}>
+      <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
+        {organizers.length === 1 ? "Organiser" : "Organisers"}
+      </Text>
+      {organizers.map((o, i) => (
+        <Text key={i} style={{ ...value, marginBottom: "4px" }}>
+          {o.name}
+          {o.phone ? (
+            <span style={{ fontWeight: 400, color: "#64748b" }}> — {o.phone}</span>
+          ) : null}
+        </Text>
+      ))}
+    </Section>
+  )
+}
+
 export function RegistrationConfirmationEmail(props: RegistrationConfirmationData) {
   const { payment, organizers } = props
   return (
@@ -66,48 +119,9 @@ export function RegistrationConfirmationEmail(props: RegistrationConfirmationDat
         ) : null}
       </Section>
 
-      {payment ? (
-        <Section style={{ background: "#f8fafc", borderRadius: "8px", padding: "16px", marginTop: "12px" }}>
-          <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
-            Bank transfer details
-          </Text>
-          <Text style={label}>Account name</Text>
-          <Text style={value}>{props.churchName}</Text>
-          {payment.bankBsb ? (
-            <>
-              <Text style={label}>BSB</Text>
-              <Text style={value}>{payment.bankBsb}</Text>
-            </>
-          ) : null}
-          {payment.bankAccount ? (
-            <>
-              <Text style={label}>Account number</Text>
-              <Text style={value}>{payment.bankAccount}</Text>
-            </>
-          ) : null}
-          <Text style={label}>Reference</Text>
-          <Text style={{ ...value, color: "#16a34a" }}>{payment.reference}</Text>
-          <Text style={{ fontSize: "12px", color: "#94a3b8", marginTop: "8px" }}>
-            Your spot is held for 7 days pending payment.
-          </Text>
-        </Section>
-      ) : null}
+      {payment ? <PaymentDetails churchName={props.churchName} payment={payment} /> : null}
 
-      {organizers && organizers.length > 0 ? (
-        <Section style={{ marginTop: "16px" }}>
-          <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
-            {organizers.length === 1 ? "Organiser" : "Organisers"}
-          </Text>
-          {organizers.map((o, i) => (
-            <Text key={i} style={{ ...value, marginBottom: "4px" }}>
-              {o.name}
-              {o.phone ? (
-                <span style={{ fontWeight: 400, color: "#64748b" }}> — {o.phone}</span>
-              ) : null}
-            </Text>
-          ))}
-        </Section>
-      ) : null}
+      {organizers && organizers.length > 0 ? <OrganizerList organizers={organizers} /> : null}
 
       {props.googleCalendarUrl ? (
         <Section style={{ marginTop: "16px" }}>

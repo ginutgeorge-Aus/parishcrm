@@ -34,35 +34,44 @@ const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = [
   { gate: "/crew/", re: /(\/e\/[^/?#]+\/crew\/)[^/?#]+/g },
 ]
 
-/** Mutates `attributes` in place, removing any query string and path token. */
-export function redactUrlAttributes(attributes: Record<string, unknown>): void {
+function stripQueryStrings(attributes: Record<string, unknown>): void {
   for (const key of URL_ATTRS_WITH_QUERY) {
     const value = attributes[key]
-    if (typeof value === "string") {
-      const q = value.indexOf("?")
-      if (q !== -1) attributes[key] = value.slice(0, q)
-    }
+    if (typeof value !== "string") continue
+    const q = value.indexOf("?")
+    if (q !== -1) attributes[key] = value.slice(0, q)
   }
+}
+
+function redactPathTokens(value: string): string {
+  let next = value
+  for (const { gate, re } of PATH_TOKEN_PATTERNS) {
+    if (next.includes(gate)) next = next.replace(re, "$1[token]")
+  }
+  return next
+}
+
+function redactQueryAttr(attributes: Record<string, unknown>): void {
+  if (typeof attributes[QUERY_ATTR] !== "string") return
+  attributes[QUERY_ATTR] = "REDACTED"
+  // Guard against a future OTel SDK sealing span attributes: if the
+  // in-place mutation silently no-ops, a reset-password token would leak to
+  // App Insights. Surface it loudly so the regression is caught immediately.
+  if (attributes[QUERY_ATTR] !== "REDACTED") {
+    console.error(
+      "[telemetry-redact] URL query redaction failed — span attributes appear immutable; sensitive query strings may be exported",
+    )
+  }
+}
+
+/** Mutates `attributes` in place, removing any query string and path token. */
+export function redactUrlAttributes(attributes: Record<string, unknown>): void {
+  stripQueryStrings(attributes)
   for (const key of URL_ATTRS_WITH_PATH) {
     const value = attributes[key]
-    if (typeof value !== "string") continue
-    let next = value
-    for (const { gate, re } of PATH_TOKEN_PATTERNS) {
-      if (next.includes(gate)) next = next.replace(re, "$1[token]")
-    }
-    attributes[key] = next
+    if (typeof value === "string") attributes[key] = redactPathTokens(value)
   }
-  if (typeof attributes[QUERY_ATTR] === "string") {
-    attributes[QUERY_ATTR] = "REDACTED"
-    // Guard against a future OTel SDK sealing span attributes: if the
-    // in-place mutation silently no-ops, a reset-password token would leak to
-    // App Insights. Surface it loudly so the regression is caught immediately.
-    if (attributes[QUERY_ATTR] !== "REDACTED") {
-      console.error(
-        "[telemetry-redact] URL query redaction failed — span attributes appear immutable; sensitive query strings may be exported",
-      )
-    }
-  }
+  redactQueryAttr(attributes)
 }
 
 /** SpanProcessor that redacts URL query strings on span end, before export. */

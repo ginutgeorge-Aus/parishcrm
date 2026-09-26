@@ -23,6 +23,25 @@ type Reg = {
   customAnswers: Record<string, string | string[]> | null
 }
 
+type AttendeeRow = { name: string; ticket: string; answers: Record<string, string | string[]> | null }
+
+function expandAttendees(items: Item[]): AttendeeRow[] {
+  const attendees: AttendeeRow[] = []
+  for (const item of items) {
+    if (item.attendees.length > 0) {
+      // Per-attendee model: use Attendee rows with per-attendee answers.
+      for (const a of item.attendees) {
+        attendees.push({ name: a.name, ticket: item.ticketType.name, answers: a.answers })
+      }
+    } else {
+      // No Attendee rows: emit blank-name rows by quantity.
+      const names = Array(item.quantity).fill("")
+      for (const name of names) attendees.push({ name, ticket: item.ticketType.name, answers: null })
+    }
+  }
+  return attendees
+}
+
 // One row per attendee. Attendee-level columns (name, ticket type) repeat on
 // every row; registration-level columns (Amount, order-scoped answers) appear
 // only on the first attendee row of each registration so summing Amount never
@@ -54,19 +73,7 @@ export function generateCsv(
     const ref = r.publicToken
     const registered = formatDMY(new Date(r.createdAt))
 
-    const attendees: { name: string; ticket: string; answers: Record<string, string | string[]> | null }[] = []
-    for (const item of r.items) {
-      if (item.attendees.length > 0) {
-        // Per-attendee model: use Attendee rows with per-attendee answers.
-        for (const a of item.attendees) {
-          attendees.push({ name: a.name, ticket: item.ticketType.name, answers: a.answers })
-        }
-      } else {
-        // No Attendee rows: emit blank-name rows by quantity.
-        const names = Array(item.quantity).fill("")
-        for (const name of names) attendees.push({ name, ticket: item.ticketType.name, answers: null })
-      }
-    }
+    const attendees = expandAttendees(r.items)
     if (attendees.length === 0) continue
 
     attendees.forEach((a, idx) => {

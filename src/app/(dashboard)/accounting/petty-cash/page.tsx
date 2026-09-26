@@ -15,19 +15,9 @@ import { fmtAUD as fmt, sumCents, centsToNumber, sessionDateFromTitle } from "@/
 import { PettyCashSessionStatus } from "@/lib/generated/prisma/enums"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
-export default async function PettyCashPage(
-  props: {
-    searchParams: Promise<{ status?: string; from?: string; to?: string; custodian?: string }>
-  }
-) {
-  const searchParams = await props.searchParams;
-  const session = await auth()
-  if (!canViewAccounting(session?.user?.role)) redirect("/")
+type PettyCashSearchParams = { status?: string; from?: string; to?: string; custodian?: string }
 
-  // Lazy weekly auto-open (no-op for non-editors). Run before listing so a
-  // freshly-created session appears in the same render.
-  const ensured = await ensureWeeklySession()
-
+function buildSessionWhere(sp: PettyCashSearchParams) {
   // Validate URL params before they reach Prisma — a crafted ?custodian=abc or
   // ?from=notadate would otherwise produce NaN / Invalid Date in the where
   // clause and either 500 or silently return wrong results.
@@ -35,12 +25,12 @@ export default async function PettyCashPage(
   // ?status=FOO would otherwise throw PrismaClientValidationError → 500.
   const VALID_STATUSES = new Set<PettyCashSessionStatus>(["OPEN", "CLOSED"])
   const statusFilter =
-    searchParams.status && VALID_STATUSES.has(searchParams.status as PettyCashSessionStatus)
-      ? (searchParams.status as PettyCashSessionStatus)
+    sp.status && VALID_STATUSES.has(sp.status as PettyCashSessionStatus)
+      ? (sp.status as PettyCashSessionStatus)
       : undefined
-  const custodianId = searchParams.custodian ? parseInt(searchParams.custodian, 10) : undefined
-  const fromDate = searchParams.from ? new Date(searchParams.from) : undefined
-  const toDate = searchParams.to ? new Date(searchParams.to + "T23:59:59.999") : undefined
+  const custodianId = sp.custodian ? parseInt(sp.custodian, 10) : undefined
+  const fromDate = sp.from ? new Date(sp.from) : undefined
+  const toDate = sp.to ? new Date(sp.to + "T23:59:59.999") : undefined
   const fromValid = fromDate && !isNaN(fromDate.getTime())
   const toValid = toDate && !isNaN(toDate.getTime())
 
@@ -56,6 +46,23 @@ export default async function PettyCashPage(
         }
       : {}),
   }
+  return where
+}
+
+export default async function PettyCashPage(
+  props: {
+    searchParams: Promise<PettyCashSearchParams>
+  }
+) {
+  const searchParams = await props.searchParams;
+  const session = await auth()
+  if (!canViewAccounting(session?.user?.role)) redirect("/")
+
+  // Lazy weekly auto-open (no-op for non-editors). Run before listing so a
+  // freshly-created session appears in the same render.
+  const ensured = await ensureWeeklySession()
+
+  const where = buildSessionWhere(searchParams)
 
   const [sessions, people] = await Promise.all([
     prisma.pettyCashSession.findMany({

@@ -54,6 +54,18 @@ function parseId(s: string): number | undefined {
   return Number.isSafeInteger(n) && n > 0 ? n : undefined
 }
 
+function reconciledFilter(reconciled: string | undefined) {
+  if (reconciled === "true") return { reconciled: true }
+  if (reconciled === "false") return { reconciled: false }
+  return {}
+}
+
+function fundFilter(fund: string | undefined) {
+  if (fund === "none") return { fundId: null }
+  const fundId = fund ? parseId(fund) : undefined
+  return fundId !== undefined ? { fundId } : {}
+}
+
 /**
  * Translate the URL search params into a Prisma `where` for the transaction
  * list, returning the validated `type`/`paymentAccountId` alongside so callers
@@ -94,13 +106,8 @@ export function buildTransactionWhere(sp: TransactionsSearchParams) {
     ...(type && { type }),
     ...(sp.family && { familyId: parseId(sp.family) }),
     ...(paymentAccountId !== undefined && { paymentAccountId }),
-    ...(sp.reconciled === "true" && { reconciled: true }),
-    ...(sp.reconciled === "false" && { reconciled: false }),
-    ...(sp.fund === "none"
-      ? { fundId: null }
-      : sp.fund && parseId(sp.fund) !== undefined
-        ? { fundId: parseId(sp.fund) }
-        : {}),
+    ...reconciledFilter(sp.reconciled),
+    ...fundFilter(sp.fund),
   }
 
   return { where, type, paymentAccountId }

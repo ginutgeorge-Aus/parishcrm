@@ -26,6 +26,11 @@ function Line({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
+function yesNo(v: boolean | null | undefined): string {
+  if (v == null) return ""
+  return v ? "Yes" : "No"
+}
+
 export default async function MembershipPrintPage(props: Props) {
   const { id: idStr } = await props.params
   const session = await auth()
@@ -101,7 +106,7 @@ export default async function MembershipPrintPage(props: Props) {
       {(arrivalDateLabel || pe.dateOfArrivalNsw) && <Line label={ol.arrivalDate} value={pe.dateOfArrivalNsw} />}
       <Line label="Marital Status" value={pe.maritalStatus} />
       {(parishFields || pe.transferCertFurnished != null) && (
-        <Line label="Transfer letter provided" value={pe.transferCertFurnished == null ? "" : pe.transferCertFurnished ? "Yes" : "No"} />
+        <Line label="Transfer letter provided" value={yesNo(pe.transferCertFurnished)} />
       )}
 
       {p.spouse && (
@@ -111,7 +116,7 @@ export default async function MembershipPrintPage(props: Props) {
           <Line label="Date of Birth" value={p.spouse.dateOfBirth} />
           <Line label="Date of Marriage" value={p.spouse.dateOfMarriage} />
           {(parishFields || p.spouse.parish) && <Line label="Spouse's church" value={p.spouse.parish} />}
-          <Line label="Spouse working" value={p.spouse.working == null ? "" : p.spouse.working ? "Yes" : "No"} />
+          <Line label="Spouse working" value={yesNo(p.spouse.working)} />
           <Line label="Spouse E-mail ID" value={p.spouse.email} />
         </>
       )}

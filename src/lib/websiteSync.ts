@@ -132,6 +132,42 @@ export function signBody(timestamp: string, body: string, secret: string): strin
   return createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")
 }
 
+// Reject non-canonical IPv4 literal encodings that resolve to an IP but slip
+// past the dotted-quad range check: bare integer (2130706433 = 127.0.0.1),
+// hex (0x7f000001 / 0x7f.0.0.1), octal-octet (0177.0.0.1 — Number() misparses
+// "0177" as 177 while the resolver reads octal 127), and short-dotted (127.1).
+// A legitimate target is a DNS name or a canonical dotted-quad; the latter still
+// runs through the private-range check.
+function isNonCanonicalNumericHost(host: string): boolean {
+  const parts = host.split(".")
+  const looksNumericIp = /^0x/.test(host) || parts.every((p) => /^\d+$/.test(p))
+  if (!looksNumericIp) return false
+  const canonicalV4 =
+    parts.length === 4 &&
+    parts.every((p) => /^\d+$/.test(p) && (p === "0" || !p.startsWith("0")) && Number(p) <= 255)
+  return !canonicalV4
+}
+
+function isPrivateOrReservedV4(host: string): boolean {
+  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/)
+  if (!v4) return false
+  const a = Number(v4[1])
+  const b = Number(v4[2])
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    // CGNAT 100.64.0.0/10 — also used by overlay VPNs (e.g. Tailscale), so a
+    // 100.x sync URL must not reach an internal VPN node.
+    (a === 100 && b >= 64 && b <= 127) ||
+    // Benchmarking range 198.18.0.0/15.
+    (a === 198 && (b === 18 || b === 19))
+  )
+}
+
 // SSRF guard: the sync target must be a public https URL. A misconfigured
 // or compromised WEBSITE_SYNC_URL must not make the CRM POST signed payloads to
 // loopback/private/link-local/metadata endpoints. Literal-IP check only — the
@@ -150,40 +186,7 @@ export function isAllowedSyncUrl(raw: string): boolean {
   // so the guard would post signed payloads to loopback.
   const host = u.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase()
   if (host === "localhost" || host.endsWith(".localhost")) return false
-  // Reject non-canonical IPv4 literal encodings that resolve to an IP but slip
-  // past the dotted-quad range check below: bare integer (2130706433 = 127.0.0.1),
-  // hex (0x7f000001 / 0x7f.0.0.1), octal-octet (0177.0.0.1 — Number() misparses
-  // "0177" as 177 while the resolver reads octal 127), and short-dotted (127.1).
-  // A legitimate target is a DNS name or a canonical dotted-quad; the latter still
-  // runs through the private-range check.
-  const parts = host.split(".")
-  const looksNumericIp = /^0x/.test(host) || parts.every((p) => /^\d+$/.test(p))
-  if (looksNumericIp) {
-    const canonicalV4 =
-      parts.length === 4 &&
-      parts.every((p) => /^\d+$/.test(p) && (p === "0" || !p.startsWith("0")) && Number(p) <= 255)
-    if (!canonicalV4) return false
-  }
-  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/)
-  if (v4) {
-    const a = Number(v4[1])
-    const b = Number(v4[2])
-    if (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      // CGNAT 100.64.0.0/10 — also used by overlay VPNs (e.g. Tailscale), so a
-      // 100.x sync URL must not reach an internal VPN node.
-      (a === 100 && b >= 64 && b <= 127) ||
-      // Benchmarking range 198.18.0.0/15.
-      (a === 198 && (b === 18 || b === 19))
-    ) {
-      return false
-    }
-  }
+  if (isNonCanonicalNumericHost(host) || isPrivateOrReservedV4(host)) return false
   // Reject ALL IPv6 literals: the expected value is a public DNS name, and
   // abbreviated/IPv4-mapped forms (::ffff:127.0.0.1, fe9x link-local, ::)
   // evade prefix-based range checks.

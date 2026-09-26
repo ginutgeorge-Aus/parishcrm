@@ -17,6 +17,22 @@ import { TransactionAttachments } from "@/components/accounting/TransactionAttac
 
 type Props = { params: Promise<{ id: string }> }
 
+async function lookupDefaultEmail(personId: number | undefined, familyId: number | null): Promise<string | null> {
+  const rawDefaultEmail =
+    (personId === undefined
+      ? null
+      : (await prisma.person.findUnique({
+          where: { id: personId },
+          select: { email: true },
+        }))?.email) ??
+    (await prisma.person.findFirst({
+      where: { familyId: familyId ?? -1, email: { not: null } },
+      select: { email: true },
+    }))?.email ??
+    null
+  return rawDefaultEmail ? safeDecrypt(rawDefaultEmail) : null
+}
+
 export default async function TransactionDetailPage(props: Props) {
   const params = await props.params
   const session = await auth()
@@ -68,22 +84,7 @@ export default async function TransactionDetailPage(props: Props) {
   // encrypted email is fetched (and decrypted) solely on the editor path —
   // AUDITORs never have it loaded server-side at all. Person's own email takes
   // priority, then any family member's.
-  let defaultEmail: string | null = null
-  if (userCanEdit) {
-    const rawDefaultEmail =
-      (tx.person
-        ? (await prisma.person.findUnique({
-            where: { id: tx.person.id },
-            select: { email: true },
-          }))?.email
-        : null) ??
-      (await prisma.person.findFirst({
-        where: { familyId: tx.familyId ?? -1, email: { not: null } },
-        select: { email: true },
-      }))?.email ??
-      null
-    defaultEmail = rawDefaultEmail ? safeDecrypt(rawDefaultEmail) : null
-  }
+  const defaultEmail = userCanEdit ? await lookupDefaultEmail(tx.person?.id, tx.familyId) : null
 
   const fields = [
     { label: "Date", value: format(tx.date, "dd/MM/yyyy") },
