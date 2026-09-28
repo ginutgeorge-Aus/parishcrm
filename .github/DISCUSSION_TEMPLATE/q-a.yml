@@ -1,0 +1,48 @@
+title: "[Q] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask how to use, configure or self-host the CRM. Check the [wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki) first.
+        Found a bug? [Open an issue](https://github.com/ginutgeorge-Aus/parishcrm/issues/new/choose) instead.
+        **Security vulnerabilities:** report privately per [SECURITY.md](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/SECURITY.md).
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      placeholder: How do I ...?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Steps, wiki pages read, error messages. Remove any member personal data.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Families / People
+        - Membership
+        - Events / Ticketing
+        - Accounting
+        - Petty cash
+        - Receipts / email
+        - Reports
+        - Auth / login
+        - Settings / configuration
+        - Install / upgrade / deployment
+        - Other
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit, if self-hosting.
+    validations:
+      required: false

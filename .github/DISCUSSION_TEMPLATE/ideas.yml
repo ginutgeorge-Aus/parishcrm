@@ -1,0 +1,45 @@
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share an early idea to discuss. Once scoped and agreed, it becomes a [feature request](https://github.com/ginutgeorge-Aus/parishcrm/issues/new?template=feature_request.yml).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or missing today, and who does it affect (office bearers, treasurer, members)?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: How you imagine it working.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Families / People
+        - Membership
+        - Events / Ticketing
+        - Accounting
+        - Petty cash
+        - Receipts / email
+        - Reports
+        - Auth / login
+        - Settings / configuration
+        - Install / upgrade / deployment
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / workarounds
+    validations:
+      required: false
