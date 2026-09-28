@@ -75,6 +75,11 @@ async function checkSuccessPageRateLimit(
 // with no publicToken yet is "payment received, still finalising" — not a
 // 404 — while a token that matches no session at all falls through to the
 // ordinary not-found view below.
+// How long a claimed (COMPLETED) session may lack its publicToken before the
+// success page stops calling it "being finalised". persistRegistration takes
+// seconds; beyond this the claim is treated as orphaned.
+const COMPLETED_IN_FLIGHT_MS = 10 * 60 * 1000
+
 async function resolveCardPaymentRef(
   cardToken: string | null,
   ref: string,
@@ -98,13 +103,20 @@ async function resolveCardPaymentRef(
   //  - UNFULFILLED: capacity gone / event deleted / amount mismatch.
   //  - EXPIRED: the checkout sweep flipped the row, then a late webhook (e.g.
   //    BECS async payment) still confirmed the charge.
-  //  - COMPLETED with no token: a genuine duplicate charge whose token
-  //    deliberately withholds for the second payer.
-  // Any other non-terminal status (OPEN) is a real pre-webhook lag → pending.
+  //    Genuine duplicate charges are also terminalized UNFULFILLED.
+  //  - COMPLETED with no token past COMPLETED_IN_FLIGHT_MS: the process died
+  //    after the claim but before creating the registration; redelivery only
+  //    alerts ops, so the token never arrives.
+  // Anything else is in flight → pending: OPEN is pre-webhook lag, and a
+  // fresh COMPLETED with no token means the webhook is mid-persist (or
+  // crashed before the token write, which a Stripe redelivery backfills).
+  const completedStale =
+    checkoutSession.status === "COMPLETED" &&
+    (!checkoutSession.completedAt || Date.now() - checkoutSession.completedAt.getTime() > COMPLETED_IN_FLIGHT_MS)
   const isUnfulfilled =
     checkoutSession.status === "UNFULFILLED" ||
     checkoutSession.status === "EXPIRED" ||
-    checkoutSession.status === "COMPLETED"
+    completedStale
   return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled }
 }
 
