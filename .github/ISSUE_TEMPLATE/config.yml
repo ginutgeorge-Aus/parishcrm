@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/ginutgeorge-Aus/parishcrm/discussions/new?category=q-a
+    about: How-to, configuration and self-hosting questions go to Discussions Q&A.
+  - name: Share an idea
+    url: https://github.com/ginutgeorge-Aus/parishcrm/discussions/new?category=ideas
+    about: Early ideas not yet ready for a feature request.
   - name: Security vulnerability (private)
     url: https://github.com/ginutgeorge-Aus/parishcrm/security/policy
     about: Do NOT file security issues publicly. Report privately per SECURITY.md.

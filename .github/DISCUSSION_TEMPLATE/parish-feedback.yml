@@ -1,0 +1,44 @@
+title: "[Feedback] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feedback from parish staff or members on using the CRM day to day.
+        **Do not post member names, contact details or financial records here** — this repo is public.
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role
+      options:
+        - Office bearer / admin
+        - Treasurer / accounts
+        - Event organiser
+        - Member
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Families / People
+        - Membership
+        - Events / Ticketing
+        - Accounting
+        - Petty cash
+        - Receipts / email
+        - Reports
+        - Auth / login
+        - Settings / configuration
+        - Install / upgrade / deployment
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: What works well, what is confusing, what slows you down.
+    validations:
+      required: true
