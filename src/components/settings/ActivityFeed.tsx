@@ -35,7 +35,7 @@ function timeAgo(date: Date): string {
   return `${Math.floor(diffHours / 24)}d ago`
 }
 
-export function ActivityFeed({ isAdmin, auditEntries, registrations }: ActivityFeedProps) {
+export function ActivityFeed({ isAdmin, auditEntries, registrations }: Readonly<ActivityFeedProps>) {
   return (
     <Card>
       <CardHeader>

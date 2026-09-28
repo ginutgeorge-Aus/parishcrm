@@ -74,7 +74,7 @@ function themeOverrideCss(): string | null {
 // scripts that the strict CSP would block.
 export const dynamic = "force-dynamic"
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Thread the per-request nonce to client components that render inline
   // <style> tags (e.g. components/ui/chart.tsx), now that style-src is
   // nonce-based instead of 'unsafe-inline'.

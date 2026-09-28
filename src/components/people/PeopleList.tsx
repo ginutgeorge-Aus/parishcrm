@@ -26,7 +26,7 @@ type Person = {
   family: { id: number; name: string }
 }
 
-export function PeopleList({ people }: { people: Person[] }) {
+export function PeopleList({ people }: Readonly<{ people: Person[] }>) {
   return (
     <>
       {/* Mobile: stacked cards */}

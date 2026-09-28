@@ -27,7 +27,7 @@ type Props = {
   searchParams: Promise<{ from?: string; to?: string; status?: string; page?: string }>
 }
 
-export default async function ReceiptAuditPage(props: Props) {
+export default async function ReceiptAuditPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

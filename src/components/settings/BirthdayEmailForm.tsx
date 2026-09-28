@@ -11,10 +11,10 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 export function BirthdayEmailForm({
   subject: initialSubject,
   body: initialBody,
-}: {
+}: Readonly<{
   subject: string
   body: string
-}) {
+}>) {
   const [state, formAction, isPending] = useActionState(updateBirthdayTemplate, undefined)
   const [subject, setSubject] = useState(initialSubject)
   const [body, setBody] = useState(initialBody)

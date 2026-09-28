@@ -38,11 +38,11 @@ export function FamilyForm({
   action,
   family,
   defaultDues,
-}: {
+}: Readonly<{
   action: (prev: ActionResult, formData: FormData) => Promise<ActionResult>
   family?: Family
   defaultDues?: number | null
-}) {
+}>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
 
   return (

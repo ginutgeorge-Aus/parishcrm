@@ -21,7 +21,7 @@ type Props = {
   searchParams: Promise<{ year?: string; filter?: string }>
 }
 
-export default async function DuesReportPage(props: Props) {
+export default async function DuesReportPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

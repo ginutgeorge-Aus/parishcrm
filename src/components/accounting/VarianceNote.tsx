@@ -14,12 +14,12 @@ export function VarianceNote({
   accountId,
   initialNote,
   canEdit,
-}: {
+}: Readonly<{
   year: number
   accountId: number
   initialNote: string | null
   canEdit: boolean
-}) {
+}>) {
   const [note, setNote] = useState(initialNote ?? "")
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note)

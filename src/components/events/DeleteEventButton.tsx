@@ -37,7 +37,7 @@ export function DeleteEventButton({
   className,
   confirmMessage = "Delete this event? This cannot be undone.",
   children = "Delete",
-}: Props) {
+}: Readonly<Props>) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()

@@ -5,7 +5,7 @@ import { createTransfer } from "@/lib/actions/pettyCashTransfer"
 import { TransferForm } from "@/components/petty-cash/TransferForm"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 
-export default async function NewTransferPage(props: { params: Promise<{ id: string }> }) {
+export default async function NewTransferPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({

@@ -3,7 +3,7 @@ import { SiteFooter } from "@/components/SiteFooter"
 import { PublicFeedbackDialog } from "@/components/public/PublicFeedbackDialog"
 import { getChurchSettings } from "@/lib/churchSettings"
 
-export default async function PublicLayout({ children }: { children: React.ReactNode }) {
+export default async function PublicLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { name: churchName } = await getChurchSettings()
   return (
     <div className="min-h-[100dvh] bg-muted overflow-x-clip w-full max-w-full">

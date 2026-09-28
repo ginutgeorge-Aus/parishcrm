@@ -17,7 +17,7 @@ type Props = {
   onUpdate: (i: number, field: keyof TicketTypeRow, value: string) => void
 }
 
-export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Props) {
+export function TicketTypesEditor({ rows, onAdd, onRemove, onUpdate }: Readonly<Props>) {
   return (
     <div>
       <div className="flex flex-col gap-2">

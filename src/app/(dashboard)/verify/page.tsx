@@ -20,9 +20,9 @@ const TAB_LABEL: Record<Filter, string> = {
 
 export default async function VerifyPage({
   searchParams,
-}: {
+}: Readonly<{
   searchParams: Promise<{ filter?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 

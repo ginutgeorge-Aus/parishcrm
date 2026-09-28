@@ -14,10 +14,10 @@ type Fund = { id: number; name: string; isActive: boolean; sortOrder: number }
 export function FundForm({
   action,
   fund,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   fund?: Fund
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
 

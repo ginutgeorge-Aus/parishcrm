@@ -9,10 +9,10 @@ import { useEffect, useRef } from "react"
 export default function PublicError({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string }
   reset: () => void
-}) {
+}>) {
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {

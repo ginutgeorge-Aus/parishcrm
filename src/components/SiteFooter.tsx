@@ -8,7 +8,7 @@ import { PRODUCT_NAME } from "@/lib/settingsConstants"
 // own wrapper classes via `className` to preserve existing spacing/borders.
 // Server-rendered, so the copyright year is computed server-side (no hydration
 // mismatch) and rolls over automatically.
-export function SiteFooter({ churchName, className }: { churchName: string; className?: string }) {
+export function SiteFooter({ churchName, className }: Readonly<{ churchName: string; className?: string }>) {
   const year = new Date().getFullYear()
   return (
     <footer className={cn("text-center text-xs text-muted-foreground space-y-0.5", className)}>

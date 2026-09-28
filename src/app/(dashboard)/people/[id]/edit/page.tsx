@@ -8,7 +8,7 @@ import { PersonForm } from "@/components/people/PersonForm"
 import { safeDecrypt } from "@/lib/crypto"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditPersonPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditPersonPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!canEdit(session?.user?.role)) redirect("/families")

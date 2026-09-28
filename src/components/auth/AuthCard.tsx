@@ -7,7 +7,7 @@ import Image from "next/image"
 // churchName (from getChurchSettings) names the org in the logo alt text so
 // screen-reader users hear the configured church, not a generic placeholder
 //; falls back to "Church" when unset.
-export function AuthCard({ children, churchName }: { children: ReactNode; churchName?: string }) {
+export function AuthCard({ children, churchName }: Readonly<{ children: ReactNode; churchName?: string }>) {
   return (
     <div className="w-full max-w-sm space-y-6 rounded-lg border bg-card p-8 shadow-xs">
       <Image

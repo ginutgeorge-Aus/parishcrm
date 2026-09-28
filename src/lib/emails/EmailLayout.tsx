@@ -21,11 +21,11 @@ export function EmailLayout({
   children,
   previewText,
   churchName,
-}: {
+}: Readonly<{
   children: React.ReactNode
   previewText?: string
   churchName: string
-}) {
+}>) {
   return (
     <Html lang="en">
       <Head />

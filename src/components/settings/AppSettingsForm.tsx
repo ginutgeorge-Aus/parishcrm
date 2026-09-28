@@ -24,7 +24,7 @@ type Props = {
   cardFeeFixed: string
 }
 
-export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed }: Props) {
+export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed }: Readonly<Props>) {
   const [state, formAction, isPending] = useActionState(upsertSetting, undefined)
   const [membershipState, membershipFormAction, isMembershipPending] = useActionState(upsertSetting, undefined)
   const [idleState, idleFormAction, isIdlePending] = useActionState(upsertSetting, undefined)

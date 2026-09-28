@@ -47,7 +47,7 @@ export function MembershipForm({
   minDues,
   homeAddressLabel: initialHomeAddressLabel,
   arrivalDateLabel: initialArrivalDateLabel,
-}: {
+}: Readonly<{
   churchName: string
   churchWebsite: string
   churchEmail?: string
@@ -56,7 +56,7 @@ export function MembershipForm({
   // Blank = field hidden (generic install).
   homeAddressLabel: string
   arrivalDateLabel: string
-}) {
+}>) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -525,7 +525,7 @@ export function MembershipForm({
 
 type Column<T> = { key: keyof T; label: string; type?: string }
 
-function RowSection<T extends { name: string }>(props: {
+function RowSection<T extends { name: string }>(props: Readonly<{
   title: string
   rows: T[]
   empty: T
@@ -533,7 +533,7 @@ function RowSection<T extends { name: string }>(props: {
   setRows: React.Dispatch<React.SetStateAction<T[]>>
   columns: Column<T>[]
   onChange: (i: number, patch: Partial<T>) => void
-}) {
+}>) {
   const { title, rows, empty, max, setRows, columns, onChange } = props
   const addButtonRef = useRef<HTMLButtonElement>(null)
   const shouldFocusAddButton = useRef(false)

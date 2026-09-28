@@ -17,7 +17,7 @@ type Props = {
   searchParams?: Promise<{ saved?: string }>
 }
 
-export default async function EditEventPage(props: Props) {
+export default async function EditEventPage(props: Readonly<Props>) {
   const params = await props.params;
   const { saved } = (await props.searchParams) ?? {};
   const session = await auth()

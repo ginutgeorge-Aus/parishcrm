@@ -11,7 +11,7 @@ const ACTIVITY_PING_MS = 60 * 1000
 
 const EVENTS = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"]
 
-export function IdleTimeout({ idleMinutes = 60 }: { idleMinutes?: number }) {
+export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: number }>) {
   const idleMs = idleMinutes * 60 * 1000
   const { update } = useSession()
   // next-auth v5 rebuilds `update`'s identity whenever `loading` flips, and

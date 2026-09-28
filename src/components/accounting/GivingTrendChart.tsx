@@ -20,7 +20,7 @@ const chartConfig = {
   amount: { label: "Giving", color: "hsl(var(--income))" },
 }
 
-export function GivingTrendChart({ data }: { data: DataPoint[] }) {
+export function GivingTrendChart({ data }: Readonly<{ data: DataPoint[] }>) {
   if (data.every((d) => d.amount === 0)) return null
 
   // No adjacent text/table alternative today, so the bar chart needs its own

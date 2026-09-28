@@ -14,10 +14,10 @@ import { APP_CURRENCY } from "@/lib/appConfig"
 export function TransferForm({
   action,
   maxAmount,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
 

@@ -8,9 +8,9 @@ import { ExpenseForm } from "@/components/petty-cash/ExpenseForm"
 import { safeDecrypt } from "@/lib/crypto"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditExpensePage(props: {
+export default async function EditExpensePage(props: Readonly<{
   params: Promise<{ id: string; expenseId: string }>
-}) {
+}>) {
   const params = await props.params
   const session = await auth()
   // canAccessAccounting matches createExpense + updateExpense action (/AUDIT-033).

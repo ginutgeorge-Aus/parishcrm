@@ -10,7 +10,7 @@ import { MAX_ORGANIZERS, type Organizer } from "@/lib/eventOrganizers"
 // doesn't reattach input state to the wrong row, as index keys would.
 type Row = { name: string; phone: string; _key: string }
 
-export function OrganizersEditor({ initial }: { initial: Organizer[] }) {
+export function OrganizersEditor({ initial }: Readonly<{ initial: Organizer[] }>) {
   const keySeq = useRef(0)
   const [rows, setRows] = useState<Row[]>(
     () => initial.map((o, i) => ({ name: o.name, phone: o.phone ?? "", _key: `org-init-${i}` })),

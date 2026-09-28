@@ -25,7 +25,7 @@ type Row = {
   group: { id: number; name: string; sortOrder: number } | null
 }
 
-export default async function TrialBalancePage(props: Props) {
+export default async function TrialBalancePage(props: Readonly<Props>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

@@ -22,9 +22,9 @@ import { rollupEventStats } from "@/lib/eventStats"
 import { isWebsiteSyncConfigured } from "@/lib/websiteSync"
 
 export default async function EventsPage(
-  props: {
+  props: Readonly<{
     searchParams: Promise<{ filter?: string }>
-  }
+  }>
 ) {
   const searchParams = await props.searchParams;
   const session = await auth()

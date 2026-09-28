@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 
 type Props = { eventId: number; registrationClosed: boolean }
 
-export function CloseRegistrationToggle({ eventId, registrationClosed }: Props) {
+export function CloseRegistrationToggle({ eventId, registrationClosed }: Readonly<Props>) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [optimisticClosed, setOptimisticClosed] = useState(registrationClosed)

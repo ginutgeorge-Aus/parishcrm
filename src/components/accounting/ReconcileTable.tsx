@@ -26,12 +26,12 @@ export function ReconcileTable({
   userCanEdit,
   paymentAccountId,
   showRunningBalance,
-}: {
+}: Readonly<{
   rows: ReconcileRow[]
   userCanEdit: boolean
   paymentAccountId: number
   showRunningBalance: boolean
-}) {
+}>) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

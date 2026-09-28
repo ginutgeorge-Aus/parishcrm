@@ -16,12 +16,12 @@ export function SessionCustodianEditor({
   people,
   currentId,
   currentName,
-}: {
+}: Readonly<{
   sessionId: number
   people: Person[]
   currentId: number
   currentName: string
-}) {
+}>) {
   const [editing, setEditing] = useState(false)
   const [custodianId, setCustodianId] = useState(String(currentId))
   const [open, setOpen] = useState(false)

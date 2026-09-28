@@ -10,7 +10,7 @@ type BirthdayPerson = {
   family: { name: string }
 }
 
-export function BirthdayWidget({ birthdays, truncated = false }: { birthdays: BirthdayPerson[]; truncated?: boolean }) {
+export function BirthdayWidget({ birthdays, truncated = false }: Readonly<{ birthdays: BirthdayPerson[]; truncated?: boolean }>) {
   return (
     <Card>
       <CardHeader>

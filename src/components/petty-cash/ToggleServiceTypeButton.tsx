@@ -7,10 +7,10 @@ import { toggleServiceTypeActive } from "@/lib/actions/serviceType"
 export function ToggleServiceTypeButton({
   id,
   isActive,
-}: {
+}: Readonly<{
   id: number
   isActive: boolean
-}) {
+}>) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   return (

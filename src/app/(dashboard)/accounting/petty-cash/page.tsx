@@ -16,9 +16,9 @@ import { buildSessionWhere, type PettyCashSearchParams } from "@/lib/pettyCashSe
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export default async function PettyCashPage(
-  props: {
+  props: Readonly<{
     searchParams: Promise<PettyCashSearchParams>
-  }
+  }>
 ) {
   const searchParams = await props.searchParams;
   const session = await auth()

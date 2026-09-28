@@ -14,7 +14,7 @@ const STATUS_COLOURS: Record<string, string> = {
   CANCELLED: "bg-expense/10 text-expense",
 }
 
-function AnswerList({ answers }: { answers: { label: string; value: string }[] }) {
+function AnswerList({ answers }: Readonly<{ answers: { label: string; value: string }[] }>) {
   if (answers.length === 0) return null
   return (
     <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
@@ -28,7 +28,7 @@ function AnswerList({ answers }: { answers: { label: string; value: string }[] }
   )
 }
 
-export function RegistrationDetailDialog({ registrationId, open, onOpenChange }: Props) {
+export function RegistrationDetailDialog({ registrationId, open, onOpenChange }: Readonly<Props>) {
   const [data, setData] = useState<RegistrationDetailDTO | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)

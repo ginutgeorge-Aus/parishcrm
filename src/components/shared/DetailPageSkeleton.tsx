@@ -4,7 +4,7 @@
 // title + search bar + N pulsing rows — which reads as a table flash on a
 // two-field form. Lighter shape: heading + a handful of
 // field-height blocks, no search bar.
-export function DetailPageSkeleton({ rows = 4 }: { rows?: number }) {
+export function DetailPageSkeleton({ rows = 4 }: Readonly<{ rows?: number }>) {
   return (
     <div className="space-y-6 max-w-3xl" aria-hidden="true">
       <div className="h-7 w-48 rounded bg-muted animate-pulse" />

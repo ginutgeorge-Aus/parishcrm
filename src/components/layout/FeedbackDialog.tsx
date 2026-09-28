@@ -37,7 +37,7 @@ function captureClientContext() {
   }
 }
 
-export function FeedbackDialog({ collapsed = false }: { collapsed?: boolean }) {
+export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boolean }>) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<FeedbackType>("BUG")

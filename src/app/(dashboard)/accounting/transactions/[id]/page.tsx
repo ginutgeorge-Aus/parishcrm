@@ -34,7 +34,7 @@ async function lookupDefaultEmail(personId: number | undefined, familyId: number
   return rawDefaultEmail ? safeDecrypt(rawDefaultEmail) : null
 }
 
-export default async function TransactionDetailPage(props: Props) {
+export default async function TransactionDetailPage(props: Readonly<Props>) {
   const params = await props.params
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

@@ -18,7 +18,7 @@ type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
 }
 
-export default async function PLReportPage(props: Props) {
+export default async function PLReportPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

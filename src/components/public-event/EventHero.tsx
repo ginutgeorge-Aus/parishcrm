@@ -35,7 +35,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   special: "Special Event",
 }
 
-export function EventHero({ title, description, date, endDate, location, organizers, ticketTypes, recursLabel, startTime, category, posterSrc, bannerSrc }: Props) {
+export function EventHero({ title, description, date, endDate, location, organizers, ticketTypes, recursLabel, startTime, category, posterSrc, bannerSrc }: Readonly<Props>) {
   const categoryLabel = (category && CATEGORY_LABELS[category]) || "Event"
   return (
     <div className="flex-1 p-6">

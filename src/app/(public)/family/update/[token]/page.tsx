@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 
 type Props = { params: Promise<{ token: string }> }
 
-function Notice({ title, body }: { title: string; body: string }) {
+function Notice({ title, body }: Readonly<{ title: string; body: string }>) {
   return (
     <div className="max-w-md mx-auto mt-20 text-center px-6">
       <h1 className="text-xl font-semibold text-foreground">{title}</h1>
@@ -23,7 +23,7 @@ function Notice({ title, body }: { title: string; body: string }) {
   )
 }
 
-export default async function FamilyUpdatePage(props: Props) {
+export default async function FamilyUpdatePage(props: Readonly<Props>) {
   const { token } = await props.params
   const invite = await prisma.familyUpdateInvite.findUnique({
     where: { tokenHash: hashInviteToken(token) },

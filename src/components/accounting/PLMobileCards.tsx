@@ -18,7 +18,7 @@ export function PLMobileCards({
   totalIncome,
   totalExpenses,
   net,
-}: Props) {
+}: Readonly<Props>) {
   return (
     // Mobile: card per account group (avoids sideways table scroll)
     <div className="space-y-4 md:hidden">

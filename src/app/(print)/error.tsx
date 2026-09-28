@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button"
 export default function PrintError({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string }
   reset: () => void
-}) {
+}>) {
   useEffect(() => {
     console.error("Print page error", error.digest)
   }, [error.digest])

@@ -38,7 +38,7 @@ export function BudgetVsActualTable({
   year,
   varianceThresholdPct,
   canEditNotes,
-}: Props) {
+}: Readonly<Props>) {
   function renderAccountRow(r: BudgetActualRow, isIncome: boolean) {
     const variance = r.budget !== null ? centsToNumber(toCents(r.actual) - toCents(r.budget)) : null
     const color = variance !== null ? varianceColor(variance, isIncome) : "text-muted-foreground"

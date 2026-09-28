@@ -11,9 +11,9 @@ type Status = (typeof STATUSES)[number]
 
 export default async function MembershipsInbox({
   searchParams,
-}: {
+}: Readonly<{
   searchParams: Promise<{ status?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/")

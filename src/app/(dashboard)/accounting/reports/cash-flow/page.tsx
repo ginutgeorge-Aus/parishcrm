@@ -23,7 +23,7 @@ type Row = {
   group: { id: number; name: string; sortOrder: number } | null
 }
 
-export default async function CashFlowPage(props: Props) {
+export default async function CashFlowPage(props: Readonly<Props>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

@@ -7,7 +7,7 @@ import { createPerson } from "@/lib/actions/person"
 import { PersonForm } from "@/components/people/PersonForm"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function NewPersonPage(props: { params: Promise<{ id: string }> }) {
+export default async function NewPersonPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!session) redirect("/login")

@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button"
 export default function AuthError({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string }
   reset: () => void
-}) {
+}>) {
   useEffect(() => {
     console.error("Auth page error", error.digest)
   }, [error.digest])

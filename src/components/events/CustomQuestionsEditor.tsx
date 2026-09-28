@@ -50,7 +50,7 @@ function reconcileTicketNames(raw: string, available: string[]) {
   }
 }
 
-export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicketNames }: Props) {
+export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicketNames }: Readonly<Props>) {
   // Index-derived keys for initial rows (pure initializer); ref counter only for
   // rows added in the handler. Keys travel with the row object, so remove/reorder
   // keeps row identity stable. See TicketTypesEditor for the same pattern.

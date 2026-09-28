@@ -5,10 +5,10 @@ import { useEffect, useRef } from "react"
 export default function Error({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string }
   reset: () => void
-}) {
+}>) {
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {

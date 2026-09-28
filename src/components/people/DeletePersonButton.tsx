@@ -7,11 +7,11 @@ export function DeletePersonButton({
   personId,
   familyId,
   personName,
-}: {
+}: Readonly<{
   personId: number
   familyId: number
   personName: string
-}) {
+}>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deletePerson(personId, familyId)}

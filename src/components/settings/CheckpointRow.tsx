@@ -27,11 +27,11 @@ export function CheckpointRow({
   checkpoint,
   status,
   issueNumber,
-}: {
+}: Readonly<{
   checkpoint: { id: string; area: string; title: string; steps: string }
   status: Status
   issueNumber: number | null
-}) {
+}>) {
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [note, setNote] = useState("")

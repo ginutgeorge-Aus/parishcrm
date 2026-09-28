@@ -7,11 +7,11 @@ export function DeleteUserButton({
   userId,
   userName,
   triggerClassName = "",
-}: {
+}: Readonly<{
   userId: number
   userName: string
   triggerClassName?: string
-}) {
+}>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteUser(userId)}

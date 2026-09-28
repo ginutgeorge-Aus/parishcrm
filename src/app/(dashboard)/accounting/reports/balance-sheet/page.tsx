@@ -35,9 +35,9 @@ function toYMD(d: Date): string {
 // Dashed DD-MM-YYYY for human-facing "As at" labels.
 const toDMY = (d: Date) => formatDMY(d, "-")
 
-export default async function BalanceSheetPage(props: {
+export default async function BalanceSheetPage(props: Readonly<{
   searchParams: Promise<{ date?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

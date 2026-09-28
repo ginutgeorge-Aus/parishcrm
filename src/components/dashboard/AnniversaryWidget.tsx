@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { DueAnniversary } from "@/lib/anniversaries"
 import { FetchCapNotice } from "@/components/people/FetchCapNotice"
 
-export function AnniversaryWidget({ anniversaries, truncated = false }: { anniversaries: DueAnniversary[]; truncated?: boolean }) {
+export function AnniversaryWidget({ anniversaries, truncated = false }: Readonly<{ anniversaries: DueAnniversary[]; truncated?: boolean }>) {
   return (
     <Card>
       <CardHeader>

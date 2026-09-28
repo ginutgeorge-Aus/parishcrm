@@ -39,7 +39,7 @@ export function DeleteConfirmButton({
   pendingLabel = "Deleting…",
   disabled = false,
   disabledReason,
-}: {
+}: Readonly<{
   onConfirm: () => Promise<ActionResult | { error?: string } | void>
   title: string
   description: string
@@ -53,7 +53,7 @@ export function DeleteConfirmButton({
   // used to block deletes on locked accounting periods.
   disabled?: boolean
   disabledReason?: string
-}) {
+}>) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()

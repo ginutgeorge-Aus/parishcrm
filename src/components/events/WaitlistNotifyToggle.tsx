@@ -9,12 +9,12 @@ export function WaitlistNotifyToggle({
   eventId,
   notified,
   canEdit,
-}: {
+}: Readonly<{
   id: number
   eventId: number
   notified: boolean
   canEdit: boolean
-}) {
+}>) {
   const [optimistic, setOptimistic] = useState(notified)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

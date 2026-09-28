@@ -3,7 +3,7 @@ import { useState, useTransition } from "react"
 import { startExistingRegistrationCheckout } from "@/lib/actions/eventCheckout"
 import { navigateTo } from "@/lib/navigate"
 
-export function PayNowButton({ slug, publicToken, passCardFee }: { slug: string; publicToken: string; passCardFee: boolean }) {
+export function PayNowButton({ slug, publicToken, passCardFee }: Readonly<{ slug: string; publicToken: string; passCardFee: boolean }>) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 

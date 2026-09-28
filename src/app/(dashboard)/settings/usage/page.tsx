@@ -14,7 +14,7 @@ import {
 
 type Props = { searchParams: Promise<{ days?: string }> }
 
-export default async function UsagePage(props: Props) {
+export default async function UsagePage(props: Readonly<Props>) {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 

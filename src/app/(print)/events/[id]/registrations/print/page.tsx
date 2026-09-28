@@ -16,7 +16,7 @@ import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function PrintPage(props: Props) {
+export default async function PrintPage(props: Readonly<Props>) {
   const params = await props.params;
   const session = await auth()
   if (!session) redirect("/login")

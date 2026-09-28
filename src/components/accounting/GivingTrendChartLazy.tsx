@@ -12,6 +12,6 @@ const GivingTrendChartDynamic = dynamic(
   }
 )
 
-export function GivingTrendChartLazy({ data }: { data: DataPoint[] }) {
+export function GivingTrendChartLazy({ data }: Readonly<{ data: DataPoint[] }>) {
   return <GivingTrendChartDynamic data={data} />
 }

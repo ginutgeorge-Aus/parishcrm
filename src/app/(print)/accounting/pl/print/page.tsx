@@ -53,7 +53,7 @@ function accountTotal(a: AccountRow): number {
   return a.transactions.reduce((s, t) => s + toCents(t.amount), 0)
 }
 
-export default async function PLPrintPage(props: Props) {
+export default async function PLPrintPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!session) redirect("/login")

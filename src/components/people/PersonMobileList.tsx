@@ -17,7 +17,7 @@ type Person = {
   mobile: string | null
 }
 
-export function PersonMobileList({ people }: { people: Person[] }) {
+export function PersonMobileList({ people }: Readonly<{ people: Person[] }>) {
   return (
     // Mobile: card per member (avoids sideways table scroll)
     <ul className="space-y-2 md:hidden">

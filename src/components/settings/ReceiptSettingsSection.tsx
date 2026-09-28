@@ -48,7 +48,7 @@ const FIELDS: FieldConfig[] = [
   },
 ]
 
-export function ReceiptSettingsSection({ settings }: { settings: ReceiptSettings }) {
+export function ReceiptSettingsSection({ settings }: Readonly<{ settings: ReceiptSettings }>) {
   const [fields, setFields] = useState<ReceiptSettings>(settings)
   const [feedback, setFeedback] = useState<{ error?: string; success?: string } | undefined>()
   const [pending, startTransition] = useTransition()

@@ -17,7 +17,7 @@ type BalanceRowProps = {
   current: Balance
 }
 
-function BalanceRow({ paymentAccountId, label, current }: BalanceRowProps) {
+function BalanceRow({ paymentAccountId, label, current }: Readonly<BalanceRowProps>) {
   const [state, formAction, isPending] = useActionState(upsertOpeningBalance, undefined)
 
   return (
@@ -59,7 +59,7 @@ type Props = {
   balancesByAccountId: Map<number, Balance>
 }
 
-export function OpeningBalanceForm({ accounts, balancesByAccountId }: Props) {
+export function OpeningBalanceForm({ accounts, balancesByAccountId }: Readonly<Props>) {
   return (
     <div>
       {accounts.map((a) => (

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 
-export function LetterSettingsForm({ settings }: { settings: LetterSettings }) {
+export function LetterSettingsForm({ settings }: Readonly<{ settings: LetterSettings }>) {
   const [state, formAction, isPending] = useActionState(updateLetterSettings, undefined)
 
   const field = (name: string, label: string, def: string) => (

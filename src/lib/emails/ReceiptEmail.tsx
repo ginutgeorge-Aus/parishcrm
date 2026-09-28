@@ -26,7 +26,7 @@ const detail = (label: string, value: string) => (
   </Row>
 )
 
-export function ReceiptEmail({ data, intro, signoff }: { data: ReceiptData; intro: string; signoff: string }) {
+export function ReceiptEmail({ data, intro, signoff }: Readonly<{ data: ReceiptData; intro: string; signoff: string }>) {
   const amountColor = data.type === "INCOME" ? "#16a34a" : "#dc2626"
   const typeLabel = data.type === "INCOME" ? "Income" : "Expense"
   return (

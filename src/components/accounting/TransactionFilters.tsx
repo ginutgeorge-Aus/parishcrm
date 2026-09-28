@@ -101,11 +101,11 @@ export function TransactionFilters({
   accounts,
   families,
   paymentAccounts,
-}: {
+}: Readonly<{
   accounts: Account[]
   families: Family[]
   paymentAccounts: PaymentAccountLite[]
-}) {
+}>) {
   const router = useRouter()
   const searchParams = useSearchParams()
 

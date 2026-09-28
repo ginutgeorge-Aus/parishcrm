@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteServiceType } from "@/lib/actions/serviceType"
 
-export function DeleteServiceTypeButton({ id }: { id: number }) {
+export function DeleteServiceTypeButton({ id }: Readonly<{ id: number }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteServiceType(id)}

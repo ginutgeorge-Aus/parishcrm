@@ -23,7 +23,7 @@ type Props = { searchParams: Promise<{ account?: string; year?: string }> }
 // clears four figures of transactions in a year — but caps the worst case.
 const MAX_LEDGER_ROWS = 5000
 
-export default async function GeneralLedgerPage(props: Props) {
+export default async function GeneralLedgerPage(props: Readonly<Props>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

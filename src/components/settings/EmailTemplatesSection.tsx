@@ -11,9 +11,9 @@ import {
 
 export function EmailTemplatesSection({
   templates,
-}: {
+}: Readonly<{
   templates: Record<EmailTemplateKey, EmailTemplateFields>
-}) {
+}>) {
   return (
     <div>
       <h3 className="text-sm font-medium text-muted-foreground mb-3">Email Templates</h3>

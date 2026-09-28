@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { Input } from "@/components/ui/input"
 
-export function BalanceSheetDatePicker({ value = "" }: { value?: string }) {
+export function BalanceSheetDatePicker({ value = "" }: Readonly<{ value?: string }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
 

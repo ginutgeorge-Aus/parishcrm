@@ -3,7 +3,7 @@ import * as React from "react"
 import { Heading, Text, Button, Section } from "@react-email/components"
 import { EmailLayout, emailButton } from "./EmailLayout"
 
-export function PasswordResetEmail({ resetUrl, churchName }: { resetUrl: string; churchName: string }) {
+export function PasswordResetEmail({ resetUrl, churchName }: Readonly<{ resetUrl: string; churchName: string }>) {
   return (
     <EmailLayout churchName={churchName} previewText="Reset your password">
       <Heading as="h2">Password Reset</Heading>

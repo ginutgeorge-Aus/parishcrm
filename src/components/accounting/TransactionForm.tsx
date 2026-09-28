@@ -72,14 +72,14 @@ export function TransactionForm({
   families,
   funds,
   paymentAccounts,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   transaction?: Transaction
   accounts: Account[]
   families: Family[]
   funds: { id: number; name: string }[]
   paymentAccounts: PaymentAccountLite[]
-}) {
+}>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
 
   const incomeAccounts = accounts.filter((a) => a.type === AccountType.INCOME)

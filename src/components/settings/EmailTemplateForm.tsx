@@ -17,10 +17,10 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 export function EmailTemplateForm({
   templateKey,
   initial,
-}: {
+}: Readonly<{
   templateKey: EmailTemplateKey
   initial: EmailTemplateFields
-}) {
+}>) {
   const [state, action, saving] = useActionState(updateEmailTemplate, undefined)
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")

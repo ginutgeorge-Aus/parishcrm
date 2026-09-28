@@ -9,7 +9,7 @@ type Props = {
   searchParams: Promise<{ year?: string }>
 }
 
-export default async function BudgetPage(props: Props) {
+export default async function BudgetPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams;
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")

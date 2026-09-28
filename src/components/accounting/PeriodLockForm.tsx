@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-export function PeriodLockForm({ currentLockDate }: { currentLockDate: string | null }) {
+export function PeriodLockForm({ currentLockDate }: Readonly<{ currentLockDate: string | null }>) {
   const [state, formAction, pending] = useActionState(setAccountingLockDate, undefined)
 
   return (

@@ -219,7 +219,7 @@ function GivingHistoryCard({
   )
 }
 
-export default async function PersonDetailPage(props: { params: Promise<{ id: string }> }) {
+export default async function PersonDetailPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!canViewPeople(session?.user?.role)) redirect("/") // AUDITOR is accounting-only

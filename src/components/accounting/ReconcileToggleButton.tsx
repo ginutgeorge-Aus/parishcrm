@@ -8,11 +8,11 @@ export function ReconcileToggleButton({
   id,
   reconciled,
   paymentAccountId,
-}: {
+}: Readonly<{
   id: number
   reconciled: boolean
   paymentAccountId: number
-}) {
+}>) {
   const [optimistic, setOptimistic] = useState(reconciled)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

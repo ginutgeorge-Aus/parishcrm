@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { SiteFooter } from "@/components/SiteFooter"
 import { getChurchSettings } from "@/lib/churchSettings"
 
-export default async function AuthLayout({ children }: { children: React.ReactNode }) {
+export default async function AuthLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Already-authenticated users have no business on login/forgot/reset — serving
   // those pages is a minor session-fixation surface (AUDIT-050). One guard
   // here covers all three pages, including the client-rendered forgot-password.

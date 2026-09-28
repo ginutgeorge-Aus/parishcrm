@@ -14,7 +14,7 @@ type Props = {
   currentYear: number
 }
 
-export function YearSelector({ currentYear }: Props) {
+export function YearSelector({ currentYear }: Readonly<Props>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()

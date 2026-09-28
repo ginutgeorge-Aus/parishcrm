@@ -9,7 +9,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { toFloat } from "@/lib/utils"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditFamilyPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditFamilyPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!session) redirect("/login")

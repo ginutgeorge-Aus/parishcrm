@@ -28,11 +28,11 @@ export function TransactionAttachments({
   transactionId,
   attachments,
   canEdit,
-}: {
+}: Readonly<{
   transactionId: number
   attachments: AttachmentView[]
   canEdit: boolean
-}) {
+}>) {
   const [state, formAction, pending] = useActionState(
     attachTransactionReceipt.bind(null, transactionId),
     undefined,

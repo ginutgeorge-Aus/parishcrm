@@ -8,7 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { approveFamilyUpdate, rejectFamilyUpdate } from "@/lib/actions/familyUpdate"
 import type { ActionResultWithSuccess } from "@/lib/actions/types"
 
-export function SubmissionReview({ submissionId }: { submissionId: number }) {
+export function SubmissionReview({ submissionId }: Readonly<{ submissionId: number }>) {
   const router = useRouter()
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)

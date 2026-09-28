@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 
 type Props = { eventId: number; isPublished: boolean }
 
-export function PublishToggle({ eventId, isPublished }: Props) {
+export function PublishToggle({ eventId, isPublished }: Readonly<Props>) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   // Reflect the new state immediately on click instead of waiting for the

@@ -16,7 +16,7 @@ type Props = {
   churchWebsite: string
 }
 
-export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEmail, churchWebsite }: Props) {
+export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEmail, churchWebsite }: Readonly<Props>) {
   const [state, formAction, isPending] = useActionState(updateChurchInfo, undefined)
 
   return (

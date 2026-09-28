@@ -13,9 +13,9 @@ import { TransactionPagination } from "@/components/accounting/TransactionPagina
 import { getTransactionsData, TX_CAP, SEARCH_SCAN_CAP, type TransactionsSearchParams } from "@/lib/reports/transactionsQuery"
 
 export default async function TransactionsPage(
-  props: {
+  props: Readonly<{
     searchParams: Promise<TransactionsSearchParams>
-  }
+  }>
 ) {
   const searchParams = await props.searchParams;
   const session = await auth()

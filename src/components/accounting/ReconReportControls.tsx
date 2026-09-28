@@ -18,7 +18,7 @@ interface Props {
   statementDate: string // YYYY-MM-DD
 }
 
-export function ReconReportControls({ accounts, paymentAccountId, statementDate }: Props) {
+export function ReconReportControls({ accounts, paymentAccountId, statementDate }: Readonly<Props>) {
   const router = useRouter()
 
   function push(accountId: number, date: string) {

@@ -11,7 +11,7 @@ import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function EditDgrReceiptPage(props: Props) {
+export default async function EditDgrReceiptPage(props: Readonly<Props>) {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 

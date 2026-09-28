@@ -9,7 +9,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 // allowed through for support/testing. Everyone else is bounced. Middleware
 // already confines organisers to /my-events; this is the belt-and-braces
 // server gate so the surface never renders for the wrong role.
-export default async function OrganiserLayout({ children }: { children: React.ReactNode }) {
+export default async function OrganiserLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const session = await auth()
   if (!session) redirect("/login")
   if (!isEventOrganiser(session.user.role) && !canEdit(session.user.role)) redirect("/")

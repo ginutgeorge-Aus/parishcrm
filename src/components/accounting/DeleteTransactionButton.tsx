@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteTransaction } from "@/lib/actions/transaction"
 
-export function DeleteTransactionButton({ id, locked = false }: { id: number; locked?: boolean }) {
+export function DeleteTransactionButton({ id, locked = false }: Readonly<{ id: number; locked?: boolean }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteTransaction(id)}

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 type Props = { params: Promise<{ slug: string; token: string }> }
 
-export default async function CrewPage({ params }: Props) {
+export default async function CrewPage({ params }: Readonly<Props>) {
   const { slug, token } = await params
 
   // Resolve by token (the secret). Fetch ONLY non-PII fields — names + ticket

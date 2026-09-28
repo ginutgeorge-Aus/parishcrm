@@ -15,7 +15,7 @@ type Props = {
   searchParams: Promise<{ year?: string }>
 }
 
-export default async function GivingSummaryPage(props: Props) {
+export default async function GivingSummaryPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   // Read-only accounting roles (ADMIN | PASTOR | AUDITOR) — AUDITOR included so

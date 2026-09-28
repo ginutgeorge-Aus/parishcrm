@@ -5,10 +5,10 @@ import { useEffect } from "react"
 export default function DashboardError({
   error,
   reset,
-}: {
+}: Readonly<{
   error: Error & { digest?: string }
   reset: () => void
-}) {
+}>) {
   useEffect(() => {
     // Log only the opaque Next.js digest — never the raw error, which may carry
     // decrypted member/financial fragments a future client reporter would leak.

@@ -19,7 +19,7 @@ const FAMILY_CAP = 500
 const SUBURB_SCAN_CAP = 2000
 
 export default async function FamiliesPage(
-  props: { searchParams: Promise<{ q?: string; status?: string; suburb?: string }> }
+  props: Readonly<{ searchParams: Promise<{ q?: string; status?: string; suburb?: string }> }>
 ) {
   const searchParams = await props.searchParams
   const session = await auth()

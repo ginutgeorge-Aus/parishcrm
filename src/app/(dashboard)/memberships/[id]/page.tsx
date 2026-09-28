@@ -12,7 +12,7 @@ import { ReviewPanel } from "./ReviewPanel"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({ label, value }: Readonly<{ label: string; value: string | null | undefined }>) {
   if (!value) return null
   return (
     <div className="py-1">
@@ -22,7 +22,7 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   )
 }
 
-export default async function MembershipDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MembershipDetailPage({ params }: Readonly<{ params: Promise<{ id: string }> }>) {
   const session = await auth()
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/")

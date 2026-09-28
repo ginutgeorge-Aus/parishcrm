@@ -10,7 +10,7 @@ import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { TransactionForm } from "@/components/accounting/TransactionForm"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditTransactionPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditTransactionPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) redirect("/")

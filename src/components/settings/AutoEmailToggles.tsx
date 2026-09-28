@@ -11,7 +11,7 @@ type Flags = { birthday: boolean; anniversary: boolean }
 // FormData in a plain form. Rather than shadow it with a hidden input, toggle
 // optimistically and call the server action with a JS-built FormData (mirrors
 // the app's optimistic inline-toggle pattern). On error we revert the switch.
-export function AutoEmailToggles({ birthday, anniversary }: Flags) {
+export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
   const [flags, setFlags] = useState<Flags>({ birthday, anniversary })
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<string | null>(null)

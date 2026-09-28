@@ -22,12 +22,12 @@ export function Sidebar({
   pendingUpdates = 0,
   verifyPending = 0,
   membershipPending = 0,
-}: {
+}: Readonly<{
   churchName: string
   pendingUpdates?: number
   verifyPending?: number
   membershipPending?: number
-}) {
+}>) {
   const pathname = usePathname()
   const { data: session } = useSession()
   const role = session?.user?.role

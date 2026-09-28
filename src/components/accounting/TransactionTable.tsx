@@ -29,7 +29,7 @@ export function TransactionTable({
   income,
   expense,
   net,
-}: Props) {
+}: Readonly<Props>) {
   return (
     // Desktop: full table
     <div className="hidden overflow-x-auto md:block">

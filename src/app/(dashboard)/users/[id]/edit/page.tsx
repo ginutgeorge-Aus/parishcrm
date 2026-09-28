@@ -7,7 +7,7 @@ import { updateUser } from "@/lib/actions/user"
 import { UserForm } from "@/components/users/UserForm"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditUserPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditUserPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")

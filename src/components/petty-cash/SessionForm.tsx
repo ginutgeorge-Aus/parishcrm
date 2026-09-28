@@ -29,10 +29,10 @@ type Person = { id: number; firstName: string; lastName: string }
 export function SessionForm({
   action,
   people,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   people: Person[]
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [custodianId, setCustodianId] = useState("")

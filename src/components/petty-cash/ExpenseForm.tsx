@@ -31,12 +31,12 @@ export function ExpenseForm({
   accounts,
   funds,
   expense,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   accounts: Account[]
   funds: Fund[]
   expense?: ExpenseDefaults
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const generalFundId = funds.find((f) => f.name === "General")?.id

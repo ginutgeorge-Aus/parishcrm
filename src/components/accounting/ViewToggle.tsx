@@ -7,7 +7,7 @@ type Props = {
   year: number
 }
 
-export function ViewToggle({ currentView, year }: Props) {
+export function ViewToggle({ currentView, year }: Readonly<Props>) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
