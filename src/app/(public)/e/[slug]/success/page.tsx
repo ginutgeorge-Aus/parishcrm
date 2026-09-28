@@ -88,7 +88,7 @@ async function resolveCardPaymentRef(
   })
   // Event-scope the match (style guard) — a session for a different
   // event must not resolve here even though cs_... ids aren't enumerable.
-  if (!checkoutSession || checkoutSession.eventId !== eventId) return noOutcome
+  if (checkoutSession?.eventId !== eventId) return noOutcome
 
   if (checkoutSession.publicToken) return { ...noOutcome, resolvedRef: checkoutSession.publicToken }
 

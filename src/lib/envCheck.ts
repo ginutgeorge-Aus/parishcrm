@@ -157,13 +157,15 @@ export function collectEnvErrors(): string[] {
     errors.push("AUTH_URL is not set")
   }
 
-  errors.push(...checkCryptoKeyring())
-  errors.push(...checkDisableOtp())
-  errors.push(...checkMockEmail())
-  errors.push(...checkE2EOverridesAllowed())
-  errors.push(...checkGmailCreds())
-  errors.push(...checkWebsiteSync())
-  errors.push(...checkAppConfig())
+  errors.push(
+    ...checkCryptoKeyring(),
+    ...checkDisableOtp(),
+    ...checkMockEmail(),
+    ...checkE2EOverridesAllowed(),
+    ...checkGmailCreds(),
+    ...checkWebsiteSync(),
+    ...checkAppConfig(),
+  )
 
   return errors
 }

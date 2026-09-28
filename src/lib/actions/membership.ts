@@ -355,17 +355,22 @@ async function mergeApprovedFamily(
 // creates or merges the family + members, and links it back. Throws
 // AlreadyReviewedError / ArchivedFamilyError to abort the transaction with a
 // clean, caller-mapped error.
+type ApprovalInput = {
+  p: MembershipPayload
+  seeds: PersonSeed[]
+  marriageDate: Date | null
+  dues: Prisma.Decimal | null
+  notes: string
+}
+
 async function runApprovalTransaction(
   tx: Prisma.TransactionClient,
   id: number,
   reviewerId: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
-  p: MembershipPayload,
-  seeds: PersonSeed[],
-  marriageDate: Date | null,
-  dues: Prisma.Decimal | null,
-  notes: string,
+  input: ApprovalInput,
 ): Promise<number> {
+  const { p, seeds, marriageDate, dues, notes } = input
   // Atomically claim PENDING→APPROVED before creating the family/members. The
   // status read in approveMembershipApplication is outside the transaction,
   // so two concurrent approvals could both pass it and each create a family +
@@ -430,7 +435,7 @@ export async function approveMembershipApplication(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       familyId = await prisma.$transaction((tx) =>
-        runApprovalTransaction(tx, id, reviewerId, opts, p, seeds, marriageDate, dues, notes)
+        runApprovalTransaction(tx, id, reviewerId, opts, { p, seeds, marriageDate, dues, notes })
       )
       break
     } catch (e) {
