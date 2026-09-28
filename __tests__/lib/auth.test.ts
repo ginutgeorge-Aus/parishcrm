@@ -364,6 +364,11 @@ describe("authorizeCredentials — OTP mode", () => {
     expect(await authorizeCredentials({ email: "a@b.com", mode: "otp" })).toBeNull()
   })
 
+  it("returns null — not throws — when otp is a non-string (e.g. JSON number)", async () => {
+    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", otp: 123456 })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
   it("returns null when user not found", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
     expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", otp: "123456" })).toBeNull()

@@ -88,8 +88,9 @@ export async function authorizeCredentials(
 
   if (credentials.mode === "otp") {
     const email = credentials.email as string
-    const otp = (credentials.otp as string | undefined)?.trim()
-    if (otp?.length !== 6) return null
+    if (typeof credentials.otp !== "string") return null
+    const otp = credentials.otp.trim()
+    if (otp.length !== 6) return null
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return null

@@ -110,3 +110,8 @@ export function publicAppConfig(): PublicAppConfig {
     turnstileSiteKey: TURNSTILE_SITE_KEY,
   }
 }
+
+/** JSON for an inline <script>: `<` escaped so a value can't close the tag. */
+export function inlineScriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, String.raw`\u003c`)
+}

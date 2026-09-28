@@ -27,7 +27,8 @@ const MAX_TOMBSTONES = 50
 function hashFingerprint(fingerprint: string): string {
   let h = 5381
   for (let i = 0; i < fingerprint.length; i++) {
-    h = ((h << 5) + h) ^ (fingerprint.codePointAt(i) ?? 0)
+    // UTF-16 code units, not code points: stored tombstone hashes depend on it.
+    h = ((h << 5) + h) ^ fingerprint.charCodeAt(i) // NOSONAR S7758
   }
   return (h >>> 0).toString(36)
 }
