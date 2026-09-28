@@ -6,7 +6,7 @@ the workflow for changes, and the conventions we follow.
 By contributing, you agree that your contributions are licensed under the project's
 [AGPL-3.0](LICENSE) license. Before your first pull request is merged, you'll also be
 asked to sign the [Contributor License Agreement](CLA.md) (a bot comments on your PR
-with a sign-in link; one signature covers all future PRs).
+with a sign-in link; one signature covers future PRs until the CLA changes).
 
 ## Getting set up
 

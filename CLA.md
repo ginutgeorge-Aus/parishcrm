@@ -26,9 +26,10 @@ current license (AGPL-3.0-or-later), including proprietary or commercial license
 
 You grant the Maintainer, and recipients of software distributed by the Maintainer,
 a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to
-make, use, sell, offer to sell, import, and otherwise transfer Your Contributions,
-for any patent claims licensable by You that are necessarily infringed by Your
-Contribution alone or combined with the Project.
+make, have made, use, sell, offer to sell, import, and otherwise transfer Your
+Contributions and the Project (including works that combine them), for any patent
+claims licensable by You that are necessarily infringed by Your Contribution alone
+or by its combination with the Project.
 
 ## 4. Your representations
 
@@ -55,4 +56,5 @@ It does not revoke the open-source license from anyone.
 ## How to sign
 
 When you open your first pull request, the CLA Assistant bot comments with a link.
-Sign in with GitHub and accept. One signature covers all your future contributions.
+Sign in with GitHub and accept. Your signature covers all your future contributions
+until this Agreement changes; if it does, the bot asks you to sign the new version.
