@@ -235,12 +235,36 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     // Webhook has claimed the row but not yet stamped the token (or crashed
     // before it and a redelivery will backfill). Duplicate charges are
     // terminalized UNFULFILLED instead, so COMPLETED-without-token is in flight.
-    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED" })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED", completedAt: new Date() })
 
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_midpersist"))
 
     expect(html).toMatch(/being finalised/i)
     expect(html).not.toMatch(/couldn&#x27;t complete your registration/i)
+    expect(mockRegFindFirst).not.toHaveBeenCalled()
+  })
+
+  it("shows the 'couldn't complete your registration' state for a COMPLETED session stuck without a token past the in-flight window (orphaned claim)", async () => {
+    mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
+    // Process died after the OPEN→COMPLETED claim but before the registration
+    // was created: redelivery only alerts ops, so the row never gets a token.
+    const completedAt = new Date(Date.now() - 60 * 60 * 1000)
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED", completedAt })
+
+    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_orphan"))
+
+    expect(html).toMatch(/couldn&#x27;t complete your registration/i)
+    expect(html).not.toMatch(/being finalised/i)
+  })
+
+  it("shows the 'couldn't complete your registration' state for an UNFULFILLED session (e.g. withheld-token duplicate charge)", async () => {
+    mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
+    mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "UNFULFILLED" })
+
+    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_dupcharge"))
+
+    expect(html).toMatch(/couldn&#x27;t complete your registration/i)
+    expect(html).not.toMatch(/being finalised/i)
     expect(mockRegFindFirst).not.toHaveBeenCalled()
   })
 
