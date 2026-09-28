@@ -98,13 +98,13 @@ async function resolveCardPaymentRef(
   //  - UNFULFILLED: capacity gone / event deleted / amount mismatch.
   //  - EXPIRED: the checkout sweep flipped the row, then a late webhook (e.g.
   //    BECS async payment) still confirmed the charge.
-  //  - COMPLETED with no token: a genuine duplicate charge whose token
-  //    deliberately withholds for the second payer.
-  // Any other non-terminal status (OPEN) is a real pre-webhook lag → pending.
+  //    Genuine duplicate charges are also terminalized UNFULFILLED.
+  // Anything else is in flight → pending: OPEN is pre-webhook lag, and
+  // COMPLETED with no token means the webhook is mid-persist (or crashed
+  // before the token write, which a Stripe redelivery backfills).
   const isUnfulfilled =
     checkoutSession.status === "UNFULFILLED" ||
-    checkoutSession.status === "EXPIRED" ||
-    checkoutSession.status === "COMPLETED"
+    checkoutSession.status === "EXPIRED"
   return { resolvedRef: ref, paymentUnfulfilled: isUnfulfilled, paymentPending: !isUnfulfilled }
 }
 

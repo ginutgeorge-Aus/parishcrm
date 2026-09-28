@@ -230,16 +230,17 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     expect(mockRegFindFirst).not.toHaveBeenCalled()
   })
 
-  it("shows the 'couldn't complete your registration' state for a COMPLETED session whose publicToken was withheld on a duplicate charge", async () => {
+  it("shows 'being finalised' — not 'couldn't complete' — for a COMPLETED session with no publicToken yet (webhook mid-persist)", async () => {
     mockEventFindUnique.mockResolvedValue({ id: 10, slug: "gala", title: "Gala", isPublished: true, bankBsb: "013-999", bankAccount: "12345678" })
-    // Genuine second charge inside the dedupe window: keeps the money for
-    // manual ops and deliberately never stamps this payer's publicToken.
+    // Webhook has claimed the row but not yet stamped the token (or crashed
+    // before it and a redelivery will backfill). Duplicate charges are
+    // terminalized UNFULFILLED instead, so COMPLETED-without-token is in flight.
     mockCheckoutSessionFindUnique.mockResolvedValue({ eventId: 10, publicToken: null, status: "COMPLETED" })
 
-    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_dupcharge"))
+    const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_midpersist"))
 
-    expect(html).toMatch(/couldn&#x27;t complete your registration/i)
-    expect(html).not.toMatch(/being finalised/i)
+    expect(html).toMatch(/being finalised/i)
+    expect(html).not.toMatch(/couldn&#x27;t complete your registration/i)
     expect(mockRegFindFirst).not.toHaveBeenCalled()
   })
 
