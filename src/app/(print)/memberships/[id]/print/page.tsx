@@ -18,7 +18,7 @@ import { parseRouteId } from "@/lib/validation"
 
 type Props = { params: Promise<{ id: string }> }
 
-function Line({ label, value }: { label: string; value?: string | null }) {
+function Line({ label, value }: Readonly<{ label: string; value?: string | null }>) {
   return (
     <div className="row">
       <span className="lbl">{label}</span>
@@ -32,7 +32,7 @@ function yesNo(v: boolean | null | undefined): string {
   return v ? "Yes" : "No"
 }
 
-export default async function MembershipPrintPage(props: Props) {
+export default async function MembershipPrintPage(props: Readonly<Props>) {
   const { id: idStr } = await props.params
   const session = await auth()
   if (!session) redirect("/login")

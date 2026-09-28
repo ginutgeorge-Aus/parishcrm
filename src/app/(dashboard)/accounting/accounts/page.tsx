@@ -24,7 +24,7 @@ type AccountRow = {
   _count: { transactions: number }
 }
 
-function AccountTableBody({ accounts, showAdmin }: { accounts: AccountRow[]; showAdmin: boolean }) {
+function AccountTableBody({ accounts, showAdmin }: Readonly<{ accounts: AccountRow[]; showAdmin: boolean }>) {
   return (
     <>
       {accounts.map((a) => (
@@ -63,7 +63,7 @@ function AccountTableBody({ accounts, showAdmin }: { accounts: AccountRow[]; sho
   )
 }
 
-function AccountMobileList({ accounts, showAdmin }: { accounts: AccountRow[]; showAdmin: boolean }) {
+function AccountMobileList({ accounts, showAdmin }: Readonly<{ accounts: AccountRow[]; showAdmin: boolean }>) {
   return (
     // Mobile: card per account (avoids sideways table scroll)
     <ul className="space-y-2 md:hidden">
@@ -108,7 +108,7 @@ function AccountMobileList({ accounts, showAdmin }: { accounts: AccountRow[]; sh
 
 // A component (not a shared JSX-element reference) so each <Table> renders its
 // own header subtree — sharing one element across tables is non-idiomatic.
-function TableHeaders({ showAdmin }: { showAdmin: boolean }) {
+function TableHeaders({ showAdmin }: Readonly<{ showAdmin: boolean }>) {
   return (
     <TableHeader>
       <TableRow>

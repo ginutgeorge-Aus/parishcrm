@@ -9,7 +9,7 @@ import { turnstileLoadFailedMessage } from "@/components/public/TurnstileWidget"
 import { useRegistrationForm } from "./useRegistrationForm"
 import type { RegistrationFormProps } from "./useRegistrationForm"
 
-export function RegistrationForm(props: RegistrationFormProps) {
+export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
   const {
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,

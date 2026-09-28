@@ -13,10 +13,10 @@ const NonceContext = createContext<string | undefined>(undefined)
 export function NonceProvider({
   nonce,
   children,
-}: {
+}: Readonly<{
   nonce: string | undefined
   children: React.ReactNode
-}) {
+}>) {
   // Radix's scroll lock (react-remove-scroll → react-style-singleton) injects
   // a <style> tag at runtime and reads its nonce from get-nonce's module
   // singleton. Register it during render so it's set before any Dialog/Select

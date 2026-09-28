@@ -16,10 +16,10 @@ type Mode = "draw" | "type"
 export function SignaturePad({
   onChange,
   describedById,
-}: {
+}: Readonly<{
   onChange: (dataUrl: string) => void
   describedById?: string
-}) {
+}>) {
   const ref = useRef<HTMLCanvasElement>(null)
   const typeInputRef = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<Mode>("draw")

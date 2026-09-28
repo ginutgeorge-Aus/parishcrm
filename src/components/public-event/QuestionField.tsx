@@ -23,7 +23,7 @@ export type QuestionFieldProps = {
   onChange: (value: CustomAnswer) => void
 }
 
-function OtherText({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+function OtherText({ id, value, onChange }: Readonly<{ id: string; value: string; onChange: (v: string) => void }>) {
   return (
     <Input
       id={id}
@@ -35,7 +35,7 @@ function OtherText({ id, value, onChange }: { id: string; value: string; onChang
   )
 }
 
-function RadioField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
+function RadioField({ q, idPrefix, value, onChange }: Readonly<QuestionFieldProps>) {
   const labelClass = "text-sm font-medium text-foreground"
   const opts = visibleOptions(q)
   const strVal = typeof value === "string" ? value : ""
@@ -75,7 +75,7 @@ function RadioField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
   )
 }
 
-function CheckboxField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
+function CheckboxField({ q, idPrefix, value, onChange }: Readonly<QuestionFieldProps>) {
   const labelClass = "text-sm font-medium text-foreground"
   const opts = visibleOptions(q)
   const arr = Array.isArray(value) ? (value as string[]) : []
@@ -152,7 +152,7 @@ function CheckboxField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
   )
 }
 
-function SelectField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
+function SelectField({ q, idPrefix, value, onChange }: Readonly<QuestionFieldProps>) {
   const inputClass = "w-full mt-1"
   const labelClass = "text-sm font-medium text-foreground"
   const opts = visibleOptions(q)
@@ -182,7 +182,7 @@ function SelectField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
   )
 }
 
-export function QuestionField({ q, idPrefix, value, onChange }: QuestionFieldProps) {
+export function QuestionField({ q, idPrefix, value, onChange }: Readonly<QuestionFieldProps>) {
   const inputClass = "w-full mt-1"
   const labelClass = "text-sm font-medium text-foreground"
   const labelText = `${q.label}${q.required ? " *" : ""}`

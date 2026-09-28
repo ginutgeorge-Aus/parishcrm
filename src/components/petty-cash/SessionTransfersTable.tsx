@@ -14,7 +14,7 @@ interface Props {
 }
 
 /** Bank transfers section of the session detail page — mobile cards + desktop table. */
-export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, isOpen, lockDate }: Props) {
+export function SessionTransfersTable({ transfers, totalTransfers, userIsAdmin, isOpen, lockDate }: Readonly<Props>) {
   return (
     <div>
       <h3 className="text-lg font-semibold mb-3">Bank transfers ({transfers.length})</h3>

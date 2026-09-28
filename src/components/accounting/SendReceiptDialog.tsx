@@ -17,10 +17,10 @@ import { Mail } from "lucide-react"
 export function SendReceiptDialog({
   transactionId,
   defaultEmail,
-}: {
+}: Readonly<{
   transactionId: number
   defaultEmail: string | null
-}) {
+}>) {
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState(defaultEmail ?? "")
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)

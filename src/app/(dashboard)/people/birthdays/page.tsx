@@ -10,9 +10,9 @@ import { BirthdaysClient } from "@/components/people/BirthdaysClient"
 import { sydneyToday } from "@/lib/dates"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 
-export default async function BirthdaysPage(props: {
+export default async function BirthdaysPage(props: Readonly<{
   searchParams: Promise<{ window?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
   if (!canViewPeople(session.user.role)) redirect("/")

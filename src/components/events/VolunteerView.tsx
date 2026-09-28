@@ -33,12 +33,12 @@ export function VolunteerView({
   date,
   fills,
   registrations,
-}: {
+}: Readonly<{
   title: string
   date: Date | null
   fills: VolunteerFill[]
   registrations: VolunteerReg[]
-}) {
+}>) {
   const totalSold = fills.reduce((s, f) => s + f.sold, 0)
   // Any uncapped ticket type makes the overall capacity meaningless — summing it
   // as 0 inflates the fill %. Treat the whole event as uncapped instead.

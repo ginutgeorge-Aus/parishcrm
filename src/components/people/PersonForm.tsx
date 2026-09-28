@@ -54,11 +54,11 @@ export function PersonForm({
   action,
   person,
   canSeePastoralNotes,
-}: {
+}: Readonly<{
   action: (prev: ActionResult, formData: FormData) => Promise<ActionResult>
   person?: Person
   canSeePastoralNotes: boolean
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
 

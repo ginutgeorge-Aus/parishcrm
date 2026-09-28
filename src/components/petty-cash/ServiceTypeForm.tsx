@@ -8,9 +8,9 @@ import type { ActionResult } from "@/lib/actions/types"
 
 export function ServiceTypeForm({
   action,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
-}) {
+}>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">

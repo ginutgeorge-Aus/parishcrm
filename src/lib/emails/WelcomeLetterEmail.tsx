@@ -6,10 +6,10 @@ import { EmailLayout } from "./EmailLayout"
 export function WelcomeLetterEmail({
   greetingName,
   churchName,
-}: {
+}: Readonly<{
   greetingName: string
   churchName: string
-}) {
+}>) {
   return (
     <EmailLayout churchName={churchName} previewText={`Welcome to ${churchName}`}>
       <Heading as="h2">Welcome to {churchName}</Heading>

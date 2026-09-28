@@ -12,10 +12,10 @@ import { fmtAUD } from "@/lib/formatting"
 export function CloseSessionForm({
   action,
   balance,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   balance: number
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [counted, setCounted] = useState("")

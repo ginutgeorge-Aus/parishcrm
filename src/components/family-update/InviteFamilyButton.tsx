@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
 import { sendFamilyUpdateInvite } from "@/lib/actions/familyUpdate"
 
-export function InviteFamilyButton({ familyId, defaultEmail }: { familyId: number; defaultEmail: string }) {
+export function InviteFamilyButton({ familyId, defaultEmail }: Readonly<{ familyId: number; defaultEmail: string }>) {
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState(defaultEmail)
   const [msg, setMsg] = useState<{ ok?: string; err?: string } | null>(null)

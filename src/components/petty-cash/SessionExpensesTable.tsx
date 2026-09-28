@@ -26,7 +26,7 @@ export function SessionExpensesTable({
   userIsAdmin,
   isOpen,
   lockDate,
-}: Props) {
+}: Readonly<Props>) {
   // Empty-state colSpan must match the rendered header columns — the action
   // column only exists for editors on an open session.
   const expenseColSpan = userCanEdit && isOpen ? 7 : 6

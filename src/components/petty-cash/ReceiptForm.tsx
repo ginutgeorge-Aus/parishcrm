@@ -49,13 +49,13 @@ export function ReceiptForm({
   persons,
   funds,
   receipt,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   accounts: Account[]
   persons: Person[]
   funds: Fund[]
   receipt?: ReceiptDefaults
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [accountId, setAccountId] = useState(receipt?.accountId ?? "")

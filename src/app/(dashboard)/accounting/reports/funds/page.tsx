@@ -18,7 +18,7 @@ function fmt(cents: number): string {
   return fmtAUDAccounting(centsToNumber(cents))
 }
 
-export default async function FundReportPage(props: Props) {
+export default async function FundReportPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

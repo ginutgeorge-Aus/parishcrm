@@ -8,12 +8,12 @@ export function SidebarLink({
   active,
   collapsed,
   onNavigate,
-}: {
+}: Readonly<{
   item: NavItem
   active: boolean
   collapsed: boolean
   onNavigate: () => void
-}) {
+}>) {
   const { href, label, icon: Icon, badge } = item
 
   const link = (

@@ -24,7 +24,7 @@ interface BankUploadStepProps {
   ) => void
 }
 
-export function BankUploadStep({ paymentAccounts, onUploadComplete }: BankUploadStepProps) {
+export function BankUploadStep({ paymentAccounts, onUploadComplete }: Readonly<BankUploadStepProps>) {
   // Preselect the account flagged Default (active BANK) so the upload picker
   // isn't blank on first render.
   const defaultBankId = paymentAccounts.find(

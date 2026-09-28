@@ -26,7 +26,7 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function OrganiserRegistrationsPage(props: Props) {
+export default async function OrganiserRegistrationsPage(props: Readonly<Props>) {
   const { id } = await props.params
   const session = await auth()
   if (!session) redirect("/login")

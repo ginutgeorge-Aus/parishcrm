@@ -10,14 +10,14 @@ export function SidebarGroup({
   isActive,
   onToggle,
   onNavigate,
-}: {
+}: Readonly<{
   group: NavGroup
   isOpen: boolean
   hasActive: boolean
   isActive: (href: string) => boolean
   onToggle: () => void
   onNavigate: () => void
-}) {
+}>) {
   const panelId = `sidebar-group-${group.label.toLowerCase().replace(/\s+/g, "-")}`
 
   return (
@@ -58,11 +58,11 @@ function SidebarEntry({
   entry,
   isActive,
   onNavigate,
-}: {
+}: Readonly<{
   entry: NavEntry
   isActive: (href: string) => boolean
   onNavigate: () => void
-}) {
+}>) {
   if ("subLabel" in entry) {
     const visible = entry.items.filter((i) => i.show)
     if (visible.length === 0) return null

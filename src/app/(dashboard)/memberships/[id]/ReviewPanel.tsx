@@ -11,11 +11,11 @@ export function ReviewPanel({
   applicationId,
   matches,
   status,
-}: {
+}: Readonly<{
   applicationId: number
   matches: MatchCandidate[]
   status: string
-}) {
+}>) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

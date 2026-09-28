@@ -29,9 +29,9 @@ function fmtDate(d: Date) {
   return `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
-export default async function ReconciliationReportPage(props: {
+export default async function ReconciliationReportPage(props: Readonly<{
   searchParams: Promise<{ paymentAccount?: string; statementDate?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

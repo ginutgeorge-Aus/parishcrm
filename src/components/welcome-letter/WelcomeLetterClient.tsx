@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 type FamilyOpt = { id: number; name: string; memberNo: string | null }
 
-export function WelcomeLetterClient({ families }: { families: FamilyOpt[] }) {
+export function WelcomeLetterClient({ families }: Readonly<{ families: FamilyOpt[] }>) {
   const [familyId, setFamilyId] = useState<number | null>(null)
   const [model, setModel] = useState<WelcomeLetterModel | null>(null)
   const [recipients, setRecipients] = useState<WelcomeLetterRecipient[]>([])

@@ -15,7 +15,7 @@ export type PaymentReminderData = {
 const label = { fontSize: "13px", color: "#64748b", margin: "0" } as const
 const value = { fontSize: "14px", color: "#0f172a", margin: "0 0 8px", fontWeight: 600 } as const
 
-export function PaymentReminderEmail(props: PaymentReminderData) {
+export function PaymentReminderEmail(props: Readonly<PaymentReminderData>) {
   return (
     <EmailLayout previewText={`Payment pending: ${props.eventTitle}`} churchName={props.churchName}>
       <Heading as="h2" style={{ fontSize: "20px", color: "#0f172a" }}>

@@ -37,7 +37,7 @@ export function StatementBalanceInput({
   initialValue,
   calculatedBalance,
   canEdit,
-}: Props) {
+}: Readonly<Props>) {
   const [value, setValue] = useState(initialValue ?? "")
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

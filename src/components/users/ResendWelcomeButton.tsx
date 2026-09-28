@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { resendWelcome } from "@/lib/actions/user"
 
-export function ResendWelcomeButton({ userId, className }: { userId: number; className?: string }) {
+export function ResendWelcomeButton({ userId, className }: Readonly<{ userId: number; className?: string }>) {
   const [isPending, startTransition] = useTransition()
   const [msg, setMsg] = useState<string | null>(null)
 

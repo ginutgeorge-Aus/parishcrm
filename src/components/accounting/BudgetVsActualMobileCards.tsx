@@ -37,7 +37,7 @@ export function BudgetVsActualMobileCards({
   year,
   varianceThresholdPct,
   canEditNotes,
-}: Props) {
+}: Readonly<Props>) {
   // Mobile card equivalents — same underlying rows/totals as the desktop
   // table, stacked instead of laid out in columns.
   function renderAccountCard(r: BudgetActualRow, isIncome: boolean) {

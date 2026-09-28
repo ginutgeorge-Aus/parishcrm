@@ -71,12 +71,12 @@ function MemberCombobox({
   personId,
   disabled,
   onSelect,
-}: {
+}: Readonly<{
   families: Family[]
   personId: number | null
   disabled: boolean
   onSelect: (personId: number | null) => void
-}) {
+}>) {
   const [open, setOpen] = useState(false)
 
   let selectedLabel = "— none —"
@@ -156,7 +156,7 @@ export function BankReviewTable({
   onToggleSkipAll,
   onConfirm,
   onBack,
-}: BankReviewTableProps) {
+}: Readonly<BankReviewTableProps>) {
   const activeRows = rows.filter((r) => !r.skip)
   const canImport =
     activeRows.length > 0 &&

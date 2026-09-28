@@ -12,7 +12,7 @@ type Props = {
 
 const chartConfig = { cumulative: { label: "Registrations", color: "hsl(var(--income))" } }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
   return (
     <div className="bg-card rounded-xl border border-border p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">{title}</p>
@@ -21,7 +21,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-export function EventAnalytics({ fillRates, revenueByType, regsOverTime }: Props) {
+export function EventAnalytics({ fillRates, revenueByType, regsOverTime }: Readonly<Props>) {
   const hasFill = fillRates.length > 0
   const hasRevenue = revenueByType.some(r => r.revenue > 0)
   const hasTime = regsOverTime.length > 0

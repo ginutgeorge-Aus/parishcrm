@@ -365,7 +365,7 @@ function ContactFooter({ isSettled, churchEmail }: Readonly<{ isSettled: boolean
   )
 }
 
-export default async function SuccessPage(props: Props) {
+export default async function SuccessPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams;
   const params = await props.params;
   // Church identity from configured settings, mirroring other pages — not hardcoded.

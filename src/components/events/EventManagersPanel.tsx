@@ -13,11 +13,11 @@ export function EventManagersPanel({
   eventId,
   managers,
   assignable,
-}: {
+}: Readonly<{
   eventId: number
   managers: Person[]
   assignable: Person[]
-}) {
+}>) {
   const [selected, setSelected] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()

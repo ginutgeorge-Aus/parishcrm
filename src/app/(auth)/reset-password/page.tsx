@@ -7,7 +7,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 
 type Props = { searchParams: Promise<{ token?: string }> }
 
-export default async function ResetPasswordPage({ searchParams }: Props) {
+export default async function ResetPasswordPage({ searchParams }: Readonly<Props>) {
   const { token } = await searchParams
   const { name: churchName } = await getChurchSettings()
 

@@ -31,12 +31,12 @@ export function BirthdaysClient({
   windowDays,
   canEdit,
   truncated = false,
-}: {
+}: Readonly<{
   rows: Row[]
   windowDays: number
   canEdit: boolean
   truncated?: boolean
-}) {
+}>) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<string | null>(null)

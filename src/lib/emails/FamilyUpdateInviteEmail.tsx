@@ -9,13 +9,13 @@ export function FamilyUpdateInviteEmail({
   intro,
   body,
   signoff,
-}: {
+}: Readonly<{
   updateUrl: string
   churchName: string
   intro: string
   body: string
   signoff: string
-}) {
+}>) {
   return (
     <EmailLayout churchName={churchName} previewText="Update your family details">
       <Heading as="h2">Update your family details</Heading>

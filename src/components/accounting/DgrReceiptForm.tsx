@@ -46,13 +46,13 @@ export default function DgrReceiptForm({
   persons,
   currentFyEndYear,
   edit,
-}: {
+}: Readonly<{
   persons: PersonOpt[]
   currentFyEndYear: number
   // When present the form edits an existing DRAFT/FAILED receipt via
   // updateDgrReceipt instead of creating a new one; the FY is fixed.
   edit?: EditReceipt
-}) {
+}>) {
   const action = edit ? updateDgrReceipt.bind(null, edit.id) : createDgrReceipt
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [personId, setPersonId] = useState(edit?.personId ?? "")

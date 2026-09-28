@@ -7,11 +7,11 @@ export function DeleteFamilyButton({
   familyId,
   familyName,
   triggerClassName = "",
-}: {
+}: Readonly<{
   familyId: number
   familyName: string
   triggerClassName?: string
-}) {
+}>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteFamily(familyId)}

@@ -16,11 +16,11 @@ export function GeneralLedgerControls({
   accounts,
   accountId,
   year,
-}: {
+}: Readonly<{
   accounts: Account[]
   accountId: number | null
   year: number
-}) {
+}>) {
   const router = useRouter()
   const fyNow = currentFYYear()
   const years = Array.from({ length: 5 }, (_, i) => fyNow - 3 + i)

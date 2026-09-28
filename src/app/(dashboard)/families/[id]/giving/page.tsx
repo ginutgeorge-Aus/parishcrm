@@ -29,7 +29,7 @@ type Props = {
   searchParams: Promise<{ year?: string }>
 }
 
-export default async function FamilyGivingPage(props: Props) {
+export default async function FamilyGivingPage(props: Readonly<Props>) {
   const [params, searchParams] = await Promise.all([props.params, props.searchParams])
 
   const session = await auth()

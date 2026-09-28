@@ -22,7 +22,7 @@ import { DgrReceiptRowActions } from "@/components/accounting/DgrReceiptRowActio
 
 type Props = { searchParams: Promise<{ fy?: string }> }
 
-export default async function DgrReceiptsPage(props: Props) {
+export default async function DgrReceiptsPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

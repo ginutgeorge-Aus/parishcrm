@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 
-export function ResetPasswordForm({ token }: { token: string }) {
+export function ResetPasswordForm({ token }: Readonly<{ token: string }>) {
   const [state, action, pending] = useActionState(
     async (_prev: { error?: string; success?: true } | undefined, formData: FormData) => {
       const password = formData.get("password") as string

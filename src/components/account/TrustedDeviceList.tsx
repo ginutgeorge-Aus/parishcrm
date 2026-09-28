@@ -7,7 +7,7 @@ import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 type Device = { id: string; label: string | null; createdAt: Date; lastUsedAt: Date }
 
-export function TrustedDeviceList({ devices }: { devices: Device[] }) {
+export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) {
   const [list, setList] = useState(devices)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()

@@ -31,11 +31,11 @@ export function UserForm({
   action,
   user,
   currentUserRole,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   user?: User
   currentUserRole?: UserRole
-}) {
+}>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
   const isActorAdmin = isAdmin(currentUserRole)
   // Non-ADMIN actors (OFFICE_ADMIN) cannot assign the ADMIN role.

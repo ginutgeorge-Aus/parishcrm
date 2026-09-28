@@ -24,7 +24,7 @@ type Props = {
   searchParams: Promise<{ action?: string; from?: string; to?: string; page?: string }>
 }
 
-export default async function AuditLogPage(props: Props) {
+export default async function AuditLogPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")

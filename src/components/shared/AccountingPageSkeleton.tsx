@@ -6,6 +6,6 @@
 // card-style rows used by list pages) — deduped in.
 import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton"
 
-export function AccountingPageSkeleton({ rows = 8 }: { rows?: number }) {
+export function AccountingPageSkeleton({ rows = 8 }: Readonly<{ rows?: number }>) {
   return <ListPageSkeleton rows={rows} rowHeight="h-10" />
 }

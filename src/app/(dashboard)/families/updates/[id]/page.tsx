@@ -19,7 +19,7 @@ import {
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function SubmissionDetail(props: Props) {
+export default async function SubmissionDetail(props: Readonly<Props>) {
   const session = await auth()
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
@@ -125,7 +125,7 @@ export default async function SubmissionDetail(props: Props) {
   )
 }
 
-function DiffTable({ rows }: { rows: { field: string; from: string | null; to: string | null; changed: boolean }[] }) {
+function DiffTable({ rows }: Readonly<{ rows: { field: string; from: string | null; to: string | null; changed: boolean }[] }>) {
   const shown = rows.filter((r) => r.changed)
   if (shown.length === 0) return <p className="text-sm text-muted-foreground">No changes.</p>
   return (

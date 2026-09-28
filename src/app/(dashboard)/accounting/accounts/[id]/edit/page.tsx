@@ -6,7 +6,7 @@ import { updateAccount } from "@/lib/actions/account"
 import { AccountForm } from "@/components/accounting/AccountForm"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditAccountPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditAccountPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/accounts")

@@ -13,7 +13,7 @@ type Props = {
   canManage: boolean
 }
 
-export function DgrReceiptRowActions({ id, receiptNo, status, canManage }: Props) {
+export function DgrReceiptRowActions({ id, receiptNo, status, canManage }: Readonly<Props>) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 

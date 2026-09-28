@@ -34,7 +34,7 @@ type Props = {
 
 const YEAR_RANGE = 2
 
-export function BudgetForm({ accounts, budgets, year }: Props) {
+export function BudgetForm({ accounts, budgets, year }: Readonly<Props>) {
   const router = useRouter()
   const [state, formAction, saving] = useActionState(upsertBudgets, undefined)
 

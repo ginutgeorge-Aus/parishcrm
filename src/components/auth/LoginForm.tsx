@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { trustDevice } from "@/lib/actions/trustedDevice"
 
-export function LoginForm({ churchName }: { churchName: string }) {
+export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const didReset = searchParams.get("reset") === "1"

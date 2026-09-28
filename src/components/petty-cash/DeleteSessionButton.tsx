@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteSession } from "@/lib/actions/pettyCashSession"
 
-export function DeleteSessionButton({ id }: { id: number }) {
+export function DeleteSessionButton({ id }: Readonly<{ id: number }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteSession(id)}

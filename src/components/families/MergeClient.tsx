@@ -15,7 +15,7 @@ import {
 
 type Family = { id: number; name: string; memberNo: string | null }
 
-export function MergeClient({ families }: { families: Family[] }) {
+export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
   const [sourceId, setSourceId] = useState<string>("")
   const [targetId, setTargetId] = useState<string>("")
   const [preview, setPreview] = useState<MergePreview | null>(null)

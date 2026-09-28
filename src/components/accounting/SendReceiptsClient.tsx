@@ -18,7 +18,7 @@ import { fmtAUD } from "@/lib/formatting"
 
 type Account = { id: number; code: string; name: string }
 
-export function SendReceiptsClient({ accounts }: { accounts: Account[] }) {
+export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] }>) {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [accountId, setAccountId] = useState("")

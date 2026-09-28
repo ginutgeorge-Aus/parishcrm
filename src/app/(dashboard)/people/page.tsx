@@ -14,7 +14,7 @@ const PEOPLE_CAP = 500
 const MAX_QUERY_LENGTH = 100
 
 export default async function PeoplePage(
-  props: { searchParams: Promise<{ q?: string; classification?: string; role?: string }> }
+  props: Readonly<{ searchParams: Promise<{ q?: string; classification?: string; role?: string }> }>
 ) {
   const searchParams = await props.searchParams
   const session = await auth()

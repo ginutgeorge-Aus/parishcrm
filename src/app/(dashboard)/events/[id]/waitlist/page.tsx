@@ -18,7 +18,7 @@ import {
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function WaitlistPage(props: Props) {
+export default async function WaitlistPage(props: Readonly<Props>) {
   const params = await props.params
   const session = await auth()
   if (!session) redirect("/login")

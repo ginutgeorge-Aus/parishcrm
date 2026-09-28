@@ -31,7 +31,7 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
-export default async function RegistrationsPage(props: Props) {
+export default async function RegistrationsPage(props: Readonly<Props>) {
   const params = await props.params;
   const session = await auth()
   if (!session) redirect("/login")

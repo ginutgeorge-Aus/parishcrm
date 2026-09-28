@@ -12,7 +12,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 
 type Props = { params: Promise<{ slug: string }> }
 
-export default async function PublicEventPage(props: Props) {
+export default async function PublicEventPage(props: Readonly<Props>) {
   const params = await props.params;
   const event = await prisma.event.findUnique({
     where: { slug: params.slug },

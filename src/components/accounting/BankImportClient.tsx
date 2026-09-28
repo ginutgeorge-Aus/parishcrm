@@ -66,11 +66,11 @@ export function BankImportClient({
   accounts,
   families,
   paymentAccounts,
-}: {
+}: Readonly<{
   accounts: Account[]
   families: Family[]
   paymentAccounts: PaymentAccountLite[]
-}) {
+}>) {
   const [view, setView] = useState<"upload" | "review" | "done">("upload")
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)

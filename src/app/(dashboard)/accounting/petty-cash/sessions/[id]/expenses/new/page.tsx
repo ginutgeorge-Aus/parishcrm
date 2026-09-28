@@ -5,7 +5,7 @@ import { createExpense } from "@/lib/actions/pettyCashExpense"
 import { getActiveFunds } from "@/lib/actions/fund"
 import { ExpenseForm } from "@/components/petty-cash/ExpenseForm"
 
-export default async function NewExpensePage(props: { params: Promise<{ id: string }> }) {
+export default async function NewExpensePage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params
   const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({

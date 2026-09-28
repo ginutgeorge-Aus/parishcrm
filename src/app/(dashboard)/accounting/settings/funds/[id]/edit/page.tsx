@@ -6,7 +6,7 @@ import { updateFund } from "@/lib/actions/fund"
 import { FundForm } from "@/components/accounting/FundForm"
 import { parseRouteId } from "@/lib/validation"
 
-export default async function EditFundPage(props: { params: Promise<{ id: string }> }) {
+export default async function EditFundPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/accounting/settings/funds")

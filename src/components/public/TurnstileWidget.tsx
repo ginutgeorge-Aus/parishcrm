@@ -31,7 +31,7 @@ const getTurnstile = (): TurnstileApi | undefined =>
 // parent. No-op (renders nothing) when TURNSTILE_SITE_KEY is unset,
 // so local/dev/tests need no configuration. Same explicit-render pattern as the
 // membership + event-registration forms.
-export function TurnstileWidget({ onToken }: { onToken: (token: string) => void }) {
+export function TurnstileWidget({ onToken }: Readonly<{ onToken: (token: string) => void }>) {
   const ref = useRef<HTMLDivElement>(null)
   const cb = useRef(onToken)
   const widgetId = useRef<string | null>(null)

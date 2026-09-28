@@ -40,7 +40,7 @@ import {
 import type { ActionResultWithSuccess } from "@/lib/actions/types"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
-export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccountLite[] }) {
+export function PaymentAccountsManager({ accounts }: Readonly<{ accounts: PaymentAccountLite[] }>) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -132,7 +132,7 @@ export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccountL
 // transport-level throw, mirroring ReconcileToggleButton. The parent
 // keys this on `${id}-${isActive}` so a server-side flip (revalidatePath after
 // success) remounts fresh optimistic state instead of showing a stale value.
-function ActiveToggle({ account }: { account: PaymentAccountLite }) {
+function ActiveToggle({ account }: Readonly<{ account: PaymentAccountLite }>) {
   const [optimistic, setOptimistic] = useState(account.isActive)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -171,7 +171,7 @@ function ActiveToggle({ account }: { account: PaymentAccountLite }) {
 // inactive account (mirrors the server-side guard in setDefaultAccount). No
 // optimistic flip needed — success revalidates the page and this account's
 // row re-renders as the (now read-only) "Default" badge.
-function DefaultButton({ account }: { account: PaymentAccountLite }) {
+function DefaultButton({ account }: Readonly<{ account: PaymentAccountLite }>) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -210,7 +210,7 @@ function DefaultButton({ account }: { account: PaymentAccountLite }) {
 // without an effect that calls setState off the action result (which would
 // trip the cascading-render lint rule; c.f. FeedbackDialog/SendReceiptDialog,
 // which reset state from the onOpenChange handler, never from an effect).
-function RenameAccountDialog({ account }: { account: PaymentAccountLite }) {
+function RenameAccountDialog({ account }: Readonly<{ account: PaymentAccountLite }>) {
   const [open, setOpen] = useState(false)
   const [formKey, setFormKey] = useState(0)
 
@@ -234,7 +234,7 @@ function RenameAccountDialog({ account }: { account: PaymentAccountLite }) {
   )
 }
 
-function RenameAccountForm({ account }: { account: PaymentAccountLite }) {
+function RenameAccountForm({ account }: Readonly<{ account: PaymentAccountLite }>) {
   const renameAccount = renamePaymentAccount.bind(null, account.id)
   const [state, formAction, isPending] = useActionState<ActionResultWithSuccess, FormData>(
     renameAccount,

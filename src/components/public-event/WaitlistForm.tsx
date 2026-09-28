@@ -22,7 +22,7 @@ type Props = {
   formToken: string
 }
 
-export function WaitlistForm({ slug, soldOutTypes, allSoldOut, formToken }: Props) {
+export function WaitlistForm({ slug, soldOutTypes, allSoldOut, formToken }: Readonly<Props>) {
   const [ticketTypeId, setTicketTypeId] = useState<number>(soldOutTypes[0]?.id ?? 0)
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")

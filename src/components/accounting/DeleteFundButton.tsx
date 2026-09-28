@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteFund } from "@/lib/actions/fund"
 
-export function DeleteFundButton({ fundId, fundName }: { fundId: number; fundName: string }) {
+export function DeleteFundButton({ fundId, fundName }: Readonly<{ fundId: number; fundName: string }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteFund(fundId)}

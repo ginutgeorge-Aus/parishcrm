@@ -8,7 +8,7 @@ import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 
 type Props = { eventId: number; slug: string; initialToken: string | null }
 
-export function VolunteerViewToggle({ eventId, slug, initialToken }: Props) {
+export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Props>) {
   const [token, setToken] = useState<string | null>(initialToken)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)

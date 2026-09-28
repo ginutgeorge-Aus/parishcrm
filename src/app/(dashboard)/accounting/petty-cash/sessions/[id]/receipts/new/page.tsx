@@ -6,7 +6,7 @@ import { createReceipt } from "@/lib/actions/pettyCashReceipt"
 import { getActiveFunds } from "@/lib/actions/fund"
 import { ReceiptForm } from "@/components/petty-cash/ReceiptForm"
 
-export default async function NewReceiptPage(props: { params: Promise<{ id: string }> }) {
+export default async function NewReceiptPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params
   const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({

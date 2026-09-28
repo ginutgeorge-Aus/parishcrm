@@ -66,12 +66,12 @@ export function FamilyUpdateForm({
   formToken,
   initial,
   churchWebsite,
-}: {
+}: Readonly<{
   token: string
   formToken: string
   initial: Initial
   churchWebsite: string
-}) {
+}>) {
   const router = useRouter()
   // Seed initial rows with index keys; the counter starts past them so every
   // added member gets a fresh, non-colliding key.

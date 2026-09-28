@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteExpense } from "@/lib/actions/pettyCashExpense"
 
-export function DeleteExpenseButton({ id, locked = false }: { id: number; locked?: boolean }) {
+export function DeleteExpenseButton({ id, locked = false }: Readonly<{ id: number; locked?: boolean }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteExpense(id)}

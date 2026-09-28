@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { unlockUser } from "@/lib/actions/user"
 
-export function UnlockUserButton({ userId, className }: { userId: number; className?: string }) {
+export function UnlockUserButton({ userId, className }: Readonly<{ userId: number; className?: string }>) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 

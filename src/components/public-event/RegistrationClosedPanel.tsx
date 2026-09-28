@@ -6,7 +6,7 @@ type Props = { title: string; organizers: Organizer[]; message?: string }
 // deadline passed, or no ticket types configured). Organiser render mirrors
 // EventHero: name + tel: link when a phone is present, name-only otherwise.
 // Empty organisers → church-office fallback.
-export function RegistrationClosedPanel({ title, organizers, message }: Props) {
+export function RegistrationClosedPanel({ title, organizers, message }: Readonly<Props>) {
   const hasOrganizers = organizers.length > 0
   return (
     <div className="mx-auto max-w-md px-6 py-10 text-center">

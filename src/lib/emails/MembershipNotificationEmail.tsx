@@ -8,11 +8,11 @@ export function MembershipNotificationEmail({
   applicantName,
   reviewUrl,
   churchName = DEFAULT_CHURCH_NAME,
-}: {
+}: Readonly<{
   applicantName: string
   reviewUrl: string
   churchName?: string
-}) {
+}>) {
   return (
     <EmailLayout churchName={churchName} previewText={`New membership application from ${applicantName}`}>
       <Heading as="h2">New membership application</Heading>

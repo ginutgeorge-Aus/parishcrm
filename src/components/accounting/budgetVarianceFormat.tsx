@@ -25,7 +25,7 @@ export function varianceColor(variance: number, isIncome: boolean): string {
 // Magnitude-based flag — independent of the favorable/unfavorable
 // color above. Shown for any line swinging further than the threshold from
 // budget, in either direction.
-export function VarianceFlag({ flagged }: { flagged: boolean }) {
+export function VarianceFlag({ flagged }: Readonly<{ flagged: boolean }>) {
   if (!flagged) return null
   return (
     <span

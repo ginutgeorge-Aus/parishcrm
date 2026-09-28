@@ -8,7 +8,7 @@ type Props = {
   ticketsSold: { name: string; count: number }[]
 }
 
-export function RegistrationStats({ total, paid, cancelled, revenue, ticketsSold }: Props) {
+export function RegistrationStats({ total, paid, cancelled, revenue, ticketsSold }: Readonly<Props>) {
   // CANCELLED registrations still count toward the headline total but are neither
   // paid nor pending.
   const pending = total - paid - cancelled

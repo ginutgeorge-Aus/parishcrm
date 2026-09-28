@@ -30,10 +30,10 @@ const statusVariant: Record<FamilyStatus, "default" | "secondary" | "outline"> =
 export function FamilyList({
   families,
   canEdit,
-}: {
+}: Readonly<{
   families: Family[]
   canEdit: boolean
-}) {
+}>) {
   return (
     <>
       {/* Mobile: stacked cards */}

@@ -22,7 +22,7 @@ export type PendingReminderRow = {
 
 export function SendPaymentRemindersClient({
   eventId, eventTitle, rows,
-}: { eventId: number; eventTitle: string; rows: PendingReminderRow[] }) {
+}: Readonly<{ eventId: number; eventTitle: string; rows: PendingReminderRow[] }>) {
   const emailable = rows.filter((r) => r.email)
   // Server rejects a batch over MAX_BATCH outright (MAX_REMINDER_BATCH_SIZE), so
   // never pre-select — or let the operator select — more than it will accept.

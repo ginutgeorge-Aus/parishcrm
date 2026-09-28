@@ -8,7 +8,7 @@ type Props = {
   totalPages: number
 }
 
-export function TransactionPagination({ searchParams, page, totalPages }: Props) {
+export function TransactionPagination({ searchParams, page, totalPages }: Readonly<Props>) {
   function pageHref(p: number) {
     const params = new URLSearchParams()
     for (const [k, v] of Object.entries(searchParams)) {

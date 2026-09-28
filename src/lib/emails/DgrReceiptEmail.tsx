@@ -18,7 +18,7 @@ export function DgrReceiptEmail({
   intro,
   body,
   signoff,
-}: {
+}: Readonly<{
   churchName: string
   churchAbn: string
   churchAddress: string
@@ -33,7 +33,7 @@ export function DgrReceiptEmail({
   intro: string
   body: string
   signoff: string
-}) {
+}>) {
   return (
     <Html lang="en">
       <Head />

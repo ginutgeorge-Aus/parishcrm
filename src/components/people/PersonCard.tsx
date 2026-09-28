@@ -19,7 +19,7 @@ type Person = {
   mobile: string | null
 }
 
-export function PersonCard({ person }: { person: Person }) {
+export function PersonCard({ person }: Readonly<{ person: Person }>) {
   const dob = person.dateOfBirth
     ? person.dateOfBirth.toLocaleDateString(APP_LOCALE)
     : "—"

@@ -12,7 +12,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 
 type Person = { id: number; firstName: string; lastName: string }
 
-export function PettyCashCustodianForm({ people, currentId }: { people: Person[]; currentId: number | null }) {
+export function PettyCashCustodianForm({ people, currentId }: Readonly<{ people: Person[]; currentId: number | null }>) {
   const [state, formAction, isPending] = useActionState(updatePettyCashCustodian, undefined)
   const [custodianId, setCustodianId] = useState(currentId ? String(currentId) : "")
   const [open, setOpen] = useState(false)

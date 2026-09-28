@@ -26,10 +26,10 @@ type AccountGroup = {
 export function AccountGroupForm({
   action,
   group,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   group?: AccountGroup
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
 

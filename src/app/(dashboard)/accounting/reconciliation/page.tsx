@@ -135,9 +135,9 @@ function ReconciliationEquationPanel({
   )
 }
 
-export default async function ReconciliationPage(props: {
+export default async function ReconciliationPage(props: Readonly<{
   searchParams: Promise<{ paymentAccount?: string; from?: string; to?: string; status?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
 

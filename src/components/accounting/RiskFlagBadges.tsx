@@ -11,7 +11,7 @@ type Props = {
  * backdated entry, edited-after-posting. No persisted state; purely derived
  * from `computeRiskFlags`. Server-renderable (no client interactivity).
  */
-export function RiskFlagBadges({ tx, className }: Props) {
+export function RiskFlagBadges({ tx, className }: Readonly<Props>) {
   const flags = computeRiskFlags(tx)
   if (flags.length === 0) return null
 

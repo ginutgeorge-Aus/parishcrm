@@ -10,14 +10,14 @@ export function WelcomeEmail({
   intro,
   body,
   signoff,
-}: {
+}: Readonly<{
   setPasswordUrl: string
   helpUrl: string
   churchName: string
   intro: string
   body: string
   signoff: string
-}) {
+}>) {
   return (
     <EmailLayout churchName={churchName} previewText={`Welcome to ${churchName} — set your password`}>
       <Heading as="h2">Welcome to {churchName}</Heading>

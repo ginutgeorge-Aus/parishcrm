@@ -73,7 +73,7 @@ function OrganizerList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
   )
 }
 
-export function RegistrationConfirmationEmail(props: RegistrationConfirmationData) {
+export function RegistrationConfirmationEmail(props: Readonly<RegistrationConfirmationData>) {
   const { payment, organizers } = props
   return (
     <EmailLayout

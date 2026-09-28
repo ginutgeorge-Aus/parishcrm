@@ -29,7 +29,7 @@ export function TransactionMobileList({
   income,
   expense,
   net,
-}: Props) {
+}: Readonly<Props>) {
   return (
     // Mobile: card per transaction (avoids sideways table scroll)
     <ul className="space-y-2 md:hidden">

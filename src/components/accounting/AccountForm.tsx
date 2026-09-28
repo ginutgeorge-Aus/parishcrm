@@ -32,11 +32,11 @@ export function AccountForm({
   action,
   account,
   groups,
-}: {
+}: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   account?: Account
   groups: AccountGroup[]
-}) {
+}>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [selectedType, setSelectedType] = useState<AccountType>(

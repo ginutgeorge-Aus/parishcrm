@@ -357,7 +357,7 @@ function GivingHistoryCard({
   )
 }
 
-export default async function FamilyDetailPage(props: { params: Promise<{ id: string }> }) {
+export default async function FamilyDetailPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
   if (!session) redirect("/login") // explicit guard before any DB query

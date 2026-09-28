@@ -9,7 +9,7 @@ import { countPendingFamilyUpdates } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const [idleMinutes, session, { name: churchName }] = await Promise.all([
     getIdleTimeoutMinutes(),
     auth(),

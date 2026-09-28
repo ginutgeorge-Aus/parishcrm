@@ -11,7 +11,7 @@ import {
 import { previewImport, commitImport, type ImportPreview } from "@/lib/actions/pettyCashImport"
 import { fmtAUD } from "@/lib/formatting"
 
-export function ImportClient({ custodians }: { custodians: { id: number; name: string }[] }) {
+export function ImportClient({ custodians }: Readonly<{ custodians: { id: number; name: string }[] }>) {
   const [csv, setCsv] = useState("")
   const [custodianId, setCustodianId] = useState("")
   const [preview, setPreview] = useState<ImportPreview | null>(null)

@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { deleteAccountGroup } from "@/lib/actions/accountGroup"
 
-export function DeleteAccountGroupButton({ groupId, groupName }: { groupId: number; groupName: string }) {
+export function DeleteAccountGroupButton({ groupId, groupName }: Readonly<{ groupId: number; groupName: string }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => deleteAccountGroup(groupId)}

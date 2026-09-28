@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 // page route is keyed by integer id. Pass both so each link uses the right key.
 type Props = { eventId: number; slug: string }
 
-export function ExportButtons({ eventId, slug }: Props) {
+export function ExportButtons({ eventId, slug }: Readonly<Props>) {
   return (
     <div className="flex gap-2">
       <Button asChild variant="outline" size="sm">

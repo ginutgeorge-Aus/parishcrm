@@ -19,9 +19,9 @@ import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export default async function ArchivedFamiliesPage({
   searchParams,
-}: {
+}: Readonly<{
   searchParams?: Promise<{ page?: string }>
-}) {
+}>) {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 

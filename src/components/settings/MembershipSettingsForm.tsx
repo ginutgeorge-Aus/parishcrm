@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 
-export function MembershipSettingsForm({ settings }: { settings: MembershipSettings }) {
+export function MembershipSettingsForm({ settings }: Readonly<{ settings: MembershipSettings }>) {
   const [state, formAction, isPending] = useActionState(updateMembershipSettings, undefined)
 
   return (

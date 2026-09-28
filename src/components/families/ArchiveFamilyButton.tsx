@@ -3,7 +3,7 @@
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { archiveFamily } from "@/lib/actions/family"
 
-export function ArchiveFamilyButton({ familyId, memberCount }: { familyId: number; memberCount: number }) {
+export function ArchiveFamilyButton({ familyId, memberCount }: Readonly<{ familyId: number; memberCount: number }>) {
   return (
     <DeleteConfirmButton
       onConfirm={() => archiveFamily(familyId)}

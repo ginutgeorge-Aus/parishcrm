@@ -15,9 +15,9 @@ import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
 
 export default async function SessionDetailPage(
-  props: {
+  props: Readonly<{
     params: Promise<{ id: string }>
-  }
+  }>
 ) {
   const params = await props.params;
   const session = await auth()

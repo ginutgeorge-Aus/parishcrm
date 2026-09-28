@@ -63,7 +63,7 @@ type Props = {
   }
 }
 
-export function EventForm({ action, defaultValues = {} }: Props) {
+export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [kind, setKind] = useState(defaultValues.kind === "recurring" ? "recurring" : "one_off")
   // Mirror the online-payment checkbox so the "pass card fee" toggle can disable

@@ -7,7 +7,7 @@ import { recordRouteView } from "@/lib/routeViews"
 // Templates re-render on every navigation, so this fires once per page view.
 // No user/session recorded; middleware sets x-pathname (pathname only, no query).
 // Fire-and-forget — recordRouteView never throws.
-export default async function DashboardTemplate({ children }: { children: React.ReactNode }) {
+export default async function DashboardTemplate({ children }: Readonly<{ children: React.ReactNode }>) {
   const path = (await headers()).get("x-pathname")
   if (path) recordRouteView(path)
   return <>{children}</>

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 // dynamically on open so it never runs during SSR (it touches navigator/document)
 // and stays out of the initial bundle. On a successful decode we extract the
 // REG-… token and hand it up; the parent filters the attendee list to that party.
-export function QrScanButton({ onScan }: { onScan: (token: string) => void }) {
+export function QrScanButton({ onScan }: Readonly<{ onScan: (token: string) => void }>) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Holds the Html5Qrcode instance so we can stop the camera on close/unmount.

@@ -20,7 +20,7 @@ function elapsedYears(marriageDate: Date): number {
   return today.getFullYear() - marriageDate.getUTCFullYear() - (today < anni ? 1 : 0)
 }
 
-export function MarriageAnniversaryWidget({ families }: { families: MarriageFamily[] }) {
+export function MarriageAnniversaryWidget({ families }: Readonly<{ families: MarriageFamily[] }>) {
   return (
     <Card>
       <CardHeader>

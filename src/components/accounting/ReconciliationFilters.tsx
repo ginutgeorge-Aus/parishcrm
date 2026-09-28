@@ -25,13 +25,13 @@ export function ReconciliationFilters({
   from,
   to,
   status,
-}: {
+}: Readonly<{
   accounts: PaymentAccountLite[]
   paymentAccountId: number
   from: string
   to: string
   status: string
-}) {
+}>) {
   const router = useRouter()
   const searchParams = useSearchParams()
 

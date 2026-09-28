@@ -47,7 +47,7 @@ const STATUS_COLOURS: Record<string, string> = {
 
 // Per-row actions own their pending/error state so acting on one row never
 // disables the buttons on every other row.
-function RegistrationRowActions({ reg, eventId }: { reg: Reg; eventId: number }) {
+function RegistrationRowActions({ reg, eventId }: Readonly<{ reg: Reg; eventId: number }>) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -93,7 +93,7 @@ function RegistrationRowActions({ reg, eventId }: { reg: Reg; eventId: number })
   )
 }
 
-export function RegistrationsTable({ registrations, eventId, canEdit, total }: Props) {
+export function RegistrationsTable({ registrations, eventId, canEdit, total }: Readonly<Props>) {
   const [view, setView] = useState<"REGISTRATIONS" | "ATTENDEES">("REGISTRATIONS")
   const [filter, setFilter] = useState<"ALL" | "PAID" | "PENDING" | "CANCELLED">("ALL")
   const [detailId, setDetailId] = useState<number | null>(null)

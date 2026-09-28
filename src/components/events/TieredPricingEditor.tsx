@@ -12,7 +12,7 @@ type Row = { price: string; _key: string }
 // required control the browser can't focus silently aborts the whole form
 // submit ("not focusable"). Disabled inputs are excluded from validation and
 // FormData; the server ignores tier fields unless tiered pricing is enabled.
-export function TieredPricingEditor({ defaultTiers, active }: { defaultTiers: string[]; active: boolean }) {
+export function TieredPricingEditor({ defaultTiers, active }: Readonly<{ defaultTiers: string[]; active: boolean }>) {
   const keySeq = useRef(0)
   const [rows, setRows] = useState<Row[]>(
     () => (defaultTiers.length ? defaultTiers : [""]).map((p, i) => ({ price: p, _key: `tier-init-${i}` }))

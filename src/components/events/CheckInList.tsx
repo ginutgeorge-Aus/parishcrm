@@ -16,7 +16,7 @@ type Attendee = {
   checkedIn: boolean
 }
 
-export function CheckInList({ eventId, attendees }: { eventId: number; attendees: Attendee[] }) {
+export function CheckInList({ eventId, attendees }: Readonly<{ eventId: number; attendees: Attendee[] }>) {
   // One map of all check-in states so the header count derives from local state
   // and each row toggles optimistically (mirrors ReconcileToggleButton).
   const [state, setState] = useState<Record<number, boolean>>(

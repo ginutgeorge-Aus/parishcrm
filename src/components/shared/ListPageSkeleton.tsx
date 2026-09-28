@@ -4,7 +4,7 @@
 // Mirrors AccountingPageSkeleton; generic so non-accounting lists reuse it.
 // rowHeight controls the per-row pulse height (default h-12 for card-style lists;
 // h-10 for denser table rows used by AccountingPageSkeleton).
-export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: { rows?: number; rowHeight?: string }) {
+export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: Readonly<{ rows?: number; rowHeight?: string }>) {
   return (
     <div className="space-y-6" aria-hidden="true">
       {/* Heading + action button row */}

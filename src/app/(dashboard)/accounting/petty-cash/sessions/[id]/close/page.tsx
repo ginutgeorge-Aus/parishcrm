@@ -5,7 +5,7 @@ import { closeSession } from "@/lib/actions/pettyCashSession"
 import { CloseSessionForm } from "@/components/petty-cash/CloseSessionForm"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 
-export default async function CloseSessionPage(props: { params: Promise<{ id: string }> }) {
+export default async function CloseSessionPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const sessionId = await requirePettyCashSessionId(params.id)
   const pcSession = await prisma.pettyCashSession.findUnique({

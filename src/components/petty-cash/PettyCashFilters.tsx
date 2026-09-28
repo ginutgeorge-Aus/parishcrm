@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils"
 
 type Person = { id: number; firstName: string; lastName: string }
 
-export function PettyCashFilters({ people }: { people: Person[] }) {
+export function PettyCashFilters({ people }: Readonly<{ people: Person[] }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [custodianOpen, setCustodianOpen] = useState(false)
