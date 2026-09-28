@@ -184,6 +184,42 @@ export async function applyImageOp(
   })
 }
 
+// Parses ticketType.<i>.capacity: blank is allowed (no cap), otherwise it must
+// be a whole number in (0, MAX_INT4].
+function parseTicketCapacity(formData: FormData, i: number, name: string) {
+  const capRaw = ((formData.get(`ticketType.${i}.capacity`) as string | null) ?? "").trim()
+  if (!capRaw) return { value: null }
+  const n = Number.parseInt(capRaw, 10)
+  if (Number.isNaN(n) || n <= 0 || n > MAX_INT4)
+    return { error: `Capacity for "${name}" must be a whole number between 1 and ${MAX_INT4}` }
+  return { value: n }
+}
+
+// Parses one ticketType.<i>.* row. `row: null` means a fully-blank trailing
+// form slot — the caller skips it. A NAMED row with a bad/blank price is a
+// user typo and surfaces as an error instead of silently dropping the row,
+// which on update reads as a ticket-type removal (delete/FK error).
+function parseTicketTypeRow(formData: FormData, i: number) {
+  const idRaw = ((formData.get(`ticketType.${i}.id`) as string | null) ?? "").trim()
+  // Digit-only: rejects "5abc"/"1e9"-style strings that parseInt would truncate.
+  const id = /^\d+$/.test(idRaw) ? Number.parseInt(idRaw, 10) : null
+  const name = (formData.get(`ticketType.${i}.name`) as string).trim()
+  if (!name) return { row: null }
+
+  // Validate the money format on the raw string and store it as-is in the
+  // Decimal(10,2) column — never parseFloat (rejects "1e3"/"9.999" that would
+  // otherwise be silently coerced or truncated by Postgres).
+  const price = ((formData.get(`ticketType.${i}.price`) as string | null) ?? "").trim()
+  if (!MONEY_DECIMAL_RE.test(price)) return { error: `Invalid price for ticket type "${name}"` }
+  if (Number(price) > MAX_TICKET_PRICE) return { error: `Invalid price for ticket type "${name}"` }
+
+  const cap = parseTicketCapacity(formData, i, name)
+  if (cap.error !== undefined) return { error: cap.error }
+
+  const countsTowardWaiver = formData.get(`ticketType.${i}.countsToward`) === "on"
+  return { row: { id, name, price, capacity: cap.value, countsTowardWaiver } }
+}
+
 // Returns { error } for an over-limit form or an out-of-range capacity;
 // otherwise { types }.
 function parseTicketTypes(formData: FormData): { error: string } | { types: TicketTypeInput[] } {
@@ -191,31 +227,9 @@ function parseTicketTypes(formData: FormData): { error: string } | { types: Tick
   let i = 0
   while (formData.has(`ticketType.${i}.name`)) {
     if (i >= MAX_TICKET_TYPES) return { error: `Too many ticket types (max ${MAX_TICKET_TYPES})` }
-    const idRaw = ((formData.get(`ticketType.${i}.id`) as string | null) ?? "").trim()
-    // Digit-only: rejects "5abc"/"1e9"-style strings that parseInt would truncate.
-    const id = /^\d+$/.test(idRaw) ? Number.parseInt(idRaw, 10) : null
-    const name = (formData.get(`ticketType.${i}.name`) as string).trim()
-    // Validate the money format on the raw string and store it as-is in the
-    // Decimal(10,2) column — never parseFloat (rejects "1e3"/"9.999" that would
-    // otherwise be silently coerced or truncated by Postgres).
-    const price = ((formData.get(`ticketType.${i}.price`) as string | null) ?? "").trim()
-    const capRaw = ((formData.get(`ticketType.${i}.capacity`) as string | null) ?? "").trim()
-    // A fully-blank row is a trailing form slot — skip it. But a NAMED row with
-    // a bad/blank price is a user typo: surface it instead of silently dropping
-    // the row, which on update reads as a ticket-type removal (delete/FK error).
-    if (name) {
-      if (!MONEY_DECIMAL_RE.test(price)) return { error: `Invalid price for ticket type "${name}"` }
-      if (Number(price) > MAX_TICKET_PRICE) return { error: `Invalid price for ticket type "${name}"` }
-      let capacity: number | null = null
-      if (capRaw) {
-        const n = Number.parseInt(capRaw, 10)
-        if (Number.isNaN(n) || n <= 0 || n > MAX_INT4)
-          return { error: `Capacity for "${name}" must be a whole number between 1 and ${MAX_INT4}` }
-        capacity = n
-      }
-      const countsTowardWaiver = formData.get(`ticketType.${i}.countsToward`) === "on"
-      types.push({ id, name, price, capacity, countsTowardWaiver })
-    }
+    const result = parseTicketTypeRow(formData, i)
+    if (result.error !== undefined) return { error: result.error }
+    if (result.row) types.push(result.row)
     i++
   }
   return { types }

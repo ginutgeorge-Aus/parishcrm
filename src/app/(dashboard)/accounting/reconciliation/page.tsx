@@ -12,6 +12,16 @@ import { sydneyToday, endOfDayUTC } from "@/lib/dates"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { currentFYYear } from "@/lib/fiscalYear"
 import { fmtAUD, MONTH_ABBR_TITLE, toCents, centsToNumber } from "@/lib/formatting"
+import { fetchIf } from "@/lib/asyncOr"
+import { pickDefaultAccount } from "@/lib/reports/pickDefaultAccount"
+import {
+  resolveStatusFilter,
+  statusWhereClause,
+  isBeforeOpeningBalance,
+  hasPeriodAnchor,
+  computeBookBalance,
+  shouldShowRunningBalance,
+} from "@/lib/reports/reconciliationWorkingCalcs"
 
 // Cap the rendered transaction list so a wide (e.g. all-time) date range can't
 // load thousands of rows into memory and the DOM. The reconciliation
@@ -36,6 +46,95 @@ function fmtDate(d: Date) {
   return `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
+// The reconciliation-equation panel has three mutually-exclusive states
+// (book balance known / opening balance too recent for the window / no
+// opening balance at all) — split into an if/else-if/else component so this
+// doesn't count as nested ternaries against the page's cognitive complexity.
+function ReconciliationEquationPanel({
+  openingBalance,
+  calculated,
+  periodIn,
+  periodOut,
+  paymentAccountId,
+  statementDateStr,
+  savedStatement,
+  userCanEdit,
+}: Readonly<{
+  openingBalance: { asOfDate: Date; amount: { toString(): string } } | null
+  calculated: number | null
+  periodIn: number
+  periodOut: number
+  paymentAccountId: number
+  statementDateStr: string
+  savedStatement: { closingBalance: { toString(): string } } | null
+  userCanEdit: boolean
+}>) {
+  if (openingBalance && calculated !== null) {
+    return (
+      <div className="mb-4 p-4 bg-card rounded-lg border border-border">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+          Reconciliation Equation
+        </h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Book balance — opening balance plus every transaction this period. When it matches
+          the statement closing balance, saving the balance reconciles the period.
+        </p>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex items-center">
+            <span className="text-muted-foreground w-52">
+              Opening Balance{" "}
+              <span className="text-muted-foreground text-xs">
+                (since {fmtDate(openingBalance.asOfDate)})
+              </span>
+            </span>
+            <span className="tabular">{fmtAUD(Number(openingBalance.amount))}</span>
+          </div>
+          <div className="flex items-center">
+            <span className="text-muted-foreground w-52">+ Income (this period)</span>
+            <span className="tabular text-income">+ {fmtAUD(periodIn)}</span>
+          </div>
+          <div className="flex items-center">
+            <span className="text-muted-foreground w-52">− Expenses (this period)</span>
+            <span className="tabular text-expense">− {fmtAUD(periodOut)}</span>
+          </div>
+          <div className="flex items-center border-t pt-1.5 font-semibold">
+            <span className="w-52">Calculated Balance</span>
+            <span className="tabular">{fmtAUD(calculated)}</span>
+          </div>
+          <div className="border-t pt-2">
+            <StatementBalanceInput
+              key={`${paymentAccountId}-${statementDateStr}`}
+              paymentAccountId={paymentAccountId}
+              statementDate={statementDateStr}
+              initialValue={savedStatement ? savedStatement.closingBalance.toString() : null}
+              calculatedBalance={calculated}
+              canEdit={userCanEdit}
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (openingBalance) {
+    return (
+      <div className="mb-4 p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
+        This account has no defined position until its opening-balance date, {fmtDate(openingBalance.asOfDate)}.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-4 p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
+      Set an opening balance in{" "}
+      <a href="/accounting/settings" className="underline font-medium">
+        Accounting Settings
+      </a>{" "}
+      to use the reconciliation equation.
+    </div>
+  )
+}
+
 export default async function ReconciliationPage(props: {
   searchParams: Promise<{ paymentAccount?: string; from?: string; to?: string; status?: string }>
 }) {
@@ -51,27 +150,13 @@ export default async function ReconciliationPage(props: {
   // Reports show all accounts (incl. deactivated-with-history), not just active ones.
   const accounts = await getPaymentAccounts({ activeOnly: false })
   const parsedAccountId = searchParams.paymentAccount ? Number.parseInt(searchParams.paymentAccount, 10) : Number.NaN
-  const selectedAccount =
-    accounts.find((a) => a.id === parsedAccountId) ??
-    accounts.find((a) => a.kind === "BANK") ??
-    accounts[0] ??
-    null
+  const selectedAccount = pickDefaultAccount(accounts, parsedAccountId)
 
   const fromDate = parseDate(searchParams.from) ?? fyStart
   const toDate = parseDate(searchParams.to) ?? today
 
-  // Status filter applies to the transaction LIST only — the summary bar and
-  // equation stay full-period so their totals never depend on the view.
-  const statusFilter: "all" | "pending" | "reconciled" =
-    searchParams.status === "pending" || searchParams.status === "reconciled"
-      ? searchParams.status
-      : "all"
-  const statusWhere =
-    statusFilter === "pending"
-      ? { reconciled: false }
-      : statusFilter === "reconciled"
-        ? { reconciled: true }
-        : {}
+  const statusFilter = resolveStatusFilter(searchParams.status)
+  const statusWhere = statusWhereClause(statusFilter)
 
   const fromStr = toYMD(fromDate)
   const toStr = toYMD(toDate)
@@ -97,8 +182,8 @@ export default async function ReconciliationPage(props: {
     where: { paymentAccountId: selectedAccount.id },
   })
 
-  const beforeOpeningBalance =
-    !!openingBalance && endOfDayUTC(toDate) < openingBalance.asOfDate
+  const beforeOpeningBalance = isBeforeOpeningBalance(openingBalance, toDate)
+  const periodAnchor = hasPeriodAnchor(openingBalance, beforeOpeningBalance)
 
   // Step 2: parallel queries
   const txWhere = {
@@ -150,26 +235,32 @@ export default async function ReconciliationPage(props: {
       // period reconciled (reconcile-on-save). lte reaches end-of-day so a tx
       // stamped any time on `toDate` is included — must match the bound in
       // saveStatementBalance so the Difference shown here equals the save decision.
-      openingBalance && !beforeOpeningBalance
-        ? prisma.transaction.aggregate({
+      fetchIf(
+        periodAnchor,
+        () =>
+          prisma.transaction.aggregate({
             where: {
               paymentAccountId: selectedAccount.id,
               type: TransactionType.INCOME,
-              date: { gte: openingBalance.asOfDate, lte: endOfDayUTC(toDate) },
+              date: { gte: openingBalance!.asOfDate, lte: endOfDayUTC(toDate) },
             },
             _sum: { amount: true },
-          })
-        : Promise.resolve({ _sum: { amount: null } }),
-      openingBalance && !beforeOpeningBalance
-        ? prisma.transaction.aggregate({
+          }),
+        { _sum: { amount: null } }
+      ),
+      fetchIf(
+        periodAnchor,
+        () =>
+          prisma.transaction.aggregate({
             where: {
               paymentAccountId: selectedAccount.id,
               type: TransactionType.EXPENSE,
-              date: { gte: openingBalance.asOfDate, lte: endOfDayUTC(toDate) },
+              date: { gte: openingBalance!.asOfDate, lte: endOfDayUTC(toDate) },
             },
             _sum: { amount: true },
-          })
-        : Promise.resolve({ _sum: { amount: null } }),
+          }),
+        { _sum: { amount: null } }
+      ),
       prisma.reconciliationStatement.findUnique({
         where: {
           paymentAccountId_statementDate: {
@@ -190,13 +281,12 @@ export default async function ReconciliationPage(props: {
   // Compute in integer cents to match reconcileIfBalanced's server-side math —
   // a float sum here could show "Difference: $0.00" while the action's cent
   // comparison still finds diffCents >= 1 and refuses to auto-reconcile.
-  const calculated  = openingBalance && !beforeOpeningBalance
-    ? centsToNumber(
-        toCents(openingBalance.amount) +
-        toCents(runningBalanceIncome._sum.amount ?? 0) -
-        toCents(runningBalanceExpense._sum.amount ?? 0)
-      )
-    : null
+  const calculated = computeBookBalance(
+    openingBalance,
+    periodAnchor,
+    runningBalanceIncome._sum.amount ?? 0,
+    runningBalanceExpense._sum.amount ?? 0
+  )
   const userCanEdit = canAccessAccounting(session?.user?.role)
 
   // No cast — let TS validate the real groupBy shape (_count: true → number).
@@ -215,8 +305,7 @@ export default async function ReconciliationPage(props: {
   // opening-balance anchor, the view isn't status-filtered (a running balance
   // that skips rows means nothing), and the window starts on or after the anchor
   // (else pre-anchor rows would double-count against the opening balance).
-  const showRunningBalance =
-    !!openingBalance && statusFilter === "all" && fromDate >= openingBalance.asOfDate
+  const showRunningBalance = shouldShowRunningBalance(openingBalance, statusFilter, fromDate)
   let runningCents: number[] = []
   if (showRunningBalance) {
     // Balance carried into the window: opening + net movement strictly before
@@ -284,68 +373,16 @@ export default async function ReconciliationPage(props: {
       </div>
 
       {/* Equation panel */}
-      {openingBalance && calculated !== null ? (
-        <div className="mb-4 p-4 bg-card rounded-lg border border-border">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-            Reconciliation Equation
-          </h3>
-          <p className="text-xs text-muted-foreground mb-3">
-            Book balance — opening balance plus every transaction this period. When it matches
-            the statement closing balance, saving the balance reconciles the period.
-          </p>
-          <div className="space-y-1.5 text-sm">
-            <div className="flex items-center">
-              <span className="text-muted-foreground w-52">
-                Opening Balance{" "}
-                <span className="text-muted-foreground text-xs">
-                  (since {fmtDate(openingBalance.asOfDate)})
-                </span>
-              </span>
-              <span className="tabular">{fmtAUD(Number(openingBalance.amount))}</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-muted-foreground w-52">+ Income (this period)</span>
-              <span className="tabular text-income">+ {fmtAUD(periodIn)}</span>
-            </div>
-            <div className="flex items-center">
-              <span className="text-muted-foreground w-52">− Expenses (this period)</span>
-              <span className="tabular text-expense">− {fmtAUD(periodOut)}</span>
-            </div>
-            <div className="flex items-center border-t pt-1.5 font-semibold">
-              <span className="w-52">Calculated Balance</span>
-              <span className="tabular">{fmtAUD(calculated)}</span>
-            </div>
-            <div className="border-t pt-2">
-              <StatementBalanceInput
-                key={`${selectedAccount.id}-${toStr}`}
-                paymentAccountId={selectedAccount.id}
-                statementDate={toStr}
-                initialValue={
-                  savedStatement
-                    ? savedStatement.closingBalance.toString()
-                    : null
-                }
-                calculatedBalance={calculated}
-                canEdit={userCanEdit}
-              />
-            </div>
-          </div>
-        </div>
-      ) : openingBalance ? (
-        <div className="mb-4 p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
-          This account has no defined position until its opening-balance date, {fmtDate(openingBalance.asOfDate)}.
-        </div>
-      ) : (
-        !openingBalance && (
-          <div className="mb-4 p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
-            Set an opening balance in{" "}
-            <a href="/accounting/settings" className="underline font-medium">
-              Accounting Settings
-            </a>{" "}
-            to use the reconciliation equation.
-          </div>
-        )
-      )}
+      <ReconciliationEquationPanel
+        openingBalance={openingBalance}
+        calculated={calculated}
+        periodIn={periodIn}
+        periodOut={periodOut}
+        paymentAccountId={selectedAccount.id}
+        statementDateStr={toStr}
+        savedStatement={savedStatement}
+        userCanEdit={userCanEdit}
+      />
 
       {/* Transactions table */}
       {decryptedTransactions.length === RECON_TX_CAP && (

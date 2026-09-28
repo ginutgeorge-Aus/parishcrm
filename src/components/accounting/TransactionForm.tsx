@@ -20,6 +20,16 @@ import { ActionResult } from "@/lib/actions/types"
 import { AccountType, TransactionType } from "@/lib/generated/prisma/enums"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import {
+  fromSentinel,
+  idToStringOrEmpty,
+  findDefaultBankAccountId,
+  initialPaymentAccountId,
+  initialFundId,
+  deriveTransactionType,
+  formatUpdatedAt,
+  submitLabel,
+} from "@/lib/transactionFormHelpers"
 
 type Account = { id: number; code: string; name: string; type: AccountType }
 type Family = { id: number; name: string; people: { id: number; firstName: string; lastName: string }[] }
@@ -75,21 +85,13 @@ export function TransactionForm({
   const incomeAccounts = accounts.filter((a) => a.type === AccountType.INCOME)
   const expenseAccounts = accounts.filter((a) => a.type === AccountType.EXPENSE)
 
-  const [selectedAccountId, setSelectedAccountId] = useState(
-    transaction?.accountId ? String(transaction.accountId) : ""
-  )
+  const [selectedAccountId, setSelectedAccountId] = useState(idToStringOrEmpty(transaction?.accountId))
   // New entries preselect the account flagged Default (an active BANK account);
   // edits keep the row's own account. Without this the picker starts blank and
   // the "Default" flag never actually preselects a posting account.
-  const defaultBankAccountId = paymentAccounts.find(
-    (a) => a.kind === "BANK" && a.isDefault && a.isActive
-  )?.id
+  const defaultBankAccountId = findDefaultBankAccountId(paymentAccounts)
   const [paymentAccountId, setPaymentAccountId] = useState<string>(
-    transaction?.paymentAccountId
-      ? String(transaction.paymentAccountId)
-      : defaultBankAccountId != null
-        ? String(defaultBankAccountId)
-        : ""
+    initialPaymentAccountId(transaction?.paymentAccountId, defaultBankAccountId)
   )
   // The caller passes ALL accounts (active + inactive, both kinds) so a
   // deactivated-but-still-referenced BANK account keeps rendering here — same
@@ -99,17 +101,15 @@ export function TransactionForm({
   // it renders via the disabled sentinel below instead of the normal list.
   const bankAccounts = paymentAccounts.filter((a) => a.kind === "BANK")
   const currentPaymentAccount = paymentAccounts.find((a) => String(a.id) === paymentAccountId)
-  const [familyId, setFamilyId] = useState(transaction?.familyId ? String(transaction.familyId) : "")
-  const [personId, setPersonId] = useState(transaction?.personId ? String(transaction.personId) : "")
+  const [familyId, setFamilyId] = useState(idToStringOrEmpty(transaction?.familyId))
+  const [personId, setPersonId] = useState(idToStringOrEmpty(transaction?.personId))
   const generalFundId = funds.find((f) => f.name === "General")?.id
   // Edit mode must reflect the row's actual fundId — including genuinely null
   // (unassigned) — never fall back to General, or saving an untouched select
   // silently reassigns the transaction to General. The General default
   // only applies when creating a brand-new transaction (no `transaction` prop).
   const [fundId, setFundId] = useState(
-    transaction
-      ? transaction.fundId != null ? String(transaction.fundId) : ""
-      : generalFundId != null ? String(generalFundId) : ""
+    initialFundId(!!transaction, transaction?.fundId, generalFundId)
   )
 
   const selectedFamily = families.find((f) => String(f.id) === familyId)
@@ -119,11 +119,7 @@ export function TransactionForm({
   // No account selected → fall back to the row's stored type (edit) or INCOME
   // (new), matching the prior useState default + early-return-in-effect.
   const selectedAccount = accounts.find((a) => String(a.id) === selectedAccountId)
-  const derivedType = selectedAccount
-    ? selectedAccount.type === AccountType.INCOME
-      ? TransactionType.INCOME
-      : TransactionType.EXPENSE
-    : (transaction?.type ?? TransactionType.INCOME)
+  const derivedType = deriveTransactionType(selectedAccount?.type, transaction?.type)
 
   // Clear the selected member only when the user actually CHANGES the family,
   // never on the initial mount — an unconditional reset here wiped the
@@ -158,11 +154,7 @@ export function TransactionForm({
       {/* Optimistic-concurrency token — the row's last-seen version, so
           the server can reject a save that would clobber a concurrent edit. */}
       {transaction?.updatedAt && (
-        <input
-          type="hidden"
-          name="updatedAt"
-          value={typeof transaction.updatedAt === "string" ? transaction.updatedAt : transaction.updatedAt.toISOString()}
-        />
+        <input type="hidden" name="updatedAt" value={formatUpdatedAt(transaction.updatedAt)} />
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -250,7 +242,7 @@ export function TransactionForm({
             "unassigned" is a non-empty sentinel mapped back to "" here — same
             pattern as the familyId select below. */}
         <input type="hidden" name="fundId" value={fundId} />
-        <Select value={fundId || "NONE"} onValueChange={(v: string) => setFundId(v === "NONE" ? "" : v)}>
+        <Select value={fundId || "NONE"} onValueChange={(v: string) => setFundId(fromSentinel(v))}>
           <SelectTrigger id="fundId" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -300,7 +292,7 @@ export function TransactionForm({
           <input type="hidden" name="familyId" value={familyId} />
           <Select
             value={familyId || "NONE"}
-            onValueChange={(v: string) => setFamilyId(v === "NONE" ? "" : v)}
+            onValueChange={(v: string) => setFamilyId(fromSentinel(v))}
           >
             <SelectTrigger id="familyId" className="w-full">
               <SelectValue />
@@ -319,7 +311,7 @@ export function TransactionForm({
           <input type="hidden" name="personId" value={personId} />
           <Select
             value={personId || "NONE"}
-            onValueChange={(v: string) => setPersonId(v === "NONE" ? "" : v)}
+            onValueChange={(v: string) => setPersonId(fromSentinel(v))}
             disabled={!familyId}
           >
             <SelectTrigger id="personId" className="w-full">
@@ -348,7 +340,7 @@ export function TransactionForm({
       </div>
 
       <div className="flex gap-3 pt-2">
-        <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : transaction ? "Save changes" : "Create transaction"}</Button>
+        <Button type="submit" disabled={isPending}>{submitLabel(isPending, !!transaction)}</Button>
         <Button type="button" variant="outline" asChild>
           <Link href="/accounting/transactions">Cancel</Link>
         </Button>

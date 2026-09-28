@@ -29,35 +29,58 @@ export interface ResolvedRow extends ParsedRow {
   donor: DonorMatch          // receipts only; { status: "none" } for expenses
 }
 
+type CsvParseState = { rows: string[][]; field: string; row: string[]; inQuotes: boolean }
+
+// Pushes the current field onto the current row and resets it.
+function csvPushField(state: CsvParseState): void {
+  state.row.push(state.field)
+  state.field = ""
+}
+
+// Ends the current row: kept only when it has at least one non-blank field
+// (blank lines are skipped), then a fresh row is started.
+function csvPushRow(state: CsvParseState): void {
+  if (state.row.some((f) => f.trim() !== "")) state.rows.push(state.row)
+  state.row = []
+}
+
+// Consumes one source character into `state` (comma-separated, double-quote
+// quoting with "" escaping). Returns the number of *extra* characters this
+// consumed — 1 when a "" escape swallowed the next char as well, else 0 — so
+// the caller can skip its index the same way the original inline `i++` did.
+function consumeCsvChar(state: CsvParseState, src: string, i: number): number {
+  const c = src[i]
+  if (state.inQuotes) {
+    if (c === '"') {
+      if (src[i + 1] === '"') { state.field += '"'; return 1 }
+      state.inQuotes = false
+      return 0
+    }
+    state.field += c
+    return 0
+  }
+  if (c === '"') { state.inQuotes = true; return 0 }
+  if (c === ",") { csvPushField(state); return 0 }
+  if (c === "\n") { csvPushField(state); csvPushRow(state); return 0 }
+  state.field += c
+  return 0
+}
+
 // Minimal RFC4180-style parser: comma-separated, double-quote quoting with ""
 // escaping, CRLF or LF line endings. Blank lines are skipped.
 export function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let field = ""
-  let row: string[] = []
-  let inQuotes = false
+  const state: CsvParseState = { rows: [], field: "", row: [], inQuotes: false }
   const src = text.replace(/\r\n?/g, "\n")
   for (let i = 0; i < src.length; i++) {
-    const c = src[i]
-    if (inQuotes) {
-      if (c === '"') {
-        if (src[i + 1] === '"') { field += '"'; i++ } else { inQuotes = false }
-      } else field += c
-    } else if (c === '"') inQuotes = true
-    else if (c === ",") { row.push(field); field = "" }
-    else if (c === "\n") {
-      row.push(field); field = ""
-      if (row.some((f) => f.trim() !== "")) rows.push(row)
-      row = []
-    } else field += c
+    i += consumeCsvChar(state, src, i)
   }
   // A quote left open at end-of-input swallowed every following line into this
   // field (newlines were absorbed while inQuotes) — the row count and every
   // downstream value are corrupt. Fail loudly instead of importing garbage.
-  if (inQuotes) throw new Error("Malformed CSV: unterminated quoted field")
-  row.push(field)
-  if (row.some((f) => f.trim() !== "")) rows.push(row)
-  return rows
+  if (state.inQuotes) throw new Error("Malformed CSV: unterminated quoted field")
+  csvPushField(state)
+  csvPushRow(state)
+  return state.rows
 }
 
 const EXPECTED_HEADER = ["date", "type", "account", "payee_or_donor", "amount", "notes"]

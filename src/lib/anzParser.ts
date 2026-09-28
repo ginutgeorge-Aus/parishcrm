@@ -259,6 +259,122 @@ function tryParseAnzAmountLine(line: string): AnzAmountMatch | null {
 
 const STATEMENT_PERIOD_RE = /(\d{1,2})\s+([A-Z]+)\s+(\d{4})\s+TO\s+(\d{1,2})\s+([A-Z]+)\s+(\d{4})/
 
+type OpeningBalanceState = { value: number | null; captureNext: boolean }
+
+// `beforeGroup` for parseAnzStatement's groupIntoBlocks: captures the opening
+// balance so the first legacy (bare-amount) transaction can be classified by
+// comparing against it, instead of defaulting to INCOME. The amount may be
+// inline ("OPENING BALANCE 10,000.00") or on the following line. Also drops
+// SKIP_PATTERNS lines and lone page-number lines from block-grouping. Mutates
+// `state` in place so the caller can read the resolved balance after grouping.
+function makeStatementBeforeGroup(state: OpeningBalanceState): (line: string) => boolean {
+  return (line: string) => {
+    if (state.captureNext) {
+      state.captureNext = false
+      const m = line.match(/^([\d,]+\.\d{2})$/)
+      if (m) { state.value = parseBalance(m[1]); return true }
+    }
+    if (SKIP_PATTERNS.some((p) => line.includes(p))) {
+      if (line.includes("OPENING BALANCE")) {
+        const m = line.match(/([\d,]+\.\d{2})\s*$/)
+        if (m) state.value = parseBalance(m[1])
+        else state.captureNext = true
+      }
+      return true
+    }
+    if (/^\d{4}$/.test(line)) return true
+    return false
+  }
+}
+
+type StatementYearState = { currentYear: number; prevMonthNum: number | null }
+type StatementBalanceState = { prevBalance: number | null }
+
+// Parses a single DD-MMM transaction block (as grouped by groupIntoBlocks)
+// into a ParsedRow, or returns null when the block is skipped — the reason
+// (if any) is pushed onto `errors`, mirroring the `continue`s this replaces.
+// Mutates `yearState`/`balanceState` in place across calls, exactly as the
+// original loop's outer `let`s did (year-wrap heuristic, running balance).
+function parseStatementBlock(
+  block: string[],
+  period: { from: string; to: string },
+  accountNumber: string,
+  yearState: StatementYearState,
+  balanceState: StatementBalanceState,
+  errors: string[]
+): ParsedRow | null {
+  const dateMatch = block[0].match(DATE_LINE_RE)
+  if (!dateMatch) return null
+  const [, day, month, firstLineRest] = dateMatch
+
+  const monthNum = Number.parseInt(MONTH_MAP[month])
+  if (yearState.prevMonthNum !== null && monthNum < yearState.prevMonthNum) yearState.currentYear++
+  yearState.prevMonthNum = monthNum
+
+  const date = toIso(day, month, yearState.currentYear)
+  if (date === null) {
+    errors.push(`Invalid date in transaction: ${block[0]}`)
+    return null
+  }
+  // The monotonic year-wrap heuristic above assumes chronologically ordered
+  // months. Malformed/merged statements can violate that and yield a date in
+  // the wrong year — reject anything outside the statement period rather than
+  // silently importing a mis-dated transaction.
+  if (!assertWithinPeriod(date, period, block[0], errors)) return null
+  const descLines: string[] = []
+  let amountStr: string | null = null
+  let balance: number | null = null
+  let explicitType: "INCOME" | "EXPENSE" | null = null
+
+  const consumeLine = (line: string) => {
+    // Parse the amount/balance once. Later lines fall through to the
+    // description-continuation branch below — an early `return` here dropped
+    // every detail line that appears AFTER the amount line in a block.
+    if (amountStr === null) {
+      const parsed = tryParseAnzAmountLine(line)
+      if (parsed) {
+        if (parsed.desc) descLines.push(parsed.desc)
+        amountStr = parsed.amountStr
+        balance = parsed.balance
+        explicitType = parsed.explicitType
+        return
+      }
+    }
+    // Description/detail line — captured whether it precedes OR follows the
+    // amount line. Skip EFFECTIVE DATE lines (settlement-date noise).
+    if (/^EFFECTIVE DATE/.test(line)) return
+    if (line) descLines.push(line)
+  }
+
+  if (firstLineRest.trim()) consumeLine(firstLineRest.trim())
+  for (let i = 1; i < block.length; i++) consumeLine(block[i])
+
+  if (amountStr === null || balance === null) {
+    errors.push(`Could not parse amounts for: ${block[0]}`)
+    return null
+  }
+
+  // A legacy row (no explicit deposit/withdrawal column) whose sign can't be
+  // derived from the running balance is undecidable — flag it for manual review
+  // instead of silently posting a guessed type:
+  //   - equal balance: a deposit that left the balance unchanged would flip to
+  //     EXPENSE;
+  //   - null prevBalance (opening balance missed/unparsed): the first row would
+  //     silently default to INCOME even when it's a withdrawal.
+  const prevBalance = balanceState.prevBalance
+  const ambiguousType = explicitType == null && (prevBalance === null || balance === prevBalance)
+  const type: "INCOME" | "EXPENSE" =
+    explicitType ?? (prevBalance === null || balance > prevBalance ? "INCOME" : "EXPENSE")
+  balanceState.prevBalance = balance
+
+  const description = descLines[0] ?? ""
+  const details = descLines.join(" | ")
+  const dedupKey = bankRefContentKey(accountNumber, date, amountStr, description)
+  const bankRef = makeBankRef(accountNumber, date, amountStr, description, balance)
+
+  return { date, description, details, amount: amountStr, type, bankRef, dedupKey, ...(ambiguousType && { ambiguousType: true }) }
+}
+
 export function parseAnzStatement(text: string): ParseResult {
   const errors: string[] = []
 
@@ -285,111 +401,24 @@ export function parseAnzStatement(text: string): ParseResult {
 
   const lines = tableText.split("\n").map((l) => l.trim()).filter(Boolean)
 
-  // Capture the opening balance so the first legacy (bare-amount) transaction can
-  // be classified by comparing against it, instead of defaulting to INCOME. The
-  // amount may be inline ("OPENING BALANCE 10,000.00") or on the following line.
-  let openingBalance: number | null = null
-  let captureOpeningNext = false
-
-  // Group lines into blocks — each block starts with a DD MMM line
+  // Group lines into blocks — each block starts with a DD MMM line. The
+  // beforeGroup callback also captures the opening balance as a side effect
+  // (see makeStatementBeforeGroup).
+  const openingBalanceState: OpeningBalanceState = { value: null, captureNext: false }
   const blocks = groupIntoBlocks<string[]>(
     lines,
     (line) => [line],
     (block, line) => block.push(line),
-    (line) => {
-      if (captureOpeningNext) {
-        captureOpeningNext = false
-        const m = line.match(/^([\d,]+\.\d{2})$/)
-        if (m) { openingBalance = parseBalance(m[1]); return true }
-      }
-      if (SKIP_PATTERNS.some((p) => line.includes(p))) {
-        if (line.includes("OPENING BALANCE")) {
-          const m = line.match(/([\d,]+\.\d{2})\s*$/)
-          if (m) openingBalance = parseBalance(m[1])
-          else captureOpeningNext = true
-        }
-        return true
-      }
-      if (/^\d{4}$/.test(line)) return true
-      return false
-    }
+    makeStatementBeforeGroup(openingBalanceState)
   )
 
   const rows: ParsedRow[] = []
-  let prevBalance: number | null = openingBalance
-  let currentYear = fromYear
-  let prevMonthNum: number | null = null
+  const yearState: StatementYearState = { currentYear: fromYear, prevMonthNum: null }
+  const balanceState: StatementBalanceState = { prevBalance: openingBalanceState.value }
 
   for (const block of blocks) {
-    const dateMatch = block[0].match(DATE_LINE_RE)
-    if (!dateMatch) continue
-    const [, day, month, firstLineRest] = dateMatch
-
-    const monthNum = Number.parseInt(MONTH_MAP[month])
-    if (prevMonthNum !== null && monthNum < prevMonthNum) currentYear++
-    prevMonthNum = monthNum
-
-    const date = toIso(day, month, currentYear)
-    if (date === null) {
-      errors.push(`Invalid date in transaction: ${block[0]}`)
-      continue
-    }
-    // The monotonic year-wrap heuristic above assumes chronologically ordered
-    // months. Malformed/merged statements can violate that and yield a date in
-    // the wrong year — reject anything outside the statement period rather than
-    // silently importing a mis-dated transaction.
-    if (!assertWithinPeriod(date, period, block[0], errors)) continue
-    const descLines: string[] = []
-    let amountStr: string | null = null
-    let balance: number | null = null
-    let explicitType: "INCOME" | "EXPENSE" | null = null
-
-    const consumeLine = (line: string) => {
-      // Parse the amount/balance once. Later lines fall through to the
-      // description-continuation branch below — an early `return` here dropped
-      // every detail line that appears AFTER the amount line in a block.
-      if (amountStr === null) {
-        const parsed = tryParseAnzAmountLine(line)
-        if (parsed) {
-          if (parsed.desc) descLines.push(parsed.desc)
-          amountStr = parsed.amountStr
-          balance = parsed.balance
-          explicitType = parsed.explicitType
-          return
-        }
-      }
-      // Description/detail line — captured whether it precedes OR follows the
-      // amount line. Skip EFFECTIVE DATE lines (settlement-date noise).
-      if (/^EFFECTIVE DATE/.test(line)) return
-      if (line) descLines.push(line)
-    }
-
-    if (firstLineRest.trim()) consumeLine(firstLineRest.trim())
-    for (let i = 1; i < block.length; i++) consumeLine(block[i])
-
-    if (amountStr === null || balance === null) {
-      errors.push(`Could not parse amounts for: ${block[0]}`)
-      continue
-    }
-
-    // A legacy row (no explicit deposit/withdrawal column) whose sign can't be
-    // derived from the running balance is undecidable — flag it for manual review
-    // instead of silently posting a guessed type:
-    //   - equal balance: a deposit that left the balance unchanged would flip to
-    //     EXPENSE;
-    //   - null prevBalance (opening balance missed/unparsed): the first row would
-    //     silently default to INCOME even when it's a withdrawal.
-    const ambiguousType = explicitType == null && (prevBalance === null || balance === prevBalance)
-    const type: "INCOME" | "EXPENSE" =
-      explicitType ?? (prevBalance === null || balance > prevBalance ? "INCOME" : "EXPENSE")
-    prevBalance = balance
-
-    const description = descLines[0] ?? ""
-    const details = descLines.join(" | ")
-    const dedupKey = bankRefContentKey(accountNumber, date, amountStr, description)
-    const bankRef = makeBankRef(accountNumber, date, amountStr, description, balance)
-
-    rows.push({ date, description, details, amount: amountStr, type, bankRef, dedupKey, ...(ambiguousType && { ambiguousType: true }) })
+    const row = parseStatementBlock(block, period, accountNumber, yearState, balanceState, errors)
+    if (row) rows.push(row)
   }
 
   return { rows, period, accountNumber, errors }

@@ -14,6 +14,112 @@ import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 
+const ID = /^\d+$/
+
+// Tri-state: the parsed id, `null` when the param is present but malformed
+// (caller 400s), or `undefined` when absent (filter omitted). Rejecting a
+// malformed id instead of silently omitting it stops the export broadening to
+// ALL records, and `/^\d+$/` stops "12abc" truncating to id 12.
+function parseId(s: string | null): number | null | undefined {
+  if (s === null) return undefined
+  if (!ID.test(s)) return null
+  const n = Number.parseInt(s, 10)
+  return n <= 0 || n > 2147483647 ? null : n
+}
+
+type TransactionWhereInput = {
+  from: Date
+  to: Date | null
+  accountId: number | undefined
+  type: string | null
+  familyId: number | undefined
+  paymentAccountId: number | undefined
+  reconciled: string | null
+  fundParam: string | null
+  fundId: number | undefined
+}
+
+// Builds the Prisma `where` filter from the request's validated query params.
+function buildTransactionWhere(f: TransactionWhereInput) {
+  return {
+    date: {
+      gte: f.from,
+      ...(f.to && { lte: endOfDayUTC(f.to) }),
+    },
+    ...(f.accountId !== undefined && { accountId: f.accountId }),
+    ...(f.type && { type: f.type as TransactionType }),
+    ...(f.familyId !== undefined && { familyId: f.familyId }),
+    ...(f.paymentAccountId !== undefined && { paymentAccountId: f.paymentAccountId }),
+    ...(f.reconciled === "true" && { reconciled: true }),
+    ...(f.reconciled === "false" && { reconciled: false }),
+    ...(f.fundParam === "none" ? { fundId: null } : f.fundId !== undefined && { fundId: f.fundId }),
+  }
+}
+
+type TransactionWhere = ReturnType<typeof buildTransactionWhere>
+
+// Discriminated union (not an `{error}`/`{data}` object-literal union) so the
+// `ok` check below narrows cleanly — a plain `error?` field would not.
+type ExportParamsResult =
+  | { ok: false; error: string }
+  | { ok: true; where: TransactionWhere; q: string }
+
+// Parses and validates every export query param, in the same order/messages
+// as before. Returns a 400 error message on the first malformed param, else
+// the Prisma `where` filter and free-text search term.
+function parseExportParams(sp: URLSearchParams): ExportParamsResult {
+  const parseDate = parseISODate
+
+  // Default to FY start (July–June), matching report pages.
+  const defaultFrom = fyDateRange(currentFYYear()).start
+
+  // Validate enum params: an arbitrary string cast to a Prisma enum
+  // throws uncaught at query time and leaks a 500.
+  const type = sp.get("type")
+  if (type && !Object.values(TransactionType).includes(type as TransactionType)) {
+    return { ok: false, error: "Invalid type" }
+  }
+  // paymentAccount is now a numeric PaymentAccount.id (FK, not an enum) —
+  // reuse the same malformed-id 400 as account/family/fund below.
+  const paymentAccountId = parseId(sp.get("paymentAccount"))
+  if (paymentAccountId === null) return { ok: false, error: "Invalid paymentAccount" }
+
+  const accountId = parseId(sp.get("account"))
+  if (accountId === null) return { ok: false, error: "Invalid account" }
+  const familyId = parseId(sp.get("family"))
+  if (familyId === null) return { ok: false, error: "Invalid family" }
+
+  // Fund filter mirrors the list page: "none" = untagged rows, else a
+  // specific fund id (malformed → 400). Absent → all funds.
+  const fundParam = sp.get("fund")
+  const fundId = fundParam === "none" ? undefined : parseId(fundParam)
+  if (fundId === null) return { ok: false, error: "Invalid fund" }
+
+  // A malformed ?from=/?to= used to silently fall back to FY start / drop the
+  // upper bound, broadening the export outside the caller's requested period
+  // without signalling the filter was ignored. Reject it explicitly.
+  const fromParam = sp.get("from")
+  const from = fromParam === null ? defaultFrom : parseDate(fromParam)
+  if (from === null) return { ok: false, error: "Invalid date" }
+  const toParam = sp.get("to")
+  const to = toParam === null ? null : parseDate(toParam)
+  if (toParam !== null && to === null) return { ok: false, error: "Invalid date" }
+
+  const where = buildTransactionWhere({
+    from,
+    to,
+    accountId,
+    type,
+    familyId,
+    paymentAccountId,
+    reconciled: sp.get("reconciled"),
+    fundParam,
+    fundId,
+  })
+
+  return { ok: true, where, q: sp.get("q") ?? "" }
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -27,69 +133,9 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams
 
-  const parseDate = parseISODate
-  const ID = /^\d+$/
-  // Tri-state: the parsed id, `null` when the param is present but malformed
-  // (caller 400s), or `undefined` when absent (filter omitted). Rejecting a
-  // malformed id instead of silently omitting it stops the export broadening to
-  // ALL records, and `/^\d+$/` stops "12abc" truncating to id 12.
-  function parseId(s: string | null): number | null | undefined {
-    if (s === null) return undefined
-    if (!ID.test(s)) return null
-    const n = Number.parseInt(s, 10)
-    return n <= 0 || n > 2147483647 ? null : n
-  }
-
-  // Default to FY start (July–June), matching report pages.
-  const defaultFrom = fyDateRange(currentFYYear()).start
-
-  // Validate enum params: an arbitrary string cast to a Prisma enum
-  // throws uncaught at query time and leaks a 500.
-  const type = sp.get("type")
-  if (type && !Object.values(TransactionType).includes(type as TransactionType)) {
-    return NextResponse.json({ error: "Invalid type" }, { status: 400 })
-  }
-  // paymentAccount is now a numeric PaymentAccount.id (FK, not an enum) —
-  // reuse the same malformed-id 400 as account/family/fund below.
-  const paymentAccountId = parseId(sp.get("paymentAccount"))
-  if (paymentAccountId === null) return NextResponse.json({ error: "Invalid paymentAccount" }, { status: 400 })
-
-  const accountId = parseId(sp.get("account"))
-  if (accountId === null) return NextResponse.json({ error: "Invalid account" }, { status: 400 })
-  const familyId = parseId(sp.get("family"))
-  if (familyId === null) return NextResponse.json({ error: "Invalid family" }, { status: 400 })
-
-  // Fund filter mirrors the list page: "none" = untagged rows, else a
-  // specific fund id (malformed → 400). Absent → all funds.
-  const fundParam = sp.get("fund")
-  const fundId = fundParam === "none" ? undefined : parseId(fundParam)
-  if (fundId === null) return NextResponse.json({ error: "Invalid fund" }, { status: 400 })
-
-  // A malformed ?from=/?to= used to silently fall back to FY start / drop the
-  // upper bound, broadening the export outside the caller's requested period
-  // without signalling the filter was ignored. Reject it explicitly.
-  const fromParam = sp.get("from")
-  const from = fromParam === null ? defaultFrom : parseDate(fromParam)
-  if (from === null) return NextResponse.json({ error: "Invalid date" }, { status: 400 })
-  const toParam = sp.get("to")
-  const to = toParam === null ? null : parseDate(toParam)
-  if (toParam !== null && to === null) return NextResponse.json({ error: "Invalid date" }, { status: 400 })
-
-  const where = {
-    date: {
-      gte: from,
-      ...(to && { lte: endOfDayUTC(to) }),
-    },
-    ...(accountId !== undefined && { accountId }),
-    ...(type && { type: type as TransactionType }),
-    ...(familyId !== undefined && { familyId }),
-    ...(paymentAccountId !== undefined && { paymentAccountId }),
-    ...(sp.get("reconciled") === "true" && { reconciled: true }),
-    ...(sp.get("reconciled") === "false" && { reconciled: false }),
-    ...(fundParam === "none" ? { fundId: null } : fundId !== undefined && { fundId }),
-  }
-
-  const q = sp.get("q") ?? ""
+  const parsed = parseExportParams(sp)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const { where, q } = parsed
 
   const transactions = await prisma.transaction.findMany({
     where,

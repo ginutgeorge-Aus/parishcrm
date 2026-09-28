@@ -4,7 +4,13 @@ import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
-import { resolveEmailHash } from "@/lib/personExport"
+import {
+  resolveEmailHash,
+  decryptPersonScalars,
+  decryptFamilyScalars,
+  decryptTransactionForExport,
+  decryptRegistrationForExport,
+} from "@/lib/personExport"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
@@ -65,55 +71,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const data = {
     person: {
-      ...person,
+      ...decryptPersonScalars(person),
       email: personEmail,
-      // safeDecrypt throughout: one corrupt field becomes a placeholder rather
-      // than 500-ing the whole export.
-      dateOfBirth: person.dateOfBirth ? safeDecrypt(person.dateOfBirth) : null,
-      mobile: person.mobile ? safeDecrypt(person.mobile) : null,
-      workPhone: person.workPhone ? safeDecrypt(person.workPhone) : null,
-      homePhone: person.homePhone ? safeDecrypt(person.homePhone) : null,
-      notes: person.notes ? safeDecrypt(person.notes) : null,
-      pastoralNotes: person.pastoralNotes ? safeDecrypt(person.pastoralNotes) : null,
-      emergencyContactName: person.emergencyContactName ? safeDecrypt(person.emergencyContactName) : null,
-      emergencyContactPhone: person.emergencyContactPhone ? safeDecrypt(person.emergencyContactPhone) : null,
-      family: person.family
-        ? {
-            ...person.family,
-            address: person.family.address ? safeDecrypt(person.family.address) : null,
-            suburb: person.family.suburb ? safeDecrypt(person.family.suburb) : null,
-            state: person.family.state ? safeDecrypt(person.family.state) : null,
-            postcode: person.family.postcode ? safeDecrypt(person.family.postcode) : null,
-            homePhone: person.family.homePhone ? safeDecrypt(person.family.homePhone) : null,
-            notes: person.family.notes ? safeDecrypt(person.family.notes) : null,
-          }
-        : null,
+      family: person.family ? decryptFamilyScalars(person.family) : null,
     },
-    transactions: person.transactions.map((tx) => ({
-      ...tx,
-      amount: tx.amount.toString(),
-      description: safeDecrypt(tx.description),
-      receiptSends: tx.receiptSends.map((rs) => ({ ...rs, sentTo: safeDecrypt(rs.sentTo) })),
-    })),
-    registrations: registrations.map((r) => ({
-      ...r,
-      email: r.email ? safeDecrypt(r.email) : null,
-      phone: r.phone ? safeDecrypt(r.phone) : null,
-      // customAnswers is encrypted-whole as a JSON string scalar. Decrypt
-      // + parse so a data-portability export returns the member's real answers,
-      // not opaque ciphertext. Legacy plaintext-object rows pass through.
-      customAnswers: r.customAnswers
-        ? typeof r.customAnswers === "string"
-          ? (() => {
-              try {
-                return JSON.parse(safeDecrypt(r.customAnswers as string))
-              } catch {
-                return null
-              }
-            })()
-          : r.customAnswers
-        : null,
-    })),
+    transactions: person.transactions.map(decryptTransactionForExport),
+    registrations: registrations.map(decryptRegistrationForExport),
     exportedAt: new Date().toISOString(),
   }
 

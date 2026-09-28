@@ -112,6 +112,180 @@ async function findInvalidDonorOverrideMessage(overrides: Record<string, number 
   return bad.length ? `Invalid donor selection: ${bad.join(", ")}` : null
 }
 
+type ImportSession = { id: number; title: string; status: string }
+
+// session per date (reuse existing by title). Read/write through `tx`, not
+// the outer `prisma` client, so the lookup and any new-session insert stay
+// inside the transaction's isolation snapshot.
+async function ensureImportSessions(
+  tx: Prisma.TransactionClient,
+  dates: string[],
+  custodianId: number
+): Promise<Map<string, ImportSession>> {
+  const existingSessions = await tx.pettyCashSession.findMany({ where: { title: { in: dates.map((d) => sessionTitle(new Date(d + "T00:00:00Z"))) } }, select: { id: true, title: true, status: true } })
+  const sessionByTitle = new Map(existingSessions.map((s) => [s.title, s as ImportSession]))
+
+  for (const d of dates) {
+    const title = sessionTitle(new Date(d + "T00:00:00Z"))
+    if (!sessionByTitle.has(title)) {
+      // upsert (INSERT … ON CONFLICT) instead of create-then-catch-P2002: a
+      // concurrent import that wins the unique-title race resolves to
+      // the winner row. Catching P2002 inside this interactive tx and
+      // re-querying would fail — Postgres aborts the transaction on the
+      // violation (25P02), so any later command in the same tx errors.
+      const sess = await tx.pettyCashSession.upsert({
+        where: { title },
+        update: {},
+        create: { title, custodianId, openingBalance: 0 },
+        select: { id: true, title: true, status: true },
+      })
+      sessionByTitle.set(title, { id: sess.id, title: sess.title, status: sess.status as string })
+    }
+  }
+  return sessionByTitle
+}
+
+type ImportInputs = {
+  receiptInputs: Prisma.PettyCashReceiptCreateManyInput[]
+  expenseInputs: Prisma.PettyCashExpenseCreateManyInput[]
+  receipts: number
+  expenses: number
+  skipped: number
+}
+
+type RowInputResult =
+  | { kind: "skip" }
+  | { kind: "receipt"; input: Prisma.PettyCashReceiptCreateManyInput }
+  | { kind: "expense"; input: Prisma.PettyCashExpenseCreateManyInput }
+
+// Builds one row's insert payload, or reports it as a dedupe skip. `seen` is
+// mutated in place — every emitted row's key is added, exactly as the inline
+// version did, so a later duplicate row within the same CSV is still caught.
+function buildRowInput(
+  r: ResolvedRow,
+  sessionByTitle: Map<string, ImportSession>,
+  overrides: Record<string, number | null>,
+  seen: Set<string>
+): RowInputResult {
+  const title = sessionTitle(r.date!)
+  const sess = sessionByTitle.get(title)!
+  if (sess.status === "CLOSED") throw new Error(`Session ${title} is closed`)
+  // Dedupe text must mirror what is stored, or re-import won't detect dupes:
+  // receipts store notes = payeeOrDonor || notes; expenses store payee = payeeOrDonor.
+  const text = r.type === "expense" ? r.payeeOrDonor : (r.payeeOrDonor || r.notes || "")
+  const key = dedupeKey({ date: r.date!, type: r.type!, accountId: r.accountId!, amount: r.amountRaw, text })
+  if (seen.has(key)) return { kind: "skip" }
+  seen.add(key)
+
+  if (r.type === "receipt") {
+    const override = overrides[String(r.rowNumber)]
+    const personId = override !== undefined ? override : (r.donor.status === "matched" ? r.donor.personId : null)
+    // Pass the validated raw amount string (not the parseFloat) so Prisma
+    // Decimal never round-trips through an IEEE-754 float.
+    return {
+      kind: "receipt",
+      input: receiptCreateData({
+        sessionId: sess.id, date: r.date!, accountId: r.accountId!,
+        amount: r.amountRaw, personId, notes: r.payeeOrDonor || r.notes || null, importKey: key,
+      }),
+    }
+  }
+  return {
+    kind: "expense",
+    input: expenseCreateData({
+      sessionId: sess.id, date: r.date!, accountId: r.accountId!,
+      amount: r.amountRaw, payee: r.payeeOrDonor, description: r.notes, importKey: key,
+    }),
+  }
+}
+
+// Accumulate row payloads, then flush as batched writes: one
+// createManyAndReturn per kind returns the generated ids that anchor each
+// mirror-ledger row, so 2N sequential round trips collapse to ~4.
+function buildImportInputs(
+  rows: ResolvedRow[],
+  sessionByTitle: Map<string, ImportSession>,
+  overrides: Record<string, number | null>,
+  seen: Set<string>
+): ImportInputs {
+  const receiptInputs: Prisma.PettyCashReceiptCreateManyInput[] = []
+  const expenseInputs: Prisma.PettyCashExpenseCreateManyInput[] = []
+  let receipts = 0, expenses = 0, skipped = 0
+  for (const r of rows) {
+    const result = buildRowInput(r, sessionByTitle, overrides, seen)
+    if (result.kind === "skip") { skipped++; continue }
+    if (result.kind === "receipt") { receiptInputs.push(result.input); receipts++ }
+    else { expenseInputs.push(result.input); expenses++ }
+  }
+  return { receiptInputs, expenseInputs, receipts, expenses, skipped }
+}
+
+// Re-check every session this import is about to write into, right before
+// the batched insert. `sessionByTitle`'s status was read (or upserted) at the
+// top of this transaction; under Read Committed a concurrent closeSession
+// committed after that read but before this write must still be caught — the
+// per-row check in buildImportInputs only catches a session that was ALREADY
+// closed as of that earlier read. Reassert via the same conditional-updateMany
+// lock pattern as assertSessionOpenTx (pettyCashEntry.ts) so a concurrent
+// close contends on the same row instead of racing past it.
+async function assertImportSessionsStillOpen(
+  tx: Prisma.TransactionClient,
+  touchedSessionIds: Set<number>,
+  titleBySessionId: Map<number, string>
+): Promise<void> {
+  for (const sid of touchedSessionIds) {
+    const { count } = await tx.pettyCashSession.updateMany({
+      where: { id: sid, status: "OPEN" },
+      data: { status: "OPEN" },
+    })
+    if (count === 0) throw new Error(`Session ${titleBySessionId.get(sid)} is closed`)
+  }
+}
+
+// Mirror-row `reference` is the session title; derive it from each created
+// row's own sessionId so correctness never depends on createManyAndReturn
+// preserving input order. accountName maps from the row's accountId.
+async function insertImportReceipts(
+  tx: Prisma.TransactionClient,
+  receiptInputs: Prisma.PettyCashReceiptCreateManyInput[],
+  accountName: Map<number, string>,
+  titleBySessionId: Map<number, string>,
+  cashAccountId: number | null
+): Promise<void> {
+  if (!receiptInputs.length) return
+  const created = await tx.pettyCashReceipt.createManyAndReturn({ data: receiptInputs })
+  // Resolve each matched donor's family in one query so imported cash gifts
+  // mirror as giving, same as the single-entry path.
+  const donorIds = [...new Set(created.map((rec) => rec.personId).filter((id): id is number => id != null))]
+  const familyByPerson = new Map(
+    donorIds.length
+      ? (await tx.person.findMany({ where: { id: { in: donorIds } }, select: { id: true, familyId: true } }))
+          .map((p) => [p.id, p.familyId])
+      : [],
+  )
+  await tx.transaction.createMany({
+    data: created.map((rec) => receiptMirrorData(
+      rec, accountName.get(rec.accountId)!, titleBySessionId.get(rec.sessionId)!,
+      { personId: rec.personId ?? null, familyId: rec.personId != null ? familyByPerson.get(rec.personId) ?? null : null },
+      cashAccountId,
+    )),
+  })
+}
+
+async function insertImportExpenses(
+  tx: Prisma.TransactionClient,
+  expenseInputs: Prisma.PettyCashExpenseCreateManyInput[],
+  accountName: Map<number, string>,
+  titleBySessionId: Map<number, string>,
+  cashAccountId: number | null
+): Promise<void> {
+  if (!expenseInputs.length) return
+  const created = await tx.pettyCashExpense.createManyAndReturn({ data: expenseInputs })
+  await tx.transaction.createMany({
+    data: created.map((exp) => expenseMirrorData(exp, accountName.get(exp.accountId)!, titleBySessionId.get(exp.sessionId)!, cashAccountId)),
+  })
+}
+
 export async function commitImport(formData: FormData): Promise<CommitResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -189,115 +363,23 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   // work. Size the window to the row cap.
   try {
     await prisma.$transaction(async (tx) => {
-    // session per date (reuse existing by title)
-    // Read through `tx`, not the outer `prisma` client, so the lookup stays
-    // inside the transaction's isolation snapshot.
-    const existingSessions = await tx.pettyCashSession.findMany({ where: { title: { in: dates.map((d) => sessionTitle(new Date(d + "T00:00:00Z"))) } }, select: { id: true, title: true, status: true } })
-    const sessionByTitle = new Map(existingSessions.map((s) => [s.title, s as { id: number; title: string; status: string }]))
+      const sessionByTitle = await ensureImportSessions(tx, dates, custodianId)
 
-    for (const d of dates) {
-      const title = sessionTitle(new Date(d + "T00:00:00Z"))
-      if (!sessionByTitle.has(title)) {
-        // upsert (INSERT … ON CONFLICT) instead of create-then-catch-P2002: a
-        // concurrent import that wins the unique-title race resolves to
-        // the winner row. Catching P2002 inside this interactive tx and
-        // re-querying would fail — Postgres aborts the transaction on the
-        // violation (25P02), so any later command in the same tx errors.
-        const sess = await tx.pettyCashSession.upsert({
-          where: { title },
-          update: {},
-          create: { title, custodianId, openingBalance: 0 },
-          select: { id: true, title: true, status: true },
-        })
-        sessionByTitle.set(title, { id: sess.id, title: sess.title, status: sess.status as string })
-      }
-    }
+      const built = buildImportInputs(rows, sessionByTitle, overrides, seen)
+      receipts = built.receipts
+      expenses = built.expenses
+      skipped = built.skipped
 
-    // Accumulate row payloads, then flush as batched writes: one
-    // createManyAndReturn per kind returns the generated ids that anchor each
-    // mirror-ledger row, so 2N sequential round trips collapse to ~4.
-    const receiptInputs: Prisma.PettyCashReceiptCreateManyInput[] = []
-    const expenseInputs: Prisma.PettyCashExpenseCreateManyInput[] = []
-    for (const r of rows) {
-      const title = sessionTitle(r.date!)
-      const sess = sessionByTitle.get(title)!
-      if (sess.status === "CLOSED") throw new Error(`Session ${title} is closed`)
-      // Dedupe text must mirror what is stored, or re-import won't detect dupes:
-      // receipts store notes = payeeOrDonor || notes; expenses store payee = payeeOrDonor.
-      const text = r.type === "expense" ? r.payeeOrDonor : (r.payeeOrDonor || r.notes || "")
-      const key = dedupeKey({ date: r.date!, type: r.type!, accountId: r.accountId!, amount: r.amountRaw, text })
-      if (seen.has(key)) { skipped++; continue }
-      seen.add(key)
+      const titleBySessionId = new Map([...sessionByTitle.values()].map((s) => [s.id, s.title]))
+      const touchedSessionIds = new Set<number>([
+        ...built.receiptInputs.map((r) => r.sessionId as number),
+        ...built.expenseInputs.map((e) => e.sessionId as number),
+      ])
+      await assertImportSessionsStillOpen(tx, touchedSessionIds, titleBySessionId)
 
-      if (r.type === "receipt") {
-        const override = overrides[String(r.rowNumber)]
-        const personId = override !== undefined ? override : (r.donor.status === "matched" ? r.donor.personId : null)
-        // Pass the validated raw amount string (not the parseFloat) so Prisma
-        // Decimal never round-trips through an IEEE-754 float.
-        receiptInputs.push(receiptCreateData({
-          sessionId: sess.id, date: r.date!, accountId: r.accountId!,
-          amount: r.amountRaw, personId, notes: r.payeeOrDonor || r.notes || null, importKey: key,
-        }))
-        receipts++
-      } else {
-        expenseInputs.push(expenseCreateData({
-          sessionId: sess.id, date: r.date!, accountId: r.accountId!,
-          amount: r.amountRaw, payee: r.payeeOrDonor, description: r.notes, importKey: key,
-        }))
-        expenses++
-      }
-    }
-
-    // Mirror-row `reference` is the session title; derive it from each created
-    // row's own sessionId so correctness never depends on createManyAndReturn
-    // preserving input order. accountName maps from the row's accountId.
-    const titleBySessionId = new Map([...sessionByTitle.values()].map((s) => [s.id, s.title]))
-
-    // Re-check every session this import is about to write into, right before
-    // the batched insert. `sessionByTitle`'s status was read (or
-    // upserted) at the top of this transaction; under Read Committed a
-    // concurrent closeSession committed after that read but before this write
-    // must still be caught — the per-row check above only catches a session
-    // that was ALREADY closed as of that earlier read. Reassert via the same
-    // conditional-updateMany lock pattern as assertSessionOpenTx (pettyCashEntry.ts)
-    // so a concurrent close contends on the same row instead of racing past it.
-    const touchedSessionIds = new Set<number>([
-      ...receiptInputs.map((r) => r.sessionId as number),
-      ...expenseInputs.map((e) => e.sessionId as number),
-    ])
-    for (const sid of touchedSessionIds) {
-      const { count } = await tx.pettyCashSession.updateMany({
-        where: { id: sid, status: "OPEN" },
-        data: { status: "OPEN" },
-      })
-      if (count === 0) throw new Error(`Session ${titleBySessionId.get(sid)} is closed`)
-    }
-
-    if (receiptInputs.length) {
-      const created = await tx.pettyCashReceipt.createManyAndReturn({ data: receiptInputs })
-      // Resolve each matched donor's family in one query so imported cash gifts
-      // mirror as giving, same as the single-entry path.
-      const donorIds = [...new Set(created.map((rec) => rec.personId).filter((id): id is number => id != null))]
-      const familyByPerson = new Map(
-        donorIds.length
-          ? (await tx.person.findMany({ where: { id: { in: donorIds } }, select: { id: true, familyId: true } }))
-              .map((p) => [p.id, p.familyId])
-          : [],
-      )
-      await tx.transaction.createMany({
-        data: created.map((rec) => receiptMirrorData(
-          rec, accountName.get(rec.accountId)!, titleBySessionId.get(rec.sessionId)!,
-          { personId: rec.personId ?? null, familyId: rec.personId != null ? familyByPerson.get(rec.personId) ?? null : null },
-          cashAccount?.id ?? null,
-        )),
-      })
-    }
-    if (expenseInputs.length) {
-      const created = await tx.pettyCashExpense.createManyAndReturn({ data: expenseInputs })
-      await tx.transaction.createMany({
-        data: created.map((exp) => expenseMirrorData(exp, accountName.get(exp.accountId)!, titleBySessionId.get(exp.sessionId)!, cashAccount?.id ?? null)),
-      })
-    }
+      const cashAccountId = cashAccount?.id ?? null
+      await insertImportReceipts(tx, built.receiptInputs, accountName, titleBySessionId, cashAccountId)
+      await insertImportExpenses(tx, built.expenseInputs, accountName, titleBySessionId, cashAccountId)
     }, { maxWait: 10_000, timeout: 60_000 })
   } catch (e) {
     // A closed session mid-import or a DB constraint failure throws inside the
