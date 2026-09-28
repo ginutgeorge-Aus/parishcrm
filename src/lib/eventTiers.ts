@@ -27,7 +27,7 @@ export function parseTiers(formData: FormData): { error: string } | { tiers: num
     // Tier i = price for (i+1) attendees — a lower price for more attendees
     // than fewer is never intentional and would undercharge larger families
     // relative to smaller ones for the same event.
-    if (tiers.length > 0 && price < tiers[tiers.length - 1]) {
+    if (tiers.length > 0 && price < tiers.at(-1)!) {
       return { error: `Tier ${i + 1} ($${raw}) is less than tier ${i} — prices must not decrease` }
     }
     tiers.push(price)

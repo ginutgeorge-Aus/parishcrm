@@ -25,7 +25,7 @@ export default async function EditExpensePage(props: {
     include: { session: { select: { id: true, title: true, status: true } } },
   })
   // IDOR guard: expense must belong to the session in the URL
-  if (!expense || expense.sessionId !== sessionId) notFound()
+  if (expense?.sessionId !== sessionId) notFound()
   if (expense.session.status === "CLOSED")
     redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 

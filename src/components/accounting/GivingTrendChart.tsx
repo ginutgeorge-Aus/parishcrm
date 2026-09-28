@@ -30,7 +30,7 @@ export function GivingTrendChart({ data }: { data: DataPoint[] }) {
   const total = data.reduce((s, d) => s + d.amount, 0)
   const chartLabel =
     data.length > 0
-      ? `Monthly giving trend from ${data[0].month} to ${data[data.length - 1].month}, totaling ${fmtAUD(total)}`
+      ? `Monthly giving trend from ${data[0].month} to ${data.at(-1)?.month}, totaling ${fmtAUD(total)}`
       : "Monthly giving trend"
 
   return (

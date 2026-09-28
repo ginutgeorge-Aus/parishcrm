@@ -93,7 +93,7 @@ function checkSingleReceiptConsent(
   toEmail: string
 ): string | null {
   const consentBlocked = "Recipient has not consented to email receipts"
-  if (tx.person && tx.person.emailConsent === false) {
+  if (tx.person?.emailConsent === false) {
     return consentBlocked
   }
   if (!tx.person && tx.family) {
@@ -106,7 +106,7 @@ function checkSingleReceiptConsent(
         return false
       }
     })
-    if (member && member.emailConsent === false) {
+    if (member?.emailConsent === false) {
       return consentBlocked
     }
   }
@@ -254,7 +254,7 @@ export async function sendBatchReceipts(
     // successful send.
     const consentBlocked = "Recipient has not consented to email receipts"
     // Person-linked: skip if that person opted out.
-    if (tx.person && tx.person.emailConsent === false) {
+    if (tx.person?.emailConsent === false) {
       failed++
       errors.push({ transactionId: row.transactionId, error: consentBlocked })
       continue
@@ -271,7 +271,7 @@ export async function sendBatchReceipts(
           return false
         }
       })
-      if (member && member.emailConsent === false) {
+      if (member?.emailConsent === false) {
         failed++
         errors.push({ transactionId: row.transactionId, error: consentBlocked })
         continue

@@ -8,9 +8,8 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
-import { toCents } from "@/lib/formatting"
+import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { logAudit } from "@/lib/audit"
-import { pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { MONEY_DECIMAL_RE, isValidPgId } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
@@ -23,7 +22,7 @@ const CreateSessionSchema = z.object({
     .string()
     .max(10, "Invalid date")
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
-  custodianId: z.string().min(1, "Custodian is required").transform((v) => Number(v)),
+  custodianId: z.string().min(1, "Custodian is required").transform(Number),
   openingBalance: z
     .string()
     .optional()
@@ -73,7 +72,7 @@ export async function createSession(
 }
 
 const UpdateCustodianSchema = z.object({
-  custodianId: z.string().min(1, "Custodian is required").transform((v) => Number(v)),
+  custodianId: z.string().min(1, "Custodian is required").transform(Number),
 })
 
 // Correct the custodian on an existing session (open or closed) — the custodian

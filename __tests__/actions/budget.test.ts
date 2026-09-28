@@ -223,24 +223,14 @@ describe("saveBudgetVarianceNote", () => {
     })
   })
 
-  it("rejects an invalid year", async () => {
+  it.each([
+    ["rejects an invalid year", 1999, 5, "Invalid year"],
+    ["rejects an invalid accountId", 2026, 0, "Invalid account"],
+    ["rejects an accountId past the PG int4 max", 2026, 2147483648, "Invalid account"],
+  ])("%s", async (_name, year, accountId, error) => {
     mockSession.mockResolvedValue({ user: { id: "9", role: "ADMIN" } })
-    const result = await saveBudgetVarianceNote(1999, 5, "note")
-    expect(result).toEqual({ error: "Invalid year" })
-    expect(mockUpdateMany).not.toHaveBeenCalled()
-  })
-
-  it("rejects an invalid accountId", async () => {
-    mockSession.mockResolvedValue({ user: { id: "9", role: "ADMIN" } })
-    const result = await saveBudgetVarianceNote(2026, 0, "note")
-    expect(result).toEqual({ error: "Invalid account" })
-    expect(mockUpdateMany).not.toHaveBeenCalled()
-  })
-
-  it("rejects an accountId past the PG int4 max", async () => {
-    mockSession.mockResolvedValue({ user: { id: "9", role: "ADMIN" } })
-    const result = await saveBudgetVarianceNote(2026, 2147483648, "note")
-    expect(result).toEqual({ error: "Invalid account" })
+    const result = await saveBudgetVarianceNote(year, accountId, "note")
+    expect(result).toEqual({ error })
     expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 

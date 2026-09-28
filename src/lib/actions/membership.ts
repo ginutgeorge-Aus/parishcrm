@@ -46,7 +46,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
-  if (!input.signature || !input.signature.startsWith("data:image/")) return { error: "Signature is required" }
+  if (!input.signature?.startsWith("data:image/")) return { error: "Signature is required" }
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }
 
   const parsed = membershipPayloadSchema.safeParse(input.payload)

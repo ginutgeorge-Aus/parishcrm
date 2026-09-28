@@ -1,5 +1,5 @@
 import "server-only"
-import { createHmac } from "crypto"
+import { createHmac } from "node:crypto"
 import { sendEmail } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { PRIMARY_HEX } from "@/lib/theme/palette"
@@ -9,7 +9,7 @@ import { PRIMARY_HEX } from "@/lib/theme/palette"
 // bucket would over-represent ~167k low values (AUDIT-009). Discard draws
 // in that partial bucket and re-roll — uniform over the full 900000 range.
 const OTP_RANGE = 900000
-const OTP_LIMIT = 0x1_0000_0000 - (0x1_0000_0000 % OTP_RANGE) // largest 2^32 multiple of range
+const OTP_LIMIT = 0x1_00_00_00_00 - (0x1_00_00_00_00 % OTP_RANGE) // largest 2^32 multiple of range
 
 export function generateOtp(): string {
   const array = new Uint32Array(1)

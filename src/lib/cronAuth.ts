@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto"
+import { timingSafeEqual } from "node:crypto"
 
 /**
  * Constant-time bearer-token check for the self-hosted cron routes. Shared by

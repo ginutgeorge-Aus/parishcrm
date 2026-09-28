@@ -99,7 +99,7 @@ describe("PLPrintPage — distinct same-name groups", () => {
     const ui = await PLPrintPage(makeProps())
     render(ui)
     // Merged → one "Ministry" group header; unmerged → two.
-    expect(screen.getAllByText("Ministry").length).toBe(2)
+    expect(screen.getAllByText("Ministry")).toHaveLength(2)
   })
 })
 

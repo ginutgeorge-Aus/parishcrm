@@ -1,4 +1,4 @@
-import { createHash } from "crypto"
+import { createHash } from "node:crypto"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm"

@@ -87,7 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             beforeInteractive runs before any app chunk evaluates, so appConfig's
             module-level constants see it. `<` escaped so a value can't close the tag. */}
         <Script id="app-config" strategy="beforeInteractive" nonce={nonce}>
-          {`window.__APP_CONFIG__=${JSON.stringify(publicAppConfig()).replace(/</g, "\\u003c")}`}
+          {`window.__APP_CONFIG__=${JSON.stringify(publicAppConfig()).replace(/</g, String.raw`<`)}`}
         </Script>
         {themeCss && <style nonce={nonce}>{themeCss}</style>}
         <NonceProvider nonce={nonce}>

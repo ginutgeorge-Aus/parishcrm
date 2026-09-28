@@ -69,7 +69,8 @@ function parseForm(formData: FormData): { data: ParsedForm } | { error: string }
 
   let rawLines: unknown
   try {
-    rawLines = JSON.parse(String(formData.get("lines") ?? ""))
+    const linesField = formData.get("lines")
+    rawLines = JSON.parse(typeof linesField === "string" ? linesField : "")
   } catch {
     return { error: "Donation lines are invalid." }
   }
@@ -315,7 +316,7 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
       totalDonationsLabel: model.totalDonationsLabel,
       coveredPeriod: model.coveredPeriod,
     })
-  } catch (e) {
+  } catch {
     // Never log the raw error — SMTP messages can embed the recipient email.
     logger.error("sendDgrReceipt delivery failed", { receiptNo: row.receiptNo })
     await prisma.dgrReceipt.updateMany({

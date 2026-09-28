@@ -20,7 +20,7 @@ export async function createEventRegistration(
   const event = await fetchEventWithTickets(slug)
   // Unpublished must be indistinguishable from not-found, or the status-code
   // difference lets attackers enumerate valid draft slugs.
-  if (!event || !event.isPublished) {
+  if (!event?.isPublished) {
     return { ok: false, status: 404, error: "Event not found" }
   }
 

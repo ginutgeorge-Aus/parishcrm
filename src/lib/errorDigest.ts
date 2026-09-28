@@ -7,7 +7,7 @@ const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
 export async function runErrorDigest(
   now: Date = new Date()
 ): Promise<{ filed: number; skipped: number; purged: number }> {
-  const weekAgo = new Date(now.getTime() - 7 * 86400_000)
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
 
   const groups = await prisma.errorLog.groupBy({
     by: ["fingerprint"],
@@ -51,13 +51,13 @@ export async function runErrorDigest(
   }
 
   const { count: purged } = await prisma.errorLog.deleteMany({
-    where: { createdAt: { lt: new Date(now.getTime() - 90 * 86400_000) } },
+    where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
 
   // Reuse this weekly run to purge the aggregate route-view counter too
   // ( Phase 3) — no separate scheduler for a bare counter table.
   await prisma.routeViewDaily.deleteMany({
-    where: { date: { lt: new Date(now.getTime() - 90 * 86400_000) } },
+    where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
 
   return { filed, skipped, purged }

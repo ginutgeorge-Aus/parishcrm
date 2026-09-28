@@ -54,9 +54,9 @@ export function TransactionPagination({ searchParams, page, totalPages }: Props)
             <Link href={pageHref(p)}>{p}</Link>
           </Button>
         ))}
-        {pageWindow[pageWindow.length - 1] < totalPages && (
+        {pageWindow.at(-1)! < totalPages && (
           <>
-            {pageWindow[pageWindow.length - 1] < totalPages - 1 && <span className="px-1 text-muted-foreground">…</span>}
+            {pageWindow.at(-1)! < totalPages - 1 && <span className="px-1 text-muted-foreground">…</span>}
             <Button variant="outline" size="sm" asChild>
               <Link href={pageHref(totalPages)}>{totalPages}</Link>
             </Button>

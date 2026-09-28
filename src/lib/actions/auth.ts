@@ -1,6 +1,6 @@
 "use server"
 
-import { randomBytes, createHash } from "crypto"
+import { randomBytes, createHash } from "node:crypto"
 import bcrypt from "bcryptjs"
 import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
@@ -155,7 +155,7 @@ export async function resetPassword(
     select: { id: true, passwordResetExpires: true },
   })
 
-  if (!user || !user.passwordResetExpires || user.passwordResetExpires < new Date()) {
+  if (!user?.passwordResetExpires || user.passwordResetExpires < new Date()) {
     return { error: "Invalid or expired reset link." }
   }
 

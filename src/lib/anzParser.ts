@@ -55,7 +55,7 @@ type PeriodParse =
 // to ISO dates via toIso/MONTH_MAP, and report an unrecognized month by name.
 // Callers differ only in the period regex (case + "TO"/"to" spelling).
 function parsePeriod(text: string, periodRe: RegExp): PeriodParse {
-  const periodMatch = text.match(periodRe)
+  const periodMatch = periodRe.exec(text)
   if (!periodMatch) {
     return { ok: false, period: { from: "", to: "" }, error: "Could not find statement period" }
   }
@@ -145,7 +145,7 @@ function parseMoneyCents(str: string): number {
   const drcr = /(DR|CR)$/i.exec(trimmed)
   const cleaned = trimmed.replace(/\s?(?:DR|CR)$/i, "").replace(/,/g, "").trim()
   const cents = toCents(cleaned) // toCents already honours a leading '-'
-  return drcr && drcr[1].toUpperCase() === "DR" ? -Math.abs(cents) : cents
+  return drcr?.[1].toUpperCase() === "DR" ? -Math.abs(cents) : cents
 }
 
 // Balance is signed (overdrawn = negative). Kept as a named alias for the many
@@ -201,17 +201,17 @@ const DATE_LINE_RE = /^(\d{2})\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DE
 // optional trailing DR/CR overdrawn marker.
 const AMT = String.raw`-?[\d,]+\.\d{2}(?:\s?(?:DR|CR))?`
 // Legacy format — two bare amounts on a line: "60.00 51,768.94"
-const TWO_AMOUNTS_ONLY_RE = new RegExp(`^(${AMT})\\s+(${AMT})$`)
+const TWO_AMOUNTS_ONLY_RE = new RegExp(String.raw`^(${AMT})\s+(${AMT})$`)
 // Legacy format — amounts inline with description: "PAYMENT FROM JACK 60.00 51,768.94"
-const ENDS_WITH_TWO_AMOUNTS_RE = new RegExp(`^(.*?)\\s+(${AMT})\\s+(${AMT})$`)
+const ENDS_WITH_TWO_AMOUNTS_RE = new RegExp(String.raw`^(.*?)\s+(${AMT})\s+(${AMT})$`)
 // "blank" column format (ANZ Business Extra) — deposit: "blank 60.00 51,768.94"
-const DEPOSIT_ONLY_RE = new RegExp(`^blank\\s+(${AMT})\\s+(${AMT})$`)
+const DEPOSIT_ONLY_RE = new RegExp(String.raw`^blank\s+(${AMT})\s+(${AMT})$`)
 // "blank" column format — withdrawal: "6,000.00 blank 46,793.04"
-const WITHDRAWAL_ONLY_RE = new RegExp(`^(${AMT})\\s+blank\\s+(${AMT})$`)
+const WITHDRAWAL_ONLY_RE = new RegExp(String.raw`^(${AMT})\s+blank\s+(${AMT})$`)
 // "blank" column format — deposit inline: "DESCRIPTION blank 60.00 51,768.94"
-const INLINE_DEPOSIT_RE = new RegExp(`^(.*?)\\s+blank\\s+(${AMT})\\s+(${AMT})$`)
+const INLINE_DEPOSIT_RE = new RegExp(String.raw`^(.*?)\s+blank\s+(${AMT})\s+(${AMT})$`)
 // "blank" column format — withdrawal inline: "DESCRIPTION 6,000.00 blank 46,793.04"
-const INLINE_WITHDRAWAL_RE = new RegExp(`^(.*?)\\s+(${AMT})\\s+blank\\s+(${AMT})$`)
+const INLINE_WITHDRAWAL_RE = new RegExp(String.raw`^(.*?)\s+(${AMT})\s+blank\s+(${AMT})$`)
 
 const SKIP_PATTERNS = [
   "OPENING BALANCE",
@@ -235,24 +235,24 @@ type AnzAmountMatch = {
 // them (a plain description/detail line).
 function tryParseAnzAmountLine(line: string): AnzAmountMatch | null {
   // "blank" format — deposit only: "blank 60.00 51,768.94"
-  const depOnly = line.match(DEPOSIT_ONLY_RE)
+  const depOnly = DEPOSIT_ONLY_RE.exec(line)
   if (depOnly) return { desc: null, amountStr: amountMagnitude(depOnly[1]), balance: parseBalance(depOnly[2]), explicitType: "INCOME" }
   // "blank" format — withdrawal only: "6,000.00 blank 46,793.04"
-  const wdOnly = line.match(WITHDRAWAL_ONLY_RE)
+  const wdOnly = WITHDRAWAL_ONLY_RE.exec(line)
   if (wdOnly) return { desc: null, amountStr: amountMagnitude(wdOnly[1]), balance: parseBalance(wdOnly[2]), explicitType: "EXPENSE" }
   // "blank" format — deposit inline: "DESCRIPTION blank 60.00 51,768.94"
-  const inlineDep = line.match(INLINE_DEPOSIT_RE)
+  const inlineDep = INLINE_DEPOSIT_RE.exec(line)
   if (inlineDep?.[1].trim())
     return { desc: inlineDep[1].trim(), amountStr: amountMagnitude(inlineDep[2]), balance: parseBalance(inlineDep[3]), explicitType: "INCOME" }
   // "blank" format — withdrawal inline: "DESCRIPTION 6,000.00 blank 46,793.04"
-  const inlineWd = line.match(INLINE_WITHDRAWAL_RE)
+  const inlineWd = INLINE_WITHDRAWAL_RE.exec(line)
   if (inlineWd?.[1].trim())
     return { desc: inlineWd[1].trim(), amountStr: amountMagnitude(inlineWd[2]), balance: parseBalance(inlineWd[3]), explicitType: "EXPENSE" }
   // Legacy format — exactly two amounts: "60.00 51,768.94"
-  const exact = line.match(TWO_AMOUNTS_ONLY_RE)
+  const exact = TWO_AMOUNTS_ONLY_RE.exec(line)
   if (exact) return { desc: null, amountStr: amountMagnitude(exact[1]), balance: parseBalance(exact[2]), explicitType: null }
   // Legacy format — inline: "PAYMENT FROM JACK 60.00 51,768.94"
-  const inline = line.match(ENDS_WITH_TWO_AMOUNTS_RE)
+  const inline = ENDS_WITH_TWO_AMOUNTS_RE.exec(line)
   if (inline?.[1].trim()) return { desc: inline[1].trim(), amountStr: amountMagnitude(inline[2]), balance: parseBalance(inline[3]), explicitType: null }
   return null
 }
@@ -271,12 +271,12 @@ function makeStatementBeforeGroup(state: OpeningBalanceState): (line: string) =>
   return (line: string) => {
     if (state.captureNext) {
       state.captureNext = false
-      const m = line.match(/^([\d,]+\.\d{2})$/)
+      const m = /^([\d,]+\.\d{2})$/.exec(line)
       if (m) { state.value = parseBalance(m[1]); return true }
     }
     if (SKIP_PATTERNS.some((p) => line.includes(p))) {
       if (line.includes("OPENING BALANCE")) {
-        const m = line.match(/([\d,]+\.\d{2})\s*$/)
+        const m = /([\d,]+\.\d{2})\s*$/.exec(line)
         if (m) state.value = parseBalance(m[1])
         else state.captureNext = true
       }
@@ -303,7 +303,7 @@ function parseStatementBlock(
   balanceState: StatementBalanceState,
   errors: string[]
 ): ParsedRow | null {
-  const dateMatch = block[0].match(DATE_LINE_RE)
+  const dateMatch = DATE_LINE_RE.exec(block[0])
   if (!dateMatch) return null
   const [, day, month, firstLineRest] = dateMatch
 
@@ -384,7 +384,7 @@ export function parseAnzStatement(text: string): ParseResult {
   }
   const { period, fromYear } = periodParse
 
-  const acctMatch = text.match(/Account Number\s+([\d-]+)/)
+  const acctMatch = /Account Number\s+([\d-]+)/.exec(text)
   const accountNumber = acctMatch ? acctMatch[1].replace(/-/g, "") : ""
 
   const tableStart = text.indexOf("Date Transaction Details")
@@ -466,11 +466,11 @@ export function parseAnzTransactionReport(text: string): ParseResult {
   // Account number appears either as a per-page "Account Number: 987654321" header
   // (pages 2+) or only in the page-1 "BSB account balance" value line.
   let accountNumber = ""
-  const colonMatch = text.match(/Account Number:\s*([\d-]+)/)
+  const colonMatch = /Account Number:\s*([\d-]+)/.exec(text)
   if (colonMatch) {
     accountNumber = colonMatch[1].replace(/-/g, "")
   } else {
-    const valueLine = text.match(/^\d{6}\s+(\d+)\s+\$/m)
+    const valueLine = /^\d{6}\s+(\d+)\s+\$/m.exec(text)
     if (valueLine) accountNumber = valueLine[1]
   }
 
@@ -500,7 +500,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
     (line) => ({ year: currentYear, segs: [line] }),
     (block, line) => block.segs.push(line),
     (line) => {
-      const sep = line.match(MONTH_YEAR_SEPARATOR_RE)
+      const sep = MONTH_YEAR_SEPARATOR_RE.exec(line)
       if (sep && MONTH_MAP[sep[1]]) {
         currentYear = Number.parseInt(sep[2])
         return true
@@ -514,7 +514,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
   const seqByKey = new Map<string, number>()
 
   for (const block of blocks) {
-    const dateMatch = block.segs[0].match(DATE_LINE_RE)
+    const dateMatch = DATE_LINE_RE.exec(block.segs[0])
     if (!dateMatch) continue
     const [, day, month, firstLineRest] = dateMatch
     const date = toIso(day, month, block.year)
@@ -541,7 +541,7 @@ export function parseAnzTransactionReport(text: string): ParseResult {
         continue
       }
       if (amountStr === null) {
-        const m = seg.match(REPORT_AMOUNT_RE)
+        const m = REPORT_AMOUNT_RE.exec(seg)
         if (m) {
           // Amount before the "blank" marker = Withdrawals column = EXPENSE;
           // amount after "blank" = Deposits column = INCOME.

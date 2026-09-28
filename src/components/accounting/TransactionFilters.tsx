@@ -92,7 +92,7 @@ function currentPreset(from: string, to: string): string {
   if (!from || !to) return ""
   for (const o of RANGE_OPTIONS) {
     const r = presetRange(o.value)
-    if (r && r.from === from && r.to === to) return o.value
+    if (r?.from === from && r.to === to) return o.value
   }
   return ""
 }

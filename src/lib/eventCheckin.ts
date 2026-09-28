@@ -5,6 +5,6 @@
 const REG_TOKEN = /REG-[0-9A-Fa-f]+/i
 
 export function extractRegToken(decoded: string): string | null {
-  const m = decoded.trim().match(REG_TOKEN)
+  const m = REG_TOKEN.exec(decoded.trim())
   return m ? m[0].toUpperCase() : null
 }

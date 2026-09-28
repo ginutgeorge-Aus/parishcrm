@@ -15,9 +15,9 @@ export function icsDateUTC(d: Date): string {
 function escapeText(s: string): string {
   return s
     .replace(/\\/g, "\\\\")
-    .replace(/;/g, "\\;")
-    .replace(/,/g, "\\,")
-    .replace(/\r\n|\r|\n/g, "\\n")
+    .replace(/;/g, String.raw`\;`)
+    .replace(/,/g, String.raw`\,`)
+    .replace(/\r\n|\r|\n/g, String.raw`\n`)
 }
 
 export function buildIcs(opts: {

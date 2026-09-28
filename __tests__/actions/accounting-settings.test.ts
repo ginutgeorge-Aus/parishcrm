@@ -128,24 +128,14 @@ describe("upsertOpeningBalance", () => {
 })
 
 describe("setAccountingLockDate", () => {
-  it("rejects a non-admin", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "PASTOR", id: "1" } })
-    const result = await setAccountingLockDate(undefined, fd({ date: "2026-06-30" }))
-    expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockAppSettingUpsert).not.toHaveBeenCalled()
-  })
-
-  it("rejects a malformed date", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const result = await setAccountingLockDate(undefined, fd({ date: "30-06-2026" }))
-    expect(result).toEqual({ error: "Date must be a valid YYYY-MM-DD date" })
-    expect(mockAppSettingUpsert).not.toHaveBeenCalled()
-  })
-
-  it("rejects an impossible calendar date instead of normalising it", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const result = await setAccountingLockDate(undefined, fd({ date: "2024-02-31" }))
-    expect(result).toEqual({ error: "Date must be a valid YYYY-MM-DD date" })
+  it.each([
+    ["rejects a non-admin", "PASTOR", "2026-06-30", "Unauthorized"],
+    ["rejects a malformed date", "ADMIN", "30-06-2026", "Date must be a valid YYYY-MM-DD date"],
+    ["rejects an impossible calendar date instead of normalising it", "ADMIN", "2024-02-31", "Date must be a valid YYYY-MM-DD date"],
+  ])("%s", async (_name, role, date, error) => {
+    mockAuth.mockResolvedValue({ user: { role, id: "1" } })
+    const result = await setAccountingLockDate(undefined, fd({ date }))
+    expect(result).toEqual({ error })
     expect(mockAppSettingUpsert).not.toHaveBeenCalled()
   })
 

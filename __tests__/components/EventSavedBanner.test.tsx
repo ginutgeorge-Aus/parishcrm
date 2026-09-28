@@ -25,7 +25,7 @@ it("shows the success flash and strips ?saved=1 from the URL", () => {
 
 it("auto-dismisses after 4s", () => {
   render(<EventSavedBanner />)
-  expect(screen.queryByRole("status")).not.toBeNull()
+  expect(screen.getByRole("status")).toBeInTheDocument()
   act(() => { jest.advanceTimersByTime(4000) })
   expect(screen.queryByRole("status")).toBeNull()
 })

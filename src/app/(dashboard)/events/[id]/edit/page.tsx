@@ -116,7 +116,7 @@ export default async function EditEventPage(props: Props) {
           familyWaiverThreshold: event.familyWaiverThreshold?.toString() ?? "4",
           tieredPricingEnabled: event.tieredPricingEnabled,
           familyPricingTiers: Array.isArray(event.familyPricingTiers)
-            ? (event.familyPricingTiers as number[]).map((n) => String(n))
+            ? (event.familyPricingTiers as number[]).map(String)
             : [],
           imageUrl: event.imageUrl ?? "",
           reminderDaysBefore: event.reminderDaysBefore?.toString() ?? "",

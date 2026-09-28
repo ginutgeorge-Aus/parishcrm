@@ -36,7 +36,8 @@ export async function previewImport(formData: FormData): Promise<PreviewResult> 
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
-  const csv = String(formData.get("csv") ?? "")
+  const csvField = formData.get("csv")
+  const csv = typeof csvField === "string" ? csvField : ""
   if (csv.length > 2 * 1024 * 1024) return { error: "File too large (max 2MB)" }
 
   let parsed: ReturnType<typeof parseRows>
@@ -295,7 +296,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   // person.findFirst and throw a raw numeric-overflow 500 (security.md).
   if (!isValidPgId(custodianId)) return { error: "Select a custodian" }
 
-  const csv = String(formData.get("csv") ?? "")
+  const csvField = formData.get("csv")
+  const csv = typeof csvField === "string" ? csvField : ""
   const parsedRows = parseImportRows(csv)
   if ("error" in parsedRows) return { error: parsedRows.error }
   const parsed = parsedRows.rows
@@ -318,7 +320,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   if (lockedMessage) return { error: lockedMessage }
 
   let overrides: Record<string, number | null> = {}
-  try { overrides = JSON.parse(String(formData.get("donorOverrides") ?? "{}")) } catch { /* ignore */ }
+  const donorOverridesField = formData.get("donorOverrides")
+  try { overrides = JSON.parse(typeof donorOverridesField === "string" ? donorOverridesField : "{}") } catch { /* ignore */ }
 
   // Scope to active people — an archived person must not be assignable as
   // custodian, matching the donor validation below and the single-entry path.
@@ -389,7 +392,7 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
 
   const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
   await logAudit(actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
-    receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates[sortedDates.length - 1]}`,
+    receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
   })
   revalidatePath("/accounting/petty-cash")
   revalidatePath("/accounting")

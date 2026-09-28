@@ -114,7 +114,7 @@ describe("sundaysBetween", () => {
     const result = sundaysBetween("2025-09-01", "2026-06-14")
     expect(result[0]).toBe("2025-08-31") // week of 2025-09-01 (a Monday)
     expect(result.at(-1)).toBe("2026-06-14")
-    expect(result.length).toBe(42)
+    expect(result).toHaveLength(42)
     // every consecutive pair is exactly 7 days apart, no duplicates
     for (let i = 1; i < result.length; i++) {
       const prev = new Date(result[i - 1] + "T00:00:00Z").getTime()

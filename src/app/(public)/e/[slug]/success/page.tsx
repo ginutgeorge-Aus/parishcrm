@@ -381,7 +381,7 @@ export default async function SuccessPage(props: Props) {
   })
   // isPublished guard: without it, any valid slug — including drafts —
   // exposes the church bank BSB/account on this unauthenticated page.
-  if (!event || !event.isPublished) notFound()
+  if (!event?.isPublished) notFound()
 
   // A duplicated query param (?token=a&token=b) arrives as an array, so `token`
   // is typed string but can be string[] at runtime — `.startsWith` on an array

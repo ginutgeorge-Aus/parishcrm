@@ -159,7 +159,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         const soldById = new Map(sums.map((s) => [s.ticketTypeId, s._sum.quantity ?? 0]))
         for (const t of tightened) {
           const sold = soldById.get(t.id) ?? 0
-          if (t.capacity! < sold) throw new Error(`${CAPACITY_BELOW_SOLD}:${sold}:${t.name}`)
+          if (t.capacity! < sold) throw new Error(`${CAPACITY_BELOW_SOLD}:${String(sold)}:${t.name}`)
         }
       }
       for (const t of keeps) {

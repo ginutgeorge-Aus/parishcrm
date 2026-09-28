@@ -43,27 +43,23 @@ describe("upsertSetting", () => {
     jest.clearAllMocks()
   })
 
-  it("returns error for unauthenticated", async () => {
-    mockAuth.mockResolvedValue(null)
+  it.each([
+    ["returns error for unauthenticated", null],
+    ["returns error for PASTOR", { user: { id: "999", role: "PASTOR" } }],
+    ["returns error for VIEWER", { user: { id: "999", role: "VIEWER" } }],
+  ])("%s", async (_name, session) => {
+    mockAuth.mockResolvedValue(session)
     const result = await upsertSetting(undefined, makeFormData("ownerNotificationEmail", "a@b.com"))
     expect(result).toEqual({ error: "Unauthorized" })
   })
 
-  it("returns error for PASTOR", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
-    const result = await upsertSetting(undefined, makeFormData("ownerNotificationEmail", "a@b.com"))
-    expect(result).toEqual({ error: "Unauthorized" })
-  })
-
-  it("returns error for VIEWER", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "999", role: "VIEWER" } })
-    const result = await upsertSetting(undefined, makeFormData("ownerNotificationEmail", "a@b.com"))
-    expect(result).toEqual({ error: "Unauthorized" })
-  })
-
-  it("returns error and does not upsert when key is not in allowlist", async () => {
+  it.each([
+    ["returns error and does not upsert when key is not in allowlist", "injectedKey", "evil"],
+    ["rejects SESSION_IDLE_TIMEOUT_MINUTES with invalid value", "SESSION_IDLE_TIMEOUT_MINUTES", "45"],
+    ["rejects SESSION_IDLE_TIMEOUT_MINUTES with empty string", "SESSION_IDLE_TIMEOUT_MINUTES", ""],
+  ])("%s", async (_name, key, value) => {
     mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    const result = await upsertSetting(undefined, makeFormData("injectedKey", "evil"))
+    const result = await upsertSetting(undefined, makeFormData(key, value))
     expect(result).toEqual(expect.objectContaining({ error: expect.any(String) }))
     expect(mockUpsert).not.toHaveBeenCalled()
   })
@@ -116,20 +112,6 @@ describe("upsertSetting", () => {
       const result = await upsertSetting(undefined, makeFormData("SESSION_IDLE_TIMEOUT_MINUTES", v))
       expect(result).toEqual(expect.objectContaining({ success: expect.any(String) }))
     }
-  })
-
-  it("rejects SESSION_IDLE_TIMEOUT_MINUTES with invalid value", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    const result = await upsertSetting(undefined, makeFormData("SESSION_IDLE_TIMEOUT_MINUTES", "45"))
-    expect(result).toEqual(expect.objectContaining({ error: expect.any(String) }))
-    expect(mockUpsert).not.toHaveBeenCalled()
-  })
-
-  it("rejects SESSION_IDLE_TIMEOUT_MINUTES with empty string", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    const result = await upsertSetting(undefined, makeFormData("SESSION_IDLE_TIMEOUT_MINUTES", ""))
-    expect(result).toEqual(expect.objectContaining({ error: expect.any(String) }))
-    expect(mockUpsert).not.toHaveBeenCalled()
   })
 
   it("rejects a non-email ownerNotificationEmail", async () => {

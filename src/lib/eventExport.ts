@@ -35,7 +35,7 @@ function expandAttendees(items: Item[]): AttendeeRow[] {
       }
     } else {
       // No Attendee rows: emit blank-name rows by quantity.
-      const names = Array(item.quantity).fill("")
+      const names = new Array(item.quantity).fill("")
       for (const name of names) attendees.push({ name, ticket: item.ticketType.name, answers: null })
     }
   }

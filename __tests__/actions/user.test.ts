@@ -496,9 +496,13 @@ describe("user actions — OFFICE_ADMIN escalation guards", () => {
     mockSession.mockResolvedValue(session)
   }
 
-  it("OFFICE_ADMIN cannot create an ADMIN", async () => {
-    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    const r = await createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "ADMIN" }))
+  it.each([
+    ["OFFICE_ADMIN cannot create an ADMIN", "OFFICE_ADMIN", "ADMIN"],
+    ["PASTOR still fully unauthorized for user mgmt", "PASTOR", "VIEWER"],
+    ["OFFICE_ADMIN cannot create a PASTOR", "OFFICE_ADMIN", "PASTOR"],
+  ])("%s", async (_name, sessionRole, targetRole) => {
+    mockAuth({ user: { id: "1", role: sessionRole } })
+    const r = await createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: targetRole }))
     expect(r).toEqual({ error: "Unauthorized" })
   })
   it("OFFICE_ADMIN can create a VIEWER", async () => {
@@ -509,43 +513,19 @@ describe("user actions — OFFICE_ADMIN escalation guards", () => {
     await expect(createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "VIEWER" })))
       .rejects.toThrow("REDIRECT")                      // redirect() throws on success
   })
-  it("OFFICE_ADMIN cannot edit an ADMIN target", async () => {
-    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue({ id: 2, role: "ADMIN" } as never)
-    const r = await updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "VIEWER" }))
-    expect(r).toEqual({ error: "Unauthorized" })
-  })
-  it("OFFICE_ADMIN cannot promote a VIEWER to ADMIN", async () => {
-    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue({ id: 2, role: "VIEWER" } as never)
-    const r = await updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "ADMIN" }))
-    expect(r).toEqual({ error: "Unauthorized" })
-  })
-  it("OFFICE_ADMIN cannot delete an ADMIN", async () => {
-    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue({ id: 2, role: "ADMIN" } as never)
-    const r = await deleteUser(2)
-    expect(r).toEqual({ error: "Unauthorized" })
-  })
-  it("PASTOR still fully unauthorized for user mgmt", async () => {
-    mockAuth({ user: { id: "1", role: "PASTOR" } })
-    const r = await createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "VIEWER" }))
-    expect(r).toEqual({ error: "Unauthorized" })
-  })
-
   // PASTOR is elevated (canAccessAccounting + canSeePastoralNotes, both denied
   // to OFFICE_ADMIN). Granting/editing it must be ADMIN-only too, not just ADMIN
   // — else an OFFICE_ADMIN self-grants PASTOR or takes over a
   // PASTOR account by resetting its password.
-  it("OFFICE_ADMIN cannot create a PASTOR", async () => {
+  it.each([
+    ["OFFICE_ADMIN cannot edit an ADMIN target", { id: 2, role: "ADMIN" }, () => updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "VIEWER" }))],
+    ["OFFICE_ADMIN cannot promote a VIEWER to ADMIN", { id: 2, role: "VIEWER" }, () => updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "ADMIN" }))],
+    ["OFFICE_ADMIN cannot delete an ADMIN", { id: 2, role: "ADMIN" }, () => deleteUser(2)],
+    ["OFFICE_ADMIN cannot promote a VIEWER to PASTOR", { id: 2, role: "VIEWER" }, () => updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "PASTOR" }))],
+  ])("%s", async (_name, target, action) => {
     mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    const r = await createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "PASTOR" }))
-    expect(r).toEqual({ error: "Unauthorized" })
-  })
-  it("OFFICE_ADMIN cannot promote a VIEWER to PASTOR", async () => {
-    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue({ id: 2, role: "VIEWER" } as never)
-    const r = await updateUser(2, undefined, fd({ name: "X", email: "x@y.com", role: "PASTOR" }))
+    prismaMock.findUnique.mockResolvedValue(target as never)
+    const r = await action()
     expect(r).toEqual({ error: "Unauthorized" })
   })
   it("OFFICE_ADMIN cannot edit an existing PASTOR target", async () => {

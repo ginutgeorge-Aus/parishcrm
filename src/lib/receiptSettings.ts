@@ -26,7 +26,7 @@ export async function getReceiptSettings(): Promise<ReceiptSettings> {
     })
     for (const row of rows) {
       const field = KEY_TO_FIELD[row.key as ReceiptSettingKey]
-      if (field && row.value && row.value.trim()) out[field] = row.value
+      if (field && row.value?.trim()) out[field] = row.value
     }
   } catch {
     return { ...DEFAULT_RECEIPT_SETTINGS }

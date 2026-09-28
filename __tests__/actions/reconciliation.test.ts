@@ -95,23 +95,13 @@ describe("saveStatementBalance", () => {
     expect(result).toEqual({ error: "Unauthorized" })
   })
 
-  it("returns error for invalid paymentAccount", async () => {
+  it.each([
+    ["returns error for invalid paymentAccount", "INVALID" as any, "2026-05-31", "12820.00"],
+    ["returns error for invalid date", 1, "not-a-date", "12820.00"],
+    ["returns error for invalid amount", 1, "2026-05-31", "abc"],
+  ])("%s", async (_name, paymentAccountId, date, amount) => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const result = await saveStatementBalance("INVALID" as any, "2026-05-31", "12820.00")
-    expect(result && "error" in result ? result.error : undefined).toBeDefined()
-    expect(mockUpsert).not.toHaveBeenCalled()
-  })
-
-  it("returns error for invalid date", async () => {
-    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const result = await saveStatementBalance(1, "not-a-date", "12820.00")
-    expect(result && "error" in result ? result.error : undefined).toBeDefined()
-    expect(mockUpsert).not.toHaveBeenCalled()
-  })
-
-  it("returns error for invalid amount", async () => {
-    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const result = await saveStatementBalance(1, "2026-05-31", "abc")
+    const result = await saveStatementBalance(paymentAccountId, date, amount)
     expect(result && "error" in result ? result.error : undefined).toBeDefined()
     expect(mockUpsert).not.toHaveBeenCalled()
   })

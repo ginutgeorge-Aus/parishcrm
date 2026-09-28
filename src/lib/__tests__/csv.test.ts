@@ -169,28 +169,16 @@ describe("parseCsv — dob date parsing", () => {
 
   // A malformed dob is reported as a row error but the row is kept with dob
   // omitted — never a thrown Invalid Date (csv-import rule /).
-  it("flags an impossible calendar date (31/02) and keeps the row without a dob", () => {
-    const csv = "family_name,first_name,last_name,dob\nSmith,John,Smith,31/02/1990"
+  it.each([
+    ["flags an impossible calendar date (31/02) and keeps the row without a dob", "31/02/1990", "not a valid calendar date"],
+    ["flags an out-of-range month/day in DD/MM/YYYY and keeps the row without a dob", "10/13/1990", "expected DD/MM/YYYY"],
+    ["flags an unrecognised date format and keeps the row without a dob", "May 5 1990", "DD/MM/YYYY or YYYY-MM-DD"],
+  ])("%s", (_name, dob, expectedMessage) => {
+    const csv = `family_name,first_name,last_name,dob\nSmith,John,Smith,${dob}`
     const { rows, errors } = parseCsv(csv)
     expect(rows).toHaveLength(1)
     expect(rows[0].person.dateOfBirth).toBeUndefined()
-    expect(errors[0].message).toContain("not a valid calendar date")
-  })
-
-  it("flags an out-of-range month/day in DD/MM/YYYY and keeps the row without a dob", () => {
-    const csv = "family_name,first_name,last_name,dob\nSmith,John,Smith,10/13/1990"
-    const { rows, errors } = parseCsv(csv)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].person.dateOfBirth).toBeUndefined()
-    expect(errors[0].message).toContain("expected DD/MM/YYYY")
-  })
-
-  it("flags an unrecognised date format and keeps the row without a dob", () => {
-    const csv = "family_name,first_name,last_name,dob\nSmith,John,Smith,May 5 1990"
-    const { rows, errors } = parseCsv(csv)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].person.dateOfBirth).toBeUndefined()
-    expect(errors[0].message).toContain("DD/MM/YYYY or YYYY-MM-DD")
+    expect(errors[0].message).toContain(expectedMessage)
   })
 })
 

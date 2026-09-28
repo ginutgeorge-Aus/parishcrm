@@ -10,7 +10,7 @@ export const ACCOUNTING_LOCK_DATE_KEY = "accountingLockDate"
  */
 export async function getAccountingLockDate(): Promise<Date | null> {
   const row = await prisma.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
-  if (!row || !row.value) return null
+  if (!row?.value) return null
   const d = new Date(row.value) // "YYYY-MM-DD" → UTC midnight
   return Number.isNaN(d.getTime()) ? null : d
 }

@@ -311,8 +311,8 @@ export async function validateAndPriceRegistration(
     const ttNameSet = new Set([tt.name])
     const perAttendeeAnswers: (Record<string, CustomAnswer> | undefined)[] = []
     try {
-      for (let idx = 0; idx < keptNames.length; idx++) {
-        const raw = attendeeAnswers?.[ticketTypeIdStr]?.[keptNames[idx].origIdx] ?? {}
+      for (const { origIdx } of keptNames) {
+        const raw = attendeeAnswers?.[ticketTypeIdStr]?.[origIdx] ?? {}
         const out: Record<string, CustomAnswer> = {}
         for (const q of attendeeQuestions) {
           if (!isQuestionApplicable(q, ttNameSet)) continue

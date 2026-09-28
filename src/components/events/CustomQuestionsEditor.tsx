@@ -30,7 +30,7 @@ type Props = {
   ticketTypeNames: string[]
 }
 
-const OPTIONS_TYPES: CustomQuestionType[] = ["select", "radio", "checkbox"]
+const OPTIONS_TYPES: Set<CustomQuestionType> = new Set(["select", "radio", "checkbox"])
 
 function humanLabel(type: CustomQuestionType): string {
   return type.charAt(0).toUpperCase() + type.slice(1)
@@ -156,7 +156,7 @@ export function CustomQuestionsEditor({ initial, ticketTypeNames: availableTicke
                 <X />
               </Button>
             </div>
-            {OPTIONS_TYPES.includes(row.type) && (
+            {OPTIONS_TYPES.has(row.type) && (
               <>
                 <Input
                   aria-label={`Options for question ${i + 1}`}

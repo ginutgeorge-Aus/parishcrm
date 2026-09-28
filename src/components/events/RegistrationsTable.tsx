@@ -107,7 +107,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: P
     reg.items.flatMap((item, itemIdx) => {
       const names = item.attendees.length > 0
         ? item.attendees.map(a => a.name)
-        : Array<string>(item.quantity).fill("—")
+        : new Array<string>(item.quantity).fill("—")
       // Key by item index, not ticket-type name — two line items of the same
       // type would otherwise collide at the same attendee index.
       return names.map((name, idx) => ({
