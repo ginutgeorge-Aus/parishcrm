@@ -75,7 +75,7 @@ export async function getIssue(
 function nextPageUrl(link: string | null): string | null {
   if (!link) return null
   for (const part of link.split(",")) {
-    const m = part.match(/<([^>]+)>\s*;\s*rel="next"/)
+    const m = /<([^>]+)>\s*;\s*rel="next"/.exec(part)
     if (m) return m[1]
   }
   return null

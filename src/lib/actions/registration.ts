@@ -25,7 +25,7 @@ export async function markPaid(registrationId: number, eventId: number): Promise
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
   const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true } })
-  if (!reg || reg.eventId !== eventId) return { error: "Registration not found" }
+  if (reg?.eventId !== eventId) return { error: "Registration not found" }
 
   // State machine: already PAID → idempotent no-op (no re-write, no duplicate
   // audit); CANCELLED → block (a cancelled reg must be re-activated deliberately,
@@ -56,7 +56,7 @@ export async function cancelRegistration(registrationId: number, eventId: number
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
   const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true } })
-  if (!reg || reg.eventId !== eventId) return { error: "Registration not found" }
+  if (reg?.eventId !== eventId) return { error: "Registration not found" }
 
   // Already CANCELLED → idempotent no-op. PENDING or PAID → cancel (cancelling a
   // PAID registration is a legitimate refund path).
@@ -97,7 +97,7 @@ export async function toggleAttendeeCheckIn(
     where: { id: attendeeId },
     select: { registrationItem: { select: { registration: { select: { eventId: true } } } } },
   })
-  if (!attendee || attendee.registrationItem.registration.eventId !== eventId) {
+  if (attendee?.registrationItem.registration.eventId !== eventId) {
     return { error: "Attendee not found" }
   }
 

@@ -258,7 +258,7 @@ describe("BirthdaysClient", () => {
       await waitFor(() => {
         expect(screen.getByText(/✅ Sent 2/)).toBeInTheDocument()
         // 2 rows × (mobile card + desktop table) = 4 "Sent" badges.
-        expect(screen.getAllByText("Sent").length).toBe(4)
+        expect(screen.getAllByText("Sent")).toHaveLength(4)
         screen.getAllByRole("button", { name: /^send$/i }).forEach((btn) => expect(btn).toBeDisabled())
       })
     })

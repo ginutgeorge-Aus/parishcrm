@@ -52,7 +52,7 @@ export async function validateAccount(
     where: { id: accountId },
     select: { type: true, isActive: true, name: true },
   })
-  if (!account || account.type !== type) return null
+  if (account?.type !== type) return null
   if (!options?.allowInactive && !account.isActive) return null
   return { name: account.name }
 }
@@ -70,7 +70,7 @@ async function validatePaymentAccount(
     where: { id: paymentAccountId },
     select: { kind: true, isActive: true },
   })
-  if (!account || account.kind !== "BANK") return false
+  if (account?.kind !== "BANK") return false
   if (!options?.allowInactive && !account.isActive) return false
   return true
 }

@@ -28,7 +28,7 @@ export function weekBuckets(
   now: Date,
   weeks: number
 ): { start: Date; end: Date; label: string }[] {
-  const WEEK = 7 * 86400_000
+  const WEEK = 7 * 86_400_000
   const out: { start: Date; end: Date; label: string }[] = []
   for (let i = weeks - 1; i >= 0; i--) {
     const end = new Date(now.getTime() - i * WEEK)

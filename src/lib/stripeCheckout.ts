@@ -13,6 +13,12 @@ import { persistRegistration } from "@/lib/eventRegistrationPersist"
 import type { PricedRegistration, EventWithTickets } from "@/lib/eventRegistrationPricing"
 import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
+import type { Prisma } from "@/lib/generated/prisma/client"
+
+// Money fields arrive as a Prisma Decimal from the DB, but callers may also
+// pass a plain string/number (e.g. freshly parsed form input) — toCents()
+// accepts all three.
+type MoneyValue = Prisma.Decimal | string | number
 
 // Stripe rejects `expires_at` under 30 minutes out — keep the staged
 // CheckoutSession row's expiry aligned with the Stripe session's own expiry.
@@ -42,7 +48,7 @@ const DELAYED_SETTLEMENT_EXPIRY_MS = 10 * 24 * 60 * 60 * 1000
 // (toCents(totalAmount) + surcharge) then always matches amount_total.
 async function buildLineItemsAndSurcharge(
   event: { title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
-  items: Array<{ ticketTypeId: number; quantity: number; unitPrice: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number }>,
+  items: Array<{ ticketTypeId: number; quantity: number; unitPrice: MoneyValue }>,
   netCents: number,
 ): Promise<{
   line_items: import("stripe").Stripe.Checkout.SessionCreateParams.LineItem[]
@@ -166,8 +172,8 @@ export async function createExistingRegistrationCheckoutSession(
   registration: {
     id: number
     publicToken: string
-    totalAmount: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number
-    items: { ticketTypeId: number; quantity: number; unitPrice: import("@/lib/generated/prisma/client").Prisma.Decimal | string | number }[]
+    totalAmount: MoneyValue
+    items: { ticketTypeId: number; quantity: number; unitPrice: MoneyValue }[]
   },
   origin: string,
 ): Promise<{ url: string }> {

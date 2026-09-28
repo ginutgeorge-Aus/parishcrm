@@ -47,6 +47,6 @@ export async function forEachTransactionBatch<T extends { id: number }>(
     // A short batch means we've reached the last page — stop before an extra
     // (guaranteed-empty) round trip.
     if (rows.length < batchSize) break
-    cursorId = rows[rows.length - 1].id
+    cursorId = rows.at(-1)!.id
   }
 }

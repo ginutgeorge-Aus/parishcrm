@@ -1,4 +1,4 @@
-import { randomBytes, createHmac } from "crypto"
+import { randomBytes, createHmac } from "node:crypto"
 
 // Pending OTP grants cannot authenticate as cookies: normal token hashes are hex.
 export const DEVICE_TRUST_GRANT_PREFIX = "grant:"

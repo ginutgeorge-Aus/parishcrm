@@ -14,7 +14,7 @@ import "server-only"
  * to skip the delay. Stateless (HMAC over the timestamp) so it works across
  * replica restarts and needs no shared store.
  */
-import { createHmac, timingSafeEqual } from "crypto"
+import { createHmac, timingSafeEqual } from "node:crypto"
 
 // A human must pick tickets and type name + email — sub-3s submission is a bot.
 const MIN_FILL_MS = 3_000

@@ -150,7 +150,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
     where: { slug: params.slug },
     select: { id: true, isPublished: true, date: true, endDate: true, registrationClosed: true, registrationDeadline: true, ticketTypes: { select: { id: true, capacity: true } } },
   })
-  if (!event || !event.isPublished) return NextResponse.json({ error: "Event not found" }, { status: 404 })
+  if (!event?.isPublished) return NextResponse.json({ error: "Event not found" }, { status: 404 })
   const closeResponse = eventCloseResponse(event)
   if (closeResponse) return closeResponse
 

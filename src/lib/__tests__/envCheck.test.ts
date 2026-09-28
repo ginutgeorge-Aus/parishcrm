@@ -19,35 +19,22 @@ describe("collectEnvErrors — E2E_ALLOW_TEST_OVERRIDES prod guard", () => {
     restore("url", "AUTH_URL")
   })
 
-  it("hard-fails when the flag is set and AUTH_URL is the real prod domain", () => {
+  it.each([
+    ["hard-fails when the flag is set and AUTH_URL is the real prod domain", "https://app.example.org", true],
+    ["does NOT fail for the e2e suite (flag set, AUTH_URL localhost)", "http://localhost:3000", false],
+    // fail-closed on ANY non-loopback host, not just the one known prod
+    // domain — a custom/migrated/misconfigured prod host must not boot with the flag.
+    ["hard-fails for a custom/migrated non-loopback prod host", "https://crm.migrated-host.org", true],
+    ["does NOT fail for a loopback IP AUTH_URL (local dev)", "http://127.0.0.1:3000", false],
+  ])("%s", (_name, authUrl, expected) => {
     process.env.E2E_ALLOW_TEST_OVERRIDES = "true"
-    process.env.AUTH_URL = "https://app.example.org"
-    expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(true)
-  })
-
-  it("does NOT fail for the e2e suite (flag set, AUTH_URL localhost)", () => {
-    process.env.E2E_ALLOW_TEST_OVERRIDES = "true"
-    process.env.AUTH_URL = "http://localhost:3000"
-    expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(false)
+    process.env.AUTH_URL = authUrl
+    expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(expected)
   })
 
   it("does NOT fail when the flag is unset even on the prod domain", () => {
     delete process.env.E2E_ALLOW_TEST_OVERRIDES
     process.env.AUTH_URL = "https://app.example.org"
-    expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(false)
-  })
-
-  // fail-closed on ANY non-loopback host, not just the one known prod
-  // domain — a custom/migrated/misconfigured prod host must not boot with the flag.
-  it("hard-fails for a custom/migrated non-loopback prod host", () => {
-    process.env.E2E_ALLOW_TEST_OVERRIDES = "true"
-    process.env.AUTH_URL = "https://crm.migrated-host.org"
-    expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(true)
-  })
-
-  it("does NOT fail for a loopback IP AUTH_URL (local dev)", () => {
-    process.env.E2E_ALLOW_TEST_OVERRIDES = "true"
-    process.env.AUTH_URL = "http://127.0.0.1:3000"
     expect(collectEnvErrors().some((e) => e.startsWith(MSG))).toBe(false)
   })
 })

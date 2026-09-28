@@ -72,7 +72,7 @@ export default async function PrintPage(props: Props) {
     r.items.flatMap(item => {
       const names = item.attendees.length > 0
         ? item.attendees.map((a: { name: string }) => a.name)
-        : Array<string>(item.quantity).fill("—")
+        : new Array<string>(item.quantity).fill("—")
       return names.map(name => ({
         name,
         ticketType: item.ticketType.name,
@@ -184,7 +184,7 @@ export default async function PrintPage(props: Props) {
                       rows.push({ name: a.name, ticket: item.ticketType.name, attendeeAnswers: toAnswerMap(a.answers) })
                     }
                   } else {
-                    for (const name of Array<string>(item.quantity).fill("—")) rows.push({ name, ticket: item.ticketType.name, attendeeAnswers: null })
+                    for (const name of new Array<string>(item.quantity).fill("—")) rows.push({ name, ticket: item.ticketType.name, attendeeAnswers: null })
                   }
                 }
                 return rows.map((row, idx) => (

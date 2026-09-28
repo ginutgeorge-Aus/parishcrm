@@ -159,7 +159,7 @@ export async function updatePerson(
   // The caller binds the person's family at page load; a mismatched id/familyId
   // pair means the bound args were tampered with, so reject rather than update.
   const existing = await prisma.person.findUnique({ where: { id }, select: { familyId: true, archivedAt: true } })
-  if (!existing || existing.familyId !== familyId) return { error: "Not found" }
+  if (existing?.familyId !== familyId) return { error: "Not found" }
   // A soft-archived person is not editable — the edit UI is unreachable for
   // archived records, but a direct action call must be rejected too.
   if (existing.archivedAt) return { error: "Not found" }
@@ -217,7 +217,7 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   // IDOR guard: supplied familyId must scope the delete, not just
   // drive revalidate/redirect.
   const person = await prisma.person.findUnique({ where: { id }, select: { familyId: true } })
-  if (!person || person.familyId !== familyId) return { error: "Person not found" }
+  if (person?.familyId !== familyId) return { error: "Person not found" }
 
   // Transaction.personId, PettyCashReceipt.personId, DgrReceipt.personId are
   // all SetNull on delete — deleting an active donor would silently sever the

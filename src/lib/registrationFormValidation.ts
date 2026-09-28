@@ -123,7 +123,7 @@ export function computePricing(input: PricingInput): Pricing {
   const overMax = tiered !== null && !tiered.ok
 
   const totalAmount = tieredPricingEnabled
-    ? (tiered && tiered.ok ? tiered.totalCents / 100 : 0)
+    ? (tiered?.ok ? tiered.totalCents / 100 : 0)
     : ticketTypes.reduce((s, tt) => {
         const qty = quantities[tt.id] ?? 0
         return s + tt.price * qty

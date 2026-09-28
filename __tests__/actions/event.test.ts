@@ -137,29 +137,17 @@ describe("createEvent — ticket price validation", () => {
 
   // a NAMED ticket with an invalid price must error, not be silently
   // dropped — a dropped row on update reads as a ticket-type removal.
-  it("errors on a named ticket whose price has more than 2 decimal places instead of truncating", async () => {
-    mockSession("PASTOR")
-    ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 1 })
-    const result = await createEvent(undefined, ticketForm("9.999"))
-    expect(result).toEqual({ error: 'Invalid price for ticket type "Adult"' })
-    expect(prisma.event.create).not.toHaveBeenCalled()
-  })
-
-  it("errors on a named ticket whose price is exponential notation (1e3) instead of accepting 1000", async () => {
-    mockSession("PASTOR")
-    ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 1 })
-    const result = await createEvent(undefined, ticketForm("1e3"))
-    expect(result).toEqual({ error: 'Invalid price for ticket type "Adult"' })
-    expect(prisma.event.create).not.toHaveBeenCalled()
-  })
-
   // TicketType.price is Decimal(10,2) — 8 integer digits max. A 9+ digit
   // price passes MONEY_DECIMAL_RE (no upper bound) and overflows the column,
   // surfacing as a raw Postgres numeric-overflow 500 instead of a clean error.
-  it("errors on a price that overflows the Decimal(10,2) column instead of hitting a DB 500", async () => {
+  it.each([
+    ["errors on a named ticket whose price has more than 2 decimal places instead of truncating", "9.999"],
+    ["errors on a named ticket whose price is exponential notation (1e3) instead of accepting 1000", "1e3"],
+    ["errors on a price that overflows the Decimal(10,2) column instead of hitting a DB 500", "100000000"],
+  ])("%s", async (_name, price) => {
     mockSession("PASTOR")
     ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 1 })
-    const result = await createEvent(undefined, ticketForm("100000000"))
+    const result = await createEvent(undefined, ticketForm(price))
     expect(result).toEqual({ error: 'Invalid price for ticket type "Adult"' })
     expect(prisma.event.create).not.toHaveBeenCalled()
   })

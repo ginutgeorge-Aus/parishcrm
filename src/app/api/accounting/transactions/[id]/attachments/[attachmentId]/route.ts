@@ -56,7 +56,7 @@ export async function GET(
   })
   // Scope to the addressed transaction — a real attachment on a different
   // transaction 404s exactly like a missing one.
-  if (!att || att.transactionId !== txId) return notFound()
+  if (att?.transactionId !== txId) return notFound()
 
   // Stored blob is base64 ciphertext (UTF-8 bytes); reverse to the raw file.
   // Filename is encrypted too. `decrypt` is plaintext-safe (encryption.md).

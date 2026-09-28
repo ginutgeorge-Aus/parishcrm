@@ -1,5 +1,5 @@
 import "server-only"
-import { randomBytes, createHash } from "crypto"
+import { randomBytes, createHash } from "node:crypto"
 
 // Raw token lives ONLY in the emailed URL. The DB stores its SHA-256 hash, so a
 // DB leak never exposes a live link (same pattern as password reset tokens).

@@ -131,7 +131,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // deactivated account would create new activity on a retired account that
       // both manual create and the import picker refuse, defeating deactivation
       // (mirrors the category isActive guard below).
-      if (!a || a.kind !== "BANK" || !a.isActive) {
+      if (a?.kind !== "BANK" || !a.isActive) {
         return { ok: false, status: 400, error: "Invalid payment account" }
       }
       paymentAccountNameById.set(id, a.name)
@@ -574,7 +574,6 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         console.error("Bank import DB error", msg)
         return dbFault()
       }
-      continue
     }
   }
 

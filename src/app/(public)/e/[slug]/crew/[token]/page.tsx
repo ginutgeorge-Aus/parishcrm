@@ -53,7 +53,7 @@ export default async function CrewPage({ params }: Props) {
 
   // Slug is validated to match so a token can't be surfaced under an arbitrary
   // path; the token remains the actual gate.
-  if (!event || event.slug !== slug) notFound()
+  if (event?.slug !== slug) notFound()
 
   return (
     <VolunteerView

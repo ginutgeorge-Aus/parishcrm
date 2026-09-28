@@ -12,7 +12,7 @@ export const TransactionSchema = z.object({
     // unhandled 500 on the DateTime column. Reject it here.
     .refine((d) => !Number.isNaN(d.getTime()), "Invalid date"),
   description: z.string().min(1, "Description is required").max(1000),
-  accountId: z.string().min(1, "Category is required").transform((v) => Number(v)),
+  accountId: z.string().min(1, "Category is required").transform(Number),
   type: z.enum(["INCOME", "EXPENSE"]),
   amount: z
     .string()

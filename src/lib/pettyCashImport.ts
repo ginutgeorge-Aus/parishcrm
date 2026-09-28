@@ -88,10 +88,13 @@ const EXPECTED_HEADER = ["date", "type", "account", "payee_or_donor", "amount", 
 function parseDate(s: string): Date | null {
   const t = s.trim()
   let y: number, m: number, d: number
-  let match = t.match(/^(\d{4})([/-])(\d{2})\2(\d{2})$/)
+  let match = /^(\d{4})([/-])(\d{2})\2(\d{2})$/.exec(t)
   if (match) { y = +match[1]; m = +match[3]; d = +match[4] }
-  else if ((match = t.match(/^(\d{1,2})([/-])(\d{1,2})\2(\d{4})$/))) { d = +match[1]; m = +match[3]; y = +match[4] }
-  else return null
+  else {
+    match = /^(\d{1,2})([/-])(\d{1,2})\2(\d{4})$/.exec(t)
+    if (match) { d = +match[1]; m = +match[3]; y = +match[4] }
+    else return null
+  }
   if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null
   const date = new Date(Date.UTC(y, m - 1, d))
   // Reject overflow (e.g. 31/02 → Mar 3)

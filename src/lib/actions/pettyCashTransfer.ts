@@ -49,7 +49,7 @@ const TransferSchema = z.object({
   retainedFloat: z
     .string()
     .optional()
-    .transform((v) => (v && v.trim() ? v.trim() : "0"))
+    .transform((v) => v?.trim() || "0")
     .refine((v) => MONEY_DECIMAL_RE.test(v), "Retained float must be a non-negative amount"),
   depositSlipRef: z.string().max(100).optional().transform((v) => v || undefined),
   depositedByName: z.string().min(1, "Deposited by is required").max(200),

@@ -1,7 +1,7 @@
 import NextAuth, { CredentialsSignin } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { compare, hash } from "bcryptjs"
-import { randomBytes, timingSafeEqual } from "crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { authConfig } from "@/auth.config"
@@ -88,8 +88,9 @@ export async function authorizeCredentials(
 
   if (credentials.mode === "otp") {
     const email = credentials.email as string
-    const otp = (credentials.otp as string | undefined)?.trim()
-    if (!otp || otp.length !== 6) return null
+    if (typeof credentials.otp !== "string") return null
+    const otp = credentials.otp.trim()
+    if (otp.length !== 6) return null
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return null

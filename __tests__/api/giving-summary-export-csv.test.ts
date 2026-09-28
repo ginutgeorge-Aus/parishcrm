@@ -45,20 +45,12 @@ describe("GET /api/accounting/reports/giving-summary/export-csv", () => {
     expect(res.headers.get("content-type")).toBe("text/csv")
   })
 
-  it("returns 200 with text/csv for OFFICE_ADMIN", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "3" } })
-    const res = await GET(makeRequest())
-    expect(res.status).toBe(200)
-  })
-
-  it("returns 200 with text/csv for ADMIN", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "4" } })
-    const res = await GET(makeRequest())
-    expect(res.status).toBe(200)
-  })
-
-  it("returns 200 with text/csv for PASTOR", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "PASTOR", id: "5" } })
+  it.each([
+    ["returns 200 with text/csv for OFFICE_ADMIN", "OFFICE_ADMIN", "3"],
+    ["returns 200 with text/csv for ADMIN", "ADMIN", "4"],
+    ["returns 200 with text/csv for PASTOR", "PASTOR", "5"],
+  ])("%s", async (_name, role, id) => {
+    mockAuth.mockResolvedValue({ user: { role, id } })
     const res = await GET(makeRequest())
     expect(res.status).toBe(200)
   })

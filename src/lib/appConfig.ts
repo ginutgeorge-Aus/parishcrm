@@ -74,7 +74,7 @@ function readTimezone(): string {
 
 function readLocale(): string {
   const loc = source.locale
-  if (!loc || !loc.trim()) return "en-AU"
+  if (!loc?.trim()) return "en-AU"
   // Validate at load — a structurally invalid tag (e.g. the `en_US` underscore
   // typo) passes a non-empty check but throws `RangeError: Incorrect locale
   // information provided` later inside fmtAUD. Turn that into a boot-time error.
@@ -109,4 +109,9 @@ export function publicAppConfig(): PublicAppConfig {
     currency: APP_CURRENCY,
     turnstileSiteKey: TURNSTILE_SITE_KEY,
   }
+}
+
+/** JSON for an inline <script>: `<` escaped so a value can't close the tag. */
+export function inlineScriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, String.raw`\u003c`)
 }

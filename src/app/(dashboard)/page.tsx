@@ -206,7 +206,7 @@ export default async function DashboardPage() {
   const upcomingAnniversaries = computeUpcomingAnniversaries(anniversaryFamilies, 7, today)
 
   const marriageAnniversaries = marriageFamilies
-    .filter((f) => f.marriageDate && f.marriageDate.getMonth() === thisMonth)
+    .filter((f) => f.marriageDate?.getMonth() === thisMonth)
     .sort((a, b) => a.marriageDate!.getDate() - b.marriageDate!.getDate())
 
 

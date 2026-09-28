@@ -44,7 +44,7 @@ const FamilySchema = z.object({
     .optional()
     // Keep as a validated string and pass it straight to the Decimal(10,2)
     // column — never parseFloat into a JS number before storage.
-    .transform((v) => (v && v.trim() ? v.trim() : null))
+    .transform((v) => v?.trim() || null)
     .refine(
       (v) => v === null || (MONEY_DECIMAL_RE.test(v) && toCents(v) <= MAX_MONTHLY_DUES_DOLLARS * 100),
       "Monthly dues must be a positive amount"

@@ -32,7 +32,7 @@ export default async function PublicEventPage(props: Props) {
 
   // Unpublished renders the same 404 as an unknown slug — a distinct
   // "not yet available" page confirms draft slugs exist.
-  if (!event || !event.isPublished) notFound()
+  if (!event?.isPublished) notFound()
 
   // Only the fields the public components render — never spread the full row,
   // which would leak eventId, createdAt and registrationItems[] (internal IDs +

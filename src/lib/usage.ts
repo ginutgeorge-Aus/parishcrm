@@ -12,7 +12,7 @@ export type UsageSummary = {
 }
 
 export async function getUsageSummary(days: number, now: Date = new Date()): Promise<UsageSummary> {
-  const windowStart = new Date(now.getTime() - days * 86400_000)
+  const windowStart = new Date(now.getTime() - days * 86_400_000)
 
   // The dashboard measures HUMAN activity. Background/cron audit writes carry a
   // null userId (System actor, since AuditLog.userId became nullable) — exclude

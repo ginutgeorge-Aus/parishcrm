@@ -17,7 +17,7 @@ export async function markWaitlistNotified(
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
   const row = await prisma.waitlist.findUnique({ where: { id: waitlistId }, select: { eventId: true } })
-  if (!row || row.eventId !== eventId) return { error: "Waitlist entry not found" }
+  if (row?.eventId !== eventId) return { error: "Waitlist entry not found" }
 
   // updateMany: a concurrent resetEventRegistrations can delete the row after
   // the read above; update() would throw P2025 out of the action.

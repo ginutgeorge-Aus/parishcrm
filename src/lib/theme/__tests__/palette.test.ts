@@ -83,25 +83,19 @@ describe("theme/palette", () => {
   })
 
   describe("hexToHslTriple", () => {
-    it("converts brand navy to the globals.css --primary triple", async () => {
+    it.each([
+      ["converts brand navy to the globals.css --primary triple", "#1e293b", "217 33% 17%"],
+      ["accepts hex without a leading #", "1e293b", "217 33% 17%"],
+      ["falls back to the neutral primary triple on malformed input", "nope", "217 33% 17%"],
+    ])("%s", async (_name, hex, expected) => {
       const { hexToHslTriple } = await import("../palette")
-      expect(hexToHslTriple("#1e293b")).toBe("217 33% 17%")
-    })
-
-    it("accepts hex without a leading #", async () => {
-      const { hexToHslTriple } = await import("../palette")
-      expect(hexToHslTriple("1e293b")).toBe("217 33% 17%")
+      expect(hexToHslTriple(hex)).toBe(expected)
     })
 
     it("converts pure white and black", async () => {
       const { hexToHslTriple } = await import("../palette")
       expect(hexToHslTriple("#ffffff")).toBe("0 0% 100%")
       expect(hexToHslTriple("#000000")).toBe("0 0% 0%")
-    })
-
-    it("falls back to the neutral primary triple on malformed input", async () => {
-      const { hexToHslTriple } = await import("../palette")
-      expect(hexToHslTriple("nope")).toBe("217 33% 17%")
     })
   })
 })

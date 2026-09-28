@@ -26,7 +26,7 @@ export default async function EditReceiptPage(props: {
     include: { session: { select: { id: true, title: true, status: true } } },
   })
   // IDOR guard: receipt must belong to the session in the URL
-  if (!receipt || receipt.sessionId !== sessionId) notFound()
+  if (receipt?.sessionId !== sessionId) notFound()
   if (receipt.session.status === "CLOSED")
     redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 

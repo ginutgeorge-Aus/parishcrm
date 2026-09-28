@@ -7,7 +7,7 @@
 // Matching is exact or segment-bounded (prefix + "/") — "/loginX" and
 // "/api/healthcheck" are NOT public, and only the register endpoint under
 // /api/events/ is exposed, not every future sub-route.
-const PUBLIC_PATHS = [
+const PUBLIC_PATHS = new Set([
   "/login",
   "/forgot-password",
   "/reset-password",
@@ -28,7 +28,7 @@ const PUBLIC_PATHS = [
   // Static public/robots.txt — crawlers fetch this unauthenticated. Without a
   // bypass they get a 302-to-login instead of the Disallow-all file.
   "/robots.txt",
-]
+])
 const PUBLIC_TREES = [
   "/api/auth", // NextAuth handlers — all sub-routes are auth plumbing
   "/api/branding", // Branding asset routes — logo, crest, etc. served publicly with ETag caching
@@ -92,7 +92,7 @@ export function isPublicPath(pathname: string): boolean {
       ? pathname.replace(/\/+$/, "")
       : pathname
   return (
-    PUBLIC_PATHS.includes(path) ||
+    PUBLIC_PATHS.has(path) ||
     PUBLIC_TREES.some((p) => path === p || path.startsWith(`${p}/`)) ||
     PUBLIC_EVENT_PAGES.test(path) ||
     PUBLIC_EVENT_API.test(path) ||

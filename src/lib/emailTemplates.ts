@@ -51,6 +51,6 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<EmailTemplateKey, EmailTemplateFiel
 // left verbatim (visible to the reader) and the call never throws.
 export function applyVars(text: string, vars: Record<string, string>): string {
   return text.replace(/\{(\w+)\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match,
+    Object.hasOwn(vars, key) ? vars[key] : match,
   )
 }

@@ -96,7 +96,7 @@ export function pettyCashTitle(ymd: string): string {
  * instant regardless of server timezone.
  */
 export function sessionDateFromTitle(title: string): Date | null {
-  const m = title.match(/^(\d{2})-([A-Z]{3})-(\d{4})$/)
+  const m = /^(\d{2})-([A-Z]{3})-(\d{4})$/.exec(title)
   const month = m ? (MONTH_ABBR as readonly string[]).indexOf(m[2]) : -1
   if (!m || month === -1) {
     console.error(`sessionDateFromTitle: unparseable session title "${title}"`)

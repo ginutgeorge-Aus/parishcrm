@@ -108,6 +108,6 @@ describe("generateTransactionCsv", () => {
 
   it("returns only header row for empty input", () => {
     const csv = generateTransactionCsv([])
-    expect(csv.split("\n").length).toBe(1)
+    expect(csv.split("\n")).toHaveLength(1)
   })
 })

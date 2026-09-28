@@ -4,9 +4,9 @@
 // `server-only` throws under plain Node/tsx. The runtime browser guard below is
 // the defense-in-depth backstop for that direct-import path.
 if (typeof window !== "undefined") {
-  throw new Error("src/lib/crypto-core.ts must never be imported into client/browser code")
+  throw new TypeError("src/lib/crypto-core.ts must never be imported into client/browser code")
 }
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "crypto"
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto"
 
 const ALGORITHM = "aes-256-gcm"
 const IV_BYTES = 12
@@ -65,7 +65,7 @@ type Keyring = { keys: Map<string, Buffer>; currentId: string }
 function loadKeyring(): Keyring {
   const keys = new Map<string, Buffer>()
   for (const [name, val] of Object.entries(process.env)) {
-    const m = name.match(/^ENCRYPTION_KEY_(V\d+)$/)
+    const m = /^ENCRYPTION_KEY_(V\d+)$/.exec(name)
     if (m && val) keys.set(m[1].toLowerCase(), Buffer.from(val, "base64"))
   }
   // Back-compat: the single ENCRYPTION_KEY becomes v1 unless V1 is set explicitly.

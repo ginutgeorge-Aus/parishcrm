@@ -1,12 +1,12 @@
 import "server-only"
 import fs from "node:fs"
-import { PrismaClient, Prisma } from "./generated/prisma/client"
+import { PrismaClient } from "./generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 // Re-exported so callers (e.g. transaction-isolation-level options, tx client
 // typing) go through this shared module instead of reaching into the
 // generated client directly.
-export { Prisma }
+export { Prisma } from "./generated/prisma/client"
 
 function createPrismaClient() {
   // Fail loudly at first use instead of an opaque adapter crash on every DB route.

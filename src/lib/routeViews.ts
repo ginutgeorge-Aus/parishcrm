@@ -21,7 +21,7 @@ export async function getTopRoutes(
   days: number,
   now: Date = new Date()
 ): Promise<{ route: string; count: number }[]> {
-  const since = utcDay(new Date(now.getTime() - days * 86400_000))
+  const since = utcDay(new Date(now.getTime() - days * 86_400_000))
   const rows = await prisma.routeViewDaily.groupBy({
     by: ["route"],
     where: { date: { gte: since } },

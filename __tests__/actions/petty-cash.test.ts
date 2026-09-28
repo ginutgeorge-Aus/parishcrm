@@ -186,24 +186,14 @@ describe("createSession", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/7")
   })
 
-  it("blocks VIEWER", async () => {
-    mockSession.mockResolvedValue({ user: { id: "999", role: "VIEWER" } })
-    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "1" }))
-    expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockCreateSession).not.toHaveBeenCalled()
-  })
-
-  it("blocks AUDITOR", async () => {
-    mockSession.mockResolvedValue({ user: { id: "999", role: "AUDITOR" } })
-    const result = await createSession(undefined, fd({ sessionDate: "2026-05-22", custodianId: "1" }))
-    expect(result).toEqual({ error: "Unauthorized" })
-    expect(mockCreateSession).not.toHaveBeenCalled()
-  })
-
-  it("returns error for invalid date", async () => {
-    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
-    const result = await createSession(undefined, fd({ sessionDate: "not-a-date", custodianId: "1" }))
-    expect(result).toEqual({ error: "Invalid date" })
+  it.each([
+    ["blocks VIEWER", "VIEWER", "2026-05-22", "Unauthorized"],
+    ["blocks AUDITOR", "AUDITOR", "2026-05-22", "Unauthorized"],
+    ["returns error for invalid date", "PASTOR", "not-a-date", "Invalid date"],
+  ])("%s", async (_name, role, sessionDate, error) => {
+    mockSession.mockResolvedValue({ user: { id: "999", role } })
+    const result = await createSession(undefined, fd({ sessionDate, custodianId: "1" }))
+    expect(result).toEqual({ error })
     expect(mockCreateSession).not.toHaveBeenCalled()
   })
 

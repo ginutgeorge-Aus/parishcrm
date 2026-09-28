@@ -41,7 +41,7 @@ describe("validateAnswer", () => {
   })
   it("number accepts a numeric string at the length limit", () => {
     const atLimit = "0".repeat(1999) + "1"
-    expect(atLimit.length).toBe(2000)
+    expect(atLimit).toHaveLength(2000)
     expect(validateAnswer(q({ type: "number" }), atLimit)).toEqual({ ok: true, value: atLimit })
   })
   it("date rejects garbage", () => {
@@ -65,7 +65,7 @@ describe("validateAnswer", () => {
   })
   it("email accepts an answer at the length limit", () => {
     const atLimit = `${"x".repeat(1994)}@a.com`
-    expect(atLimit.length).toBe(2000)
+    expect(atLimit).toHaveLength(2000)
     expect(validateAnswer(q({ type: "email" }), atLimit)).toEqual({ ok: true, value: atLimit })
   })
   it("rejects over-long open-ended answers", () => {
@@ -190,7 +190,7 @@ describe("consent statements", () => {
       "customQuestion.0.required": "true",
       "customQuestion.0.statements": many + "\n" + "x".repeat(600),
     }))
-    expect(qs![0].statements!.length).toBe(10)
+    expect(qs![0].statements!).toHaveLength(10)
     expect(qs![0].statements!.every(s => s.length <= 500)).toBe(true)
   })
 
@@ -217,7 +217,7 @@ describe("consent statements", () => {
       "customQuestion.0.required": "false",
       "customQuestion.0.options": many + "," + "x".repeat(300),
     }))
-    expect(qs![0].options!.length).toBe(50)
+    expect(qs![0].options!).toHaveLength(50)
     expect(qs![0].options!.every(o => o.length <= 200)).toBe(true)
   })
 

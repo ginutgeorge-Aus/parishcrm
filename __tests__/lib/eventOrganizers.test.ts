@@ -46,7 +46,7 @@ describe("parseOrganizers", () => {
   it("truncates an over-long name and phone", () => {
     const fd = organizerForm([{ name: "x".repeat(300), phone: "9".repeat(100) }])
     const [org] = parseOrganizers(fd)
-    expect(org.name.length).toBe(200)
-    expect(org.phone!.length).toBe(50)
+    expect(org.name).toHaveLength(200)
+    expect(org.phone!).toHaveLength(50)
   })
 })

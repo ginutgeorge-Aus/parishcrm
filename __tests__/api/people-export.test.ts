@@ -80,21 +80,13 @@ describe("GET /api/people/[id]/export", () => {
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
-  it("returns 400 for non-numeric id", async () => {
+  it.each([
+    ["returns 400 for non-numeric id", "abc"],
+    ["returns 400 for id of 0", "0"],
+    ["returns 400 for id exceeding max int (2147483648)", "2147483648"],
+  ])("%s", async (_name, id) => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const res = await GET(makeRequest(), makeProps("abc"))
-    expect(res.status).toBe(400)
-  })
-
-  it("returns 400 for id of 0", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const res = await GET(makeRequest(), makeProps("0"))
-    expect(res.status).toBe(400)
-  })
-
-  it("returns 400 for id exceeding max int (2147483648)", async () => {
-    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const res = await GET(makeRequest(), makeProps("2147483648"))
+    const res = await GET(makeRequest(), makeProps(id))
     expect(res.status).toBe(400)
   })
 

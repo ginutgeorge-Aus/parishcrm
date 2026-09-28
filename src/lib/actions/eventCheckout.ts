@@ -37,7 +37,7 @@ export async function startEventCheckout(
   const event = await fetchEventWithTickets(slug)
 
   // Unpublished must be indistinguishable from not-found.
-  if (!event || !event.isPublished) {
+  if (!event?.isPublished) {
     return { ok: false, status: 404, error: "Event not found" }
   }
 
@@ -113,7 +113,7 @@ export async function startExistingRegistrationCheckout(
     },
   })
   // Unpublished must be indistinguishable from not-found.
-  if (!event || !event.isPublished) {
+  if (!event?.isPublished) {
     return { ok: false, status: 404, error: "Event not found" }
   }
   if (!event.onlinePaymentEnabled) {

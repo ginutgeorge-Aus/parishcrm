@@ -84,18 +84,15 @@ it.each(["abc", "12abc", "0", "-5"])("400s on a malformed ?account=%s", async (v
   expect(mockFindMany).not.toHaveBeenCalled()
 })
 
-it("400s on a malformed ?family=", async () => {
+it.each([
+  ["400s on a malformed ?family=", "family=nope", "Invalid family"],
+  ["400s on a malformed ?fund= (not 'none', not an id)", "fund=12abc", "Invalid fund"],
+  ["400s on a malformed ?to= date instead of dropping the upper bound", "to=2026-13-40", "Invalid date"],
+])("%s", async (_name, query, error) => {
   mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?family=nope"))
+  const res = await GET(new NextRequest(`http://localhost/api/accounting/transactions/export-csv?${query}`))
   expect(res.status).toBe(400)
-  expect(await res.json()).toEqual({ error: "Invalid family" })
-})
-
-it("400s on a malformed ?fund= (not 'none', not an id)", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?fund=12abc"))
-  expect(res.status).toBe(400)
-  expect(await res.json()).toEqual({ error: "Invalid fund" })
+  expect(await res.json()).toEqual({ error })
 })
 
 it("400s on a malformed ?from= date instead of falling back to FY start", async () => {
@@ -104,11 +101,4 @@ it("400s on a malformed ?from= date instead of falling back to FY start", async 
   expect(res.status).toBe(400)
   expect(await res.json()).toEqual({ error: "Invalid date" })
   expect(mockFindMany).not.toHaveBeenCalled()
-})
-
-it("400s on a malformed ?to= date instead of dropping the upper bound", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-  const res = await GET(new NextRequest("http://localhost/api/accounting/transactions/export-csv?to=2026-13-40"))
-  expect(res.status).toBe(400)
-  expect(await res.json()).toEqual({ error: "Invalid date" })
 })

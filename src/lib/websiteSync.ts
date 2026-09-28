@@ -6,7 +6,7 @@ import "server-only"
 // Imported only by server actions and Server Components — never reaches the
 // client bundle.
 
-import { createHmac, randomUUID } from "crypto"
+import { createHmac, randomUUID } from "node:crypto"
 import { logger } from "@/lib/logger"
 import { prisma } from "@/lib/prisma"
 
@@ -149,7 +149,7 @@ function isNonCanonicalNumericHost(host: string): boolean {
 }
 
 function isPrivateOrReservedV4(host: string): boolean {
-  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/)
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host)
   if (!v4) return false
   const a = Number(v4[1])
   const b = Number(v4[2])

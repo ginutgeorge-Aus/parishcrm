@@ -163,7 +163,7 @@ describe("GET /api/accounting/transactions/export-csv", () => {
     mockFindMany.mockResolvedValue([])
     const res = await GET(makeRequest())
     const text = await res.text()
-    expect(text.split("\n").length).toBe(1)
+    expect(text.split("\n")).toHaveLength(1)
     expect(text).toContain("Date,Description")
   })
 })

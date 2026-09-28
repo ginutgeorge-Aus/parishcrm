@@ -8,7 +8,7 @@ import { Providers } from "@/components/Providers"
 import { NonceProvider } from "@/components/NonceProvider"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { PRIMARY_HEX, hexToHslTriple, parseHex } from "@/lib/theme/palette"
-import { APP_LOCALE, publicAppConfig } from "@/lib/appConfig"
+import { APP_LOCALE, inlineScriptJson, publicAppConfig } from "@/lib/appConfig"
 
 // Body / UI / data face — Public Sans is built for institutional legibility
 // (US government design system), ideal for non-technical trustees reading money.
@@ -87,7 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             beforeInteractive runs before any app chunk evaluates, so appConfig's
             module-level constants see it. `<` escaped so a value can't close the tag. */}
         <Script id="app-config" strategy="beforeInteractive" nonce={nonce}>
-          {`window.__APP_CONFIG__=${JSON.stringify(publicAppConfig()).replace(/</g, "\\u003c")}`}
+          {`window.__APP_CONFIG__=${inlineScriptJson(publicAppConfig())}`}
         </Script>
         {themeCss && <style nonce={nonce}>{themeCss}</style>}
         <NonceProvider nonce={nonce}>

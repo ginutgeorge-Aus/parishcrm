@@ -109,12 +109,14 @@ describe("redactUrlAttributes — path-segment tokens", () => {
 })
 
 describe("redactUrlAttributes — volunteer crew view token", () => {
-  it("redacts the /e/<slug>/crew/<token> path segment in url.full", () => {
-    const attrs: Record<string, unknown> = {
-      "url.full": "https://crm.example.com/e/summer-fair/crew/abc123deadbeef",
-    }
+  it.each([
+    ["redacts the /e/<slug>/crew/<token> path segment in url.full", "url.full", "https://crm.example.com/e/summer-fair/crew/abc123deadbeef", "https://crm.example.com/e/summer-fair/crew/[token]"],
+    ["redacts the crew token in the current-semconv url.path attribute", "url.path", "/e/summer-fair/crew/abc123deadbeef", "/e/summer-fair/crew/[token]"],
+    ["redacts both a crew token and a query string on the same URL", "url.full", "https://crm.example.com/e/summer-fair/crew/abc123deadbeef?foo=bar", "https://crm.example.com/e/summer-fair/crew/[token]"],
+  ])("%s", (_name, key, input, output) => {
+    const attrs: Record<string, unknown> = { [key]: input }
     redactUrlAttributes(attrs)
-    expect(attrs["url.full"]).toBe("https://crm.example.com/e/summer-fair/crew/[token]")
+    expect(attrs[key]).toBe(output)
   })
 
   it("redacts the crew token in deprecated http.url and http.target", () => {
@@ -125,20 +127,6 @@ describe("redactUrlAttributes — volunteer crew view token", () => {
     redactUrlAttributes(attrs)
     expect(attrs["http.url"]).toBe("https://crm.example.com/e/summer-fair/crew/[token]")
     expect(attrs["http.target"]).toBe("/e/summer-fair/crew/[token]")
-  })
-
-  it("redacts the crew token in the current-semconv url.path attribute", () => {
-    const attrs: Record<string, unknown> = { "url.path": "/e/summer-fair/crew/abc123deadbeef" }
-    redactUrlAttributes(attrs)
-    expect(attrs["url.path"]).toBe("/e/summer-fair/crew/[token]")
-  })
-
-  it("redacts both a crew token and a query string on the same URL", () => {
-    const attrs: Record<string, unknown> = {
-      "url.full": "https://crm.example.com/e/summer-fair/crew/abc123deadbeef?foo=bar",
-    }
-    redactUrlAttributes(attrs)
-    expect(attrs["url.full"]).toBe("https://crm.example.com/e/summer-fair/crew/[token]")
   })
 
   it("never leaves the crew token substring anywhere", () => {
