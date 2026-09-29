@@ -192,7 +192,7 @@ All mutations write to the `AuditLog` table with `VERB_NOUN` action strings (e.g
 
 ParishCRM is a standard Next.js app backed by PostgreSQL. Run the published container
 image against your own Postgres: set the required secrets (`AUTH_SECRET`, `ENCRYPTION_KEY`,
-`DATABASE_URL`, mail credentials), run `prisma migrate deploy`, and start the container.
+`DATABASE_URL`, mail credentials) and start the container — it applies migrations on start.
 Step-by-step guide: [docs/self-hosting.md](docs/self-hosting.md).
 
 **One-click:** [Railway guide](docs/deploy/railway.md).
