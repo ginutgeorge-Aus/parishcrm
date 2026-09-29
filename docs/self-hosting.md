@@ -89,10 +89,13 @@ Run a **single replica**: the rate limiter is in-memory.
 
 ## 5. First login
 
-Skipped the script in step 3? Set `SETUP_TOKEN` to a long random value, open `https://<your-host>/setup`,
-enter the token and create the first administrator. The page only works while the
-database has no users; remove `SETUP_TOKEN` afterwards. (Alternatively use
-`scripts/create-admin-user.ts`, see `docs/operations.md`.)
+Skipped the script in step 3? Add `SETUP_TOKEN=<long random value>` to `.env`,
+then regenerate `.env.docker` and recreate the container (`docker rm -f church-crm`,
+then re-run step 4) — a running container never sees `.env` changes. Open
+`https://<your-host>/setup`, enter the token and create the first administrator.
+The page only works while the database has no users; afterwards remove
+`SETUP_TOKEN` from `.env` and recreate the container the same way.
+(Alternatively use `scripts/create-admin-user.ts`, see `docs/operations.md`.)
 
 Sign in as the admin you created, then:
 
