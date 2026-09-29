@@ -20,6 +20,7 @@ jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
 
+import { headers } from "next/headers"
 import { createFirstAdmin } from "../setup"
 import { isSetupOpen } from "@/lib/setupState"
 import { prisma } from "@/lib/prisma"
@@ -70,19 +71,36 @@ describe("createFirstAdmin", () => {
     })
     expect(logAudit).toHaveBeenCalledWith(1, "SETUP_FIRST_ADMIN", "User", 1, undefined, "203.0.113.9")
   })
-  it("lower-cases and trims the email", async () => {
+  it("trims but keeps the email's case (login matches it exactly as typed)", async () => {
     await createFirstAdmin(fd({ ...valid, email: "  Admin@Example.com " }))
-    expect(tx.user.create.mock.calls[0][0].data.email).toBe("admin@example.com")
+    expect(tx.user.create.mock.calls[0][0].data.email).toBe("Admin@Example.com")
   })
   it("rejects a wrong token without touching the DB", async () => {
     const res = await createFirstAdmin(fd({ ...valid, token: "x".repeat(32) }))
-    expect(res).toEqual({ error: "Setup is not available." })
+    expect(res).toEqual({ error: "Setup is not available.", field: "token" })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
   it("rejects when SETUP_TOKEN is unset (fail closed)", async () => {
     delete process.env.SETUP_TOKEN
     const res = await createFirstAdmin(fd({ ...valid, token: "" }))
     expect(res).toEqual({ error: "Setup is not available." })
+  })
+  it("bails before the rate limiter once setup is closed (users exist)", async () => {
+    ;(prisma.user.count as jest.Mock).mockResolvedValue(1)
+    const res = await createFirstAdmin(fd(valid))
+    expect(res).toEqual({ error: "Setup is not available." })
+    expect(dbRateLimit).not.toHaveBeenCalled()
+  })
+  it("does not count validation failures against the rate limit", async () => {
+    const res = await createFirstAdmin(fd({ ...valid, password: "weakpass" }))
+    expect(res).toMatchObject({ field: "password" })
+    expect(dbRateLimit).not.toHaveBeenCalled()
+  })
+  it("drops a malformed x-forwarded-for from the audit row", async () => {
+    ;(headers as jest.Mock).mockResolvedValueOnce(new Map([["x-forwarded-for", "garbage<script>"]]))
+    await createFirstAdmin(fd(valid))
+    expect(dbRateLimit).toHaveBeenCalledWith("setup:unknown", 10, 15 * 60_000)
+    expect(logAudit).toHaveBeenCalledWith(1, "SETUP_FIRST_ADMIN", "User", 1, undefined, undefined)
   })
   it.each([["P2034", "serialization conflict"], ["P2002", "same-email unique violation"]])(
     "rejects a concurrent setup that loses the race (%s, %s)",
@@ -93,6 +111,12 @@ describe("createFirstAdmin", () => {
       expect(logAudit).not.toHaveBeenCalled()
     }
   )
+  it("rejects a race surfaced as an unwrapped adapter unique violation", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error("race"), { cause: { kind: "UniqueConstraintViolation" } })
+    )
+    expect(await createFirstAdmin(fd(valid))).toEqual({ error: "Setup is not available." })
+  })
   it("rethrows unexpected DB errors", async () => {
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("boom"), { code: "P1001" }))
     await expect(createFirstAdmin(fd(valid))).rejects.toThrow("boom")

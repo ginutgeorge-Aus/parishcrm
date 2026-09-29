@@ -24,6 +24,19 @@ describe("SetupForm", () => {
     fill("Str0ng!pass", "Different1!")
     await waitFor(() => expect(screen.getByText("Passwords do not match.")).toBeInTheDocument())
     expect(createFirstAdmin).not.toHaveBeenCalled()
+    expect(screen.getByLabelText("Confirm password")).toHaveAttribute("aria-invalid", "true")
+    expect(screen.getByLabelText("Setup token")).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("keeps the token, name and email after an error", async () => {
+    ;(createFirstAdmin as jest.Mock).mockResolvedValue({ error: "Setup is not available.", field: "token" })
+    render(<SetupForm />)
+    fill()
+    await waitFor(() => expect(screen.getByText("Setup is not available.")).toBeInTheDocument())
+    expect(screen.getByLabelText("Setup token")).toHaveValue("t".repeat(32))
+    expect(screen.getByLabelText("Your name")).toHaveValue("Demo Admin")
+    expect(screen.getByLabelText("Email")).toHaveValue("admin@example.com")
+    expect(screen.getByLabelText("Setup token")).toHaveAttribute("aria-describedby", "setup-error")
   })
 
   it("redirects to login with the setup flag on success", async () => {
