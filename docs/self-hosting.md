@@ -75,7 +75,7 @@ passwords are public in this repo (it refuses to run unless
 
 ```bash
 sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
-docker run -d --name church-crm --env-file .env.docker -p 3000:3000 \
+docker run -d --restart unless-stopped --name church-crm --env-file .env.docker -p 3000:3000 \
   ghcr.io/<owner>/<repo>:vX.Y.Z
 ```
 
