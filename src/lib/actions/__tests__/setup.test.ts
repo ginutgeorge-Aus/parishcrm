@@ -8,7 +8,6 @@ jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue
 jest.mock("bcryptjs", () => ({ hash: jest.fn(async () => "hashed") }))
 
 const tx = {
-  $executeRaw: jest.fn(),
   user: { count: jest.fn(), create: jest.fn() },
 }
 jest.mock("@/lib/prisma", () => ({
@@ -16,6 +15,9 @@ jest.mock("@/lib/prisma", () => ({
     user: { count: jest.fn() },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   },
+}))
+jest.mock("@/lib/generated/prisma/client", () => ({
+  Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
 
 import { createFirstAdmin } from "../setup"
@@ -57,10 +59,10 @@ describe("isSetupOpen", () => {
 })
 
 describe("createFirstAdmin", () => {
-  it("creates an ADMIN with a bcrypt-12 hash inside an advisory lock and audits it", async () => {
+  it("creates an ADMIN with a bcrypt-12 hash in a Serializable tx and audits it", async () => {
     const res = await createFirstAdmin(fd(valid))
     expect(res).toEqual({ success: true })
-    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
     expect(hash).toHaveBeenCalledWith("Str0ng!pass", 12)
     expect(tx.user.create).toHaveBeenCalledWith({
       data: { name: "Demo Admin", email: "admin@example.com", passwordHash: "hashed", role: "ADMIN" },
@@ -82,7 +84,20 @@ describe("createFirstAdmin", () => {
     const res = await createFirstAdmin(fd({ ...valid, token: "" }))
     expect(res).toEqual({ error: "Setup is not available." })
   })
-  it("rejects when a user was created concurrently (count re-checked under lock)", async () => {
+  it.each([["P2034", "serialization conflict"], ["P2002", "same-email unique violation"]])(
+    "rejects a concurrent setup that loses the race (%s, %s)",
+    async (code) => {
+      ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("race"), { code }))
+      const res = await createFirstAdmin(fd(valid))
+      expect(res).toEqual({ error: "Setup is not available." })
+      expect(logAudit).not.toHaveBeenCalled()
+    }
+  )
+  it("rethrows unexpected DB errors", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("boom"), { code: "P1001" }))
+    await expect(createFirstAdmin(fd(valid))).rejects.toThrow("boom")
+  })
+  it("rejects when a user was created concurrently (count re-checked in tx)", async () => {
     tx.user.count.mockResolvedValue(1)
     const res = await createFirstAdmin(fd(valid))
     expect(res).toEqual({ error: "Setup is not available." })

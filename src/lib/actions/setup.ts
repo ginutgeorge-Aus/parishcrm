@@ -4,15 +4,15 @@ import { hash } from "bcryptjs"
 import { headers } from "next/headers"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@/lib/generated/prisma/client"
 import { logAudit } from "@/lib/audit"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { safeEqual } from "@/lib/cronAuth"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
+import { isP2002, isP2034 } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 const UNAVAILABLE = "Setup is not available."
-// Arbitrary constant key — serialises concurrent first-admin creation.
-const SETUP_LOCK_KEY = 7_331_001
 const SETUP_LIMIT = 10
 const SETUP_WINDOW_MS = 15 * 60_000
 
@@ -52,18 +52,22 @@ export async function createFirstAdmin(
 
   const passwordHash = await hash(parsed.data.password, 12)
   try {
-    const user = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SETUP_LOCK_KEY})`
-      if ((await tx.user.count()) > 0) throw new SetupClosedError()
-      return tx.user.create({
-        data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: UserRole.ADMIN },
-        select: { id: true },
-      })
-    })
+    // Serializable: two concurrent setups both read count=0 then insert — Postgres
+    // aborts the loser (P2034), or the email unique index does (P2002).
+    const user = await prisma.$transaction(
+      async (tx) => {
+        if ((await tx.user.count()) > 0) throw new SetupClosedError()
+        return tx.user.create({
+          data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: UserRole.ADMIN },
+          select: { id: true },
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
     await logAudit(user.id, "SETUP_FIRST_ADMIN", "User", user.id, undefined, ip ?? undefined)
     return { success: true }
   } catch (e) {
-    if (e instanceof SetupClosedError) return { error: UNAVAILABLE }
+    if (e instanceof SetupClosedError || isP2034(e) || isP2002(e)) return { error: UNAVAILABLE }
     throw e
   }
 }
