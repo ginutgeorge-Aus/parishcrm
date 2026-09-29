@@ -1,4 +1,5 @@
-import { bearerOk, safeEqual } from "@/lib/cronAuth"
+import { bearerOk } from "@/lib/cronAuth"
+import { safeEqual } from "@/lib/safeEqual"
 
 describe("bearerOk (shared cron auth)", () => {
   it("rejects an empty Bearer token when the secret is empty (no auth bypass)", () => {
