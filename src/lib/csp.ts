@@ -12,6 +12,7 @@ const PUBLIC_PATHS = new Set([
   "/forgot-password",
   "/reset-password",
   "/privacy", // Privacy Act: policy must be reachable without an account
+  "/setup", // first-run admin creation; page self-gates on SETUP_TOKEN + zero users
   "/api/health",
   "/api/cron/send-reminders", // cron-only; gated by CRON_SECRET bearer, not a session
   "/api/cron/sweep-checkouts", // cron-only; gated by CRON_SECRET bearer, not a session

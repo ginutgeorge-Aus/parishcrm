@@ -18,6 +18,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const didReset = searchParams.get("reset") === "1"
+  const didSetup = searchParams.get("setup") === "1"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [otp, setOtp] = useState("")
@@ -199,6 +200,11 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
         {didReset && (
           <div className="mb-4 rounded-md bg-success/10 border border-success/40 p-3 text-sm text-success">
             Password updated. Please sign in with your new password.
+          </div>
+        )}
+        {didSetup && (
+          <div className="mb-4 rounded-md bg-success/10 border border-success/40 p-3 text-sm text-success">
+            Administrator created. Sign in to continue.
           </div>
         )}
         {step === "password" ? (

@@ -183,3 +183,13 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/branding/letterhead")).toBe(true)
   })
 })
+
+describe("isPublicPath — first-run setup", () => {
+  it("allows /setup unauthenticated (page self-gates on SETUP_TOKEN + zero users)", () => {
+    expect(isPublicPath("/setup")).toBe(true)
+    expect(isPublicPath("/setup/")).toBe(true)
+  })
+  it("does not open sub-paths", () => {
+    expect(isPublicPath("/setup/anything")).toBe(false)
+  })
+})
