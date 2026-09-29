@@ -10,6 +10,35 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.2.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.1.0...v1.2.0) (2026-09-29)
+
+
+### Added
+
+* one-click Railway deploy (setup page, prisma CLI in image) ([#58](https://github.com/ginutgeorge-Aus/parishcrm/issues/58)) ([6e8518f](https://github.com/ginutgeorge-Aus/parishcrm/commit/6e8518f0cd86cee825aa6ed2c05ec78a52cde4ab))
+
+
+### Fixed
+
+* **auth:** generate dummy bcrypt hash at runtime ([#36](https://github.com/ginutgeorge-Aus/parishcrm/issues/36)) ([0fc7e85](https://github.com/ginutgeorge-Aus/parishcrm/commit/0fc7e850525666ff46ef394fccd41127b88b8bc8))
+* **checkout:** show pending for COMPLETED w/o token ([#45](https://github.com/ginutgeorge-Aus/parishcrm/issues/45)) ([c60c7c6](https://github.com/ginutgeorge-Aus/parishcrm/commit/c60c7c61c3cbe9f236f6b8bd3f5532baa9767fca))
+* **docker:** run migrations on container start ([#61](https://github.com/ginutgeorge-Aus/parishcrm/issues/61)) ([b6047b7](https://github.com/ginutgeorge-Aus/parishcrm/commit/b6047b797ccc3d01c5b6f59b6bb53ccfd7e3238f))
+
+
+### Changed
+
+* **sonar:** cut S3776 complexity in 19 near-limit fns ([#42](https://github.com/ginutgeorge-Aus/parishcrm/issues/42)) ([1036666](https://github.com/ginutgeorge-Aus/parishcrm/commit/1036666e2ac9a6c5f9cfdc3235a2167e24bbf04e))
+* **sonar:** cut S3776 complexity in 21 fns (20-30) ([#43](https://github.com/ginutgeorge-Aus/parishcrm/issues/43)) ([acfb73e](https://github.com/ginutgeorge-Aus/parishcrm/commit/acfb73ea9e11b68396cf1699d7c64aef9fc46f4f))
+* **sonar:** cut S3776 complexity in 9 near-limit functions ([#40](https://github.com/ginutgeorge-Aus/parishcrm/issues/40)) ([354f8e2](https://github.com/ginutgeorge-Aus/parishcrm/commit/354f8e230a62838451277f9171110472242b47ad))
+
+
+### Dependencies
+
+* bump @testing-library/dom from 10.4.1 to 10.4.2 ([#55](https://github.com/ginutgeorge-Aus/parishcrm/issues/55)) ([f0ede35](https://github.com/ginutgeorge-Aus/parishcrm/commit/f0ede35171ee73942b503e7e8b2f157bbff98588))
+* bump dotenv from 17.4.2 to 18.0.2 ([#56](https://github.com/ginutgeorge-Aus/parishcrm/issues/56)) ([b2b1457](https://github.com/ginutgeorge-Aus/parishcrm/commit/b2b145722edab8bfe4c27ebebf12fb17694f4c82))
+* bump lucide-react from 1.41.0 to 1.47.0 ([#53](https://github.com/ginutgeorge-Aus/parishcrm/issues/53)) ([aa49801](https://github.com/ginutgeorge-Aus/parishcrm/commit/aa49801f3d066ef74052c9d4db3a8345c63fbfcc))
+* bump typescript from 5.9.3 to 6.0.3 ([#52](https://github.com/ginutgeorge-Aus/parishcrm/issues/52)) ([2f5a634](https://github.com/ginutgeorge-Aus/parishcrm/commit/2f5a63498ed43cda62d10456eaf6bfb09bbb9f30))
+
 ## [1.1.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.0.0...v1.1.0) (2026-09-25)
 
 
