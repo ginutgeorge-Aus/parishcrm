@@ -8,7 +8,9 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 > The one-click template is not published yet. Until it is, deploy from the repo:
 > **New Project → Deploy from GitHub repo** (Railway builds the Dockerfile; the
 > container applies migrations on start), then **+ New → Database →
-> PostgreSQL** and reference its `DATABASE_URL` from the app service. Generate
+> PostgreSQL** and reference its `DATABASE_URL` from the app service. In the app
+> service's **Settings → Deploy**, set **Healthcheck Path** to `/api/health` so
+> Railway waits for migrations and startup before routing traffic. Generate
 > `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
 > (`openssl rand -base64 32` each) and set `AUTH_URL` to the app's public URL.
 > Cron services are optional — see "Scheduled jobs" in `docs/self-hosting.md`.
