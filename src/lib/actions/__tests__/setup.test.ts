@@ -1,0 +1,106 @@
+/** @jest-environment node */
+
+jest.mock("next/headers", () => ({
+  headers: jest.fn(async () => new Map([["x-forwarded-for", "203.0.113.9"]])),
+}))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue(true) }))
+jest.mock("bcryptjs", () => ({ hash: jest.fn(async () => "hashed") }))
+
+const tx = {
+  $executeRaw: jest.fn(),
+  user: { count: jest.fn(), create: jest.fn() },
+}
+jest.mock("@/lib/prisma", () => ({
+  prisma: {
+    user: { count: jest.fn() },
+    $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+  },
+}))
+
+import { createFirstAdmin } from "../setup"
+import { isSetupOpen } from "@/lib/setupState"
+import { prisma } from "@/lib/prisma"
+import { dbRateLimit } from "@/lib/dbRateLimit"
+import { logAudit } from "@/lib/audit"
+import { hash } from "bcryptjs"
+
+const TOKEN = "t".repeat(32)
+function fd(o: Record<string, string>) {
+  const f = new FormData()
+  for (const k in o) f.set(k, o[k])
+  return f
+}
+const valid = { token: TOKEN, name: "Demo Admin", email: "admin@example.com", password: "Str0ng!pass" }
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  process.env.SETUP_TOKEN = TOKEN
+  ;(prisma.user.count as jest.Mock).mockResolvedValue(0)
+  tx.user.count.mockResolvedValue(0)
+  tx.user.create.mockResolvedValue({ id: 1 })
+})
+afterAll(() => { delete process.env.SETUP_TOKEN })
+
+describe("isSetupOpen", () => {
+  it("is closed when SETUP_TOKEN is unset", async () => {
+    delete process.env.SETUP_TOKEN
+    expect(await isSetupOpen()).toBe(false)
+  })
+  it("is closed once any user exists", async () => {
+    ;(prisma.user.count as jest.Mock).mockResolvedValue(1)
+    expect(await isSetupOpen()).toBe(false)
+  })
+  it("is open with a token and zero users", async () => {
+    expect(await isSetupOpen()).toBe(true)
+  })
+})
+
+describe("createFirstAdmin", () => {
+  it("creates an ADMIN with a bcrypt-12 hash inside an advisory lock and audits it", async () => {
+    const res = await createFirstAdmin(fd(valid))
+    expect(res).toEqual({ success: true })
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(hash).toHaveBeenCalledWith("Str0ng!pass", 12)
+    expect(tx.user.create).toHaveBeenCalledWith({
+      data: { name: "Demo Admin", email: "admin@example.com", passwordHash: "hashed", role: "ADMIN" },
+      select: { id: true },
+    })
+    expect(logAudit).toHaveBeenCalledWith(1, "SETUP_FIRST_ADMIN", "User", 1, undefined, "203.0.113.9")
+  })
+  it("lower-cases and trims the email", async () => {
+    await createFirstAdmin(fd({ ...valid, email: "  Admin@Example.com " }))
+    expect(tx.user.create.mock.calls[0][0].data.email).toBe("admin@example.com")
+  })
+  it("rejects a wrong token without touching the DB", async () => {
+    const res = await createFirstAdmin(fd({ ...valid, token: "x".repeat(32) }))
+    expect(res).toEqual({ error: "Setup is not available." })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+  it("rejects when SETUP_TOKEN is unset (fail closed)", async () => {
+    delete process.env.SETUP_TOKEN
+    const res = await createFirstAdmin(fd({ ...valid, token: "" }))
+    expect(res).toEqual({ error: "Setup is not available." })
+  })
+  it("rejects when a user was created concurrently (count re-checked under lock)", async () => {
+    tx.user.count.mockResolvedValue(1)
+    const res = await createFirstAdmin(fd(valid))
+    expect(res).toEqual({ error: "Setup is not available." })
+    expect(tx.user.create).not.toHaveBeenCalled()
+  })
+  it("rejects a weak password", async () => {
+    const res = await createFirstAdmin(fd({ ...valid, password: "weakpass" }))
+    expect(res).toHaveProperty("error")
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+  it("rejects an invalid email", async () => {
+    const res = await createFirstAdmin(fd({ ...valid, email: "nope" }))
+    expect(res).toHaveProperty("error")
+  })
+  it("is rate limited per IP", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValue(false)
+    const res = await createFirstAdmin(fd(valid))
+    expect(res).toEqual({ error: "Too many attempts. Try again later." })
+    expect(dbRateLimit).toHaveBeenCalledWith("setup:203.0.113.9", 10, 15 * 60_000)
+  })
+})
