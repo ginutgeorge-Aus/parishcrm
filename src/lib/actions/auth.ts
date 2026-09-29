@@ -4,12 +4,10 @@ import { randomBytes, createHash } from "node:crypto"
 import bcrypt from "bcryptjs"
 import { headers } from "next/headers"
 import { prisma } from "@/lib/prisma"
+import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/
-const PASSWORD_MSG =
-  "Password must be at least 8 characters and include uppercase, lowercase, number, and special character"
 
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
 // by target email (always present — caps reset-email bombing of a victim and

@@ -17,6 +17,20 @@ ENV NEXT_PUBLIC_GIT_SHA=$GIT_SHA
 RUN npx prisma generate
 RUN npm run build
 
+# Standalone output omits the Prisma CLI, so `migrate deploy` can't run from the
+# runner image. Install the CLI (pinned to the lockfile's exact version, incl. its
+# schema-engine binary for musl) into an isolated dir with the schema, migrations
+# and config beside it. Copied into the runner for the platform pre-deploy step.
+# Root `overrides` are carried over so the bundle gets the same security pins.
+FROM builder AS prisma-cli
+WORKDIR /opt/prisma-cli
+RUN PRISMA_VERSION=$(node -p "require('/app/node_modules/prisma/package.json').version") && \
+    DOTENV_VERSION=$(node -p "require('/app/node_modules/dotenv/package.json').version") && \
+    npm init -y >/dev/null && \
+    node -e "const p=require('./package.json');p.overrides=require('/app/package.json').overrides;require('fs').writeFileSync('package.json',JSON.stringify(p))" && \
+    npm install --omit=dev --no-audit --no-fund "prisma@${PRISMA_VERSION}" "dotenv@${DOTENV_VERSION}" && \
+    cp -r /app/prisma ./prisma && cp /app/prisma.config.ts ./prisma.config.ts
+
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -42,6 +56,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Migration CLI + migrations stay root-owned: the app user can run them but not alter them.
+COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
+COPY docker/migrate.sh /app/migrate.sh
 
 USER nextjs
 EXPOSE 3000

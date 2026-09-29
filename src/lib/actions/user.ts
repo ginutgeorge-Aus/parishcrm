@@ -13,6 +13,7 @@ import { canManageUsers, canAssignRole, isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
 import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
+import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
@@ -27,9 +28,6 @@ const ROLE_LABEL: Record<string, string> = {
   EVENT_ORGANISER: "Event Organiser",
 }
 
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/
-const PASSWORD_MSG =
-  "Password must be at least 8 characters and include uppercase, lowercase, number, and special character"
 
 // Thrown inside the last-admin-guard transactions below (updateUser/deleteUser)
 // to surface a clean ActionResult error instead of an unhandled throw.

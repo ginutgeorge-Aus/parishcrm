@@ -38,11 +38,16 @@ without it, encrypted member data is unrecoverable.
 
 ## 3. Create the schema
 
-Both commands read `.env` as dotenv (no shell expansion, so a `$` in a password
-is safe):
-
 ```bash
 npx prisma migrate deploy
+```
+
+For the first administrator, either use the `/setup` page after starting the app
+(step 5), **or** create one now with the script — not both, since `/setup` closes
+once any user exists. The script reads `.env` as dotenv (no shell expansion, so a
+`$` in a password is safe):
+
+```bash
 USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
   npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
@@ -83,6 +88,14 @@ The container exposes `GET /api/health` and has a built-in `HEALTHCHECK`.
 Run a **single replica**: the rate limiter is in-memory.
 
 ## 5. First login
+
+Skipped the script in step 3? Add `SETUP_TOKEN=<long random value>` to `.env`,
+then regenerate `.env.docker` and recreate the container (`docker rm -f church-crm`,
+then re-run step 4) — a running container never sees `.env` changes. Open
+`https://<your-host>/setup`, enter the token and create the first administrator.
+The page only works while the database has no users; afterwards remove
+`SETUP_TOKEN` from `.env` and recreate the container the same way.
+(Alternatively use `scripts/create-admin-user.ts`, see `docs/operations.md`.)
 
 Sign in as the admin you created, then:
 

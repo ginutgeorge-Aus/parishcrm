@@ -95,14 +95,20 @@ export function parseRouteId(raw: string | null | undefined): number | null {
 
 // Reject a P2002 (unique constraint) error from a Prisma write — used to retry
 // once on a concurrent-conflict race (dgrReceipt.ts, membership.ts) rather than
-// surfacing an unhandled 500.
+// surfacing an unhandled 500. Like isP2034, also matches the unwrapped
+// adapter-pg DriverAdapterError (Postgres 23505) that carries no `code`.
 export function isP2002(e: unknown): boolean {
-  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002"
+  if (typeof e !== "object" || e === null) return false
+  const err = e as { code?: string; cause?: { kind?: string } }
+  return err.code === "P2002" || err.cause?.kind === "UniqueConstraintViolation"
 }
 
 // Reject a P2034 (Serializable transaction conflict) error — surfaced by the
 // last-admin recount transactions when a concurrent write aborts the
-// isolation level's read.
+// isolation level's read. @prisma/adapter-pg sometimes surfaces the same
+// Postgres 40001 unwrapped, as a DriverAdapterError with no `code` — match both.
 export function isP2034(e: unknown): boolean {
-  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2034"
+  if (typeof e !== "object" || e === null) return false
+  const err = e as { code?: string; cause?: { kind?: string } }
+  return err.code === "P2034" || err.cause?.kind === "TransactionWriteConflict"
 }
