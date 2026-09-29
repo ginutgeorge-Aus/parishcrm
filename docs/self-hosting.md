@@ -38,11 +38,16 @@ without it, encrypted member data is unrecoverable.
 
 ## 3. Create the schema
 
-Both commands read `.env` as dotenv (no shell expansion, so a `$` in a password
-is safe):
-
 ```bash
 npx prisma migrate deploy
+```
+
+For the first administrator, either use the `/setup` page after starting the app
+(step 5), **or** create one now with the script — not both, since `/setup` closes
+once any user exists. The script reads `.env` as dotenv (no shell expansion, so a
+`$` in a password is safe):
+
+```bash
 USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
   npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
@@ -84,7 +89,7 @@ Run a **single replica**: the rate limiter is in-memory.
 
 ## 5. First login
 
-No admin yet? Set `SETUP_TOKEN` to a long random value, open `https://<your-host>/setup`,
+Skipped the script in step 3? Set `SETUP_TOKEN` to a long random value, open `https://<your-host>/setup`,
 enter the token and create the first administrator. The page only works while the
 database has no users; remove `SETUP_TOKEN` afterwards. (Alternatively use
 `scripts/create-admin-user.ts`, see `docs/operations.md`.)

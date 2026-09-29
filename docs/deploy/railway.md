@@ -5,7 +5,15 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 
 ## 1. Deploy
 
-Click **Deploy on Railway** in the README. You'll be asked for:
+> The one-click template is not published yet. Until it is, deploy from the repo:
+> **New Project → Deploy from GitHub repo** (Railway picks up `railway.json`, which
+> builds the Dockerfile and runs migrations pre-deploy), then **+ New → Database →
+> PostgreSQL** and reference its `DATABASE_URL` from the app service. Generate
+> `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
+> (`openssl rand -base64 32` each) and set `AUTH_URL` to the app's public URL.
+> Cron services are optional — see "Scheduled jobs" in `docs/self-hosting.md`.
+
+With the template, click **Deploy on Railway**. You'll be asked for:
 
 | Variable | What to enter |
 |---|---|
