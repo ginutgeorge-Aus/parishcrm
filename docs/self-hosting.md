@@ -10,13 +10,14 @@ details, accounts) that an ADMIN edits after first login.
 - PostgreSQL 16 (any host; `sslmode=require` for a remote DB)
 - A container runtime (Docker, or any platform that runs an OCI image)
 - An SMTP-capable Gmail account + app password (sign-in codes, receipts)
-- Node 24 on the machine you run migrations from
+- Node 24 on the machine you run admin scripts from (optional)
 
 ## 1. Check out the release
 
-The runtime image ships only the compiled app (no Prisma CLI), so migrations
-run from a source checkout **at the same tag as the image**. Keep `.env` in
-this checkout.
+The container applies pending migrations itself on every start (set
+`MIGRATE_ON_START=false` to run them yourself instead). A source checkout **at
+the same tag as the image** is only needed for the admin/seed scripts below.
+Keep `.env` in this checkout.
 
 ```bash
 git clone <repo> && cd <repo> && git checkout vX.Y.Z
@@ -38,9 +39,9 @@ without it, encrypted member data is unrecoverable.
 
 ## 3. Create the schema
 
-```bash
-npx prisma migrate deploy
-```
+Automatic: the container runs `prisma migrate deploy` before the server starts.
+The scripts below need the schema, so if you run them before first starting the
+container, apply it manually first with `npx prisma migrate deploy`.
 
 For the first administrator, either use the `/setup` page after starting the app
 (step 5), **or** create one now with the script — not both, since `/setup` closes
@@ -51,8 +52,6 @@ once any user exists. The script reads `.env` as dotenv (no shell expansion, so 
 USER_EMAIL=you@example.org USER_PASSWORD='<strong password>' \
   npx tsx --env-file=.env scripts/create-admin-user.ts
 ```
-
-Repeat `npx prisma migrate deploy` (from the new tag) before every upgrade.
 
 Accounting starts empty. Optionally add a generic starter chart of accounts
 (income/expense groups and categories) plus a "Main Bank Account" and
@@ -76,7 +75,7 @@ passwords are public in this repo (it refuses to run unless
 
 ```bash
 sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
-docker run -d --name church-crm --env-file .env.docker -p 3000:3000 \
+docker run -d --restart unless-stopped --name church-crm --env-file .env.docker -p 3000:3000 \
   ghcr.io/<owner>/<repo>:vX.Y.Z
 ```
 
@@ -121,7 +120,7 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.or
 ## Upgrading
 
 1. Back up the database.
-2. `npx prisma migrate deploy` from a checkout of the new tag.
-3. Restart the container on the new image tag.
+2. Restart the container on the new image tag — it applies new migrations on start
+   (or run `npx prisma migrate deploy` from the new tag if `MIGRATE_ON_START=false`).
 
 Keep `ENCRYPTION_KEY*` and `AUTH_SECRET` unchanged across upgrades.

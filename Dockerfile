@@ -59,6 +59,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Migration CLI + migrations stay root-owned: the app user can run them but not alter them.
 COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
 COPY docker/migrate.sh /app/migrate.sh
+COPY docker/entrypoint.sh /app/entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
@@ -66,7 +67,7 @@ EXPOSE 3000
 # Container-level liveness: hit /api/health with Node's built-in fetch so
 # `docker run`/local debugging can detect a hung event loop without an external
 # prober. Managed container hosts have their own ingress probe; this is complementary.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+CMD ["sh", "/app/entrypoint.sh"]
