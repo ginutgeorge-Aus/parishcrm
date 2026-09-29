@@ -195,6 +195,8 @@ image against your own Postgres: set the required secrets (`AUTH_SECRET`, `ENCRY
 `DATABASE_URL`, mail credentials), run `prisma migrate deploy`, and start the container.
 Step-by-step guide: [docs/self-hosting.md](docs/self-hosting.md).
 
+**One-click:** [Railway guide](docs/deploy/railway.md).
+
 ## Contributing
 
 Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the branch/PR

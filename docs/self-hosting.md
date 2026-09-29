@@ -84,6 +84,11 @@ Run a **single replica**: the rate limiter is in-memory.
 
 ## 5. First login
 
+No admin yet? Set `SETUP_TOKEN` to a long random value, open `https://<your-host>/setup`,
+enter the token and create the first administrator. The page only works while the
+database has no users; remove `SETUP_TOKEN` afterwards. (Alternatively use
+`scripts/create-admin-user.ts`, see `docs/operations.md`.)
+
 Sign in as the admin you created, then:
 
 - **Settings** — church details, branding (logo, letterhead), letters,

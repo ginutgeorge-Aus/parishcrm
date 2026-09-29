@@ -29,6 +29,12 @@ NEXT_PUBLIC_APP_VERSION   # git tag shown in sidebar
 NEXT_PUBLIC_GIT_SHA       # commit SHA shown in Settings
 ```
 
+## First-run setup (optional)
+
+| Variable | Purpose |
+|----------|---------|
+| `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. Page self-disables once any user exists; unset it after setup. |
+
 ## Seed Credentials
 
 | Email | Password | Role |
