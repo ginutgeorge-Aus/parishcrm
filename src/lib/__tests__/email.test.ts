@@ -243,4 +243,60 @@ describe("email", () => {
       expect(sendMailMock.mock.calls[1][0].to).toBe("owner@example.com")
     })
   })
+
+  describe("Resend transport (RESEND_API_KEY set)", () => {
+    const fetchMock = jest.fn<Promise<Response>, [string, { body: string; headers: Record<string, string> }]>()
+    const ok = () => new Response(JSON.stringify({ id: "msg_1" }), { status: 200 })
+
+    beforeEach(() => {
+      fetchMock.mockReset()
+      fetchMock.mockImplementation(async () => ok())
+      global.fetch = fetchMock as unknown as typeof fetch
+      process.env.RESEND_API_KEY = "re_key"
+      process.env.MAIL_FROM = "noreply@church.test"
+      delete process.env.GMAIL_USER
+      delete process.env.GMAIL_APP_PASSWORD
+    })
+    afterEach(() => {
+      delete process.env.RESEND_API_KEY
+      delete process.env.MAIL_FROM
+    })
+
+    it("sends via the Resend API from MAIL_FROM, not SMTP", async () => {
+      await sendPasswordResetEmail("user@example.com", "https://reset/x")
+      expect(sendMailMock).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+      expect(body.from).toBe('"Test Church" <noreply@church.test>')
+      expect(body.to).toEqual(["user@example.com"])
+      expect(body.subject).toContain("Password Reset")
+    })
+
+    it("falls back to MAIL_FROM as the membership-notification destination", async () => {
+      await sendMembershipNotificationEmail("Jane Doe")
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).to).toEqual(["noreply@church.test"])
+    })
+
+    it("alerts the owner with UNKNOWN wording when delivery is ambiguous", async () => {
+      appSettingFindUnique.mockResolvedValue({ value: "owner@example.com" })
+      fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"))
+      fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"))
+      fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"))
+      await expect(sendPasswordResetEmail("user@example.com", "https://reset/x")).rejects.toBeDefined()
+      // 3 internal Resend attempts (no outer retry on top) + 1 owner alert.
+      expect(fetchMock).toHaveBeenCalledTimes(4)
+      const alert = JSON.parse(fetchMock.mock.calls[3][1].body)
+      expect(alert.to).toEqual(["owner@example.com"])
+      expect(alert.subject.toLowerCase()).toContain("unknown")
+    })
+
+    it("still uses Gmail SMTP once RESEND_API_KEY is removed", async () => {
+      delete process.env.RESEND_API_KEY
+      process.env.GMAIL_USER = "test@gmail.com"
+      process.env.GMAIL_APP_PASSWORD = "test-password"
+      await sendPasswordResetEmail("user@example.com", "https://reset/x")
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(sendMailMock).toHaveBeenCalledTimes(1)
+    })
+  })
 })

@@ -23,15 +23,21 @@ import { applyVars } from "@/lib/emailTemplates"
 import { withRetry } from "@/lib/retry"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
+import { isResendConfigured, senderAddress } from "@/lib/mailConfig"
+import { createResendTransport, isResendAmbiguous } from "@/lib/resendTransport"
 
 // Lazily-initialized module-level singleton. nodemailer.createTransport pools
 // SMTP connections internally and is designed to be called once, not per send —
 // re-creating it on every email opens a fresh connection each time (a 200-row
 // batch would open 200). Created on first use (not at import) so the module can
 // be imported during build/test without SMTP creds present.
-let cachedTransporter: ReturnType<typeof nodemailer.createTransport> | null = null
+// Both Gmail SMTP and the Resend API expose this one call.
+type MailTransport = { sendMail(options: Omit<MailOptions, "html"> & { html?: string }): Promise<unknown> }
 
-function makeTransporter(): { transporter: ReturnType<typeof nodemailer.createTransport>; user: string } {
+let cachedTransporter: MailTransport | null = null
+let cachedResend: { key: string; transport: MailTransport } | null = null
+
+function makeTransporter(): { transporter: MailTransport; user: string } {
   // E2E: short-circuit to an in-memory stub so tests assert success without SMTP.
   // Dead code in prod (env var unset). Covers sendEmail + sendReceiptEmail (single chokepoint).
   if (process.env.E2E_MOCK_EMAIL === "true") {
@@ -44,9 +50,19 @@ function makeTransporter(): { transporter: ReturnType<typeof nodemailer.createTr
           console.log("[E2E_MOCK_EMAIL] sendMail", opts.to)
           return { messageId: "e2e-mock", accepted: [opts.to], rejected: [] }
         },
-      } as unknown as ReturnType<typeof nodemailer.createTransport>
+      } as unknown as MailTransport
     }
     return { transporter: cachedTransporter, user: process.env.GMAIL_USER ?? "e2e@test.local" }
+  }
+
+  // Resend (HTTPS) replaces Gmail SMTP on hosts that block SMTP. Cached per key
+  // so a changed env (tests, config reload) never reuses a stale transport.
+  const apiKey = process.env.RESEND_API_KEY
+  if (isResendConfigured() && apiKey) {
+    const from = process.env.MAIL_FROM
+    if (!from) throw new Error("Email not configured: MAIL_FROM missing (required with RESEND_API_KEY)")
+    if (cachedResend?.key !== apiKey) cachedResend = { key: apiKey, transport: createResendTransport(apiKey) }
+    return { transporter: cachedResend.transport, user: from }
   }
 
   const user = process.env.GMAIL_USER
@@ -95,6 +111,7 @@ export function isTransientSmtpError(err: unknown): boolean {
 // duplicate); instead the send fails and the owner is alerted with an "unknown
 // delivery" signal so a human decides, rather than an automatic resend.
 export function isAmbiguousDeliveryError(err: unknown): boolean {
+  if (isResendAmbiguous(err)) return true
   const e = err as { code?: string }
   return typeof e?.code === "string" && ["ETIMEDOUT", "ECONNRESET", "ESOCKET", "EPIPE"].includes(e.code)
 }
@@ -150,7 +167,7 @@ type MailOptions = {
 // alert when retries are exhausted. EVERY transactional send routes through here —
 // no sender may call transporter.sendMail directly, or it silently loses both.
 async function sendMailWithRetry(
-  transporter: ReturnType<typeof nodemailer.createTransport>,
+  transporter: MailTransport,
   options: MailOptions,
 ): Promise<void> {
   try {
@@ -243,7 +260,7 @@ export async function sendWelcomeEmail(
 // (#membership form). No PII in the email body — just a link into the CRM where
 // the application can be reviewed. Destination precedence: the admin-set
 // `membershipSecretaryEmail` AppSetting, then the MEMBERSHIP_SECRETARY_EMAIL env,
-// then GMAIL_USER. Silently no-ops if none is configured so a missing destination
+// then the sender address (MAIL_FROM / GMAIL_USER). Silently no-ops if none is configured so a missing destination
 // never throws and blocks the public submit action.
 export async function sendMembershipNotificationEmail(applicantName: string, pdf?: Buffer): Promise<void> {
   const setting = await prisma.appSetting
@@ -252,7 +269,7 @@ export async function sendMembershipNotificationEmail(applicantName: string, pdf
   const to =
     (setting?.value?.trim() || undefined) ??
     process.env.MEMBERSHIP_SECRETARY_EMAIL ??
-    process.env.GMAIL_USER
+    (senderAddress() || undefined)
   if (!to) return
   const churchName = await getChurchName()
   const reviewUrl = `${process.env.AUTH_URL ?? ""}/memberships`
