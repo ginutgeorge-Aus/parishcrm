@@ -10,6 +10,13 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.3.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.2.0...v1.3.0) (2026-09-30)
+
+
+### Added
+
+* **email:** send via Resend API when RESEND_API_KEY is set ([#66](https://github.com/ginutgeorge-Aus/parishcrm/issues/66)) ([44104e6](https://github.com/ginutgeorge-Aus/parishcrm/commit/44104e600270f23c451459e0364a56d632be7555))
+
 ## [1.2.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.1.0...v1.2.0) (2026-09-29)
 
 
