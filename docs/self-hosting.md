@@ -15,8 +15,9 @@ details, accounts) that an ADMIN edits after first login.
 
 ## Gmail app password
 
-Any Gmail or Google Workspace account works, but Google rejects SMTP sign-in
-with the account's normal password — you need an **app password**:
+Any Gmail or Google Workspace account that can create an app password works
+(exceptions below). Google rejects SMTP sign-in with the account's normal
+password — you need an **app password**:
 
 1. Turn on **2-Step Verification** (Google Account → Security).
 2. Open <https://myaccount.google.com/apppasswords>, create one named
@@ -32,6 +33,8 @@ with the account's normal password — you need an **app password**:
 - Sending limits: roughly 500 emails/day on consumer Gmail, ~2,000 on Workspace.
   Large reminder or celebration batches can hit them.
 - Revoke at the same page if it leaks; nothing else needs rotating.
+- Gmail uses SMTP, which some hosts block — Railway blocks outbound SMTP on
+  its Free, Trial and Hobby plans (sends time out). Use a Pro plan there.
 
 ## 1. Check out the release
 
