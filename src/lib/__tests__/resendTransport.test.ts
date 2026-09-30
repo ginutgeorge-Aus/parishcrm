@@ -144,4 +144,39 @@ describe("createResendTransport", () => {
     const err = await createResendTransport("k", { sleep: noSleep }).sendMail(baseOpts).catch((e) => e)
     expect(isResendAmbiguous(err)).toBe(true)
   })
+
+  it("spaces concurrent sends to stay under Resend's rate limit", async () => {
+    fetchMock.mockImplementation(async () => json(200, { id: "msg_1" }))
+    let clock = 1_000
+    const waits: number[] = []
+    const t = createResendTransport("k", {
+      now: () => clock,
+      sleep: async (ms) => {
+        waits.push(ms)
+      },
+    })
+    await Promise.all([t.sendMail(baseOpts), t.sendMail(baseOpts), t.sendMail(baseOpts)])
+    // First goes immediately; the next two queue 500ms apart.
+    expect(waits).toEqual([500, 1000])
+    clock += 5_000
+    waits.length = 0
+    await t.sendMail(baseOpts)
+    expect(waits).toEqual([])
+  })
+
+  it("waits for retry-after on 429 before retrying", async () => {
+    const waits: number[] = []
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ name: "rate_limit_exceeded" }), { status: 429, headers: { "retry-after": "3" } }),
+      )
+      .mockResolvedValueOnce(json(200, { id: "msg_1" }))
+    await createResendTransport("k", {
+      now: () => 0,
+      sleep: async (ms) => {
+        waits.push(ms)
+      },
+    }).sendMail(baseOpts)
+    expect(Math.max(...waits)).toBe(3000)
+  })
 })

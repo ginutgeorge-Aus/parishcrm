@@ -8,6 +8,12 @@ const RESEND_URL = "https://api.resend.com/emails"
 const ATTEMPTS = 3
 const BASE_DELAY_MS = 500
 const TIMEOUT_MS = 30_000
+// Resend's default API limit is 2 requests/second per team. Batch senders (the
+// reminder sweep sends 10 at once) would otherwise hit 429 in lockstep.
+const MIN_INTERVAL_MS = 500
+// Cap on an honoured retry-after, so one send stays well inside the reminder
+// sweep's 10-minute lease.
+const MAX_RETRY_AFTER_MS = 10_000
 
 type Attachment = { filename: string; content: Buffer | string; contentType: string }
 
@@ -20,7 +26,7 @@ export type ResendMailOptions = {
   attachments?: Attachment[]
 }
 
-type ResendOptions = { sleep?: (ms: number) => Promise<void> }
+type ResendOptions = { sleep?: (ms: number) => Promise<void>; now?: () => number }
 
 // Carries only the HTTP status + Resend's error `name` — never its `message`,
 // which can echo the recipient address into logs.
@@ -30,6 +36,7 @@ class ResendError extends Error {
     readonly status?: number,
     readonly ambiguous = false,
     readonly code?: string,
+    readonly retryAfterMs?: number,
   ) {
     super(message)
     this.name = "ResendError"
@@ -95,7 +102,9 @@ async function attempt(apiKey: string, body: string, key: string): Promise<void>
   // still being processed, so it may yet deliver — retryable, and unknown if it
   // outlasts the retries.
   const inFlight = res.status === 409 && name === "concurrent_idempotent_requests"
-  throw new ResendError(`Resend API error ${res.status} (${name})`, res.status, inFlight, name)
+  const retryAfter = Number(res.headers.get("retry-after"))
+  const retryAfterMs = retryAfter > 0 ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS) : undefined
+  throw new ResendError(`Resend API error ${res.status} (${name})`, res.status, inFlight, name, retryAfterMs)
 }
 
 function isRetryable(err: unknown): boolean {
@@ -103,7 +112,17 @@ function isRetryable(err: unknown): boolean {
   return err.ambiguous || err.status === 429 || (err.status ?? 0) >= 500
 }
 
-export function createResendTransport(apiKey: string, { sleep = defaultSleep }: ResendOptions = {}) {
+export function createResendTransport(apiKey: string, { sleep = defaultSleep, now = Date.now }: ResendOptions = {}) {
+  // Shared across every send on this transport: each request reserves the next
+  // free slot synchronously, so concurrent callers queue MIN_INTERVAL_MS apart.
+  let nextSlot = 0
+  async function rateGate(): Promise<void> {
+    const t = now()
+    const wait = Math.max(0, nextSlot - t)
+    nextSlot = Math.max(t, nextSlot) + MIN_INTERVAL_MS
+    if (wait > 0) await sleep(wait)
+  }
+
   return {
     async sendMail(opts: ResendMailOptions): Promise<void> {
       // One key per message, reused across retries: Resend dedupes on it, so
@@ -115,6 +134,7 @@ export function createResendTransport(apiKey: string, { sleep = defaultSleep }: 
       let sawAmbiguous = false
       for (let i = 1; ; i++) {
         try {
+          await rateGate()
           return await attempt(apiKey, body, key)
         } catch (err) {
           if (isResendAmbiguous(err)) sawAmbiguous = true
@@ -124,7 +144,9 @@ export function createResendTransport(apiKey: string, { sleep = defaultSleep }: 
             }
             throw err
           }
-          await sleep(BASE_DELAY_MS * 2 ** (i - 1))
+          const backoff = BASE_DELAY_MS * 2 ** (i - 1)
+          const retryAfter = err instanceof ResendError ? (err.retryAfterMs ?? 0) : 0
+          await sleep(Math.max(backoff, retryAfter))
         }
       }
     },
