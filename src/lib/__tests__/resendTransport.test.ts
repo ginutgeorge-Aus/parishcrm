@@ -113,4 +113,35 @@ describe("createResendTransport", () => {
     expect(err.message).toContain("500")
     expect(isResendAmbiguous(err)).toBe(false)
   })
+
+  it("retries 409 concurrent_idempotent_requests (original still in flight)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(409, { name: "concurrent_idempotent_requests" }))
+      .mockResolvedValueOnce(json(200, { id: "msg_1" }))
+    await createResendTransport("k", { sleep: noSleep }).sendMail(baseOpts)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("exhausted concurrent-idempotency conflicts stay ambiguous", async () => {
+    fetchMock.mockImplementation(async () => json(409, { name: "concurrent_idempotent_requests" }))
+    const err = await createResendTransport("k", { sleep: noSleep }).sendMail(baseOpts).catch((e) => e)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(isResendAmbiguous(err)).toBe(true)
+  })
+
+  it("does not retry other 409s (e.g. key reused with a different payload)", async () => {
+    fetchMock.mockResolvedValue(json(409, { name: "invalid_idempotent_request" }))
+    const err = await createResendTransport("k", { sleep: noSleep }).sendMail(baseOpts).catch((e) => e)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(isResendAmbiguous(err)).toBe(false)
+  })
+
+  it("keeps delivery UNKNOWN when an earlier attempt was ambiguous and a later one fails", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(json(500, { name: "internal_server_error" }))
+      .mockResolvedValueOnce(json(500, { name: "internal_server_error" }))
+    const err = await createResendTransport("k", { sleep: noSleep }).sendMail(baseOpts).catch((e) => e)
+    expect(isResendAmbiguous(err)).toBe(true)
+  })
 })

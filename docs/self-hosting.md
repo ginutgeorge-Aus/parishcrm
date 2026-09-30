@@ -56,7 +56,11 @@ then optional.
   for a first login test, not for real use.
 - Free tier: 100 emails/day, 3,000/month.
 - `MAIL_FROM` is also the fallback church contact address and
-  membership-notification destination (as `GMAIL_USER` is for Gmail).
+  membership-notification destination (as `GMAIL_USER` is for Gmail). A
+  send-only address like `noreply@` receives nothing, so either use a monitored
+  mailbox or, after first login, set **Settings → Church Information → email**
+  and **Settings → App Settings → Secretary email address(es)** to addresses
+  someone reads.
 
 ## 1. Check out the release
 

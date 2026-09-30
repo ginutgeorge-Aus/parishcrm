@@ -29,6 +29,7 @@ class ResendError extends Error {
     message: string,
     readonly status?: number,
     readonly ambiguous = false,
+    readonly code?: string,
   ) {
     super(message)
     this.name = "ResendError"
@@ -89,7 +90,12 @@ async function attempt(apiKey: string, body: string, key: string): Promise<void>
     throw new ResendError("Resend request failed (network error or timeout)", undefined, true)
   }
   if (res.ok) return
-  throw new ResendError(`Resend API error ${res.status} (${await errorName(res)})`, res.status)
+  const name = await errorName(res)
+  // 409 concurrent_idempotent_requests: the original request under this key is
+  // still being processed, so it may yet deliver — retryable, and unknown if it
+  // outlasts the retries.
+  const inFlight = res.status === 409 && name === "concurrent_idempotent_requests"
+  throw new ResendError(`Resend API error ${res.status} (${name})`, res.status, inFlight, name)
 }
 
 function isRetryable(err: unknown): boolean {
@@ -104,11 +110,20 @@ export function createResendTransport(apiKey: string, { sleep = defaultSleep }: 
       // retrying a timeout or 5xx can never deliver a duplicate.
       const key = randomUUID()
       const body = JSON.stringify(toBody(opts))
+      // Once any attempt may have reached Resend, a later definite failure
+      // doesn't prove non-delivery — the final error must stay ambiguous.
+      let sawAmbiguous = false
       for (let i = 1; ; i++) {
         try {
           return await attempt(apiKey, body, key)
         } catch (err) {
-          if (i >= ATTEMPTS || !isRetryable(err)) throw err
+          if (isResendAmbiguous(err)) sawAmbiguous = true
+          if (i >= ATTEMPTS || !isRetryable(err)) {
+            if (sawAmbiguous && err instanceof ResendError && !err.ambiguous) {
+              throw new ResendError(`${err.message}; an earlier attempt may have delivered`, err.status, true, err.code)
+            }
+            throw err
+          }
           await sleep(BASE_DELAY_MS * 2 ** (i - 1))
         }
       }
