@@ -3,6 +3,7 @@ import type { AppSetting } from "@/lib/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
+import { senderAddress } from "@/lib/mailConfig"
 
 // Plain server module (NOT "use server") so getChurchSettings is a normal
 // function call, not a client-callable RPC endpoint. Callers are all
@@ -43,7 +44,7 @@ function toSettings(rows: AppSetting[]): ChurchSettings {
     name: get("churchName", process.env.CHURCH_NAME ?? DEFAULT_CHURCH_NAME),
     address: get("churchAddress", process.env.CHURCH_ADDRESS ?? ""),
     abn: get("churchABN", process.env.CHURCH_ABN ?? ""),
-    email: get("churchEmail", process.env.GMAIL_USER ?? ""),
+    email: get("churchEmail", senderAddress()),
     website: websiteRow ? websiteRow.value : (process.env.CHURCH_WEBSITE ?? ""),
   }
 }

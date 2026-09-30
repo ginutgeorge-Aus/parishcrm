@@ -10,7 +10,8 @@ details, accounts) that an ADMIN edits after first login.
 - PostgreSQL 16 (any host; `sslmode=require` for a remote DB)
 - A container runtime (Docker, or any platform that runs an OCI image)
 - An SMTP-capable Gmail account + app password (sign-in codes, receipts) — see
-  [Gmail app password](#gmail-app-password)
+  [Gmail app password](#gmail-app-password) — **or** a Resend account if your
+  host blocks SMTP, see [Resend instead of Gmail](#resend-instead-of-gmail)
 - Node 24 on the machine you run admin scripts from (optional)
 
 ## Gmail app password
@@ -34,7 +35,32 @@ password — you need an **app password**:
   Large reminder or celebration batches can hit them.
 - Revoke at the same page if it leaks; nothing else needs rotating.
 - Gmail uses SMTP, which some hosts block — Railway blocks outbound SMTP on
-  its Free, Trial and Hobby plans (sends time out). Use a Pro plan there.
+  its Free, Trial and Hobby plans (sends time out). Use Resend there (below).
+
+## Resend instead of Gmail
+
+[Resend](https://resend.com) sends over HTTPS (port 443), which no host blocks.
+Setting `RESEND_API_KEY` switches **all** mail to Resend; the `GMAIL_*` pair is
+then optional.
+
+1. Create a Resend account and **add your domain** (Domains → Add). Add the
+   SPF and DKIM DNS records it shows at your DNS provider, then wait for
+   **Verified**.
+2. Create an API key (API Keys → Create, permission **Sending access**).
+3. Set `RESEND_API_KEY` to the key and `MAIL_FROM` to a bare address on the
+   verified domain, e.g. `noreply@yourchurch.org`. The church name from
+   Settings is used as the display name.
+
+- Without a verified domain Resend only allows `onboarding@resend.dev` as
+  `MAIL_FROM`, and it only delivers to your own Resend account address — fine
+  for a first login test, not for real use.
+- Free tier: 100 emails/day, 3,000/month.
+- `MAIL_FROM` is also the fallback church contact address and
+  membership-notification destination (as `GMAIL_USER` is for Gmail). A
+  send-only address like `noreply@` receives nothing, so either use a monitored
+  mailbox or, after first login, set **Settings → Church Information → email**
+  and **Settings → App Settings → Secretary email address(es)** to addresses
+  someone reads.
 
 ## 1. Check out the release
 

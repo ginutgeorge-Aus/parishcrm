@@ -1,5 +1,6 @@
 import "server-only"
 import { currentKeyId } from "@/lib/crypto"
+import { isResendConfigured } from "@/lib/mailConfig"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -101,13 +102,18 @@ function checkE2EOverridesAllowed(): string[] {
   return []
 }
 
-// OTP emails are login-critical, so Gmail creds are required unless OTP is
-// explicitly disabled (dev/e2e only — never production).
-function checkGmailCreds(): string[] {
+// OTP emails are login-critical, so mail creds are required unless OTP is
+// explicitly disabled (dev/e2e only — never production). Resend replaces Gmail
+// when RESEND_API_KEY is set.
+function checkMailCreds(): string[] {
   if (process.env.DISABLE_OTP === "true") return []
   const errors: string[] = []
-  if (!process.env.GMAIL_USER) errors.push("GMAIL_USER is not set (required while OTP is enabled)")
-  if (!process.env.GMAIL_APP_PASSWORD) errors.push("GMAIL_APP_PASSWORD is not set (required while OTP is enabled)")
+  if (isResendConfigured()) {
+    if (!process.env.MAIL_FROM) errors.push("MAIL_FROM is not set (required with RESEND_API_KEY while OTP is enabled)")
+    return errors
+  }
+  if (!process.env.GMAIL_USER) errors.push("GMAIL_USER is not set (required while OTP is enabled, unless RESEND_API_KEY is used)")
+  if (!process.env.GMAIL_APP_PASSWORD) errors.push("GMAIL_APP_PASSWORD is not set (required while OTP is enabled, unless RESEND_API_KEY is used)")
   return errors
 }
 
@@ -162,7 +168,7 @@ export function collectEnvErrors(): string[] {
     ...checkDisableOtp(),
     ...checkMockEmail(),
     ...checkE2EOverridesAllowed(),
-    ...checkGmailCreds(),
+    ...checkMailCreds(),
     ...checkWebsiteSync(),
     ...checkAppConfig(),
   )

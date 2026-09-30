@@ -14,6 +14,8 @@ const VARS = [
   "ENCRYPTION_KEY_ID",
   "GMAIL_USER",
   "GMAIL_APP_PASSWORD",
+  "RESEND_API_KEY",
+  "MAIL_FROM",
   "DISABLE_OTP",
   "WEBSITE_SYNC_URL",
   "WEBSITE_SYNC_SECRET",
@@ -85,6 +87,23 @@ describe("env-check", () => {
   it("flags missing GMAIL creds when OTP is enabled", () => {
     delete process.env.GMAIL_USER
     expect(collectEnvErrors().join()).toMatch(/GMAIL_USER/)
+  })
+
+  it("accepts Resend instead of Gmail", () => {
+    delete process.env.GMAIL_USER
+    delete process.env.GMAIL_APP_PASSWORD
+    process.env.RESEND_API_KEY = "re_key"
+    process.env.MAIL_FROM = "noreply@church.test"
+    expect(collectEnvErrors()).toEqual([])
+  })
+
+  it("requires MAIL_FROM when RESEND_API_KEY is set", () => {
+    delete process.env.GMAIL_USER
+    delete process.env.GMAIL_APP_PASSWORD
+    process.env.RESEND_API_KEY = "re_key"
+    const errors = collectEnvErrors().join()
+    expect(errors).toMatch(/MAIL_FROM/)
+    expect(errors).not.toMatch(/GMAIL/)
   })
 
   it("does not require GMAIL creds when DISABLE_OTP=true (dev/e2e)", () => {

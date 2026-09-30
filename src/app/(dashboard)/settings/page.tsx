@@ -19,6 +19,7 @@ import { getLetterSettings } from "@/lib/letterSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSection"
+import { senderAddress } from "@/lib/mailConfig"
 
 const GIT_SHA_DISPLAY_LENGTH = 7
 
@@ -70,7 +71,7 @@ export default async function SettingsPage() {
           churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
           churchAddress={get("churchAddress") || (process.env.CHURCH_ADDRESS ?? "")}
           churchABN={get("churchABN") || (process.env.CHURCH_ABN ?? "")}
-          churchEmail={get("churchEmail") || (process.env.GMAIL_USER ?? "")}
+          churchEmail={get("churchEmail") || senderAddress()}
           churchWebsite={churchWebsite}
         />
         <hr className="border-border" />
