@@ -9,8 +9,29 @@ details, accounts) that an ADMIN edits after first login.
 
 - PostgreSQL 16 (any host; `sslmode=require` for a remote DB)
 - A container runtime (Docker, or any platform that runs an OCI image)
-- An SMTP-capable Gmail account + app password (sign-in codes, receipts)
+- An SMTP-capable Gmail account + app password (sign-in codes, receipts) — see
+  [Gmail app password](#gmail-app-password)
 - Node 24 on the machine you run admin scripts from (optional)
+
+## Gmail app password
+
+Any Gmail or Google Workspace account works, but Google rejects SMTP sign-in
+with the account's normal password — you need an **app password**:
+
+1. Turn on **2-Step Verification** (Google Account → Security).
+2. Open <https://myaccount.google.com/apppasswords>, create one named
+   `ParishCRM` and copy the 16 characters.
+3. Set `GMAIL_USER` to the address and `GMAIL_APP_PASSWORD` to those 16
+   characters (no spaces).
+
+- Prefer a dedicated church account over a personal one — members see it as the
+  sender, and the app password grants full mailbox access.
+- App passwords are unavailable for Advanced Protection accounts, accounts whose
+  2-Step Verification uses only security keys, and Workspace accounts whose admin
+  disabled them. If the page says "not available", use another account.
+- Sending limits: roughly 500 emails/day on consumer Gmail, ~2,000 on Workspace.
+  Large reminder or celebration batches can hit them.
+- Revoke at the same page if it leaks; nothing else needs rotating.
 
 ## 1. Check out the release
 

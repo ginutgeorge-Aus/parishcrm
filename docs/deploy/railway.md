@@ -21,7 +21,7 @@ With the template, click **Deploy on Railway**. You'll be asked for:
 |---|---|
 | `CHURCH_NAME` | Your church's name (can be changed later in Settings) |
 | `GMAIL_USER` | Gmail address that sends login codes and receipts |
-| `GMAIL_APP_PASSWORD` | A Gmail [app password](https://support.google.com/accounts/answer/185833) |
+| `GMAIL_APP_PASSWORD` | A Gmail app password, not the account's normal password — [how to create one](../self-hosting.md#gmail-app-password) |
 
 Everything else (`AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `SETUP_TOKEN`,
 `DATABASE_URL`, `AUTH_URL`) is generated for you. Migrations run automatically
