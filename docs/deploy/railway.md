@@ -13,6 +13,7 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 > Railway waits for migrations and startup before routing traffic. Generate
 > `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
 > (`openssl rand -base64 32` each) and set `AUTH_URL` to the app's public URL.
+> On a Hobby plan set `RESEND_API_KEY` and `MAIL_FROM` for email (see below).
 > Cron services are optional — see "Scheduled jobs" in `docs/self-hosting.md`.
 
 With the template, click **Deploy on Railway**. You'll be asked for:
@@ -20,8 +21,13 @@ With the template, click **Deploy on Railway**. You'll be asked for:
 | Variable | What to enter |
 |---|---|
 | `CHURCH_NAME` | Your church's name (can be changed later in Settings) |
-| `GMAIL_USER` | Gmail address that sends login codes and receipts |
-| `GMAIL_APP_PASSWORD` | A Gmail app password, not the account's normal password — [how to create one](../self-hosting.md#gmail-app-password) |
+| `RESEND_API_KEY` | A [Resend](https://resend.com) API key — [setup](../self-hosting.md#resend-instead-of-gmail) |
+| `MAIL_FROM` | Sender address on your Resend-verified domain, e.g. `noreply@yourchurch.org` |
+
+> **Why not Gmail?** Railway blocks outbound SMTP on its Free, Trial and Hobby
+> plans, so Gmail sends time out and nobody can receive a login code. On a Pro
+> plan you can use `GMAIL_USER` + `GMAIL_APP_PASSWORD` instead
+> ([setup](../self-hosting.md#gmail-app-password)) and leave `RESEND_API_KEY` unset.
 
 Everything else (`AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `SETUP_TOKEN`,
 `DATABASE_URL`, `AUTH_URL`) is generated for you. Migrations run automatically
@@ -37,7 +43,7 @@ when the app starts.
 2. Visit `https://<your-app>.up.railway.app/setup`, paste the token and create your account.
 3. Delete the `SETUP_TOKEN` variable (the page already stopped working, this is tidy-up).
 
-Sign in — a login code is emailed to you (via the Gmail account above).
+Sign in — a login code is emailed to you (from `MAIL_FROM`).
 
 ## 3. Custom domain (optional)
 
