@@ -57,6 +57,18 @@ fits a Hobby plan. Check the Railway dashboard's usage page after the first week
 
 ## Upgrading
 
-Railway redeploys when you click **Redeploy** on a newer template/image version;
-migrations run automatically. Take a database backup first (Postgres service →
+The app runs a pinned release image (`ghcr.io/<owner>/parishcrm:vX.Y.Z`).
+Migrations run automatically when a new version starts.
+
+**Automatic (recommended):** app service → **Settings → Source → Auto Updates**
+→ **Minor and patch**, and pick a quiet maintenance window (e.g. 2–5am local).
+Railway checks GHCR, moves the tag to the newest `vX.Y.Z` in the same major
+version and redeploys inside the window, with under 2 minutes of downtime.
+Major versions (`v2.0.0`) may contain breaking changes, so they are never
+applied automatically — read the release notes, then change the tag yourself.
+
+**Manual:** app service → **Settings → Source**, change the image tag, then
+**Deploy**.
+
+Before a major upgrade, take a database backup (Postgres service →
 **Backups**).
