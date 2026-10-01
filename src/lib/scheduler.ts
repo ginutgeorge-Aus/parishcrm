@@ -1,4 +1,7 @@
 import { sydneyClock, sydneyWeekStartYMD } from "@/lib/dates"
+import type { Env } from "@/lib/schedulerFlag"
+
+export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
 
 /**
  * Pure schedule for the in-app scheduler (see schedulerRunner.ts). No I/O, so
@@ -15,7 +18,6 @@ export type JobState = {
   running: boolean
 }
 export type SchedulerState = Record<JobName, JobState>
-export type Env = Record<string, string | undefined>
 
 export const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest"]
 
@@ -48,11 +50,4 @@ function isDue(job: JobName, now: Date, s: JobState, env: Env): boolean {
 
 export function dueJobs(now: Date, state: SchedulerState, env: Env = process.env): JobName[] {
   return JOB_NAMES.filter((j) => !state[j].running && isDue(j, now, state[j], env))
-}
-
-/** `IN_APP_CRON=true|false` forces it; unset = on in production only, so dev never emails real people. */
-export function schedulerEnabled(env: Env = process.env): boolean {
-  if (env.IN_APP_CRON === "true") return true
-  if (env.IN_APP_CRON === "false") return false
-  return env.NODE_ENV === "production"
 }

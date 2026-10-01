@@ -144,3 +144,20 @@ describe("collectEnvWarnings — Turnstile key pairing", () => {
     expect(collectEnvWarnings().some((w) => w.includes("TURNSTILE"))).toBe(false)
   })
 })
+
+describe("collectEnvWarnings — in-app scheduler", () => {
+  const saved = { ...process.env }
+  afterEach(() => { process.env = { ...saved } })
+
+  it("does not warn about CRON_SECRET when the in-app scheduler is on", () => {
+    delete process.env.CRON_SECRET
+    process.env.IN_APP_CRON = "true"
+    expect(collectEnvWarnings().some((w) => w.startsWith("CRON_SECRET"))).toBe(false)
+  })
+
+  it("warns when the scheduler is on with more than one replica", () => {
+    process.env.IN_APP_CRON = "true"
+    process.env.CONTAINER_APP_REPLICA_COUNT = "2"
+    expect(collectEnvWarnings().some((w) => w.includes("IN_APP_CRON"))).toBe(true)
+  })
+})

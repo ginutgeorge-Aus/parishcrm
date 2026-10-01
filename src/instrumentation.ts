@@ -28,6 +28,16 @@ export async function register() {
   const { assertKeyringHealthy } = await import("@/lib/crypto")
   assertKeyringHealthy()
 
+  // In-app scheduler: runs reminders, checkout sweep, celebrations and the
+  // error digest on a timer, so no external cron service is needed. Off in dev
+  // unless IN_APP_CRON=true; IN_APP_CRON=false hands scheduling back to the
+  // /api/cron/* routes.
+  const { schedulerEnabled } = await import("@/lib/schedulerFlag")
+  if (schedulerEnabled()) {
+    const { startScheduler } = await import("@/lib/schedulerRunner")
+    startScheduler()
+  }
+
   const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING
   if (!connectionString) return
 
