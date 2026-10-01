@@ -13,8 +13,6 @@ Local dev typically adds `DISABLE_OTP=true` (never in production).
 ## CI-only secrets (GitHub Actions, not read by the app)
 
 ```
-APP_URL="https://app.example.com"   # base URL the scheduled cron workflows curl
-CRON_SECRET="..."                   # same value as the app's CRON_SECRET
 OPENROUTER_API_KEY="sk-or-..."      # optional weekly AI reviewer (weekly-review.yml); repo variable OPENROUTER_MODEL overrides the model
 ```
 

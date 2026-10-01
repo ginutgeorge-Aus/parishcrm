@@ -159,11 +159,15 @@ Sign in as the admin you created, then:
   group (**Manage Groups**) and a category, and a payment account under
   **Acct. Settings → Payment Accounts**, before recording the first transaction
 
-## Scheduled jobs (optional)
+## Scheduled jobs
 
-Event reminders, abandoned-checkout cleanup, and celebration emails are HTTP
-endpoints called by any scheduler (cron, a CI schedule, a platform job) with
-`Authorization: Bearer $CRON_SECRET`:
+Event reminders, abandoned-checkout cleanup, celebration emails and the weekly
+error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
+Nothing to schedule — as long as the app stays running.
+
+On a host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and
+call these endpoints from any scheduler (cron, a CI schedule, a platform job)
+with `Authorization: Bearer $CRON_SECRET`:
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-reminders
