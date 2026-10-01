@@ -15,11 +15,15 @@ export type SecondFactorResult =
 // One routine for "is this a valid authenticator OR backup code for this user",
 // used by login and by the self-service management actions. A 6-digit input is
 // treated as TOTP; anything else as a backup code. Lockout counting is the
-// caller's job (login vs. management actions count differently).
+// caller's job (login vs. management actions count differently), but login can
+// pass `resetLockouts` to clear the password/OTP counters in the same write that
+// records the step or consumes the backup code.
+const LOCKOUT_RESET = { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null }
+
 export async function verifySecondFactor(
   user: SecondFactorUser,
   input: string,
-  now: number = Date.now(),
+  { now = Date.now(), resetLockouts = false }: { now?: number; resetLockouts?: boolean } = {},
 ): Promise<SecondFactorResult> {
   const trimmed = input.trim()
 
@@ -40,7 +44,7 @@ export async function verifySecondFactor(
     // propagate (not an unreadable secret).
     const { count } = await prisma.user.updateMany({
       where: { id: user.id, totpSecret: user.totpSecret, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
-      data: { totpLastStep: step },
+      data: { totpLastStep: step, ...(resetLockouts ? LOCKOUT_RESET : {}) },
     })
     return count === 1 ? { ok: true, via: "totp" } : { ok: false, reason: "totp_replay" }
   }
@@ -53,11 +57,16 @@ export async function verifySecondFactor(
   })
   for (const c of codes) {
     if (await compare(normalised, c.codeHash)) {
-      const { count } = await prisma.backupCode.updateMany({
-        where: { id: c.id, usedAt: null },
-        data: { usedAt: new Date() },
+      const consumed = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.backupCode.updateMany({
+          where: { id: c.id, usedAt: null },
+          data: { usedAt: new Date() },
+        })
+        if (count !== 1) return false
+        if (resetLockouts) await tx.user.update({ where: { id: user.id }, data: LOCKOUT_RESET })
+        return true
       })
-      if (count !== 1) return { ok: false, reason: "backup_invalid" }
+      if (!consumed) return { ok: false, reason: "backup_invalid" }
       return { ok: true, via: "backup", remaining: codes.length - 1 }
     }
   }

@@ -277,7 +277,7 @@ export async function authorizeCredentials(
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
-    const result = await verifySecondFactor(user, credentials.code)
+    const result = await verifySecondFactor(user, credentials.code, { resetLockouts: true })
     if (!result.ok) {
       // Server-side fault (unreadable stored secret), not a wrong guess: don't
       // count it towards the user's OTP lockout.
@@ -288,10 +288,6 @@ export async function authorizeCredentials(
       await recordOtpFailure(user.id, result.reason, ip)
       return null
     }
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
-    })
     if (result.via === "backup") {
       void logAudit(user.id, "BACKUP_CODE_USED", "User", user.id, { remaining: result.remaining }, ip)
     }

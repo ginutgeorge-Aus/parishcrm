@@ -1019,10 +1019,9 @@ describe("authorizeCredentials — TOTP", () => {
       email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
     })
     expect(result).toMatchObject({ id: "1", email: "admin@example.com" })
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
-    })
+    // Counter reset is folded into verifySecondFactor's write — no separate update.
+    expect(verifySecondFactor).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), "123456", { resetLockouts: true })
+    expect(prisma.user.update).not.toHaveBeenCalled()
   })
 
   it("totp mode rejects a valid code with a wrong password, without checking the code", async () => {
