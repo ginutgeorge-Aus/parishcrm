@@ -82,14 +82,20 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
 
   it("skips when this week is already done (survives restarts, so closed issues are not re-filed)", async () => {
     findUnique.mockResolvedValue({ key: KEY, value: "2026-07-06" })
+    expect(await runErrorDigestLocked(new Date("2026-07-08T00:00:00Z"))).toBe("done")
     expect(await runErrorDigestOncePerWeek(new Date("2026-07-08T00:00:00Z"))).toEqual({ filed: 0, skipped: 0, purged: 0 })
     expect(groupBy).not.toHaveBeenCalled()
   })
 
-  it("skips while another run holds a fresh lease", async () => {
+  it("reports 'locked' while another run holds a fresh lease", async () => {
     findUnique.mockResolvedValue({ key: KEY, value: lease("2026-07-06", new Date(MON.getTime() - 5 * 60_000)) })
-    expect(await runErrorDigestLocked(MON)).toBeNull()
+    expect(await runErrorDigestLocked(MON)).toBe("locked")
     expect(groupBy).not.toHaveBeenCalled()
+  })
+
+  it("scheduler entry throws on 'locked' so contention is never recorded as this week's success", async () => {
+    findUnique.mockResolvedValue({ key: KEY, value: lease("2026-07-06", MON) })
+    await expect(runErrorDigestOncePerWeek(MON)).rejects.toThrow(/in progress/)
   })
 
   it("reclaims a stale lease left by a crashed run, so the week is not lost", async () => {
@@ -103,14 +109,14 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
   it("skips when a concurrent process won the compare-and-set", async () => {
     findUnique.mockResolvedValue({ key: KEY, value: "2026-06-29" })
     updateMany.mockResolvedValueOnce({ count: 0 })
-    expect(await runErrorDigestLocked(MON)).toBeNull()
+    expect(await runErrorDigestLocked(MON)).toBe("locked")
     expect(groupBy).not.toHaveBeenCalled()
   })
 
   it("skips when a concurrent process created the marker first", async () => {
     findUnique.mockResolvedValue(null)
     create.mockRejectedValue(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }))
-    expect(await runErrorDigestLocked(MON)).toBeNull()
+    expect(await runErrorDigestLocked(MON)).toBe("locked")
   })
 
   it("force (manual trigger) runs even when this week is already done", async () => {
@@ -121,7 +127,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
 
   it("force still respects a fresh lease (no overlapping runs)", async () => {
     findUnique.mockResolvedValue({ key: KEY, value: lease("2026-07-06", MON) })
-    expect(await runErrorDigestLocked(MON, { force: true })).toBeNull()
+    expect(await runErrorDigestLocked(MON, { force: true })).toBe("locked")
   })
 
   it("restores the previous value when the digest throws, and rethrows the original error", async () => {

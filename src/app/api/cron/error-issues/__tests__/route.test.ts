@@ -34,7 +34,7 @@ describe("POST /api/cron/error-issues", () => {
   })
   it("409 when another digest run holds the lock", async () => {
     process.env.CRON_SECRET = "s"
-    ;(runErrorDigestLocked as jest.Mock).mockResolvedValue(null)
+    ;(runErrorDigestLocked as jest.Mock).mockResolvedValue("locked")
     expect((await POST(req("Bearer s"))).status).toBe(409)
   })
 })

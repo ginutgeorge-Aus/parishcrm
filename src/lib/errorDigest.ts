@@ -88,17 +88,19 @@ function freshLease(value: string, now: Date): boolean {
  * only becomes "done" after the digest succeeds; on failure the previous value is
  * restored (best effort — if that also fails the lease just goes stale).
  *
- * Returns null when skipped (another run holds a fresh lease, or — unless
- * `force` — this week is already done).
+ * Returns "locked" when another run holds a fresh lease (or won the race), and
+ * "done" when this week already ran (never with `force`). The two must stay
+ * distinct: a scheduler that treated "locked" as done would never retry if the
+ * lease owner then failed.
  */
 export async function runErrorDigestLocked(
   now: Date = new Date(),
   opts: { force?: boolean } = {}
-): Promise<DigestResult | null> {
+): Promise<DigestResult | "done" | "locked"> {
   const week = sydneyWeekStartYMD(now)
   const prev = await prisma.appSetting.findUnique({ where: { key: LAST_WEEK_KEY } })
-  if (prev && freshLease(prev.value, now)) return null
-  if (prev?.value === week && !opts.force) return null
+  if (prev && freshLease(prev.value, now)) return "locked"
+  if (prev?.value === week && !opts.force) return "done"
 
   const lease = `${LEASE_PREFIX}${week}:${now.getTime()}`
   if (prev) {
@@ -106,12 +108,12 @@ export async function runErrorDigestLocked(
       where: { key: LAST_WEEK_KEY, value: prev.value },
       data: { value: lease },
     })
-    if (count === 0) return null
+    if (count === 0) return "locked"
   } else {
     try {
       await prisma.appSetting.create({ data: { key: LAST_WEEK_KEY, value: lease } })
     } catch (e) {
-      if (isP2002(e)) return null
+      if (isP2002(e)) return "locked"
       throw e
     }
   }
@@ -145,5 +147,9 @@ export async function runErrorDigestLocked(
 
 /** In-app scheduler entry: at most once per Sydney week, never overlapping another run. */
 export async function runErrorDigestOncePerWeek(now: Date = new Date()): Promise<DigestResult> {
-  return (await runErrorDigestLocked(now)) ?? { filed: 0, skipped: 0, purged: 0 }
+  const r = await runErrorDigestLocked(now)
+  if (r === "done") return { filed: 0, skipped: 0, purged: 0 }
+  // Throw (not a zero result) so the scheduler doesn't record this week as done.
+  if (r === "locked") throw new Error("another error-digest run is in progress — will retry")
+  return r
 }

@@ -17,6 +17,6 @@ export async function POST(req: Request) {
   // Same lock as the in-app scheduler (no overlapping runs → no duplicate
   // issues), but `force` so a manual trigger still runs after this week's digest.
   const result = await runErrorDigestLocked(new Date(), { force: true })
-  if (!result) return NextResponse.json({ error: "Another digest run is in progress" }, { status: 409 })
+  if (result === "locked") return NextResponse.json({ error: "Another digest run is in progress" }, { status: 409 })
   return NextResponse.json(result)
 }
