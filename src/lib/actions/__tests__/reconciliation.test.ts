@@ -138,3 +138,16 @@ test("records only when the statement date predates the opening balance", async 
   expect(tx.transaction.updateMany).not.toHaveBeenCalled()
   expect(tx.transaction.aggregate).not.toHaveBeenCalled()
 })
+
+// --- serialization-conflict retry ---
+
+test("retries when the adapter surfaces an unwrapped serialization conflict (no P2034 code)", async () => {
+  const tx = withTx({ opening: null })
+  const run = mock$tx.getMockImplementation()!
+  const unwrapped = { name: "DriverAdapterError", cause: { originalCode: "40001", kind: "TransactionWriteConflict" } }
+  mock$tx.mockRejectedValueOnce(unwrapped).mockImplementation(run)
+  const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "100.00")
+  expect(r).toEqual({ success: "Saved" })
+  expect(mock$tx).toHaveBeenCalledTimes(2)
+  expect(tx.reconciliationStatement.upsert).toHaveBeenCalledTimes(1)
+})

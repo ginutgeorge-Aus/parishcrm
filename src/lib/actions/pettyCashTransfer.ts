@@ -13,7 +13,7 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
@@ -134,7 +134,7 @@ export async function createTransfer(
     if (e instanceof TransferError) return { error: e.message }
     // P2034 = Serializable serialization failure: a concurrent transfer beat
     // this one. Surface a retry prompt rather than a 500.
-    if (e && typeof e === "object" && "code" in e && e.code === "P2034")
+    if (isP2034(e))
       return { error: "Transfer conflict — please try again." }
     throw e
   }

@@ -6,6 +6,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { logAudit } from "@/lib/audit"
+import { logger } from "@/lib/logger"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { safeEqual } from "@/lib/safeEqual"
 import { auditIpFromHeaders } from "@/lib/clientIp"
@@ -50,6 +51,16 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   const ip = auditIpFromHeaders(await headers())
   if (!(await dbRateLimit(`setup:${ip ?? "unknown"}`, SETUP_LIMIT, SETUP_WINDOW_MS))) {
     return { error: "Too many attempts. Try again later." }
+  }
+  // No usable client IP from X-Forwarded-For (no reverse proxy, or a malformed
+  // header) → every client shares one bucket, so a stranger's wrong-token
+  // attempts can lock the operator out. Server Actions can't see the socket
+  // address; warn the operator instead. Logged after the limit so the shared
+  // bucket also caps how often this can be written.
+  if (!ip) {
+    logger.warn("setup: no valid client IP from X-Forwarded-For — all /setup clients share one rate-limit bucket", {
+      hint: "run behind a reverse proxy that sets X-Forwarded-For, or use scripts/create-admin-user.ts",
+    })
   }
 
   if (!safeEqual(parsed.data.token, process.env.SETUP_TOKEN ?? "")) {

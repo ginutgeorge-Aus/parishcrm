@@ -145,6 +145,10 @@ then re-run step 4) — a running container never sees `.env` changes. Open
 The page only works while the database has no users; afterwards remove
 `SETUP_TOKEN` from `.env` and recreate the container the same way.
 (Alternatively use `scripts/create-admin-user.ts`, see `docs/operations.md`.)
+`/setup` rate-limits attempts per client IP from `X-Forwarded-For`. Without a
+reverse proxy setting it (e.g. a bare `docker run`), all visitors share one
+bucket and anyone can block setup for 15 minutes; the app logs a warning. Use
+the proxy from step 4, or create the admin with the script instead.
 
 Sign in as the admin you created, then:
 

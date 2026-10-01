@@ -9,6 +9,7 @@ import { sendRegistrationConfirmationEmail } from "@/lib/email"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import type { Organizer } from "@/lib/eventOrganizers"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { isP2034 } from "@/lib/validation"
 import type { PaymentStatus } from "@/lib/generated/prisma/enums"
 import type { EventWithTickets, PricedRegistration } from "@/lib/eventRegistrationPricing"
 
@@ -30,17 +31,6 @@ class SoldOutError extends Error {}
 // fall through as "unlimited" would reach registrationItem.create with a
 // dangling ticketTypeId and surface as an unhandled FK-constraint error.
 class TicketUnavailableError extends Error {}
-
-// Prisma maps Postgres serialization failures / deadlocks (Serializable txns)
-// to error code P2034. Retrying the whole transaction is the correct response.
-function isSerializationConflict(e: unknown): boolean {
-  return (
-    typeof e === "object" &&
-    e !== null &&
-    "code" in e &&
-    (e as { code?: unknown }).code === "P2034"
-  )
-}
 
 const MAX_TX_ATTEMPTS = 3
 
@@ -166,7 +156,7 @@ function classifyPersistTxnError(e: unknown): { ok: false; status: number; error
   if (e instanceof TicketUnavailableError) {
     return { ok: false, status: 400, error: `${e.message} is no longer available` }
   }
-  if (isSerializationConflict(e)) return "retry"
+  if (isP2034(e)) return "retry"
   throw e
 }
 
