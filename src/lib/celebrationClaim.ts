@@ -90,12 +90,12 @@ export async function resolveCelebrationSend(
 }
 
 /**
- * After a lost claim: is that slot PENDING, i.e. another invocation is sending
- * right now? (A stale PENDING would have been reclaimed by the claim itself.)
- * The in-app scheduler must not treat such a day as done — if that invocation
- * dies, its lease goes stale and only a later sweep can reclaim it.
+ * After a lost claim: is that slot still unresolved — PENDING (another
+ * invocation is sending right now) or FAILED (it just failed, after our reclaim
+ * attempt)? Only SENT / UNKNOWN are final. The in-app scheduler must not treat a
+ * day with unresolved slots as done, or a failed or abandoned send is never retried.
  */
-export async function isCelebrationInFlight(
+export async function isCelebrationUnresolved(
   personId: number,
   action: CelebrationAction,
   sendDate: string
@@ -104,5 +104,5 @@ export async function isCelebrationInFlight(
     where: { personId_action_sendDate: { personId, action, sendDate } },
     select: { status: true },
   })
-  return row?.status === "PENDING"
+  return row?.status === "PENDING" || row?.status === "FAILED"
 }

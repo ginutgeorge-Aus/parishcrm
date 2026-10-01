@@ -247,6 +247,17 @@ test("reports a slot held by another in-flight invocation as inFlight, not skipp
   expect(sendEmail).not.toHaveBeenCalled()
 })
 
+test("a slot another invocation just marked FAILED is retried too (inFlight), not skipped", async () => {
+  flags.mockResolvedValue({ birthday: true, anniversary: false })
+  ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
+    { id: 1, firstName: "Sam", lastName: "X", dateOfBirth: "2000-06-15T00:00:00.000Z", email: "enc:sam@x.com", emailConsent: true, gender: "MALE", family: { name: "Fam" } },
+  ])
+  create.mockRejectedValue(p2002())
+  updateMany.mockResolvedValue({ count: 0 })
+  ;(prisma.celebrationSend.findUnique as jest.Mock).mockResolvedValue({ status: "FAILED" })
+  expect(await runCelebrationSweep(NOW)).toMatchObject({ birthdays: { inFlight: 1, skipped: 0 } })
+})
+
 test("an already-SENT slot is still a plain skip", async () => {
   flags.mockResolvedValue({ birthday: true, anniversary: false })
   ;(prisma.person.findMany as jest.Mock).mockResolvedValue([

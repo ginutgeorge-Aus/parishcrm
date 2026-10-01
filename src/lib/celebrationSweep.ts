@@ -11,10 +11,10 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { pronouns } from "@/lib/pronouns"
 import { upcomingBirthdays, type BirthdayPerson } from "@/lib/birthdays"
 import { upcomingAnniversaries, type AnniversaryFamily, type FamilyRoleLite } from "@/lib/anniversaries"
-import { claimCelebrationSend, isCelebrationInFlight, BIRTHDAY_ACTION, ANNIVERSARY_ACTION } from "@/lib/celebrationClaim"
+import { claimCelebrationSend, isCelebrationUnresolved, BIRTHDAY_ACTION, ANNIVERSARY_ACTION } from "@/lib/celebrationClaim"
 import { deliverCelebration } from "@/lib/celebrationDeliver"
 
-// inFlight: lost the claim to an invocation still sending (only present when > 0).
+// inFlight: lost the claim to a slot still unresolved elsewhere (PENDING/FAILED); only present when > 0.
 type Counts = { sent: number; skipped: number; failed: number; inFlight?: number }
 const ZERO: Counts = { sent: 0, skipped: 0, failed: 0 }
 
@@ -105,7 +105,7 @@ async function sendCelebrationBirthday(
   // return means another invocation already holds or resolved today's slot
   // for this person; this invocation must not send.
   const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
-  if (!claimed) return (await isCelebrationInFlight(p.id, BIRTHDAY_ACTION, sendDate)) ? "inFlight" : "skipped"
+  if (!claimed) return (await isCelebrationUnresolved(p.id, BIRTHDAY_ACTION, sendDate)) ? "inFlight" : "skipped"
   const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
   if (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) {
     await logAudit(null, BIRTHDAY_ACTION, "Person", p.id)
@@ -184,7 +184,7 @@ async function sendDueAnniversaries(today: Date, sendDate: string): Promise<Coun
       if (!r.emailConsent || !r.email) { skipped++; continue }
       const claimed = await claimCelebrationSend(r.id, ANNIVERSARY_ACTION, sendDate)
       if (!claimed) {
-        if (await isCelebrationInFlight(r.id, ANNIVERSARY_ACTION, sendDate)) inFlight++
+        if (await isCelebrationUnresolved(r.id, ANNIVERSARY_ACTION, sendDate)) inFlight++
         else skipped++
         continue
       }
