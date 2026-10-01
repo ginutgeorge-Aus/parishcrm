@@ -279,6 +279,12 @@ export async function authorizeCredentials(
 
     const result = await verifySecondFactor(user, credentials.code)
     if (!result.ok) {
+      // Server-side fault (unreadable stored secret), not a wrong guess: don't
+      // count it towards the user's OTP lockout.
+      if (result.reason === "totp_secret_unreadable") {
+        void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: result.reason }, ip)
+        return null
+      }
       await recordOtpFailure(user.id, result.reason, ip)
       return null
     }

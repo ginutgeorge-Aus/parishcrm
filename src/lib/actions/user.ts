@@ -10,6 +10,7 @@ import { hash } from "bcryptjs"
 import { randomBytes, createHash } from "node:crypto"
 import { prisma, Prisma } from "@/lib/prisma"
 import { canManageUsers, canAssignRole, isAdmin } from "@/lib/roleGuard"
+import { TOTP_CLEARED } from "@/lib/totp"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
 import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
@@ -374,7 +375,7 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
     await prisma.$transaction([
       prisma.user.update({
         where: { id, ...assignableTargetWhere(session?.user?.role) },
-        data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
+        data: TOTP_CLEARED,
       }),
       prisma.backupCode.deleteMany({ where: { userId: id } }),
       prisma.trustedDevice.deleteMany({ where: { userId: id } }),

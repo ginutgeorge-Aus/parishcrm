@@ -10,6 +10,14 @@ const BACKUP_CODE_COUNT = 10
 // Crockford base32 — no I/L/O/U, so codes survive being read aloud or handwritten.
 const BACKUP_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
+// Column values that fully remove a user's authenticator (self-disable + admin reset).
+export const TOTP_CLEARED = {
+  totpSecret: null,
+  totpPendingSecret: null,
+  totpEnabledAt: null,
+  totpLastStep: null,
+} as const
+
 export const TOTP_CODE_RE = /^\d{6}$/
 export const BACKUP_CODE_RE = /^[0-9A-HJKMNP-TV-Z]{10}$/
 

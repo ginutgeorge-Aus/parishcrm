@@ -14,7 +14,7 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/components/users/DeleteUserButton", () => ({ DeleteUserButton: () => null }))
 jest.mock("@/components/users/UnlockUserButton", () => ({ UnlockUserButton: () => null }))
-jest.mock("@/components/users/ResetTotpButton", () => ({ ResetTotpButton: () => null }))
+jest.mock("@/components/users/ResetTotpButton", () => ({ ResetTotpButton: () => "RESET_TOTP_BTN" }))
 jest.mock("@/components/users/ResendWelcomeButton", () => ({ ResendWelcomeButton: () => null }))
 
 import { auth } from "@/auth"
@@ -73,5 +73,20 @@ describe("UsersPage", () => {
     mockGroupBy.mockResolvedValue([])
     const html = renderToStaticMarkup(await UsersPage())
     expect(html).toContain("Locked")
+  })
+
+  it("shows the TOTP reset button only for roles the viewer can act on", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: new Date("2026-09-01") }
+    mockUsers.mockResolvedValue([
+      { id: 2, name: "Pat", email: "pastor@example.com", role: "PASTOR", ...base },
+    ])
+    mockGroupBy.mockResolvedValue([])
+    expect(renderToStaticMarkup(await UsersPage())).not.toContain("RESET_TOTP_BTN")
+
+    mockUsers.mockResolvedValue([
+      { id: 3, name: "Vic", email: "viewer@example.com", role: "VIEWER", ...base },
+    ])
+    expect(renderToStaticMarkup(await UsersPage())).toContain("RESET_TOTP_BTN")
   })
 })

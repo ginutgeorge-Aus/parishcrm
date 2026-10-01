@@ -2,7 +2,7 @@
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn(() => { throw new Error("REDIRECT") }) }))
 jest.mock("@/lib/actions/trustedDevice", () => ({ listTrustedDevices: jest.fn().mockResolvedValue([]) }))
-jest.mock("@/lib/actions/totp", () => ({ getTotpStatus: jest.fn().mockResolvedValue({ enabled: false, pending: false, backupCodesRemaining: 0 }) }))
+jest.mock("@/lib/actions/totp", () => ({ getTotpStatus: jest.fn().mockResolvedValue({ enabled: false, backupCodesRemaining: 0 }) }))
 jest.mock("@/components/account/TotpSettings", () => ({ TotpSettings: () => null }))
 jest.mock("@/components/account/TrustedDeviceList", () => ({ TrustedDeviceList: () => null }))
 

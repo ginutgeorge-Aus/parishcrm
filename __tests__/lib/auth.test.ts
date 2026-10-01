@@ -1065,6 +1065,22 @@ describe("authorizeCredentials — TOTP", () => {
     )
   })
 
+  it("unreadable stored secret is audited but does not count toward the OTP lockout", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: false, reason: "totp_secret_unreadable" })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
+    })
+    expect(result).toBeNull()
+    expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN_FAILED", "User", 1, { reason: "totp_secret_unreadable" }, undefined)
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+    )
+    expect(prisma.user.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+    )
+  })
+
   it("OTP-locked user gets AccountLocked in totp mode", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
       ...(await totpUser()),

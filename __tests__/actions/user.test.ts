@@ -34,6 +34,7 @@ import { redirect } from "next/navigation"
 import { hash } from "bcryptjs"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
+import { TOTP_CLEARED } from "@/lib/totp"
 import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp } from "@/lib/actions/user"
 
 const mockSession = auth as jest.Mock
@@ -783,7 +784,7 @@ describe("resetUserTotp", () => {
     await expect(resetUserTotp(3)).resolves.toBeUndefined()
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
-      data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
+      data: TOTP_CLEARED,
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })

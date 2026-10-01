@@ -22,10 +22,11 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>({ kind: "idle" })
   const [code, setCode] = useState("")
+  const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
-  const reset = () => { setMode({ kind: "idle" }); setCode(""); setError(null) }
+  const reset = () => { setMode({ kind: "idle" }); setCode(""); setPassword(""); setError(null) }
   const run = (fn: () => Promise<void>) => startTransition(async () => {
     setError(null)
     try {
@@ -66,9 +67,9 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
         onSubmit={(e) => {
           e.preventDefault()
           run(async () => {
-            const res = await confirmTotpEnrolment(code)
+            const res = await confirmTotpEnrolment(code, password)
             if ("error" in res) setError(res.error)
-            else { setCode(""); setMode({ kind: "codes", codes: res.backupCodes }) }
+            else { setCode(""); setPassword(""); setMode({ kind: "codes", codes: res.backupCodes }) }
           })
         }}
       >
@@ -90,10 +91,17 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
             aria-describedby={error ? "totp-confirm-error" : undefined}
           />
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="totp-password">Current password</Label>
+          <Input
+            id="totp-password" type="password" required autoComplete="current-password"
+            value={password} onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
         <FormFeedback state={{ error }} id="totp-confirm-error" />
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={pending}>{pending ? "Checking…" : "Turn on"}</Button>
-          <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => { void cancelTotpEnrolment(); reset() }}>
+          <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => { cancelTotpEnrolment().catch(() => {}); reset() }}>
             Cancel
           </Button>
         </div>
