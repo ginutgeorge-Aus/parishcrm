@@ -4,8 +4,9 @@ import { Secret, TOTP } from "otpauth"
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { updateMany: jest.fn() },
+    user: { updateMany: jest.fn(), update: jest.fn() },
     backupCode: { findMany: jest.fn(), updateMany: jest.fn() },
+    $transaction: jest.fn(),
   },
 }))
 // Identity "encryption" so the test controls the plaintext secret directly.
@@ -27,11 +28,64 @@ const code = new TOTP({ secret: Secret.fromBase32(SECRET), algorithm: "SHA1", di
 const user = { id: 7, totpSecret: `enc:${SECRET}` }
 
 describe("verifySecondFactor", () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma))
+  })
+
+  const LOCKOUT_RESET = { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null }
+
+  it("resets lockout counters in the same TOTP step write when asked", async () => {
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await expect(verifySecondFactor(user, code, { now: NOW, resetLockouts: true })).resolves.toEqual({ ok: true, via: "totp" })
+    expect(prisma.user.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { totpLastStep: STEP, ...LOCKOUT_RESET } }),
+    )
+  })
+
+  it("resets lockout counters in the backup-code transaction when asked", async () => {
+    ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
+    ;(prisma.backupCode.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW, resetLockouts: true })).resolves.toEqual({
+      ok: true, via: "backup", remaining: 0,
+    })
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 7 }, data: LOCKOUT_RESET })
+    // Lock order User → BackupCode, matching the totp actions (no deadlock).
+    expect((prisma.user.update as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.backupCode.updateMany as jest.Mock).mock.invocationCallOrder[0],
+    )
+  })
+
+  it("rolls the counter reset back when a concurrent request consumed the backup code first", async () => {
+    ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
+    ;(prisma.backupCode.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const tx = (prisma.$transaction as jest.Mock).getMockImplementation()!
+    let rolledBack = false
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: typeof prisma) => unknown) => {
+      try {
+        return await tx(fn)
+      } catch (err) {
+        rolledBack = true
+        throw err
+      }
+    })
+    await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW, resetLockouts: true })).resolves.toEqual({
+      ok: false, reason: "backup_invalid",
+    })
+    expect(rolledBack).toBe(true)
+  })
+
+  it("propagates database errors from the backup-code transaction", async () => {
+    ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue(new Error("deadlock detected"))
+    await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW })).rejects.toThrow("deadlock detected")
+  })
 
   it("accepts a valid TOTP and records its step atomically", async () => {
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-    await expect(verifySecondFactor(user, code, NOW)).resolves.toEqual({ ok: true, via: "totp" })
+    await expect(verifySecondFactor(user, code, { now: NOW })).resolves.toEqual({ ok: true, via: "totp" })
     expect(prisma.user.updateMany).toHaveBeenCalledWith({
       where: { id: 7, totpSecret: user.totpSecret, OR: [{ totpLastStep: null }, { totpLastStep: { lt: STEP } }] },
       data: { totpLastStep: STEP },
@@ -40,28 +94,28 @@ describe("verifySecondFactor", () => {
 
   it("rejects a replayed code (step not newer → zero rows)", async () => {
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    await expect(verifySecondFactor(user, code, NOW)).resolves.toEqual({ ok: false, reason: "totp_replay" })
+    await expect(verifySecondFactor(user, code, { now: NOW })).resolves.toEqual({ ok: false, reason: "totp_replay" })
   })
 
   it("rejects a wrong TOTP without writing", async () => {
     const wrong = code === "000000" ? "111111" : "000000"
-    await expect(verifySecondFactor(user, wrong, NOW)).resolves.toEqual({ ok: false, reason: "totp_invalid" })
+    await expect(verifySecondFactor(user, wrong, { now: NOW })).resolves.toEqual({ ok: false, reason: "totp_invalid" })
     expect(prisma.user.updateMany).not.toHaveBeenCalled()
   })
 
   it("rejects a TOTP when the user has no secret", async () => {
-    await expect(verifySecondFactor({ id: 7, totpSecret: null }, code, NOW)).resolves.toEqual({ ok: false, reason: "totp_invalid" })
+    await expect(verifySecondFactor({ id: 7, totpSecret: null }, code, { now: NOW })).resolves.toEqual({ ok: false, reason: "totp_invalid" })
   })
 
   it("reports an unreadable secret instead of throwing", async () => {
-    await expect(verifySecondFactor({ id: 7, totpSecret: "corrupt" }, code, NOW)).resolves.toEqual({
+    await expect(verifySecondFactor({ id: 7, totpSecret: "corrupt" }, code, { now: NOW })).resolves.toEqual({
       ok: false,
       reason: "totp_secret_unreadable",
     })
   })
 
   it("reports a non-base32 secret as unreadable without writing", async () => {
-    await expect(verifySecondFactor({ id: 7, totpSecret: "enc:!!!not-base32!!!" }, code, NOW)).resolves.toEqual({
+    await expect(verifySecondFactor({ id: 7, totpSecret: "enc:!!!not-base32!!!" }, code, { now: NOW })).resolves.toEqual({
       ok: false,
       reason: "totp_secret_unreadable",
     })
@@ -70,7 +124,7 @@ describe("verifySecondFactor", () => {
 
   it("propagates a DB error from the replay-guard write", async () => {
     ;(prisma.user.updateMany as jest.Mock).mockRejectedValue(new Error("db down"))
-    await expect(verifySecondFactor(user, code, NOW)).rejects.toThrow("db down")
+    await expect(verifySecondFactor(user, code, { now: NOW })).rejects.toThrow("db down")
   })
 
   it("consumes a matching unused backup code once", async () => {
@@ -81,7 +135,7 @@ describe("verifySecondFactor", () => {
       { id: "b2", codeHash: h2 },
     ])
     ;(prisma.backupCode.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-    await expect(verifySecondFactor(user, "ab3cd-ef4gh", NOW)).resolves.toEqual({ ok: true, via: "backup", remaining: 1 })
+    await expect(verifySecondFactor(user, "ab3cd-ef4gh", { now: NOW })).resolves.toEqual({ ok: true, via: "backup", remaining: 1 })
     expect(prisma.backupCode.findMany).toHaveBeenCalledWith({
       where: { userId: 7, usedAt: null },
       select: { id: true, codeHash: true },
@@ -95,13 +149,13 @@ describe("verifySecondFactor", () => {
   it("rejects a backup code consumed concurrently (zero rows)", async () => {
     ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
     ;(prisma.backupCode.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    await expect(verifySecondFactor(user, "AB3CD-EF4GH", NOW)).resolves.toEqual({ ok: false, reason: "backup_invalid" })
+    await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW })).resolves.toEqual({ ok: false, reason: "backup_invalid" })
   })
 
   it("rejects an unknown or malformed backup code", async () => {
     ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
-    await expect(verifySecondFactor(user, "QQQQQ-QQQQQ", NOW)).resolves.toEqual({ ok: false, reason: "backup_invalid" })
-    await expect(verifySecondFactor(user, "not-a-code!", NOW)).resolves.toEqual({ ok: false, reason: "backup_invalid" })
+    await expect(verifySecondFactor(user, "QQQQQ-QQQQQ", { now: NOW })).resolves.toEqual({ ok: false, reason: "backup_invalid" })
+    await expect(verifySecondFactor(user, "not-a-code!", { now: NOW })).resolves.toEqual({ ok: false, reason: "backup_invalid" })
     expect(prisma.backupCode.updateMany).not.toHaveBeenCalled()
   })
 })
