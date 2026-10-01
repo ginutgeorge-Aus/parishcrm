@@ -39,6 +39,29 @@ export function sydneyToday(at: Date = new Date()): Date {
   return new Date(sydneyTodayYMD(at) + "T00:00:00.000Z")
 }
 
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+/** Sydney wall-clock for an instant: date, hour (0–23) and ISO weekday (1 = Monday … 7 = Sunday). */
+export function sydneyClock(at: Date = new Date()): { ymd: string; hour: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    hour: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+  }).formatToParts(at)
+  const hour = Number(parts.find((p) => p.type === "hour")!.value)
+  const weekday = WEEKDAYS.indexOf(parts.find((p) => p.type === "weekday")!.value) + 1
+  return { ymd: sydneyTodayYMD(at), hour, weekday }
+}
+
+/** The Monday (`YYYY-MM-DD`) that starts the Sydney week containing `at`. */
+export function sydneyWeekStartYMD(at: Date = new Date()): string {
+  const { ymd, weekday } = sydneyClock(at)
+  const d = new Date(ymd + "T00:00:00.000Z")
+  d.setUTCDate(d.getUTCDate() - (weekday - 1))
+  return d.toISOString().slice(0, 10)
+}
+
 /**
  * The inclusive end-of-day UTC instant for a UTC-midnight calendar date. Use as
  * the `lte` upper bound of a date range so every transaction stamped anywhere
