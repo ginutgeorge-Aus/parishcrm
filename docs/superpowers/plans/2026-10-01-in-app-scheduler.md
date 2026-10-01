@@ -181,7 +181,7 @@ describe("dueJobs — errorDigest", () => {
   const quiet = {
     reminders: { lastStart: Number.MAX_SAFE_INTEGER },
     checkouts: { lastStart: Number.MAX_SAFE_INTEGER },
-    celebrations: { lastSuccessDay: "9999-12-31" },
+    celebrations: { running: true },
   }
   // Mon 2026-07-06 Sydney hour h (AEST)
   const mon = (h: number) => new Date(Date.UTC(2026, 6, 5, h + 14))
