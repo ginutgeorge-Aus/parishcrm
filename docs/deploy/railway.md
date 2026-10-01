@@ -5,10 +5,12 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 
 ## 1. Deploy
 
-> The one-click template is not published yet. Until it is, deploy from the repo:
-> **New Project → Deploy from GitHub repo** (Railway builds the Dockerfile; the
-> container applies migrations on start), then **+ New → Database →
-> PostgreSQL** and reference its `DATABASE_URL` from the app service. In the app
+> The one-click template is not published yet. Until it is, deploy the release
+> image: **New Project → Docker Image** → `ghcr.io/ginutgeorge-aus/parishcrm:vX.Y.Z`
+> (latest tag on the Releases page; the container applies migrations on start),
+> then **+ New → Database → PostgreSQL** and reference its `DATABASE_URL` from
+> the app service. Don't deploy from the GitHub repo — that builds unreleased
+> `main` and can't use image Auto Updates (see Upgrading). In the app
 > service's **Settings → Deploy**, set **Healthcheck Path** to `/api/health` so
 > Railway waits for migrations and startup before routing traffic. Generate
 > `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
@@ -57,6 +59,21 @@ fits a Hobby plan. Check the Railway dashboard's usage page after the first week
 
 ## Upgrading
 
-Railway redeploys when you click **Redeploy** on a newer template/image version;
-migrations run automatically. Take a database backup first (Postgres service →
-**Backups**).
+The app runs a pinned release image (`ghcr.io/<owner>/parishcrm:vX.Y.Z`).
+Migrations run automatically when a new version starts.
+
+**Automatic (recommended):** app service → **Settings → Source → Auto Updates**
+→ **Minor and patch**, and pick a quiet maintenance window. The window is in **UTC** — e.g. 16:00–19:00
+UTC is 2–5am in Sydney (AEST).
+Railway checks GHCR, moves the tag to the newest `vX.Y.Z` in the same major
+version and redeploys inside the window (downtime is typically under 2 minutes).
+Major versions (`v2.0.0`) may contain breaking changes, so they are never
+applied automatically — read the release notes, then change the tag yourself.
+
+**Manual:** app service → **Settings → Source**, change the image tag, then
+**Deploy**.
+
+Every upgrade can run migrations, including unattended minor ones, so keep
+backups current: turn on a backup schedule on the Postgres service
+(**Backups**) if your plan offers one, and take a manual backup before any
+manual or major upgrade.
