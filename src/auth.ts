@@ -50,6 +50,117 @@ function clientIpFrom(request?: Request): string | undefined {
   return auditIpFromHeaders(request?.headers)
 }
 
+type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
+
+async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
+  const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
+    where: { id: userId },
+    data: { failedOtpAttempts: { increment: 1 } },
+    select: { failedOtpAttempts: true },
+  })
+  if (newOtpAttempts >= 5) {
+    // Match null OR an already-expired lock — filtering on `otpLockedUntil: null`
+    // alone means the account can never re-lock after its first lockout expires,
+    // because the field then holds a stale (past) timestamp, not null.
+    await prisma.user.updateMany({
+      where: { id: userId, OR: [{ otpLockedUntil: null }, { otpLockedUntil: { lte: new Date() } }] },
+      // Reset the counter as we lock — else a single wrong code after
+      // the lock expires re-locks instantly on the still-stale counter.
+      data: { otpLockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedOtpAttempts: 0 },
+    })
+  }
+  void logAudit(userId, "USER_LOGIN_FAILED", "User", userId, { reason }, ip)
+}
+
+async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: string | undefined) {
+  // Only fresh OTP verification can grant device trust. A pending row cannot
+  // bypass OTP; trustDevice exchanges it once using this session's signed ID.
+  let deviceTrustGrant: string | undefined
+  if (remember === "true") {
+    // The OTP has already been atomically consumed above; the device-trust
+    // grant is a best-effort convenience. If either write fails, log in
+    // anyway without a grant (the browser just re-prompts OTP next time)
+    // rather than rejecting an already-verified code.
+    try {
+      const now = new Date()
+      await prisma.trustedDevice.deleteMany({
+        where: { userId: user.id, tokenHash: { startsWith: DEVICE_TRUST_GRANT_PREFIX }, expiresAt: { lte: now } },
+      })
+      const grant = await prisma.trustedDevice.create({
+        data: {
+          userId: user.id,
+          tokenHash: DEVICE_TRUST_GRANT_PREFIX + hashDeviceToken(generateDeviceToken()),
+          expiresAt: new Date(now.getTime() + DEVICE_TRUST_GRANT_TTL_MS),
+        },
+        select: { id: true },
+      })
+      deviceTrustGrant = grant.id
+    } catch {
+      void logAudit(user.id, "USER_LOGIN", "User", user.id, { deviceTrustGrant: "failed" }, ip)
+    }
+  }
+  void logAudit(user.id, "USER_LOGIN", "User", user.id, undefined, ip)
+  return {
+    ...(deviceTrustGrant ? { deviceTrustGrant } : {}),
+    id: String(user.id),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    remember: remember === "true",
+  }
+}
+
+async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
+  const user = await prisma.user.findUnique({ where: { email } })
+  if (!user) {
+    // burn the same bcrypt cost as the real compare below so this
+    // fast path can't be timed apart from a valid-email/wrong-password path.
+    await compare(password, await DUMMY_PASSWORD_HASH)
+    logger.warn("credential login rejected", { reason: "no_user", ipPresent: !!ip })
+    return null
+  }
+  // reject a soft-deleted user (email is also tombstoned on archive).
+  if (user.archivedAt) return null
+
+  // (accepted, LOW): the lockout is checked before verifying the password,
+  // so an unauthenticated caller can distinguish a real+locked account from an
+  // unknown/unlocked one. This is inherent to surfacing "account locked" to the
+  // legitimate user (the login UI shows it) and to the lockout-first ordering
+  // required by// (a locked account must always surface
+  // AccountLocked, even after its OTP expires). Bounded info leak, no credential
+  // compromise; the per-account 5-attempt lock and per-IP throttle backstop it.
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    throw new AccountLocked()
+  }
+
+  const passwordValid = await compare(password, user.passwordHash)
+
+  if (!passwordValid) {
+    const { failedLoginAttempts: newAttempts } = await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
+    })
+    if (newAttempts >= 5) {
+      // Match null OR an already-expired lock — (same class of bug as
+      // the OTP lock above): `lockedUntil: null` alone never re-locks after expiry.
+      await prisma.user.updateMany({
+        where: { id: user.id, OR: [{ lockedUntil: null }, { lockedUntil: { lte: new Date() } }] },
+        // Reset the counter as we lock — else a single wrong password after
+        // the lock expires re-locks instantly on the still-stale counter.
+        data: { lockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedLoginAttempts: 0 },
+      })
+    }
+    notifyFailedLogin(user.email).catch((err: unknown) => {
+      console.error("[notify] Failed to send failed-login alert:", err instanceof Error ? err.message : String(err))
+    })
+    void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "invalid_password" }, ip)
+    logger.warn("credential login rejected", { reason: "bad_password", ipPresent: !!ip })
+    return null
+  }
+  return user
+}
+
 export async function authorizeCredentials(
   credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember", unknown>>,
   request?: Request,
@@ -120,23 +231,7 @@ export async function authorizeCredentials(
     const otpValid = storedBuf.length === inputBuf.length && timingSafeEqual(storedBuf, inputBuf)
 
     if (!otpValid) {
-      const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
-        where: { id: user.id },
-        data: { failedOtpAttempts: { increment: 1 } },
-        select: { failedOtpAttempts: true },
-      })
-      if (newOtpAttempts >= 5) {
-        // Match null OR an already-expired lock — filtering on `otpLockedUntil: null`
-        // alone means the account can never re-lock after its first lockout expires,
-        // because the field then holds a stale (past) timestamp, not null.
-        await prisma.user.updateMany({
-          where: { id: user.id, OR: [{ otpLockedUntil: null }, { otpLockedUntil: { lte: new Date() } }] },
-          // Reset the counter as we lock — else a single wrong code after
-          // the lock expires re-locks instantly on the still-stale counter.
-          data: { otpLockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedOtpAttempts: 0 },
-        })
-      }
-      void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "invalid_otp" }, ip)
+      await recordOtpFailure(user.id, "invalid_otp", ip)
       return null
     }
 
@@ -163,95 +258,13 @@ export async function authorizeCredentials(
       void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "invalid_otp" }, ip)
       return null
     }
-    // Only fresh OTP verification can grant device trust. A pending row cannot
-    // bypass OTP; trustDevice exchanges it once using this session's signed ID.
-    let deviceTrustGrant: string | undefined
-    if (credentials.remember === "true") {
-      // The OTP has already been atomically consumed above; the device-trust
-      // grant is a best-effort convenience. If either write fails, log in
-      // anyway without a grant (the browser just re-prompts OTP next time)
-      // rather than rejecting an already-verified code.
-      try {
-        const now = new Date()
-        await prisma.trustedDevice.deleteMany({
-          where: { userId: user.id, tokenHash: { startsWith: DEVICE_TRUST_GRANT_PREFIX }, expiresAt: { lte: now } },
-        })
-        const grant = await prisma.trustedDevice.create({
-          data: {
-            userId: user.id,
-            tokenHash: DEVICE_TRUST_GRANT_PREFIX + hashDeviceToken(generateDeviceToken()),
-            expiresAt: new Date(now.getTime() + DEVICE_TRUST_GRANT_TTL_MS),
-          },
-          select: { id: true },
-        })
-        deviceTrustGrant = grant.id
-      } catch {
-        void logAudit(user.id, "USER_LOGIN", "User", user.id, { deviceTrustGrant: "failed" }, ip)
-      }
-    }
-    void logAudit(user.id, "USER_LOGIN", "User", user.id, undefined, ip)
-    return {
-      ...(deviceTrustGrant ? { deviceTrustGrant } : {}),
-      id: String(user.id),
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      remember: credentials.remember === "true",
-    }
+    return completeSecondFactorLogin(user, credentials.remember, ip)
   }
 
   // Password step (default)
   if (!credentials?.password) return null
-  const email = credentials.email as string
-  const password = credentials.password as string
-
-  const user = await prisma.user.findUnique({ where: { email } })
-  if (!user) {
-    // burn the same bcrypt cost as the real compare below so this
-    // fast path can't be timed apart from a valid-email/wrong-password path.
-    await compare(password, await DUMMY_PASSWORD_HASH)
-    logger.warn("credential login rejected", { reason: "no_user", ipPresent: !!ip })
-    return null
-  }
-  // reject a soft-deleted user (email is also tombstoned on archive).
-  if (user.archivedAt) return null
-
-  // (accepted, LOW): the lockout is checked before verifying the password,
-  // so an unauthenticated caller can distinguish a real+locked account from an
-  // unknown/unlocked one. This is inherent to surfacing "account locked" to the
-  // legitimate user (the login UI shows it) and to the lockout-first ordering
-  // required by// (a locked account must always surface
-  // AccountLocked, even after its OTP expires). Bounded info leak, no credential
-  // compromise; the per-account 5-attempt lock and per-IP throttle backstop it.
-  if (user.lockedUntil && user.lockedUntil > new Date()) {
-    throw new AccountLocked()
-  }
-
-  const passwordValid = await compare(password, user.passwordHash)
-
-  if (!passwordValid) {
-    const { failedLoginAttempts: newAttempts } = await prisma.user.update({
-      where: { id: user.id },
-      data: { failedLoginAttempts: { increment: 1 } },
-      select: { failedLoginAttempts: true },
-    })
-    if (newAttempts >= 5) {
-      // Match null OR an already-expired lock — (same class of bug as
-      // the OTP lock above): `lockedUntil: null` alone never re-locks after expiry.
-      await prisma.user.updateMany({
-        where: { id: user.id, OR: [{ lockedUntil: null }, { lockedUntil: { lte: new Date() } }] },
-        // Reset the counter as we lock — else a single wrong password after
-        // the lock expires re-locks instantly on the still-stale counter.
-        data: { lockedUntil: new Date(Date.now() + 15 * 60 * 1000), failedLoginAttempts: 0 },
-      })
-    }
-    notifyFailedLogin(user.email).catch((err: unknown) => {
-      console.error("[notify] Failed to send failed-login alert:", err instanceof Error ? err.message : String(err))
-    })
-    void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "invalid_password" }, ip)
-    logger.warn("credential login rejected", { reason: "bad_password", ipPresent: !!ip })
-    return null
-  }
+  const user = await verifyPassword(credentials.email as string, credentials.password as string, ip)
+  if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.
   // Never honour it in production even if the flag leaks into the env —
