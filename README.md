@@ -204,7 +204,7 @@ are available:
 
 | Option | What you get |
 |---|---|
-| **Community** (free) | Self-host from the guide above; questions and bug reports via [GitHub Discussions](https://github.com/ginutgeorge-Aus/parishcrm/discussions) |
+| **Community** (free) | Self-host from the guide above; questions via [GitHub Discussions](https://github.com/ginutgeorge-Aus/parishcrm/discussions), bugs via [issues](https://github.com/ginutgeorge-Aus/parishcrm/issues/new?template=bug_report.yml) |
 | **Hosted plan** | We run your church's instance — updates, daily backups, monitoring, HTTPS on your domain |
 | **Setup & migration** | One-off import of your existing spreadsheets/records, branding, and staff training |
 | **Priority support** | Email support, priority bug fixes, upgrade help for self-hosted churches |
