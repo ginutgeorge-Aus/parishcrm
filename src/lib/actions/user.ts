@@ -10,6 +10,7 @@ import { hash } from "bcryptjs"
 import { randomBytes, createHash } from "node:crypto"
 import { prisma, Prisma } from "@/lib/prisma"
 import { canManageUsers, canAssignRole, isAdmin } from "@/lib/roleGuard"
+import { TOTP_CLEARED } from "@/lib/totp"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
 import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
@@ -354,6 +355,38 @@ export async function unlockUser(id: number): Promise<ActionResult> {
     throw e
   }
   await logAudit(actorId(session), "USER_UNLOCKED", "User", id)
+  revalidatePath("/users")
+}
+
+export async function resetUserTotp(id: number): Promise<ActionResult> {
+  const session = await auth()
+  if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "User not found" }
+  if (actorId(session) === id) return { error: "Use My Account to manage your own authenticator" }
+
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
+  if (!target || target.archivedAt) return { error: "User not found" }
+  if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
+
+  try {
+    // Lost-phone recovery: drop the authenticator, every backup code, and every
+    // trusted device (a device trusted by whoever holds the phone must not keep
+    // skipping the second factor), plus every live session (the lost device may
+    // already be signed in). Next login falls back to email OTP.
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id, ...assignableTargetWhere(session?.user?.role) },
+        data: { ...TOTP_CLEARED, sessionsValidFrom: new Date() },
+      }),
+      prisma.backupCode.deleteMany({ where: { userId: id } }),
+      prisma.trustedDevice.deleteMany({ where: { userId: id } }),
+    ])
+  } catch (e) {
+    // Target promoted to ADMIN/PASTOR since the pre-read.
+    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    throw e
+  }
+  await logAudit(actorId(session), "TOTP_RESET", "User", id, { targetUserId: id })
   revalidatePath("/users")
 }
 

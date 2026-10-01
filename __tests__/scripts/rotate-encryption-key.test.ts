@@ -282,6 +282,8 @@ describe("FIELDS map", () => {
     // listed in BLOB_FIELDS, so it belongs here too.
     dgrReceipt: ["donorEmail"],
     transactionAttachment: ["filename", "data"],
+    // TOTP authenticator secrets (src/lib/actions/totp.ts).
+    user: ["totpSecret", "totpPendingSecret"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible

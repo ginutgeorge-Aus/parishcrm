@@ -63,6 +63,8 @@ jest.mock("@/lib/notifications", () => ({
   notifyFailedLogin: jest.fn().mockResolvedValue(undefined),
 }))
 
+jest.mock("@/lib/totpVerify", () => ({ verifySecondFactor: jest.fn() }))
+
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 
 jest.mock("@/lib/trustedDevice", () => ({
@@ -83,7 +85,8 @@ jest.mock("@/lib/trustedDevice", () => ({
 }))
 
 import { prisma } from "@/lib/prisma"
-import { authorizeCredentials, AccountLocked, OtpSent, OtpDeliveryFailed, jwtCallback } from "@/auth"
+import { authorizeCredentials, AccountLocked, OtpSent, OtpDeliveryFailed, TotpRequired, jwtCallback } from "@/auth"
+import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
 
@@ -969,4 +972,140 @@ test("remembered trusted-cookie login cannot issue a new OTP grant", async () =>
   expect(result).toMatchObject({ id: "1", remember: true })
   expect(result).not.toHaveProperty("deviceTrustGrant")
   expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
+})
+
+describe("authorizeCredentials — TOTP", () => {
+  const totpUser = async () => ({
+    ...baseUser,
+    passwordHash: await hash("correctpassword", 4),
+    totpEnabledAt: new Date("2026-09-01"),
+    totpSecret: "enc:secret",
+    otpLockedUntil: null,
+  })
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.DISABLE_OTP
+  })
+
+  it("password step throws TotpRequired for an enrolled user and sends no email", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
+    ).rejects.toBeInstanceOf(TotpRequired)
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
+
+  it("emailFallback=true issues the email OTP instead", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(sendOtpEmail).toHaveBeenCalled()
+  })
+
+  it("trusted device still bypasses TOTP", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1" })
+    const req = { headers: { get: (k: string) => (k === "cookie" ? "trusted_device=tok" : null) } } as unknown as Request
+    const result = await authorizeCredentials({ email: "admin@example.com", password: "correctpassword" }, req)
+    expect(result).toMatchObject({ id: "1" })
+    expect(verifySecondFactor).not.toHaveBeenCalled()
+  })
+
+  it("totp mode signs in with password + valid code", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
+    })
+    expect(result).toMatchObject({ id: "1", email: "admin@example.com" })
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+    })
+  })
+
+  it("totp mode rejects a valid code with a wrong password, without checking the code", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "wrong", mode: "totp", code: "123456",
+    })
+    expect(result).toBeNull()
+    expect(verifySecondFactor).not.toHaveBeenCalled()
+  })
+
+  it("totp mode rejects a missing password", async () => {
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "totp", code: "123456" })).toBeNull()
+    expect(verifySecondFactor).not.toHaveBeenCalled()
+  })
+
+  it("totp mode rejects a user without TOTP enabled", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...(await totpUser()), totpEnabledAt: null })
+    expect(
+      await authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456" }),
+    ).toBeNull()
+    expect(verifySecondFactor).not.toHaveBeenCalled()
+  })
+
+  it("failed code counts toward the OTP lockout and audits the reason", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: false, reason: "totp_replay" })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedOtpAttempts: 5 })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
+    })
+    expect(result).toBeNull()
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: 0 }) }),
+    )
+    expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN_FAILED", "User", 1, { reason: "totp_replay" }, undefined)
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }) }),
+    )
+  })
+
+  it("unreadable stored secret is audited but does not count toward the OTP lockout", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: false, reason: "totp_secret_unreadable" })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456",
+    })
+    expect(result).toBeNull()
+    expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN_FAILED", "User", 1, { reason: "totp_secret_unreadable" }, undefined)
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+    )
+    expect(prisma.user.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+    )
+  })
+
+  it("OTP-locked user gets AccountLocked in totp mode", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      ...(await totpUser()),
+      otpLockedUntil: new Date(Date.now() + 60_000),
+    })
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456" }),
+    ).rejects.toBeInstanceOf(AccountLocked)
+  })
+
+  it("backup-code login audits BACKUP_CODE_USED with remaining count", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "backup", remaining: 9 })
+    await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "AB3CD-EF4GH",
+    })
+    expect(logAudit).toHaveBeenCalledWith(1, "BACKUP_CODE_USED", "User", 1, { remaining: 9 }, undefined)
+  })
+
+  it("remember=true creates a device-trust grant after TOTP", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
+    const result = await authorizeCredentials({
+      email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456", remember: "true",
+    })
+    expect(result).toMatchObject({ deviceTrustGrant: "grant1", remember: true })
+  })
 })

@@ -110,6 +110,13 @@ model User {
   otpExpiresAt           DateTime?
   failedOtpAttempts      Int                      @default(0)
   otpLockedUntil         DateTime?
+  // TOTP authenticator 2FA (opt-in). Secrets are AES-256-GCM ciphertext
+  // (src/lib/crypto.ts). totpLastStep = last accepted 30-s step; a code is
+  // only accepted for a strictly newer step (replay guard).
+  totpSecret             String?
+  totpPendingSecret      String?
+  totpEnabledAt          DateTime?
+  totpLastStep           Int?
   passwordResetToken     String?                  @unique
   passwordResetExpires   DateTime?
   // server-side logout/invalidation anchor. Logout sets this to now; the
@@ -129,6 +136,7 @@ model User {
   invitesCreated         FamilyUpdateInvite[]     @relation("InviteCreatedBy")
   submissionsReviewed    FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
   trustedDevices         TrustedDevice[]
+  backupCodes            BackupCode[]
   reports                Report[]
   checkpointResults      CheckpointResult[]
   dgrReceiptsCreated     DgrReceipt[]             @relation("DgrReceiptCreatedBy")
@@ -147,6 +155,18 @@ model TrustedDevice {
   lastUsedAt DateTime @default(now())
   expiresAt  DateTime
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model BackupCode {
+  id        String    @id @default(cuid())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // bcryptjs (cost 10) of the normalised code — plaintext is shown once only.
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
