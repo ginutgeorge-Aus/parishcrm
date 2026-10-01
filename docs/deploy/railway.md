@@ -57,11 +57,11 @@ on each cron service) to `https://your.domain`.
 The template includes three cron services. Each one starts on its schedule, sends
 one authenticated request to the app and exits, so it costs almost nothing.
 
-| Service | Schedule (UTC) | Route |
+| Service | Schedule (UTC) | Route (`/api/cron/…`) |
 |---|---|---|
-| `cron-reminders` | `*/30 * * * *` (every 30 min) | `/api/cron/send-reminders` |
-| `cron-checkouts` | `0 * * * *` (hourly) | `/api/cron/sweep-checkouts` |
-| `cron-celebrations` | `0 21 * * *` (7–8am Sydney) | `/api/cron/send-celebrations` |
+| `cron-reminders` | `*/30 * * * *` (every 30 min) | `send-reminders` |
+| `cron-checkouts` | `0 * * * *` (hourly) | `sweep-checkouts` |
+| `cron-celebrations` | `0 21 * * *` (7–8am Sydney) | `send-celebrations` |
 
 To add one by hand (manual deploy, or a service you deleted):
 
@@ -70,16 +70,16 @@ To add one by hand (manual deploy, or a service you deleted):
    `APP_URL=https://${{parishcrm.RAILWAY_PUBLIC_DOMAIN}}` (use your app service's
    name in place of `parishcrm`; with a custom domain, set `APP_URL` to it).
 3. **Settings → Deploy → Custom Start Command**, with `send-reminders` replaced by
-   that service's route from the table:
+   that service's route name from the table:
    ```sh
    sh -c 'curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/send-reminders"'
    ```
 4. **Settings → Deploy → Cron Schedule:** the schedule from the table.
 
-A failed run shows red in the service's **Deployments** tab. The sweeps claim
-each email before sending, so a late or repeated run normally won't send
-duplicates. The rare exception: if the database write fails after an email
-was sent, a later run may send it again.
+A failed run shows red in the service's **Deployments** tab. A late or repeated
+run normally won't send duplicates. The rare exception: if a run is cut off
+mid-send, or a database write fails after emails went out, a later run may
+send some of them again.
 
 ## Costs
 
