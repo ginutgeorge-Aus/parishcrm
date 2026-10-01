@@ -278,7 +278,10 @@ describe("BirthdaysClient", () => {
       })
       // Aggregate response can't say which row failed → mark none Sent, keep all retryable.
       expect(screen.queryByText("Sent")).not.toBeInTheDocument()
-      screen.getAllByRole("button", { name: /^send$/i }).forEach((btn) => expect(btn).toBeEnabled())
+      // Buttons re-enable when the transition settles, which can land after the summary text.
+      await waitFor(() => {
+        screen.getAllByRole("button", { name: /^send$/i }).forEach((btn) => expect(btn).toBeEnabled())
+      })
     })
   })
 
