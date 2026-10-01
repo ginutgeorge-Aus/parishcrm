@@ -88,3 +88,21 @@ export async function resolveCelebrationSend(
     data: { status },
   })
 }
+
+/**
+ * After a lost claim: is that slot PENDING, i.e. another invocation is sending
+ * right now? (A stale PENDING would have been reclaimed by the claim itself.)
+ * The in-app scheduler must not treat such a day as done — if that invocation
+ * dies, its lease goes stale and only a later sweep can reclaim it.
+ */
+export async function isCelebrationInFlight(
+  personId: number,
+  action: CelebrationAction,
+  sendDate: string
+): Promise<boolean> {
+  const row = await prisma.celebrationSend.findUnique({
+    where: { personId_action_sendDate: { personId, action, sendDate } },
+    select: { status: true },
+  })
+  return row?.status === "PENDING"
+}

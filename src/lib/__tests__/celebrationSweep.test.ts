@@ -3,7 +3,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     person: { findMany: jest.fn(async () => []) },
     family: { findMany: jest.fn(async () => []) },
-    celebrationSend: { create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    celebrationSend: { create: jest.fn(), updateMany: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
   },
 }))
 jest.mock("@/lib/email", () => ({
@@ -232,4 +232,29 @@ test("runCelebrationSweep runs without CRON_SECRET or an Authorization header (i
   const body = await runCelebrationSweep(NOW)
   expect(body).toHaveProperty("birthdays")
   expect(body).toHaveProperty("anniversaries")
+})
+
+test("reports a slot held by another in-flight invocation as inFlight, not skipped, so the scheduler retries", async () => {
+  flags.mockResolvedValue({ birthday: true, anniversary: false })
+  ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
+    { id: 1, firstName: "Sam", lastName: "X", dateOfBirth: "2000-06-15T00:00:00.000Z", email: "enc:sam@x.com", emailConsent: true, gender: "MALE", family: { name: "Fam" } },
+  ])
+  create.mockRejectedValue(p2002())
+  updateMany.mockResolvedValue({ count: 0 })
+  ;(prisma.celebrationSend.findUnique as jest.Mock).mockResolvedValue({ status: "PENDING" })
+  const body = await runCelebrationSweep(NOW)
+  expect(body).toMatchObject({ birthdays: { sent: 0, skipped: 0, failed: 0, inFlight: 1 } })
+  expect(sendEmail).not.toHaveBeenCalled()
+})
+
+test("an already-SENT slot is still a plain skip", async () => {
+  flags.mockResolvedValue({ birthday: true, anniversary: false })
+  ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
+    { id: 1, firstName: "Sam", lastName: "X", dateOfBirth: "2000-06-15T00:00:00.000Z", email: "enc:sam@x.com", emailConsent: true, gender: "MALE", family: { name: "Fam" } },
+  ])
+  create.mockRejectedValue(p2002())
+  updateMany.mockResolvedValue({ count: 0 })
+  ;(prisma.celebrationSend.findUnique as jest.Mock).mockResolvedValue({ status: "SENT" })
+  const body = await runCelebrationSweep(NOW)
+  expect(body).toEqual({ birthdays: { sent: 0, skipped: 1, failed: 0 }, anniversaries: { sent: 0, skipped: 0, failed: 0 } })
 })

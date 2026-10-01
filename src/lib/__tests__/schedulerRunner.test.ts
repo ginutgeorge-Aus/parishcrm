@@ -64,6 +64,13 @@ describe("tick", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"job":"celebrations"'))
   })
 
+  it("treats a run with sends still in flight elsewhere as unsuccessful, so it is retried", async () => {
+    const s = initialState()
+    const j = jobs({ celebrations: jest.fn(async () => ({ birthdays: { sent: 0, skipped: 0, failed: 0, inFlight: 1 } })) })
+    await tick(s, j, new Date("2026-07-01T21:00:00Z"))
+    expect(s.celebrations.lastSuccessKey).toBeNull()
+  })
+
   it("never rejects, even if scheduling itself throws", async () => {
     const s = initialState()
     const j = jobs()

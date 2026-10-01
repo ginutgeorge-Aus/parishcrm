@@ -11,10 +11,11 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { pronouns } from "@/lib/pronouns"
 import { upcomingBirthdays, type BirthdayPerson } from "@/lib/birthdays"
 import { upcomingAnniversaries, type AnniversaryFamily, type FamilyRoleLite } from "@/lib/anniversaries"
-import { claimCelebrationSend, BIRTHDAY_ACTION, ANNIVERSARY_ACTION } from "@/lib/celebrationClaim"
+import { claimCelebrationSend, isCelebrationInFlight, BIRTHDAY_ACTION, ANNIVERSARY_ACTION } from "@/lib/celebrationClaim"
 import { deliverCelebration } from "@/lib/celebrationDeliver"
 
-type Counts = { sent: number; skipped: number; failed: number }
+// inFlight: lost the claim to an invocation still sending (only present when > 0).
+type Counts = { sent: number; skipped: number; failed: number; inFlight?: number }
 const ZERO: Counts = { sent: 0, skipped: 0, failed: 0 }
 
 /**
@@ -98,13 +99,13 @@ async function sendCelebrationBirthday(
   template: Awaited<ReturnType<typeof readBirthdayTemplate>>,
   churchName: string,
   sendDate: string,
-): Promise<"sent" | "skipped" | "failed"> {
+): Promise<"sent" | "skipped" | "failed" | "inFlight"> {
   if (!p.emailConsent || !p.email) return "skipped"
   // Atomic claim BEFORE sending — see claimCelebrationSend. A false
   // return means another invocation already holds or resolved today's slot
   // for this person; this invocation must not send.
   const claimed = await claimCelebrationSend(p.id, BIRTHDAY_ACTION, sendDate)
-  if (!claimed) return "skipped"
+  if (!claimed) return (await isCelebrationInFlight(p.id, BIRTHDAY_ACTION, sendDate)) ? "inFlight" : "skipped"
   const { subject, html, text } = renderBirthdayEmail(template, { firstName: p.firstName, ...pronouns(p.gender), churchName })
   if (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) {
     await logAudit(null, BIRTHDAY_ACTION, "Person", p.id)
@@ -132,11 +133,12 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
   const template = await readBirthdayTemplate()
   const { name: churchName } = await getChurchSettings()
 
-  let sent = 0, skipped = 0, failed = 0
+  let sent = 0, skipped = 0, failed = 0, inFlight = 0
   for (const p of due) {
     const result = await sendCelebrationBirthday(p, template, churchName, sendDate)
     if (result === "sent") sent++
     else if (result === "skipped") skipped++
+    else if (result === "inFlight") inFlight++
     else failed++
   }
   // Total-failure signal: the birthday window is exact-day-only, so a
@@ -146,7 +148,7 @@ async function sendDueBirthdays(today: Date, sendDate: string): Promise<Counts> 
   if (failed > 0 && sent === 0)
     logger.error(`[celebration] all ${failed} birthday email(s) failed to send today — likely an SMTP outage; the in-app scheduler retries later today (max 3 attempts), investigate`)
   await logAudit(null, "BIRTHDAY_EMAIL_BATCH_SENT", "Person", undefined, { window: 0, sent, skipped, failed })
-  return { sent, skipped, failed }
+  return inFlight ? { sent, skipped, failed, inFlight } : { sent, skipped, failed }
 }
 
 async function sendDueAnniversaries(today: Date, sendDate: string): Promise<Counts> {
@@ -175,13 +177,17 @@ async function sendDueAnniversaries(today: Date, sendDate: string): Promise<Coun
   const template = await readAnniversaryTemplate()
   const { name: churchName } = await getChurchSettings()
 
-  let sent = 0, skipped = 0, failed = 0
+  let sent = 0, skipped = 0, failed = 0, inFlight = 0
   for (const d of due) {
     const { subject, html, text } = renderAnniversaryEmail(template, { names: d.coupleNames, years: String(d.yearsMarried), churchName })
     for (const r of d.recipients) {
       if (!r.emailConsent || !r.email) { skipped++; continue }
       const claimed = await claimCelebrationSend(r.id, ANNIVERSARY_ACTION, sendDate)
-      if (!claimed) { skipped++; continue }
+      if (!claimed) {
+        if (await isCelebrationInFlight(r.id, ANNIVERSARY_ACTION, sendDate)) inFlight++
+        else skipped++
+        continue
+      }
       if (await deliverCelebration(r.email, subject, html, text, r.id, ANNIVERSARY_ACTION, sendDate)) {
         await logAudit(null, ANNIVERSARY_ACTION, "Person", r.id)
         sent++
@@ -192,5 +198,5 @@ async function sendDueAnniversaries(today: Date, sendDate: string): Promise<Coun
   if (failed > 0 && sent === 0)
     logger.error(`[celebration] all ${failed} anniversary email(s) failed to send today — likely an SMTP outage; the in-app scheduler retries later today (max 3 attempts), investigate`)
   await logAudit(null, "ANNIVERSARY_EMAIL_BATCH_SENT", "Family", undefined, { window: 0, sent, skipped, failed })
-  return { sent, skipped, failed }
+  return inFlight ? { sent, skipped, failed, inFlight } : { sent, skipped, failed }
 }

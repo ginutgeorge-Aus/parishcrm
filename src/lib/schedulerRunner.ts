@@ -31,11 +31,12 @@ function countsOnly(v: unknown): unknown {
 }
 
 // A sweep that catches per-recipient errors reports them as `failed`/`emailsFailed`
-// counts instead of throwing; any non-zero one means the period isn't done yet.
+// counts instead of throwing, and sends another invocation is still delivering as
+// `inFlight`; any non-zero one means the period isn't done yet.
 function reportsFailures(v: unknown): boolean {
   if (!v || typeof v !== "object") return false
   return Object.entries(v).some(([k, x]) =>
-    typeof x === "number" ? /failed/i.test(k) && x > 0 : reportsFailures(x))
+    typeof x === "number" ? /failed|inflight/i.test(k) && x > 0 : reportsFailures(x))
 }
 
 function log(level: "info" | "error", fields: Record<string, unknown>): void {
@@ -52,7 +53,7 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
     const result = await fn(now)
     const ms = Date.now() - t0
     if (reportsFailures(result)) {
-      log("error", { job: name, ms, message: "completed with failed sends — will retry", result: countsOnly(result) })
+      log("error", { job: name, ms, message: "completed with failed or in-flight sends — will retry", result: countsOnly(result) })
       return
     }
     s.lastSuccessKey = successKey(name, now)

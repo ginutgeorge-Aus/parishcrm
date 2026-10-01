@@ -180,7 +180,7 @@ with `Authorization: Bearer $CRON_SECRET`:
 |---|---|
 | `send-reminders` | every 30 min |
 | `sweep-checkouts` | every 30 min |
-| `send-celebrations` | daily, 07:00 Sydney (`0 21 * * *` UTC in winter, `0 20 * * *` in summer) |
+| `send-celebrations` | 07:00 **and** 07:30 Sydney (`0,30 21 * * *` UTC in winter, `0,30 20 * * *` in summer) — the second call retries failed sends; a later day can't, since only that day's birthdays are due |
 | `error-issues` | weekly, Monday 09:00 Sydney — only if you want the GitHub error digest |
 
 ```bash
