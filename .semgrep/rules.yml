@@ -81,3 +81,20 @@ rules:
       - metavariable-regex:
           metavariable: $DB
           regex: (prisma|tx)
+
+  - id: crm-no-inline-p2034
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      Use isP2034() from @/lib/validation instead of an inline `code === "P2034"`
+      check. @prisma/adapter-pg sometimes surfaces a Postgres 40001 serialization
+      conflict as a DriverAdapterError with no `code` (cause.kind
+      "TransactionWriteConflict"); an inline check misses it and the lost race
+      becomes an unhandled 500 instead of a retry.
+    paths:
+      exclude:
+        - "**/src/lib/validation.ts"
+        - "**/__tests__/**"
+    pattern-either:
+      - pattern: $E.code === "P2034"
+      - pattern: $E.code == "P2034"

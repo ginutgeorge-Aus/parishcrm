@@ -13,14 +13,10 @@ import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { assertUnlocked, ACCOUNTING_LOCK_DATE_KEY, isDateLocked } from "@/lib/accountingLock"
-import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
+import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
 
-// Prisma maps Postgres serialization failures on a Serializable txn to P2034.
-function isSerializationConflict(e: unknown): boolean {
-  return typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "P2034"
-}
 const MAX_TX_ATTEMPTS = 3
 
 const Schema = z.object({
@@ -144,7 +140,7 @@ async function finalizeReconciliation(
     } catch (e) {
       // A concurrent insert into the reconciled range made the balance decision
       // stale; retry so the recomputed decision reflects the new row.
-      if (isSerializationConflict(e) && attempt < MAX_TX_ATTEMPTS) continue
+      if (isP2034(e) && attempt < MAX_TX_ATTEMPTS) continue
       throw e
     }
   }

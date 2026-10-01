@@ -349,4 +349,17 @@ describe("createEventRegistration — serialization conflicts", () => {
     expect(result).toEqual({ ok: false, status: 409, error: "Registration is busy, please try again" })
     expect($transaction).toHaveBeenCalledTimes(3)
   })
+
+  it("retries the unwrapped adapter-pg DriverAdapterError (40001, no code) like a P2034", async () => {
+    findUnique.mockResolvedValue(makeEvent())
+    $transaction.mockRejectedValue({
+      name: "DriverAdapterError",
+      cause: { originalCode: "40001", kind: "TransactionWriteConflict" },
+    })
+
+    const result = await createEventRegistration("fete", makeBody(), "1.2.3.4")
+
+    expect(result).toEqual({ ok: false, status: 409, error: "Registration is busy, please try again" })
+    expect($transaction).toHaveBeenCalledTimes(3)
+  })
 })
