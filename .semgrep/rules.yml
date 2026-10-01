@@ -98,3 +98,9 @@ rules:
     pattern-either:
       - pattern: $E.code === "P2034"
       - pattern: $E.code == "P2034"
+      - pattern: $E.code !== "P2034"
+      - pattern: $E.code != "P2034"
+      - pattern: '"P2034" === $E.code'
+      - pattern: '"P2034" == $E.code'
+      - pattern: '"P2034" !== $E.code'
+      - pattern: '"P2034" != $E.code'

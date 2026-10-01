@@ -146,11 +146,19 @@ describe("createFirstAdmin", () => {
   })
   it("warns the operator when no X-Forwarded-For forces the shared bucket", async () => {
     ;(headers as jest.Mock).mockResolvedValueOnce(new Map())
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(true)
     await createFirstAdmin(fd(valid))
     expect(dbRateLimit).toHaveBeenCalledWith("setup:unknown", 10, 15 * 60_000)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("X-Forwarded-For"), expect.any(Object))
   })
+  it("does not warn for a request the shared bucket already rejected", async () => {
+    ;(headers as jest.Mock).mockResolvedValueOnce(new Map())
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    await createFirstAdmin(fd(valid))
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
   it("does not warn when the proxy sets X-Forwarded-For", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(true)
     await createFirstAdmin(fd(valid))
     expect(logger.warn).not.toHaveBeenCalled()
   })
