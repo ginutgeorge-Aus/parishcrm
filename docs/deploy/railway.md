@@ -5,7 +5,9 @@ plus one small cron service for reminders, checkout sweeps and celebrations.
 
 ## 1. Deploy
 
-> The one-click template is not published yet. Until it is, deploy the release
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/parishcrm-oss)
+
+> **Without the template** (e.g. a custom setup), deploy the release
 > image: **New Project → Docker Image** → `ghcr.io/ginutgeorge-aus/parishcrm:vX.Y.Z`
 > (latest tag on the Releases page; the container applies migrations on start),
 > then **+ New → Database → PostgreSQL** and reference its `DATABASE_URL` from
@@ -18,7 +20,7 @@ plus one small cron service for reminders, checkout sweeps and celebrations.
 > On a Hobby plan set `RESEND_API_KEY` and `MAIL_FROM` for email (see below).
 > Add the cron service yourself — see [Scheduled jobs](#scheduled-jobs).
 
-With the template, click **Deploy on Railway**. You'll be asked for:
+With the template, click **Deploy on Railway** above. You'll be asked for:
 
 | Variable | What to enter |
 |---|---|
