@@ -10,6 +10,19 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.3.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.3.0...v1.3.1) (2026-10-01)
+
+
+### Fixed
+
+* **deps:** patch next RCE and transitive alerts ([#71](https://github.com/ginutgeorge-Aus/parishcrm/issues/71)) ([cd39b09](https://github.com/ginutgeorge-Aus/parishcrm/commit/cd39b094c51523beffbd0b1ecf146fde21b1d5d8))
+* handle unwrapped serialization conflicts and warn on shared setup bucket ([#74](https://github.com/ginutgeorge-Aus/parishcrm/issues/74)) ([4a89ea5](https://github.com/ginutgeorge-Aus/parishcrm/commit/4a89ea56ed2f17b4948b970bd978324821e25fdd))
+
+
+### Dependencies
+
+* bump undici from 7.29.0 to 7.30.0 ([#63](https://github.com/ginutgeorge-Aus/parishcrm/issues/63)) ([9e643af](https://github.com/ginutgeorge-Aus/parishcrm/commit/9e643afb0b9c4e1ac8a7370fbcda041c1b19ba0f))
+
 ## [1.3.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.2.0...v1.3.0) (2026-09-30)
 
 
