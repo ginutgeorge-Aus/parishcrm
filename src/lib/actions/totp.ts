@@ -190,8 +190,14 @@ export async function regenerateBackupCodes(
   const backupCodes = generateBackupCodes()
   const hashes = await hashBackupCodes(backupCodes)
   const replaced = await prisma.$transaction(async (tx) => {
-    // Disabled in another tab since the check above → don't leave orphan codes.
-    if ((await tx.user.count({ where: { id: userId, totpEnabledAt: { not: null } } })) !== 1) return false
+    // Disabled/reset/re-enrolled since the check above → don't leave orphan
+    // codes. A no-op conditional write (not a count) row-locks the enrolment
+    // we verified until commit, so a concurrent disable can't interleave.
+    const { count } = await tx.user.updateMany({
+      where: { id: userId, totpSecret: user.totpSecret, totpEnabledAt: { not: null } },
+      data: { totpEnabledAt: user.totpEnabledAt },
+    })
+    if (count !== 1) return false
     await replaceBackupCodes(userId, tx, hashes)
     return true
   })
@@ -210,13 +216,17 @@ export async function disableTotp(code: string): Promise<{ error: string } | { s
   const result = await verifySecondFactor(user, typeof code === "string" ? code : "")
   if (!result.ok) return result.reason === "totp_replay" ? REPLAY : { error: "Invalid code" }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.updateMany({
-      where: { id: userId, totpEnabledAt: { not: null } },
+  // Bound to the verified enrolment: a stale request must not wipe a newer one.
+  const disabled = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.user.updateMany({
+      where: { id: userId, totpSecret: user.totpSecret, totpEnabledAt: { not: null } },
       data: TOTP_CLEARED,
     })
+    if (count !== 1) return false
     await tx.backupCode.deleteMany({ where: { userId } })
+    return true
   })
+  if (!disabled) return { error: "Authenticator is not enabled" }
   await logAudit(userId, "TOTP_DISABLED", "User", userId, { via: result.via })
   await notifyTotpChange(userId, user.email, false)
   revalidatePath("/account")

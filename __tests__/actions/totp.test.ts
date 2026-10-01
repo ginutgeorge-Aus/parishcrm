@@ -178,17 +178,21 @@ describe("regenerateBackupCodes", () => {
   it("replaces codes on a valid TOTP", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
-    ;(prisma.user.count as jest.Mock).mockResolvedValue(1)
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const res = await regenerateBackupCodes("123456")
     expect((res as { backupCodes: string[] }).backupCodes).toHaveLength(10)
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, totpSecret: enrolled.totpSecret, totpEnabledAt: { not: null } },
+      data: { totpEnabledAt: enrolled.totpEnabledAt },
+    })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 7 } })
     expect(logAudit).toHaveBeenCalledWith(7, "BACKUP_CODES_REGENERATED", "User", 7)
   })
 
-  it("writes nothing when TOTP was disabled mid-request", async () => {
+  it("writes nothing when TOTP was disabled or re-enrolled mid-request", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
-    ;(prisma.user.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     await expect(regenerateBackupCodes("123456")).resolves.toEqual({ error: "Authenticator is not enabled" })
     expect(prisma.backupCode.createMany).not.toHaveBeenCalled()
     expect(prisma.backupCode.deleteMany).not.toHaveBeenCalled()
@@ -221,9 +225,10 @@ describe("disableTotp", () => {
   it.each([["totp"], ["backup"]])("disables with a valid %s code", async (via) => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via, remaining: 3 })
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await expect(disableTotp("123456")).resolves.toEqual({ success: true })
     expect(prisma.user.updateMany).toHaveBeenCalledWith({
-      where: { id: 7, totpEnabledAt: { not: null } },
+      where: { id: 7, totpSecret: enrolled.totpSecret, totpEnabledAt: { not: null } },
       data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 7 } })
@@ -233,9 +238,20 @@ describe("disableTotp", () => {
     )
   })
 
+  it("does not wipe an enrolment that changed mid-request", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    await expect(disableTotp("123456")).resolves.toEqual({ error: "Authenticator is not enabled" })
+    expect(prisma.backupCode.deleteMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
   it("still succeeds when the security notice fails", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
     await expect(disableTotp("123456")).resolves.toEqual({ success: true })
   })

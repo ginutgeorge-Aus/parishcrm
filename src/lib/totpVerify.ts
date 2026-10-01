@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger"
 import { BACKUP_CODE_RE, TOTP_CODE_RE, matchTotpStep, normaliseBackupCode } from "@/lib/totp"
 
 export type SecondFactorUser = { id: number; totpSecret: string | null }
-export type SecondFactorFailure = "totp_invalid" | "totp_replay" | "backup_invalid" | "totp_secret_unreadable"
+type SecondFactorFailure = "totp_invalid" | "totp_replay" | "backup_invalid" | "totp_secret_unreadable"
 export type SecondFactorResult =
   | { ok: true; via: "totp" }
   | { ok: true; via: "backup"; remaining: number }
@@ -34,10 +34,12 @@ export async function verifySecondFactor(
     }
     if (step === null) return { ok: false, reason: "totp_invalid" }
     // Atomic replay guard: only a strictly newer step wins the row. Two
-    // concurrent requests with the same code → exactly one succeeds. DB errors
+    // concurrent requests with the same code → exactly one succeeds. Bound to
+    // the secret we verified against, so a reset/re-enrol mid-request (which
+    // nulls totpLastStep) can't let the old authenticator through. DB errors
     // propagate (not an unreadable secret).
     const { count } = await prisma.user.updateMany({
-      where: { id: user.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
+      where: { id: user.id, totpSecret: user.totpSecret, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
       data: { totpLastStep: step },
     })
     return count === 1 ? { ok: true, via: "totp" } : { ok: false, reason: "totp_replay" }

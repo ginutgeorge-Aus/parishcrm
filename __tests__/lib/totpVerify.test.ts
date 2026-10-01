@@ -33,7 +33,7 @@ describe("verifySecondFactor", () => {
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await expect(verifySecondFactor(user, code, NOW)).resolves.toEqual({ ok: true, via: "totp" })
     expect(prisma.user.updateMany).toHaveBeenCalledWith({
-      where: { id: 7, OR: [{ totpLastStep: null }, { totpLastStep: { lt: STEP } }] },
+      where: { id: 7, totpSecret: user.totpSecret, OR: [{ totpLastStep: null }, { totpLastStep: { lt: STEP } }] },
       data: { totpLastStep: STEP },
     })
   })
