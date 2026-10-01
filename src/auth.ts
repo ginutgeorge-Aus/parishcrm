@@ -12,6 +12,7 @@ import { parseTrustedDeviceCookie, hashDeviceToken, generateDeviceToken, DEVICE_
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
 import { auditIpFromHeaders } from "@/lib/clientIp"
+import { verifySecondFactor } from "@/lib/totpVerify"
 
 // bcrypt hash (cost 12, matching the real hash cost used at
 // signup/reset — src/lib/actions/auth.ts, src/lib/actions/user.ts) for a dummy
@@ -41,6 +42,12 @@ class OtpCooldown extends CredentialsSignin {
 // immediately, instead of prompting for a code that never arrived.
 export class OtpDeliveryFailed extends CredentialsSignin {
   code = "OtpDeliveryFailed"
+}
+
+// Password was correct and the user has an authenticator enrolled — the UI
+// should ask for the app code (or a backup code). No email is sent.
+export class TotpRequired extends CredentialsSignin {
+  code = "TotpRequired"
 }
 
 // Real client IP for audit logging. The trusted reverse proxy appends it as the rightmost
@@ -73,7 +80,7 @@ async function recordOtpFailure(userId: number, reason: string, ip: string | und
 }
 
 async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: string | undefined) {
-  // Only fresh OTP verification can grant device trust. A pending row cannot
+  // Only fresh second-factor verification (email OTP or authenticator) can grant device trust. A pending row cannot
   // bypass OTP; trustDevice exchanges it once using this session's signed ID.
   let deviceTrustGrant: string | undefined
   if (remember === "true") {
@@ -162,7 +169,7 @@ async function verifyPassword(email: string, password: string, ip: string | unde
 }
 
 export async function authorizeCredentials(
-  credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember", unknown>>,
+  credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember" | "code" | "emailFallback", unknown>>,
   request?: Request,
 ) {
   const ip = clientIpFrom(request)
@@ -261,6 +268,30 @@ export async function authorizeCredentials(
     return completeSecondFactorLogin(user, credentials.remember, ip)
   }
 
+  if (credentials.mode === "totp") {
+    // Login is stateless: unlike an emailed OTP (which only exists after a
+    // password check), an authenticator code is valid at any time — so this
+    // step MUST re-verify the password in the same request.
+    if (typeof credentials.code !== "string" || typeof credentials.password !== "string" || !credentials.password) return null
+    const user = await verifyPassword(credentials.email as string, credentials.password, ip)
+    if (!user || !user.totpEnabledAt) return null
+    if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
+
+    const result = await verifySecondFactor(user, credentials.code)
+    if (!result.ok) {
+      await recordOtpFailure(user.id, result.reason, ip)
+      return null
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null },
+    })
+    if (result.via === "backup") {
+      void logAudit(user.id, "BACKUP_CODE_USED", "User", user.id, { remaining: result.remaining }, ip)
+    }
+    return completeSecondFactorLogin(user, credentials.remember, ip)
+  }
+
   // Password step (default)
   if (!credentials?.password) return null
   const user = await verifyPassword(credentials.email as string, credentials.password as string, ip)
@@ -305,6 +336,12 @@ export async function authorizeCredentials(
   // password-aware attacker resets the counter by re-submitting the password.
   if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
     throw new AccountLocked()
+  }
+
+  // Authenticator enrolled → ask for the app code instead of emailing one,
+  // unless the user explicitly chose "Send email code instead".
+  if (user.totpEnabledAt && credentials.emailFallback !== "true") {
+    throw new TotpRequired()
   }
 
   // Enforce 30-second resend cooldown: otpExpiresAt > now + 9.5 min means OTP was sent < 30s ago
@@ -460,6 +497,8 @@ export const { auth, handlers, signOut } = NextAuth({
         otp: { label: "Code", type: "text" },
         mode: { label: "Mode", type: "text" },
         remember: { label: "Remember device", type: "text" },
+        code: { label: "Authenticator or backup code", type: "text" },
+        emailFallback: { label: "Email fallback", type: "text" },
       },
       authorize: authorizeCredentials,
     }),
