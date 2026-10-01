@@ -169,8 +169,13 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   // just the email-OTP one — trusted-device and DISABLE_OTP logins skip the
   // OTP write, so stale typos would otherwise accumulate into a lockout.
   // The OTP counter/lock is separate and deliberately untouched here.
+  // Compare-and-swap on the value read above: a concurrent wrong-password
+  // increment makes this a no-op instead of being silently wiped.
   if (user.failedLoginAttempts > 0) {
-    await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } })
+    await prisma.user.updateMany({
+      where: { id: user.id, failedLoginAttempts: user.failedLoginAttempts },
+      data: { failedLoginAttempts: 0 },
+    })
   }
   return user
 }

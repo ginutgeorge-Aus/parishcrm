@@ -718,14 +718,32 @@ describe("authorizeCredentials — trusted device skip", () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash, failedLoginAttempts: 4 })
     ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
     ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
-    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
 
     await authorizeCredentials(
       { email: "admin@example.com", password: "correctpassword", mode: "password", remember: "false" },
       reqWithCookie("trusted_device=GOODTOKEN"),
     )
 
-    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { failedLoginAttempts: 0 } })
+    // Compare-and-swap on the value read at login start, so a wrong-password
+    // increment that lands in between isn't wiped (#83).
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({ where: { id: 1, failedLoginAttempts: 4 }, data: { failedLoginAttempts: 0 } })
+    expect(prisma.user.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
+  })
+
+  it("still logs in when a concurrent failure makes the counter reset a no-op", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash, failedLoginAttempts: 4 })
+    ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
+    ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+
+    const result = await authorizeCredentials(
+      { email: "admin@example.com", password: "correctpassword", mode: "password", remember: "false" },
+      reqWithCookie("trusted_device=GOODTOKEN"),
+    )
+
+    expect(result).not.toBeNull()
   })
 
   it("skips the counter write when there are no prior password failures", async () => {
@@ -739,7 +757,7 @@ describe("authorizeCredentials — trusted device skip", () => {
       reqWithCookie("trusted_device=GOODTOKEN"),
     )
 
-    expect(prisma.user.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
+    expect(prisma.user.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
   })
 
   it("sends OTP when the cookie token does not match any device", async () => {
