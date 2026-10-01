@@ -15,6 +15,7 @@ jest.mock("@/lib/prisma", () => ({
     trustedDevice: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    backupCode: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   },
   // user.ts now re-imports `Prisma` from this module instead of the generated
   // client directly — the isolation-level enum value must still resolve.
@@ -33,7 +34,7 @@ import { redirect } from "next/navigation"
 import { hash } from "bcryptjs"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
-import { createUser, updateUser, deleteUser, unlockUser, resendWelcome } from "@/lib/actions/user"
+import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp } from "@/lib/actions/user"
 
 const mockSession = auth as jest.Mock
 const mockFindUnique = prisma.user.findUnique as jest.Mock
@@ -742,5 +743,51 @@ describe("unlock / resend target-role check is atomic with the write", () => {
     expect(mockUpdate.mock.calls[0][0].where).toEqual({ id: 2, role: { notIn: ["ADMIN", "PASTOR"] } })
     expect(sendWelcomeEmail).not.toHaveBeenCalled()
     expect("error" in r).toBe(true)
+  })
+})
+
+// --- resetUserTotp ---
+describe("resetUserTotp", () => {
+  beforeEach(() => {
+    // clearAllMocks keeps implementations; an earlier suite leaves update rejecting P2025
+    mockUpdate.mockResolvedValue({})
+    mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: null })
+    mockTransaction.mockImplementation(async (ops: unknown) => (Array.isArray(ops) ? Promise.all(ops) : (ops as (tx: typeof prisma) => unknown)(prisma)))
+  })
+
+  it("blocks non-managers", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    await expect(resetUserTotp(3)).resolves.toEqual({ error: "Unauthorized" })
+  })
+
+  it("blocks self-reset", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    await expect(resetUserTotp(3)).resolves.toEqual({ error: "Use My Account to manage your own authenticator" })
+  })
+
+  it("blocks OFFICE_ADMIN resetting an ADMIN", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "OFFICE_ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 3, role: "ADMIN", archivedAt: null })
+    await expect(resetUserTotp(3)).resolves.toEqual({ error: "Unauthorized" })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it("returns not found for archived users", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: new Date() })
+    await expect(resetUserTotp(3)).resolves.toEqual({ error: "User not found" })
+  })
+
+  it("clears TOTP, backup codes and trusted devices, and audits", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
+    await expect(resetUserTotp(3)).resolves.toBeUndefined()
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 3 },
+      data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
+    })
+    expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
+    expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
+    expect(mockLogAudit).toHaveBeenCalledWith(42, "TOTP_RESET", "User", 3, { targetUserId: 3 })
+    expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
 })

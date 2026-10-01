@@ -357,6 +357,37 @@ export async function unlockUser(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+export async function resetUserTotp(id: number): Promise<ActionResult> {
+  const session = await auth()
+  if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "User not found" }
+  if (actorId(session) === id) return { error: "Use My Account to manage your own authenticator" }
+
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
+  if (!target || target.archivedAt) return { error: "User not found" }
+  if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
+
+  try {
+    // Lost-phone recovery: drop the authenticator, every backup code, and every
+    // trusted device (a device trusted by whoever holds the phone must not keep
+    // skipping the second factor). Next login falls back to email OTP.
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id, ...assignableTargetWhere(session?.user?.role) },
+        data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
+      }),
+      prisma.backupCode.deleteMany({ where: { userId: id } }),
+      prisma.trustedDevice.deleteMany({ where: { userId: id } }),
+    ])
+  } catch (e) {
+    // Target promoted to ADMIN/PASTOR since the pre-read.
+    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    throw e
+  }
+  await logAudit(actorId(session), "TOTP_RESET", "User", id, { targetUserId: id })
+  revalidatePath("/users")
+}
+
 export async function deleteUser(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }

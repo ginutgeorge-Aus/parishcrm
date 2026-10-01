@@ -14,6 +14,7 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/components/users/DeleteUserButton", () => ({ DeleteUserButton: () => null }))
 jest.mock("@/components/users/UnlockUserButton", () => ({ UnlockUserButton: () => null }))
+jest.mock("@/components/users/ResetTotpButton", () => ({ ResetTotpButton: () => null }))
 jest.mock("@/components/users/ResendWelcomeButton", () => ({ ResendWelcomeButton: () => null }))
 
 import { auth } from "@/auth"
