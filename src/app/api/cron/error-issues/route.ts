@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { bearerOk } from "@/lib/cronAuth"
-import { runErrorDigest } from "@/lib/errorDigest"
+import { runErrorDigestLocked } from "@/lib/errorDigest"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,6 +14,9 @@ export async function POST(req: Request) {
   if (!bearerOk(req.headers.get("authorization"), secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  const result = await runErrorDigest()
+  // Same lock as the in-app scheduler (no overlapping runs → no duplicate
+  // issues), but `force` so a manual trigger still runs after this week's digest.
+  const result = await runErrorDigestLocked(new Date(), { force: true })
+  if (!result) return NextResponse.json({ error: "Another digest run is in progress" }, { status: 409 })
   return NextResponse.json(result)
 }
