@@ -22,7 +22,9 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [otp, setOtp] = useState("")
-  const [step, setStep] = useState<"password" | "otp">("password")
+  const [step, setStep] = useState<"password" | "otp" | "totp">("password")
+  const [totpCode, setTotpCode] = useState("")
+  const [useBackup, setUseBackup] = useState(false)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
@@ -37,6 +39,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   const [lockedUntil, setLockedUntil] = useState<number | null>(null)
   const [nowTs, setNowTs] = useState(() => Date.now())
   const otpRef = useRef<HTMLInputElement>(null)
+  const totpRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const firstRender = useRef(true)
 
@@ -72,6 +75,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return }
     if (step === "otp") otpRef.current?.focus()
+    else if (step === "totp") totpRef.current?.focus()
     else passwordRef.current?.focus()
   }, [step])
 
@@ -84,7 +88,9 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
     try {
       const result = await signIn("credentials", { email, password, mode: "password", remember: remember ? "true" : "false", redirect: false })
 
-      if (result?.code === "OtpSent") {
+      if (result?.code === "TotpRequired") {
+        setStep("totp")
+      } else if (result?.code === "OtpSent") {
         setStep("otp")
       } else if (result?.code === "OtpCooldown") {
         // A code was already sent within the cooldown window — advance to the OTP
@@ -123,7 +129,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
     setError("")
     setResendLoading(true)
     try {
-      const result = await signIn("credentials", { email, password, mode: "password", remember: remember ? "true" : "false", redirect: false })
+      const result = await signIn("credentials", { email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false })
       if (result?.code === "OtpSent") {
         setResendMsg("New code sent.")
         setOtp("")
@@ -174,6 +180,60 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
       setError("Something went wrong. Please try again.")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleTotpSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+    try {
+      // Login is stateless server-side, so the password rides along and is
+      // re-verified with the code (see authorize() mode "totp").
+      const result = await signIn("credentials", {
+        email, password, code: totpCode, mode: "totp", remember: remember ? "true" : "false", redirect: false,
+      })
+      if (result?.code === "AccountLocked") {
+        setError("Account locked after too many failed attempts. Try again in 15 minutes.")
+        lockNow()
+      } else if (result?.error) {
+        setError("Invalid code.")
+      } else {
+        if (remember) {
+          await trustDevice().catch(() => {}) // best-effort; never block login on trust failure
+        }
+        router.push("/")
+        router.refresh()
+      }
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleEmailFallback() {
+    setError("")
+    setResendMsg("")
+    setResendLoading(true)
+    try {
+      const result = await signIn("credentials", {
+        email, password, mode: "password", emailFallback: "true", remember: remember ? "true" : "false", redirect: false,
+      })
+      if (result?.code === "OtpSent" || result?.code === "OtpCooldown") {
+        if (result.code === "OtpCooldown") setResendMsg("A code was already sent — check your inbox.")
+        setTotpCode("")
+        setStep("otp")
+      } else if (result?.code === "AccountLocked") {
+        setError("Account locked after too many failed attempts. Try again in 15 minutes.")
+        lockNow()
+      } else {
+        setError("We couldn't send your verification code. Please try again in a moment.")
+      }
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -267,6 +327,61 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
             <Button type="submit" className="w-full" disabled={loading || isLocked}>
               {loading ? "Signing in…" : isLocked ? `Locked · ${lockCountdown}` : "Sign in"}
             </Button>
+          </form>
+        ) : step === "totp" ? (
+          <form onSubmit={handleTotpSubmit} className="space-y-4">
+            <button
+              type="button"
+              aria-label="Back to password step"
+              onClick={() => { setStep("password"); setTotpCode(""); setUseBackup(false); setError("") }}
+              className="inline-flex items-center min-h-11 min-w-[44px] gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <span aria-hidden="true">←</span> Back
+            </button>
+            <p className="text-sm text-muted-foreground">
+              {useBackup
+                ? "Enter one of your saved backup codes. Each code works once."
+                : "Open your authenticator app and enter the 6-digit code."}
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="totp">{useBackup ? "Backup code" : "Authenticator code"}</Label>
+              <Input
+                ref={totpRef}
+                id="totp"
+                type="text"
+                inputMode={useBackup ? "text" : "numeric"}
+                pattern={useBackup ? undefined : "[0-9]{6}"}
+                maxLength={useBackup ? 11 : 6}
+                value={totpCode}
+                onChange={(e) =>
+                  setTotpCode(useBackup ? e.target.value.toUpperCase().replace(/[^0-9A-Z-]/g, "") : e.target.value.replace(/\D/g, ""))
+                }
+                autoComplete="one-time-code"
+                required
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "totp-error" : undefined}
+              />
+            </div>
+            <FormFeedback state={{ error }} id="totp-error" />
+            {resendMsg && <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{resendMsg}</p>}
+            <Button type="submit" className="w-full" disabled={loading || isLocked}>
+              {loading ? "Verifying…" : isLocked ? `Locked · ${lockCountdown}` : "Verify"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => { setUseBackup((v) => !v); setTotpCode(""); setError("") }}
+              className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
+            >
+              {useBackup ? "Use authenticator app" : "Use a backup code"}
+            </button>
+            <button
+              type="button"
+              onClick={handleEmailFallback}
+              disabled={resendLoading || isLocked}
+              className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              {resendLoading ? "Sending…" : "Send email code instead"}
+            </button>
           </form>
         ) : (
           <form onSubmit={handleOtpSubmit} className="space-y-4">
