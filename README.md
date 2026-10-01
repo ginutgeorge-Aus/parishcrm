@@ -210,7 +210,7 @@ are available:
 | **Priority support** | Email support, priority bug fixes, upgrade help for self-hosted churches |
 
 To ask about a hosted plan or setup, start a thread in
-[Discussions → Q&A](https://github.com/ginutgeorge-Aus/parishcrm/discussions/categories/q-a).
+[Discussions → Hosting & support](https://github.com/ginutgeorge-Aus/parishcrm/discussions/categories/hosting-support).
 
 Fees from paid plans fund ongoing development of the free, open-source version.
 
