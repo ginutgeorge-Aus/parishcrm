@@ -195,7 +195,7 @@ image against your own Postgres: set the required secrets (`AUTH_SECRET`, `ENCRY
 `DATABASE_URL`, mail credentials) and start the container — it applies migrations on start.
 Step-by-step guide: [docs/self-hosting.md](docs/self-hosting.md).
 
-**One-click:** [Railway guide](docs/deploy/railway.md).
+**One-click:** [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/parishcrm-oss) — see the [Railway guide](docs/deploy/railway.md).
 
 ## Get help / Hosted plan
 
