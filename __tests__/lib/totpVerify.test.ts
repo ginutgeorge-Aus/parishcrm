@@ -60,6 +60,19 @@ describe("verifySecondFactor", () => {
     })
   })
 
+  it("reports a non-base32 secret as unreadable without writing", async () => {
+    await expect(verifySecondFactor({ id: 7, totpSecret: "enc:!!!not-base32!!!" }, code, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "totp_secret_unreadable",
+    })
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("propagates a DB error from the replay-guard write", async () => {
+    ;(prisma.user.updateMany as jest.Mock).mockRejectedValue(new Error("db down"))
+    await expect(verifySecondFactor(user, code, NOW)).rejects.toThrow("db down")
+  })
+
   it("consumes a matching unused backup code once", async () => {
     const h1 = await hash("AB3CDEF4GH", 4)
     const h2 = await hash("ZZZZZ11111", 4)

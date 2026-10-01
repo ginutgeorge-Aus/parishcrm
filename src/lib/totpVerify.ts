@@ -25,22 +25,22 @@ export async function verifySecondFactor(
 
   if (TOTP_CODE_RE.test(trimmed)) {
     if (!user.totpSecret) return { ok: false, reason: "totp_invalid" }
-    let secret: string
+    let step: number | null
     try {
-      secret = decrypt(user.totpSecret)
-      const step = matchTotpStep(secret, trimmed, now)
-      if (step === null) return { ok: false, reason: "totp_invalid" }
-      // Atomic replay guard: only a strictly newer step wins the row. Two
-      // concurrent requests with the same code → exactly one succeeds.
-      const { count } = await prisma.user.updateMany({
-        where: { id: user.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
-        data: { totpLastStep: step },
-      })
-      return count === 1 ? { ok: true, via: "totp" } : { ok: false, reason: "totp_replay" }
+      step = matchTotpStep(decrypt(user.totpSecret), trimmed, now)
     } catch (err: unknown) {
       logger.error("totp secret unreadable", { userId: user.id, err: err instanceof Error ? err.message : String(err) })
       return { ok: false, reason: "totp_secret_unreadable" }
     }
+    if (step === null) return { ok: false, reason: "totp_invalid" }
+    // Atomic replay guard: only a strictly newer step wins the row. Two
+    // concurrent requests with the same code → exactly one succeeds. DB errors
+    // propagate (not an unreadable secret).
+    const { count } = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
+      data: { totpLastStep: step },
+    })
+    return count === 1 ? { ok: true, via: "totp" } : { ok: false, reason: "totp_replay" }
   }
 
   const normalised = normaliseBackupCode(trimmed)
