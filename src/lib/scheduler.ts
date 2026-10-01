@@ -7,26 +7,29 @@ export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
  * Pure schedule for the in-app scheduler (see schedulerRunner.ts). No I/O, so
  * every "is it due?" decision is unit-testable against fixed instants. Times
  * are Sydney wall-clock. Interval jobs run every 30 min; period jobs run once
- * per Sydney day/week from an opening hour, retrying (30 min apart) until one
- * attempt fully succeeds. This in-memory state only avoids wasted work — the
+ * per Sydney day/week from an opening hour, retrying (30 min apart, at most 3 times) until
+ * one attempt fully succeeds. This in-memory state only avoids wasted work — the
  * jobs' own DB markers are what prevent duplicate sends after a restart.
  */
 export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest"
-export type JobState = {
+type JobState = {
   lastStart: number | null
   lastSuccessKey: string | null // Sydney day / week of the last full success (period jobs only)
+  attempts: { key: string | null; count: number } // attempts within the current period
   running: boolean
 }
 export type SchedulerState = Record<JobName, JobState>
 
-export const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest"]
+const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest"]
 
 const EVERY_MS = 30 * 60_000
 const CELEBRATIONS_FROM_HOUR = 7
 const DIGEST_FROM_HOUR = 9
+// A permanently failing recipient must not be retried all day/week.
+const MAX_ATTEMPTS_PER_PERIOD = 3
 
 export function initialState(): SchedulerState {
-  const fresh = (): JobState => ({ lastStart: null, lastSuccessKey: null, running: false })
+  const fresh = (): JobState => ({ lastStart: null, lastSuccessKey: null, attempts: { key: null, count: 0 }, running: false })
   return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh() }
 }
 
@@ -50,7 +53,18 @@ function isDue(job: JobName, now: Date, s: JobState, env: Env): boolean {
   if (sinceStart < EVERY_MS) return false
   const key = successKey(job, now)
   if (key === null) return true
+  if (s.attempts.key === key && s.attempts.count >= MAX_ATTEMPTS_PER_PERIOD) return false
   return s.lastSuccessKey !== key && windowOpen(job, now, env)
+}
+
+/** Record that a job is starting now (spacing + per-period attempt budget). */
+export function recordStart(job: JobName, state: SchedulerState, now: Date): void {
+  const s = state[job]
+  s.lastStart = now.getTime()
+  const key = successKey(job, now)
+  if (key === null) return
+  if (s.attempts.key !== key) s.attempts = { key, count: 0 }
+  s.attempts.count++
 }
 
 export function dueJobs(now: Date, state: SchedulerState, env: Env = process.env): JobName[] {

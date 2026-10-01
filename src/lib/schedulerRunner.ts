@@ -1,9 +1,9 @@
-import { dueJobs, initialState, successKey, type JobName, type SchedulerState } from "@/lib/scheduler"
+import { dueJobs, initialState, recordStart, successKey, type JobName, type SchedulerState } from "@/lib/scheduler"
 
 /**
  * In-app scheduler: one timer per process, started from instrumentation.ts.
  * Replaces external cron services; the /api/cron/* routes remain as manual
- * triggers. Jobs run one after another; each is isolated so a throw is logged
+ * triggers. Due jobs run concurrently; each is isolated so a throw is logged
  * and retried on a later tick, never crashing the process.
  */
 export const TICK_MS = 5 * 60_000
@@ -46,7 +46,7 @@ function log(level: "info" | "error", fields: Record<string, unknown>): void {
 
 async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], now: Date): Promise<void> {
   const s = state[name]
-  s.lastStart = now.getTime()
+  recordStart(name, state, now)
   const t0 = Date.now()
   try {
     const result = await fn(now)
@@ -70,7 +70,8 @@ export async function tick(state: SchedulerState, jobs: Jobs, now: Date = new Da
     const due = dueJobs(now, state)
     // Claim every due job before awaiting any, so an overlapping tick can't pick one up too.
     for (const name of due) state[name].running = true
-    for (const name of due) await runJob(name, state, jobs[name], now)
+    // Concurrent, not sequential: a hung job must not hold back (or keep claimed) the others.
+    await Promise.all(due.map((name) => runJob(name, state, jobs[name], now)))
   } catch (err) {
     log("error", { message: `tick failed: ${err instanceof Error ? err.message : String(err)}` })
   }

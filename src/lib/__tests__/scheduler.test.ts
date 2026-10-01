@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { dueJobs, initialState, schedulerEnabled, successKey, type SchedulerState } from "@/lib/scheduler"
+import { dueJobs, initialState, recordStart, schedulerEnabled, successKey, type SchedulerState } from "@/lib/scheduler"
 
 const DIGEST = { GITHUB_TOKEN: "t", GITHUB_REPO: "o/r", ERROR_DIGEST: "true" }
 // Thu 2026-07-02 in AEST (UTC+10)
@@ -45,6 +45,18 @@ describe("dueJobs — celebrations", () => {
     const s = state({ ...quiet, celebrations: { lastStart: at(7).getTime() } })
     expect(dueJobs(new Date(at(7).getTime() + 29 * MIN), s, {})).toEqual([])
     expect(dueJobs(new Date(at(7).getTime() + 30 * MIN), s, {})).toEqual(["celebrations"])
+  })
+  it("gives up for the day after 3 unsuccessful attempts (a permanently bad address must not retry all day)", () => {
+    const s = state(quiet)
+    let t = at(7).getTime()
+    for (let i = 0; i < 3; i++) {
+      expect(dueJobs(new Date(t), s, {})).toEqual(["celebrations"])
+      recordStart("celebrations", s, new Date(t))
+      t += 30 * MIN
+    }
+    expect(dueJobs(new Date(t), s, {})).toEqual([])
+    // next Sydney day the budget resets
+    expect(dueJobs(new Date(at(7).getTime() + 24 * 60 * MIN), s, {})).toEqual(["celebrations"])
   })
   it("uses Sydney time under daylight saving (AEDT, UTC+11)", () => {
     // 2027-01-07 19:59 UTC = 06:59 AEDT; 20:00 UTC = 07:00 AEDT

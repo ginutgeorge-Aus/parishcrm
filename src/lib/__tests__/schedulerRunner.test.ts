@@ -71,6 +71,15 @@ describe("tick", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"source":"scheduler"'))
   })
 
+  it("a hung job does not block the other due jobs", async () => {
+    const s = initialState()
+    const j = jobs({ reminders: jest.fn(() => new Promise<never>(() => {})) })
+    void tick(s, j, NOW)
+    await Promise.resolve(); await Promise.resolve()
+    expect(j.checkouts).toHaveBeenCalled()
+    expect(s.checkouts.running).toBe(false)
+  })
+
   it("never starts a job twice when ticks overlap", async () => {
     const s = initialState()
     let release!: () => void

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { sydneyWeekStartYMD } from "@/lib/dates"
+import { isP2002 } from "@/lib/validation"
 
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
@@ -70,20 +71,40 @@ const LAST_WEEK_KEY = "errorDigestLastWeek"
  * In-app scheduler entry: the digest skips only fingerprints with an OPEN issue,
  * so a second run in the same week (e.g. after a deploy restarts the process)
  * would re-file issues closed since Monday. The Sydney week of the last
- * successful run is persisted so restarts can't repeat it; the manual
+ * run is claimed atomically and persisted so restarts can't repeat it; the manual
  * /api/cron/error-issues trigger still calls runErrorDigest directly.
  */
 export async function runErrorDigestOncePerWeek(
   now: Date = new Date()
 ): Promise<{ filed: number; skipped: number; purged: number }> {
   const week = sydneyWeekStartYMD(now)
-  const last = await prisma.appSetting.findUnique({ where: { key: LAST_WEEK_KEY } })
-  if (last?.value === week) return { filed: 0, skipped: 0, purged: 0 }
-  const result = await runErrorDigest(now)
-  await prisma.appSetting.upsert({
-    where: { key: LAST_WEEK_KEY },
-    create: { key: LAST_WEEK_KEY, value: week },
-    update: { value: week },
-  })
-  return result
+  const none = { filed: 0, skipped: 0, purged: 0 }
+  const prev = await prisma.appSetting.findUnique({ where: { key: LAST_WEEK_KEY } })
+  if (prev?.value === week) return none
+
+  // Atomic claim (compare-and-set on the value we read) so two processes — a
+  // rolling deploy's overlap, a second replica — can't both file issues.
+  if (prev) {
+    const { count } = await prisma.appSetting.updateMany({
+      where: { key: LAST_WEEK_KEY, value: prev.value },
+      data: { value: week },
+    })
+    if (count === 0) return none
+  } else {
+    try {
+      await prisma.appSetting.create({ data: { key: LAST_WEEK_KEY, value: week } })
+    } catch (e) {
+      if (isP2002(e)) return none
+      throw e
+    }
+  }
+
+  try {
+    return await runErrorDigest(now)
+  } catch (e) {
+    // Release the claim so a later tick retries this week.
+    if (prev) await prisma.appSetting.update({ where: { key: LAST_WEEK_KEY }, data: { value: prev.value } })
+    else await prisma.appSetting.delete({ where: { key: LAST_WEEK_KEY } })
+    throw e
+  }
 }

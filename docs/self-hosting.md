@@ -167,18 +167,27 @@ Nothing to schedule — as long as the app stays running.
 Run a single app replica: each replica runs its own timer. The weekly error
 digest is opt-in (`ERROR_DIGEST=true`).
 
-**Upgrading from external crons?** Remove them once you're on this version, or
-set `IN_APP_CRON=false` to keep them. Running both briefly is harmless — every
-job is idempotent — but it's wasted work.
+**Upgrading from external crons?** Remove them when you deploy this version, or
+set `IN_APP_CRON=false` to keep them — don't run both. Jobs normally skip work
+already done, but two schedulers overlapping can occasionally resend an email
+(e.g. a run cut off mid-send).
 
 On a host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and
 call these endpoints from any scheduler (cron, a CI schedule, a platform job)
 with `Authorization: Bearer $CRON_SECRET`:
 
+| Route | Suggested schedule |
+|---|---|
+| `send-reminders` | every 30 min |
+| `sweep-checkouts` | every 30 min |
+| `send-celebrations` | daily, 07:00 Sydney (`0 21 * * *` UTC in winter, `0 20 * * *` in summer) |
+| `error-issues` | weekly, Monday 09:00 Sydney — only if you want the GitHub error digest |
+
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-reminders
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/sweep-checkouts
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-celebrations
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 
 ## Upgrading
