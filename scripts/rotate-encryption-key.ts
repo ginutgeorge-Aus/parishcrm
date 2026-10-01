@@ -75,6 +75,9 @@ export const FIELDS: Record<string, string[]> = {
   // the Buffer, re-encrypts, and writes a Buffer back.
   dgrReceipt: ["donorEmail"],
   transactionAttachment: ["filename", "data"],
+  // TOTP authenticator secrets (src/lib/actions/totp.ts). Both are plain
+  // encrypt(base32) strings; pending is short-lived but must still rotate.
+  user: ["totpSecret", "totpPendingSecret"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
