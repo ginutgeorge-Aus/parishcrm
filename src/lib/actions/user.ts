@@ -371,11 +371,12 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
   try {
     // Lost-phone recovery: drop the authenticator, every backup code, and every
     // trusted device (a device trusted by whoever holds the phone must not keep
-    // skipping the second factor). Next login falls back to email OTP.
+    // skipping the second factor), plus every live session (the lost device may
+    // already be signed in). Next login falls back to email OTP.
     await prisma.$transaction([
       prisma.user.update({
         where: { id, ...assignableTargetWhere(session?.user?.role) },
-        data: TOTP_CLEARED,
+        data: { ...TOTP_CLEARED, sessionsValidFrom: new Date() },
       }),
       prisma.backupCode.deleteMany({ where: { userId: id } }),
       prisma.trustedDevice.deleteMany({ where: { userId: id } }),

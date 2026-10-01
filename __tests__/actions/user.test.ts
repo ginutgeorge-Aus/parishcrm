@@ -784,7 +784,7 @@ describe("resetUserTotp", () => {
     await expect(resetUserTotp(3)).resolves.toBeUndefined()
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 3 },
-      data: TOTP_CLEARED,
+      data: { ...TOTP_CLEARED, sessionsValidFrom: expect.any(Date) },
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
