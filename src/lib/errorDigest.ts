@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
+import { sydneyWeekStartYMD } from "@/lib/dates"
+import { isP2002 } from "@/lib/validation"
+import { withRetry } from "@/lib/retry"
 
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
@@ -61,4 +64,109 @@ export async function runErrorDigest(
   })
 
   return { filed, skipped, purged }
+}
+
+const LAST_WEEK_KEY = "errorDigestLastWeek"
+// A run that dies mid-digest (deploy, crash) leaves its lease behind; after this
+// long a later run may reclaim it, so the week isn't silently lost. Generous so a
+// long digest (many fingerprints filed one by one) is never treated as abandoned
+// and overlapped; a weekly job can afford a 2 h recovery delay.
+const LEASE_MS = 2 * 60 * 60_000
+const LEASE_PREFIX = "running:"
+
+type DigestResult = { filed: number; skipped: number; purged: number }
+
+function freshLease(value: string, now: Date): boolean {
+  if (!value.startsWith(LEASE_PREFIX)) return false
+  const startedAt = Number(value.slice(value.lastIndexOf(":") + 1))
+  return Number.isFinite(startedAt) && now.getTime() - startedAt < LEASE_MS
+}
+
+/**
+ * The digest skips only fingerprints with an OPEN issue, so two overlapping runs
+ * (scheduler + manual trigger, a rolling deploy, a second replica) or a second
+ * run in the same week would file duplicate / re-file closed issues. Guarded by
+ * one AppSetting row: `<week>` = done that Sydney week, `running:<week>:<ms>` =
+ * a lease held by an in-flight run. The lease is taken by compare-and-set and
+ * only becomes "done" after the digest succeeds; on failure the previous value is
+ * restored (best effort — if that also fails the lease just goes stale).
+ *
+ * Returns "locked" when another run holds a fresh lease (or won the race), and
+ * "done" when this week already ran (never with `force`). The two must stay
+ * distinct: a scheduler that treated "locked" as done would never retry if the
+ * lease owner then failed.
+ */
+export async function runErrorDigestLocked(
+  now: Date = new Date(),
+  opts: { force?: boolean } = {}
+): Promise<DigestResult | "done" | "locked"> {
+  const week = sydneyWeekStartYMD(now)
+  const prev = await prisma.appSetting.findUnique({ where: { key: LAST_WEEK_KEY } })
+  if (prev && freshLease(prev.value, now)) return "locked"
+  if (prev?.value === week && !opts.force) return "done"
+
+  const lease = `${LEASE_PREFIX}${week}:${now.getTime()}`
+  if (prev) {
+    const { count } = await prisma.appSetting.updateMany({
+      where: { key: LAST_WEEK_KEY, value: prev.value },
+      data: { value: lease },
+    })
+    if (count === 0) return "locked"
+  } else {
+    try {
+      await prisma.appSetting.create({ data: { key: LAST_WEEK_KEY, value: lease } })
+    } catch (e) {
+      if (isP2002(e)) return "locked"
+      throw e
+    }
+  }
+
+  let result: DigestResult
+  try {
+    result = await runErrorDigest(now)
+  } catch (e) {
+    // Restore what was there so a later attempt retries this week. Never let a
+    // failed release mask the original error.
+    const restoreTo = prev && !prev.value.startsWith(LEASE_PREFIX) ? prev.value : null
+    try {
+      if (restoreTo) {
+        await prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: restoreTo } })
+      } else {
+        await prisma.appSetting.deleteMany({ where: { key: LAST_WEEK_KEY, value: lease } })
+      }
+    } catch (releaseErr) {
+      console.error(JSON.stringify({
+        level: "error",
+        source: "errorDigest",
+        message: `lease release failed (expires in ${LEASE_MS / 60_000} min): ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+      }))
+    }
+    throw e
+  }
+
+  // Issues are already filed: never rethrow from here, or the scheduler would
+  // re-run the digest and re-file issues closed since. Retry the write; if it
+  // still fails the lease expires and a later run may repeat — log it loudly.
+  try {
+    await withRetry(
+      () => prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: week } }),
+      { attempts: 3, baseDelayMs: 200 }
+    )
+  } catch (finalizeErr) {
+    console.error(JSON.stringify({
+      level: "error",
+      source: "errorDigest",
+      message: `digest filed ${result.filed} issue(s) but failed to mark week done: ${finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr)}`,
+    }))
+  }
+  return result
+}
+
+/** In-app scheduler entry: at most once per Sydney week, never overlapping another run. */
+export async function runErrorDigestOncePerWeek(now: Date = new Date()): Promise<DigestResult> {
+  const r = await runErrorDigestLocked(now)
+  if (r === "done") return { filed: 0, skipped: 0, purged: 0 }
+  // Throw (not a zero result) so the scheduler doesn't record this week as done.
+  if (r === "locked") throw new Error("another error-digest run is in progress — will retry")
+  return r
 }

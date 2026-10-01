@@ -159,16 +159,35 @@ Sign in as the admin you created, then:
   group (**Manage Groups**) and a category, and a payment account under
   **Acct. Settings → Payment Accounts**, before recording the first transaction
 
-## Scheduled jobs (optional)
+## Scheduled jobs
 
-Event reminders, abandoned-checkout cleanup, and celebration emails are HTTP
-endpoints called by any scheduler (cron, a CI schedule, a platform job) with
-`Authorization: Bearer $CRON_SECRET`:
+Event reminders, abandoned-checkout cleanup, celebration emails and the weekly
+error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
+Nothing to schedule — as long as the app stays running.
+Run a single app replica: each replica runs its own timer. The weekly error
+digest is opt-in (`ERROR_DIGEST=true`).
+
+**Upgrading from external crons?** Remove them when you deploy this version, or
+set `IN_APP_CRON=false` to keep them — don't run both. Jobs normally skip work
+already done, but two schedulers overlapping can occasionally resend an email
+(e.g. a run cut off mid-send).
+
+On a host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and
+call these endpoints from any scheduler (cron, a CI schedule, a platform job)
+with `Authorization: Bearer $CRON_SECRET`:
+
+| Route | Suggested schedule |
+|---|---|
+| `send-reminders` | every 30 min |
+| `sweep-checkouts` | every 30 min |
+| `send-celebrations` | 07:00 **and** 07:30 Sydney (`0,30 21 * * *` UTC in winter, `0,30 20 * * *` in summer) — the second call retries failed sends; a later day can't, since only that day's birthdays are due |
+| `error-issues` | weekly, Monday 09:00 Sydney — only if you want the GitHub error digest |
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-reminders
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/sweep-checkouts
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-celebrations
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 
 ## Upgrading

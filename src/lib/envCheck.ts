@@ -1,6 +1,7 @@
 import "server-only"
 import { currentKeyId } from "@/lib/crypto"
 import { isResendConfigured } from "@/lib/mailConfig"
+import { schedulerEnabled } from "@/lib/schedulerFlag"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -198,6 +199,9 @@ export function collectEnvWarnings(): string[] {
   const replicas = Number(process.env.CONTAINER_APP_REPLICA_COUNT)
   if (Number.isFinite(replicas) && replicas > 1) {
     warnings.push(`CONTAINER_APP_REPLICA_COUNT=${replicas} > 1 — the in-memory rate limiter is per-replica and no longer enforces global limits; move it to a shared store before scaling out`)
+    if (schedulerEnabled()) {
+      warnings.push(`IN_APP_CRON: the in-app scheduler runs on each of the ${replicas} replicas — jobs are idempotent but run ${replicas}× per slot; set IN_APP_CRON=false on all but one replica`)
+    }
   }
 
   // CRON_SECRET gates the scheduled cron endpoints (send-reminders + sweep-checkouts).
@@ -206,7 +210,8 @@ export function collectEnvWarnings(): string[] {
   // class where reminders went unsent for weeks. The routes surface it per
   // run; this adds a boot-time signal too. Warning (not fatal): the app serves fine
   // for users without it, so it must not crash the container.
-  if (!process.env.CRON_SECRET) {
+  // With the in-app scheduler on, CRON_SECRET only guards the manual /api/cron/* triggers.
+  if (!process.env.CRON_SECRET && !schedulerEnabled()) {
     warnings.push("CRON_SECRET is not set — the scheduled crons (event reminders + abandoned-checkout PII sweep) are DISABLED and will 503")
   }
 

@@ -43,6 +43,13 @@ export async function sendDueReminders(
     return { status: 503, body: { error: "CRON_SECRET unset — reminders disabled" } }
   }
   if (!bearerOk(authorization, secret)) return { status: 401, body: { error: "Unauthorized" } }
+  return { status: 200, body: await runReminderSweep(now) }
+}
+
+// Auth-free core — called by the cron route (after auth) and the in-app scheduler.
+export async function runReminderSweep(
+  now: Date
+): Promise<{ eventsReminded: number; emailsSent: number; emailsFailed: number }> {
 
   // Cheap SQL pre-filter; the lead-window bound is applied by isReminderDue.
   const candidates = await prisma.event.findMany({
@@ -218,5 +225,5 @@ export async function sendDueReminders(
     eventsReminded++
   }
 
-  return { status: 200, body: { eventsReminded, emailsSent, emailsFailed } }
+  return { eventsReminded, emailsSent, emailsFailed }
 }

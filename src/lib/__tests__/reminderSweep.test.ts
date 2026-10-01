@@ -9,7 +9,7 @@ jest.mock("@/lib/churchSettings", () => ({
   getChurchSettings: jest.fn(async () => ({ name: "Test Church", address: "", abn: "", email: "", website: "" })),
 }))
 
-import { sendDueReminders } from "@/lib/reminderSweep"
+import { sendDueReminders, runReminderSweep } from "@/lib/reminderSweep"
 import { prisma } from "@/lib/prisma"
 import { sendEventReminderEmail } from "@/lib/email"
 
@@ -314,5 +314,18 @@ it(" claims each event with a fresh wall-clock lease, not the request-start time
   expect(updateMany).toHaveBeenLastCalledWith({
     where: { id: 1, reminderClaimedAt: new Date(later) },
     data: { reminderSentAt: now, reminderClaimedAt: null },
+  })
+})
+
+describe("runReminderSweep (in-app scheduler entry)", () => {
+  it("runs without CRON_SECRET or an Authorization header", async () => {
+    const orig = process.env.CRON_SECRET
+    delete process.env.CRON_SECRET
+    const { prisma } = jest.requireMock("@/lib/prisma")
+    prisma.event.findMany.mockResolvedValueOnce([])
+    await expect(runReminderSweep(new Date("2026-07-01T00:00:00Z"))).resolves.toEqual({
+      eventsReminded: 0, emailsSent: 0, emailsFailed: 0,
+    })
+    if (orig !== undefined) process.env.CRON_SECRET = orig
   })
 })
