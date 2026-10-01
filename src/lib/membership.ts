@@ -60,6 +60,24 @@ export const membershipPayloadSchema = z.object({
 
 export type MembershipPayload = z.infer<typeof membershipPayloadSchema>
 
+// Submit-only: the form sends DOB / arrival from <input type="date"> (YYYY-MM-DD)
+// or null. Without a calendar check a crafted POST could store garbage that later
+// decrypts to an Invalid Date and silently drops the person off birthday lists.
+// Kept off membershipPayloadSchema so readPayload still opens applications
+// stored before this check existed.
+export const membershipSubmitSchema = membershipPayloadSchema.superRefine((p, ctx) => {
+  const dates: [string | null, (string | number)[]][] = [
+    [p.personal.dateOfBirth, ["personal", "dateOfBirth"]],
+    [p.personal.dateOfArrivalNsw, ["personal", "dateOfArrivalNsw"]],
+    [p.spouse?.dateOfBirth ?? null, ["spouse", "dateOfBirth"]],
+    ...p.children.map((c, i): [string | null, (string | number)[]] => [c.dateOfBirth, ["children", i, "dateOfBirth"]]),
+    ...p.dependents.map((d, i): [string | null, (string | number)[]] => [d.dateOfBirth, ["dependents", i, "dateOfBirth"]]),
+  ]
+  for (const [v, path] of dates) {
+    if (v !== null && !isRealCalendarDate(v)) ctx.addIssue({ code: "custom", message: "Invalid date", path })
+  }
+})
+
 export function encryptPayload(p: MembershipPayload): string {
   return encrypt(JSON.stringify(p))
 }

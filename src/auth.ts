@@ -165,6 +165,13 @@ async function verifyPassword(email: string, password: string, ip: string | unde
     logger.warn("credential login rejected", { reason: "bad_password", ipPresent: !!ip })
     return null
   }
+  // Correct password clears the password-failure counter for every path, not
+  // just the email-OTP one — trusted-device and DISABLE_OTP logins skip the
+  // OTP write, so stale typos would otherwise accumulate into a lockout.
+  // The OTP counter/lock is separate and deliberately untouched here.
+  if (user.failedLoginAttempts > 0) {
+    await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } })
+  }
   return user
 }
 

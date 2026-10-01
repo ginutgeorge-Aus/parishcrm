@@ -147,4 +147,27 @@ describe("ReconciliationPage", () => {
     // Calculated = 1000.00 + 1001.00 - 0 = 2001.00 (already uses toCents — verify no regression)
     expect(html).toContain("$2,001.00")
   })
+
+  it("ignores impossible calendar dates in from/to and falls back to defaults", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockObFindUnique.mockResolvedValue(null)
+    mockStatementFindUnique.mockResolvedValue(null)
+    mockTxFindMany.mockResolvedValue([])
+    mockTxGroupBy.mockResolvedValue([])
+    mockTxAggregate.mockResolvedValue({ _sum: { amount: null } })
+
+    const dateBounds = async (params: Record<string, string>) => {
+      mockTxFindMany.mockClear()
+      await ReconciliationPage(makeProps(params))
+      const { gte, lte } = mockTxFindMany.mock.calls[0][0].where.date
+      return { gte: gte.toISOString(), lte: lte.toISOString() }
+    }
+
+    const defaults = await dateBounds({})
+    expect(await dateBounds({ from: "2025-02-30", to: "2025-13-01" })).toEqual(defaults)
+
+    const parsed = await dateBounds({ from: "2025-02-28", to: "2025-03-31" })
+    expect(parsed.gte.slice(0, 10)).toBe("2025-02-28")
+    expect(parsed.lte.slice(0, 10)).toBe("2025-03-31")
+  })
 })

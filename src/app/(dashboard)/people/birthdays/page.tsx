@@ -42,12 +42,15 @@ export default async function BirthdaysPage(props: Readonly<{
       // window calc and sort for the whole batch. Drop the record.
       const dateOfBirth = safeDobDate(safeDecrypt(p.dateOfBirth as string))
       if (dateOfBirth === null) return null
+      const email = p.email ? safeDecrypt(p.email) : null
       return {
         id: p.id,
         firstName: p.firstName,
         lastName: p.lastName,
         dateOfBirth,
-        email: p.email ? safeDecrypt(p.email) : null,
+        // Treat an unreadable ciphertext as no email so the UI doesn't offer a
+        // send button that can only fail (matches the anniversaries page).
+        email: email !== "[decryption error]" ? email : null,
         emailConsent: p.emailConsent,
         family: p.family,
       }

@@ -62,4 +62,23 @@ describe("birthdays page", () => {
     const out = await Page({ searchParams: Promise.resolve({}) })
     expect(out.props.truncated).toBe(true)
   })
+
+  describe("email decryption", () => {
+    beforeEach(() => jest.useFakeTimers({ now: new Date("2026-03-01T00:00:00Z") }))
+    afterEach(() => jest.useRealTimers())
+
+    const withEmail = (id: number, email: string | null) => ({ ...person(id), dateOfBirth: "enc:1990-03-03", email })
+
+    it("treats an undecryptable email as absent and keeps a readable one", async () => {
+      ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+      ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
+        withEmail(1, "[decryption error]"),
+        withEmail(2, "enc:a@example.com"),
+        withEmail(3, null),
+      ])
+      const out = await Page({ searchParams: Promise.resolve({}) })
+      const hasEmail = Object.fromEntries(out.props.rows.map((r: { id: number; hasEmail: boolean }) => [r.id, r.hasEmail]))
+      expect(hasEmail).toEqual({ 1: false, 2: true, 3: false })
+    })
+  })
 })
