@@ -99,7 +99,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
   })
 
   it("reclaims a stale lease left by a crashed run, so the week is not lost", async () => {
-    const stale = lease("2026-07-06", new Date(MON.getTime() - 31 * 60_000))
+    const stale = lease("2026-07-06", new Date(MON.getTime() - 121 * 60_000))
     findUnique.mockResolvedValue({ key: KEY, value: stale })
     await runErrorDigestLocked(MON)
     expect(updateMany).toHaveBeenNthCalledWith(1, { where: { key: KEY, value: stale }, data: { value: lease("2026-07-06", MON) } })
@@ -144,6 +144,24 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     const err = jest.spyOn(console, "error").mockImplementation(() => {})
     await expect(runErrorDigestLocked(MON)).rejects.toThrow("db down")
     expect(err).toHaveBeenCalledWith(expect.stringContaining("release failed"))
+    err.mockRestore()
+  })
+
+  it("treats a 90-min-old lease as still held (long digests must not be overlapped)", async () => {
+    findUnique.mockResolvedValue({ key: KEY, value: lease("2026-07-06", new Date(MON.getTime() - 90 * 60_000)) })
+    expect(await runErrorDigestLocked(MON)).toBe("locked")
+  })
+
+  it("never rethrows after a successful digest even if marking the week done keeps failing (a re-run would re-file closed issues)", async () => {
+    findUnique.mockResolvedValue({ key: KEY, value: "2026-06-29" })
+    groupBy.mockResolvedValue([])
+    updateMany
+      .mockResolvedValueOnce({ count: 1 }) // lease
+      .mockRejectedValue(new Error("db blip")) // finalize, every retry
+    const err = jest.spyOn(console, "error").mockImplementation(() => {})
+    await expect(runErrorDigestLocked(MON)).resolves.toEqual({ filed: 0, skipped: 0, purged: 0 })
+    expect(updateMany).toHaveBeenCalledTimes(4) // lease + 3 finalize attempts
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("mark week done"))
     err.mockRestore()
   })
 

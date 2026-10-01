@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { sydneyWeekStartYMD } from "@/lib/dates"
 import { isP2002 } from "@/lib/validation"
+import { withRetry } from "@/lib/retry"
 
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
@@ -67,8 +68,10 @@ export async function runErrorDigest(
 
 const LAST_WEEK_KEY = "errorDigestLastWeek"
 // A run that dies mid-digest (deploy, crash) leaves its lease behind; after this
-// long a later run may reclaim it, so the week isn't silently lost.
-const LEASE_MS = 30 * 60_000
+// long a later run may reclaim it, so the week isn't silently lost. Generous so a
+// long digest (many fingerprints filed one by one) is never treated as abandoned
+// and overlapped; a weekly job can afford a 2 h recovery delay.
+const LEASE_MS = 2 * 60 * 60_000
 const LEASE_PREFIX = "running:"
 
 type DigestResult = { filed: number; skipped: number; purged: number }
@@ -141,7 +144,21 @@ export async function runErrorDigestLocked(
     throw e
   }
 
-  await prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: week } })
+  // Issues are already filed: never rethrow from here, or the scheduler would
+  // re-run the digest and re-file issues closed since. Retry the write; if it
+  // still fails the lease expires and a later run may repeat — log it loudly.
+  try {
+    await withRetry(
+      () => prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: week } }),
+      { attempts: 3, baseDelayMs: 200 }
+    )
+  } catch (finalizeErr) {
+    console.error(JSON.stringify({
+      level: "error",
+      source: "errorDigest",
+      message: `digest filed ${result.filed} issue(s) but failed to mark week done: ${finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr)}`,
+    }))
+  }
   return result
 }
 
