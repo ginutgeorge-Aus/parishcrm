@@ -197,6 +197,23 @@ Step-by-step guide: [docs/self-hosting.md](docs/self-hosting.md).
 
 **One-click:** [Railway guide](docs/deploy/railway.md).
 
+## Get help / Hosted plan
+
+ParishCRM is free to self-host, forever. If you'd rather not run it yourself, paid options
+are available:
+
+| Option | What you get |
+|---|---|
+| **Community** (free) | Self-host from the guide above; questions and bug reports via [GitHub Discussions](https://github.com/ginutgeorge-Aus/parishcrm/discussions) |
+| **Hosted plan** | We run your church's instance — updates, daily backups, monitoring, HTTPS on your domain |
+| **Setup & migration** | One-off import of your existing spreadsheets/records, branding, and staff training |
+| **Priority support** | Email support, priority bug fixes, upgrade help for self-hosted churches |
+
+To ask about a hosted plan or setup, start a thread in
+[Discussions → Q&A](https://github.com/ginutgeorge-Aus/parishcrm/discussions/categories/q-a).
+
+Fees from paid plans fund ongoing development of the free, open-source version.
+
 ## Contributing
 
 Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the branch/PR
