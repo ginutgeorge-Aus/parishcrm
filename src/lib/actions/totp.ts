@@ -167,8 +167,8 @@ export async function disableTotp(code: string): Promise<{ error: string } | { s
   if (!result.ok) return { error: "Invalid code" }
 
   await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: userId },
+    await tx.user.updateMany({
+      where: { id: userId, totpEnabledAt: { not: null } },
       data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
     })
     await tx.backupCode.deleteMany({ where: { userId } })

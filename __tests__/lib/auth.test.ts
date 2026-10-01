@@ -1009,6 +1009,7 @@ describe("authorizeCredentials — TOTP", () => {
     const req = { headers: { get: (k: string) => (k === "cookie" ? "trusted_device=tok" : null) } } as unknown as Request
     const result = await authorizeCredentials({ email: "admin@example.com", password: "correctpassword" }, req)
     expect(result).toMatchObject({ id: "1" })
+    expect(verifySecondFactor).not.toHaveBeenCalled()
   })
 
   it("totp mode signs in with password + valid code", async () => {
@@ -1059,6 +1060,9 @@ describe("authorizeCredentials — TOTP", () => {
       expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: 0 }) }),
     )
     expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN_FAILED", "User", 1, { reason: "totp_replay" }, undefined)
+    expect(prisma.user.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }) }),
+    )
   })
 
   it("OTP-locked user gets AccountLocked in totp mode", async () => {

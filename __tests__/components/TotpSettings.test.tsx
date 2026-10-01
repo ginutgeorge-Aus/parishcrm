@@ -35,6 +35,22 @@ describe("TotpSettings", () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
+  it("shows a generic error when an action throws", async () => {
+    ;(startTotpEnrolment as jest.Mock).mockRejectedValue(new Error("boom"))
+    render(<TotpSettings status={{ enabled: false, pending: false, backupCodesRemaining: 0 }} />)
+    fireEvent.click(screen.getByRole("button", { name: "Set up authenticator app" }))
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument()
+  })
+
+  it("shows the returned error when disable fails", async () => {
+    ;(disableTotp as jest.Mock).mockResolvedValue({ error: "Invalid code" })
+    render(<TotpSettings status={{ enabled: true, pending: false, backupCodesRemaining: 7 }} />)
+    fireEvent.click(screen.getByRole("button", { name: "Turn off" }))
+    fireEvent.change(screen.getByLabelText("Authenticator or backup code"), { target: { value: "123456" } })
+    fireEvent.click(screen.getByRole("button", { name: "Confirm turn off" }))
+    expect(await screen.findByText("Invalid code")).toBeInTheDocument()
+  })
+
   it("shows the confirm error", async () => {
     ;(startTotpEnrolment as jest.Mock).mockResolvedValue({ success: true, qrDataUrl: "data:x", manualKey: "K" })
     ;(confirmTotpEnrolment as jest.Mock).mockResolvedValue({ error: "That code didn't match. Try the current code." })

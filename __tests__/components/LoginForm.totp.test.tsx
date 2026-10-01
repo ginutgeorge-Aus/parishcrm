@@ -53,6 +53,14 @@ describe("LoginForm — authenticator step", () => {
     expect((input as HTMLInputElement).value).toBe("AB3CD-EF4GH")
   })
 
+  it("email fallback delivery failure shows an error and stays on the authenticator step", async () => {
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "OtpDeliveryFailed", error: "OtpDeliveryFailed", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    expect(await screen.findByText("We couldn't send your verification code. Please try again in a moment.")).toBeInTheDocument()
+    expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
+  })
+
   it("email fallback requests an emailed code and moves to the OTP step", async () => {
     await toTotpStep()
     mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })

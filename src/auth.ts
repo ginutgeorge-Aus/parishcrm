@@ -80,8 +80,8 @@ async function recordOtpFailure(userId: number, reason: string, ip: string | und
 }
 
 async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: string | undefined) {
-  // Only fresh second-factor verification (email OTP or authenticator) can grant device trust. A pending row cannot
-  // bypass OTP; trustDevice exchanges it once using this session's signed ID.
+  // Only fresh second-factor verification (email OTP or authenticator) can grant device trust.
+  // A pending row cannot bypass OTP; trustDevice exchanges it once using this session's signed ID.
   let deviceTrustGrant: string | undefined
   if (remember === "true") {
     // The OTP has already been atomically consumed above; the device-trust

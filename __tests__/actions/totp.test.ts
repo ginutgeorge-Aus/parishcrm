@@ -96,6 +96,13 @@ describe("confirmTotpEnrolment", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "TOTP_ENABLED", "User", 7)
   })
 
+  it("returns a restart error when the pending secret changed under us (confirm race)", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(pendingUser)
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    await expect(confirmTotpEnrolment(liveCode())).resolves.toEqual({ error: "Setup expired — start again" })
+    expect(prisma.backupCode.createMany).not.toHaveBeenCalled()
+  })
+
   it("rejects a wrong code without enabling", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(pendingUser)
     await expect(confirmTotpEnrolment("000000")).resolves.toEqual({ error: "That code didn't match. Try the current code." })
@@ -146,6 +153,13 @@ describe("regenerateBackupCodes", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "BACKUP_CODES_REGENERATED", "User", 7)
   })
 
+  it("is rate-limited", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    const res = await regenerateBackupCodes("123456")
+    expect(res).toHaveProperty("error")
+    expect(verifySecondFactor).not.toHaveBeenCalled()
+  })
+
   it("rejects an invalid code", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: false, reason: "totp_invalid" })
@@ -161,8 +175,8 @@ describe("disableTotp", () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via, remaining: 3 })
     await expect(disableTotp("123456")).resolves.toEqual({ success: true })
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 7 },
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, totpEnabledAt: { not: null } },
       data: { totpSecret: null, totpPendingSecret: null, totpEnabledAt: null, totpLastStep: null },
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 7 } })
@@ -173,7 +187,14 @@ describe("disableTotp", () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(enrolled)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: false, reason: "backup_invalid" })
     await expect(disableTotp("123456")).resolves.toEqual({ error: "Invalid code" })
-    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("is rate-limited", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    const res = await disableTotp("123456")
+    expect(res).toHaveProperty("error")
+    expect(verifySecondFactor).not.toHaveBeenCalled()
   })
 
   it("errors when not enabled", async () => {

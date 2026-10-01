@@ -223,6 +223,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
       if (result?.code === "OtpSent" || result?.code === "OtpCooldown") {
         if (result.code === "OtpCooldown") setResendMsg("A code was already sent — check your inbox.")
         setTotpCode("")
+        setUseBackup(false)
         setStep("otp")
       } else if (result?.code === "AccountLocked") {
         setError("Account locked after too many failed attempts. Try again in 15 minutes.")

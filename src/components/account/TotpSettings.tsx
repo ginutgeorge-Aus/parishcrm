@@ -26,7 +26,14 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
   const [pending, startTransition] = useTransition()
 
   const reset = () => { setMode({ kind: "idle" }); setCode(""); setError(null) }
-  const run = (fn: () => Promise<void>) => startTransition(async () => { setError(null); await fn() })
+  const run = (fn: () => Promise<void>) => startTransition(async () => {
+    setError(null)
+    try {
+      await fn()
+    } catch {
+      setError("Something went wrong. Please try again.")
+    }
+  })
 
   if (mode.kind === "codes") {
     const text = mode.codes.join("\n")
@@ -79,12 +86,14 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
           <Input
             id="totp-confirm" inputMode="numeric" maxLength={6} required autoComplete="one-time-code"
             value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "totp-confirm-error" : undefined}
           />
         </div>
-        <FormFeedback state={{ error }} />
+        <FormFeedback state={{ error }} id="totp-confirm-error" />
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={pending}>{pending ? "Checking…" : "Turn on"}</Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => { void cancelTotpEnrolment(); reset() }}>
+          <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => { void cancelTotpEnrolment(); reset() }}>
             Cancel
           </Button>
         </div>
@@ -119,14 +128,16 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
             inputMode={isDisable ? "text" : "numeric"} maxLength={isDisable ? 11 : 6}
             value={code}
             onChange={(e) => setCode(isDisable ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, ""))}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "totp-manage-error" : undefined}
           />
         </div>
-        <FormFeedback state={{ error }} />
+        <FormFeedback state={{ error }} id="totp-manage-error" />
         <div className="flex gap-2">
           <Button type="submit" size="sm" variant={isDisable ? "destructive" : "default"} disabled={pending}>
             {isDisable ? "Confirm turn off" : "Generate"}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={reset}>Cancel</Button>
+          <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={reset}>Cancel</Button>
         </div>
       </form>
     )
@@ -145,7 +156,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
         >
           Set up authenticator app
         </Button>
-        <FormFeedback state={{ error }} />
+        <FormFeedback state={{ error }} id="totp-start-error" />
       </div>
     )
   }

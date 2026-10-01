@@ -111,7 +111,7 @@ export default async function UsersPage() {
               {(viewerIsAdmin || u.role !== "ADMIN") && (
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
                   {isLocked && <UnlockUserButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
-                  {u.totpEnabledAt && <ResetTotpButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
+                  {u.totpEnabledAt && String(u.id) !== session?.user?.id && <ResetTotpButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
                   <Button variant="ghost" size="sm" asChild className="h-11 sm:h-7 any-pointer-coarse:h-11">
                     <Link href={`/users/${u.id}/edit`}>Edit</Link>
                   </Button>
@@ -166,7 +166,7 @@ export default async function UsersPage() {
                     {(viewerIsAdmin || u.role !== "ADMIN") && (
                       <div className="flex flex-wrap gap-2">
                         {isLocked && <UnlockUserButton userId={u.id} />}
-                        {u.totpEnabledAt && <ResetTotpButton userId={u.id} />}
+                        {u.totpEnabledAt && String(u.id) !== session?.user?.id && <ResetTotpButton userId={u.id} />}
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/users/${u.id}/edit`}>Edit</Link>
                         </Button>
