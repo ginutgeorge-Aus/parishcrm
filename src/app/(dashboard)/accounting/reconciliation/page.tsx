@@ -14,6 +14,7 @@ import { currentFYYear } from "@/lib/fiscalYear"
 import { fmtAUD, MONTH_ABBR_TITLE, toCents, centsToNumber } from "@/lib/formatting"
 import { fetchIf } from "@/lib/asyncOr"
 import { pickDefaultAccount } from "@/lib/reports/pickDefaultAccount"
+import { isRealCalendarDate } from "@/lib/validation"
 import {
   resolveStatusFilter,
   statusWhereClause,
@@ -29,11 +30,9 @@ import {
 // regardless of this cap — only the table below is bounded.
 const RECON_TX_CAP = 1000
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 function parseDate(s: string | undefined): Date | null {
-  if (!s || !ISO_DATE.test(s)) return null
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? null : d
+  if (!s || !isRealCalendarDate(s)) return null
+  return new Date(s)
 }
 
 // UTC getters throughout — the rest of the accounting pages read/display dates in

@@ -60,6 +60,15 @@ it.each(["2025-02-31", "2025-04-31", "2025-02-29", "2025-13-01"])("rejects impos
   expect(membershipPayloadSchema.safeParse({ ...base, spouse: { ...base.spouse, dateOfMarriage: d } }).success).toBe(false)
   expect(membershipPayloadSchema.safeParse({ ...base, declaration: { place: "Springfield", date: d } }).success).toBe(false)
 })
+it.each(["not-a-date", "2025-02-30"])("rejects malformed DOB / arrival date %s", (d) => {
+  expect(membershipPayloadSchema.safeParse({ ...base, personal: { ...base.personal, dateOfBirth: d } }).success).toBe(false)
+  expect(membershipPayloadSchema.safeParse({ ...base, personal: { ...base.personal, dateOfArrivalNsw: d } }).success).toBe(false)
+  expect(membershipPayloadSchema.safeParse({ ...base, spouse: { ...base.spouse, dateOfBirth: d } }).success).toBe(false)
+  expect(membershipPayloadSchema.safeParse({ ...base, children: [{ ...base.children[0], dateOfBirth: d }] }).success).toBe(false)
+})
+it("accepts null DOB / arrival date", () => {
+  expect(membershipPayloadSchema.safeParse({ ...base, personal: { ...base.personal, dateOfBirth: null, dateOfArrivalNsw: null } }).success).toBe(true)
+})
 it("accepts a leap-day date", () => {
   expect(membershipPayloadSchema.safeParse({ ...base, spouse: { ...base.spouse, dateOfMarriage: "2024-02-29" } }).success).toBe(true)
   expect(membershipPayloadSchema.safeParse({ ...base, declaration: { place: "Springfield", date: "2024-02-29" } }).success).toBe(true)

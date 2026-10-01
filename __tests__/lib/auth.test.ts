@@ -713,6 +713,35 @@ describe("authorizeCredentials — trusted device skip", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "USER_LOGIN", "User", 1, undefined, undefined)
   })
 
+  it("clears a stale password-failure counter on a trusted-device login", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash, failedLoginAttempts: 4 })
+    ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
+    ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+
+    await authorizeCredentials(
+      { email: "admin@example.com", password: "correctpassword", mode: "password", remember: "false" },
+      reqWithCookie("trusted_device=GOODTOKEN"),
+    )
+
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { failedLoginAttempts: 0 } })
+  })
+
+  it("skips the counter write when there are no prior password failures", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })
+    ;(prisma.trustedDevice.findFirst as jest.Mock).mockResolvedValue({ id: "dev1", userId: 1, expiresAt: new Date(Date.now() + 1000) })
+    ;(prisma.trustedDevice.update as jest.Mock).mockResolvedValue({})
+
+    await authorizeCredentials(
+      { email: "admin@example.com", password: "correctpassword", mode: "password", remember: "false" },
+      reqWithCookie("trusted_device=GOODTOKEN"),
+    )
+
+    expect(prisma.user.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedLoginAttempts: 0 } }))
+  })
+
   it("sends OTP when the cookie token does not match any device", async () => {
     const passwordHash = await hash("correctpassword", 10)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })

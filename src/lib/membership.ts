@@ -2,13 +2,18 @@ import { z } from "zod"
 import { encrypt, decrypt } from "@/lib/crypto"
 import { isRealCalendarDate } from "@/lib/validation"
 
+// Form sends these from <input type="date"> (YYYY-MM-DD) or null. Without a
+// calendar check a crafted POST could store garbage that later decrypts to an
+// Invalid Date and silently drops the person off birthday lists.
+const optionalDate = (max: number) => z.string().max(max).nullable().refine((v) => v === null || isRealCalendarDate(v), "Invalid date")
+
 // Public, unauthenticated endpoint — every free-text string needs a .max() bound
 // so an oversized field can't drive a ~10MB encrypt + PDF-layout pass (security.md
 // requires .max() on all Zod strings on public/action surfaces).
 const person = z.object({
   name: z.string().trim().min(1).max(200),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).nullable(),
-  dateOfBirth: z.string().max(30).nullable(),
+  dateOfBirth: optionalDate(30),
   email: z.string().trim().email().max(255),
   mobile: z.string().max(50).nullable(),
   address: z.string().trim().min(1).max(500),
@@ -18,17 +23,17 @@ const person = z.object({
   qualificationProfession: z.string().max(500).nullable(),
   motherParish: z.string().max(200).nullable(),
   addressInIndia: z.string().max(500).nullable(),
-  dateOfArrivalNsw: z.string().max(50).nullable(),
+  dateOfArrivalNsw: optionalDate(50),
   maritalStatus: z.enum(["MARRIED", "UNMARRIED"]).nullable(),
   transferCertFurnished: z.boolean().nullable(),
 })
 
-const row = z.object({ name: z.string().trim().min(1).max(200), sex: z.string().max(20).nullable(), dateOfBirth: z.string().max(30).nullable() })
+const row = z.object({ name: z.string().trim().min(1).max(200), sex: z.string().max(20).nullable(), dateOfBirth: optionalDate(30) })
 
 export const membershipPayloadSchema = z.object({
   personal: person,
   spouse: z
-    .object({ name: z.string().trim().min(1).max(200), dateOfBirth: z.string().max(30).nullable(),
+    .object({ name: z.string().trim().min(1).max(200), dateOfBirth: optionalDate(30),
       // dateOfMarriage is converted with `new Date()` before storage; a malformed
       // string yields an Invalid Date that Prisma rejects with an unhandled 500.
       // Reject it here so a direct API caller gets a clean validation error.
