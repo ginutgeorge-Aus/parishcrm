@@ -1,7 +1,7 @@
 # Deploy on Railway
 
 One-click deploy creates two things: the ParishCRM app and a PostgreSQL database,
-plus three small cron services for reminders, checkout sweeps and celebrations.
+plus one small cron service for reminders, checkout sweeps and celebrations.
 
 ## 1. Deploy
 
@@ -16,7 +16,7 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 > `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
 > (`openssl rand -base64 32` each) and set `AUTH_URL` to the app's public URL.
 > On a Hobby plan set `RESEND_API_KEY` and `MAIL_FROM` for email (see below).
-> Add the cron services yourself — see [Scheduled jobs](#scheduled-jobs).
+> Add the cron service yourself — see [Scheduled jobs](#scheduled-jobs).
 
 With the template, click **Deploy on Railway**. You'll be asked for:
 
@@ -50,33 +50,34 @@ Sign in — a login code is emailed to you (from `MAIL_FROM`).
 ## 3. Custom domain (optional)
 
 App service → **Settings → Networking → Custom Domain**. Then update `AUTH_URL` (and `APP_URL`
-on each cron service) to `https://your.domain`.
+on the `cron` service) to `https://your.domain`.
 
 ## Scheduled jobs
 
-The template includes three cron services. Each one starts on its schedule, sends
-one authenticated request to the app and exits, so it costs almost nothing.
+The template includes one `cron` service. Every 30 minutes it starts, calls the
+cron routes that are due and exits, so it costs almost nothing. One service
+instead of three keeps the template inside Railway's Free-plan service limit.
 
-| Service | Schedule (UTC) | Route (`/api/cron/…`) |
-|---|---|---|
-| `cron-reminders` | `*/30 * * * *` (every 30 min) | `send-reminders` |
-| `cron-checkouts` | `0 * * * *` (hourly) | `sweep-checkouts` |
-| `cron-celebrations` | `0 21 * * *` (7–8am Sydney) | `send-celebrations` |
+| Route (`/api/cron/…`) | Runs |
+|---|---|
+| `send-reminders` | every run (every 30 min) |
+| `sweep-checkouts` | on the hour |
+| `send-celebrations` | 21:00 UTC (7–8am Sydney) |
 
-To add one by hand (manual deploy, or a service you deleted):
+To add it by hand (manual deploy, or a service you deleted):
 
-1. **+ New → Docker Image** → `curlimages/curl:latest`.
+1. **+ New → Docker Image** → `curlimages/curl:latest`, name it `cron`.
 2. **Variables:** `CRON_SECRET=${{parishcrm.CRON_SECRET}}` and
    `APP_URL=https://${{parishcrm.RAILWAY_PUBLIC_DOMAIN}}` (use your app service's
    name in place of `parishcrm`; with a custom domain, set `APP_URL` to it).
-3. **Settings → Deploy → Custom Start Command**, with `send-reminders` replaced by
-   that service's route name from the table:
+3. **Settings → Deploy → Custom Start Command:**
    ```sh
-   sh -c 'curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/send-reminders"'
+   sh -c 'rc=0; c(){ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/$1" || rc=1; echo; }; c send-reminders; m=$(date -u +%M); h=$(date -u +%H); [ "$m" -lt 30 ] && c sweep-checkouts; [ "$h" = 21 ] && [ "$m" -lt 30 ] && c send-celebrations; exit $rc'
    ```
-4. **Settings → Deploy → Cron Schedule:** the schedule from the table.
+4. **Settings → Deploy → Cron Schedule:** `*/30 * * * *`. **Restart Policy:** Never.
 
-A failed run shows red in the service's **Deployments** tab. A late or repeated
+A failed call shows the run red in the service's **Deployments** tab (the other
+calls in that run still go out). A late or repeated
 run normally won't send duplicates. The rare exception: if a run is cut off
 mid-send, or a database write fails after emails went out, a later run may
 send some of them again.
