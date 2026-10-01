@@ -57,8 +57,8 @@ App service → **Settings → Networking → Custom Domain**. Then update `AUTH
 
 Reminders, abandoned-checkout cleanup and celebration emails run inside the app
 on a timer — nothing to set up. Keep the app always on (Railway's default; don't
-enable **App Sleeping**). Celebrations go out from 07:00 Sydney and retry through
-the day if a send fails.
+enable **App Sleeping**) and at one replica. Celebrations go out from 07:00 Sydney
+and retry every 30 minutes through the day if a send fails.
 
 A late or repeated run normally won't send duplicates. The rare exception: if a
 run is cut off mid-send, or a database write fails after emails went out, a later

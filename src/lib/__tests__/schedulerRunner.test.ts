@@ -44,16 +44,31 @@ describe("tick", () => {
     const s = initialState(); const j = jobs()
     const seven = new Date("2026-07-01T21:00:00Z") // 07:00 AEST
     await tick(s, j, seven)
-    expect(s.celebrations.lastSuccessDay).toBe("2026-07-02")
-    await tick(s, j, new Date("2026-07-01T21:05:00Z"))
+    expect(s.celebrations.lastSuccessKey).toBe("2026-07-02")
+    await tick(s, j, new Date("2026-07-01T22:00:00Z"))
     expect(j.celebrations).toHaveBeenCalledTimes(1)
   })
 
-  it("does not record success for a failed daily job, so the next tick retries it", async () => {
+  it("does not record success for a failed daily job, so a later tick retries it", async () => {
     const s = initialState()
     const j = jobs({ celebrations: jest.fn(async () => { throw new Error("smtp") }) })
     await tick(s, j, new Date("2026-07-01T21:00:00Z"))
-    expect(s.celebrations.lastSuccessDay).toBeNull()
+    expect(s.celebrations.lastSuccessKey).toBeNull()
+  })
+
+  it("treats a run that reports failed sends as unsuccessful, so they are retried", async () => {
+    const s = initialState()
+    const j = jobs({ celebrations: jest.fn(async () => ({ birthdays: { sent: 3, failed: 2 }, anniversaries: { sent: 0, failed: 0 } })) })
+    await tick(s, j, new Date("2026-07-01T21:00:00Z"))
+    expect(s.celebrations.lastSuccessKey).toBeNull()
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"job":"celebrations"'))
+  })
+
+  it("never rejects, even if scheduling itself throws", async () => {
+    const s = initialState()
+    const j = jobs()
+    await expect(tick(s, j, new Date(NaN))).resolves.toBeUndefined()
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"source":"scheduler"'))
   })
 
   it("never starts a job twice when ticks overlap", async () => {

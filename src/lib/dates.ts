@@ -40,18 +40,27 @@ export function sydneyToday(at: Date = new Date()): Date {
 }
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+// Built once: the scheduler reads the clock several times per tick, and
+// formatter construction is the expensive part of Intl.
+const CLOCK_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+  weekday: "short",
+})
 
 /** Sydney wall-clock for an instant: date, hour (0–23) and ISO weekday (1 = Monday … 7 = Sunday). */
 export function sydneyClock(at: Date = new Date()): { ymd: string; hour: number; weekday: number } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    hour: "2-digit",
-    hourCycle: "h23",
-    weekday: "short",
-  }).formatToParts(at)
-  const hour = Number(parts.find((p) => p.type === "hour")!.value)
-  const weekday = WEEKDAYS.indexOf(parts.find((p) => p.type === "weekday")!.value) + 1
-  return { ymd: sydneyTodayYMD(at), hour, weekday }
+  const parts = CLOCK_FMT.formatToParts(at)
+  const get = (type: string) => parts.find((p) => p.type === type)!.value
+  return {
+    ymd: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: Number(get("hour")),
+    weekday: WEEKDAYS.indexOf(get("weekday")) + 1,
+  }
 }
 
 /** The Monday (`YYYY-MM-DD`) that starts the Sydney week containing `at`. */

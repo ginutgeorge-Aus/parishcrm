@@ -44,9 +44,9 @@ hard-coded 21:00 UTC, which drifts by an hour across daylight saving.
 | `reminders` | `runReminderSweep(now)` | at least 30 min since its last start | — |
 | `checkouts` | `sweepExpiredCheckouts()` | at least 30 min since its last start | — |
 | `celebrations` | `runCelebrationSweep(now)` | Sydney time is 07:00 or later and there has been no successful run today (Sydney date) | — |
-| `errorDigest` | `runErrorDigest(now)` | Sydney Monday 09:00 or later and there has been no successful run this Sydney week | `GITHUB_TOKEN` or `GITHUB_REPO` unset |
+| `errorDigest` | `runErrorDigestOncePerWeek(now)` | Sydney Monday 09:00 or later and there has been no successful run this Sydney week (persisted in `AppSetting`, so it survives restarts) | `ERROR_DIGEST` is not `true`, or `GITHUB_TOKEN`/`GITHUB_REPO` is unset |
 
-A failed `celebrations` or `errorDigest` run is retried on the next tick and
+A failed `celebrations` or `errorDigest` run (one that throws or reports `failed` sends) is retried at most every 30 min and
 keeps retrying for the rest of the day or week. The existing claims and
 fingerprints prevent duplicates. Unlike today's single 21:00 UTC call, a slow
 or down app still sends that day's birthday emails once it recovers.

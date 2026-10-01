@@ -164,6 +164,12 @@ Sign in as the admin you created, then:
 Event reminders, abandoned-checkout cleanup, celebration emails and the weekly
 error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
 Nothing to schedule — as long as the app stays running.
+Run a single app replica: each replica runs its own timer. The weekly error
+digest is opt-in (`ERROR_DIGEST=true`).
+
+**Upgrading from external crons?** Remove them once you're on this version, or
+set `IN_APP_CRON=false` to keep them. Running both briefly is harmless — every
+job is idempotent — but it's wasted work.
 
 On a host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and
 call these endpoints from any scheduler (cron, a CI schedule, a platform job)
