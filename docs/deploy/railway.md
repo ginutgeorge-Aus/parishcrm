@@ -69,14 +69,17 @@ To add one by hand (manual deploy, or a service you deleted):
 2. **Variables:** `CRON_SECRET=${{parishcrm.CRON_SECRET}}` and
    `APP_URL=https://${{parishcrm.RAILWAY_PUBLIC_DOMAIN}}` (use your app service's
    name in place of `parishcrm`; with a custom domain, set `APP_URL` to it).
-3. **Settings → Deploy → Custom Start Command:**
+3. **Settings → Deploy → Custom Start Command**, with `send-reminders` replaced by
+   that service's route from the table:
    ```sh
    sh -c 'curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/send-reminders"'
    ```
 4. **Settings → Deploy → Cron Schedule:** the schedule from the table.
 
-A failed run shows red in the service's **Deployments** tab. The sweeps are
-idempotent, so a late or repeated run won't send duplicate emails.
+A failed run shows red in the service's **Deployments** tab. The sweeps claim
+each email before sending, so a late or repeated run normally won't send
+duplicates. The rare exception: if the database write fails after an email
+was sent, a later run may send it again.
 
 ## Costs
 
