@@ -49,9 +49,9 @@ Sign in — a login code is emailed to you (from `MAIL_FROM`).
 
 ## 3. Custom domain (optional)
 
-App service → **Settings → Networking → Custom Domain**. Then update `AUTH_URL` to
 App service → **Settings → Networking → Custom Domain**. Then update `AUTH_URL` (and `APP_URL`
 on each cron service) to `https://your.domain`.
+
 ## Scheduled jobs
 
 The template includes three cron services. Each one starts on its schedule, sends
