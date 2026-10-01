@@ -4,6 +4,7 @@ jest.mock("next/headers", () => ({
   headers: jest.fn(async () => new Map([["x-forwarded-for", "203.0.113.9"]])),
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn() } }))
 jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue(true) }))
 jest.mock("bcryptjs", () => ({ hash: jest.fn(async () => "hashed") }))
 
@@ -27,6 +28,7 @@ import { prisma } from "@/lib/prisma"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logAudit } from "@/lib/audit"
 import { hash } from "bcryptjs"
+import { logger } from "@/lib/logger"
 
 const TOKEN = "t".repeat(32)
 function fd(o: Record<string, string>) {
@@ -141,5 +143,15 @@ describe("createFirstAdmin", () => {
     const res = await createFirstAdmin(fd(valid))
     expect(res).toEqual({ error: "Too many attempts. Try again later." })
     expect(dbRateLimit).toHaveBeenCalledWith("setup:203.0.113.9", 10, 15 * 60_000)
+  })
+  it("warns the operator when no X-Forwarded-For forces the shared bucket", async () => {
+    ;(headers as jest.Mock).mockResolvedValueOnce(new Map())
+    await createFirstAdmin(fd(valid))
+    expect(dbRateLimit).toHaveBeenCalledWith("setup:unknown", 10, 15 * 60_000)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("X-Forwarded-For"), expect.any(Object))
+  })
+  it("does not warn when the proxy sets X-Forwarded-For", async () => {
+    await createFirstAdmin(fd(valid))
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 })
