@@ -24,7 +24,7 @@ jest.mock("@/lib/churchSettings", () => ({
   getChurchSettings: jest.fn(async () => ({ name: "Test Church", address: "", abn: "", email: "", website: "" })),
 }))
 
-import { sendDueCelebrations } from "@/lib/celebrationSweep"
+import { sendDueCelebrations, runCelebrationSweep } from "@/lib/celebrationSweep"
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email"
 import { logAudit } from "@/lib/audit"
@@ -225,4 +225,11 @@ test(" two overlapping invocations racing the same person: only the create() win
   expect(runA.body).toMatchObject({ birthdays: { sent: 1 } })
   expect(runB.body).toMatchObject({ birthdays: { sent: 0, skipped: 1 } })
   expect(sendEmail).toHaveBeenCalledTimes(1)
+})
+
+test("runCelebrationSweep runs without CRON_SECRET or an Authorization header (in-app scheduler entry)", async () => {
+  delete process.env.CRON_SECRET
+  const body = await runCelebrationSweep(NOW)
+  expect(body).toHaveProperty("birthdays")
+  expect(body).toHaveProperty("anniversaries")
 })

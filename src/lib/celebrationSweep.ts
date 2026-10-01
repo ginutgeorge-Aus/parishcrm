@@ -44,6 +44,11 @@ export async function sendDueCelebrations(
     return { status: 503, body: { error: "CRON_SECRET unset — celebration emails disabled" } }
   }
   if (!bearerOk(authorization, secret)) return { status: 401, body: { error: "Unauthorized" } }
+  return { status: 200, body: await runCelebrationSweep(now) }
+}
+
+// Auth-free core — called by the cron route (after auth) and the in-app scheduler.
+export async function runCelebrationSweep(now: Date): Promise<Record<string, unknown>> {
 
   const flags = await readAutoEmailFlags()
   const today = sydneyToday(now)
@@ -52,7 +57,7 @@ export async function sendDueCelebrations(
   const birthdays = flags.birthday ? await sendDueBirthdays(today, sendDate) : ZERO
   const anniversaries = flags.anniversary ? await sendDueAnniversaries(today, sendDate) : ZERO
 
-  return { status: 200, body: { birthdays, anniversaries } }
+  return { birthdays, anniversaries }
 }
 
 type BirthdayCandidateRow = {
