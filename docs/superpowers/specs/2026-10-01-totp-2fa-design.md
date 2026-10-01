@@ -54,7 +54,7 @@ model BackupCode {
 
 ## Library
 
-`otplib` (authenticator preset: SHA-1, 6 digits, 30-s step), verification window ±1 step. Existing
+`otpauth` (CJS build loads under Jest; `validate()` returns the matched step delta for the replay guard; authenticator preset: SHA-1, 6 digits, 30-s step), verification window ±1 step. Existing
 `qrcode` dependency renders the `otpauth://` URI to a data-URL PNG server-side. Issuer label = church
 name from `AppSetting` (fallback `"ParishCRM"`), account label = user email.
 
@@ -108,7 +108,7 @@ return the standard `ActionResult`:
 | `regenerateBackupCodes(code)` | Requires valid current TOTP code (replay-guarded). Deletes old codes, creates 10 new, returns them once. Audit `BACKUP_CODES_REGENERATED`. |
 | `disableTotp(code)` | Accepts a current TOTP code or an unused backup code. Clears TOTP fields + all backup codes. Audit `TOTP_DISABLED`. |
 
-Failed codes in these actions are rate-limited with `dbRateLimit("totp:manage:<userId>", 5, 15 min)`.
+Code-checking calls in these actions are rate-limited with `dbRateLimit("totp:manage:<userId>", 5, 15 min)`.
 
 UI: new `src/components/account/TotpSettings.tsx` on `/account` above `TrustedDeviceList` —
 status badge, enrol dialog (QR, manual key, code input), backup-codes panel (copy / download .txt,
@@ -127,7 +127,7 @@ users list next to `UnlockUserButton` only for enrolled users.
 - Decryption failure of `totpSecret` at login → log server-side, treat as invalid code, audit reason
   `totp_secret_unreadable`; the user can still use "Send email code instead" or a backup code.
 - `TotpRequired` / `AccountLocked` / `OtpCooldown` surfaced via `result.code` like existing codes.
-- All code comparisons are constant-time (otplib / bcrypt compare).
+- All code comparisons are constant-time (otpauth / bcrypt compare).
 
 ## Testing (Jest, `.claude/rules/testing.md` conventions)
 
