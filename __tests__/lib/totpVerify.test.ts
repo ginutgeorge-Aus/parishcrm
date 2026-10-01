@@ -52,15 +52,35 @@ describe("verifySecondFactor", () => {
     })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 7 }, data: LOCKOUT_RESET })
+    // Lock order User → BackupCode, matching the totp actions (no deadlock).
+    expect((prisma.user.update as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.backupCode.updateMany as jest.Mock).mock.invocationCallOrder[0],
+    )
   })
 
-  it("does not reset counters when a concurrent request consumed the backup code first", async () => {
+  it("rolls the counter reset back when a concurrent request consumed the backup code first", async () => {
     ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
     ;(prisma.backupCode.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const tx = (prisma.$transaction as jest.Mock).getMockImplementation()!
+    let rolledBack = false
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: typeof prisma) => unknown) => {
+      try {
+        return await tx(fn)
+      } catch (err) {
+        rolledBack = true
+        throw err
+      }
+    })
     await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW, resetLockouts: true })).resolves.toEqual({
       ok: false, reason: "backup_invalid",
     })
-    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(rolledBack).toBe(true)
+  })
+
+  it("propagates database errors from the backup-code transaction", async () => {
+    ;(prisma.backupCode.findMany as jest.Mock).mockResolvedValue([{ id: "b1", codeHash: await hash("AB3CDEF4GH", 4) }])
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue(new Error("deadlock detected"))
+    await expect(verifySecondFactor(user, "AB3CD-EF4GH", { now: NOW })).rejects.toThrow("deadlock detected")
   })
 
   it("accepts a valid TOTP and records its step atomically", async () => {

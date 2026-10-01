@@ -20,6 +20,8 @@ export type SecondFactorResult =
 // records the step or consumes the backup code.
 const LOCKOUT_RESET = { failedLoginAttempts: 0, lockedUntil: null, failedOtpAttempts: 0, otpLockedUntil: null }
 
+class BackupCodeTaken extends Error {}
+
 export async function verifySecondFactor(
   user: SecondFactorUser,
   input: string,
@@ -57,16 +59,22 @@ export async function verifySecondFactor(
   })
   for (const c of codes) {
     if (await compare(normalised, c.codeHash)) {
-      const consumed = await prisma.$transaction(async (tx) => {
-        const { count } = await tx.backupCode.updateMany({
-          where: { id: c.id, usedAt: null },
-          data: { usedAt: new Date() },
+      try {
+        await prisma.$transaction(async (tx) => {
+          // User row before BackupCode — same lock order as the totp actions
+          // (disable/regenerate), so they can't deadlock. A lost consume race
+          // throws to roll the counter reset back.
+          if (resetLockouts) await tx.user.update({ where: { id: user.id }, data: LOCKOUT_RESET })
+          const { count } = await tx.backupCode.updateMany({
+            where: { id: c.id, usedAt: null },
+            data: { usedAt: new Date() },
+          })
+          if (count !== 1) throw new BackupCodeTaken()
         })
-        if (count !== 1) return false
-        if (resetLockouts) await tx.user.update({ where: { id: user.id }, data: LOCKOUT_RESET })
-        return true
-      })
-      if (!consumed) return { ok: false, reason: "backup_invalid" }
+      } catch (err: unknown) {
+        if (err instanceof BackupCodeTaken) return { ok: false, reason: "backup_invalid" }
+        throw err
+      }
       return { ok: true, via: "backup", remaining: codes.length - 1 }
     }
   }
