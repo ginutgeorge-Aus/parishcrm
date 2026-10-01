@@ -16,7 +16,7 @@ import { logAudit } from "@/lib/audit"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { isP2002 } from "@/lib/validation"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { membershipPayloadSchema, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
+import { membershipSubmitSchema, encryptPayload, readPayload, buildNotesBlock, deriveFamilyName, type MembershipPayload } from "@/lib/membership"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
@@ -49,7 +49,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   if (!input.signature?.startsWith("data:image/")) return { error: "Signature is required" }
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }
 
-  const parsed = membershipPayloadSchema.safeParse(input.payload)
+  const parsed = membershipSubmitSchema.safeParse(input.payload)
   if (!parsed.success) return { error: "Please check the form — some required fields are missing or invalid." }
 
   // Server-read floor — the client-side check is UX only.

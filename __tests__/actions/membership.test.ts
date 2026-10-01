@@ -27,7 +27,7 @@ jest.mock("@/lib/crypto", () => ({
   hmacMobile: jest.fn((v: string) => `mhash:${v}`),
 }))
 jest.mock("@/lib/membership", () => ({
-  membershipPayloadSchema: {},
+  membershipSubmitSchema: {},
   encryptPayload: jest.fn(),
   readPayload: jest.fn(() => ({
     personal: { name: "John Doe", gender: null, dateOfBirth: null, email: null, mobile: null, qualificationProfession: null, motherParish: null, maritalStatus: null },
