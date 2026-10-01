@@ -16,7 +16,7 @@ plus three small cron services for reminders, checkout sweeps and celebrations.
 > `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET` and `SETUP_TOKEN` yourself
 > (`openssl rand -base64 32` each) and set `AUTH_URL` to the app's public URL.
 > On a Hobby plan set `RESEND_API_KEY` and `MAIL_FROM` for email (see below).
-> Cron services are optional — see "Scheduled jobs" in `docs/self-hosting.md`.
+> Add the cron services yourself — see [Scheduled jobs](#scheduled-jobs).
 
 With the template, click **Deploy on Railway**. You'll be asked for:
 
@@ -50,7 +50,33 @@ Sign in — a login code is emailed to you (from `MAIL_FROM`).
 ## 3. Custom domain (optional)
 
 App service → **Settings → Networking → Custom Domain**. Then update `AUTH_URL` to
-`https://your.domain`.
+App service → **Settings → Networking → Custom Domain**. Then update `AUTH_URL` (and `APP_URL`
+on each cron service) to `https://your.domain`.
+## Scheduled jobs
+
+The template includes three cron services. Each one starts on its schedule, sends
+one authenticated request to the app and exits, so it costs almost nothing.
+
+| Service | Schedule (UTC) | Route |
+|---|---|---|
+| `cron-reminders` | `*/30 * * * *` (every 30 min) | `/api/cron/send-reminders` |
+| `cron-checkouts` | `0 * * * *` (hourly) | `/api/cron/sweep-checkouts` |
+| `cron-celebrations` | `0 21 * * *` (7–8am Sydney) | `/api/cron/send-celebrations` |
+
+To add one by hand (manual deploy, or a service you deleted):
+
+1. **+ New → Docker Image** → `curlimages/curl:latest`.
+2. **Variables:** `CRON_SECRET=${{parishcrm.CRON_SECRET}}` and
+   `APP_URL=https://${{parishcrm.RAILWAY_PUBLIC_DOMAIN}}` (use your app service's
+   name in place of `parishcrm`; with a custom domain, set `APP_URL` to it).
+3. **Settings → Deploy → Custom Start Command:**
+   ```sh
+   sh -c 'curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/send-reminders"'
+   ```
+4. **Settings → Deploy → Cron Schedule:** the schedule from the table.
+
+A failed run shows red in the service's **Deployments** tab. The sweeps are
+idempotent, so a late or repeated run won't send duplicate emails.
 
 ## Costs
 
