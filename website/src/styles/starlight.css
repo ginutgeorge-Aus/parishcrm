@@ -1,0 +1,30 @@
+@layer base, starlight, theme, components, utilities;
+@import '@astrojs/starlight-tailwind';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import './tokens.css';
+
+
+/* Unlayered, so these beat Starlight's layered :root[data-theme] defaults.
+   Tokens already switch per theme, so one block covers light and dark. */
+:root {
+  --sl-font: var(--pc-font-sans);
+  --sl-color-white: var(--pc-ink);
+  --sl-color-black: var(--pc-bg);
+  --sl-color-accent-low: color-mix(in srgb, var(--pc-brand) 18%, var(--pc-bg));
+  --sl-color-accent: var(--pc-brand);
+  --sl-color-accent-high: var(--pc-brand-strong);
+  /* links, active sidebar item background, and its text (bg on brand) */
+  --sl-color-text-accent: var(--pc-brand);
+  --sl-color-text-invert: var(--pc-bg);
+  --sl-color-bg: var(--pc-bg);
+  --sl-color-bg-nav: var(--pc-surface);
+  --sl-color-bg-sidebar: var(--pc-bg);
+  --sl-color-hairline: var(--pc-border);
+}
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+h1#_top {
+  font-family: var(--pc-font-display);
+  letter-spacing: -0.01em;
+}

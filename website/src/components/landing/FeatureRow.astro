@@ -1,0 +1,15 @@
+---
+import { url } from '../../lib/url'
+import BrowserFrame from './BrowserFrame.astro'
+interface Props { eyebrow: string; title: string; points: string[]; shot: string; alt: string; href: string; flip?: boolean }
+const { eyebrow, title, points, shot, alt, href, flip = false } = Astro.props
+---
+<section class:list={["mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:px-6 lg:gap-16 lg:py-20", flip ? "lg:grid-cols-[7fr_5fr]" : "lg:grid-cols-[5fr_7fr]"]}>
+  <div class:list={[flip && 'lg:order-2']}>
+    <p class="text-sm font-semibold text-accent">{eyebrow}</p>
+    <h2 class="mt-3 font-display text-3xl leading-tight font-medium text-balance sm:text-4xl">{title}</h2>
+    <ul class="mt-6 space-y-3 leading-relaxed text-ink-muted">{points.map((p) => <li class="flex gap-3"><span class="mt-[0.6rem] size-1.5 shrink-0 rotate-45 bg-accent" aria-hidden="true"></span>{p}</li>)}</ul>
+    <a href={url(href)} class="mt-7 inline-block font-medium text-brand underline decoration-brand/30 underline-offset-4 transition-colors hover:decoration-brand">Read the guide →<span class="sr-only"> about {title}</span></a>
+  </div>
+  <BrowserFrame name={shot} alt={alt} />
+</section>

@@ -36,22 +36,22 @@ feats=$( { [ -n "$title" ] && echo "$title"; git log --format=%s "${range/.../..
   grep -E '^feat(\([^)]*\))?!?:' | sort -u || true)
 
 {
-  echo "## Wiki check"
+  echo "## Docs check"
   if [ ${#hits[@]} -gt 0 ]; then
-    echo; echo "These wiki pages describe code this change touches — check they're still accurate:"; echo
+    echo; echo "These docs pages describe code this change touches — check they're still accurate:"; echo
     for p in $(printf '%s\n' "${!hits[@]}" | sort); do echo "- **$p** —${hits[$p]}"; done
   fi
   if [ -n "$feats" ]; then
-    echo; echo "New features — each needs a wiki page (new or extended) explaining what it does and who can use it:"; echo
+    echo; echo "New features — each needs a docs page (new or extended) explaining what it does and who can use it:"; echo
     sed 's/^/- /' <<<"$feats"
   fi
   if [ ${#uncovered[@]} -gt 0 ]; then
-    echo; echo "New source files no wiki page mentions yet:"; echo
+    echo; echo "New source files no docs page mentions yet:"; echo
     printf -- '- `%s`\n' "${uncovered[@]}"
   fi
   [ ${#hits[@]} -eq 0 ] && [ -z "$feats" ] && [ ${#uncovered[@]} -eq 0 ] && echo && echo "Nothing to update."
 } >>"$summary"
 
-while IFS= read -r t; do [ -n "$t" ] && echo "::warning title=Wiki::Explain this feature in the wiki — $t"; done <<<"$feats"
-[ ${#hits[@]} -gt 0 ] && echo "::notice title=Wiki::${#hits[@]} wiki page(s) cite changed files — see job summary"
+while IFS= read -r t; do [ -n "$t" ] && echo "::warning title=Docs::Explain this feature in the docs — $t"; done <<<"$feats"
+[ ${#hits[@]} -gt 0 ] && echo "::notice title=Docs::${#hits[@]} docs page(s) cite changed files — see job summary"
 exit 0

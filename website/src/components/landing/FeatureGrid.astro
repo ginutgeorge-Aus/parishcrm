@@ -1,0 +1,29 @@
+---
+import { Users, Landmark, Ticket, ScanLine, Wallet, FileText, FileUp, ShieldCheck } from '@lucide/astro'
+import { url } from '../../lib/url'
+const features = [
+  { icon: Users, title: 'People & families', body: 'Households, members, roles, birthdays and anniversaries — with CSV import.', href: 'docs/people-and-families/' },
+  { icon: Landmark, title: 'Accounting & reports', body: 'Income, expenses, funds, budgets and P&L reports built for church treasurers.', href: 'docs/accounting-overview/' },
+  { icon: Ticket, title: 'Events & ticketing', body: 'Public registration pages with optional Stripe card payments.', href: 'docs/events-overview/' },
+  { icon: ScanLine, title: 'Check-in', body: 'Fast door check-in with search and QR scanning, for staff or an assigned organiser.', href: 'docs/check-in/' },
+  { icon: Wallet, title: 'Petty cash', body: 'Weekly cash sessions mirrored straight into the main ledger.', href: 'docs/petty-cash/' },
+  { icon: FileText, title: 'Receipts & letters', body: 'Giving receipts and membership letters generated from your records.', href: 'docs/receipts/' },
+  { icon: FileUp, title: 'Bank statement import', body: 'Upload a statement, match lines to categories, post in bulk.', href: 'docs/bank-statement-import/' },
+  { icon: ShieldCheck, title: 'Roles & permissions', body: 'Six roles from admin to auditor — everyone sees only what they need.', href: 'docs/roles-and-permissions/' },
+]
+---
+<section id="features" class="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6 sm:py-24">
+  <h2 class="max-w-xl font-display text-3xl leading-tight font-medium text-balance sm:text-[2.75rem]">Everything a parish office runs on</h2>
+  <!-- A ruled register rather than a wall of boxes: each entry sits on a hairline, like a ledger page. -->
+  <ul class="mt-12 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+    {features.map(({ icon: Icon, title, body, href }) => (
+      <li class="border-t border-line">
+        <a href={url(href)} class="group block h-full py-6">
+          <Icon class="size-6 text-accent" aria-hidden="true" stroke-width={1.75} />
+          <h3 class="mt-4 font-semibold decoration-brand/40 underline-offset-4 group-hover:text-brand group-hover:underline">{title}</h3>
+          <p class="mt-2 text-sm leading-relaxed text-ink-muted">{body}</p>
+        </a>
+      </li>
+    ))}
+  </ul>
+</section>

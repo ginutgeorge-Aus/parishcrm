@@ -1,0 +1,19 @@
+---
+import { url } from '../../lib/url'
+const links = [
+  { href: '#features', label: 'Features' },
+  { href: url('docs/'), label: 'Docs' },
+  { href: 'https://github.com/ginutgeorge-Aus/parishcrm', label: 'GitHub' },
+]
+---
+<header class="sticky top-0 z-50 border-b border-line/70 bg-bg/85 backdrop-blur">
+  <nav class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6" aria-label="Main">
+    <a href={url()} class="flex items-center gap-2 font-display text-lg font-semibold">
+      <img src={url('favicon.svg')} alt="" width="28" height="28" /> ParishCRM
+    </a>
+    <ul class="hidden items-center gap-7 text-sm text-ink-muted sm:flex">
+      {links.map((l) => <li><a href={l.href} class="transition-colors hover:text-ink">{l.label}</a></li>)}
+    </ul>
+    <a href={url('docs/installation/')} class="rounded-full bg-brand px-4 py-2.5 text-sm font-medium text-bg transition-colors hover:bg-brand-strong">Get started</a>
+  </nav>
+</header>

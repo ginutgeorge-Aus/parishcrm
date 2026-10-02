@@ -1,0 +1,12 @@
+---
+import { url } from '../../lib/url'
+interface Props { name: string; alt: string; eager?: boolean }
+const { name, alt, eager = false } = Astro.props
+---
+<figure class="overflow-hidden rounded-pc border border-line bg-surface shadow-[0_1px_2px_rgb(20_32_46/0.06),0_24px_48px_-24px_rgb(20_32_46/0.28)]">
+  <div class="flex items-center gap-1.5 border-b border-line px-4 py-2.5" aria-hidden="true">
+    <span class="size-2.5 rounded-full bg-line"></span><span class="size-2.5 rounded-full bg-line"></span><span class="size-2.5 rounded-full bg-line"></span>
+  </div>
+  <img src={url(`screenshots/${name}.webp`)} alt={alt} width="1440" height="900"
+    loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : 'auto'} decoding="async" class="block h-auto w-full" />
+</figure>

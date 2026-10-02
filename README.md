@@ -8,7 +8,7 @@ event ticketing, petty cash, membership, and receipts, in one app your church ru
 [![codecov](https://codecov.io/gh/ginutgeorge-Aus/parishcrm/graph/badge.svg)](https://codecov.io/gh/ginutgeorge-Aus/parishcrm)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ginutgeorge-Aus/parishcrm/badge)](https://scorecard.dev/viewer/?uri=github.com/ginutgeorge-Aus/parishcrm)
 
-📖 **[Documentation wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki)** — every feature in detail: how to use it, how it works, and how to configure it.
+🌐 **[Website & documentation](https://ginutgeorge-aus.github.io/parishcrm/)** — every feature in detail: how to use it, how it works, and how to configure it.
 
 > **Single-tenant by design.** One deployment per church, driven by settings a church
 > types in — not a multi-tenant SaaS. Your data stays on your server, encrypted at rest.
@@ -146,7 +146,7 @@ docs/                   topic docs + specs/plans
 - **Family self-update** — secure tokenised links let families review and update their own details.
 - **Ops** — in-app bug/feature reporting, "What's New" changelog, audit log, admin-customisable email templates.
 
-Full per-feature guides (usage by role, internals, configuration) live in the **[wiki](https://github.com/ginutgeorge-Aus/parishcrm/wiki)**.
+Full per-feature guides (usage by role, internals, configuration) live in the **[documentation](https://ginutgeorge-aus.github.io/parishcrm/docs/)**.
 
 ## Architecture
 
