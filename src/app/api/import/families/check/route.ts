@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
+import { isDemoMode, DEMO_IMPORT_MAX_BYTES } from "@/lib/demoMode"
 
 // Same cap as the sibling import route: a 5 MB CSV of minimal-width rows
 // parses into ~10^5 rows, which would build enormous `IN (...)` args on the two
@@ -79,6 +80,10 @@ export async function POST(req: NextRequest) {
   const file = formData.get("file") as File | null
   if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 })
   if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
+
+  if (isDemoMode() && file.size > DEMO_IMPORT_MAX_BYTES) {
+    return NextResponse.json({ error: "Demo imports are limited to 200 KB" }, { status: 413 })
+  }
 
   const content = await file.text()
   const { rows, errors } = parseCsv(content)

@@ -7,11 +7,15 @@ import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
+import { isDemoMode, DEMO_ERROR } from "@/lib/demoMode"
 
 // Thin transport wrapper: auth/role gate + per-user rate limit + body-size
 // cap + parse, then delegate the full validation/insert pipeline to the reusable,
 // unit-testable core in @/lib/bankImportConfirm, and log the audit trail.
 export async function POST(req: Request) {
+  // Live demo: preview works, committing rows does not.
+  if (isDemoMode()) return NextResponse.json({ error: DEMO_ERROR }, { status: 403 })
+
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canAccessAccounting(session.user?.role)) {

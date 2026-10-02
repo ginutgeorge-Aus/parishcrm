@@ -9,6 +9,7 @@ import { extractText } from "unpdf"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
+import { isDemoMode, DEMO_IMPORT_MAX_BYTES } from "@/lib/demoMode"
 
 // Cap the number of parsed rows before the dedup scan / per-row confirm inserts —
 // same resource-exhaustion class the families CSV import guards. A
@@ -45,6 +46,10 @@ async function readUploadedPdf(req: Request): Promise<RouteFailure | { ok: true;
 
   if (file.size > 50 * 1024 * 1024) {
     return { ok: false, error: "File too large (max 50MB)", status: 413 }
+  }
+
+  if (isDemoMode() && file.size > DEMO_IMPORT_MAX_BYTES) {
+    return { ok: false, error: "Demo imports are limited to 200 KB", status: 413 }
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
