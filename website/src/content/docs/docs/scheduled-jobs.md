@@ -1,15 +1,36 @@
 ---
 title: "Scheduled Jobs"
-description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, and an optional error digest — are plain HTTP…"
+description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, and an optional error digest — run in-app by default, or via HTTP…"
 ---
 
 A few background tasks — event reminder emails, abandoned-checkout cleanup,
-birthday/anniversary emails, and an optional error digest — are plain HTTP
-endpoints, not a built-in scheduler process. Call them with any scheduler you
-already run: system cron, a platform's scheduled-job feature, or a CI
-schedule.
+birthday/anniversary emails, and an optional error digest — run inside the
+app by default: an in-process timer starts at boot (`IN_APP_CRON`, on in
+production, off in development unless `IN_APP_CRON=true`) and checks for due
+jobs every 5 minutes. Nothing to schedule, as long as the app stays running.
+The same jobs are also plain HTTP endpoints you can call from an external
+scheduler.
 
-## Using it
+## In-app scheduler
+
+| Job | When it runs |
+|---|---|
+| Event reminders, abandoned-checkout cleanup | Every 30 minutes |
+| Birthday/anniversary emails | Once per Sydney day, from 07:00 |
+| Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
+
+A period job that does not fully succeed is retried 30 minutes later, at most
+3 times per day or week. The timer only fires while the process is up, so on a
+host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and use
+the endpoints below instead. Run a single app replica: each replica runs its
+own timer. **Do not run both** the in-app scheduler and an external cron —
+overlapping runs can occasionally resend an email.
+
+## Using the endpoints
+
+Use these for a host that sleeps, or if you set `IN_APP_CRON=false`. Call them
+with any scheduler you already run: system cron, a platform's
+scheduled-job feature, or a CI schedule.
 
 Each endpoint is a `POST` guarded by a bearer secret:
 
@@ -36,10 +57,13 @@ environment and your scheduler's `Authorization: Bearer` header.
 
 - **Idempotent, not fire-and-forget.** A crash mid-run, or two overlapping
   invocations, must never double-send an email or double-process a record.
-  `send-reminders` and `send-celebrations` use a durable per-record claim
-  (set atomically before sending, confirmed only after delivery succeeds) so
-  a retried or overlapping run safely skips anything already sent or
-  in-flight, and can reclaim a stale claim left by a crashed run.
+  `send-celebrations` uses a durable per-record claim (set atomically before
+  sending, confirmed only after delivery succeeds) so a retried or
+  overlapping run safely skips anything already sent or in-flight, and can
+  reclaim a stale claim left by a crashed run. `send-reminders` claims at the
+  event level instead: an event's reminder is marked sent once any recipient
+  succeeds (and released only if every send fails), so a recipient whose send
+  failed in a partly-successful run is not retried.
 - **`sweep-checkouts`** simply expires any checkout session still `OPEN` past
   its expiry time and clears its staged payload — a plain, safe-to-repeat
   bulk update.
@@ -59,6 +83,8 @@ environment and your scheduler's `Authorization: Bearer` header.
 
 | Variable | Effect |
 |---|---|
+| `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on/off. Unset = on in production only. |
+| `ERROR_DIGEST` | `true` enables the weekly error digest (also needs `GITHUB_TOKEN`/`GITHUB_REPO`). |
 | `CRON_SECRET` | Required for all four endpoints to do anything. Unset = every call returns `503`. |
 | `GITHUB_TOKEN`, `GITHUB_REPO` | Required for `error-issues` to file anything — otherwise it's a harmless no-op call. |
 

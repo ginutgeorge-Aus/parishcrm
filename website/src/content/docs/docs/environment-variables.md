@@ -32,6 +32,13 @@ fallbacks used until an admin fills in the Settings form (see below).
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Gmail SMTP credentials (or use `RESEND_API_KEY` + `MAIL_FROM` instead) for sign-in codes (OTP), receipts, and notification emails. Required at boot unless `DISABLE_OTP` is set (local dev only); every other email feature still needs them regardless. The password is a Gmail **app password**, not the account login — see [Gmail Setup](/parishcrm/docs/gmail-setup/). |
 | `RESEND_API_KEY`, `MAIL_FROM` | Alternative to Gmail: Resend HTTPS API key + sender address on a verified domain. Setting the key switches all mail to Resend (use where SMTP is blocked, e.g. Railway Hobby). See [Gmail Setup](/parishcrm/docs/gmail-setup/). |
 
+## Setup and startup (optional)
+
+| Variable | Purpose |
+|---|---|
+| `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. The page disables itself once any user exists; unset it after setup. |
+| `MIGRATE_ON_START` | Default `true`: the container runs `prisma migrate deploy` before starting. Set `false` to manage migrations yourself (e.g. a separate pre-deploy job). |
+
 ## Church identity (fallbacks)
 
 Used until an ADMIN fills in **Settings → Church Information**, which then
@@ -72,6 +79,8 @@ See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
 
 | Variable | Purpose |
 |---|---|
+| `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on or off. Unset = on in production only. Set `false` on a host that sleeps/scales to zero and call the endpoints below instead; don't run both. |
+| `ERROR_DIGEST` | `true` enables the weekly error digest in the in-app scheduler. Also needs `GITHUB_TOKEN` and `GITHUB_REPO`. |
 | `CRON_SECRET` | Bearer secret required by `POST /api/cron/{send-reminders,sweep-checkouts,send-celebrations,error-issues}`. Unset = those endpoints refuse every call, disabling reminders, celebration emails, the abandoned-checkout cleanup sweep, and (if configured) the error digest. |
 
 ## Card payments (optional)

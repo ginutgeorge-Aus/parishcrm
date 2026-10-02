@@ -11,7 +11,7 @@ Most of these emails are triggered automatically by app actions — there is no 
 
 - **Welcome Letter** (`/welcome-letter`) — see [Membership-Letters](/parishcrm/docs/membership-letters/).
 - **Receipts** — sent from a transaction's detail page or in bulk from the accounting reports (single-receipt or batch send; batches skip any donor who hasn't given email consent).
-- **Event reminders / payment reminders** — mostly automatic (see below), with a manual "send now" available to event organisers/staff on an event's registrations page.
+- **Event reminders / payment reminders** — event reminders are sent automatically (see below), with a manual "send now" available to event organisers/staff on an event's registrations page; payment reminders are manual only.
 - **Birthday / anniversary emails** — an admin can send one manually from the relevant person/family record, or send a test copy to themselves from **Settings** to preview the current template.
 
 An applicant or family member never needs to do anything to *receive* these emails beyond having a valid email address on file — delivery is entirely staff- or system-initiated.
@@ -39,8 +39,8 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 | New membership application | A public application is submitted | Goes to the parish office (see [Membership-Applications](/parishcrm/docs/membership-applications/)) with the completed application PDF attached; no PII in the notification body itself, just a link into the review inbox. |
 | Welcome letter | Staff sends a new-member welcome letter | PDF attached; see [Membership-Letters](/parishcrm/docs/membership-letters/). |
 | Event registration confirmation | A public event registration completes | Includes an `.ics` calendar attachment when applicable. |
-| Event reminder | Automatic daily sweep, or a manual organiser send | Upcoming-event nudge to registrants. |
-| Payment reminder | Automatic daily sweep, or a manual organiser send | Nudges registrants with an unpaid balance; amount is deliberately kept out of the subject line (PII-in-logs concern). |
+| Event reminder | Automatic scheduled sweep, or a manual organiser send | Upcoming-event nudge to registrants. |
+| Payment reminder | Manual staff send only | Nudges registrants with an unpaid balance; amount is deliberately kept out of the subject line (PII-in-logs concern). |
 | Receipt | Manual single/batch send from Accounting | Admin-customizable intro/signoff; the transaction description is never put in the subject (it's encrypted-at-rest PII, and subjects sit in plaintext in mail logs). |
 | DGR (tax-deductible giving) receipt | Annual receipt generation | Attached PDF; admin-customizable subject/intro. |
 | Birthday / anniversary blessing | Automatic daily sweep (opt-in per parish), or a manual per-person/bulk send | Skips anyone without email consent; the automatic sweep uses an idempotent claim so it can never double-send even if the cron fires twice. |
@@ -48,7 +48,7 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 
 ### Scheduled sends
 
-Two GitHub Actions workflows curl a bearer-authenticated cron endpoint daily: one drives event/payment reminders, one drives birthday/anniversary celebration emails. Both endpoints are otherwise public paths gated purely by a shared secret (`CRON_SECRET`), because the app scales to zero and has no internal scheduler.
+Event reminders and birthday/anniversary emails are sent by the app's in-process scheduler, on by default in production (`IN_APP_CRON`). On a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the bearer-authenticated `/api/cron/*` endpoints from an external scheduler instead — see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
 
 ### Customizable templates
 

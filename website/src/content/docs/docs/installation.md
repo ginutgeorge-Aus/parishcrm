@@ -15,8 +15,9 @@ everything church-specific is configuration, not code.
 
 - **PostgreSQL 16** (any host; add `sslmode=require` for a remote database)
 - A **container runtime** (Docker, or any platform that runs an OCI image)
-- An **SMTP-capable Gmail account + app password** (sign-in codes, receipts,
-  notifications) — see [Gmail Setup](/parishcrm/docs/gmail-setup/)
+- A **Gmail account + app password**, or a **Resend API key + `MAIL_FROM`**
+  sender address (sign-in codes, receipts, notifications) — see
+  [Gmail Setup](/parishcrm/docs/gmail-setup/)
 - **Node.js 24** on the machine you run admin scripts from (optional — the
   image applies migrations itself)
 

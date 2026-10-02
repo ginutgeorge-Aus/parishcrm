@@ -100,7 +100,8 @@ account-level lockout described in [Login-and-Two-Step-Verification](/parishcrm/
 503 page (with a short cache so the check itself doesn't hammer the database), used around
 deployments. It intentionally bypasses nobody — not even an admin — except a small set of
 health-check and static-asset paths needed to keep the deploy pipeline and the maintenance
-page itself working.
+page itself working, plus three signature- or bearer-secret-gated endpoints that don't use
+session auth: `/api/stripe/webhook`, `/api/cron/send-reminders` and `/api/cron/sweep-checkouts`.
 
 ## Configuration
 

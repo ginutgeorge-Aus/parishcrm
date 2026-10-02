@@ -47,10 +47,10 @@ arbitrary path.
 
 ### Privacy
 
-The page's database query explicitly selects only non-PII fields (`firstName`, `lastName`,
+The page's database query explicitly selects a reduced set of fields (`firstName`, `lastName`,
 `paymentStatus`, `totalAmount`, ticket type names) — it never fetches or decrypts email, phone,
-or custom-question answers, so there is no PII to leak even if the query were somehow exposed
-further. Cancelled registrations are excluded from both the booking list and the fill-rate
+or custom-question answers. Names, payment status and amounts are still personal data, so treat
+the link as sensitive and share it only with the crew who need it. Cancelled registrations are excluded from both the booking list and the fill-rate
 calculation, the same rule used everywhere else capacity is shown.
 
 ### Security

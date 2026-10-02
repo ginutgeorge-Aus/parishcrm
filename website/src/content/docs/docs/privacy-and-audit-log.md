@@ -17,8 +17,8 @@ underlying fields are protected, and [Roles-and-Permissions](/parishcrm/docs/rol
   pages).
 - An ADMIN can export a full JSON record of a person's stored data via the person export
   feature — used to respond to an access request.
-- Retention purges run automatically on a schedule; there's no manual "purge now" button in
-  the UI. See **How it works** for what's purged and when.
+- Retention purges are **not** run automatically by the app, and there's no "purge now" button
+  in the UI. Run the purge scripts yourself, ideally monthly — see **How it works**.
 
 ## How it works
 
@@ -51,7 +51,7 @@ and when, as part of receipt-audit accountability, without being able to see bro
 PII (see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/) for why `AUDITOR` is excluded from people/family records
 generally).
 
-**PII retention purges.** Two scheduled scripts anonymise personal data once it's no longer
+**PII retention purges.** Two operator-run scripts anonymise personal data once it's no longer
 needed for its original purpose, while preserving the aggregate figures accounting still
 needs:
 
@@ -70,8 +70,17 @@ needs:
 
 Both purges are idempotent — each table tracks its own "already anonymised" marker so
 re-running the script is a no-op for rows already handled — and dry-run by default, requiring
-an explicit apply flag to actually write. They're intended to run on a recurring schedule
-(monthly) against the production database.
+`--apply --yes` to actually write. The app's in-process scheduler does not run them, so schedule
+them yourself (monthly is the intent) against the production database, from a checkout at the
+same tag as your deployment:
+
+```bash
+npx tsx --env-file=.env scripts/purge-registration-pii.ts --apply --yes
+npx tsx --env-file=.env scripts/purge-membership-application-pii.ts --apply --yes
+```
+
+Run each without flags first to review the dry-run output. See
+[Operations Scripts](/parishcrm/docs/operations-scripts/).
 
 **Data access/correction requests.** The privacy policy directs data-subject requests to the
 parish office. Operationally, an ADMIN can produce a full JSON export of a person's stored
