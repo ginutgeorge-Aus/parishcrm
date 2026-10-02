@@ -11,7 +11,7 @@ Most of these emails are triggered automatically by app actions — there is no 
 
 - **Welcome Letter** (`/welcome-letter`) — see [Membership-Letters](/parishcrm/docs/membership-letters/).
 - **Receipts** — sent from a transaction's detail page or in bulk from the accounting reports (single-receipt or batch send; batches skip any donor who hasn't given email consent).
-- **Event reminders / payment reminders** — event reminders are sent automatically (see below), with a manual "send now" available to event organisers/staff on an event's registrations page; payment reminders are manual only.
+- **Event reminders / payment reminders** — event reminders are sent automatically (see below), with no manual trigger (see [Event Reminders](/parishcrm/docs/event-reminders/)); payment reminders are manual only.
 - **Birthday / anniversary emails** — an admin can send one manually from the relevant person/family record, or send a test copy to themselves from **Settings** to preview the current template.
 
 An applicant or family member never needs to do anything to *receive* these emails beyond having a valid email address on file — delivery is entirely staff- or system-initiated.

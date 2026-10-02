@@ -3,7 +3,7 @@ title: "Financial Reports"
 description: "All accounting reports live under /accounting/reports/*, are visible to anyone with canViewAccounting (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a…"
 ---
 
-All accounting reports live under `/accounting/reports/*`, are visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a `VIEW_FINANCIAL_REPORT` audit entry on every page load (a CSV/PDF export logs a separate `EXPORT_FINANCIAL_REPORT`/`EXPORT_...` entry). Every report has a print-friendly view (a `PrintButton` that triggers the browser's print dialog against print-specific styling, or in the P&L's case a dedicated `(print)` route-group page), and most support a CSV download for spreadsheet work.
+Accounting reports live under `/accounting/reports/*` (the Dues report is at `/accounting/dues`), are visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a `VIEW_FINANCIAL_REPORT` audit entry on every page load (a CSV/PDF export logs a separate `EXPORT_FINANCIAL_REPORT`/`EXPORT_...` entry). Every report has a print-friendly view (a `PrintButton` that triggers the browser's print dialog against print-specific styling, or in the P&L's case a dedicated `(print)` route-group page), and most support a CSV download for spreadsheet work.
 
 ## Using it
 
@@ -17,7 +17,7 @@ All accounting reports live under `/accounting/reports/*`, are visible to anyone
 | **Budget vs Actual** (`/accounting/reports/budget-vs-actual`) | See [Budgets](/parishcrm/docs/budgets/) | |
 | **Fund Report** (`/accounting/reports/funds`) | Income/expense/net per [fund](/parishcrm/docs/accounting-overview/) for a FY, including an "unassigned" bucket for entries with no fund | |
 | **Giving Summary** (`/accounting/reports/giving-summary`) | Per-family total giving for a FY — the basis for tax receipting | Donor email is only shown to roles that can also view people (`canViewPeople`) — AUDITOR is accounting-only and never sees decrypted donor email, on screen or in the export |
-| **Dues** (`/accounting/reports/dues`) | Per-family subscription/membership-dues payment status for a FY, with an "owing only" filter | Matches against a specific seeded income account by its account code |
+| **Dues** (`/accounting/dues`) | Per-family subscription/membership-dues payment status for a FY, with an "owing only" filter | Matches against a specific seeded income account by its account code |
 | **Reconciliation report** (`/accounting/reports/reconciliation`) | Printable snapshot of the reconciliation equation for one statement date | The day-to-day working version is [Reconciliation](/parishcrm/docs/reconciliation/) |
 
 CSV exports (e.g. the transaction list, giving summary) prefix any cell starting with `=`, `+`, `-`, or `@` with a leading apostrophe — a standard defence against formula injection when a spreadsheet later opens the file.

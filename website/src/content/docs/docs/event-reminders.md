@@ -44,7 +44,7 @@ rest of the batch.
 
 ### Automated reminder sweep (`src/lib/reminderSweep.ts`, `src/lib/eventReminders.ts`)
 
-`POST /api/cron/send-reminders` is a bearer-token-gated endpoint, called by a scheduled job once
+`POST /api/cron/send-reminders` is a bearer-token-gated endpoint. The in-app scheduler calls the same sweep by default (see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/)); an external scheduled job should call it once
 a day (plus several short-interval recovery calls shortly after, to catch a run that crashed
 mid-send). For each candidate event:
 
@@ -85,7 +85,7 @@ mid-send). For each candidate event:
 | Var | Effect |
 |-----|--------|
 | `CRON_SECRET` | Bearer token the automated reminder sweep (and the abandoned-checkout sweep — see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/)) must present. Unset makes the endpoint refuse every call (HTTP 503) rather than silently sending nothing — a misconfiguration is meant to be loud, not a quiet no-op |
-| Scheduling | The reminder sweep and checkout sweep are triggered by an external scheduler (e.g. a daily/hourly CI job) calling their endpoints with the bearer token — the app itself has no built-in scheduler |
+| `IN_APP_CRON` | The reminder and checkout sweeps run from the app's built-in scheduler, on by default in production. Only on a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the endpoints from an external scheduler with the bearer token. Never run both — overlapping runs can resend mail. See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/) |
 
 Manual payment reminders have no separate configuration — they use the same outbound email
 setup as every other transactional email in the app.

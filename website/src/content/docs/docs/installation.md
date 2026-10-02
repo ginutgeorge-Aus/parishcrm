@@ -87,7 +87,7 @@ restarts on the new image — see [Upgrading](/parishcrm/docs/upgrading/).
 ```bash
 sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' .env > .env.docker
 
-docker run -d --name parishcrm --env-file .env.docker -p 3000:3000 \
+docker run -d --restart unless-stopped --name parishcrm --env-file .env.docker -p 3000:3000 \
   ghcr.io/<owner>/<repo>:vX.Y.Z
 ```
 
