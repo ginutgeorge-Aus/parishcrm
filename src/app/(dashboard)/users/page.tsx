@@ -19,6 +19,7 @@ import { UnlockUserButton } from "@/components/users/UnlockUserButton"
 import { ResetTotpButton } from "@/components/users/ResetTotpButton"
 import { ResendWelcomeButton } from "@/components/users/ResendWelcomeButton"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { DemoNotice } from "@/components/DemoNotice"
 
 const roleVariant: Record<UserRole, "default" | "secondary" | "outline"> = {
   ADMIN: "default",
@@ -74,6 +75,7 @@ export default async function UsersPage() {
           <Link href="/users/new">New user</Link>
         </Button>
       </div>
+      <DemoNotice />
 
       {/* Mobile: card per user (avoids sideways scroll to reach row actions) */}
       <ul className="space-y-2 md:hidden">

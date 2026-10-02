@@ -20,6 +20,7 @@ import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSection"
 import { senderAddress } from "@/lib/mailConfig"
+import { DemoNotice } from "@/components/DemoNotice"
 
 const GIT_SHA_DISPLAY_LENGTH = 7
 
@@ -66,6 +67,7 @@ export default async function SettingsPage() {
   return (
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-6">App Settings</h2>
+      <DemoNotice />
       <div className="space-y-10 max-w-lg">
         <ChurchInfoForm
           churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
