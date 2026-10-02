@@ -67,6 +67,11 @@ jest.mock("@/lib/totpVerify", () => ({ verifySecondFactor: jest.fn() }))
 
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 
+jest.mock("@/lib/demoMode", () => ({
+  isDemoMode: jest.fn(),
+  isDemoEmail: jest.fn(),
+}))
+
 jest.mock("@/lib/trustedDevice", () => ({
   DEVICE_TRUST_GRANT_PREFIX: "grant:",
   DEVICE_TRUST_GRANT_TTL_MS: 300000,
@@ -89,6 +94,7 @@ import { authorizeCredentials, AccountLocked, OtpSent, OtpDeliveryFailed, TotpRe
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
+import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 
 const nextAuthOptions = (NextAuth as jest.Mock).mock.calls[0][0]
 
@@ -1153,5 +1159,46 @@ describe("authorizeCredentials — TOTP", () => {
       email: "admin@example.com", password: "correctpassword", mode: "totp", code: "123456", remember: "true",
     })
     expect(result).toMatchObject({ deviceTrustGrant: "grant1", remember: true })
+  })
+})
+
+describe("authorizeCredentials — demo mode", () => {
+  const demoUser = { ...baseUser, id: 9, email: "admin@demo.invalid", name: "Demo Admin", archivedAt: null }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(demoUser)
+    ;(isDemoMode as jest.Mock).mockReturnValue(false)
+    ;(isDemoEmail as jest.Mock).mockReturnValue(false)
+  })
+
+  it("rejects mode=demo when DEMO_MODE is off", async () => {
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-reserved email even in demo mode", async () => {
+    ;(isDemoMode as jest.Mock).mockReturnValue(true)
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "demo" })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("rejects a missing or archived demo user", async () => {
+    ;(isDemoMode as jest.Mock).mockReturnValue(true)
+    ;(isDemoEmail as jest.Mock).mockReturnValue(true)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce(null)
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce({ ...demoUser, archivedAt: new Date() })
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+  })
+
+  it("signs in without password or second factor and creates no trust grant", async () => {
+    ;(isDemoMode as jest.Mock).mockReturnValue(true)
+    ;(isDemoEmail as jest.Mock).mockReturnValue(true)
+    const user = await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })
+    expect(user).toEqual({ id: "9", name: "Demo Admin", email: "admin@demo.invalid", role: "ADMIN", remember: false })
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
+    expect(logAudit).toHaveBeenCalledWith(9, "USER_LOGIN", "User", 9, { demo: true }, undefined)
   })
 })

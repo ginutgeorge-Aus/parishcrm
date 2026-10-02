@@ -13,6 +13,7 @@ import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
 import { auditIpFromHeaders } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
+import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 
 // bcrypt hash (cost 12, matching the real hash cost used at
 // signup/reset — src/lib/actions/auth.ts, src/lib/actions/user.ts) for a dummy
@@ -214,6 +215,20 @@ export async function authorizeCredentials(
     // diagnosable from container logs. No PII beyond the ip already logged.
     logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
     return null
+  }
+
+  // Live demo one-click login (/login role buttons). Honoured ONLY when
+  // DEMO_MODE=true AND the email is on the reserved @demo.invalid domain, so a
+  // real deployment that sets the flag by mistake still has no account this can
+  // reach. No password, no OTP/TOTP, no trusted-device grant. Still behind the
+  // per-IP throttle above.
+  if (credentials.mode === "demo") {
+    const email = String(credentials.email)
+    if (!isDemoMode() || !isDemoEmail(email)) return null
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user || user.archivedAt) return null
+    void logAudit(user.id, "USER_LOGIN", "User", user.id, { demo: true }, ip)
+    return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: false }
   }
 
   if (credentials.mode === "otp") {
