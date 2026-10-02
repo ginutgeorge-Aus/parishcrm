@@ -1,8 +1,9 @@
 name: Wiki check
 
-# Advisory: lists wiki pages that cite files a PR changes, and flags feat PRs
-# (and new source files) the wiki doesn't explain yet. On the release-please
-# PR it covers everything since the last tag — the pre-release wiki checklist.
+# Advisory: lists docs pages (website/src/content/docs) that cite files a PR
+# changes, and flags feat PRs (and new source files) the docs don't explain yet.
+# On the release-please PR it covers everything since the last tag — the
+# pre-release docs checklist.
 # Never fails; read the job summary.
 on:
   pull_request:
@@ -19,12 +20,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ github.repository }}.wiki
-          path: .wiki
-          persist-credentials: false
-      - name: Check wiki coverage
+      - name: Check docs coverage
         env:
           HEAD_REF: ${{ github.head_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -36,7 +32,7 @@ jobs:
           # Release mode only for release-please's own branch, never a fork's.
           if [[ "$HEAD_REF" == release-please--* && "$HEAD_REPO" == "$REPO" ]]; then
             tag=$(git describe --tags --abbrev=0 "$BASE_SHA" 2>/dev/null || git rev-list --max-parents=0 HEAD)
-            .github/scripts/wiki-check.sh "$tag..$BASE_SHA" .wiki
+            .github/scripts/wiki-check.sh "$tag..$BASE_SHA" website/src/content/docs/docs
           else
-            .github/scripts/wiki-check.sh "$BASE_SHA...$HEAD_SHA" .wiki "$PR_TITLE"
+            .github/scripts/wiki-check.sh "$BASE_SHA...$HEAD_SHA" website/src/content/docs/docs "$PR_TITLE"
           fi

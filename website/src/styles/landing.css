@@ -1,0 +1,22 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+html {
+  background: var(--pc-bg);
+  color: var(--pc-ink);
+  font-family: var(--pc-font-sans);
+  scroll-behavior: smooth;
+}
+
+/* Fraunces headings: slightly tightened for a calm, bookish set. */
+.font-display { letter-spacing: -0.015em; }
+
+:focus-visible {
+  outline: 2px solid var(--pc-brand);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; }
+}

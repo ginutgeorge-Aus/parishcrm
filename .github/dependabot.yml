@@ -39,6 +39,22 @@ updates:
           - "prisma"
           - "@prisma/*"
 
+  # Project website (Astro/Starlight) — separate lockfile under website/.
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 3
+    groups:
+      website:
+        patterns:
+          - "*"
+
   # SHA-pinned actions don't auto-update — Dependabot bumps the pins (and the
   # version comment) so workflows stay on current, patched action releases.
   - package-ecosystem: "github-actions"

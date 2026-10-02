@@ -1,0 +1,13 @@
+family_name,first_name,last_name,role,gender,classification,member_no,address,suburb,state,postcode,email,mobile,dob
+Abraham,Thomas,Abraham,HEAD,MALE,MEMBER,M-1001,12 Willow Street,Hamilton,NSW,2303,thomas.abraham@example.com,0400000001,1976-03-14
+Abraham,Mary,Abraham,SPOUSE,FEMALE,MEMBER,,,,,,mary.abraham@example.com,0400000002,1979-07-22
+Abraham,Elena,Abraham,CHILD,FEMALE,MEMBER,,,,,,,,2008-11-05
+Varghese,Philip,Varghese,HEAD,MALE,MEMBER,M-1002,4 Banksia Close,Merewether,NSW,2291,philip.varghese@example.com,0400000003,1969-01-30
+Varghese,Susan,Varghese,SPOUSE,FEMALE,MEMBER,,,,,,susan.varghese@example.com,0400000004,1972-05-18
+Mathew,Daniel,Mathew,HEAD,MALE,MEMBER,M-1003,88 Harbour Road,Carrington,NSW,2294,daniel.mathew@example.com,0400000005,1985-09-09
+Mathew,Leah,Mathew,SPOUSE,FEMALE,MEMBER,,,,,,leah.mathew@example.com,0400000006,1987-12-01
+Mathew,Noah,Mathew,CHILD,MALE,MEMBER,,,,,,,,2015-04-27
+Kurian,Grace,Kurian,HEAD,FEMALE,MEMBER,M-1004,23 Ocean Parade,Bar Beach,NSW,2300,grace.kurian@example.com,0400000007,1958-06-12
+Joseph,Samuel,Joseph,HEAD,MALE,VISITOR,M-1005,7 Elm Avenue,Lambton,NSW,2299,samuel.joseph@example.com,0400000008,1991-02-03
+Joseph,Anna,Joseph,SPOUSE,FEMALE,VISITOR,,,,,,anna.joseph@example.com,0400000009,1993-08-16
+Chacko,Benjamin,Chacko,HEAD,MALE,MEMBER,M-1006,51 Hill Street,Adamstown,NSW,2289,ben.chacko@example.com,0400000010,1980-10-21

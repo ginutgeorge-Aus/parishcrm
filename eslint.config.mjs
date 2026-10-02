@@ -3,7 +3,7 @@ import coreWebVitals from "eslint-config-next/core-web-vitals"
 import { buildNoRestrictedSyntaxOptions } from "./eslint-rules/rawPalette.cjs"
 
 const eslintConfig = [
-  { ignores: ["next-env.d.ts", ".next/**", "node_modules/**", "src/lib/generated/**"] },
+  { ignores: ["next-env.d.ts", ".next/**", "node_modules/**", "src/lib/generated/**", "website/**"] },
   ...coreWebVitals,
   {
     files: ["src/**/*.{ts,tsx}"],

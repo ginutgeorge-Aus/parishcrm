@@ -1,0 +1,27 @@
+---
+import { Lock, KeyRound, UserCog, ScrollText, Scale, Server } from '@lucide/astro'
+const items = [
+  { icon: Lock, title: 'Encrypted at rest', body: 'Contact details and notes sealed with AES-256-GCM.' },
+  { icon: KeyRound, title: 'Two-step sign-in', body: 'Email codes or an authenticator app, with lockouts.' },
+  { icon: UserCog, title: 'Role-based access', body: 'Pastoral notes and accounts only for those who need them.' },
+  { icon: ScrollText, title: 'Audit log', body: 'Who viewed or changed sensitive records, and when.' },
+  { icon: Scale, title: 'AGPL-3.0', body: 'Free forever. Read, change and run the code yourself.' },
+  { icon: Server, title: 'Self-hosted', body: 'One deployment per church — no shared SaaS database.' },
+]
+---
+<section class="mt-10 border-y border-line bg-surface">
+  <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
+    <h2 class="max-w-xl font-display text-3xl leading-tight font-medium text-balance sm:text-[2.75rem]">Built to protect your members' data</h2>
+    <ul class="mt-12 grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map(({ icon: Icon, title, body }) => (
+        <li class="flex gap-4">
+          <span class="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-bg text-brand"><Icon class="size-5" aria-hidden="true" stroke-width={1.75} /></span>
+          <div><h3 class="font-semibold">{title}</h3><p class="mt-1 text-sm leading-relaxed text-ink-muted">{body}</p></div>
+        </li>
+      ))}
+    </ul>
+    <a href="https://scorecard.dev/viewer/?uri=github.com/ginutgeorge-Aus/parishcrm" class="mt-12 inline-block">
+      <img src="https://api.scorecard.dev/projects/github.com/ginutgeorge-Aus/parishcrm/badge" alt="OpenSSF Scorecard" height="20" width="110" loading="lazy" />
+    </a>
+  </div>
+</section>

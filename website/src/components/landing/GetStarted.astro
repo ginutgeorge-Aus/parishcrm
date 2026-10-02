@@ -1,0 +1,22 @@
+---
+import { Container, TrainFront } from '@lucide/astro'
+import { url } from '../../lib/url'
+const paths = [
+  { icon: Container, title: 'Docker', body: 'Run the published container with Postgres alongside.', href: url('docs/installation/#4-run-the-container') },
+  { icon: TrainFront, title: 'One-click on Railway', body: 'Deploy from the ready-made template — database included.', href: 'https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/deploy/railway.md' },
+]
+---
+<section class="mx-auto max-w-6xl px-4 py-20 text-center sm:px-6 sm:py-28">
+  <h2 class="font-display text-3xl leading-tight font-medium text-balance sm:text-[2.75rem]">Up and running this week</h2>
+  <p class="mx-auto mt-4 max-w-xl leading-relaxed text-ink-muted text-pretty">Pick the install path that suits your volunteers. No licence fees, no per-member pricing.</p>
+  <ul class="mx-auto mt-12 grid max-w-3xl gap-4 text-left sm:grid-cols-2">
+    {paths.map(({ icon: Icon, title, body, href }) => (
+      <li>
+        <a href={href} class="group flex h-full gap-4 rounded-pc border border-line bg-surface p-6 transition-colors hover:border-brand">
+          <Icon class="size-6 shrink-0 text-brand" aria-hidden="true" stroke-width={1.75} />
+          <div><h3 class="font-semibold group-hover:text-brand">{title}</h3><p class="mt-2 text-sm leading-relaxed text-ink-muted">{body}</p></div>
+        </a>
+      </li>
+    ))}
+  </ul>
+</section>

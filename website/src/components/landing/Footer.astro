@@ -1,0 +1,17 @@
+---
+import { url } from '../../lib/url'
+const gh = 'https://github.com/ginutgeorge-Aus/parishcrm'
+const links = [
+  { href: url('docs/'), label: 'Documentation' },
+  { href: gh, label: 'GitHub' },
+  { href: `${gh}/blob/main/LICENSE`, label: 'Licence (AGPL-3.0)' },
+  { href: `${gh}/blob/main/SECURITY.md`, label: 'Security' },
+  { href: `${gh}/blob/main/CONTRIBUTING.md`, label: 'Contributing' },
+]
+---
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <p>ParishCRM — free church management, made in the open.</p>
+    <ul class="flex flex-wrap gap-x-6 gap-y-2">{links.map((l) => <li><a href={l.href} class="inline-block py-1 transition-colors hover:text-ink">{l.label}</a></li>)}</ul>
+  </div>
+</footer>

@@ -29,6 +29,7 @@ const config: Config = {
     "<rootDir>/node_modules/",
     "<rootDir>/.next/",
     "<rootDir>/.claude/",
+    "<rootDir>/website/",
   ],
   // Coverage is collected only when --coverage is passed (CI does; local
   // `npm test` stays fast). collectCoverageFrom spans all of src so a new

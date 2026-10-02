@@ -1,0 +1,25 @@
+---
+import { url } from '../../lib/url'
+import BrowserFrame from './BrowserFrame.astro'
+---
+<section class="relative isolate mx-auto max-w-6xl px-4 pt-16 pb-12 sm:px-6 sm:pt-24">
+  <!-- Quiet lancet-window outline behind the headline: the page's single nod to the parish setting. -->
+  <svg class="pointer-events-none absolute top-6 left-1/2 -z-10 h-[30rem] w-[22rem] -translate-x-1/2 text-line sm:top-8 sm:h-[36rem] sm:w-[28rem]"
+    viewBox="0 0 280 360" fill="none" aria-hidden="true" preserveAspectRatio="xMidYMin meet">
+    <path d="M10 360V170C10 80 70 20 140 2C210 20 270 80 270 170V360" stroke="currentColor" stroke-width="1.5" />
+    <path d="M34 360V176C34 100 82 50 140 32C198 50 246 100 246 176V360" stroke="currentColor" stroke-width="1" opacity="0.6" />
+  </svg>
+  <div class="mx-auto max-w-3xl text-center">
+    <p class="text-sm font-semibold text-accent">Free &amp; open source · AGPL-3.0</p>
+    <h1 class="mt-5 font-display text-[2.5rem] leading-[1.08] font-medium text-balance sm:text-6xl lg:text-7xl">Church management your parish owns</h1>
+    <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-ink-muted text-pretty">
+      Families and members, accounting, event ticketing, petty cash and tax receipts — in one
+      self-hosted app. Your data stays on your server, encrypted at rest.
+    </p>
+    <div class="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+      <a href={url('docs/installation/')} class="rounded-full bg-brand px-6 py-3 font-medium text-bg transition-colors hover:bg-brand-strong">Install it free</a>
+      <a href="https://github.com/ginutgeorge-Aus/parishcrm" class="rounded-full border border-ink-muted bg-bg px-6 py-3 font-medium transition-colors hover:bg-surface">View on GitHub</a>
+    </div>
+  </div>
+  <div class="mt-14 sm:mt-16"><BrowserFrame name="dashboard" alt="ParishCRM dashboard showing giving totals, upcoming events and birthdays" eager /></div>
+</section>

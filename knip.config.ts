@@ -34,6 +34,8 @@ const config: KnipConfig = {
     "scripts/**",
     // Claude Code local tooling (hooks, settings) — not part of the app build graph.
     ".claude/**",
+    // Project website — own package.json/deps, built by .github/workflows/pages.yml.
+    "website/**",
   ],
 }
 

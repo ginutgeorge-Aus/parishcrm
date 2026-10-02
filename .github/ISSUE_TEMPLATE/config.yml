@@ -9,6 +9,6 @@ contact_links:
   - name: Security vulnerability (private)
     url: https://github.com/ginutgeorge-Aus/parishcrm/security/policy
     about: Do NOT file security issues publicly. Report privately per SECURITY.md.
-  - name: Documentation wiki
-    url: https://github.com/ginutgeorge-Aus/parishcrm/wiki
-    about: How every feature works and how to configure it.
+  - name: Documentation
+    url: https://ginutgeorge-aus.github.io/parishcrm/docs/
+    about: User and admin documentation — how to use, configure and self-host the CRM.
