@@ -39,7 +39,7 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 | New membership application | A public application is submitted | Goes to the parish office (see [Membership-Applications](/parishcrm/docs/membership-applications/)) with the completed application PDF attached; no PII in the notification body itself, just a link into the review inbox. |
 | Welcome letter | Staff sends a new-member welcome letter | PDF attached; see [Membership-Letters](/parishcrm/docs/membership-letters/). |
 | Event registration confirmation | A public event registration completes | Includes an `.ics` calendar attachment when applicable. |
-| Event reminder | Automatic scheduled sweep, or a manual organiser send | Upcoming-event nudge to registrants. |
+| Event reminder | Automatic scheduled sweep only | Upcoming-event nudge to registrants. |
 | Payment reminder | Manual staff send only | Nudges registrants with an unpaid balance; amount is deliberately kept out of the subject line (PII-in-logs concern). |
 | Receipt | Manual single/batch send from Accounting | Admin-customizable intro/signoff; the transaction description is never put in the subject (it's encrypted-at-rest PII, and subjects sit in plaintext in mail logs). |
 | DGR (tax-deductible giving) receipt | Annual receipt generation | Attached PDF; admin-customizable subject/intro. |
