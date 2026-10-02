@@ -7,6 +7,7 @@ import { parseTiers } from "@/lib/eventTiers"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { EventImageKind } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
+import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
 
 export const EventSchema = z.object({
   title: z.string().min(1, "Title required").max(200),
@@ -154,6 +155,7 @@ export async function parseImageUpload(
 ): Promise<{ error: string } | ImageOp> {
   const file = formData.get(`${field}File`)
   if (file instanceof File && file.size > 0) {
+    if (isDemoMode()) return { error: DEMO_ERROR }
     if (!ALLOWED_IMAGE_MIME.has(file.type)) return { error: "Image must be JPEG, PNG or WebP" }
     if (file.size > MAX_IMAGE_BYTES) return { error: "Image must be 2 MB or smaller" }
     const ab = await file.arrayBuffer()

@@ -17,6 +17,7 @@ import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { assertNotDemo } from "@/lib/demoMode"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
 
@@ -164,6 +165,8 @@ export async function createUser(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -282,6 +285,8 @@ export async function updateUser(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -333,6 +338,8 @@ export async function updateUser(
 }
 
 export async function unlockUser(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -359,6 +366,8 @@ export async function unlockUser(id: number): Promise<ActionResult> {
 }
 
 export async function resetUserTotp(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -391,6 +400,8 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
 }
 
 export async function deleteUser(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -452,6 +463,8 @@ export async function deleteUser(id: number): Promise<ActionResult> {
 }
 
 export async function resendWelcome(id: number): Promise<{ success: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }

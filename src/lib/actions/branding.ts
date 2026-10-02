@@ -9,6 +9,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { IMAGE_SLOT_BY_PARAM } from "@/lib/branding"
 import type { ActionResultWithSuccess } from "./types"
+import { assertNotDemo } from "@/lib/demoMode"
 
 // Raster only. SVG is deliberately excluded: an uploaded SVG is served verbatim
 // from the same-origin /api/branding/[slot] route, and SVG can carry <script>, so
@@ -25,6 +26,8 @@ const MAX_DIMENSION = 2048
 // input (slot/file), not after, so an unauthenticated/under-privileged caller
 // never triggers a DB read or sharp decode.
 export async function uploadBranding(param: string, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised." }
 
@@ -77,6 +80,8 @@ export async function uploadBranding(param: string, formData: FormData): Promise
 }
 
 export async function resetBranding(param: string): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised." }
 

@@ -17,6 +17,7 @@ import {
   TOTP_CLEARED, TOTP_CODE_RE, generateBackupCodes, generateTotpSecret, matchTotpStep, normaliseBackupCode, totpKeyUri,
 } from "@/lib/totp"
 import { verifySecondFactor } from "@/lib/totpVerify"
+import { assertNotDemo } from "@/lib/demoMode"
 
 export type TotpStatus = { enabled: boolean; backupCodesRemaining: number }
 
@@ -92,6 +93,8 @@ export async function getTotpStatus(): Promise<TotpStatus> {
 export async function startTotpEnrolment(): Promise<
   { error: string } | { success: true; qrDataUrl: string; manualKey: string }
 > {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const userId = await sessionUserId()
   if (!userId) return UNAUTHORIZED
   const user = await prisma.user.findUnique({
@@ -112,6 +115,8 @@ export async function confirmTotpEnrolment(
   code: string,
   password: string,
 ): Promise<{ error: string } | { success: true; backupCodes: string[] }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const userId = await sessionUserId()
   if (!userId) return UNAUTHORIZED
   if (!(await codeAttemptAllowed(userId))) return RATE_LIMITED
@@ -160,6 +165,8 @@ export async function confirmTotpEnrolment(
 }
 
 export async function cancelTotpEnrolment(): Promise<{ error: string } | { success: true }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const userId = await sessionUserId()
   if (!userId) return UNAUTHORIZED
   await prisma.user.update({ where: { id: userId }, data: { totpPendingSecret: null } })
@@ -176,6 +183,8 @@ async function enrolledUser(userId: number) {
 export async function regenerateBackupCodes(
   code: string,
 ): Promise<{ error: string } | { success: true; backupCodes: string[] }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const userId = await sessionUserId()
   if (!userId) return UNAUTHORIZED
   if (!(await codeAttemptAllowed(userId))) return RATE_LIMITED
@@ -208,6 +217,8 @@ export async function regenerateBackupCodes(
 }
 
 export async function disableTotp(code: string): Promise<{ error: string } | { success: true }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const userId = await sessionUserId()
   if (!userId) return UNAUTHORIZED
   if (!(await codeAttemptAllowed(userId))) return RATE_LIMITED

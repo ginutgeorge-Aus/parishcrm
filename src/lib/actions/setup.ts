@@ -14,6 +14,7 @@ import { isSetupOpen } from "@/lib/setupState"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { assertNotDemo } from "@/lib/demoMode"
 
 const UNAVAILABLE = "Setup is not available."
 const SETUP_LIMIT = 10
@@ -33,6 +34,8 @@ type SetupResult = { error: string; field?: SetupField } | { success: true }
 class SetupClosedError extends Error {}
 
 export async function createFirstAdmin(formData: FormData): Promise<SetupResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   // Closed setup (no SETUP_TOKEN, or users exist) bails before any DB write.
   if (!(await isSetupOpen())) return { error: UNAVAILABLE }
 

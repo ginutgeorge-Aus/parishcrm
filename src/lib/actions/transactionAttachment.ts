@@ -10,6 +10,7 @@ import { encrypt } from "@/lib/crypto"
 import { isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
+import { assertNotDemo } from "@/lib/demoMode"
 
 // Receipt/invoice attachments for a transaction, mirroring Xero's
 // "attach files". Storage reuses the EventImage pattern — the bytes live in a
@@ -52,6 +53,8 @@ export async function attachTransactionReceipt(
   _prev: ActionResult,
   formData: FormData,
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -114,6 +117,8 @@ export async function attachTransactionReceipt(
 }
 
 export async function removeTransactionReceipt(attachmentId: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

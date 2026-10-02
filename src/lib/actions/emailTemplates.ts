@@ -24,6 +24,7 @@ import { sendEmail } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import type { ActionResultWithSuccess } from "./types"
+import { assertNotDemo } from "@/lib/demoMode"
 
 const SAMPLE_APP_URL = process.env.AUTH_URL ?? "https://app.example.com"
 
@@ -119,6 +120,8 @@ async function renderTemplate(key: EmailTemplateKey, f: EmailTemplateFields): Pr
 }
 
 export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FieldsSchema.safeParse(Object.fromEntries(formData))
@@ -137,6 +140,8 @@ export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formDa
 }
 
 export async function resetEmailTemplate(key: EmailTemplateKey): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!KEY_SET.has(key)) return { error: "Invalid template" }
@@ -164,6 +169,8 @@ export async function previewEmailTemplate(
 }
 
 export async function sendTestEmail(key: EmailTemplateKey, draft: EmailTemplateFields): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FieldsSchema.safeParse({ key, ...draft })

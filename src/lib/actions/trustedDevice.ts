@@ -12,6 +12,7 @@ import {
   generateDeviceToken,
   hashDeviceToken,
 } from "@/lib/trustedDevice"
+import { assertNotDemo } from "@/lib/demoMode"
 
 const secureCookie =
   process.env.NODE_ENV === "production" && process.env.E2E_ALLOW_TEST_OVERRIDES !== "true"
@@ -20,6 +21,8 @@ const secureCookie =
 // was checked. authorize() can't set response cookies, so the write happens here
 // against the freshly-authenticated session.
 export async function trustDevice(): Promise<{ success: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   // Number() (not parseInt) is deliberate: it rejects trailing-junk ids like
   // "7junk" as NaN, which isValidPgId then fails, instead of coercing to 7.
@@ -65,6 +68,8 @@ export async function trustDevice(): Promise<{ success: true } | { error: string
 }
 
 export async function revokeTrustedDevice(id: string): Promise<{ success: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   const userId = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
   if (!isValidPgId(userId)) return { error: "Unauthorized" }
