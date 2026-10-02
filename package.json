@@ -27,6 +27,7 @@
     "db:stop": "docker compose down",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
+    "demo:seed": "tsx scripts/demo/seed-demo.ts",
     "db:studio": "prisma studio",
     "knip": "knip",
     "sbom": "npm sbom --sbom-format cyclonedx",
