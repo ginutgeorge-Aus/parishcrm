@@ -2,13 +2,13 @@
   "name": "parishcrm-website",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "node --test \"scripts/*.test.mjs\"",
-    "migrate": "node scripts/migrate-wiki.mjs",
     "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
