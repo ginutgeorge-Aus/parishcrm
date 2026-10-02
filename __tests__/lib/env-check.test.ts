@@ -22,6 +22,10 @@ const VARS = [
   "CHURCH_NAME",
   "CONTAINER_APP_REPLICA_COUNT",
   "CRON_SECRET",
+  "DEMO_MODE",
+  "STRIPE_SECRET_KEY",
+  "APPLICATIONINSIGHTS_CONNECTION_STRING",
+  "GITHUB_TOKEN",
 ] as const
 
 describe("env-check", () => {
@@ -202,6 +206,48 @@ describe("env-check", () => {
 
   it("does not require WEBSITE_SYNC_SECRET when the URL is unset (sync disabled)", () => {
     expect(collectEnvErrors()).toEqual([])
+  })
+
+  describe("DEMO_MODE", () => {
+    beforeEach(() => {
+      process.env.DEMO_MODE = "true"
+      delete process.env.GMAIL_USER
+      delete process.env.GMAIL_APP_PASSWORD
+    })
+
+    it("boots with no mail credentials", () => {
+      expect(collectEnvErrors()).toEqual([])
+    })
+
+    it.each([
+      ["GMAIL_USER", "a@b.com"],
+      ["GMAIL_APP_PASSWORD", "x"],
+      ["RESEND_API_KEY", "re_x"],
+      ["WEBSITE_SYNC_URL", "https://example.com/hook"],
+      ["WEBSITE_SYNC_SECRET", "s"],
+      ["APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=x"],
+      ["GITHUB_TOKEN", "ghp_x"],
+    ])("rejects %s", (name, value) => {
+      process.env[name] = value
+      expect(collectEnvErrors()).toContain(`${name} must not be set when DEMO_MODE=true`)
+    })
+
+    it("rejects a live Stripe key but allows a test key", () => {
+      process.env.STRIPE_SECRET_KEY = "sk_live_abc"
+      expect(collectEnvErrors()).toContain("STRIPE_SECRET_KEY must be a test key (sk_test_) when DEMO_MODE=true")
+      process.env.STRIPE_SECRET_KEY = "sk_test_abc"
+      expect(collectEnvErrors()).toEqual([])
+    })
+
+    it("warns loudly at boot", () => {
+      expect(collectEnvWarnings().some((w) => w.startsWith("DEMO_MODE=true"))).toBe(true)
+    })
+  })
+
+  it("adds no demo errors or warnings when DEMO_MODE is unset", () => {
+    process.env.GITHUB_TOKEN = "ghp_x"
+    expect(collectEnvErrors()).toEqual([])
+    expect(collectEnvWarnings().some((w) => w.startsWith("DEMO_MODE"))).toBe(false)
   })
 
   describe("collectEnvWarnings", () => {
