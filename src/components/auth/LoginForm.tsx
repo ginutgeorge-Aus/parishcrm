@@ -14,7 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { trustDevice } from "@/lib/actions/trustedDevice"
 
-export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
+export function LoginForm({
+  churchName,
+  demoLogins,
+}: Readonly<{ churchName: string; demoLogins?: ReadonlyArray<{ label: string; email: string }> }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const didReset = searchParams.get("reset") === "1"
@@ -26,6 +29,7 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
   const [totpCode, setTotpCode] = useState("")
   const [useBackup, setUseBackup] = useState(false)
   const [error, setError] = useState("")
+  const [demoError, setDemoError] = useState("")
   const [loading, setLoading] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const [resendMsg, setResendMsg] = useState("")
@@ -117,6 +121,24 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
       // object; surface a retry message so the button isn't left stuck on
       // "Signing in…" with no feedback.
       setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDemoLogin(demoEmail: string) {
+    setDemoError("")
+    setLoading(true)
+    try {
+      const result = await signIn("credentials", { email: demoEmail, mode: "demo", redirect: false })
+      if (result?.ok && !result.error) {
+        router.push("/")
+        router.refresh()
+      } else {
+        setDemoError("Demo sign-in failed. Please try again.")
+      }
+    } catch {
+      setDemoError("Demo sign-in failed. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -258,6 +280,19 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
         </p>
       </CardHeader>
       <CardContent>
+        {demoLogins && demoLogins.length > 0 && step === "password" && (
+          <div className="mb-6 space-y-2">
+            <p className="text-sm font-medium text-foreground">Explore the live demo as:</p>
+            <div className="grid grid-cols-2 gap-2">
+              {demoLogins.map((l) => (
+                <Button key={l.email} type="button" variant="outline" disabled={loading} onClick={() => handleDemoLogin(l.email)}>
+                  Try as {l.label}
+                </Button>
+              ))}
+            </div>
+            {demoError && <FormFeedback state={{ error: demoError }} id="demo-login-error" />}
+          </div>
+        )}
         {didReset && (
           <div className="mb-4 rounded-md bg-success/10 border border-success/40 p-3 text-sm text-success">
             Password updated. Please sign in with your new password.
@@ -319,11 +354,13 @@ export function LoginForm({ churchName }: Readonly<{ churchName: string }>) {
                 Remember this device (skip the code for 14 days)
               </Label>
             </div>
-            <div className="text-right">
-              <Link href="/forgot-password" className="inline-flex items-center min-h-11 min-w-[44px] text-xs text-muted-foreground hover:underline">
-                Forgot password?
-              </Link>
-            </div>
+            {!demoLogins && (
+              <div className="text-right">
+                <Link href="/forgot-password" className="inline-flex items-center min-h-11 min-w-[44px] text-xs text-muted-foreground hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+            )}
             <FormFeedback state={{ error }} id="login-error" />
             <Button type="submit" className="w-full" disabled={loading || isLocked}>
               {loading ? "Signing in…" : isLocked ? `Locked · ${lockCountdown}` : "Sign in"}
