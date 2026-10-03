@@ -1,6 +1,6 @@
 # Live demo
 
-The public demo runs a tagged release with `DEMO_MODE=true` on a free host. A scheduled `demo-reset` workflow wipes and reseeds its database every night (added together with the hosted demo; until then, reset it manually with the commands below).
+The public demo runs a tagged release with `DEMO_MODE=true` on a free host. The `demo-reset` workflow (`.github/workflows/demo-reset.yml`) wipes and reseeds its database every night at 03:00 Sydney time, then redeploys the demo. It seeds from the latest release tag. Run it manually from the Actions tab at any time. If a seed step fails part-way, rerun the workflow.
 
 ## What DEMO_MODE changes
 - `/login` shows one-click "Try as <role>" buttons. They sign into `@demo.invalid` users only — no password, no 2FA.
@@ -19,3 +19,13 @@ Demo login only reaches `@demo.invalid` users, and user creation, first-run setu
     DEMO_MODE=true npm run dev
 
 Data comes from `scripts/demo/demoData.ts` (deterministic, synthetic).
+
+## Hosting the demo (maintainer setup)
+The demo runs on Render (free web service, image `ghcr.io/ginutgeorge-aus/parishcrm:latest`) with a Neon free Postgres database.
+
+1. Neon: create project `parishcrm-demo`. Copy the **direct (unpooled)** connection string to repo secret `DEMO_DATABASE_URL`. `prisma migrate reset` needs a direct connection.
+2. Run `openssl rand -base64 32` and save the result as repo secret `DEMO_ENCRYPTION_KEY`.
+3. Render: create a web service from the image above, free plan. Env: `DEMO_MODE=true`, `DATABASE_URL` = Neon **pooled** connection string, `ENCRYPTION_KEY` = same value as `DEMO_ENCRYPTION_KEY`, fresh `AUTH_SECRET`, `AUTH_URL=https://<service>.onrender.com`, `CHURCH_NAME=Example Parish`. Copy the deploy hook URL to repo secret `RENDER_DEPLOY_HOOK`.
+4. Run `demo-reset` from the Actions tab, then open the demo URL.
+
+Render pulls `:latest` on each redeploy, but the reset seeds from the latest release tag. These match except briefly after a release that adds a migration; run the reset again after the new image publishes.
