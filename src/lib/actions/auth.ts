@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
+import { assertNotDemo } from "@/lib/demoMode"
 
 
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
@@ -36,6 +37,8 @@ function randomDelay(): Promise<void> {
 export async function requestPasswordReset(
   email: string
 ): Promise<{ success?: true; error?: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   // Bound the input before it reaches the DB query — return the silent success
   // (no user-existence reveal) rather than an error that would leak the cap.
   if (typeof email !== "string" || email.length > 254) return { success: true }
@@ -140,6 +143,8 @@ export async function resetPassword(
   token: string,
   password: string
 ): Promise<{ success?: true; error?: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   if (!PASSWORD_REGEX.test(password)) return { error: PASSWORD_MSG }
 
   // Token is a 32-byte hex string (randomBytes(32).toString("hex")). Reject any

@@ -1,12 +1,14 @@
-import { redirect } from "next/navigation"
+import { redirect, notFound } from "next/navigation"
 import { AuthCard } from "@/components/auth/AuthCard"
 import { SetupForm } from "@/components/auth/SetupForm"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { isSetupOpen } from "@/lib/setupState"
+import { isDemoMode } from "@/lib/demoMode"
 
 export const dynamic = "force-dynamic"
 
 export default async function SetupPage() {
+  if (isDemoMode()) notFound()
   if (!(await isSetupOpen())) redirect("/login")
   const { name: churchName } = await getChurchSettings()
 

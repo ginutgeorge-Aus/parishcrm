@@ -2,6 +2,7 @@
 
 import { auth, signOut } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 
 // server-enforced logout. Stamps sessionsValidFrom so this user's
 // outstanding tokens (including any captured/stolen copy) stop validating in the
@@ -11,7 +12,14 @@ import { prisma } from "@/lib/prisma"
 export async function logout(): Promise<void> {
   const session = await auth()
   const id = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
-  if (!Number.isNaN(id)) {
+  // Shared demo users: stamping would sign out every visitor on that role.
+  // The session carries no email (stripped from the JWT), so look it up.
+  let sharedDemoUser = false
+  if (isDemoMode() && !Number.isNaN(id)) {
+    const row = await prisma.user.findUnique({ where: { id }, select: { email: true } })
+    sharedDemoUser = !!row && isDemoEmail(row.email)
+  }
+  if (!Number.isNaN(id) && !sharedDemoUser) {
     // Swallow ONLY a P2025 (user since deleted) so signOut still runs. Any other
     // failure (DB outage, timeout) must propagate — proceeding to signOut would
     // clear this browser's cookie while every captured JWT stays valid until its

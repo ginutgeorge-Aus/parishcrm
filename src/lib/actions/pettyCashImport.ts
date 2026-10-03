@@ -2,6 +2,7 @@
 "use server"
 
 import { auth } from "@/auth"
+import { assertNotDemo, isDemoMode, DEMO_IMPORT_MAX_BYTES } from "@/lib/demoMode"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
@@ -38,6 +39,7 @@ export async function previewImport(formData: FormData): Promise<PreviewResult> 
 
   const csvField = formData.get("csv")
   const csv = typeof csvField === "string" ? csvField : ""
+  if (isDemoMode() && Buffer.byteLength(csv, "utf8") > DEMO_IMPORT_MAX_BYTES) return { error: "Demo imports are limited to 200 KB" }
   if (csv.length > 2 * 1024 * 1024) return { error: "File too large (max 2MB)" }
 
   let parsed: ReturnType<typeof parseRows>
@@ -288,6 +290,8 @@ async function insertImportExpenses(
 }
 
 export async function commitImport(formData: FormData): Promise<CommitResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

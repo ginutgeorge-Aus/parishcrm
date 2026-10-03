@@ -62,6 +62,12 @@ describe("isSetupOpen", () => {
 })
 
 describe("createFirstAdmin", () => {
+  it("rejects the reserved live-demo email domain", async () => {
+    const res = await createFirstAdmin(fd({ ...valid, email: "admin@demo.invalid" }))
+    expect(JSON.stringify(res)).toContain("This email domain is reserved for the live demo")
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
   it("creates an ADMIN with a bcrypt-12 hash in a Serializable tx and audits it", async () => {
     const res = await createFirstAdmin(fd(valid))
     expect(res).toEqual({ success: true })

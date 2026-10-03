@@ -17,6 +17,7 @@ import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { assertNotDemo, isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
 
@@ -61,13 +62,13 @@ async function assertNotLastAdmin(tx: Prisma.TransactionClient, excludeUserId: n
 
 const CreateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long"),
+  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   role: z.enum(ROLE_VALUES),
 })
 
 const UpdateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long"),
+  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   password: z
     .string()
     .max(128, "Password is too long")
@@ -164,6 +165,8 @@ export async function createUser(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -282,6 +285,8 @@ export async function updateUser(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -333,6 +338,8 @@ export async function updateUser(
 }
 
 export async function unlockUser(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -359,6 +366,8 @@ export async function unlockUser(id: number): Promise<ActionResult> {
 }
 
 export async function resetUserTotp(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -391,6 +400,8 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
 }
 
 export async function deleteUser(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }
@@ -452,6 +463,8 @@ export async function deleteUser(id: number): Promise<ActionResult> {
 }
 
 export async function resendWelcome(id: number): Promise<{ success: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "User not found" }

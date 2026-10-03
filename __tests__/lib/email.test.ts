@@ -116,4 +116,18 @@ describe("email", () => {
       expect(mockSendMail).toHaveBeenCalledTimes(3)
     })
   })
+
+  describe("DEMO_MODE", () => {
+    afterEach(() => { delete process.env.DEMO_MODE })
+
+    it("never creates a transport and logs no recipient", async () => {
+      process.env.DEMO_MODE = "true"
+      const log = jest.spyOn(console, "log").mockImplementation(() => {})
+      await expect(sendEmail("someone@example.com", "Hi", "<p>x</p>", "x")).resolves.toBeUndefined()
+      expect(mockCreateTransport).not.toHaveBeenCalled()
+      expect(mockSendMail).not.toHaveBeenCalled()
+      expect(log.mock.calls.flat().join(" ")).not.toContain("someone@example.com")
+      log.mockRestore()
+    })
+  })
 })

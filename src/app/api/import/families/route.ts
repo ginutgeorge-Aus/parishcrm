@@ -11,6 +11,7 @@ import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
+import { isDemoMode, DEMO_ERROR } from "@/lib/demoMode"
 
 // A 5 MB file can hold tens of thousands of rows — unbounded rows.length meant
 // a huge import did per-row sequential DB round trips and risked a request
@@ -18,6 +19,9 @@ import { exceedsBodyLimit } from "@/lib/bodyLimit"
 const MAX_IMPORT_ROWS = 5000
 
 export async function POST(req: NextRequest) {
+  // Live demo: preview works, committing rows does not.
+  if (isDemoMode()) return NextResponse.json({ error: DEMO_ERROR }, { status: 403 })
+
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 jest.mock("@/auth", () => ({ auth: jest.fn(), signOut: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { update: jest.fn().mockResolvedValue({}) },
+    user: { update: jest.fn().mockResolvedValue({}), findUnique: jest.fn() },
     trustedDevice: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   },
 }))
@@ -15,6 +15,7 @@ import { logout } from "@/lib/actions/session"
 const mockAuth = auth as unknown as jest.Mock
 const mockSignOut = signOut as unknown as jest.Mock
 const mockUpdate = prisma.user.update as jest.Mock
+const mockFind = prisma.user.findUnique as jest.Mock
 const mockDeleteMany = prisma.trustedDevice.deleteMany as jest.Mock
 
 describe("logout", () => {
@@ -31,6 +32,29 @@ describe("logout", () => {
         data: expect.objectContaining({ sessionsValidFrom: expect.any(Date) }),
       }),
     )
+  })
+
+  it("does not stamp sessionsValidFrom for a shared demo user, but still signs out", async () => {
+    process.env.DEMO_MODE = "true"
+    try {
+      mockFind.mockResolvedValue({ email: "admin@demo.invalid" })
+      await logout()
+      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockSignOut).toHaveBeenCalledWith({ redirectTo: "/login" })
+    } finally {
+      delete process.env.DEMO_MODE
+    }
+  })
+
+  it("still stamps for a non-demo email even when DEMO_MODE is on", async () => {
+    process.env.DEMO_MODE = "true"
+    try {
+      mockFind.mockResolvedValue({ email: "a@example.com" })
+      await logout()
+      expect(mockUpdate).toHaveBeenCalled()
+    } finally {
+      delete process.env.DEMO_MODE
+    }
   })
 
   it("does NOT delete trusted devices — remembered devices survive logout", async () => {

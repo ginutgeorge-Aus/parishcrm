@@ -2,6 +2,7 @@ import "server-only"
 import { currentKeyId } from "@/lib/crypto"
 import { isResendConfigured } from "@/lib/mailConfig"
 import { schedulerEnabled } from "@/lib/schedulerFlag"
+import { isDemoMode } from "@/lib/demoMode"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -107,7 +108,7 @@ function checkE2EOverridesAllowed(): string[] {
 // explicitly disabled (dev/e2e only — never production). Resend replaces Gmail
 // when RESEND_API_KEY is set.
 function checkMailCreds(): string[] {
-  if (process.env.DISABLE_OTP === "true") return []
+  if (process.env.DISABLE_OTP === "true" || isDemoMode()) return []
   const errors: string[] = []
   if (isResendConfigured()) {
     if (!process.env.MAIL_FROM) errors.push("MAIL_FROM is not set (required with RESEND_API_KEY while OTP is enabled)")
@@ -126,6 +127,31 @@ function checkWebsiteSync(): string[] {
     return ["WEBSITE_SYNC_SECRET is not set but WEBSITE_SYNC_URL is — event sync would silently no-op"]
   }
   return []
+}
+
+// Live demo: outbound integrations must be unconfigurable, not merely unused —
+// the demo shares nothing with a real deployment. Fail boot on any of them.
+const DEMO_FORBIDDEN_VARS = [
+  "GMAIL_USER",
+  "GMAIL_APP_PASSWORD",
+  "RESEND_API_KEY",
+  "WEBSITE_SYNC_URL",
+  "WEBSITE_SYNC_SECRET",
+  "APPLICATIONINSIGHTS_CONNECTION_STRING",
+  "GITHUB_TOKEN",
+] as const
+
+function checkDemoMode(): string[] {
+  if (!isDemoMode()) return []
+  const errors = DEMO_FORBIDDEN_VARS.filter((v) => process.env[v]).map(
+    (v) => `${v} must not be set when DEMO_MODE=true`,
+  )
+  // Allowlist test-mode prefixes: restricted live keys (rk_live_) are live too.
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (stripeKey && !/^(sk|rk)_test_/.test(stripeKey)) {
+    errors.push("STRIPE_SECRET_KEY must be a test key (sk_test_ or rk_test_) when DEMO_MODE=true")
+  }
+  return errors
 }
 
 // Regional config (APP_FY_START_MONTH / APP_TIMEZONE / APP_LOCALE /
@@ -171,6 +197,7 @@ export function collectEnvErrors(): string[] {
     ...checkE2EOverridesAllowed(),
     ...checkMailCreds(),
     ...checkWebsiteSync(),
+    ...checkDemoMode(),
     ...checkAppConfig(),
   )
 
@@ -233,6 +260,12 @@ export function collectEnvWarnings(): string[] {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true" && process.env.NODE_ENV === "production") {
     warnings.push(
       "E2E_ALLOW_TEST_OVERRIDES=true is set under NODE_ENV=production — this disables OTP, the login throttle, and trusted-device guards, and must only ever be the e2e suite",
+    )
+  }
+
+  if (isDemoMode()) {
+    warnings.push(
+      "DEMO_MODE=true — one-click demo logins are enabled and account/settings changes are blocked. This must only ever be the public live demo.",
     )
   }
 

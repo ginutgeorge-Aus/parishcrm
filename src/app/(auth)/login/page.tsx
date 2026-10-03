@@ -1,6 +1,7 @@
 import { Suspense } from "react"
 import { LoginForm } from "@/components/auth/LoginForm"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { DEMO_LOGINS, isDemoMode } from "@/lib/demoMode"
 
 // NOTE: If this page feels slow in prod (~18s first load), it is NOT this page.
 // Cause = container cold start on a scale-to-zero host. Render here is trivial
@@ -9,7 +10,7 @@ export default async function LoginPage() {
   const { name } = await getChurchSettings()
   return (
     <Suspense>
-      <LoginForm churchName={name} />
+      <LoginForm churchName={name} demoLogins={isDemoMode() ? DEMO_LOGINS : undefined} />
     </Suspense>
   )
 }

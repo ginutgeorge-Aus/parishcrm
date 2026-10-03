@@ -33,6 +33,7 @@ NEXT_PUBLIC_GIT_SHA       # commit SHA shown in Settings
 |----------|---------|
 | `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. Page self-disables once any user exists; unset it after setup. |
 | `MIGRATE_ON_START` | Default `true`: the container runs `prisma migrate deploy` before starting. Set `false` to manage migrations yourself (e.g. a separate pre-deploy job). |
+| `DEMO_MODE` | Public live demo only. `true` enables one-click demo logins and blocks account/settings changes; see `docs/live-demo.md`. Never set on a real deployment. |
 
 ## Seed Credentials
 

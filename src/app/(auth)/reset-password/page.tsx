@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto"
 import Link from "next/link"
+import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm"
 import { AuthCard } from "@/components/auth/AuthCard"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { isDemoMode } from "@/lib/demoMode"
 
 type Props = { searchParams: Promise<{ token?: string }> }
 
 export default async function ResetPasswordPage({ searchParams }: Readonly<Props>) {
+  if (isDemoMode()) notFound()
   const { token } = await searchParams
   const { name: churchName } = await getChurchSettings()
 

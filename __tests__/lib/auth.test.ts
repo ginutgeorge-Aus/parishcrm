@@ -1155,3 +1155,51 @@ describe("authorizeCredentials — TOTP", () => {
     expect(result).toMatchObject({ deviceTrustGrant: "grant1", remember: true })
   })
 })
+
+describe("authorizeCredentials — demo mode", () => {
+  const demoUser = { ...baseUser, id: 9, email: "admin@demo.invalid", name: "Demo Admin", archivedAt: null }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(demoUser)
+  })
+  afterEach(() => { delete process.env.DEMO_MODE })
+
+  it("rejects mode=demo when DEMO_MODE is off", async () => {
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-reserved email even in demo mode", async () => {
+    process.env.DEMO_MODE = "true"
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "demo" })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("rejects a missing or archived demo user", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce(null)
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce({ ...demoUser, archivedAt: new Date() })
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+  })
+
+  it("signs in without password or second factor and creates no trust grant", async () => {
+    process.env.DEMO_MODE = "true"
+    const user = await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })
+    expect(user).toEqual({ id: "9", name: "Demo Admin", email: "admin@demo.invalid", role: "ADMIN", remember: false })
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+    expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
+    expect(logAudit).toHaveBeenCalledWith(9, "USER_LOGIN", "User", 9, { demo: true }, undefined)
+  })
+
+  it("rejects password/otp modes for demo emails so the shared users cannot be locked out", async () => {
+    process.env.DEMO_MODE = "true"
+    for (const mode of ["password", "otp", "totp", undefined]) {
+      expect(await authorizeCredentials({ email: "admin@demo.invalid", password: "wrong", otp: "000000", code: "000000", mode })).toBeNull()
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
+})

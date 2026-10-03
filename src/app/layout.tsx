@@ -6,6 +6,7 @@ import Script from "next/script"
 import "./globals.css"
 import { Providers } from "@/components/Providers"
 import { NonceProvider } from "@/components/NonceProvider"
+import { DemoBanner } from "@/components/DemoBanner"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { PRIMARY_HEX, hexToHslTriple, parseHex } from "@/lib/theme/palette"
 import { APP_LOCALE, inlineScriptJson, publicAppConfig } from "@/lib/appConfig"
@@ -91,7 +92,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         </Script>
         {themeCss && <style nonce={nonce}>{themeCss}</style>}
         <NonceProvider nonce={nonce}>
-          <Providers>{children}</Providers>
+          <Providers>
+            <DemoBanner />
+            {children}
+          </Providers>
         </NonceProvider>
       </body>
     </html>

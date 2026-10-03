@@ -71,6 +71,13 @@ beforeEach(() => resetMocks())
 
 // --- createUser ---
 describe("createUser", () => {
+  it("rejects the reserved live-demo email domain", async () => {
+    mockSession.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const result = await createUser(undefined, fd({ ...validNewUser, email: "admin@demo.invalid" }))
+    expect(result).toEqual({ error: "This email domain is reserved for the live demo" })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
   it("blocks unauthenticated", async () => {
     mockSession.mockResolvedValue(null)
     const result = await createUser(undefined, fd(validNewUser))

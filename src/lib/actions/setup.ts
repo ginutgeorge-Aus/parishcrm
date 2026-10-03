@@ -14,6 +14,7 @@ import { isSetupOpen } from "@/lib/setupState"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { assertNotDemo, isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
 
 const UNAVAILABLE = "Setup is not available."
 const SETUP_LIMIT = 10
@@ -23,7 +24,7 @@ const SetupSchema = z.object({
   token: z.string().max(256),
   name: z.string().trim().min(1, "Name is required").max(200, "Name is too long"),
   // Not lower-cased: login looks the email up exactly as typed (same as createUser).
-  email: z.string().trim().email("Invalid email").max(254, "Email is too long"),
+  email: z.string().trim().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   password: z.string().max(128, "Password is too long").regex(PASSWORD_REGEX, PASSWORD_MSG),
 })
 
@@ -33,6 +34,8 @@ type SetupResult = { error: string; field?: SetupField } | { success: true }
 class SetupClosedError extends Error {}
 
 export async function createFirstAdmin(formData: FormData): Promise<SetupResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   // Closed setup (no SETUP_TOKEN, or users exist) bails before any DB write.
   if (!(await isSetupOpen())) return { error: UNAVAILABLE }
 

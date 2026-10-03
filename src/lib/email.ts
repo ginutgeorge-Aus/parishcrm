@@ -25,6 +25,7 @@ import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { isResendConfigured, senderAddress } from "@/lib/mailConfig"
 import { createResendTransport, isResendAmbiguous } from "@/lib/resendTransport"
+import { isDemoMode } from "@/lib/demoMode"
 
 // Lazily-initialized module-level singleton. nodemailer.createTransport pools
 // SMTP connections internally and is designed to be called once, not per send —
@@ -38,6 +39,19 @@ let cachedTransporter: MailTransport | null = null
 let cachedResend: { key: string; transport: MailTransport } | null = null
 
 function makeTransporter(): { transporter: MailTransport; user: string } {
+  // Live demo: swallow every send (OTP, receipts, registrations, owner alerts).
+  // Log the fact only — never recipient, subject, or body. Not cached, so a
+  // toggled env (tests) never reuses this stub for real mail.
+  if (isDemoMode()) {
+    const demoTransport: MailTransport = {
+      sendMail: async () => {
+        console.log("[DEMO_MODE] email suppressed")
+        return { messageId: "demo-suppressed" }
+      },
+    }
+    return { transporter: demoTransport, user: "demo@demo.invalid" }
+  }
+
   // E2E: short-circuit to an in-memory stub so tests assert success without SMTP.
   // Dead code in prod (env var unset). Covers sendEmail + sendReceiptEmail (single chokepoint).
   if (process.env.E2E_MOCK_EMAIL === "true") {

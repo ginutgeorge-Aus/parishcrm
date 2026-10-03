@@ -18,6 +18,7 @@ import { DEFAULT_ANNIVERSARY_TEMPLATE, renderAnniversaryEmail, type AnniversaryT
 import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
+import { assertNotDemo } from "@/lib/demoMode"
 
 // Single source of truth for every key any settings action may write.
 const CHURCH_INFO_KEYS = ["churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite"] as const
@@ -132,6 +133,8 @@ function validateSettingValue(key: string, value: string): { error: string } | {
 }
 
 export async function upsertSetting(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -188,6 +191,8 @@ const ChurchInfoSchema = z.object({
 })
 
 export async function updateChurchInfo(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -251,6 +256,8 @@ const BirthdayTemplateSchema = z.object({
 })
 
 export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -282,6 +289,8 @@ export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, for
 // with sample data — mirrors emailTemplates.ts::sendTestEmail. Never touches
 // members or their consent.
 export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -332,6 +341,8 @@ const AnniversaryTemplateSchema = z.object({
 })
 
 export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -362,6 +373,8 @@ export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, 
 // Sends the CURRENT (possibly unsaved) draft to the signed-in admin, rendered
 // with sample data — mirror of sendTestBirthdayEmail.
 export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -407,6 +420,8 @@ const AutoEmailSchema = z.object({
 })
 
 export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -443,6 +458,8 @@ const PettyCashCustodianSchema = z.object({
 })
 
 export async function updatePettyCashCustodian(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -507,6 +524,8 @@ export async function updateLetterSettings(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -553,6 +572,8 @@ export async function updateMembershipSettings(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
