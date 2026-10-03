@@ -13,7 +13,7 @@ The public demo runs a tagged release with `DEMO_MODE=true` on a free host and r
 It is safe-by-construction (no `@demo.invalid` users exist on a real install), but it still blocks settings and user management.
 
 ## Reseed locally
-    npx prisma migrate reset --force --skip-seed
+    npx prisma migrate reset --force
     ALLOW_DEMO_SEED=true npm run db:seed
     ALLOW_DEMO_SEED=true DEMO_MODE=true npm run demo:seed
     DEMO_MODE=true npm run dev

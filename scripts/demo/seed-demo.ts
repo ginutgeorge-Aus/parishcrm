@@ -1,5 +1,5 @@
 // Live demo reseed — writes buildDemoData() into a freshly migrated + seeded DB.
-//   prisma migrate reset --force --skip-seed
+//   prisma migrate reset --force
 //   ALLOW_DEMO_SEED=true npm run db:seed
 //   ALLOW_DEMO_SEED=true DEMO_MODE=true npm run demo:seed
 // Uses cryptoCore (not crypto.ts, which is server-only) so PII is stored in
@@ -36,6 +36,16 @@ async function main() {
   const bank = await prisma.paymentAccount.findFirstOrThrow({ where: { kind: "BANK" }, orderBy: { id: "asc" } })
   const cash = await prisma.paymentAccount.findFirstOrThrow({ where: { kind: "CASH" }, orderBy: { id: "asc" } })
 
+  // Opening balances a year back, so the dashboard shows real running balances
+  // instead of "Set opening balance".
+  const yearAgo = new Date(Date.UTC(new Date().getUTCFullYear() - 1, new Date().getUTCMonth(), 1))
+  await prisma.accountOpeningBalance.createMany({
+    data: [
+      { paymentAccountId: bank.id, amount: "15000.00", asOfDate: yearAgo },
+      { paymentAccountId: cash.id, amount: "200.00", asOfDate: yearAgo },
+    ],
+  })
+
   // Users: random unusable password — demo login never checks it.
   const passwordHash = await hash(randomBytes(32).toString("hex"), 12)
   const userIds = new Map<string, number>()
@@ -49,7 +59,7 @@ async function main() {
   for (const f of data.families) {
     const fam = await prisma.family.create({
       data: {
-        name: f.name, status: f.status, joinedDate: f.joinedDate, marriageDate: f.marriageDate,
+        name: f.name, status: f.status, joinedDate: f.joinedDate, marriageDate: f.marriageDate, createdAt: f.joinedDate,
         address: encrypt(f.address), suburb: encrypt(f.suburb), state: encrypt(f.state), postcode: encrypt(f.postcode),
       },
     })
@@ -57,7 +67,7 @@ async function main() {
     for (const p of f.people) {
       const person = await prisma.person.create({
         data: {
-          familyId: fam.id, firstName: p.firstName, lastName: p.lastName, role: p.role, gender: p.gender,
+          familyId: fam.id, firstName: p.firstName, lastName: p.lastName, role: p.role, gender: p.gender, createdAt: f.joinedDate,
           classification: "MEMBER", membershipDate: p.membershipDate, consentUpdatedAt: new Date(),
           dateOfBirth: encrypt(p.dateOfBirth),
           email: p.email ? encrypt(p.email) : null, emailHash: p.email ? hmacEmail(p.email) : null,

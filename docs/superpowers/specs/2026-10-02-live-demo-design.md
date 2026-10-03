@@ -128,7 +128,7 @@ Visible on dashboard, public, auth, and organiser layouts. Print layout excluded
   `github.repository` is the upstream repo, so forks skip it.
   1. Resolve the latest release tag and check it out (so schema and seed code match the
      image Render runs).
-  2. `prisma migrate reset --force --skip-seed` against `DEMO_DATABASE_URL`.
+  2. `prisma migrate reset --force` against `DEMO_DATABASE_URL`.
   3. `ALLOW_DEMO_SEED=true npm run db:seed`, then `seed-demo`.
   4. Call the Render deploy hook (`RENDER_DEPLOY_HOOK` secret) so the app picks up the
      latest image and drops any cached state.
