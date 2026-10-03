@@ -29,6 +29,9 @@ type RouteFailure = { ok: false; error: string; status: number }
 async function readUploadedPdf(req: Request): Promise<RouteFailure | { ok: true; buffer: Buffer }> {
   // Reject before formData() streams the whole multipart body into memory.
   // 50MB file budget + multipart/encoding overhead; file.size is re-checked below.
+  if (isDemoMode() && exceedsBodyLimit(req, DEMO_IMPORT_MAX_BYTES + 16 * 1024)) {
+    return { ok: false, error: "Demo imports are limited to 200 KB", status: 413 }
+  }
   if (exceedsBodyLimit(req, 55 * 1024 * 1024)) {
     return { ok: false, error: "File too large (max 50MB)", status: 413 }
   }

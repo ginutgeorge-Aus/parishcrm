@@ -72,6 +72,9 @@ export async function POST(req: NextRequest) {
 
   // Reject before formData() streams the whole multipart body into memory.
   // 5MB file budget + multipart/encoding overhead; file.size is re-checked below.
+  if (isDemoMode() && exceedsBodyLimit(req, DEMO_IMPORT_MAX_BYTES + 16 * 1024)) {
+    return NextResponse.json({ error: "Demo imports are limited to 200 KB" }, { status: 413 })
+  }
   if (exceedsBodyLimit(req, 6 * 1024 * 1024)) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 413 })
   }
