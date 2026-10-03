@@ -2,7 +2,12 @@
  * @jest-environment jsdom
  */
 import { render, screen, fireEvent, act } from "@testing-library/react"
+import { unstable_rethrow } from "next/navigation"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+
+jest.mock("next/navigation", () => ({ unstable_rethrow: jest.fn() }))
+const mockRethrow = unstable_rethrow as jest.Mock
+beforeEach(() => mockRethrow.mockReset())
 
 async function confirmWith(onConfirm: () => Promise<unknown>) {
   render(<DeleteConfirmButton onConfirm={onConfirm as never} title="Delete thing?" description="Gone for good." />)
@@ -26,4 +31,10 @@ test("an { error } result is shown inline", async () => {
 test("success closes the dialog", async () => {
   await confirmWith(() => Promise.resolve({ success: true }))
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+})
+
+test("Next control-flow errors (redirect after a successful delete) are re-thrown, not swallowed", async () => {
+  const redirectErr = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/families;307;" })
+  await confirmWith(() => Promise.reject(redirectErr))
+  expect(mockRethrow).toHaveBeenCalledWith(redirectErr)
 })

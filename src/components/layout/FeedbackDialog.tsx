@@ -136,7 +136,7 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
           </button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Send Feedback</DialogTitle>
         </DialogHeader>

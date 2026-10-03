@@ -92,6 +92,15 @@ describe("requestPasswordReset", () => {
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
+  it("returns the same silent success when the claim write throws (no enumeration oracle)", async () => {
+    mockFindUnique.mockResolvedValue({ id: 1, email: "u@e.com", passwordResetExpires: null })
+    mockUpdateMany.mockRejectedValue(new Error("db down"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    await expect(requestPasswordReset("u@e.com")).resolves.toEqual({ success: true })
+    expect(mockSendEmail).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
   it("clears only its own token when the send fails, so a retry is possible", async () => {
     mockFindUnique.mockResolvedValue({ id: 1, email: "u@e.com", passwordResetExpires: null })
     mockUpdateMany.mockResolvedValue({ count: 1 })
