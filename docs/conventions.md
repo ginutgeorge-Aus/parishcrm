@@ -2,6 +2,7 @@
 
 Patterns and gotchas for working in this codebase. Read on demand.
 
+- **JSDoc on touched functions**: every new or changed named function, exported or not (lib helpers, Server Actions, route handlers, script `main()`s), gets a `/** ... */` comment. At minimum one line saying what it does. Add `@param`/`@returns`/`@throws` only where the signature doesn't make it obvious. No bulk back-fill; files pick it up as they are touched. CodeRabbit's default docstring check (warns below 80% of functions touched by the diff) enforces the same scope.
 - Server Components by default; `"use client"` only for event handlers/hooks.
 - API routes: `src/app/api/[resource]/route.ts` — validate session before mutating.
 - `src/components/ui/` — shadcn, don't edit directly. `lucide-react` for icons.
