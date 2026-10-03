@@ -39,7 +39,7 @@ export async function previewImport(formData: FormData): Promise<PreviewResult> 
 
   const csvField = formData.get("csv")
   const csv = typeof csvField === "string" ? csvField : ""
-  if (isDemoMode() && csv.length > DEMO_IMPORT_MAX_BYTES) return { error: "Demo imports are limited to 200 KB" }
+  if (isDemoMode() && Buffer.byteLength(csv, "utf8") > DEMO_IMPORT_MAX_BYTES) return { error: "Demo imports are limited to 200 KB" }
   if (csv.length > 2 * 1024 * 1024) return { error: "File too large (max 2MB)" }
 
   let parsed: ReturnType<typeof parseRows>

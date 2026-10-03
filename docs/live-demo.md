@@ -1,6 +1,6 @@
 # Live demo
 
-The public demo runs a tagged release with `DEMO_MODE=true` on a free host and resets nightly.
+The public demo runs a tagged release with `DEMO_MODE=true` on a free host. A scheduled `demo-reset` workflow wipes and reseeds its database every night (added together with the hosted demo; until then, reset it manually with the commands below).
 
 ## What DEMO_MODE changes
 - `/login` shows one-click "Try as <role>" buttons. They sign into `@demo.invalid` users only — no password, no 2FA.
@@ -10,7 +10,7 @@ The public demo runs a tagged release with `DEMO_MODE=true` on a free host and r
 - A non-dismissable banner says the data is shared and resets nightly.
 
 ## Never set DEMO_MODE on a real deployment
-It is safe-by-construction (no `@demo.invalid` users exist on a real install), but it still blocks settings and user management.
+Demo login only reaches `@demo.invalid` users, and user creation, first-run setup, and `scripts/create-admin-user.ts` reject that domain, so a real install has no account it can reach. It still blocks settings and user management.
 
 ## Reseed locally
     npx prisma migrate reset --force

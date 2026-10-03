@@ -146,8 +146,10 @@ function checkDemoMode(): string[] {
   const errors = DEMO_FORBIDDEN_VARS.filter((v) => process.env[v]).map(
     (v) => `${v} must not be set when DEMO_MODE=true`,
   )
-  if (process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_")) {
-    errors.push("STRIPE_SECRET_KEY must be a test key (sk_test_) when DEMO_MODE=true")
+  // Allowlist test-mode prefixes: restricted live keys (rk_live_) are live too.
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (stripeKey && !/^(sk|rk)_test_/.test(stripeKey)) {
+    errors.push("STRIPE_SECRET_KEY must be a test key (sk_test_ or rk_test_) when DEMO_MODE=true")
   }
   return errors
 }

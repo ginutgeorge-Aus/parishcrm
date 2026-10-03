@@ -2,6 +2,7 @@ import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { UserRole } from "../src/lib/generated/prisma/enums"
 import { PrismaPg } from "@prisma/adapter-pg"
 import bcrypt from "bcryptjs"
+import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "../src/lib/demoMode"
 
 const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) throw new Error("DATABASE_URL not set")
@@ -18,6 +19,7 @@ async function main() {
   if (!email || !password) {
     throw new Error("USER_EMAIL and USER_PASSWORD must be set")
   }
+  if (isDemoEmail(email)) throw new Error(DEMO_DOMAIN_RESERVED)
   // Cast via the UserRole enum so every role (incl. AUDITOR) is accepted — the
   // old literal union silently dropped AUDITOR, the one role with no seeded user.
   const role = (process.env.USER_ROLE as UserRole) || UserRole.ADMIN

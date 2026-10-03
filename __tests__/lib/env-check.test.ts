@@ -233,8 +233,12 @@ describe("env-check", () => {
     })
 
     it("rejects a live Stripe key but allows a test key", () => {
-      process.env.STRIPE_SECRET_KEY = "sk_live_abc"
-      expect(collectEnvErrors()).toContain("STRIPE_SECRET_KEY must be a test key (sk_test_) when DEMO_MODE=true")
+      for (const live of ["sk_live_abc", "rk_live_abc"]) {
+        process.env.STRIPE_SECRET_KEY = live
+        expect(collectEnvErrors()).toContain("STRIPE_SECRET_KEY must be a test key (sk_test_ or rk_test_) when DEMO_MODE=true")
+      }
+      process.env.STRIPE_SECRET_KEY = "rk_test_abc"
+      expect(collectEnvErrors()).toEqual([])
       process.env.STRIPE_SECRET_KEY = "sk_test_abc"
       expect(collectEnvErrors()).toEqual([])
     })

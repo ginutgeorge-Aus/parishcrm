@@ -8,6 +8,9 @@ export type UserRoleName = "ADMIN" | "PASTOR" | "OFFICE_ADMIN" | "AUDITOR" | "VI
 export const DEMO_ERROR = "Disabled in the live demo"
 export const DEMO_EMAIL_DOMAIN = "@demo.invalid"
 export const DEMO_IMPORT_MAX_BYTES = 200 * 1024
+// Real accounts must never live on the demo domain: demo login skips the
+// password for it, so provisioning paths reject it even outside demo mode.
+export const DEMO_DOMAIN_RESERVED = "This email domain is reserved for the live demo"
 
 // One-click logins shown on /login. Demo login only ever signs into these
 // reserved-domain users, so a real deployment that sets DEMO_MODE by mistake

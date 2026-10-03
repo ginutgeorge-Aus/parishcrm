@@ -319,6 +319,14 @@ describe("commitImport", () => {
 describe("previewImport — demo size cap", () => {
   afterEach(() => { delete process.env.DEMO_MODE })
 
+  it("measures the cap in UTF-8 bytes, not characters", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const fd = new FormData()
+    fd.set("csv", "€".repeat(100_000)) // 100k chars, 300k bytes
+    expect(await previewImport(fd)).toEqual({ error: "Demo imports are limited to 200 KB" })
+  })
+
   it("rejects a CSV over 200 KB in demo mode before parsing", async () => {
     process.env.DEMO_MODE = "true"
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
