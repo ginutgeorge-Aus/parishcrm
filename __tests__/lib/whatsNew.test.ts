@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { WHATS_NEW, findEntry } from "@/lib/whatsNew"
 
 describe("whatsNew", () => {
@@ -16,6 +18,13 @@ describe("whatsNew", () => {
       expect(e.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
       expect(e.highlights.length).toBeGreaterThan(0)
     }
+  })
+
+  // Release gate: release-please bumps package.json on the release PR, so this
+  // fails until a plain-English entry for the new version is added at the top.
+  it("has an entry for the current package.json version", () => {
+    const { version } = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string }
+    expect(WHATS_NEW[0]?.version).toBe(`v${version}`)
   })
 
   it("findEntry returns the matching entry", () => {
