@@ -62,6 +62,12 @@ export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d))
+// Same month/day in another year; Feb 29 falls back to Feb 28 in non-leap
+// years instead of rolling over to Mar 1 (keeps forced dates in the window).
+const sameDayInYear = (y: number, d: Date) => {
+  const r = utc(y, d.getUTCMonth(), d.getUTCDate())
+  return r.getUTCMonth() === d.getUTCMonth() ? r : utc(y, d.getUTCMonth(), 28)
+}
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY)
 const title = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}-${MONTH_ABBR[d.getUTCMonth()]}-${d.getUTCFullYear()}`
 
@@ -110,7 +116,7 @@ export function buildDemoData(today: Date, seed = 20261002): DemoData {
     const dob = (age: number, forceWithinDays?: number) => {
       if (forceWithinDays !== undefined) {
         const d = addDays(t0, forceWithinDays)
-        return ymd(utc(d.getUTCFullYear() - age, d.getUTCMonth(), d.getUTCDate()))
+        return ymd(sameDayInYear(d.getUTCFullYear() - age, d))
       }
       return ymd(addDays(t0, -(age * 365 + int(0, 364))))
     }
@@ -147,7 +153,7 @@ export function buildDemoData(today: Date, seed = 20261002): DemoData {
     }
     const marriageDate = married
       ? fi === 3
-        ? utc(t0.getUTCFullYear() - int(5, 30), addDays(t0, 3).getUTCMonth(), addDays(t0, 3).getUTCDate())
+        ? sameDayInYear(t0.getUTCFullYear() - int(5, 30), addDays(t0, 3))
         : addDays(t0, -int(3, 40) * 365 - int(0, 364))
       : null
     return {

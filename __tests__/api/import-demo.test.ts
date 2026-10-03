@@ -19,7 +19,7 @@ import { POST as familiesCheck } from "@/app/api/import/families/check/route"
 const big = () => new Uint8Array(300 * 1024).fill(32)
 function upload(url: string, bytes: Uint8Array, name: string, type: string) {
   const form = new FormData()
-  form.set("file", new File([bytes], name, { type }))
+  form.set("file", new File([bytes as BlobPart], name, { type }))
   return new NextRequest(url, { method: "POST", body: form })
 }
 

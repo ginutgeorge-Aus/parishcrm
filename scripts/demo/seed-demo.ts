@@ -12,6 +12,7 @@ import { PrismaClient } from "../../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { encrypt, hmacEmail, hmacMobile } from "../../src/lib/cryptoCore"
 import { buildDemoData, centsToDecimal } from "./demoData"
+import { sydneyToday } from "../../src/lib/dates"
 
 if (process.env.DEMO_MODE !== "true" || process.env.ALLOW_DEMO_SEED !== "true") {
   console.error("Refusing to seed demo data: set both DEMO_MODE=true and ALLOW_DEMO_SEED=true.")
@@ -24,7 +25,11 @@ async function main() {
   const extra = await prisma.family.count({ where: { name: { not: "Sample" } } })
   if (extra > 0) throw new Error(`${extra} families already present — run after a reset (prisma migrate reset + db:seed).`)
 
-  const data = buildDemoData(new Date())
+  // Church calendar day (APP_TIMEZONE, default Sydney) — the dashboard's
+  // celebration window uses it, and the nightly reset runs while the UTC date
+  // is still "yesterday".
+  const today = sydneyToday()
+  const data = buildDemoData(today)
 
   const accounts = new Map((await prisma.account.findMany({ select: { id: true, code: true, name: true } })).map((a) => [a.code, a]))
   const acct = (code: string) => {
@@ -38,7 +43,7 @@ async function main() {
 
   // Opening balances a year back, so the dashboard shows real running balances
   // instead of "Set opening balance".
-  const yearAgo = new Date(Date.UTC(new Date().getUTCFullYear() - 1, new Date().getUTCMonth(), 1))
+  const yearAgo = new Date(Date.UTC(today.getUTCFullYear() - 1, today.getUTCMonth(), 1))
   await prisma.accountOpeningBalance.createMany({
     data: [
       { paymentAccountId: bank.id, amount: "15000.00", asOfDate: yearAgo },

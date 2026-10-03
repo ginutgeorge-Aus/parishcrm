@@ -85,4 +85,9 @@ describe("buildDemoData", () => {
     expect(centsToDecimal(5)).toBe("0.05")
     expect(centsToDecimal(100000)).toBe("1000.00")
   })
+  it("keeps forced dates in their month across Feb 29 (non-leap birth years)", () => {
+    const leapEve = new Date(Date.UTC(2028, 1, 27)) // +2 days = 29 Feb 2028
+    const people = buildDemoData(leapEve).families.flatMap((f) => f.people)
+    expect(people.some((p) => p.dateOfBirth.endsWith("-03-01"))).toBe(false)
+  })
 })
