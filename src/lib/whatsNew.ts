@@ -14,6 +14,15 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.4.0",
+    date: "2026-10-03",
+    highlights: [
+      "You can now sign in with an authenticator app (such as Google Authenticator or Microsoft Authenticator) instead of an emailed code. Set it up from your Account page, and keep the backup codes somewhere safe.",
+      "Scheduled jobs such as reminder emails now run inside the app itself, so no separate cron service is needed.",
+      "Sign-in lockouts and date and email checks are more reliable.",
+    ],
+  },
+  {
     version: "v1.1.0",
     date: "2026-09-25",
     highlights: [

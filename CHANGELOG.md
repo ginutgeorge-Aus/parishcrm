@@ -10,6 +10,31 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.4.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.3.1...v1.4.0) (2026-10-03)
+
+
+### Added
+
+* add project website with landing page and docs ([#85](https://github.com/ginutgeorge-Aus/parishcrm/issues/85)) ([6cb3c28](https://github.com/ginutgeorge-Aus/parishcrm/commit/6cb3c2882f0b48a7f7ef14de62a1c08347f887df))
+* **auth:** TOTP authenticator 2FA with backup codes ([#79](https://github.com/ginutgeorge-Aus/parishcrm/issues/79)) ([139b06f](https://github.com/ginutgeorge-Aus/parishcrm/commit/139b06fc8608f076dae15215794ed7ef51a12af6))
+* live demo mode (DEMO_MODE) ([#94](https://github.com/ginutgeorge-Aus/parishcrm/issues/94)) ([f7ae9ff](https://github.com/ginutgeorge-Aus/parishcrm/commit/f7ae9ff300d9689c92555cd4b6a2e6e42dfc8667))
+* run scheduled jobs inside the app ([#78](https://github.com/ginutgeorge-Aus/parishcrm/issues/78)) ([1b7f4cb](https://github.com/ginutgeorge-Aus/parishcrm/commit/1b7f4cb15185fcf81925efefe4c3646bbe4d2284))
+
+
+### Fixed
+
+* **auth:** compare-and-swap password-failure reset ([#84](https://github.com/ginutgeorge-Aus/parishcrm/issues/84)) ([0902406](https://github.com/ginutgeorge-Aus/parishcrm/commit/0902406f20450a8bfc4f106916a054528dcec9c0)), closes [#83](https://github.com/ginutgeorge-Aus/parishcrm/issues/83)
+* **auth:** reset lockout counters in TOTP verify write ([#81](https://github.com/ginutgeorge-Aus/parishcrm/issues/81)) ([270d7c1](https://github.com/ginutgeorge-Aus/parishcrm/commit/270d7c1eb808dd39f00085e9f4c4be82f41247ed))
+* harden lockout reset and date/email validation ([#82](https://github.com/ginutgeorge-Aus/parishcrm/issues/82)) ([e40d7f3](https://github.com/ginutgeorge-Aus/parishcrm/commit/e40d7f3705afe14a4c370f34464b9a2105f7b9fa))
+
+
+### Dependencies
+
+* bump @types/node from 24.13.4 to 24.19.0 ([#90](https://github.com/ginutgeorge-Aus/parishcrm/issues/90)) ([621bede](https://github.com/ginutgeorge-Aus/parishcrm/commit/621beded63f684923dc94ed0bc7705193ecef432))
+* bump dotenv from 18.0.2 to 18.0.4 ([#91](https://github.com/ginutgeorge-Aus/parishcrm/issues/91)) ([e88e477](https://github.com/ginutgeorge-Aus/parishcrm/commit/e88e477b6d8e97bcdf4069b9ef1f1806cdff5fec))
+* bump postcss from 8.5.26 to 8.5.28 ([#92](https://github.com/ginutgeorge-Aus/parishcrm/issues/92)) ([e0ca804](https://github.com/ginutgeorge-Aus/parishcrm/commit/e0ca804b9ffd7ddbbc5424aa7ea8551ef30b23b7))
+* bump tailwind-merge from 3.6.0 to 3.7.0 ([#89](https://github.com/ginutgeorge-Aus/parishcrm/issues/89)) ([30f3cf1](https://github.com/ginutgeorge-Aus/parishcrm/commit/30f3cf1ee0188e3ee57239b2a8073f97bc6573d7))
+
 ## [1.3.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.3.0...v1.3.1) (2026-10-01)
 
 
