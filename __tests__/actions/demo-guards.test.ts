@@ -24,6 +24,9 @@ import * as settings from "@/lib/actions/settings"
 import * as branding from "@/lib/actions/branding"
 import * as templates from "@/lib/actions/emailTemplates"
 import * as attachment from "@/lib/actions/transactionAttachment"
+import * as receiptSettings from "@/lib/actions/receiptSettings"
+import * as accountingSettings from "@/lib/actions/accountingSettings"
+import * as pettyCashImport from "@/lib/actions/pettyCashImport"
 import { parseImageUpload } from "@/lib/actions/eventForm"
 
 const fd = () => new FormData()
@@ -63,6 +66,11 @@ const CASES: Array<[string, () => Promise<unknown>]> = [
   ["sendTestEmail", () => anyArgs(templates.sendTestEmail) as Promise<unknown>],
   ["attachTransactionReceipt", () => anyArgs(attachment.attachTransactionReceipt) as Promise<unknown>],
   ["removeTransactionReceipt", () => anyArgs(attachment.removeTransactionReceipt) as Promise<unknown>],
+  ["updateReceiptSettings", () => receiptSettings.updateReceiptSettings({}) as Promise<unknown>],
+  ["resetReceiptSettings", () => receiptSettings.resetReceiptSettings() as Promise<unknown>],
+  ["setAccountingLockDate", () => anyArgs(accountingSettings.setAccountingLockDate) as Promise<unknown>],
+  ["upsertOpeningBalance", () => anyArgs(accountingSettings.upsertOpeningBalance) as Promise<unknown>],
+  ["commitImport", () => pettyCashImport.commitImport(fd()) as Promise<unknown>],
 ]
 
 describe("DEMO_MODE action guards", () => {

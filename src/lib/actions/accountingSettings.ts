@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@/auth"
+import { assertNotDemo } from "@/lib/demoMode"
 import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -38,6 +39,8 @@ export async function upsertOpeningBalance(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -84,6 +87,8 @@ export async function setAccountingLockDate(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

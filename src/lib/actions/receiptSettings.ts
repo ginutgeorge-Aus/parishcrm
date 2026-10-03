@@ -4,6 +4,7 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { assertNotDemo } from "@/lib/demoMode"
 import { actorId } from "@/lib/actor"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
@@ -29,6 +30,8 @@ const InputSchema = z
 export async function updateReceiptSettings(
   input: Record<string, string>
 ): Promise<{ ok: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
 
@@ -52,6 +55,8 @@ export async function updateReceiptSettings(
 }
 
 export async function resetReceiptSettings(): Promise<{ ok: true } | { error: string }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
 

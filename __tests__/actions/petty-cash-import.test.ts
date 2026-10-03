@@ -315,3 +315,15 @@ describe("commitImport", () => {
     expect(fakeTx.pettyCashReceipt.createManyAndReturn).toHaveBeenCalledTimes(1)    // import still proceeded
   })
 })
+
+describe("previewImport — demo size cap", () => {
+  afterEach(() => { delete process.env.DEMO_MODE })
+
+  it("rejects a CSV over 200 KB in demo mode before parsing", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const fd = new FormData()
+    fd.set("csv", "a".repeat(200 * 1024 + 1))
+    expect(await previewImport(fd)).toEqual({ error: "Demo imports are limited to 200 KB" })
+  })
+})

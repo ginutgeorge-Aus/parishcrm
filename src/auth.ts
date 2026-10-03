@@ -222,6 +222,11 @@ export async function authorizeCredentials(
   // real deployment that sets the flag by mistake still has no account this can
   // reach. No password, no OTP/TOTP, no trusted-device grant. Still behind the
   // per-IP throttle above.
+  if (isDemoMode() && isDemoEmail(String(credentials.email)) && credentials.mode !== "demo") {
+    // Shared public users: any password/OTP/TOTP attempt would bump lockout
+    // counters and lock every visitor out of that role.
+    return null
+  }
   if (credentials.mode === "demo") {
     const email = String(credentials.email)
     if (!isDemoMode() || !isDemoEmail(email)) return null

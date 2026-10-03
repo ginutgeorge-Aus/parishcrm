@@ -1192,4 +1192,14 @@ describe("authorizeCredentials — demo mode", () => {
     expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(9, "USER_LOGIN", "User", 9, { demo: true }, undefined)
   })
+
+  it("rejects password/otp modes for demo emails so the shared users cannot be locked out", async () => {
+    process.env.DEMO_MODE = "true"
+    for (const mode of ["password", "otp", "totp", undefined]) {
+      expect(await authorizeCredentials({ email: "admin@demo.invalid", password: "wrong", otp: "000000", code: "000000", mode })).toBeNull()
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
 })
