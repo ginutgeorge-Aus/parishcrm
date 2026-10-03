@@ -59,3 +59,19 @@ test("collapsed variant still renders a Feedback trigger, icon-only with a toolt
   fireEvent.click(trigger)
   expect(screen.getByText("Send Feedback")).toBeInTheDocument()
 })
+
+test("Submit is disabled after a successful report so a double-click can't file a duplicate", async () => {
+  mockSubmit.mockResolvedValue({ success: "Report filed" })
+
+  render(<FeedbackDialog />)
+  fireEvent.click(screen.getByRole("button", { name: "Feedback" }))
+  fireEvent.change(screen.getByLabelText(/what were you doing/i), { target: { value: "editing" } })
+  fireEvent.change(screen.getByLabelText(/what did you expect/i), { target: { value: "save" } })
+  fireEvent.change(screen.getByLabelText(/what actually happened/i), { target: { value: "error" } })
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit" })) })
+
+  expect(screen.getByText("Report filed")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+  expect(mockSubmit).toHaveBeenCalledTimes(1)
+})
