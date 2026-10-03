@@ -21,6 +21,11 @@ if (process.env.DEMO_MODE !== "true" || process.env.ALLOW_DEMO_SEED !== "true") 
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) })
 
+/**
+ * Writes the deterministic demo dataset into a freshly reset and base-seeded DB.
+ * Refuses to run when non-sample families already exist. All writes share one
+ * transaction, so a failed run leaves the DB unchanged and can simply be rerun.
+ */
 async function main() {
   const extra = await prisma.family.count({ where: { name: { not: "Sample" } } })
   if (extra > 0) throw new Error(`${extra} families already present — run after a reset (prisma migrate reset + db:seed).`)
