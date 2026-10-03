@@ -84,6 +84,9 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
   const canSubmit = isBug
     ? whatDoing.trim() && whatExpected.trim() && whatHappened.trim()
     : what.trim()
+  // After a successful file the dialog auto-closes; keep Submit locked so a
+  // double-click in that window can't file a duplicate GitHub issue.
+  const submitted = message?.type === "success"
 
   function handleSubmit() {
     setMessage(null)
@@ -98,6 +101,7 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
       if (session !== submitSession.current) return
       if (result && "success" in result) {
         setMessage({ type: "success", text: result.success })
+        if (closeTimer.current) clearTimeout(closeTimer.current)
         closeTimer.current = setTimeout(() => handleOpenChange(false), 2500)
       } else {
         setMessage({
@@ -209,7 +213,7 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
               )}
             </div>
           )}
-          <Button onClick={handleSubmit} disabled={!canSubmit || isPending} className="w-full">
+          <Button onClick={handleSubmit} disabled={!canSubmit || isPending || submitted} className="w-full">
             Submit
           </Button>
         </div>

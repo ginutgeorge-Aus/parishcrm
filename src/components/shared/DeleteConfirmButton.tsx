@@ -85,7 +85,15 @@ export function DeleteConfirmButton({
 
   function handleConfirm() {
     startTransition(async () => {
-      const result = await onConfirm()
+      let result: Awaited<ReturnType<typeof onConfirm>>
+      try {
+        result = await onConfirm()
+      } catch {
+        // A rejected action (network drop, 500) must surface inline, not
+        // escape to the route error boundary.
+        setError("Something went wrong. Try again.")
+        return
+      }
       if (result && "error" in result && result.error) {
         setError(result.error)
       } else {
