@@ -28,4 +28,4 @@ The demo runs on Render (free web service, image `ghcr.io/ginutgeorge-aus/parish
 3. Render: create a web service from the image above, free plan. Env: `DEMO_MODE=true`, `DATABASE_URL` = Neon **pooled** connection string, `DIRECT_URL` = the direct string (the container runs `prisma migrate deploy` on start), `ENCRYPTION_KEY` = same value as `DEMO_ENCRYPTION_KEY`, fresh `AUTH_SECRET`, `AUTH_URL=https://<service>.onrender.com`, `CHURCH_NAME=Example Parish`. Copy the deploy hook URL to repo secret `RENDER_DEPLOY_HOOK`.
 4. Run `demo-reset` from the Actions tab, then open the demo URL.
 
-Render pulls `:latest` on each redeploy, but the reset seeds from the latest release tag. These match except briefly after a release that adds a migration; run the reset again after the new image publishes.
+Each reset deploys the image of the release it seeded (`:<tag>` via the hook's `imgURL`), so app and schema always match. If that release's image is missing from GHCR, the reset fails and the demo keeps the previous night's data.

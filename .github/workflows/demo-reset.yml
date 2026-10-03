@@ -20,19 +20,19 @@ jobs:
     if: github.repository == 'ginutgeorge-Aus/parishcrm'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # Neon DIRECT (unpooled) URL: `migrate reset` needs a session-level
-      # connection. The Render app uses the pooled URL for the same database.
-      DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
-      ENCRYPTION_KEY: ${{ secrets.DEMO_ENCRYPTION_KEY }}
-      DEMO_MODE: 'true'
-      ALLOW_DEMO_SEED: 'true'
     steps:
-      # Seed from the latest release, which is what the demo image runs.
+      # Seed and deploy the same release. Fail (demo keeps last night's data)
+      # if that release's image never reached GHCR, e.g. a failed publish.
       - id: tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: echo "tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)" >> "$GITHUB_OUTPUT"
+          REPO: ${{ github.repository }}
+        run: |
+          tag=$(gh release view --repo "$REPO" --json tagName -q .tagName)
+          image="ghcr.io/${REPO,,}:${tag}"
+          docker manifest inspect "$image" > /dev/null
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.tag.outputs.tag }}
@@ -41,11 +41,23 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+      # No secrets in this step: install scripts must not see the demo DB.
       - run: npm ci --no-audit --no-fund
-      - run: npx prisma migrate reset --force
-      - run: npm run db:seed
-      - run: npm run demo:seed
+      - name: Reset and seed
+        env:
+          # Neon DIRECT (unpooled) URL: `migrate reset` needs a session-level
+          # connection. The Render app uses the pooled URL for the same database.
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          ENCRYPTION_KEY: ${{ secrets.DEMO_ENCRYPTION_KEY }}
+          DEMO_MODE: 'true'
+          ALLOW_DEMO_SEED: 'true'
+        run: |
+          npx prisma migrate reset --force
+          npm run db:seed
+          npm run demo:seed
+      # imgURL pins Render to the image of the release just seeded.
       - name: Redeploy demo
         env:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
-        run: curl -fsS -X POST "$HOOK" > /dev/null
+          IMAGE: ${{ steps.tag.outputs.image }}
+        run: curl -fsS -X POST -G "$HOOK" --data-urlencode "imgURL=$IMAGE" > /dev/null
