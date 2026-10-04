@@ -6,19 +6,23 @@
 // h-10 for denser table rows used by AccountingPageSkeleton).
 export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: Readonly<{ rows?: number; rowHeight?: string }>) {
   return (
-    <div className="space-y-6" aria-hidden="true">
-      {/* Heading + action button row */}
-      <div className="flex items-center justify-between">
-        <div className="h-7 w-48 rounded bg-muted animate-pulse" />
-        <div className="h-9 w-32 rounded bg-muted animate-pulse" />
-      </div>
-      {/* Search / filter bar */}
-      <div className="h-10 w-full rounded bg-muted animate-pulse" />
-      {/* List rows */}
-      <div className="space-y-2">
-        {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className={`${rowHeight} w-full rounded bg-muted animate-pulse`} />
-        ))}
+    // Visual skeleton is aria-hidden; the status span tells AT a load is in progress.
+    <div role="status" aria-busy="true">
+      <span className="sr-only">Loading…</span>
+      <div className="space-y-6" aria-hidden="true">
+        {/* Heading + action button row */}
+        <div className="flex items-center justify-between">
+          <div className="h-7 w-48 rounded bg-muted animate-pulse" />
+          <div className="h-9 w-32 rounded bg-muted animate-pulse" />
+        </div>
+        {/* Search / filter bar */}
+        <div className="h-10 w-full rounded bg-muted animate-pulse" />
+        {/* List rows */}
+        <div className="space-y-2">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div key={i} className={`${rowHeight} w-full rounded bg-muted animate-pulse`} />
+          ))}
+        </div>
       </div>
     </div>
   )

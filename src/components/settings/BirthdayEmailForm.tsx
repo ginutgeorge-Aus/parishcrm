@@ -38,8 +38,6 @@ export function BirthdayEmailForm({
         </p>
       </div>
 
-      <FormFeedback state={state} />
-
       <div className="space-y-1">
         <Label htmlFor="birthdayEmailSubject">Subject</Label>
         <Input
@@ -65,6 +63,8 @@ export function BirthdayEmailForm({
         />
       </div>
 
+      {/* Next to the buttons so save/test results are seen without scrolling up. */}
+      <FormFeedback state={state} />
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save template"}</Button>
         <Button type="button" variant="outline" onClick={onTest} disabled={testPending}>

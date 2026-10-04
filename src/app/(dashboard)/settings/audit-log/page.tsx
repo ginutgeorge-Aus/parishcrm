@@ -98,9 +98,9 @@ export default async function AuditLogPage(props: Readonly<Props>) {
                 <TableCell>{log.user?.name ?? "System"}</TableCell>
                 <TableCell className="font-mono text-xs">{log.action}</TableCell>
                 <TableCell>{log.resourceType}</TableCell>
-                <TableCell className="text-muted-foreground">{log.resourceId ?? "Not available"}</TableCell>
+                <TableCell className="text-muted-foreground break-all">{log.resourceId ?? "Not available"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{log.ip ?? "Not available"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">
+                <TableCell className="max-w-xs text-xs text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
                   {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
                 </TableCell>
               </TableRow>
@@ -118,7 +118,7 @@ export default async function AuditLogPage(props: Readonly<Props>) {
 
       <ul className="space-y-2 md:hidden">
         {logs.map((log) => (
-          <li key={log.id} className="rounded-lg border bg-card p-3">
+          <li key={log.id} className="min-w-0 rounded-lg border bg-card p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-medium">
@@ -129,10 +129,11 @@ export default async function AuditLogPage(props: Readonly<Props>) {
                 </p>
               </div>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
+            {/* JSON/ids have no spaces — let them wrap so the card can't force horizontal page scroll. */}
+            <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
               {log.resourceType} · ID {log.resourceId ?? "Not available"} · IP {log.ip ?? "Not available"}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
               {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
             </p>
           </li>

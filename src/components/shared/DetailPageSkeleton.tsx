@@ -6,12 +6,16 @@
 // field-height blocks, no search bar.
 export function DetailPageSkeleton({ rows = 4 }: Readonly<{ rows?: number }>) {
   return (
-    <div className="space-y-6 max-w-3xl" aria-hidden="true">
-      <div className="h-7 w-48 rounded bg-muted animate-pulse" />
-      <div className="space-y-3">
-        {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="h-10 w-full rounded bg-muted animate-pulse" />
-        ))}
+    // Visual skeleton is aria-hidden; the status span tells AT a load is in progress.
+    <div role="status" aria-busy="true">
+      <span className="sr-only">Loading…</span>
+      <div className="space-y-6 max-w-3xl" aria-hidden="true">
+        <div className="h-7 w-48 rounded bg-muted animate-pulse" />
+        <div className="space-y-3">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div key={i} className="h-10 w-full rounded bg-muted animate-pulse" />
+          ))}
+        </div>
       </div>
     </div>
   )
