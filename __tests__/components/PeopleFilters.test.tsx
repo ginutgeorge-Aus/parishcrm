@@ -31,7 +31,8 @@ test("classification and role dropdowns show humanized labels, not raw enum valu
   expect(screen.getByText("Head")).toBeInTheDocument()
   expect(screen.getByText("Spouse")).toBeInTheDocument()
   expect(screen.getByText("Child")).toBeInTheDocument()
-  expect(screen.getByText("Other")).toBeInTheDocument()
+  // "Other" is both a family role and a ministry role option.
+  expect(screen.getAllByText("Other")).toHaveLength(2)
   expect(screen.queryByText("VISITOR")).not.toBeInTheDocument()
   expect(screen.queryByText("HEAD")).not.toBeInTheDocument()
 })
