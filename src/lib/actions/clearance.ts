@@ -124,6 +124,13 @@ export async function upsertClearance(
       }
     : {}
   const actor = actorId(session)
+  // Optimistic concurrency (event.ts pattern): the edit form round-trips the
+  // row's updatedAt and the Add form sends none. A seen value with no row means
+  // it was removed since the page loaded; a row with no seen value means it was
+  // added since. Both are stale — never recreate or overwrite from old data.
+  const seenAt = parseOptimisticUpdatedAt(formData)
+  if (existing ? !seenAt : seenAt) return { error: STALE_ERROR }
+  if (existing && seenAt && seenAt.getTime() !== existing.updatedAt.getTime()) return { error: STALE_ERROR }
 
   if (!existing) {
     try {
@@ -146,18 +153,15 @@ export async function upsertClearance(
     return
   }
 
-  // Optimistic concurrency (event.ts pattern): the edit form round-trips the
-  // row's updatedAt; a present-but-different value means someone else saved first.
-  const seenAt = parseOptimisticUpdatedAt(formData)
-  if (seenAt && seenAt.getTime() !== existing.updatedAt.getTime()) return { error: STALE_ERROR }
-
   const previousNumber = existing.number ? safeDecrypt(existing.number) : null
   const changed =
     upload !== null || previousNumber !== number || dateToYmd(existing.expiresAt) !== dateToYmd(expiresAt)
   if (!changed) return
 
-  await prisma.personClearance.update({
-    where: { id: existing.id },
+  // The seen timestamp is part of the write predicate, so an edit or verify
+  // committed between the read above and this write still makes it stale.
+  const result = await prisma.personClearance.updateMany({
+    where: { id: existing.id, updatedAt: seenAt as Date },
     data: {
       number: number ? encrypt(number) : null,
       expiresAt,
@@ -167,6 +171,7 @@ export async function upsertClearance(
       verificationNote: null,
     },
   })
+  if (result.count === 0) return { error: STALE_ERROR }
   await logAudit(actor, "CLEARANCE_UPDATED", "Person", personId, {
     type,
     documentReplaced: upload !== null,

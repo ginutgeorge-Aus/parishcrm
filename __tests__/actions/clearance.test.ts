@@ -197,19 +197,19 @@ describe("upsertClearance update", () => {
   it("rejects an edit whose seen updatedAt no longer matches", async () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15", updatedAt: "2026-09-01T00:00:00.000Z" }))
     expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
-    expect(update).not.toHaveBeenCalled()
+    expect(updateMany).not.toHaveBeenCalled()
   })
   it("accepts an edit whose seen updatedAt matches", async () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15", updatedAt: SEEN }))
     expect(r).toBeUndefined()
-    expect(update).toHaveBeenCalledTimes(1)
+    expect(updateMany).toHaveBeenCalledTimes(1)
   })
 
   it("changing the expiry clears verification and audits UPDATED", async () => {
-    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15" }))
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2034-03-15" }))
     expect(r).toBeUndefined()
-    const { where, data } = update.mock.calls[0][0]
-    expect(where).toEqual({ id: CID })
+    const { where, data } = updateMany.mock.calls[0][0]
+    expect(where).toEqual({ id: CID, updatedAt: UPDATED })
     expect(data.expiresAt).toEqual(new Date("2034-03-15T00:00:00.000Z"))
     expect(data).toMatchObject({ verifiedAt: null, verifiedById: null, verificationNote: null })
     expect(data.document).toBeUndefined() // no new file -> existing document kept
@@ -219,23 +219,40 @@ describe("upsertClearance update", () => {
   })
 
   it("changing the number clears verification", async () => {
-    await upsertClearance(3, "WWCC", fd({ number: "WWC9999999E", expiresAt: "2029-03-15" }))
-    expect(update.mock.calls[0][0].data).toMatchObject({ number: "enc:WWC9999999E", verifiedAt: null })
+    await upsertClearance(3, "WWCC", fd({ number: "WWC9999999E", updatedAt: SEEN, expiresAt: "2029-03-15" }))
+    expect(updateMany.mock.calls[0][0].data).toMatchObject({ number: "enc:WWC9999999E", verifiedAt: null })
   })
 
   it("uploading a new document alone counts as a change", async () => {
-    await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2029-03-15" }, pngFile()))
-    const { data } = update.mock.calls[0][0]
+    await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2029-03-15" }, pngFile()))
+    const { data } = updateMany.mock.calls[0][0]
     expect(data.documentType).toBe("image/png")
     expect(data.verifiedAt).toBeNull()
     expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UPDATED", "Person", 3, expect.objectContaining({ documentReplaced: true }))
   })
 
   it("an unchanged resubmit is a no-op (verification kept, no audit)", async () => {
-    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2029-03-15" }))
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2029-03-15" }))
     expect(r).toBeUndefined()
-    expect(update).not.toHaveBeenCalled()
+    expect(updateMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("rejects a stale Add form (no seen updatedAt) when the row now exists", async () => {
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15" }))
+    expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+  it("rejects when the row changed between read and write (guarded updateMany count 0)", async () => {
+    updateMany.mockResolvedValue({ count: 0 })
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2034-03-15" }))
+    expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("rejects a stale edit after a concurrent removal instead of recreating", async () => {
+    find.mockResolvedValue(null)
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2034-03-15" }))
+    expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(create).not.toHaveBeenCalled()
   })
 })
 
