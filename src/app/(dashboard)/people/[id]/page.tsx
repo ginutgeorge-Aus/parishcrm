@@ -3,7 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople, canManageClearances, canViewClearanceStatus } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -25,6 +25,10 @@ import {
 } from "@/components/ui/table"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+import { PersonClearances } from "@/components/people/PersonClearances"
+import { buildClearanceCard, type ClearanceCardData } from "@/lib/clearanceView"
+import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
+import { sydneyToday } from "@/lib/dates"
 
 function field(label: string, value: string | null | undefined) {
   return (
@@ -79,6 +83,7 @@ function PersonInfoCards({
   displayPerson,
   dob,
   showPastoralNotes,
+  clearanceCard,
 }: Readonly<{
   person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null; ministryRoles: MinistryRole[] }
   displayPerson: {
@@ -93,6 +98,7 @@ function PersonInfoCards({
   }
   dob: string | null
   showPastoralNotes: boolean
+  clearanceCard: ClearanceCardData | null
 }>) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -146,6 +152,15 @@ function PersonInfoCards({
                 {field("Pastoral notes", displayPerson.pastoralNotes)}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {clearanceCard && (
+        <Card className="md:col-span-2">
+          <CardHeader><CardTitle className="text-base">Safeguarding</CardTitle></CardHeader>
+          <CardContent>
+            <PersonClearances {...clearanceCard} />
           </CardContent>
         </Card>
       )}
@@ -257,6 +272,36 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     void logAudit(userId, "VIEW_PASTORAL_NOTES", "Person", person.id)
   }
   const userCanSeeGiving = canAccessAccounting(session?.user?.role)
+  // Safeguarding card. Gate BEFORE querying/decrypting: AUDITOR/EVENT_ORGANISER
+  // get nothing; VIEWER gets status badges only (buildClearanceCard strips the
+  // rest). Never select the `document` blob here.
+  const clearanceRows = canViewClearanceStatus(session?.user?.role)
+    ? await prisma.personClearance.findMany({
+        where: { personId: person.id },
+        select: {
+          id: true,
+          type: true,
+          number: true,
+          expiresAt: true,
+          documentName: true,
+          documentType: true,
+          verifiedAt: true,
+          verificationNote: true,
+          verifiedBy: { select: { name: true } },
+        },
+      })
+    : []
+  const wwccVerifyUrl = canManageClearances(session?.user?.role)
+    ? await getWwccVerifyUrl()
+    : DEFAULT_WWCC_VERIFY_URL
+  const clearanceCard = buildClearanceCard({
+    role: session?.user?.role,
+    personId: person.id,
+    rows: clearanceRows,
+    today: sydneyToday(),
+    wwccVerifyUrl,
+    ministryRoleCount: person.ministryRoles.length,
+  })
   const givingTransactions = userCanSeeGiving
     ? await prisma.transaction.findMany({
         where: { personId: person.id, isGiving: true },
@@ -323,6 +368,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         displayPerson={displayPerson}
         dob={dob}
         showPastoralNotes={showPastoralNotes}
+        clearanceCard={clearanceCard}
       />
 
       {userCanSeeGiving && (
