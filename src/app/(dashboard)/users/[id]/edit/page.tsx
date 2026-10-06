@@ -1,8 +1,7 @@
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canManageUsers, isAdmin } from "@/lib/roleGuard"
-import { UserRole } from "@/lib/generated/prisma/enums"
+import { canAssignRole, canManageUsers } from "@/lib/roleGuard"
 import { updateUser } from "@/lib/actions/user"
 import { UserForm } from "@/components/users/UserForm"
 import { parseRouteId } from "@/lib/validation"
@@ -26,9 +25,9 @@ export default async function EditUserPage(props: Readonly<{ params: Promise<{ i
   // Soft-deleted users are gone — don't render the tombstoned email.
   if (!user || user.archivedAt) notFound()
 
-  // Non-ADMIN actors may not edit an ADMIN account — mirror the updateUser
-  // server guard so OFFICE_ADMIN never lands on a form that would fail.
-  if (user.role === UserRole.ADMIN && !isAdmin(session?.user?.role)) redirect("/users")
+  // Mirror the updateUser server guard (canAssignRole: non-ADMIN may not edit
+  // ADMIN or PASTOR) so OFFICE_ADMIN never lands on a form that would fail.
+  if (!canAssignRole(session?.user?.role, user.role)) redirect("/users")
 
   // Don't ship archivedAt into the Client Component RSC payload.
   const { archivedAt: _archivedAt, ...userForForm } = user

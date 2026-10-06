@@ -100,13 +100,22 @@ export async function requestPasswordReset(
   // Trade-off: a process killed mid-send (not a catchable failure) leaves the
   // claim parked until expiry, so retries no-op for up to the 1h TTL — the same
   // wait as a user whose link did arrive. Accepted over losing links to races.
-  const claimed = await prisma.user.updateMany({
-    where: {
-      id: user.id,
-      OR: [{ passwordResetExpires: null }, { passwordResetExpires: { lte: new Date() } }],
-    },
-    data: { passwordResetToken: tokenHash, passwordResetExpires: expires },
-  })
+  // Only real users reach this write, so a throw must not surface as a
+  // distinct error — same silent success as every other branch.
+  let claimed: { count: number }
+  try {
+    claimed = await prisma.user.updateMany({
+      where: {
+        id: user.id,
+        OR: [{ passwordResetExpires: null }, { passwordResetExpires: { lte: new Date() } }],
+      },
+      data: { passwordResetToken: tokenHash, passwordResetExpires: expires },
+    })
+  } catch {
+    console.error("requestPasswordReset: failed to claim reset token slot")
+    await randomDelay()
+    return { success: true }
+  }
   if (claimed.count === 0) {
     await randomDelay()
     return { success: true }
