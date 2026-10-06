@@ -36,7 +36,7 @@ From a family's page, **Add person** opens `/families/[id]/people/new`. The pers
 - **New person** requires picking (or having) a family first, in practice usually reached via a family page.
 
 ### Ministry roles
-Each person can be tagged with any number of ministry roles: **Staff**, **Volunteer**, **Sunday school teacher**, **Youth leader**, **Children's ministry** or **Other**. Tick them on the person form (ADMIN, PASTOR, OFFICE_ADMIN). They appear as badges in the **Church** card on the person's profile, visible to every role that can open the profile, and you can filter `/people` by them (`?ministryRole=VOLUNTEER`). The tag marks who works with children or serves the church; it is the basis for tracking child-safety clearances (Working With Children Check, Safe Ministry) in later releases.
+Each person can be tagged with any number of ministry roles: **Staff**, **Volunteer**, **Sunday school teacher**, **Youth leader**, **Children's ministry** or **Other**. Tick them on the person form (ADMIN, PASTOR, OFFICE_ADMIN). They appear as badges in the **Church** card on the person's profile, visible to every role that can open the profile, and you can filter `/people` by them (`?ministryRole=VOLUNTEER`). The tag marks who works with children or serves the church; it is the basis for tracking child-safety clearances (Working With Children Check, Safe Ministry), described below.
 
 ### Roles who can see or do what
 
@@ -46,8 +46,20 @@ Each person can be tagged with any number of ministry roles: **Staff**, **Volunt
 | `PASTOR` | Full CRUD + pastoral notes; cannot delete a family/person or merge/import |
 | `OFFICE_ADMIN` | Create/edit families & people, cannot see pastoral notes or emergency-contact fields, cannot delete/merge/import |
 | `AUDITOR` | No access — people/family pages redirect away (accounting-only role) |
-| `VIEWER` | Read-only list/detail views, no pastoral notes, no edit actions |
+| `VIEWER` | Read-only list/detail views and the clearance status badge only (never the number or document), no pastoral notes, no edit actions |
 | `EVENT_ORGANISER` | No access to People/Families at all — confined to their own managed events |
+
+### Safeguarding clearances (WWCC and Safe Ministry)
+
+Each person's page has a **Safeguarding** card with one row for the **Working With Children Check (WWCC)** and one for the **Safe Ministry** certificate. Staff (ADMIN, PASTOR, OFFICE_ADMIN) can:
+
+- **Add / Update** — record the number and expiry date (both optional; a clearance with no expiry never expires) and upload the document (JPEG, PNG or PDF, up to 4 MB). A new upload replaces the previous one; the audit log keeps the history.
+- **Verify** — after checking the clearance (for a WWCC, on the issuing portal — the dialog has a **Check on OCG portal ↗** link, default the NSW Office of the Children's Guardian employer portal), click **Verify** and add an optional note (up to 500 characters). The card then shows who verified it and when. **Editing the number, expiry or document clears the verification**, so it must be checked again.
+- **View document**, **Unverify** and **Remove** (removing deletes the record and its document permanently).
+
+Status badges: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** (expires within 60 days; a clearance is still valid on its expiry date) and **Expired**. People tagged with a ministry role (see ministry roles above) are the ones who need a clearance; staff can add one for anyone. VIEWER accounts see only the status badges, and only on people who have a ministry role or a clearance record.
+
+The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL). Outside NSW, add or edit that row in the `AppSetting` table to point at your state's check; if unset or not a valid `https://` URL the NSW URL is used.
 
 ## How it works
 
