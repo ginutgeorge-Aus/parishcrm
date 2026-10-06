@@ -3,8 +3,8 @@ import type { MinistryRole } from "@/lib/generated/prisma/enums"
 import { MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
 
 /**
- * Read-only badges for a person's ministry roles. Renders nothing when the
- * person has none, so callers can drop it in without a length check.
+ * Read-only badges for a person's ministry roles. Renders nothing for an
+ * empty list (callers that add their own label still gate on length).
  */
 export function MinistryRoleBadges({ roles }: Readonly<{ roles: MinistryRole[] }>) {
   if (roles.length === 0) return null
