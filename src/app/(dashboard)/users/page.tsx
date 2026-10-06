@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canAssignRole, canManageUsers, isAdmin } from "@/lib/roleGuard"
+import { canAssignRole, canManageUsers } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -43,10 +43,9 @@ export default async function UsersPage() {
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")
 
-  // Non-ADMIN actors (OFFICE_ADMIN) may not act on an ADMIN account — every
-  // user action rejects it server-side. Hide the controls so they
-  // don't offer buttons that then fail.
-  const viewerIsAdmin = isAdmin(session?.user?.role)
+  // Row controls are gated on canAssignRole — the same check every user action
+  // enforces server-side (non-ADMIN may not act on ADMIN or PASTOR), so we
+  // never offer buttons that then fail. Delete is also hidden on your own row.
 
   const now = new Date()
   const users = await prisma.user.findMany({
@@ -110,7 +109,7 @@ export default async function UsersPage() {
                     })
                   : "Never"}
               </p>
-              {(viewerIsAdmin || u.role !== "ADMIN") && (
+              {canAssignRole(session?.user?.role, u.role) && (
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
                   {isLocked && <UnlockUserButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
                   {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
@@ -118,7 +117,7 @@ export default async function UsersPage() {
                     <Link href={`/users/${u.id}/edit`}>Edit</Link>
                   </Button>
                   <ResendWelcomeButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />
-                  <DeleteUserButton userId={u.id} userName={u.name} triggerClassName="h-11 sm:h-7 any-pointer-coarse:h-11" />
+                  {String(u.id) !== session?.user?.id && <DeleteUserButton userId={u.id} userName={u.name} triggerClassName="h-11 sm:h-7 any-pointer-coarse:h-11" />}
                 </div>
               )}
             </li>
@@ -165,7 +164,7 @@ export default async function UsersPage() {
                       : "Never"}
                   </TableCell>
                   <TableCell>
-                    {(viewerIsAdmin || u.role !== "ADMIN") && (
+                    {canAssignRole(session?.user?.role, u.role) && (
                       <div className="flex flex-wrap gap-2">
                         {isLocked && <UnlockUserButton userId={u.id} />}
                         {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} />}
@@ -173,7 +172,7 @@ export default async function UsersPage() {
                           <Link href={`/users/${u.id}/edit`}>Edit</Link>
                         </Button>
                         <ResendWelcomeButton userId={u.id} />
-                        <DeleteUserButton userId={u.id} userName={u.name} />
+                        {String(u.id) !== session?.user?.id && <DeleteUserButton userId={u.id} userName={u.name} />}
                       </div>
                     )}
                   </TableCell>

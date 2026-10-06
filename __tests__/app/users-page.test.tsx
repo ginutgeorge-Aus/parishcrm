@@ -12,7 +12,7 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("REDIRECT") }),
 }))
-jest.mock("@/components/users/DeleteUserButton", () => ({ DeleteUserButton: () => null }))
+jest.mock("@/components/users/DeleteUserButton", () => ({ DeleteUserButton: () => "DELETE_BTN" }))
 jest.mock("@/components/users/UnlockUserButton", () => ({ UnlockUserButton: () => null }))
 jest.mock("@/components/users/ResetTotpButton", () => ({ ResetTotpButton: () => "RESET_TOTP_BTN" }))
 jest.mock("@/components/users/ResendWelcomeButton", () => ({ ResendWelcomeButton: () => null }))
@@ -88,5 +88,36 @@ describe("UsersPage", () => {
       { id: 3, name: "Vic", email: "viewer@example.com", role: "VIEWER", ...base },
     ])
     expect(renderToStaticMarkup(await UsersPage())).toContain("RESET_TOTP_BTN")
+  })
+
+  it("hides manage controls on rows the viewer cannot act on (OFFICE_ADMIN → PASTOR)", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null }
+    mockUsers.mockResolvedValue([
+      { id: 2, name: "Pat", email: "pastor@example.com", role: "PASTOR", ...base },
+    ])
+    mockGroupBy.mockResolvedValue([])
+    let html = renderToStaticMarkup(await UsersPage())
+    expect(html).not.toContain("/users/2/edit")
+    expect(html).not.toContain("DELETE_BTN")
+
+    mockUsers.mockResolvedValue([
+      { id: 3, name: "Vic", email: "viewer@example.com", role: "VIEWER", ...base },
+    ])
+    html = renderToStaticMarkup(await UsersPage())
+    expect(html).toContain("/users/3/edit")
+    expect(html).toContain("DELETE_BTN")
+  })
+
+  it("does not offer Delete on the viewer's own row", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null }
+    mockUsers.mockResolvedValue([
+      { id: 1, name: "Me", email: "me@example.com", role: "ADMIN", ...base },
+    ])
+    mockGroupBy.mockResolvedValue([])
+    const html = renderToStaticMarkup(await UsersPage())
+    expect(html).toContain("/users/1/edit")
+    expect(html).not.toContain("DELETE_BTN")
   })
 })
