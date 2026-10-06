@@ -57,7 +57,7 @@ Each person's page has a **Safeguarding** card with one row for the **Working Wi
 - **Verify** — after checking the clearance (for a WWCC, on the issuing portal — the dialog has a **Check on OCG portal ↗** link, default the NSW Office of the Children's Guardian employer portal), click **Verify** and add an optional note (up to 500 characters). The card then shows who verified it and when. **Editing the number, expiry or document clears the verification**, so it must be checked again.
 - **View document**, **Unverify** and **Remove** (removing deletes the record and its document permanently).
 
-Status badges: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** (expires within 60 days; a clearance is still valid on its expiry date) and **Expired**. People tagged with a ministry role (see ministry roles above) are the ones who need a clearance; staff can add one for anyone. VIEWER accounts see only the status badges, and only on people who have a ministry role or a clearance record.
+Status badges: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** (verified, but expires within 60 days; a clearance is still valid on its expiry date — an unverified one shows **Unverified** instead) and **Expired**. People tagged with a ministry role (see ministry roles above) are the ones who need a clearance; staff can add one for anyone. VIEWER accounts see only the status badges, and only on people who have a ministry role or a clearance record.
 
 The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL). Outside NSW, add or edit that row in the `AppSetting` table to point at your state's check; if unset or not a valid `https://` URL the NSW URL is used.
 

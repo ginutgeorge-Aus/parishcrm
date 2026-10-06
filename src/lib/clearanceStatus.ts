@@ -29,10 +29,11 @@ const DAY_MS = 86_400_000
 
 /**
  * Status of a clearance. Precedence: no row -> MISSING; past expiry -> EXPIRED;
- * within EXPIRING_WINDOW_DAYS of expiry -> EXPIRING (a clearance is valid
- * through its expiry date, so expiry == today is EXPIRING, not EXPIRED);
- * not verified -> UNVERIFIED; else VERIFIED. A row with no expiry date never
- * expires.
+ * not verified -> UNVERIFIED; within EXPIRING_WINDOW_DAYS of expiry ->
+ * EXPIRING (a clearance is valid through its expiry date, so expiry == today
+ * is EXPIRING, not EXPIRED); else VERIFIED. UNVERIFIED beats EXPIRING so the
+ * badge never makes an unchecked clearance look like a checked one — EXPIRING
+ * always means verified but lapsing. A row with no expiry date never expires.
  * @param c the clearance (or null if the person has none of this type)
  * @param today Sydney calendar date at UTC midnight
  */
@@ -41,10 +42,9 @@ export function clearanceStatus(
   today: Date,
 ): ClearanceStatus {
   if (!c) return "MISSING"
-  if (c.expiresAt) {
-    const daysLeft = Math.floor((c.expiresAt.getTime() - today.getTime()) / DAY_MS)
-    if (daysLeft < 0) return "EXPIRED"
-    if (daysLeft <= EXPIRING_WINDOW_DAYS) return "EXPIRING"
-  }
-  return c.verifiedAt ? "VERIFIED" : "UNVERIFIED"
+  const daysLeft = c.expiresAt ? Math.floor((c.expiresAt.getTime() - today.getTime()) / DAY_MS) : null
+  if (daysLeft !== null && daysLeft < 0) return "EXPIRED"
+  if (!c.verifiedAt) return "UNVERIFIED"
+  if (daysLeft !== null && daysLeft <= EXPIRING_WINDOW_DAYS) return "EXPIRING"
+  return "VERIFIED"
 }

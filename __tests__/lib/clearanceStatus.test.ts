@@ -16,8 +16,8 @@ describe("clearanceStatus", () => {
     expect(clearanceStatus({ verifiedAt: verified, expiresAt: day(0) }, TODAY)).toBe("EXPIRING"))
   it("EXPIRING at exactly 60 days", () =>
     expect(clearanceStatus({ verifiedAt: verified, expiresAt: day(60) }, TODAY)).toBe("EXPIRING"))
-  it("EXPIRING beats UNVERIFIED", () =>
-    expect(clearanceStatus({ verifiedAt: null, expiresAt: day(10) }, TODAY)).toBe("EXPIRING"))
+  it("UNVERIFIED beats EXPIRING (Expiring means verified but lapsing)", () =>
+    expect(clearanceStatus({ verifiedAt: null, expiresAt: day(10) }, TODAY)).toBe("UNVERIFIED"))
   it("VERIFIED at 61 days out", () =>
     expect(clearanceStatus({ verifiedAt: verified, expiresAt: day(61) }, TODAY)).toBe("VERIFIED"))
   it("UNVERIFIED when valid but not verified", () =>
