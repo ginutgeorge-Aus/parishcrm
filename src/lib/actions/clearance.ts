@@ -49,14 +49,17 @@ function parseSeenUpdatedAt(seen: unknown): Date | null {
 
 /**
  * Load the minimal row the verify/unverify/delete actions need. Null when the id
- * is malformed or the row does not exist (callers answer "Not found").
+ * is malformed, the row does not exist, or its person is archived — archived
+ * people are treated as not found, matching upsertClearance (callers answer "Not found").
  */
 async function loadClearance(clearanceId: string) {
   if (!CUID_ID_RE.test(clearanceId)) return null
-  return prisma.personClearance.findUnique({
+  const row = await prisma.personClearance.findUnique({
     where: { id: clearanceId },
-    select: { id: true, personId: true, type: true, updatedAt: true },
+    select: { id: true, personId: true, type: true, updatedAt: true, person: { select: { archivedAt: true } } },
   })
+  if (!row || row.person.archivedAt) return null
+  return row
 }
 
 /**

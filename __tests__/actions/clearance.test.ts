@@ -10,6 +10,7 @@ jest.mock("@/lib/prisma", () => ({
       update: jest.fn(),
       updateMany: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
   },
 }))
@@ -257,7 +258,7 @@ describe("upsertClearance update", () => {
 })
 
 describe("verifyClearance", () => {
-  const row = { id: CID, personId: 3, type: "WWCC", updatedAt: UPDATED }
+  const row = { id: CID, personId: 3, type: "WWCC", updatedAt: UPDATED, person: { archivedAt: null } }
   beforeEach(() => find.mockResolvedValue(row))
 
   it("marks verified by the actor, encrypts the note, audits, revalidates", async () => {
@@ -304,7 +305,7 @@ describe("verifyClearance", () => {
 })
 
 describe("unverifyClearance / deleteClearance", () => {
-  beforeEach(() => find.mockResolvedValue({ id: CID, personId: 3, type: "SAFE_MINISTRY", updatedAt: UPDATED }))
+  beforeEach(() => find.mockResolvedValue({ id: CID, personId: 3, type: "SAFE_MINISTRY", updatedAt: UPDATED, person: { archivedAt: null } }))
 
   it("unverify clears the verification fields (guarded on seen updatedAt) and audits", async () => {
     expect(await unverifyClearance(CID, SEEN)).toBeUndefined()
@@ -327,6 +328,14 @@ describe("unverifyClearance / deleteClearance", () => {
     expect(del).toHaveBeenCalledWith({ where: { id: CID } })
     expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_REMOVED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
+  })
+  it("all three 404 a clearance whose person is archived", async () => {
+    find.mockResolvedValue({ id: CID, personId: 3, type: "SAFE_MINISTRY", updatedAt: UPDATED, person: { archivedAt: new Date() } })
+    expect(await verifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
+    expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
+    expect(await deleteClearance(CID)).toEqual({ error: "Not found" })
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(del).not.toHaveBeenCalled()
   })
   it("both 404 a missing row", async () => {
     find.mockResolvedValue(null)

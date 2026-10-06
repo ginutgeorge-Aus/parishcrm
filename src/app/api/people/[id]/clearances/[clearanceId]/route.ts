@@ -16,7 +16,7 @@ const notFound = () => new NextResponse("Not found", { status: 404 })
  * (ADMIN/PASTOR/OFFICE_ADMIN); every other caller — including VIEWER, who may
  * see the status badge but never the document — gets the same 404 as a missing
  * row, so the route can't be probed for existence. The clearance must belong to
- * the addressed person. Rate-limited (each hit decrypts a blob) and audited
+ * the addressed person, who must not be archived. Rate-limited (each hit decrypts a blob) and audited
  * (CLEARANCE_VIEWED, with client IP).
  */
 export async function GET(
@@ -36,10 +36,18 @@ export async function GET(
 
   const row = await prisma.personClearance.findUnique({
     where: { id: clearanceId },
-    select: { personId: true, type: true, document: true, documentType: true, documentName: true },
+    select: {
+      personId: true,
+      type: true,
+      document: true,
+      documentType: true,
+      documentName: true,
+      person: { select: { archivedAt: true } },
+    },
   })
   // Scope to the addressed person: a real clearance on someone else 404s like a missing one.
-  if (row?.personId !== personId || !row.document || !row.documentType) return notFound()
+  // An archived person's clearances are treated as gone, like upsertClearance.
+  if (row?.personId !== personId || row.person.archivedAt || !row.document || !row.documentType) return notFound()
 
   // Decrypt before auditing so a failed decrypt never records a view.
   const response = encryptedDocumentResponse({

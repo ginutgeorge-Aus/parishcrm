@@ -26,6 +26,7 @@ const blob = (raw: string) => Buffer.from(`enc:${Buffer.from(raw).toString("base
 const row = (over: Record<string, unknown> = {}) => ({
   personId: 3,
   type: "WWCC",
+  person: { archivedAt: null },
   document: blob("PDFBYTES"),
   documentType: "application/pdf",
   documentName: "enc:wwcc.pdf",
@@ -57,6 +58,12 @@ it("404s a non-numeric person id or a malformed clearance id without a DB read",
 
 it("404s when the clearance belongs to a different person (ownership mismatch)", async () => {
   find.mockResolvedValue(row({ personId: 99 }))
+  expect((await call("3", CID)).status).toBe(404)
+  expect(logAudit).not.toHaveBeenCalled()
+})
+
+it("404s when the person is archived", async () => {
+  find.mockResolvedValue(row({ person: { archivedAt: new Date() } }))
   expect((await call("3", CID)).status).toBe(404)
   expect(logAudit).not.toHaveBeenCalled()
 })
