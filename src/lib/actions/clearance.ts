@@ -112,9 +112,13 @@ export async function upsertClearance(
 
   const existing = await prisma.personClearance.findUnique({
     where: { personId_type: { personId, type } },
-    select: { id: true, number: true, expiresAt: true, verifiedAt: true, updatedAt: true },
+    select: { id: true, number: true, expiresAt: true, verifiedAt: true, updatedAt: true, documentType: true },
   })
-  if (!existing && !number && !expiresAt && !upload) {
+  // A clearance must keep some evidence: an edit that clears the last number /
+  // expiry of a document-less row would leave an empty row that reads as
+  // Unverified (and could be Verified) instead of Missing.
+  const keepsDocument = existing?.documentType != null
+  if (!number && !expiresAt && !upload && !keepsDocument) {
     return { error: "Enter an expiry date, number or document." }
   }
 

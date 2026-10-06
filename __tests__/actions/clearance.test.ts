@@ -232,6 +232,19 @@ describe("upsertClearance update", () => {
     expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UPDATED", "Person", 3, expect.objectContaining({ documentReplaced: true }))
   })
 
+  it("rejects an edit that empties the last field of a document-less clearance", async () => {
+    find.mockResolvedValue({ ...existing, number: null, documentType: null })
+    const r = await upsertClearance(3, "WWCC", fd({ updatedAt: SEEN, expiresAt: "" }))
+    expect(r).toEqual({ error: "Enter an expiry date, number or document." })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+  it("allows clearing number + expiry when a document is kept", async () => {
+    find.mockResolvedValue({ ...existing, documentType: "image/png" })
+    const r = await upsertClearance(3, "WWCC", fd({ updatedAt: SEEN, expiresAt: "" }))
+    expect(r).toBeUndefined()
+    expect(updateMany).toHaveBeenCalledTimes(1)
+  })
+
   it("an unchanged resubmit is a no-op (verification kept, no audit)", async () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2029-03-15" }))
     expect(r).toBeUndefined()
