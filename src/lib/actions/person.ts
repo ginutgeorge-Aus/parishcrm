@@ -225,6 +225,13 @@ export async function updatePerson(
   redirect(`/people/${id}`)
 }
 
+/**
+ * Permanently delete a person (ADMIN only) unless giving/receipt records link
+ * to them. Clearances cascade with the person, so each is audited as
+ * CLEARANCE_REMOVED (cascade) after the delete commits.
+ * @param id Person.id
+ * @param familyId expected family (IDOR guard)
+ */
 export async function deletePerson(id: number, familyId: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -249,6 +256,9 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   const linkedMsg = (n: number) =>
     `Cannot delete — ${n} linked giving/receipt record(s) reference this person. Archive the family instead.`
   let linkedCount = 0
+  // PersonClearance cascades on person delete; capture ids/types first so the
+  // removal can be audited (no decrypted values).
+  let removedClearances: { id: string; type: string }[] = []
   try {
     linkedCount = await prisma.$transaction(
       async (tx) => {
@@ -259,6 +269,10 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         ])
         const total = txCount + dgrCount + pettyCashCount
         if (total > 0) return total
+        removedClearances = await tx.personClearance.findMany({
+          where: { personId: id },
+          select: { id: true, type: true },
+        })
         await tx.person.delete({ where: { id } })
         return 0
       },
@@ -274,6 +288,13 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
 
   await logAudit(actorId(session), "PERSON_DELETED", "Person", id, { familyId })
+  for (const c of removedClearances) {
+    await logAudit(actorId(session), "CLEARANCE_REMOVED", "Person", id, {
+      type: c.type,
+      clearanceId: c.id,
+      cascade: true,
+    })
+  }
   revalidatePath(`/families/${familyId}`)
   redirect(`/families/${familyId}`)
 }
