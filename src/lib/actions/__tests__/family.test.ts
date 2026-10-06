@@ -50,6 +50,7 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { count: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     familyUpdateSubmission: { count: jest.fn() },
+    personClearance: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   },
 }))
