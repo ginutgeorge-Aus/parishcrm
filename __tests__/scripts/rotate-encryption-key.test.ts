@@ -127,6 +127,34 @@ it("re-keys a BYTEA blob column (transactionAttachment.data)", async () => {
   expect(keyIdOf(data.filename)).toBe("v2")
 })
 
+it("re-keys a blob returned as a plain Uint8Array (not a Buffer)", async () => {
+  setBaseEnv()
+  process.env.ENCRYPTION_KEY_ID = "v1"
+  const { encrypt: enc } = await import("@/lib/cryptoCore")
+  const plainB64 = Buffer.from("clearance-bytes").toString("base64")
+  const v1blob = new Uint8Array(Buffer.from(enc(plainB64), "utf8"))
+  expect(Buffer.isBuffer(v1blob)).toBe(false)
+
+  jest.resetModules()
+  process.env.ENCRYPTION_KEY_ID = "v2"
+  const { rotateModel } = await import("../../scripts/rotate-encryption-key")
+  const { decrypt, keyIdOf } = await import("@/lib/cryptoCore")
+
+  const update = jest.fn((arg: unknown) => ({ __op: arg }))
+  const delegate = {
+    count: jest.fn().mockResolvedValue(1),
+    findMany: jest.fn().mockResolvedValueOnce([{ id: "c1", document: v1blob }]).mockResolvedValue([]),
+    update,
+  }
+  await rotateModel("personClearance", { delegate, runTx: jest.fn().mockResolvedValue(undefined), apply: true })
+
+  expect(update).toHaveBeenCalledTimes(1)
+  const data = (update.mock.calls[0][0] as { data: { document: Buffer } }).data
+  expect(Buffer.isBuffer(data.document)).toBe(true)
+  expect(keyIdOf(data.document.toString("utf8"))).toBe("v2")
+  expect(decrypt(data.document.toString("utf8"))).toBe(plainB64)
+})
+
 // a single malformed/undecryptable ciphertext row must not abort the
 // whole rotation — the previous behaviour propagated decrypt()'s throw out of
 // the model loop, aborting every model that hadn't run yet.
