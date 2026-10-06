@@ -58,6 +58,7 @@ const makePerson = () => ({
   notes: null,
   membershipDate: null,
   baptismDate: null,
+  ministryRoles: [],
   family: { id: 10, name: "Doe Family" },
 })
 

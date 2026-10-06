@@ -472,7 +472,7 @@ describe("updatePerson", () => {
         action: "PERSON_UPDATED",
         resourceType: "Person",
         resourceId: 7,
-        metadata: { familyId: 3 },
+        metadata: { familyId: 3, ministryRoles: [] },
       }),
     })
   })
