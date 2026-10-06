@@ -5,6 +5,8 @@
 //
 // At release time, add a new entry at the TOP (newest first) with the same
 // version string as the git tag, alongside the CHANGELOG [Unreleased] rename.
+// __tests__/lib/whatsNew.test.ts fails on the release PR until the top entry
+// matches the new package.json version, so an entry can't be skipped.
 
 export type WhatsNewEntry = {
   version: string // matches the git tag / NEXT_PUBLIC_APP_VERSION, e.g. "v1.10.0"
@@ -20,6 +22,30 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       "You can now sign in with an authenticator app (such as Google Authenticator or Microsoft Authenticator) instead of an emailed code. Set it up from your Account page, and keep the backup codes somewhere safe.",
       "Scheduled jobs such as reminder emails now run inside the app itself, so no separate cron service is needed.",
       "Sign-in lockouts and date and email checks are more reliable.",
+    ],
+  },
+  {
+    version: "v1.3.1",
+    date: "2026-10-01",
+    highlights: [
+      "Saving is more dependable when two people change the same records at the same time.",
+      "This release also includes security and dependency updates.",
+    ],
+  },
+  {
+    version: "v1.3.0",
+    date: "2026-09-30",
+    highlights: [
+      "Emails can now be sent through Resend instead of Gmail, for better delivery and higher sending limits. Gmail keeps working if Resend is not set up.",
+    ],
+  },
+  {
+    version: "v1.2.0",
+    date: "2026-09-29",
+    highlights: [
+      "ParishCRM can now be deployed to Railway in one click, with a first-run setup page that creates the first admin account.",
+      "Database updates now apply automatically when the app starts after an upgrade.",
+      "The card-payment confirmation page now shows the correct status while a payment is still being processed.",
     ],
   },
   {
