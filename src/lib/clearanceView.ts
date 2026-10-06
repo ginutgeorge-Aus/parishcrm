@@ -32,18 +32,41 @@ export type ClearanceCardData = {
   rows: ClearanceRowView[]
 }
 
-/** The non-blob columns the person page selects (never `document`). */
+/**
+ * The columns the person page selects (never `document`). Only the first four
+ * are present for a VIEWER (see `clearanceSelectFor`); the rest are manager-only.
+ */
 export type ClearanceDbRow = {
   id: string
   type: ClearanceType
-  updatedAt: Date
-  number: string | null
   expiresAt: Date | null
-  documentName: string | null
-  documentType: string | null
   verifiedAt: Date | null
-  verificationNote: string | null
-  verifiedBy: { name: string } | null
+  updatedAt?: Date
+  number?: string | null
+  documentName?: string | null
+  documentType?: string | null
+  verificationNote?: string | null
+  verifiedBy?: { name: string } | null
+}
+
+/**
+ * Prisma `select` for the person page's clearance query, by role: a non-manager
+ * (VIEWER) only needs the status inputs, so number/note/filename/verifier are
+ * never read from the DB for them. Never includes the `document` blob.
+ * @param role the viewing user's role
+ */
+export function clearanceSelectFor(role: UserRole | undefined) {
+  const status = { id: true, type: true, expiresAt: true, verifiedAt: true } as const
+  if (!canManageClearances(role)) return status
+  return {
+    ...status,
+    updatedAt: true,
+    number: true,
+    documentName: true,
+    documentType: true,
+    verificationNote: true,
+    verifiedBy: { select: { name: true } },
+  } as const
 }
 
 const TYPE_ORDER: ClearanceType[] = [ClearanceType.WWCC, ClearanceType.SAFE_MINISTRY]
@@ -78,11 +101,11 @@ export function buildClearanceCard(args: {
       type,
       status,
       clearanceId: row.id,
-      updatedAt: row.updatedAt.toISOString(),
+      updatedAt: row.updatedAt?.toISOString(),
       number: row.number ? safeDecrypt(row.number) : null,
       expiresYmd: row.expiresAt ? row.expiresAt.toISOString().slice(0, 10) : null,
       expiresLabel: row.expiresAt ? row.expiresAt.toLocaleDateString(APP_LOCALE, { timeZone: "UTC" }) : null,
-      hasDocument: row.documentType !== null,
+      hasDocument: row.documentType != null,
       documentName: row.documentName ? safeDecrypt(row.documentName) : null,
       verifiedLabel: row.verifiedAt ? formatSydneyDate(row.verifiedAt) : null,
       verifiedByName: row.verifiedBy?.name ?? null,

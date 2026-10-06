@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
 
-import { buildClearanceCard } from "@/lib/clearanceView"
+import { buildClearanceCard, clearanceSelectFor } from "@/lib/clearanceView"
 import { DEFAULT_WWCC_VERIFY_URL } from "@/lib/clearanceSettings"
 
 jest.mock("@/lib/prisma", () => ({ prisma: {} }))
@@ -20,6 +20,17 @@ const wwcc = {
   verifiedBy: { name: "Test Admin" },
 }
 const base = { personId: 3, today: TODAY, wwccVerifyUrl: DEFAULT_WWCC_VERIFY_URL, ministryRoleCount: 1 }
+
+describe("clearanceSelectFor", () => {
+  it("VIEWER query selects only status columns (no number/note/document name/verifier)", () => {
+    expect(clearanceSelectFor("VIEWER")).toEqual({ id: true, type: true, expiresAt: true, verifiedAt: true })
+  })
+  it("managers also select the detail columns, never the document blob", () => {
+    const sel = clearanceSelectFor("ADMIN") as Record<string, unknown>
+    expect(sel).toMatchObject({ number: true, documentName: true, verificationNote: true, updatedAt: true })
+    expect(sel.document).toBeUndefined()
+  })
+})
 
 describe("buildClearanceCard", () => {
   it("returns null for roles that cannot view status (AUDITOR, EVENT_ORGANISER, none)", () => {

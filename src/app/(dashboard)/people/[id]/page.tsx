@@ -26,7 +26,7 @@ import {
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
 import { PersonClearances } from "@/components/people/PersonClearances"
-import { buildClearanceCard, type ClearanceCardData } from "@/lib/clearanceView"
+import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "@/lib/clearanceView"
 import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
 import { sydneyToday } from "@/lib/dates"
 
@@ -275,25 +275,32 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
   // Safeguarding card. Gate BEFORE querying/decrypting: AUDITOR/EVENT_ORGANISER
   // get nothing; VIEWER gets status badges only (buildClearanceCard strips the
   // rest). Never select the `document` blob here.
-  const clearanceRows = canViewClearanceStatus(session?.user?.role)
-    ? await prisma.personClearance.findMany({
-        where: { personId: person.id },
-        select: {
-          id: true,
-          type: true,
-          number: true,
-          expiresAt: true,
-          documentName: true,
-          documentType: true,
-          verifiedAt: true,
-          verificationNote: true,
-          verifiedBy: { select: { name: true } },
-        },
-      })
-    : []
-  const wwccVerifyUrl = canManageClearances(session?.user?.role)
-    ? await getWwccVerifyUrl()
-    : DEFAULT_WWCC_VERIFY_URL
+  const role = session?.user?.role
+  const canManage = canManageClearances(role)
+  // Independent reads run together: clearances, the verify-portal URL (managers
+  // only), and giving history (accounting roles only).
+  const [clearanceRows, wwccVerifyUrl, givingTransactions] = await Promise.all([
+    canViewClearanceStatus(role)
+      ? prisma.personClearance.findMany({
+          where: { personId: person.id },
+          select: clearanceSelectFor(role),
+        })
+      : Promise.resolve([]),
+    canManage ? getWwccVerifyUrl() : Promise.resolve(DEFAULT_WWCC_VERIFY_URL),
+    userCanSeeGiving
+      ? prisma.transaction.findMany({
+          where: { personId: person.id, isGiving: true },
+          orderBy: { date: "desc" },
+          // KNOWN SCALING BOUND: shows the 2000 most recent giving rows. A decades-
+          // active weekly donor could exceed this; reducing the cap is deliberately
+          // avoided because the per-FY giving totals on this page must stay correct
+          // (truncation would understate them). Move to year-scoped lazy loading
+          // before that ceiling is realistic.
+          take: 2000,
+          select: { id: true, date: true, description: true, amount: true },
+        })
+      : Promise.resolve([]),
+  ])
   const clearanceCard = buildClearanceCard({
     role: session?.user?.role,
     personId: person.id,
@@ -302,20 +309,6 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     wwccVerifyUrl,
     ministryRoleCount: person.ministryRoles.length,
   })
-  const givingTransactions = userCanSeeGiving
-    ? await prisma.transaction.findMany({
-        where: { personId: person.id, isGiving: true },
-        orderBy: { date: "desc" },
-        // KNOWN SCALING BOUND: shows the 2000 most recent giving rows. A decades-
-        // active weekly donor could exceed this; reducing the cap is deliberately
-        // avoided because the per-FY giving totals on this page must stay correct
-        // (truncation would understate them). Move to year-scoped lazy loading
-        // before that ceiling is realistic.
-        take: 2000,
-        select: { id: true, date: true, description: true, amount: true },
-      })
-    : []
-
   const decryptedGivingTransactions = givingTransactions.map((t) => ({
     ...t,
     description: safeDecrypt(t.description),
