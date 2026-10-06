@@ -25,7 +25,7 @@ export default function DashboardError({
 
   return (
     <div className="flex h-full min-h-96 items-center justify-center">
-      <div role="alert" className="text-center">
+      <div className="text-center">
         <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-foreground mb-2">Something went wrong</h2>
         <p className="text-sm text-muted-foreground mb-1">An unexpected error occurred on this page.</p>
         <p className="text-sm text-muted-foreground mb-4">If this keeps happening, use the Feedback button to report it.</p>

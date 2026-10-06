@@ -45,5 +45,6 @@ it("dashboard error boundary moves focus to its heading", () => {
   jest.spyOn(console, "error").mockImplementation(() => {})
   render(<DashboardError error={Object.assign(new Error("x"), { digest: "d1" })} reset={() => {}} />)
   expect(screen.getByRole("heading", { name: /something went wrong/i })).toHaveFocus()
-  expect(screen.getByRole("alert")).toBeInTheDocument()
+  // Focus alone announces it — no role="alert", which would read it twice.
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 })
