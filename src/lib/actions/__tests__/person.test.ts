@@ -3,6 +3,7 @@ import { createPerson, updatePerson, deletePerson } from "@/lib/actions/person"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
+import { logAudit } from "@/lib/audit"
 
 // Locks in the guards person.ts fixed by hand with no regression net: the
 // canEdit/isAdmin role gates, the family-scope IDOR checks, the
@@ -33,9 +34,12 @@ jest.mock("@/lib/prisma", () => ({
   },
 }))
 
-function form(fields: Record<string, string>): FormData {
+function form(fields: Record<string, string | string[]>): FormData {
   const fd = new FormData()
-  for (const [k, v] of Object.entries(fields)) fd.set(k, v)
+  for (const [k, v] of Object.entries(fields)) {
+    if (Array.isArray(v)) for (const item of v) fd.append(k, item)
+    else fd.set(k, v)
+  }
   return fd
 }
 
@@ -227,5 +231,78 @@ describe("deletePerson", () => {
     ;(prisma.person.delete as jest.Mock).mockResolvedValue({})
     await expect(deletePerson(3, 5)).rejects.toThrow("NEXT_REDIRECT")
     expect(prisma.person.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+  })
+})
+
+describe("createPerson — ministry roles", () => {
+  beforeEach(() => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 5, archivedAt: null })
+    ;(prisma.person.create as jest.Mock).mockResolvedValue({ id: 9 })
+  })
+
+  it("persists every ticked role, deduped", async () => {
+    await expect(
+      createPerson(5, undefined, form({ ...VALID, ministryRoles: ["VOLUNTEER", "SUNDAY_SCHOOL_TEACHER", "VOLUNTEER"] }))
+    ).rejects.toThrow("NEXT_REDIRECT")
+    const data = (prisma.person.create as jest.Mock).mock.calls[0][0].data
+    expect(data.ministryRoles).toEqual(["VOLUNTEER", "SUNDAY_SCHOOL_TEACHER"])
+  })
+
+  it("stores an empty array when none are ticked", async () => {
+    await expect(createPerson(5, undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+    const data = (prisma.person.create as jest.Mock).mock.calls[0][0].data
+    expect(data.ministryRoles).toEqual([])
+  })
+
+  it("rejects an unknown role before any write", async () => {
+    const r = await createPerson(5, undefined, form({ ...VALID, ministryRoles: ["STAFF", "PRESIDENT"] }))
+    expect(r).toEqual({ error: "Invalid ministry role" })
+    expect(prisma.person.create).not.toHaveBeenCalled()
+  })
+})
+
+describe("updatePerson — ministry roles", () => {
+  beforeEach(() => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5, archivedAt: null })
+    ;(prisma.person.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+  })
+
+  it("writes the submitted roles", async () => {
+    await expect(
+      updatePerson(3, 5, undefined, form({ ...VALID, ministryRoles: ["STAFF", "YOUTH_LEADER"] }))
+    ).rejects.toThrow("NEXT_REDIRECT")
+    const data = (prisma.person.updateMany as jest.Mock).mock.calls[0][0].data
+    expect(data.ministryRoles).toEqual(["STAFF", "YOUTH_LEADER"])
+  })
+
+  it("clears roles when the group is submitted empty", async () => {
+    await expect(updatePerson(3, 5, undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+    const data = (prisma.person.updateMany as jest.Mock).mock.calls[0][0].data
+    expect(data.ministryRoles).toEqual([])
+  })
+
+  it("rejects an unknown role without updating", async () => {
+    const r = await updatePerson(3, 5, undefined, form({ ...VALID, ministryRoles: ["NOPE"] }))
+    expect(r).toEqual({ error: "Invalid ministry role" })
+    expect(prisma.person.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("audits the roles through PERSON_UPDATED", async () => {
+    await expect(
+      updatePerson(3, 5, undefined, form({ ...VALID, ministryRoles: ["VOLUNTEER"] }))
+    ).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAudit).toHaveBeenCalledWith(1, "PERSON_UPDATED", "Person", 3, {
+      familyId: 5,
+      ministryRoles: ["VOLUNTEER"],
+    })
+  })
+
+  it("still rejects a VIEWER before parsing roles", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "VIEWER" } })
+    const r = await updatePerson(3, 5, undefined, form({ ...VALID, ministryRoles: ["STAFF"] }))
+    expect(r).toEqual({ error: "Unauthorized" })
+    expect(prisma.person.updateMany).not.toHaveBeenCalled()
   })
 })
