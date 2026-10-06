@@ -78,6 +78,9 @@ export const FIELDS: Record<string, string[]> = {
   // TOTP authenticator secrets (src/lib/actions/totp.ts). Both are plain
   // encrypt(base32) strings; pending is short-lived but must still rotate.
   user: ["totpSecret", "totpPendingSecret"],
+  // Child-safety clearances (src/lib/actions/clearance.ts). `document` is a
+  // BYTEA blob like transactionAttachment.data — see BLOB_FIELDS.
+  personClearance: ["number", "documentName", "document", "verificationNote"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
@@ -85,6 +88,7 @@ export const FIELDS: Record<string, string[]> = {
 // writes a Buffer back (a plain-string re-encrypt would corrupt the column).
 export const BLOB_FIELDS: Record<string, string[]> = {
   transactionAttachment: ["data"],
+  personClearance: ["document"],
 }
 
 // Returns the re-encrypted update for one row, or null if nothing to do.

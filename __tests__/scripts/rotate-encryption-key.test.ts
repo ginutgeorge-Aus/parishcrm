@@ -284,6 +284,9 @@ describe("FIELDS map", () => {
     transactionAttachment: ["filename", "data"],
     // TOTP authenticator secrets (src/lib/actions/totp.ts).
     user: ["totpSecret", "totpPendingSecret"],
+    // Child-safety clearances (src/lib/actions/clearance.ts): number, filename,
+    // verification note are strings; `document` is the BYTEA blob (BLOB_FIELDS).
+    personClearance: ["number", "documentName", "document", "verificationNote"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible
