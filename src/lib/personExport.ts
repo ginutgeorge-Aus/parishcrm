@@ -103,3 +103,38 @@ export function decryptRegistrationForExport<T extends {
     customAnswers: decryptCustomAnswers(registration.customAnswers),
   }
 }
+
+/**
+ * Decrypt-on-read for a PersonClearance row, for the data-portability export.
+ * Builds the output field by field so nothing else on the row (notably the
+ * encrypted `document` blob) can leak. `expiresAt` becomes `YYYY-MM-DD` and the
+ * verifier is flattened to their display name.
+ * @param c clearance row selected explicitly (without `document`)
+ */
+export function decryptClearanceForExport(c: {
+  type: string
+  number: string | null
+  expiresAt: Date | null
+  documentName: string | null
+  documentType: string | null
+  documentSize: number | null
+  verifiedAt: Date | null
+  verifiedBy: { name: string } | null
+  verificationNote: string | null
+  createdAt: Date
+  updatedAt: Date
+}) {
+  return {
+    type: c.type,
+    number: c.number ? safeDecrypt(c.number) : null,
+    expiresAt: c.expiresAt ? c.expiresAt.toISOString().slice(0, 10) : null,
+    documentName: c.documentName ? safeDecrypt(c.documentName) : null,
+    documentType: c.documentType,
+    documentSize: c.documentSize,
+    verifiedAt: c.verifiedAt,
+    verifiedBy: c.verifiedBy?.name ?? null,
+    verificationNote: c.verificationNote ? safeDecrypt(c.verificationNote) : null,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  }
+}
