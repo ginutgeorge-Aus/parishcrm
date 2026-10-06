@@ -234,7 +234,7 @@ function ClearanceRow({
             </Button>
             {exists && (
               <DeleteConfirmButton
-                onConfirm={() => deleteClearance(row.clearanceId ?? "")}
+                onConfirm={() => deleteClearance(row.clearanceId ?? "", row.updatedAt ?? "")}
                 title="Remove clearance?"
                 description={`The ${CLEARANCE_TYPE_LABELS[row.type]} record and its document will be permanently removed.`}
                 triggerLabel="Remove"

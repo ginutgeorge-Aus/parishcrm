@@ -38,7 +38,7 @@ const find = prisma.personClearance.findUnique as jest.Mock
 const create = prisma.personClearance.create as jest.Mock
 const update = prisma.personClearance.update as jest.Mock
 const updateMany = prisma.personClearance.updateMany as jest.Mock
-const del = prisma.personClearance.delete as jest.Mock
+const deleteMany = prisma.personClearance.deleteMany as jest.Mock
 
 const ADMIN = { user: { role: "ADMIN", id: "5" } }
 const OFFICE = { user: { role: "OFFICE_ADMIN", id: "6" } }
@@ -66,7 +66,7 @@ beforeEach(() => {
   create.mockResolvedValue({ id: CID })
   update.mockResolvedValue({ id: CID })
   updateMany.mockResolvedValue({ count: 1 })
-  del.mockResolvedValue({ id: CID })
+  deleteMany.mockResolvedValue({ count: 1 })
 })
 
 describe("guards (every action)", () => {
@@ -75,11 +75,11 @@ describe("guards (every action)", () => {
     expect(await upsertClearance(3, "WWCC", fd({ expiresAt: "2027-01-01" }))).toEqual({ error: "Unauthorized" })
     expect(await verifyClearance(CID, SEEN)).toEqual({ error: "Unauthorized" })
     expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Unauthorized" })
-    expect(await deleteClearance(CID)).toEqual({ error: "Unauthorized" })
+    expect(await deleteClearance(CID, SEEN)).toEqual({ error: "Unauthorized" })
     expect(create).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(updateMany).not.toHaveBeenCalled()
-    expect(del).not.toHaveBeenCalled()
+    expect(deleteMany).not.toHaveBeenCalled()
   })
 
   it("OFFICE_ADMIN (canEdit) is allowed", async () => {
@@ -323,9 +323,9 @@ describe("unverifyClearance / deleteClearance", () => {
     expect(updateMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
-  it("delete removes the row and audits REMOVED", async () => {
-    expect(await deleteClearance(CID)).toBeUndefined()
-    expect(del).toHaveBeenCalledWith({ where: { id: CID } })
+  it("delete is guarded on the seen updatedAt, then audits REMOVED", async () => {
+    expect(await deleteClearance(CID, SEEN)).toBeUndefined()
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: CID, updatedAt: UPDATED } })
     expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_REMOVED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
   })
@@ -333,13 +333,22 @@ describe("unverifyClearance / deleteClearance", () => {
     find.mockResolvedValue({ id: CID, personId: 3, type: "SAFE_MINISTRY", updatedAt: UPDATED, person: { archivedAt: new Date() } })
     expect(await verifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
     expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
-    expect(await deleteClearance(CID)).toEqual({ error: "Not found" })
+    expect(await deleteClearance(CID, SEEN)).toEqual({ error: "Not found" })
     expect(updateMany).not.toHaveBeenCalled()
-    expect(del).not.toHaveBeenCalled()
+    expect(deleteMany).not.toHaveBeenCalled()
+  })
+  it("delete errors and does not audit when the row changed since seen", async () => {
+    deleteMany.mockResolvedValue({ count: 0 })
+    expect(await deleteClearance(CID, SEEN)).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("delete rejects a malformed seen value without writing", async () => {
+    expect(await deleteClearance(CID, "junk")).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(deleteMany).not.toHaveBeenCalled()
   })
   it("both 404 a missing row", async () => {
     find.mockResolvedValue(null)
     expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
-    expect(await deleteClearance(CID)).toEqual({ error: "Not found" })
+    expect(await deleteClearance(CID, SEEN)).toEqual({ error: "Not found" })
   })
 })

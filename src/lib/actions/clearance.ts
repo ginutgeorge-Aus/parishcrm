@@ -261,20 +261,27 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
 }
 
 /**
- * Permanently delete a clearance row (document included). The audit trail keeps
- * the fact that it existed.
+ * Permanently delete a clearance row (document included). Guarded on
+ * `seenUpdatedAt` like unverifyClearance, so a stale page's Remove can't delete
+ * a row that was edited or verified since. The audit trail keeps the fact that
+ * it existed.
  * @param clearanceId PersonClearance.id
+ * @param seenUpdatedAt ISO `updatedAt` of the row as rendered (required)
  */
-export async function deleteClearance(clearanceId: string): Promise<ActionResult> {
+export async function deleteClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
+  const seenAt = parseSeenUpdatedAt(seenUpdatedAt)
+  if (!seenAt) return { error: STALE_ERROR }
+
   const row = await loadClearance(clearanceId)
   if (!row) return { error: "Not found" }
 
-  await prisma.personClearance.delete({ where: { id: row.id } })
+  const result = await prisma.personClearance.deleteMany({ where: { id: row.id, updatedAt: seenAt } })
+  if (result.count === 0) return { error: STALE_ERROR }
   await logAudit(actorId(session), "CLEARANCE_REMOVED", "Person", row.personId, {
     type: row.type,
     clearanceId: row.id,
