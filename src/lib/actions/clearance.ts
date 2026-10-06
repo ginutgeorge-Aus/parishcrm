@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
@@ -24,8 +24,6 @@ import type { ActionResult } from "./types"
 const MAX_NUMBER_LEN = 40
 const MAX_NOTE_LEN = 500
 const CLEARANCE_TYPES = new Set<string>(Object.values(ClearanceType))
-// cuid ids: bound the alphabet/length before they reach the DB.
-const CLEARANCE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
 /** `YYYY-MM-DD` -> Date at UTC midnight (the app's date-only storage convention). */
 function ymdToDate(ymd: string): Date {
@@ -54,7 +52,7 @@ function parseSeenUpdatedAt(seen: unknown): Date | null {
  * is malformed or the row does not exist (callers answer "Not found").
  */
 async function loadClearance(clearanceId: string) {
-  if (!CLEARANCE_ID_RE.test(clearanceId)) return null
+  if (!CUID_ID_RE.test(clearanceId)) return null
   return prisma.personClearance.findUnique({
     where: { id: clearanceId },
     select: { id: true, personId: true, type: true, updatedAt: true },
