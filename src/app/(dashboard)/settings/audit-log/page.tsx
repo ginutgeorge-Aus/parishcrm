@@ -98,7 +98,7 @@ export default async function AuditLogPage(props: Readonly<Props>) {
                 <TableCell>{log.user?.name ?? "System"}</TableCell>
                 <TableCell className="font-mono text-xs">{log.action}</TableCell>
                 <TableCell>{log.resourceType}</TableCell>
-                <TableCell className="text-muted-foreground break-all">{log.resourceId ?? "Not available"}</TableCell>
+                <TableCell className="max-w-48 whitespace-normal break-all text-muted-foreground">{log.resourceId ?? "Not available"}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{log.ip ?? "Not available"}</TableCell>
                 <TableCell className="max-w-xs text-xs text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
                   {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
