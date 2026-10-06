@@ -16,6 +16,7 @@ const managerRows = [
     type: "WWCC" as const,
     status: "UNVERIFIED" as const,
     clearanceId: "ckw",
+    updatedAt: "2026-10-01T00:00:00.000Z",
     number: "WWC0000000E",
     expiresYmd: "2029-03-15",
     expiresLabel: "15/03/2029",
@@ -29,6 +30,7 @@ const managerRows = [
     type: "SAFE_MINISTRY" as const,
     status: "UNVERIFIED" as const,
     clearanceId: "cks",
+    updatedAt: "2026-10-01T00:00:00.000Z",
     number: null,
     expiresYmd: null,
     expiresLabel: null,
@@ -77,7 +79,7 @@ it("WWCC Verify opens a confirmation with the OCG portal link and calls verifyCl
   expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"))
   await user.type(within(dialog).getByLabelText(/note/i), "Checked on portal")
   await user.click(within(dialog).getByRole("button", { name: /confirm/i }))
-  await waitFor(() => expect(verifyClearance).toHaveBeenCalledWith("ckw", "Checked on portal"))
+  await waitFor(() => expect(verifyClearance).toHaveBeenCalledWith("ckw", "2026-10-01T00:00:00.000Z", "Checked on portal"))
 })
 
 it("Safe Ministry Verify has NO portal link", async () => {
@@ -108,4 +110,15 @@ it("submitting the add form calls upsertClearance(personId, type, FormData)", as
   await user.type(row.getByLabelText(/number/i), "WWC0000000E")
   await user.click(row.getByRole("button", { name: /^save$/i }))
   await waitFor(() => expect(upsertClearance).toHaveBeenCalledWith(3, "WWCC", expect.any(FormData)))
+})
+
+it("edit form sends the row's updatedAt for the optimistic guard", async () => {
+  const user = userEvent.setup()
+  render(<PersonClearances {...manager} />)
+  const row = within(screen.getByTestId("clearance-WWCC"))
+  await user.click(row.getByRole("button", { name: /^update$/i }))
+  await user.click(row.getByRole("button", { name: /^save$/i }))
+  await waitFor(() => expect(upsertClearance).toHaveBeenCalled())
+  const sent = (upsertClearance as jest.Mock).mock.calls[0][2] as FormData
+  expect(sent.get("updatedAt")).toBe("2026-10-01T00:00:00.000Z")
 })

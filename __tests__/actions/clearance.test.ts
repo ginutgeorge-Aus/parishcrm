@@ -55,6 +55,7 @@ const fd = (fields: Record<string, string>, file?: File) => {
 
 const CID = "ckclearance000000000000001"
 const UPDATED = new Date("2026-10-01T00:00:00.000Z")
+const SEEN = UPDATED.toISOString()
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -71,8 +72,8 @@ describe("guards (every action)", () => {
   it.each([["VIEWER", VIEWER], ["AUDITOR", AUDITOR], ["anonymous", null]])("%s is Unauthorized", async (_n, s) => {
     mockAuth.mockResolvedValue(s)
     expect(await upsertClearance(3, "WWCC", fd({ expiresAt: "2027-01-01" }))).toEqual({ error: "Unauthorized" })
-    expect(await verifyClearance(CID)).toEqual({ error: "Unauthorized" })
-    expect(await unverifyClearance(CID)).toEqual({ error: "Unauthorized" })
+    expect(await verifyClearance(CID, SEEN)).toEqual({ error: "Unauthorized" })
+    expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Unauthorized" })
     expect(await deleteClearance(CID)).toEqual({ error: "Unauthorized" })
     expect(create).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
@@ -189,8 +190,20 @@ describe("upsertClearance update", () => {
     number: "enc:WWC0000000E",
     expiresAt: new Date("2029-03-15T00:00:00.000Z"),
     verifiedAt: new Date("2026-09-01T00:00:00.000Z"),
+    updatedAt: UPDATED,
   }
   beforeEach(() => find.mockResolvedValue(existing))
+
+  it("rejects an edit whose seen updatedAt no longer matches", async () => {
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15", updatedAt: "2026-09-01T00:00:00.000Z" }))
+    expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(update).not.toHaveBeenCalled()
+  })
+  it("accepts an edit whose seen updatedAt matches", async () => {
+    const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15", updatedAt: SEEN }))
+    expect(r).toBeUndefined()
+    expect(update).toHaveBeenCalledTimes(1)
+  })
 
   it("changing the expiry clears verification and audits UPDATED", async () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15" }))
@@ -231,7 +244,7 @@ describe("verifyClearance", () => {
   beforeEach(() => find.mockResolvedValue(row))
 
   it("marks verified by the actor, encrypts the note, audits, revalidates", async () => {
-    const r = await verifyClearance(CID, "  checked on OCG portal  ")
+    const r = await verifyClearance(CID, SEEN, "  checked on OCG portal  ")
     expect(r).toBeUndefined()
     const { where, data } = updateMany.mock.calls[0][0]
     expect(where).toEqual({ id: CID, updatedAt: UPDATED })
@@ -243,37 +256,54 @@ describe("verifyClearance", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
   })
   it("stores a null note when blank", async () => {
-    await verifyClearance(CID)
+    await verifyClearance(CID, SEEN)
     expect(updateMany.mock.calls[0][0].data.verificationNote).toBeNull()
   })
   it("rejects a note over 500 chars", async () => {
-    const r = await verifyClearance(CID, "x".repeat(501))
+    const r = await verifyClearance(CID, SEEN, "x".repeat(501))
     expect(r && "error" in r).toBe(true)
     expect(updateMany).not.toHaveBeenCalled()
   })
   it("404s an unknown or malformed id", async () => {
     find.mockResolvedValue(null)
-    expect(await verifyClearance(CID)).toEqual({ error: "Not found" })
-    expect(await verifyClearance("../bad id")).toEqual({ error: "Not found" })
+    expect(await verifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
+    expect(await verifyClearance("../bad id", SEEN)).toEqual({ error: "Not found" })
   })
-  it("errors when the row changed since it was loaded (stale verify)", async () => {
+  it("errors when the row changed since the page loaded (stale seen value)", async () => {
     updateMany.mockResolvedValue({ count: 0 })
-    const r = await verifyClearance(CID)
-    expect(r && "error" in r).toBe(true)
+    const r = await verifyClearance(CID, "2026-09-01T00:00:00.000Z")
+    expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(updateMany.mock.calls[0][0].where).toEqual({ id: CID, updatedAt: new Date("2026-09-01T00:00:00.000Z") })
     expect(logAudit).not.toHaveBeenCalled()
   })
+  it.each([["empty", ""], ["malformed", "not-a-date"], ["missing", undefined]])(
+    "rejects a %s seen value without writing",
+    async (_n, seen) => {
+      const r = await verifyClearance(CID, seen as never)
+      expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
+      expect(updateMany).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe("unverifyClearance / deleteClearance", () => {
   beforeEach(() => find.mockResolvedValue({ id: CID, personId: 3, type: "SAFE_MINISTRY", updatedAt: UPDATED }))
 
-  it("unverify clears the verification fields and audits", async () => {
-    expect(await unverifyClearance(CID)).toBeUndefined()
-    expect(update.mock.calls[0][0]).toEqual({
-      where: { id: CID },
+  it("unverify clears the verification fields (guarded on seen updatedAt) and audits", async () => {
+    expect(await unverifyClearance(CID, SEEN)).toBeUndefined()
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: CID, updatedAt: UPDATED },
       data: { verifiedAt: null, verifiedById: null, verificationNote: null },
     })
     expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UNVERIFIED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
+  })
+  it("unverify errors on a stale or malformed seen value", async () => {
+    updateMany.mockResolvedValue({ count: 0 })
+    expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "This clearance changed. Refresh and try again." })
+    updateMany.mockClear()
+    expect(await unverifyClearance(CID, "junk")).toEqual({ error: "This clearance changed. Refresh and try again." })
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
   })
   it("delete removes the row and audits REMOVED", async () => {
     expect(await deleteClearance(CID)).toBeUndefined()
@@ -283,7 +313,7 @@ describe("unverifyClearance / deleteClearance", () => {
   })
   it("both 404 a missing row", async () => {
     find.mockResolvedValue(null)
-    expect(await unverifyClearance(CID)).toEqual({ error: "Not found" })
+    expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
     expect(await deleteClearance(CID)).toEqual({ error: "Not found" })
   })
 })

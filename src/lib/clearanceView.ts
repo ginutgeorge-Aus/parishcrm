@@ -12,6 +12,8 @@ export type ClearanceRowView = {
   // Manager-only fields below are ABSENT (not null) for a VIEWER, so they never
   // reach the browser. See buildClearanceCard.
   clearanceId?: string
+  /** ISO `updatedAt` the manager saw; round-tripped for optimistic concurrency. */
+  updatedAt?: string
   number?: string | null
   expiresYmd?: string | null
   expiresLabel?: string | null
@@ -34,6 +36,7 @@ export type ClearanceCardData = {
 export type ClearanceDbRow = {
   id: string
   type: ClearanceType
+  updatedAt: Date
   number: string | null
   expiresAt: Date | null
   documentName: string | null
@@ -75,6 +78,7 @@ export function buildClearanceCard(args: {
       type,
       status,
       clearanceId: row.id,
+      updatedAt: row.updatedAt.toISOString(),
       number: row.number ? safeDecrypt(row.number) : null,
       expiresYmd: row.expiresAt ? row.expiresAt.toISOString().slice(0, 10) : null,
       expiresLabel: row.expiresAt ? row.expiresAt.toLocaleDateString(APP_LOCALE, { timeZone: "UTC" }) : null,

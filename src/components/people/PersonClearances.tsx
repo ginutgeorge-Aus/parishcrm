@@ -58,7 +58,7 @@ function VerifyDialog({
   function confirm() {
     setError(null)
     startTransition(async () => {
-      const result = await verifyClearance(row.clearanceId ?? "", note)
+      const result = await verifyClearance(row.clearanceId ?? "", row.updatedAt ?? "", note)
       if (result && "error" in result) {
         setError(result.error)
         return
@@ -136,6 +136,7 @@ function ClearanceForm({
 
   return (
     <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2">
+      {row.updatedAt && <input type="hidden" name="updatedAt" value={row.updatedAt} />}
       <div>
         <label htmlFor={`${id}-number`} className="text-sm font-medium">Number</label>
         <input
@@ -198,7 +199,7 @@ function ClearanceRow({
   function unverify() {
     setActionError(null)
     startTransition(async () => {
-      const result = await unverifyClearance(row.clearanceId ?? "")
+      const result = await unverifyClearance(row.clearanceId ?? "", row.updatedAt ?? "")
       if (result && "error" in result) setActionError(result.error)
     })
   }

@@ -10,6 +10,7 @@ const TODAY = new Date("2026-10-06T00:00:00.000Z")
 const wwcc = {
   id: "ckclearance000000000000001",
   type: "WWCC" as const,
+  updatedAt: new Date("2026-10-01T00:00:00.000Z"),
   number: "enc:WWC0000000E",
   expiresAt: new Date("2029-03-15T00:00:00.000Z"),
   documentName: "enc:wwcc.pdf",
@@ -34,6 +35,7 @@ describe("buildClearanceCard", () => {
     expect(card.rows.map((r) => r.type)).toEqual(["WWCC", "SAFE_MINISTRY"])
     expect(card.rows[0]).toMatchObject({
       clearanceId: wwcc.id,
+      updatedAt: "2026-10-01T00:00:00.000Z",
       status: "VERIFIED",
       number: "WWC0000000E",
       expiresYmd: "2029-03-15",
