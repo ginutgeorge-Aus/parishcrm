@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { CLASSIFICATION_BADGE, CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
 import { DeletePersonButton } from "@/components/people/DeletePersonButton"
+import { MinistryRoleBadges } from "@/components/people/MinistryRoleBadges"
+import type { MinistryRole } from "@/lib/generated/prisma/enums"
 import {
   Table,
   TableBody,
@@ -78,7 +80,7 @@ function PersonInfoCards({
   dob,
   showPastoralNotes,
 }: Readonly<{
-  person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null }
+  person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null; ministryRoles: MinistryRole[] }
   displayPerson: {
     email: string | null
     mobile: string | null
@@ -117,6 +119,14 @@ function PersonInfoCards({
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           {field("Membership date", person.membershipDate?.toLocaleDateString(APP_LOCALE) ?? null)}
           {field("Baptism date", person.baptismDate?.toLocaleDateString(APP_LOCALE) ?? null)}
+          {person.ministryRoles.length > 0 && (
+            <div className="col-span-2">
+              <span className="text-muted-foreground text-sm">Ministry roles</span>
+              <div className="mt-1">
+                <MinistryRoleBadges roles={person.ministryRoles} />
+              </div>
+            </div>
+          )}
           {displayPerson.notes && (
             <div className="col-span-2">
               {field("Notes", displayPerson.notes)}
