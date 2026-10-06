@@ -4,15 +4,16 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/** Table in a horizontally scrollable container; pass aria-label to make it a named, focusable region. */
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
-    // Focusable so keyboard users can scroll a table that overflows horizontally
-    // (axe: scrollable-region-focusable). Named after the table's aria-label.
+    // A labelled table's scroll container becomes a focusable, named region so
+    // keyboard users can scroll it when it overflows (axe:
+    // scrollable-region-focusable). Opt-in via aria-label: unlabelled tables
+    // stay plain, so pages don't fill up with identically named landmarks.
     <div
       data-slot="table-container"
-      tabIndex={0}
-      role="region"
-      aria-label={props["aria-label"] ?? "Table"}
+      {...(props["aria-label"] ? { tabIndex: 0, role: "region", "aria-label": props["aria-label"] } : {})}
       className="relative w-full overflow-x-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <table

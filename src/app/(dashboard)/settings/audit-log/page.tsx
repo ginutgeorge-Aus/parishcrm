@@ -77,7 +77,7 @@ export default async function AuditLogPage(props: Readonly<Props>) {
       </Suspense>
 
       <div className="hidden md:block overflow-x-auto">
-        <Table>
+        <Table aria-label="Audit log">
           <TableHeader>
             <TableRow>
               <TableHead>Time</TableHead>

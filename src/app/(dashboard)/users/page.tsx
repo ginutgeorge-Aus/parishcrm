@@ -128,7 +128,7 @@ export default async function UsersPage() {
 
       {/* Desktop: full table */}
       <div className="hidden overflow-x-auto md:block">
-        <Table className="min-w-table">
+        <Table aria-label="Users" className="min-w-table">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>

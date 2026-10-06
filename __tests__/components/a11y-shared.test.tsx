@@ -15,7 +15,9 @@ describe("loading skeletons announce a loading status", () => {
     ["dashboard loading.tsx", <DashboardLoading key="r" />],
   ])("%s", (_name, el) => {
     render(el)
-    expect(screen.getByRole("status")).toHaveTextContent("Loading…")
+    const status = screen.getByRole("status")
+    expect(status).toHaveTextContent("Loading…")
+    expect(status).not.toHaveAttribute("aria-busy")
   })
 })
 
@@ -27,6 +29,16 @@ it("Table's scroll container is a keyboard-focusable, named region", () => {
   )
   const region = screen.getByRole("region", { name: "Transactions" })
   expect(region).toHaveAttribute("tabindex", "0")
+})
+
+it("an unlabelled Table adds no landmark or tab stop", () => {
+  const { container } = render(
+    <Table>
+      <TableBody><TableRow><TableCell>x</TableCell></TableRow></TableBody>
+    </Table>
+  )
+  expect(screen.queryByRole("region")).not.toBeInTheDocument()
+  expect(container.querySelector('[data-slot="table-container"]')).not.toHaveAttribute("tabindex")
 })
 
 it("dashboard error boundary moves focus to its heading", () => {
