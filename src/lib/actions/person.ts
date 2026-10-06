@@ -11,6 +11,7 @@ import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
+import { parseMinistryRoles } from "@/lib/ministryRoles"
 
 const PersonSchema = z.object({
   firstName: z.string().min(1, "First name is required").max(100),
@@ -104,6 +105,16 @@ function encryptPersonFields(data: {
   if (data.homePhone) data.homePhone = encrypt(data.homePhone)
 }
 
+/**
+ * Read the repeated `ministryRoles` form field and validate it. Absent field
+ * means "no boxes ticked" and yields []. Returns null if any value is not a
+ * known `MinistryRole`. Needs `getAll` because `Object.fromEntries(formData)`
+ * keeps only the last value of a repeated key.
+ */
+function readMinistryRoles(formData: FormData) {
+  return parseMinistryRoles(formData.getAll("ministryRoles").map(String))
+}
+
 export async function createPerson(
   familyId: number,
   _prev: ActionResult,
@@ -121,6 +132,8 @@ export async function createPerson(
 
   const parsed = PersonSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const ministryRoles = readMinistryRoles(formData)
+  if (ministryRoles === null) return { error: "Invalid ministry role" }
 
   const createData = { ...parsed.data }
   if (!canSeePastoralNotes(session?.user?.role)) {
@@ -134,7 +147,7 @@ export async function createPerson(
   // mirroring family.ts's unique-constraint handling.
   let person
   try {
-    person = await prisma.person.create({ data: { ...createData, familyId, consentUpdatedAt: new Date() } })
+    person = await prisma.person.create({ data: { ...createData, ministryRoles, familyId, consentUpdatedAt: new Date() } })
   } catch (e: unknown) {
     if (typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "P2002") {
       return { error: "A person with this name already exists in this family" }
@@ -166,6 +179,8 @@ export async function updatePerson(
 
   const parsed = PersonSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const ministryRoles = readMinistryRoles(formData)
+  if (ministryRoles === null) return { error: "Invalid ministry role" }
 
   const updateData = { ...parsed.data }
   if (!canSeePastoralNotes(session?.user?.role)) {
@@ -187,7 +202,7 @@ export async function updatePerson(
   try {
     result = await prisma.person.updateMany({
       where: seenAt ? { id, updatedAt: seenAt } : { id },
-      data: { ...updateData, consentUpdatedAt: new Date() },
+      data: { ...updateData, ministryRoles, consentUpdatedAt: new Date() },
     })
   } catch (e: unknown) {
     if (typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "P2002") {
@@ -200,7 +215,7 @@ export async function updatePerson(
       error: "This person was changed by someone else since you opened it. Reload the page and reapply your edit.",
     }
   }
-  await logAudit(actorId(session), "PERSON_UPDATED", "Person", id, { familyId })
+  await logAudit(actorId(session), "PERSON_UPDATED", "Person", id, { familyId, ministryRoles })
   revalidatePath(`/people/${id}`)
   // the family detail page also renders this person's name/dob/email/
   // mobile — createPerson and deletePerson both revalidate it, updatePerson

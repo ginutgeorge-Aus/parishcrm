@@ -16,6 +16,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import type { ActionResult } from "@/lib/actions/types"
+import type { MinistryRole } from "@/lib/generated/prisma/enums"
+import { MINISTRY_ROLES, MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
 
 type Person = {
   firstName?: string
@@ -39,6 +41,7 @@ type Person = {
   emergencyContactPhone?: string | null
   emailConsent?: boolean | null
   bankingName?: string | null
+  ministryRoles?: MinistryRole[]
   // Last-seen version for optimistic concurrency. Serialized across the
   // RSC boundary as a Date or ISO string depending on Next's transport.
   updatedAt?: Date | string
@@ -208,6 +211,26 @@ export function PersonForm({
             maxLength={100}
           />
         </div>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium leading-none">Ministry roles</legend>
+          <p className="text-sm text-muted-foreground">
+            Roles this person serves in. Used to decide who needs a child-safety clearance.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {MINISTRY_ROLES.map((role) => (
+              <label key={role} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="ministryRoles"
+                  value={role}
+                  defaultChecked={person?.ministryRoles?.includes(role) ?? false}
+                  className="size-4 accent-primary"
+                />
+                {MINISTRY_ROLE_LABELS[role]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </section>
 
       {/* Section 4: Pastoral (gated) */}

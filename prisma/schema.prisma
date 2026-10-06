@@ -76,6 +76,7 @@ model Person {
   consentUpdatedAt      DateTime?
   archivedAt            DateTime?
   bankingName           String?
+  ministryRoles         MinistryRole[]     @default([])
   transactions          Transaction[]
   pettyCashSessions     PettyCashSession[]
   pettyCashReceipts     PettyCashReceipt[]
@@ -447,6 +448,17 @@ enum Classification {
 enum Gender {
   MALE
   FEMALE
+  OTHER
+}
+
+// Ministry roles a person serves in. Drives who needs a child-safety clearance
+// (OSS-48/49). Not PII, so stored plaintext. Postgres enum array.
+enum MinistryRole {
+  STAFF
+  VOLUNTEER
+  SUNDAY_SCHOOL_TEACHER
+  YOUTH_LEADER
+  CHILDREN_MINISTRY
   OTHER
 }
 
