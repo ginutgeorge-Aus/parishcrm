@@ -82,6 +82,7 @@ model Person {
   pettyCashReceipts     PettyCashReceipt[]
   dgrReceipts           DgrReceipt[]
   celebrationSends      CelebrationSend[]
+  clearances            PersonClearance[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -145,6 +146,7 @@ model User {
   membershipReviews      MembershipApplication[]  @relation("MembershipReviewedBy")
   transactionAttachments TransactionAttachment[]  @relation("TransactionAttachmentUploadedBy")
   managedEvents          EventManager[]
+  clearancesVerified     PersonClearance[]        @relation("ClearanceVerifiedBy")
 }
 
 model TrustedDevice {
@@ -1092,4 +1094,40 @@ model RouteViewDaily {
 
   @@unique([route, date])
   @@index([date])
+}
+
+enum ClearanceType {
+  WWCC
+  SAFE_MINISTRY
+}
+
+// Child-safety clearance (NSW Working With Children Check / church Safe
+// Ministry certificate) for a person. ONE current row per person+type — a new
+// upload replaces it; the audit log (CLEARANCE_*) keeps the history. Document
+// storage mirrors TransactionAttachment: base64 -> encrypt() -> UTF-8 bytes in
+// a BYTEA column, served only via an auth-gated route. Changing number, expiry
+// or document clears verifiedAt/verifiedById/verificationNote (re-verify).
+model PersonClearance {
+  id               String        @id @default(cuid())
+  personId         Int
+  person           Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  type             ClearanceType
+  number           String? // encrypted at rest (WWC number)
+  expiresAt        DateTime?     @db.Date
+  document         Bytes? // encrypted base64 of the file, stored as UTF-8 bytes
+  documentName     String? // encrypted at rest
+  documentType     String? // sniffed content type (image/jpeg | image/png | application/pdf)
+  documentSize     Int?
+  verifiedAt       DateTime?
+  verifiedById     Int?
+  verifiedBy       User?         @relation("ClearanceVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verificationNote String? // encrypted at rest
+  createdById      Int?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([personId, type])
+  @@index([type, expiresAt])
+  // FK index.
+  @@index([verifiedById])
 }
