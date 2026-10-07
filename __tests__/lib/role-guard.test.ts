@@ -1,4 +1,4 @@
-import { canEdit, canSeePastoralNotes, isAdmin, canAccessAccounting, canViewAccounting, canViewPeople, canManageUsers } from "@/lib/roleGuard"
+import { canEdit, canSeePastoralNotes, isAdmin, canAccessAccounting, canViewAccounting, canViewPeople, canManageUsers, canManageClearances, canViewClearanceStatus } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 describe("role-guard", () => {
@@ -54,5 +54,19 @@ describe("role-guard", () => {
     it("VIEWER can view people", () => expect(canViewPeople(UserRole.VIEWER)).toBe(true))
     it("AUDITOR cannot view people (accounting-only)", () => expect(canViewPeople(UserRole.AUDITOR)).toBe(false))
     it("undefined cannot view people", () => expect(canViewPeople(undefined)).toBe(false))
+  })
+
+  describe("canManageClearances", () => {
+    it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s can manage", (r) =>
+      expect(canManageClearances(r)).toBe(true))
+    it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER, undefined])("%s cannot manage", (r) =>
+      expect(canManageClearances(r)).toBe(false))
+  })
+
+  describe("canViewClearanceStatus", () => {
+    it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN, UserRole.VIEWER])("%s can view status", (r) =>
+      expect(canViewClearanceStatus(r)).toBe(true))
+    it.each([UserRole.AUDITOR, UserRole.EVENT_ORGANISER, undefined])("%s sees nothing", (r) =>
+      expect(canViewClearanceStatus(r)).toBe(false))
   })
 })

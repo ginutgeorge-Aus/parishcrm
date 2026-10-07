@@ -26,13 +26,17 @@ Shows the family's contact details, member list, and (for roles that can view ac
 - A "last updated" line shows who last changed the family or any of its members, and whether the change came from an admin edit or an approved self-update submission (`src/lib/actions/familyActivity.ts`).
 
 ### Adding/editing a person
-From a family's page, **Add person** opens `/families/[id]/people/new`. The person form captures name (first/middle/last, title, suffix), gender, date of birth, family role (Head / Spouse / Child / Other), classification (Member / Visitor / Inactive / Student), contact details (email, mobile, work/home phone), membership date, baptism date, notes, profession, mother parish, marital status, banking name (for bank-import auto-matching), and email consent. **Pastoral notes** and **emergency contact** fields only appear for roles allowed to see them (see below).
+From a family's page, **Add person** opens `/families/[id]/people/new`. The person form captures name (first/middle/last, title, suffix), gender, date of birth, family role (Head / Spouse / Child / Other), classification (Member / Visitor / Inactive / Student), contact details (email, mobile, work/home phone), membership date, baptism date, notes, profession, mother parish, marital status, banking name (for bank-import auto-matching), and email consent. It also has a **Ministry roles** checkbox group (Staff, Volunteer, Sunday school teacher, Youth leader, Children's ministry, Other) for the roles the person serves in. **Pastoral notes** and **emergency contact** fields only appear for roles allowed to see them (see below).
 
 ### People list (`/people`)
-- Search by first/last name; filter by classification and family role.
+- Search by first/last name; filter by classification, family role and ministry role.
+- The **Export CSV** link carries the same filters, including ministry role, and the CSV has a **Ministry Roles** column (labels joined with "; ").
 - Capped at 500 rows per query — narrow with filters if a search is truncated (a banner explains this).
 - **Export CSV** (ADMIN only) downloads the filtered list.
 - **New person** requires picking (or having) a family first, in practice usually reached via a family page.
+
+### Ministry roles
+Each person can be tagged with any number of ministry roles: **Staff**, **Volunteer**, **Sunday school teacher**, **Youth leader**, **Children's ministry** or **Other**. Tick them on the person form (ADMIN, PASTOR, OFFICE_ADMIN). They appear as badges in the **Church** card on the person's profile, visible to every role that can open the profile, and you can filter `/people` by them (`?ministryRole=VOLUNTEER`). The tag marks who works with children or serves the church; it is the basis for tracking child-safety clearances (Working With Children Check, Safe Ministry), described below.
 
 ### Roles who can see or do what
 
@@ -42,20 +46,32 @@ From a family's page, **Add person** opens `/families/[id]/people/new`. The pers
 | `PASTOR` | Full CRUD + pastoral notes; cannot delete a family/person or merge/import |
 | `OFFICE_ADMIN` | Create/edit families & people, cannot see pastoral notes or emergency-contact fields, cannot delete/merge/import |
 | `AUDITOR` | No access — people/family pages redirect away (accounting-only role) |
-| `VIEWER` | Read-only list/detail views, no pastoral notes, no edit actions |
+| `VIEWER` | Read-only list/detail views and the clearance status badge only (never the number or document), no pastoral notes, no edit actions |
 | `EVENT_ORGANISER` | No access to People/Families at all — confined to their own managed events |
+
+### Safeguarding clearances (WWCC and Safe Ministry)
+
+Each person's page has a **Safeguarding** card with one row for the **Working With Children Check (WWCC)** and one for the **Safe Ministry** certificate. Staff (ADMIN, PASTOR, OFFICE_ADMIN) can:
+
+- **Add / Update** — record the number and expiry date (both optional; a clearance with no expiry never expires) and upload the document (JPEG, PNG or PDF, up to 4 MB). A new upload replaces the previous one; the audit log keeps the history.
+- **Verify** — after checking the clearance (for a WWCC, on the issuing portal — the dialog has a **Check on OCG portal ↗** link, default the NSW Office of the Children's Guardian employer portal), click **Verify** and add an optional note (up to 500 characters). The card then shows who verified it and when. **Editing the number, expiry or document clears the verification**, so it must be checked again.
+- **View document**, **Unverify** and **Remove** (removing deletes the record and its document permanently).
+
+Status badges: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** (verified, but expires within 60 days; a clearance is still valid on its expiry date — an unverified one shows **Unverified** instead) and **Expired**. People tagged with a ministry role (see ministry roles above) are the ones who need a clearance; staff can add one for anyone. VIEWER accounts see only the status badges, and only on people who have a ministry role or a clearance record.
+
+The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL). Outside NSW, add or edit that row in the `AppSetting` table to point at your state's check; if unset or not a valid `https://` URL the NSW URL is used.
 
 ## How it works
 
 ### Data model
 `prisma/schema.prisma`:
 - `Family`: `name` (unique), `memberNo` (unique, optional — blank for non-member families), `address`/`suburb`/`state`/`postcode`/`homePhone` (encrypted), `status` (`FamilyStatus`: ACTIVE/INACTIVE/VISITOR), `joinedDate`, `marriageDate`, `monthlyDues` (`Decimal(10,2)`), `notes` (encrypted), `archivedAt` (soft-delete). Related to many `Person` (cascade delete), `Transaction` (giving), `FamilyUpdateInvite`/`FamilyUpdateSubmission`, and `MembershipApplication`.
-- `Person`: `familyId` FK, name fields, `role` (`FamilyRole`: HEAD/SPOUSE/CHILD/OTHER), `classification` (`Classification`: MEMBER/VISITOR/INACTIVE/STUDENT), `gender`, `dateOfBirth` (encrypted string, not a `DateTime`), `email`/`mobile`/`workPhone`/`homePhone` (encrypted), `emailHash`/`mobileHash` (deterministic HMAC blind indexes for equality lookups — see Encryption below), `notes`/`pastoralNotes`/`emergencyContactName`/`emergencyContactPhone` (encrypted), `emailConsent` (default true) + `consentUpdatedAt`, `bankingName` (plaintext, deliberately — a public alias members give banks for transfer matching), `archivedAt`.
+- `Person`: `familyId` FK, name fields, `role` (`FamilyRole`: HEAD/SPOUSE/CHILD/OTHER), `classification` (`Classification`: MEMBER/VISITOR/INACTIVE/STUDENT), `ministryRoles` (`MinistryRole[]`: STAFF/VOLUNTEER/SUNDAY_SCHOOL_TEACHER/YOUTH_LEADER/CHILDREN_MINISTRY/OTHER; a Postgres enum array, plaintext, default empty), `gender`, `dateOfBirth` (encrypted string, not a `DateTime`), `email`/`mobile`/`workPhone`/`homePhone` (encrypted), `emailHash`/`mobileHash` (deterministic HMAC blind indexes for equality lookups — see Encryption below), `notes`/`pastoralNotes`/`emergencyContactName`/`emergencyContactPhone` (encrypted), `emailConsent` (default true) + `consentUpdatedAt`, `bankingName` (plaintext, deliberately — a public alias members give banks for transfer matching), `archivedAt`.
 - Unique constraints: `Family(name)`, `Family(memberNo)`, `Person(familyId, firstName, lastName)`. Indexes support the default `/people` sort (`lastName, firstName`), the `archivedAt + role` filter combo, and blind-index/mobile lookups.
 
 ### Server actions (`src/lib/actions/family.ts`, `src/lib/actions/person.ts`)
 - `createFamily` / `updateFamily`: Zod-validated, `canEdit`-gated. Dates are validated explicitly (a malformed string would otherwise become an `Invalid Date` that crashes Postgres with an unhandled error). `monthlyDues` is kept as a validated decimal string all the way to the DB — never converted through a floating-point number. `updateFamily` uses **optimistic concurrency**: the form submits the row's last-seen `updatedAt`; a mismatch (someone else saved first) fails the update and asks the user to reload.
-- `createPerson` / `updatePerson`: same pattern, plus a role check that strips `pastoralNotes`/`emergencyContactName`/`emergencyContactPhone` from the payload server-side before it's ever written, for any role that can't see them — client-side hiding of the fields is not treated as sufficient.
+- `createPerson` / `updatePerson`: same pattern, plus a role check that strips `pastoralNotes`/`emergencyContactName`/`emergencyContactPhone` from the payload server-side before it's ever written, for any role that can't see them — client-side hiding of the fields is not treated as sufficient. Ministry roles are read from the repeated `ministryRoles` form field and validated against the enum; any unknown value rejects the whole save.
 - `deletePerson` (ADMIN only): blocked if the person has linked giving/receipt records (Transaction, DGR receipt, petty cash receipt) — those are `SetNull` on delete, so removing the person would silently orphan financial history. The check-then-delete runs in a single Serializable transaction so a concurrent giving entry can't slip through the gap between the count and the delete.
 - `deleteFamily` (ADMIN only): blocked while any transactions or active members are linked; only becomes possible on a family archived **past a 7-year retention floor** (`src/lib/retention.ts`), matching Australian tax record-keeping rules. Below that floor, archiving is the only option.
 - `archiveFamily` / `unarchiveFamily` (ADMIN): soft-archive is atomic across the family and all its members (`$transaction`) — a family and its people are never left half-archived. Archived families live only at `/families/archived`.
@@ -68,7 +84,7 @@ From a family's page, **Add person** opens `/families/[id]/people/new`. The pers
 Encrypted-at-rest fields (AES-256-GCM, `src/lib/crypto.ts`): on `Family` — address, suburb, state, postcode, homePhone, notes; on `Person` — email, dateOfBirth, mobile, workPhone, homePhone, notes, pastoralNotes, emergencyContactName, emergencyContactPhone. `Person.email` and `Person.mobile` also get a deterministic HMAC **blind index** (`emailHash`/`mobileHash`) computed from the plaintext before encryption, so equality lookups (matching a member to their event registrations, or a membership application to an existing family) can use an indexed query instead of decrypting every row. `bankingName` is deliberately left plaintext — it's a name a member already shares publicly with the bank for transfer matching.
 
 ### Audit logging
-Every mutation is audited (`src/lib/audit.ts`): `FAMILY_CREATED/UPDATED/ARCHIVED/UNARCHIVED/MERGED`, `PERSON_CREATED/UPDATED/DELETED`. Person audit metadata deliberately excludes member PII — only the linked `familyId`. `FAMILY_MERGED` records the source family id/name on the target's audit entry. Bulk CSV import is audited as `IMPORT_CSV`; bulk people CSV export as `EXPORT_CSV`.
+Every mutation is audited (`src/lib/audit.ts`): `FAMILY_CREATED/UPDATED/ARCHIVED/UNARCHIVED/MERGED`, `PERSON_CREATED/UPDATED/DELETED`. Person audit metadata deliberately excludes member PII — only the linked `familyId`. `PERSON_UPDATED` also records the person's ministry roles (not PII). `FAMILY_MERGED` records the source family id/name on the target's audit entry. Bulk CSV import is audited as `IMPORT_CSV`; bulk people CSV export as `EXPORT_CSV`.
 
 ### Edge cases worth knowing
 - A same-name person within a family (`familyId, firstName, lastName` collision) returns a clean validation error rather than a raw database error.

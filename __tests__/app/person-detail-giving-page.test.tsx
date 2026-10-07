@@ -9,7 +9,12 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     person: { findUnique: jest.fn() },
     transaction: { findMany: jest.fn() },
+    personClearance: { findMany: jest.fn().mockResolvedValue([]) },
   },
+}))
+jest.mock("@/lib/clearanceSettings", () => ({
+  DEFAULT_WWCC_VERIFY_URL: "https://wwccemployer.ocg.nsw.gov.au/Login",
+  getWwccVerifyUrl: jest.fn().mockResolvedValue("https://wwccemployer.ocg.nsw.gov.au/Login"),
 }))
 jest.mock("@/lib/crypto", () => ({
   safeDecrypt: jest.fn((v: string) => v),
@@ -58,6 +63,7 @@ const makePerson = () => ({
   notes: null,
   membershipDate: null,
   baptismDate: null,
+  ministryRoles: [],
   family: { id: 10, name: "Doe Family" },
 })
 

@@ -20,6 +20,9 @@ jest.mock("@/lib/prisma", () => ({
     pettyCashReceipt: {
       count: jest.fn(),
     },
+    personClearance: {
+      findMany: jest.fn(),
+    },
     auditLog: {
       create: jest.fn(),
     },
@@ -61,6 +64,7 @@ const mockFamilyFindUnique = prisma.family.findUnique as jest.Mock
 const mockTxCount = prisma.transaction.count as jest.Mock
 const mockDgrCount = prisma.dgrReceipt.count as jest.Mock
 const mockPettyCashCount = prisma.pettyCashReceipt.count as jest.Mock
+const mockClearanceFindMany = prisma.personClearance.findMany as jest.Mock
 const mockAudit = prisma.auditLog.create as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
 
@@ -84,6 +88,7 @@ beforeEach(() => {
   mockTxCount.mockResolvedValue(0)
   mockDgrCount.mockResolvedValue(0)
   mockPettyCashCount.mockResolvedValue(0)
+  mockClearanceFindMany.mockResolvedValue([])
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma))
 })
 
@@ -472,7 +477,7 @@ describe("updatePerson", () => {
         action: "PERSON_UPDATED",
         resourceType: "Person",
         resourceId: 7,
-        metadata: { familyId: 3 },
+        metadata: { familyId: 3, ministryRoles: [] },
       }),
     })
   })
@@ -761,6 +766,46 @@ describe("deletePerson", () => {
 
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 7 } })
     expect(mockRedirect).toHaveBeenCalledWith("/families/3")
+  })
+
+  it("audits CLEARANCE_REMOVED (cascade) for each clearance deleted with the person", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ familyId: 3 })
+    mockDelete.mockResolvedValue({})
+    mockClearanceFindMany.mockResolvedValue([
+      { id: "ckc1", type: "WWCC" },
+      { id: "ckc2", type: "SAFE_MINISTRY" },
+    ])
+
+    await deletePerson(7, 3)
+
+    expect(mockClearanceFindMany).toHaveBeenCalledWith({ where: { personId: 7 }, select: { id: true, type: true } })
+    expect(mockAudit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 3,
+        action: "CLEARANCE_REMOVED",
+        resourceType: "Person",
+        resourceId: 7,
+        metadata: { type: "WWCC", clearanceId: "ckc1", cascade: true },
+      }),
+    })
+    expect(mockAudit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "CLEARANCE_REMOVED",
+        metadata: { type: "SAFE_MINISTRY", clearanceId: "ckc2", cascade: true },
+      }),
+    })
+  })
+
+  it("does not audit clearance removal when the delete is blocked by linked records", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ familyId: 3 })
+    mockTxCount.mockResolvedValue(2)
+    mockClearanceFindMany.mockResolvedValue([{ id: "ckc1", type: "WWCC" }])
+
+    await deletePerson(7, 3)
+
+    expect(mockAudit).not.toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLEARANCE_REMOVED" }) })
   })
 
   it("audit-logs PERSON_DELETED", async () => {
