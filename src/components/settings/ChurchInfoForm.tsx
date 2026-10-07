@@ -1,11 +1,11 @@
 "use client"
 
-import { useActionState } from "react"
 import { updateChurchInfo } from "@/lib/actions/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { useKeepFormValues } from "./useKeepFormValues"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
 }
 
 export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEmail, churchWebsite }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(updateChurchInfo, undefined)
+  const [state, formAction, isPending, keep] = useKeepFormValues(updateChurchInfo)
 
   return (
     <section>
@@ -38,7 +38,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             name="churchName"
             type="text"
             required
-            defaultValue={churchName}
+            defaultValue={keep("churchName", churchName)}
             placeholder={DEFAULT_CHURCH_NAME}
             className="mt-1"
             maxLength={200}
@@ -50,7 +50,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             id="church-address"
             name="churchAddress"
             type="text"
-            defaultValue={churchAddress}
+            defaultValue={keep("churchAddress", churchAddress)}
             placeholder="123 Example St, Sydney NSW 2000"
             className="mt-1"
             maxLength={500}
@@ -62,7 +62,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             id="church-abn"
             name="churchABN"
             type="text"
-            defaultValue={churchABN}
+            defaultValue={keep("churchABN", churchABN)}
             placeholder="12 345 678 901"
             className="mt-1"
             maxLength={20}
@@ -74,7 +74,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             id="church-email"
             name="churchEmail"
             type="email"
-            defaultValue={churchEmail}
+            defaultValue={keep("churchEmail", churchEmail)}
             placeholder="office@example.com"
             className="mt-1"
             maxLength={255}
@@ -86,7 +86,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             id="church-website"
             name="churchWebsite"
             type="url"
-            defaultValue={churchWebsite}
+            defaultValue={keep("churchWebsite", churchWebsite)}
             placeholder="https://www.example.com"
             className="mt-1"
             maxLength={500}
