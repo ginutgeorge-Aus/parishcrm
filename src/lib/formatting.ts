@@ -39,19 +39,45 @@ export function fmtAUDAccounting(n: number): string {
 export type Money = { toString(): string } | number | null | undefined
 
 /**
+ * Expand a plain-decimal-with-exponent string (`1e-7`, `1.5E+3`) to positional
+ * notation using string shifts only, so no float rounding creeps in. Anything
+ * that is not `digits[.digits]e[+-]digits` is returned unchanged.
+ */
+function expandExponent(s: string): string {
+  const m = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(s)
+  if (!m) return s
+  const [, sign, int, frac = "", expStr] = m
+  const exp = Number(expStr)
+  if (exp < -50) return "0" // far below a cent
+  if (exp > 50) return "NaN" // far above any representable amount
+  const digits = int + frac
+  const point = int.length + exp
+  if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`
+  if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`
+}
+
+/**
  * Parse a money value to an exact integer number of cents. Summing in
  * integer cents — rather than accumulating `parseFloat`/`Number` dollars —
  * means a long run of Decimals never picks up IEEE-754 drift. Fractional
  * digits beyond two are truncated, which also discards float artefacts such as
  * the `0.30000000000000004` you get from `0.1 + 0.2`.
+ *
+ * Exponent notation (`1e-7`, which `Number#toString` and Decimal emit for very
+ * small/large values) is expanded exactly, never mis-scaled. Malformed input
+ * (`""`, `"abc"`, `"1,234"`, `"1.2.3"`, non-finite numbers) returns `NaN`
+ * rather than a wrong amount: callers' `> 0` / `>= 0` guards then reject it,
+ * and render paths don't throw.
  */
 export function toCents(m: Money): number {
   if (m == null) return 0
-  const s = m.toString().trim()
-  const neg = s.startsWith("-")
-  const [whole, frac = ""] = s.replace(/^-/, "").split(".")
+  const s = expandExponent(m.toString().trim())
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(s)
+  if (!match || (!match[2] && !match[3])) return Number.NaN
+  const [, sign, whole, frac = ""] = match
   const cents = Number.parseInt(whole || "0", 10) * 100 + Number.parseInt((frac + "00").slice(0, 2), 10)
-  return neg ? -cents : cents
+  return sign === "-" ? -cents : cents
 }
 
 /** Sum a list of money values exactly, in integer cents. */

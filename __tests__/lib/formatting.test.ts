@@ -79,6 +79,26 @@ describe("toCents", () => {
     // 0.1 + 0.2 === 0.30000000000000004
     expect(toCents(0.1 + 0.2)).toBe(30)
   })
+  it("expands exponent notation exactly instead of mis-scaling it", () => {
+    expect(toCents(1e-7)).toBe(0)
+    expect(toCents(d("1e-7"))).toBe(0)
+    expect(toCents(d("1.5e-2"))).toBe(1)
+    expect(toCents(d("1.5E+3"))).toBe(150000)
+    expect(toCents(d("-2e1"))).toBe(-2000)
+    expect(toCents(1e21)).toBe(1e23)
+  })
+  it("returns NaN for malformed input rather than a wrong amount", () => {
+    for (const bad of ["", "abc", "1,234.50", "1.2.3", "--5", "1e", "e5", ".", "1e999", "$5"]) {
+      expect(toCents(d(bad))).toBeNaN()
+    }
+    expect(toCents(Number.NaN)).toBeNaN()
+    expect(toCents(Infinity)).toBeNaN()
+  })
+  it("still accepts bare-dot and signed forms", () => {
+    expect(toCents(d(".5"))).toBe(50)
+    expect(toCents(d("5."))).toBe(500)
+    expect(toCents(d("+5"))).toBe(500)
+  })
 })
 
 describe("sumCents", () => {
