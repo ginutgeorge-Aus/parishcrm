@@ -10,6 +10,7 @@ import {
   decryptFamilyScalars,
   decryptTransactionForExport,
   decryptRegistrationForExport,
+  decryptClearanceForExport,
 } from "@/lib/personExport"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
@@ -39,6 +40,23 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     where: { id, archivedAt: null },
     include: {
       family: true,
+      // Explicit select: never pull the encrypted `document` blob into the export.
+      clearances: {
+        orderBy: { type: "asc" },
+        select: {
+          type: true,
+          number: true,
+          expiresAt: true,
+          documentName: true,
+          documentType: true,
+          documentSize: true,
+          verifiedAt: true,
+          verifiedBy: { select: { name: true } },
+          verificationNote: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
       transactions: {
         orderBy: { date: "desc" },
         include: {
@@ -69,14 +87,18 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       })
     : []
 
+  // `clearances` is exported via its own decrypted section; keep the raw
+  // (encrypted) rows out of the spread person object.
+  const { clearances, ...personRest } = person
   const data = {
     person: {
-      ...decryptPersonScalars(person),
+      ...decryptPersonScalars(personRest),
       email: personEmail,
       family: person.family ? decryptFamilyScalars(person.family) : null,
     },
     transactions: person.transactions.map(decryptTransactionForExport),
     registrations: registrations.map(decryptRegistrationForExport),
+    clearances: clearances.map(decryptClearanceForExport),
     exportedAt: new Date().toISOString(),
   }
 
@@ -86,7 +108,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     "PERSON_EXPORTED",
     "Person",
     id,
-    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "receiptSentTo", "registrationCustomAnswers"] },
+    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "receiptSentTo", "registrationCustomAnswers", "clearances"] },
     ip
   )
 

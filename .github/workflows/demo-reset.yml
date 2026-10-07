@@ -1,0 +1,63 @@
+name: demo-reset
+
+# Nightly wipe + reseed of the public live demo (docs/live-demo.md), then
+# redeploy it on Render so the app reconnects to a clean database.
+on:
+  schedule:
+    - cron: '0 17 * * *' # 03:00 AEST / 04:00 AEDT
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-reset
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    # Forks have no demo secrets.
+    if: github.repository == 'ginutgeorge-Aus/parishcrm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Seed and deploy the same release. Fail (demo keeps last night's data)
+      # if that release's image never reached GHCR, e.g. a failed publish.
+      - id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag=$(gh release view --repo "$REPO" --json tagName -q .tagName)
+          image="ghcr.io/${REPO,,}:${tag}"
+          docker manifest inspect "$image" > /dev/null
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      # No secrets in this step: install scripts must not see the demo DB.
+      - run: npm ci --no-audit --no-fund
+      - name: Reset and seed
+        env:
+          # Neon DIRECT (unpooled) URL: `migrate reset` needs a session-level
+          # connection. The Render app uses the pooled URL for the same database.
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          ENCRYPTION_KEY: ${{ secrets.DEMO_ENCRYPTION_KEY }}
+          DEMO_MODE: 'true'
+          ALLOW_DEMO_SEED: 'true'
+        run: |
+          npx prisma migrate reset --force
+          npm run db:seed
+          npm run demo:seed
+      # imgURL pins Render to the image of the release just seeded.
+      - name: Redeploy demo
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          IMAGE: ${{ steps.tag.outputs.image }}
+        run: curl -fsS -X POST -G "$HOOK" --data-urlencode "imgURL=$IMAGE" > /dev/null

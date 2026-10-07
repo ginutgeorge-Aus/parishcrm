@@ -138,7 +138,7 @@ docs/                   topic docs + specs/plans
 
 ## Core features
 
-- **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes.
+- **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails.
 - **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
@@ -158,7 +158,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 | `PASTOR` | Full CRUD + pastoral notes + accounting view/entry |
 | `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN accounts), no pastoral notes |
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
-| `VIEWER` | Read-only people/families/events — no pastoral notes, no accounting |
+| `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
 | `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in) |
 
 Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `canViewAccounting`; accounting **mutations** require `canAccessAccounting` (ADMIN | PASTOR only). All DB mutations are guarded at **both** the page and the action.
@@ -182,7 +182,7 @@ Generated client at `src/lib/generated/prisma/`; enums from `@/lib/generated/pri
 
 ### Encryption
 
-Sensitive fields are encrypted at rest with **AES-256-GCM**, automatically on read/write through the Server Actions layer — family contact/location, person contact + date of birth, pastoral notes, transaction descriptions, receipt destinations, and registration contact details. Email fields carry a blind-index `emailHash` for lookups without decryption. A versioned keyring supports rotation.
+Sensitive fields are encrypted at rest with **AES-256-GCM**, automatically on read/write through the Server Actions layer — family contact/location, person contact + date of birth, pastoral notes, transaction descriptions, receipt destinations, and registration contact details, and child-safety clearance numbers/documents. Email fields carry a blind-index `emailHash` for lookups without decryption. A versioned keyring supports rotation.
 
 ### Audit logging
 

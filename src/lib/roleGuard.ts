@@ -52,6 +52,24 @@ export function canViewPeople(role: UserRole | undefined): boolean {
   )
 }
 
+/**
+ * Upload / replace / verify / remove WWCC and Safe Ministry clearances, and
+ * download the document + see the number. Equal to canEdit (ADMIN | PASTOR |
+ * OFFICE_ADMIN) by PO decision; kept as its own helper so the rule can diverge.
+ */
+export function canManageClearances(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
+
+/**
+ * See a clearance's STATUS BADGE only: managers (full detail) plus VIEWER
+ * (badge only, never the number, document or note). AUDITOR and EVENT_ORGANISER
+ * see nothing.
+ */
+export function canViewClearanceStatus(role: UserRole | undefined): boolean {
+  return canManageClearances(role) || role === UserRole.VIEWER
+}
+
 export function isEventOrganiser(role: UserRole | undefined): boolean {
   return role === UserRole.EVENT_ORGANISER
 }

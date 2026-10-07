@@ -16,6 +16,9 @@ jest.mock("@/lib/prisma", () => ({
     transaction: {
       count: jest.fn(),
     },
+    personClearance: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     auditLog: {
       create: jest.fn(),
     },
@@ -439,6 +442,33 @@ describe("deleteFamily", () => {
         action: "FAMILY_DELETED",
         resourceType: "Family",
         resourceId: 5,
+      }),
+    })
+  })
+})
+
+describe("deleteFamily clearance audit", () => {
+  it("audits each cascaded clearance as CLEARANCE_REMOVED", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    const eightYearsAgo = new Date()
+    eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
+    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    mockTxCount.mockResolvedValue(0)
+    mockPersonCount.mockResolvedValue(0)
+    mockDelete.mockResolvedValue({})
+    ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: "ckclr1", type: "WWCC", personId: 11 },
+    ])
+    await deleteFamily(5)
+    expect(prisma.personClearance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { person: { familyId: 5 } } }),
+    )
+    expect(mockAudit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 3,
+        action: "CLEARANCE_REMOVED",
+        resourceType: "Person",
+        resourceId: 11,
       }),
     })
   })

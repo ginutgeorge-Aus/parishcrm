@@ -49,6 +49,7 @@ const mockPerson = {
   emergencyContactPhone: "enc:0400111222",
   family: { id: 1, name: "Smith Family" },
   transactions: [],
+  clearances: [],
 }
 
 describe("GET /api/people/[id]/export", () => {
@@ -171,6 +172,37 @@ describe("GET /api/people/[id]/export", () => {
     expect(exported).toEqual(
       expect.arrayContaining(["dateOfBirth", "mobile", "workPhone", "homePhone", "familyFields"])
     )
+  })
+
+  it("includes decrypted clearances (no document blob) and lists them in the audit fields", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockPersonFindFirst.mockResolvedValue({
+      ...mockPerson,
+      clearances: [{
+        type: "WWCC",
+        number: "enc:WWC0000000E",
+        expiresAt: new Date("2027-03-04T00:00:00.000Z"),
+        documentName: "enc:wwcc.pdf",
+        documentType: "application/pdf",
+        documentSize: 10,
+        verifiedAt: null,
+        verifiedBy: null,
+        verificationNote: null,
+        createdAt: new Date("2026-09-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-09-01T00:00:00.000Z"),
+      }],
+    })
+    const res = await GET(makeRequest(), makeProps("1"))
+    const body = await res.json()
+    expect(body.clearances).toHaveLength(1)
+    expect(body.clearances[0]).toMatchObject({ type: "WWCC", number: "WWC0000000E", expiresAt: "2027-03-04", documentName: "wwcc.pdf" })
+    expect(body.clearances[0]).not.toHaveProperty("document")
+    expect(body.person).not.toHaveProperty("clearances")
+    // The query must select explicitly and never pull the encrypted blob.
+    const include = mockPersonFindFirst.mock.calls[0][0].include
+    expect(include.clearances.select).toBeDefined()
+    expect(include.clearances.select.document).toBeUndefined()
+    expect(mockLogAudit.mock.calls[0][4].exportedFields).toContain("clearances")
   })
 
   it("matches registrations by the email blind index, not a full-table scan", async () => {

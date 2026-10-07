@@ -39,8 +39,9 @@ financial content is stored, including but not limited to: family and person con
 transaction descriptions and notes, receipt/reminder recipient addresses, event-registration
 contact details and custom-answer text (dietary, medical, accessibility, emergency-contact
 free text — encrypted as a single JSON blob), petty-cash payee/notes, membership-application
-payload/signature/contact details, DGR (tax-deductible) receipt donor email, and transaction
-attachment filenames and file contents. A dedicated CI-run test greps every encryption write
+payload/signature/contact details, DGR (tax-deductible) receipt donor email, transaction
+attachment filenames and file contents, and child-safety clearance (WWCC / Safe Ministry)
+numbers, document files, filenames and verification notes. A dedicated CI-run test greps every encryption write
 site in the codebase against a maintained list, so a newly-added sensitive field that's
 written without encryption fails the build rather than shipping silently.
 
@@ -84,5 +85,8 @@ placeholder or corrupted key, rather than silently encrypting real data under a 
 
 Rotation procedure, in order: set `ENCRYPTION_KEY_V1` to the current key's value, add the new
 key as `ENCRYPTION_KEY_V2`, set `ENCRYPTION_KEY_ID=v2`, deploy, then run the rotation script
-with its apply flag. Full step-by-step is in `docs/operations.md` and the header comments of
+with its apply flag. Run the apply step in a maintenance window, with the app stopped or no one
+editing. The script rewrites each row from the copy it just read, so a save made by someone
+mid-run (for example, replacing a clearance's document and then verifying it) can be overwritten
+with the older values. Full step-by-step is in `docs/operations.md` and the header comments of
 `scripts/rotate-encryption-key.ts`.

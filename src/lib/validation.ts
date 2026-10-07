@@ -85,6 +85,10 @@ export function isValidPgId(id: number): boolean {
   return Number.isInteger(id) && id > 0 && id <= 2147483647
 }
 
+// cuid-style string ids (e.g. PersonClearance.id): bound the alphabet/length
+// before they reach the DB.
+export const CUID_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
 // Parse a route/query id param. Digits only — "12abc" or "1.5" is rejected
 // rather than coerced to 12 / passed through as a float. Null when invalid.
 export function parseRouteId(raw: string | null | undefined): number | null {

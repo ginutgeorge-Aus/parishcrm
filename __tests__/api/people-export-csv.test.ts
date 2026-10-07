@@ -37,6 +37,7 @@ const basePerson = {
   dateOfBirth: "enc:1990-01-15",
   membershipDate: null,
   baptismDate: null,
+  ministryRoles: [],
   family: { name: "Jones Family" },
 }
 
@@ -135,5 +136,32 @@ describe("GET /api/people/export (bulk CSV)", () => {
     const res = await GET(req)
     expect(res.status).toBe(200)
     expect(mockLogAudit).toHaveBeenCalledWith(7, "EXPORT_CSV", "Person", undefined, { rowCount: 1 }, "1.2.3.4")
+  })
+
+  it("adds a Ministry Roles column with labels joined by '; '", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([{ ...basePerson, ministryRoles: ["VOLUNTEER", "SUNDAY_SCHOOL_TEACHER"] }])
+    const res = await GET(makeRequest())
+    const [header, row] = (await res.text()).split("\n")
+    expect(header.split(",").pop()).toBe("Ministry Roles")
+    expect(row.endsWith("Volunteer; Sunday school teacher")).toBe(true)
+  })
+
+  it("leaves the Ministry Roles cell empty when the person has none", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const res = await GET(makeRequest())
+    const [, row] = (await res.text()).split("\n")
+    expect(row.endsWith(",")).toBe(true)
+  })
+
+  it("filters by ?ministryRole= and ignores an invalid value", async () => {
+    // Own actor id: the route's in-memory rate limit (10/min per actor) is
+    // already spent by earlier tests on id "1".
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "2" } })
+    await GET(makeRequest("?ministryRole=STAFF"))
+    expect(mockFindMany.mock.calls[0][0].where.ministryRoles).toEqual({ has: "STAFF" })
+    mockFindMany.mockClear()
+    await GET(makeRequest("?ministryRole=BOGUS"))
+    expect(mockFindMany.mock.calls[0][0].where).not.toHaveProperty("ministryRoles")
   })
 })
