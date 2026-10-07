@@ -12,21 +12,26 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
 
 - **Public repo.** Any real member PII, church details, credentials or `.env` values in code, tests
   or fixtures. Demo data uses `admin@example.com`-style synthetic values only.
-- **Authorization.** Every mutation must be guarded in **both** the page and the Server Action using
-  the helpers in `src/lib/roleGuard.ts`. Accounting reads gate on `canViewAccounting`; accounting
+- **Authorization.** Every staff-facing mutation must be guarded in **both** the page and the Server
+  Action using the helpers in `src/lib/roleGuard.ts`. Deliberately public flows (membership
+  application, public feedback, family self-update, event checkout) skip `roleGuard` and rely on
+  Turnstile, rate limits, signed tokens and server-side validation instead — check those controls. Accounting reads gate on `canViewAccounting`; accounting
   mutations need `canAccessAccounting` (ADMIN/PASTOR only). Watch for IDOR (acting on an id the user
   does not own) and self-action bugs (e.g. a user demoting or deleting themselves).
-- **Auth split.** `src/auth.config.ts` and `src/middleware.ts` run on the Edge runtime — no Node-only
-  imports (Prisma, crypto, `server-only` modules) there.
+- **Auth split.** `src/auth.config.ts` must stay Edge-safe — no Node-only imports (Prisma, crypto,
+  `server-only` modules). `src/middleware.ts` runs on the Node runtime (`config.runtime = "nodejs"`).
 - **Encryption.** PII fields are AES-256-GCM encrypted via `src/lib/crypto.ts`, with HMAC blind
   indexes (`emailHash`/`mobileHash`) for lookups. Flag plaintext writes to encrypted columns,
   equality queries on ciphertext, or a missing blind-index update.
 - **Money.** `Decimal(10,2)` columns. Amounts are regex-validated before a Prisma write — never
   `parseFloat`/`Number()` on money.
-- **Dates.** Church wall-clock is Australia/Sydney, server is UTC. Flag day/month boundaries computed
-  in server-local time.
+- **Dates.** Church wall-clock is the configured `APP_TIMEZONE` (`src/lib/appConfig.ts`, default
+  Australia/Sydney); the server runs in UTC. Flag day/month boundaries computed in server-local time
+  or with a hard-coded zone.
 - **CSV export.** Cells must go through the formula-injection guard.
-- **Server Actions** return the `ActionResult` shape and revalidate affected paths/tags.
+- **Server Actions** that mutate data and report success/failure to a form return the `ActionResult`
+  shape and revalidate affected paths/tags. Actions with their own contract (e.g. `logout`, status
+  reads, checkout/enrollment unions) are fine as-is.
 - **Migrations.** A schema change needs a matching file in `prisma/migrations/`; flag destructive
   migrations (dropped columns/tables) without a data-preservation note.
 - **Tests.** New logic should come with Jest tests; mocks follow existing NextAuth/Prisma patterns.
