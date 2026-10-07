@@ -63,6 +63,7 @@ async function main() {
       email: "john@example.com",
       mobile: encrypt("0400 000 001"),
       membershipDate: new Date("2018-01-01"),
+      ministryRoles: ["STAFF"],
     },
   })
 
@@ -80,6 +81,7 @@ async function main() {
       email: "jane@example.com",
       mobile: encrypt("0400 000 002"),
       membershipDate: new Date("2018-01-01"),
+      ministryRoles: ["VOLUNTEER", "SUNDAY_SCHOOL_TEACHER"],
     },
   })
 

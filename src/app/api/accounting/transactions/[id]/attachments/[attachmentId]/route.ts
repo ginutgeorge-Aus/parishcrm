@@ -5,22 +5,11 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { canViewAccounting } from "@/lib/roleGuard"
-import { decrypt } from "@/lib/crypto"
+import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
 
 const MAX_INT4 = 2147483647
 const notFound = () => new NextResponse("Not found", { status: 404 })
-
-// Only inert types render inline. A user-supplied Content-Type like text/html or
-// image/svg+xml would execute as Stored XSS if shown inline in the browser
-//; anything off this list is forced to download as octet-stream.
-const INLINE_SAFE = new Set([
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-])
 
 const parseId = (v: string) => {
   const n = Number(v)
@@ -58,37 +47,18 @@ export async function GET(
   // transaction 404s exactly like a missing one.
   if (att?.transactionId !== txId) return notFound()
 
-  // Stored blob is base64 ciphertext (UTF-8 bytes); reverse to the raw file.
-  // Filename is encrypted too. `decrypt` is plaintext-safe (encryption.md).
-  const stored = (Buffer.isBuffer(att.data) ? att.data : Buffer.from(att.data as Uint8Array)).toString("utf8")
-  const body = Buffer.from(decrypt(stored), "base64")
-  const filename = decrypt(att.filename)
-  // Filenames are user-supplied; RFC 5987-encode the UTF-8 param so
-  // quotes/newlines/non-ASCII can't break out of the header. The legacy
-  // `filename=` param must be plain ASCII, so strip non-ASCII and quoting
-  // chars for that fallback rather than reusing the percent-encoded form.
-  const encoded = encodeURIComponent(filename)
-  const asciiFallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")
-  // Serve inline only for the safe allowlist; anything else downloads as an
-  // opaque octet-stream so a spoofed/active content type can't render.
-  const inline = INLINE_SAFE.has(att.contentType)
-  const contentType = inline ? att.contentType : "application/octet-stream"
-  const disposition = inline ? "inline" : "attachment"
+  // Decrypt before auditing so a failed decrypt never records a view.
+  const response = encryptedDocumentResponse({
+    blob: att.data,
+    encryptedName: att.filename,
+    contentType: att.contentType,
+    fallbackName: "attachment",
+  })
 
   // Egress of a decrypted financial document (bank statement/invoice/receipt
   // scan) needs a forensic trail — "who accessed donor X's receipt".
   // Every sibling export route audits on success; this one had no VIEWED action.
   await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_VIEWED", "Transaction", txId, { attachmentId: attId }, getClientIp(req))
 
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      "Content-Type": contentType,
-      // Receipts are financial records — never cache them in shared caches.
-      "Cache-Control": "private, no-store",
-      // Show inline (thumbnail/preview) but suggest the original name on save.
-      "Content-Disposition": `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
-      "X-Content-Type-Options": "nosniff",
-    },
-  })
+  return response
 }
