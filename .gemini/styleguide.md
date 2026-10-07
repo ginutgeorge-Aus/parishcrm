@@ -18,8 +18,10 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
   Turnstile, rate limits, signed tokens and server-side validation instead — check those controls. Accounting reads gate on `canViewAccounting`; accounting
   mutations need `canAccessAccounting` (ADMIN/PASTOR only). Watch for IDOR (acting on an id the user
   does not own) and self-action bugs (e.g. a user demoting or deleting themselves).
-- **Auth split.** `src/auth.config.ts` must stay Edge-safe — no Node-only imports (Prisma, crypto,
-  `server-only` modules). `src/middleware.ts` runs on the Node runtime (`config.runtime = "nodejs"`).
+- **Auth split.** `src/auth.config.ts` is the lean callbacks-only config imported by
+  `src/middleware.ts`; the full config (Credentials, Prisma, bcrypt) lives in `src/auth.ts`. Middleware
+  runs on the Node runtime (`config.runtime = "nodejs"`) but should keep importing `authConfig`, not
+  `auth.ts`.
 - **Encryption.** PII fields are AES-256-GCM encrypted via `src/lib/crypto.ts`, with HMAC blind
   indexes (`emailHash`/`mobileHash`) for lookups. Flag plaintext writes to encrypted columns,
   equality queries on ciphertext, or a missing blind-index update.
