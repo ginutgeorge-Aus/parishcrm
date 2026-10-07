@@ -37,6 +37,10 @@ function dateToYmd(d: Date | null): string | null {
 
 const STALE_ERROR = "This clearance changed. Refresh and try again."
 
+// Every write re-checks the archived-person boundary in its own predicate, so an
+// archiveFamily that commits after an action's pre-read can't be overtaken.
+const LIVE_PERSON = { person: { archivedAt: null } } as const
+
 /**
  * Parse the `updatedAt` ISO string the client last saw. Null when missing or
  * malformed (callers treat that as stale — these actions never write unguarded).
@@ -141,16 +145,25 @@ export async function upsertClearance(
 
   if (!existing) {
     try {
-      await prisma.personClearance.create({
-        data: {
-          personId,
-          type,
-          number: number ? encrypt(number) : null,
-          expiresAt,
-          ...docData,
-          createdById: actor,
-        },
+      // FOR SHARE on the person row blocks a concurrent archive (its UPDATE needs
+      // the row lock) until the create commits, and fails if it already has.
+      const created = await prisma.$transaction(async (tx) => {
+        const live = await tx.$queryRaw<{ id: number }[]>`
+          SELECT id FROM "Person" WHERE id = ${personId} AND "archivedAt" IS NULL FOR SHARE`
+        if (live.length === 0) return false
+        await tx.personClearance.create({
+          data: {
+            personId,
+            type,
+            number: number ? encrypt(number) : null,
+            expiresAt,
+            ...docData,
+            createdById: actor,
+          },
+        })
+        return true
       })
+      if (!created) return { error: "Not found" }
     } catch (e) {
       if (isP2002(e)) return { error: "This clearance was just added by someone else. Refresh and try again." }
       throw e
@@ -168,7 +181,7 @@ export async function upsertClearance(
   // The seen timestamp is part of the write predicate, so an edit or verify
   // committed between the read above and this write still makes it stale.
   const result = await prisma.personClearance.updateMany({
-    where: { id: existing.id, updatedAt: seenAt as Date },
+    where: { id: existing.id, updatedAt: seenAt as Date, ...LIVE_PERSON },
     data: {
       number: number ? encrypt(number) : null,
       expiresAt,
@@ -217,7 +230,7 @@ export async function verifyClearance(
 
   const actor = actorId(session)
   const result = await prisma.personClearance.updateMany({
-    where: { id: row.id, updatedAt: seenAt },
+    where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
     data: {
       verifiedAt: new Date(),
       verifiedById: actor,
@@ -253,7 +266,7 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
   if (!row) return { error: "Not found" }
 
   const result = await prisma.personClearance.updateMany({
-    where: { id: row.id, updatedAt: seenAt },
+    where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
     data: { verifiedAt: null, verifiedById: null, verificationNote: null },
   })
   if (result.count === 0) return { error: STALE_ERROR }
@@ -284,7 +297,7 @@ export async function deleteClearance(clearanceId: string, seenUpdatedAt: string
   const row = await loadClearance(clearanceId)
   if (!row) return { error: "Not found" }
 
-  const result = await prisma.personClearance.deleteMany({ where: { id: row.id, updatedAt: seenAt } })
+  const result = await prisma.personClearance.deleteMany({ where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON } })
   if (result.count === 0) return { error: STALE_ERROR }
   await logAudit(actorId(session), "CLEARANCE_REMOVED", "Person", row.personId, {
     type: row.type,
