@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
+import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { syncMyReports } from "@/lib/actions/feedback"
 import { Badge } from "@/components/ui/badge"
@@ -25,7 +26,14 @@ export default async function ReportsPage() {
   const session = await auth()
   if (!session?.user) redirect("/login")
 
-  const userId = Number.parseInt(session.user.id, 10)
+  // Shared parser rejects a malformed/missing id; a NaN userId must never reach
+  // Prisma (it would surface as a validation error in the error boundary).
+  let userId: number
+  try {
+    userId = actorId(session)
+  } catch {
+    redirect("/login")
+  }
   // Refresh open reports' status from GitHub before rendering (lazy on-load sync).
   await syncMyReports()
 
