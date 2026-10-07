@@ -55,6 +55,17 @@ describe("sydneyDatetimeLocalToUTC", () => {
   })
 })
 
+describe("sydneyDatetimeLocalToUTC malformed input", () => {
+  it.each(["", "garbage", "2026-08-01", "2026-13-45T99:99"])(
+    "returns an Invalid Date instead of throwing for %j",
+    (bad) => {
+      let d: Date | undefined
+      expect(() => { d = sydneyDatetimeLocalToUTC(bad) }).not.toThrow()
+      expect(Number.isNaN(d!.getTime())).toBe(true)
+    },
+  )
+})
+
 describe("toSydneyDatetimeLocal", () => {
   it("formats a UTC instant back to the Sydney wall clock (AEDT)", () => {
     expect(toSydneyDatetimeLocal(new Date("2026-10-07T21:30:00.000Z"))).toBe(

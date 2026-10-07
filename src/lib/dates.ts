@@ -123,9 +123,14 @@ function sydneyOffsetMs(at: Date): number {
  * Two passes: the offset at the naive instant is only a first guess — the naive
  * reading sits a whole offset away from the real instant, so it can land across
  * a DST transition. Re-read the offset at the guessed instant.
+ *
+ * Malformed input returns an Invalid Date (`getTime()` is NaN) instead of
+ * throwing a RangeError from `Intl`; callers validate with the same
+ * `Number.isNaN(new Date(v + ":00.000Z"))` check (see `EventSchema`).
  */
 export function sydneyDatetimeLocalToUTC(local: string): Date {
   const naive = new Date(local + ":00.000Z").getTime()
+  if (Number.isNaN(naive)) return new Date(Number.NaN)
   const guess = naive - sydneyOffsetMs(new Date(naive))
   return new Date(naive - sydneyOffsetMs(new Date(guess)))
 }
