@@ -121,13 +121,13 @@ function rotateRow(
   return Object.keys(update).length ? update : null
 }
 
-// Structural shape of the three Prisma model-delegate methods rotateModel uses.
+// Structural shape of the Prisma model-delegate methods rotateModel uses.
 // Avoids `any` on the opts type; the dynamic `prisma[name]` lookup still needs a
 // localized cast since the key is resolved at runtime from FIELDS.
 type ModelDelegate = {
   count(): Promise<number>
   findMany(args: unknown): Promise<Record<string, unknown>[]>
-  update(args: unknown): unknown
+  updateMany(args: unknown): unknown
 }
 
 type RotateOpts = {
@@ -136,10 +136,99 @@ type RotateOpts = {
   apply?: boolean
 }
 
+// How many times a row that changed between read and write is re-read and
+// retried before it is reported as a conflict.
+const MAX_CONFLICT_RETRIES = 3
+
+/**
+ * Builds the conditional write for one row: match the id AND the exact
+ * ciphertext that was read for every column being rewritten (#166). If a user
+ * saved the row in between, the ciphertext differs (fresh random IV on every
+ * encrypt), the update matches 0 rows, and the stale re-encrypted copy is never
+ * written over their edit. Comparing the rewritten columns works for every
+ * model, with or without `updatedAt`, and covers exactly the columns that could
+ * be clobbered — unencrypted columns are never written here.
+ *
+ * @param row - the row as read (id + encrypted columns)
+ * @param update - the re-encrypted values from rotateRow
+ * @returns updateMany args guarded on the read ciphertext
+ */
+function guardedWrite(row: Record<string, unknown>, update: Record<string, string | Buffer>) {
+  const where: Record<string, unknown> = { id: row.id }
+  // `{ equals }`, not the bare-value shorthand: some rotated columns are Json
+  // (payload, customAnswers), whose filter has no shorthand; String and Bytes
+  // filters accept `equals` too.
+  for (const f of Object.keys(update)) where[f] = { equals: row[f] }
+  return { where, data: update }
+}
+
+/**
+ * Rows touched by one conditional updateMany, from a $transaction result.
+ *
+ * @param res - one element of the $transaction result array
+ * @returns the affected-row count, or 0 if the shape is unexpected
+ */
+function countOf(res: unknown): number {
+  const count = (res as { count?: unknown } | undefined)?.count
+  return typeof count === "number" ? count : 0
+}
+
+/**
+ * Re-reads a row whose guarded write matched nothing and retries the rotation
+ * against its fresh ciphertext, up to MAX_CONFLICT_RETRIES times.
+ *
+ * @returns "written" if a retry committed; "resolved" if the row no longer
+ *   needs rotating (deleted, or the user's save already used the current key);
+ *   "bad" if the fresh value won't decrypt; "conflict" if it kept changing.
+ */
+async function retryConflict(
+  name: string,
+  id: unknown,
+  ctx: {
+    fields: string[]
+    blobFields: Set<string>
+    select: Record<string, true>
+    delegate: ModelDelegate
+    runTx: (ops: unknown[]) => Promise<unknown>
+  },
+): Promise<"written" | "resolved" | "bad" | "conflict"> {
+  for (let attempt = 0; attempt < MAX_CONFLICT_RETRIES; attempt++) {
+    const [fresh] = await ctx.delegate.findMany({ where: { id }, take: 1, select: ctx.select })
+    if (!fresh) return "resolved"
+    let update: Record<string, string | Buffer> | null
+    try {
+      update = rotateRow(fresh, ctx.fields, ctx.blobFields)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`${name} #${String(id)}: could not rotate (${msg}) — skipped`)
+      return "bad"
+    }
+    if (!update) return "resolved"
+    const results = (await ctx.runTx([ctx.delegate.updateMany(guardedWrite(fresh, update))])) as unknown[] | undefined
+    if (countOf(results?.[0]) === 1) return "written"
+  }
+  console.warn(
+    `${name} #${String(id)}: changed concurrently on ${MAX_CONFLICT_RETRIES} retries — skipped (re-run to rotate it)`,
+  )
+  return "conflict"
+}
+
+/**
+ * Re-encrypts every FIELDS column of one model that is on an old key id. Each
+ * batch commits in one transaction, and every write is guarded on the
+ * ciphertext that was read, so a concurrent user edit is never reverted: a row
+ * that changed is re-read and retried, and reported as a conflict if it keeps
+ * changing.
+ *
+ * @param name - FIELDS key (camelCase Prisma delegate name)
+ * @param opts - test seams: delegate, runTx, apply (defaults from argv)
+ * @returns rows (that would be) re-encrypted, malformed rows skipped, and rows
+ *   skipped because they kept changing under the rotation
+ */
 export async function rotateModel(
   name: keyof typeof FIELDS,
   opts: RotateOpts = {},
-): Promise<{ changed: number; badRows: number }> {
+): Promise<{ changed: number; badRows: number; conflicts: number }> {
   const fields = FIELDS[name]
   const blobFields = new Set(BLOB_FIELDS[name] ?? [])
   const delegate = opts.delegate ?? ((prisma as unknown as Record<string, ModelDelegate>)[name])
@@ -148,10 +237,11 @@ export async function rotateModel(
   if (!delegate) throw new Error(`Unknown model: ${String(name)}`)
   const total: number = await delegate.count()
   // id + rotated fields only — avoid pulling unrelated PII columns into memory.
-  const select = { id: true, ...Object.fromEntries(fields.map((f) => [f, true])) }
+  const select: Record<string, true> = { id: true, ...Object.fromEntries(fields.map((f) => [f, true])) }
   let done = 0
   let changed = 0
   let badRows = 0
+  let conflicts = 0
   while (done < total) {
     // Stable order so OFFSET pagination can't skip or duplicate rows.
     const rows: Record<string, unknown>[] = await delegate.findMany({
@@ -165,6 +255,7 @@ export async function rotateModel(
     // interrupted mid-model and leave a mixed-key state; batching bounds any
     // interruption to whole-batch boundaries.
     const ops: unknown[] = []
+    const opRows: Record<string, unknown>[] = []
     for (const row of rows) {
       // decrypt() throws on a malformed/corrupted ciphertext (bad auth
       // tag, truncated base64, unrecognized key-id segment). Previously that
@@ -181,22 +272,43 @@ export async function rotateModel(
         console.warn(`${name} #${row.id}: could not rotate (${msg}) — skipped`)
         continue
       }
-      if (update) {
+      if (!update) continue
+      if (!apply) {
         changed++
-        if (apply) ops.push(delegate.update({ where: { id: row.id }, data: update }))
+        continue
       }
+      ops.push(delegate.updateMany(guardedWrite(row, update)))
+      opRows.push(row)
     }
-    if (apply && ops.length) {
-      await runTx(ops)
-      console.log(`${name}: committed batch of ${ops.length} (through ${done + rows.length}/${total})`)
+    if (ops.length) {
+      const results = ((await runTx(ops)) as unknown[] | undefined) ?? []
+      let missed = 0
+      for (let i = 0; i < opRows.length; i++) {
+        if (countOf(results[i]) === 1) {
+          changed++
+          continue
+        }
+        // Row changed (or vanished) since the batch read — re-read and retry it
+        // alone rather than overwrite the user's edit with stale ciphertext.
+        missed++
+        const outcome = await retryConflict(name, opRows[i].id, { fields, blobFields, select, delegate, runTx })
+        if (outcome === "written") changed++
+        else if (outcome === "bad") badRows++
+        else if (outcome === "conflict") conflicts++
+      }
+      console.log(
+        `${name}: committed batch of ${ops.length} (through ${done + rows.length}/${total})` +
+          (missed ? `, ${missed} changed concurrently and were retried` : ""),
+      )
     }
     done += rows.length
   }
   console.log(
     `${name}: ${changed} row(s) ${apply ? "re-encrypted" : "would be re-encrypted"} (of ${total})` +
-      (badRows ? `, ${badRows} row(s) skipped (malformed ciphertext)` : ""),
+      (badRows ? `, ${badRows} row(s) skipped (malformed ciphertext)` : "") +
+      (conflicts ? `, ${conflicts} row(s) skipped (kept changing during rotation)` : ""),
   )
-  return { changed, badRows }
+  return { changed, badRows, conflicts }
 }
 
 async function main() {
@@ -213,15 +325,23 @@ async function main() {
   // malformed ciphertext must never abort rotation for models that haven't
   // run yet. Bad rows are collected across the whole run and summarized below.
   let totalBadRows = 0
+  let totalConflicts = 0
   for (const name of Object.keys(FIELDS) as (keyof typeof FIELDS)[]) {
-    const { badRows } = await rotateModel(name)
+    const { badRows, conflicts } = await rotateModel(name)
     totalBadRows += badRows
+    totalConflicts += conflicts
   }
   if (totalBadRows > 0) {
     console.error(
       `${totalBadRows} row(s) across all models had malformed/undecryptable ciphertext and were ` +
         `skipped — investigate before retiring the old key (a row skipped here stays on its current ` +
         `key id forever).`,
+    )
+  }
+  if (totalConflicts > 0) {
+    console.error(
+      `${totalConflicts} row(s) kept changing during rotation and were left untouched (no edit was ` +
+        `overwritten). Re-run the script to rotate them.`,
     )
   }
   if (APPLY) {
@@ -247,7 +367,9 @@ async function main() {
   // non-zero exit whenever any row was skipped, in BOTH dry-run and
   // apply — a bad row is a real finding that must not be lost in green CI
   // output, even though the rest of the rotation still completed.
-  if (totalBadRows > 0) process.exit(1)
+  // Same for rows skipped on a concurrent-edit conflict: they stay on the old
+  // key id until a re-run picks them up.
+  if (totalBadRows > 0 || totalConflicts > 0) process.exit(1)
 }
 
 // Jest sets NODE_ENV=test; skip the auto-run so the module can be imported for

@@ -10,6 +10,9 @@ function setBaseEnv() {
   process.env.ENCRYPTION_KEY_V2 = KEY2
 }
 
+// $transaction stand-in: every conditional updateMany matched exactly one row.
+const okTx = async (ops: unknown[]) => ops.map(() => ({ count: 1 }))
+
 afterEach(() => {
   jest.resetModules()
   for (const k of ["DATABASE_URL", "ENCRYPTION_KEY", "ENCRYPTION_KEY_V1", "ENCRYPTION_KEY_V2", "ENCRYPTION_KEY_ID"]) {
@@ -31,14 +34,14 @@ it("commits a non-empty batch in a single transaction, not per-row", async () =>
   const { rotateModel } = await import("../../scripts/rotate-encryption-key")
 
   const update = jest.fn((arg: unknown) => ({ __op: arg })) // PrismaPromise stand-in
-  const runTx = jest.fn().mockResolvedValue(undefined)
+  const runTx = jest.fn(okTx)
   const delegate = {
     count: jest.fn().mockResolvedValue(2),
     findMany: jest.fn().mockResolvedValueOnce([
       { id: 1, description: v1a },
       { id: 2, description: v1b },
     ]),
-    update,
+    updateMany: update,
   }
 
   await rotateModel("transaction", { delegate, runTx, apply: true })
@@ -61,7 +64,7 @@ it("does not write in dry-run (apply: false)", async () => {
   const delegate = {
     count: jest.fn().mockResolvedValue(1),
     findMany: jest.fn().mockResolvedValueOnce([{ id: 1, description: v1a }]),
-    update: jest.fn(),
+    updateMany: jest.fn(),
   }
   await rotateModel("transaction", { delegate, runTx, apply: false })
   expect(runTx).not.toHaveBeenCalled()
@@ -77,7 +80,7 @@ it("skips rows already on the current key and non-string values", async () => {
   process.env.ENCRYPTION_KEY_ID = "v2"
   const { rotateModel } = await import("../../scripts/rotate-encryption-key")
 
-  const runTx = jest.fn().mockResolvedValue(undefined)
+  const runTx = jest.fn(okTx)
   const delegate = {
     count: jest.fn().mockResolvedValue(3),
     findMany: jest.fn().mockResolvedValueOnce([
@@ -85,12 +88,12 @@ it("skips rows already on the current key and non-string values", async () => {
       { id: 2, description: null }, // non-string → skip
       { id: 3, description: "plaintext-never-encrypted" }, // no key id → skip
     ]),
-    update: jest.fn((arg: unknown) => ({ __op: arg })),
+    updateMany: jest.fn((arg: unknown) => ({ __op: arg })),
   }
   await rotateModel("transaction", { delegate, runTx, apply: true })
   // Nothing to rotate → no transaction, no update.
   expect(runTx).not.toHaveBeenCalled()
-  expect(delegate.update).not.toHaveBeenCalled()
+  expect(delegate.updateMany).not.toHaveBeenCalled()
 })
 
 it("re-keys a BYTEA blob column (transactionAttachment.data)", async () => {
@@ -109,11 +112,11 @@ it("re-keys a BYTEA blob column (transactionAttachment.data)", async () => {
   const { decrypt, keyIdOf } = await import("@/lib/cryptoCore")
 
   const update = jest.fn((arg: unknown) => ({ __op: arg }))
-  const runTx = jest.fn().mockResolvedValue(undefined)
+  const runTx = jest.fn(okTx)
   const delegate = {
     count: jest.fn().mockResolvedValue(1),
     findMany: jest.fn().mockResolvedValueOnce([{ id: 1, filename: v1name, data: v1blob }]),
-    update,
+    updateMany: update,
   }
   await rotateModel("transactionAttachment", { delegate, runTx, apply: true })
 
@@ -144,9 +147,9 @@ it("re-keys a blob returned as a plain Uint8Array (not a Buffer)", async () => {
   const delegate = {
     count: jest.fn().mockResolvedValue(1),
     findMany: jest.fn().mockResolvedValueOnce([{ id: "c1", document: v1blob }]).mockResolvedValue([]),
-    update,
+    updateMany: update,
   }
-  await rotateModel("personClearance", { delegate, runTx: jest.fn().mockResolvedValue(undefined), apply: true })
+  await rotateModel("personClearance", { delegate, runTx: jest.fn(okTx), apply: true })
 
   expect(update).toHaveBeenCalledTimes(1)
   const data = (update.mock.calls[0][0] as { data: { document: Buffer } }).data
@@ -179,7 +182,7 @@ describe("resilience to a malformed ciphertext row", () => {
     const { rotateModel } = await import("../../scripts/rotate-encryption-key")
 
     const update = jest.fn((arg: unknown) => ({ __op: arg }))
-    const runTx = jest.fn().mockResolvedValue(undefined)
+    const runTx = jest.fn(okTx)
     const delegate = {
       count: jest.fn().mockResolvedValue(3),
       findMany: jest.fn().mockResolvedValueOnce([
@@ -187,7 +190,7 @@ describe("resilience to a malformed ciphertext row", () => {
         { id: 2, description: badRow },
         { id: 3, description: good2 },
       ]),
-      update,
+      updateMany: update,
     }
 
     const result = await rotateModel("transaction", { delegate, runTx, apply: true })
@@ -195,7 +198,7 @@ describe("resilience to a malformed ciphertext row", () => {
     // Both good rows still rotated — the bad row in between didn't abort the batch.
     expect(update).toHaveBeenCalledTimes(2)
     expect(update.mock.calls.map((c) => (c[0] as { where: { id: number } }).where.id)).toEqual([1, 3])
-    expect(result).toEqual({ changed: 2, badRows: 1 })
+    expect(result).toEqual({ changed: 2, badRows: 1, conflicts: 0 })
   })
 
   // reviewer: the base64 hardening must NOT downgrade a
@@ -220,21 +223,21 @@ describe("resilience to a malformed ciphertext row", () => {
     const { rotateModel } = await import("../../scripts/rotate-encryption-key")
 
     const update = jest.fn((arg: unknown) => ({ __op: arg }))
-    const runTx = jest.fn().mockResolvedValue(undefined)
+    const runTx = jest.fn(okTx)
     const delegate = {
       count: jest.fn().mockResolvedValue(2),
       findMany: jest.fn().mockResolvedValueOnce([
         { id: 1, description: good },
         { id: 2, description: corrupt },
       ]),
-      update,
+      updateMany: update,
     }
 
     const result = await rotateModel("transaction", { delegate, runTx, apply: true })
 
     // Good row rotated; corrupt versioned row NOT silently skipped — counted bad.
     expect(update).toHaveBeenCalledTimes(1)
-    expect(result).toEqual({ changed: 1, badRows: 1 })
+    expect(result).toEqual({ changed: 1, badRows: 1, conflicts: 0 })
   })
 
   it("keeps processing later models after an earlier model hits a bad row", async () => {
@@ -255,10 +258,10 @@ describe("resilience to a malformed ciphertext row", () => {
     const familyDelegate = {
       count: jest.fn().mockResolvedValue(1),
       findMany: jest.fn().mockResolvedValueOnce([{ id: 1, notes: badRow }]),
-      update: jest.fn(),
+      updateMany: jest.fn(),
     }
     const familyResult = await rotateModel("family", { delegate: familyDelegate, apply: true })
-    expect(familyResult).toEqual({ changed: 0, badRows: 1 })
+    expect(familyResult).toEqual({ changed: 0, badRows: 1, conflicts: 0 })
 
     // A later model in the same run still rotates normally — the earlier
     // model's bad row didn't abort anything above rotateModel either.
@@ -266,15 +269,100 @@ describe("resilience to a malformed ciphertext row", () => {
     const txDelegate = {
       count: jest.fn().mockResolvedValue(1),
       findMany: jest.fn().mockResolvedValueOnce([{ id: 1, description: good }]),
-      update: txUpdate,
+      updateMany: txUpdate,
     }
     const txResult = await rotateModel("transaction", {
       delegate: txDelegate,
-      runTx: jest.fn().mockResolvedValue(undefined),
+      runTx: jest.fn(okTx),
       apply: true,
     })
-    expect(txResult).toEqual({ changed: 1, badRows: 0 })
+    expect(txResult).toEqual({ changed: 1, badRows: 0, conflicts: 0 })
     expect(txUpdate).toHaveBeenCalledTimes(1)
+  })
+})
+
+// #166: a user edit landing between the batch read and the write must never be
+// overwritten with a re-encrypted copy of the stale value.
+describe("concurrent edits between read and write", () => {
+  async function setup() {
+    setBaseEnv()
+    process.env.ENCRYPTION_KEY_ID = "v1"
+    const { encrypt: enc } = await import("@/lib/cryptoCore")
+    const stale = enc("old-number")
+    const userEdit = enc("new-number") // user saves while rotation is mid-batch
+    jest.resetModules()
+    process.env.ENCRYPTION_KEY_ID = "v2"
+    const mod = await import("../../scripts/rotate-encryption-key")
+    const crypto = await import("@/lib/cryptoCore")
+    return { ...mod, ...crypto, stale, userEdit }
+  }
+
+  it("writes conditionally on the ciphertext that was read", async () => {
+    const { rotateModel, stale } = await setup()
+    const updateMany = jest.fn((arg: unknown) => ({ __op: arg }))
+    const delegate = {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest.fn().mockResolvedValueOnce([{ id: "c1", number: stale }]),
+      updateMany,
+    }
+    await rotateModel("personClearance", { delegate, runTx: jest.fn(okTx), apply: true })
+    expect(updateMany).toHaveBeenCalledTimes(1)
+    const { where } = updateMany.mock.calls[0][0] as { where: Record<string, unknown> }
+    expect(where).toEqual({ id: "c1", number: { equals: stale } })
+  })
+
+  it("re-reads and re-keys the fresh value when the row changed, never the stale one", async () => {
+    const { rotateModel, stale, userEdit, decrypt, keyIdOf } = await setup()
+    const updateMany = jest.fn((arg: unknown) => ({ __op: arg }))
+    const delegate = {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: "c1", number: stale }]) // batch read
+        .mockResolvedValueOnce([{ id: "c1", number: userEdit }]), // re-read after conflict
+      updateMany,
+    }
+    // Batch write misses (row changed underneath); the single-row retry matches.
+    const runTx = jest
+      .fn()
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ count: 1 }])
+
+    const result = await rotateModel("personClearance", { delegate, runTx, apply: true })
+
+    expect(result).toEqual({ changed: 1, badRows: 0, conflicts: 0 })
+    const retry = updateMany.mock.calls[1][0] as { where: Record<string, unknown>; data: { number: string } }
+    expect(retry.where).toEqual({ id: "c1", number: { equals: userEdit } })
+    expect(keyIdOf(retry.data.number)).toBe("v2")
+    expect(decrypt(retry.data.number)).toBe("new-number")
+  })
+
+  it("treats a row the user already re-saved on the current key as resolved", async () => {
+    const { rotateModel, stale, encrypt } = await setup()
+    const delegate = {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: "c1", number: stale }])
+        .mockResolvedValueOnce([{ id: "c1", number: encrypt("saved-on-v2") }]),
+      updateMany: jest.fn((arg: unknown) => ({ __op: arg })),
+    }
+    const runTx = jest.fn().mockResolvedValueOnce([{ count: 0 }])
+    const result = await rotateModel("personClearance", { delegate, runTx, apply: true })
+    expect(result).toEqual({ changed: 0, badRows: 0, conflicts: 0 })
+    expect(runTx).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports a row that keeps changing as a conflict after the retry limit", async () => {
+    const { rotateModel, stale } = await setup()
+    const delegate = {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest.fn().mockResolvedValue([{ id: "c1", number: stale }]),
+      updateMany: jest.fn((arg: unknown) => ({ __op: arg })),
+    }
+    const runTx = jest.fn().mockResolvedValue([{ count: 0 }]) // every write misses
+    const result = await rotateModel("personClearance", { delegate, runTx, apply: true })
+    expect(result).toEqual({ changed: 0, badRows: 0, conflicts: 1 })
   })
 })
 
