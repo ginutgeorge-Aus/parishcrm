@@ -242,14 +242,21 @@ export async function rotateModel(
   let changed = 0
   let badRows = 0
   let conflicts = 0
-  while (done < total) {
-    // Stable order so OFFSET pagination can't skip or duplicate rows.
-    const rows: Record<string, unknown>[] = await delegate.findMany({
-      orderBy: { id: "asc" },
-      skip: done,
-      take: BATCH,
-      select,
-    })
+  let lastId: unknown
+  for (;;) {
+    // Keyset pagination (id > lastId), not OFFSET: the app may be running, and a
+    // concurrent delete would shift OFFSET pages and silently skip a row (left
+    // on the old key). Stop on a short page rather than on the up-front count,
+    // which a concurrent delete makes unreachable (infinite loop).
+    const rows: Record<string, unknown>[] =
+      (await delegate.findMany({
+        where: lastId === undefined ? undefined : { id: { gt: lastId } },
+        orderBy: { id: "asc" },
+        take: BATCH,
+        select,
+      })) ?? []
+    if (rows.length === 0) break
+    lastId = rows[rows.length - 1].id
     // Build the batch's update ops, then commit them in ONE transaction. A
     // per-row update outside any transaction (the previous behaviour) could be
     // interrupted mid-model and leave a mixed-key state; batching bounds any
@@ -302,6 +309,7 @@ export async function rotateModel(
       )
     }
     done += rows.length
+    if (rows.length < BATCH) break
   }
   console.log(
     `${name}: ${changed} row(s) ${apply ? "re-encrypted" : "would be re-encrypted"} (of ${total})` +

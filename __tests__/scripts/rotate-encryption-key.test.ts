@@ -445,3 +445,49 @@ describe("FIELDS map", () => {
     }
   })
 })
+
+// Rotation is documented as safe with the app running, so rows can be deleted
+// mid-run. OFFSET paging + a loop bounded by the up-front count would then
+// either skip a row (left on the old key) or never terminate.
+describe("pagination under concurrent deletes", () => {
+  it("pages by id (keyset), not OFFSET, so a delete can't shift a row out of view", async () => {
+    setBaseEnv()
+    process.env.ENCRYPTION_KEY_ID = "v1"
+    const { encrypt: enc } = await import("@/lib/cryptoCore")
+    const v1 = enc("x")
+    jest.resetModules()
+    process.env.ENCRYPTION_KEY_ID = "v2"
+    const { rotateModel } = await import("../../scripts/rotate-encryption-key")
+
+    const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, description: v1 }))
+    const findMany = jest.fn().mockResolvedValueOnce(fullPage).mockResolvedValueOnce([{ id: 102, description: v1 }])
+    const delegate = { count: jest.fn().mockResolvedValue(101), findMany, updateMany: jest.fn((a: unknown) => a) }
+
+    const { changed } = await rotateModel("transaction", { delegate, runTx: okTx, apply: true })
+
+    expect(findMany.mock.calls[0][0]).not.toHaveProperty("skip")
+    expect(findMany.mock.calls[1][0]).toMatchObject({ where: { id: { gt: 100 } } })
+    expect(findMany.mock.calls[1][0]).not.toHaveProperty("skip")
+    expect(changed).toBe(101)
+  })
+
+  it("terminates when rows were deleted after the count (empty page)", async () => {
+    setBaseEnv()
+    process.env.ENCRYPTION_KEY_ID = "v1"
+    const { encrypt: enc } = await import("@/lib/cryptoCore")
+    const v1 = enc("x")
+    jest.resetModules()
+    process.env.ENCRYPTION_KEY_ID = "v2"
+    const { rotateModel } = await import("../../scripts/rotate-encryption-key")
+
+    const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, description: v1 }))
+    // count said 101, but the 101st row was deleted before page 2 was read.
+    const findMany = jest.fn().mockResolvedValueOnce(fullPage).mockResolvedValue([])
+    const delegate = { count: jest.fn().mockResolvedValue(101), findMany, updateMany: jest.fn((a: unknown) => a) }
+
+    const { changed } = await rotateModel("transaction", { delegate, runTx: okTx, apply: true })
+
+    expect(findMany).toHaveBeenCalledTimes(2)
+    expect(changed).toBe(100)
+  })
+})
