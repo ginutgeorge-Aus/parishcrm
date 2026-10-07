@@ -60,18 +60,27 @@ export function decryptFamilyScalars<T extends {
   }
 }
 
-// Decrypt-on-read for a Transaction row's at-rest-encrypted scalars, for the
-// data-portability export. amount is stringified — Decimal doesn't survive
-// JSON.stringify as a number.
+/**
+ * Decrypt-on-read for a Transaction row's at-rest-encrypted scalars
+ * (description, notes, receiptSends[].sentTo), for the data-portability
+ * export. amount is stringified — Decimal doesn't survive JSON.stringify as a
+ * number.
+ *
+ * @param tx - Transaction row with its receiptSends loaded.
+ * @returns The row with encrypted fields decrypted and amount as a string.
+ */
 export function decryptTransactionForExport<T extends {
   amount: { toString(): string }
   description: string
+  notes?: string | null
   receiptSends: Array<{ sentTo: string }>
 }>(tx: T): Omit<T, "amount"> & { amount: string } {
   return {
     ...tx,
     amount: tx.amount.toString(),
     description: safeDecrypt(tx.description),
+    // notes is PII free-text encrypted at rest (src/lib/actions/transaction.ts).
+    ...(tx.notes !== undefined && { notes: tx.notes ? safeDecrypt(tx.notes) : null }),
     receiptSends: tx.receiptSends.map((rs) => ({ ...rs, sentTo: safeDecrypt(rs.sentTo) })),
   }
 }

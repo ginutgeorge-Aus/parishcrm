@@ -87,16 +87,16 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       })
     : []
 
-  // `clearances` is exported via its own decrypted section; keep the raw
-  // (encrypted) rows out of the spread person object.
-  const { clearances, ...personRest } = person
+  // `clearances` and `transactions` are exported via their own decrypted
+  // sections; keep the raw (encrypted) rows out of the spread person object.
+  const { clearances, transactions, ...personRest } = person
   const data = {
     person: {
       ...decryptPersonScalars(personRest),
       email: personEmail,
       family: person.family ? decryptFamilyScalars(person.family) : null,
     },
-    transactions: person.transactions.map(decryptTransactionForExport),
+    transactions: transactions.map(decryptTransactionForExport),
     registrations: registrations.map(decryptRegistrationForExport),
     clearances: clearances.map(decryptClearanceForExport),
     exportedAt: new Date().toISOString(),
