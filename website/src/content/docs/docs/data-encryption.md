@@ -85,5 +85,8 @@ placeholder or corrupted key, rather than silently encrypting real data under a 
 
 Rotation procedure, in order: set `ENCRYPTION_KEY_V1` to the current key's value, add the new
 key as `ENCRYPTION_KEY_V2`, set `ENCRYPTION_KEY_ID=v2`, deploy, then run the rotation script
-with its apply flag. Full step-by-step is in `docs/operations.md` and the header comments of
+with its apply flag. Run the apply step in a maintenance window, with the app stopped or no one
+editing. The script rewrites each row from the copy it just read, so a save made by someone
+mid-run (for example, replacing a clearance's document and then verifying it) can be overwritten
+with the older values. Full step-by-step is in `docs/operations.md` and the header comments of
 `scripts/rotate-encryption-key.ts`.
