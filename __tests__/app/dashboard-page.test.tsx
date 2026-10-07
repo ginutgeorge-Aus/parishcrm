@@ -23,7 +23,10 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/components/dashboard/BirthdayWidget", () => ({ BirthdayWidget: () => null }))
 jest.mock("@/components/dashboard/MarriageAnniversaryWidget", () => ({ MarriageAnniversaryWidget: () => null }))
+jest.mock("@/components/dashboard/AnniversaryWidget", () => ({ AnniversaryWidget: () => null }))
+jest.mock("@/components/dashboard/WhatsNewFooter", () => ({ WhatsNewFooter: () => null }))
 
+import { renderToStaticMarkup } from "react-dom/server"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -151,6 +154,39 @@ describe("DashboardPage date math (Sydney day, UTC-midnight bounds)", () => {
     const el = await DashboardPage()
     const widget = findElement(el, (e) => e.type === MarriageAnniversaryWidget)
     expect(widget.props.families.map((f: { id: number }) => f.id)).toEqual([1])
+  })
+})
+
+describe("DashboardPage giving vs last year", () => {
+  /** Render the page with this-month and last-year giving sums; return its text. */
+  async function renderGiving(now: string, lastYear: string) {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    ;(prisma.transaction.aggregate as jest.Mock)
+      .mockResolvedValueOnce({ _sum: { amount: now } })
+      .mockResolvedValueOnce({ _sum: { amount: lastYear } })
+    return renderToStaticMarkup(await DashboardPage())
+  }
+
+  it("shows a neutral 'no change' (no arrow, no income/expense colour) when the delta is 0", async () => {
+    const html = await renderGiving("0", "0")
+    expect(html).toContain("No change")
+    expect(html).not.toMatch(/[▲▼]/)
+    expect(html).not.toMatch(/text-income|text-expense/)
+  })
+
+  it("shows a green up arrow with sr-only text when giving is up", async () => {
+    const html = await renderGiving("150.00", "100.00")
+    expect(html).toContain("▲")
+    expect(html).toContain("text-income")
+    expect(html).toMatch(/<span class="sr-only">Up<\/span>/)
+  })
+
+  it("shows a red down arrow with sr-only text when giving is down", async () => {
+    const html = await renderGiving("50.00", "100.00")
+    expect(html).toContain("▼")
+    expect(html).toContain("text-expense")
+    expect(html).toMatch(/<span class="sr-only">Down<\/span>/)
   })
 })
 

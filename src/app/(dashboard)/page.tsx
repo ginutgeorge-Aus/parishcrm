@@ -229,9 +229,15 @@ export default async function DashboardPage() {
     { label: "Added (30 days)", value: recentFamilies + recentPeople, sub: `${recentFamilies} families · ${recentPeople} people` },
   ]
 
-  // Giving trend vs the same month last year — drives the arrow + colour.
+  // Giving trend vs the same month last year — drives the arrow + colour. A
+  // zero delta (e.g. a fresh install) is neutral, not a green "up".
   const givingDelta = givingNow - givingLastYearAmt
-  const givingUp = givingDelta >= 0
+  const givingTrend =
+    givingDelta > 0
+      ? { arrow: "▲", srLabel: "Up", className: "text-income" }
+      : givingDelta < 0
+        ? { arrow: "▼", srLabel: "Down", className: "text-expense" }
+        : null
 
   // "Needs attention" tiles, only the ones this role can act on. A non-zero
   // count makes the tile actionable (gold accent + link).
@@ -309,9 +315,14 @@ export default async function DashboardPage() {
               <CardContent className="px-4 pb-4">
                 <p className="text-3xl font-bold tabular">{fmt(givingNow)}</p>
                 <p className="mt-1 flex items-center gap-1 text-xs">
-                  <span className={`tabular font-medium ${givingUp ? "text-income" : "text-expense"}`}>
-                    {givingUp ? "▲" : "▼"} {fmt(Math.abs(givingDelta))}
-                  </span>
+                  {givingTrend ? (
+                    <span className={`tabular font-medium ${givingTrend.className}`}>
+                      <span aria-hidden="true">{givingTrend.arrow}</span>
+                      <span className="sr-only">{givingTrend.srLabel}</span> {fmt(Math.abs(givingDelta))}
+                    </span>
+                  ) : (
+                    <span className="font-medium text-muted-foreground">No change</span>
+                  )}
                   <span className="text-muted-foreground">vs last year</span>
                 </p>
               </CardContent>
