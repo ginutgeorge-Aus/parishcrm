@@ -276,6 +276,21 @@ describe("upsertClearance update", () => {
     expect(create).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
+  it("rejects resubmitting the placeholder of an undecryptable number (keeps ciphertext)", async () => {
+    find.mockResolvedValue({ id: CID, number: "bad-ciphertext", expiresAt: null, verifiedAt: null, updatedAt: UPDATED, documentType: null })
+    const crypto = jest.requireMock("@/lib/crypto")
+    crypto.safeDecrypt.mockReturnValueOnce("[decryption error]")
+    const r = await upsertClearance(3, "WWCC", fd({ number: "[decryption error]", updatedAt: SEEN, expiresAt: "2034-03-15" }))
+    expect(r).toEqual({ error: expect.stringContaining("can't be read") })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+  it("lets an explicitly entered number replace an undecryptable one", async () => {
+    find.mockResolvedValue({ id: CID, number: "bad-ciphertext", expiresAt: null, verifiedAt: null, updatedAt: UPDATED, documentType: null })
+    const crypto = jest.requireMock("@/lib/crypto")
+    crypto.safeDecrypt.mockReturnValueOnce("[decryption error]")
+    expect(await upsertClearance(3, "WWCC", fd({ number: "WWC1234567E", updatedAt: SEEN }))).toBeUndefined()
+    expect(updateMany.mock.calls[0][0].data.number).toBe("enc:WWC1234567E")
+  })
   it("rejects a stale edit after a concurrent removal instead of recreating", async () => {
     find.mockResolvedValue(null)
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2034-03-15" }))

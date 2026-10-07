@@ -35,6 +35,8 @@ function dateToYmd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null
 }
 
+// What safeDecrypt returns for unreadable ciphertext (cryptoCore.ts).
+const DECRYPTION_ERROR = "[decryption error]"
 const STALE_ERROR = "This clearance changed. Refresh and try again."
 
 // Every write re-checks the archived-person boundary in its own predicate, so an
@@ -174,6 +176,13 @@ export async function upsertClearance(
   }
 
   const previousNumber = existing.number ? safeDecrypt(existing.number) : null
+  // An undecryptable number (rotated-away key, corrupt ciphertext) is rendered
+  // as the safeDecrypt placeholder and round-trips through the form; saving it
+  // would overwrite recoverable ciphertext. Only an explicitly entered number
+  // (or clearing it) may replace it.
+  if (previousNumber === DECRYPTION_ERROR && number?.toLowerCase() === DECRYPTION_ERROR) {
+    return { error: "The stored number can't be read. Re-enter it, or ask an administrator to check the encryption keys." }
+  }
   const changed =
     upload !== null || previousNumber !== number || dateToYmd(existing.expiresAt) !== dateToYmd(expiresAt)
   if (!changed) return
