@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { sydneyParts } from "@/lib/dates"
 
 type MarriageFamily = {
   id: number
@@ -8,16 +9,22 @@ type MarriageFamily = {
   marriageDate: Date | null
 }
 
-// Completed years since the marriage date — counts elapsed years, not the
-// calendar-year difference, so a couple shows "Ny" only once that anniversary
-// has actually passed this year (mirrors the member-anniversary rule).
-function elapsedYears(marriageDate: Date): number {
-  // marriageDate is stored UTC-midnight; read via UTC getters so month/day/year
-  // never shift by the server's local offset. `today` and `anni` share
-  // the local frame, so the elapsed-year comparison stays consistent.
-  const today = new Date()
-  const anni = new Date(today.getFullYear(), marriageDate.getUTCMonth(), marriageDate.getUTCDate())
-  return today.getFullYear() - marriageDate.getUTCFullYear() - (today < anni ? 1 : 0)
+/**
+ * Completed years since the marriage date — counts elapsed years, not the
+ * calendar-year difference, so a couple shows "Ny" only once that anniversary
+ * has actually arrived on the Sydney calendar (mirrors the member-anniversary
+ * rule). `marriageDate` is stored UTC-midnight, so it is read via UTC getters;
+ * "today" is the Sydney wall-clock date of `at`, not the server's UTC clock.
+ *
+ * @param marriageDate - UTC-midnight marriage date.
+ * @param at - Instant to measure from (defaults to now).
+ * @returns Whole years elapsed as of the Sydney date of `at`.
+ */
+export function elapsedYears(marriageDate: Date, at: Date = new Date()): number {
+  const { year, month, day } = sydneyParts(at)
+  const anniMonth = marriageDate.getUTCMonth() + 1
+  const beforeAnniversary = month < anniMonth || (month === anniMonth && day < marriageDate.getUTCDate())
+  return year - marriageDate.getUTCFullYear() - (beforeAnniversary ? 1 : 0)
 }
 
 export function MarriageAnniversaryWidget({ families }: Readonly<{ families: MarriageFamily[] }>) {

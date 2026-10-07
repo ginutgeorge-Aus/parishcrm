@@ -27,21 +27,20 @@ export default async function DashboardPage() {
   // and ~11am AEST the server date is a day behind, skewing "last 30 days",
   // upcoming-events, and birthday windows. sydneyToday() anchors at UTC
   // midnight (the app's date-only storage convention), so all the date math
-  // below is correct in prod (UTC server).
+  // below uses Date.UTC + getUTC* — never local-time constructors/getters,
+  // which shift by the process TZ on any non-UTC host.
   const today = sydneyToday()
+  const year = today.getUTCFullYear()
+  const thisMonth = today.getUTCMonth()
+  const day = today.getUTCDate()
 
-  const in30Days = new Date(today)
-  in30Days.setDate(today.getDate() + 30)
+  const in30Days = new Date(Date.UTC(year, thisMonth, day + 30))
+  const thirtyDaysAgo = new Date(Date.UTC(year, thisMonth, day - 30))
 
-  const thirtyDaysAgo = new Date(today)
-  thirtyDaysAgo.setDate(today.getDate() - 30)
-
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
-  const sameMonthLastYear = new Date(today.getFullYear() - 1, today.getMonth(), 1)
-  const endSameMonthLastYear = new Date(today.getFullYear() - 1, today.getMonth() + 1, 1)
-
-  const thisMonth = today.getMonth()
+  const startOfMonth = new Date(Date.UTC(year, thisMonth, 1))
+  const startOfNextMonth = new Date(Date.UTC(year, thisMonth + 1, 1))
+  const sameMonthLastYear = new Date(Date.UTC(year - 1, thisMonth, 1))
+  const endSameMonthLastYear = new Date(Date.UTC(year - 1, thisMonth + 1, 1))
 
   // Reports/dashboard show all accounts (incl. deactivated-with-history), not
   // just active ones — a deactivated account can still have a balance worth
@@ -113,7 +112,7 @@ export default async function DashboardPage() {
     prisma.pettyCashSession.count({ where: { status: "OPEN" } }),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
-    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()), lte: in30Days } }, { kind: "recurring" }] } }),
+    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: today, lte: in30Days } }, { kind: "recurring" }] } }),
     canViewAccounting(role)
       ? prisma.transaction.aggregate({
           where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth } },
@@ -206,11 +205,12 @@ export default async function DashboardPage() {
   const upcomingAnniversaries = computeUpcomingAnniversaries(anniversaryFamilies, 7, today)
 
   const marriageAnniversaries = marriageFamilies
-    .filter((f) => f.marriageDate?.getMonth() === thisMonth)
-    .sort((a, b) => a.marriageDate!.getDate() - b.marriageDate!.getDate())
+    .filter((f) => f.marriageDate?.getUTCMonth() === thisMonth)
+    .sort((a, b) => a.marriageDate!.getUTCDate() - b.marriageDate!.getUTCDate())
 
 
-  const fmtDate = (d: Date) => `${d.getDate()} ${MONTH_ABBR_TITLE[d.getMonth()]} ${d.getFullYear()}`
+  // asOfDate is a UTC-midnight calendar date — read it with UTC getters.
+  const fmtDate = (d: Date) => `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
