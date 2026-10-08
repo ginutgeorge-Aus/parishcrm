@@ -87,6 +87,12 @@ describe("toCents", () => {
     expect(toCents(d("-2e1"))).toBe(-2000)
     expect(toCents(1e21)).toBe(1e23)
   })
+  it("applies exponent cutoffs to the normalised decimal position", () => {
+    expect(toCents(d("0e100"))).toBe(0)
+    expect(toCents(d("1" + "0".repeat(51) + "e-51"))).toBe(100)
+    expect(toCents(d("0.00012e3"))).toBe(12)
+    expect(toCents(d("5e-3"))).toBe(0)
+  })
   it("returns NaN for malformed input rather than a wrong amount", () => {
     for (const bad of ["", "abc", "1,234.50", "1.2.3", "--5", "1e", "e5", ".", "1e999", "$5"]) {
       expect(toCents(d(bad))).toBeNaN()

@@ -2,6 +2,7 @@ import {
   formatSydneyDate,
   formatSydneyTime,
   sydneyDatetimeLocalToUTC,
+  isValidDatetimeLocal,
   zoneLabel,
   toSydneyDatetimeLocal,
 } from "@/lib/dates"
@@ -56,13 +57,23 @@ describe("sydneyDatetimeLocalToUTC", () => {
 })
 
 describe("sydneyDatetimeLocalToUTC malformed input", () => {
-  it.each(["", "garbage", "2026-08-01", "2026-13-45T99:99"])(
+  it.each(["", "garbage", "2026-08-01", "2026-13-45T99:99", "2026-02-30T10:00", "2026-08-01 10:00"])(
     "returns an Invalid Date instead of throwing for %j",
     (bad) => {
       let d: Date | undefined
       expect(() => { d = sydneyDatetimeLocalToUTC(bad) }).not.toThrow()
       expect(Number.isNaN(d!.getTime())).toBe(true)
     },
+  )
+})
+
+describe("isValidDatetimeLocal", () => {
+  it("accepts a real YYYY-MM-DDTHH:mm value", () => {
+    expect(isValidDatetimeLocal("2028-02-29T23:59")).toBe(true)
+  })
+  it.each(["2026-02-30T10:00", "2026-02-29T10:00", "2026-08-01", "2026-08-01 10:00", "2026-08-01T24:00", "2026-8-1T10:00"])(
+    "rejects %j instead of rolling it over",
+    (bad) => expect(isValidDatetimeLocal(bad)).toBe(false),
   )
 })
 

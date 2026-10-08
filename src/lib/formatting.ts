@@ -48,10 +48,16 @@ function expandExponent(s: string): string {
   if (!m) return s
   const [, sign, int, frac = "", expStr] = m
   const exp = Number(expStr)
-  if (exp < -50) return "0" // far below a cent
-  if (exp > 50) return "NaN" // far above any representable amount
-  const digits = int + frac
-  const point = int.length + exp
+  // Normalise the coefficient (strip leading zeros) so the cutoffs below look at
+  // the resulting decimal position, not the raw exponent: `0e100` is zero and
+  // `1<51 zeros>e-51` is 1, both ordinary values.
+  let digits = int + frac
+  const lead = /^0*/.exec(digits)![0].length
+  if (lead === digits.length) return "0"
+  digits = digits.slice(lead)
+  const point = int.length + exp - lead
+  if (point < -2) return "0" // below 0.001: truncates to zero cents
+  if (point > 50) return "NaN" // far above any representable amount
   if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`
   if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`
