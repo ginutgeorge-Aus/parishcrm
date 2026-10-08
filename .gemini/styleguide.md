@@ -17,8 +17,12 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
   application, public feedback, event registration/waitlist, family self-update, event checkout) skip
   `roleGuard` and rely on rate limits, signed tokens and server-side validation instead — check those
   controls. Turnstile is optional (only active when configured) and covers only the membership,
-  feedback and event registration/waitlist forms. Accounting reads gate on `canViewAccounting`; accounting
-  mutations need `canAccessAccounting` (ADMIN/PASTOR only). Watch for IDOR (acting on an id the user
+  feedback and event registration/waitlist forms. Assigned-organiser (`EVENT_ORGANISER`) event flows
+  such as attendee check-in and payment reminders are authorized per event via `canManageEvent` in
+  `src/lib/eventManager.ts` (page and action), not a `roleGuard` helper — do not flag that. Accounting
+  reads gate on `canViewAccounting`; ordinary accounting-entry mutations need `canAccessAccounting`
+  (ADMIN/PASTOR), but account/fund CRUD and petty-cash deletion are ADMIN-only via `isAdmin` — flag any
+  widening of those to `canAccessAccounting`. Watch for IDOR (acting on an id the user
   does not own) and self-action bugs (e.g. a user demoting or deleting themselves).
 - **Auth split.** `src/auth.config.ts` is the lean callbacks-only config imported by
   `src/middleware.ts`; the full config (Credentials, Prisma, bcrypt) lives in `src/auth.ts`. Middleware
