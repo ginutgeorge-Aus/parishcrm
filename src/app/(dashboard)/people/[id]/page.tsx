@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+import { currentSchoolYear } from "@/lib/sundaySchool"
 import { PersonClearances } from "@/components/people/PersonClearances"
 import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "@/lib/clearanceView"
 import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
@@ -76,6 +77,12 @@ function PersonHeaderActions({
   )
 }
 
+/** The person's enrolment this school year (at most one — DB unique), flattened for display. */
+function sundaySchoolOf(rows: { year: number; class: { id: number; name: string } }[] | undefined) {
+  const e = rows?.[0]
+  return e ? { id: e.class.id, name: e.class.name, year: e.year } : null
+}
+
 // Basic/Contact/Church/Pastoral info cards — split out so the notes/pastoral
 // conditionals don't count against the page component's cognitive complexity.
 function PersonInfoCards({
@@ -84,6 +91,7 @@ function PersonInfoCards({
   dob,
   showPastoralNotes,
   clearanceCard,
+  sundaySchool,
 }: Readonly<{
   person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null; ministryRoles: MinistryRole[] }
   displayPerson: {
@@ -99,6 +107,8 @@ function PersonInfoCards({
   dob: string | null
   showPastoralNotes: boolean
   clearanceCard: ClearanceCardData | null
+  // This school year's class, if the person is enrolled in a live one.
+  sundaySchool: { id: number; name: string; year: number } | null
 }>) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -131,6 +141,15 @@ function PersonInfoCards({
               <div className="mt-1">
                 <MinistryRoleBadges roles={person.ministryRoles} />
               </div>
+            </div>
+          )}
+          {sundaySchool && (
+            <div className="col-span-2">
+              <span className="text-muted-foreground text-sm">Sunday School</span>
+              <p>
+                <Link href={`/sunday-school/${sundaySchool.id}`} className="hover:underline">{sundaySchool.name}</Link>
+                {` (${sundaySchool.year})`}
+              </p>
             </div>
           )}
           {displayPerson.notes && (
@@ -254,7 +273,13 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
 
   const person = await prisma.person.findUnique({
     where: { id },
-    include: { family: { select: { id: true, name: true } } },
+    include: {
+      family: { select: { id: true, name: true } },
+      sundaySchoolEnrolments: {
+        where: { year: currentSchoolYear(), class: { archivedAt: null } },
+        select: { year: true, class: { select: { id: true, name: true } } },
+      },
+    },
   })
   // Archived persons are hidden from all listings and only ever archived via
   // their family; block direct-URL access so their decrypted PII stays hidden.
@@ -362,6 +387,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         dob={dob}
         showPastoralNotes={showPastoralNotes}
         clearanceCard={clearanceCard}
+        sundaySchool={sundaySchoolOf(person.sundaySchoolEnrolments)}
       />
 
       {userCanSeeGiving && (
