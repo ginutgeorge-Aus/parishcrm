@@ -36,53 +36,55 @@ model Family {
 }
 
 model Person {
-  id                    Int                @id @default(autoincrement())
-  familyId              Int
-  family                Family             @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  firstName             String
-  lastName              String
-  middleName            String?
-  title                 String?
-  suffix                String?
-  gender                Gender?
-  dateOfBirth           String?
-  role                  FamilyRole         @default(OTHER)
-  classification        Classification     @default(MEMBER)
-  email                 String?
+  id                     Int                     @id @default(autoincrement())
+  familyId               Int
+  family                 Family                  @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  firstName              String
+  lastName               String
+  middleName             String?
+  title                  String?
+  suffix                 String?
+  gender                 Gender?
+  dateOfBirth            String?
+  role                   FamilyRole              @default(OTHER)
+  classification         Classification          @default(MEMBER)
+  email                  String?
   // Deterministic blind index of email (HMAC, see crypto-core.hmacEmail) so the
   // person-export matches registrations by an indexed lookup instead of a
   // full-table decrypt scan. Set wherever `email` is written.
-  emailHash             String?
-  mobile                String?
+  emailHash              String?
+  mobile                 String?
   // Deterministic blind index of mobile (HMAC, see crypto-core.hmacMobile) so
   // MembershipApplication family-match can look up an encrypted mobile by an
   // indexed lookup instead of a decrypt scan. Set wherever `mobile` is written.
-  mobileHash            String?
-  workPhone             String?
-  homePhone             String?
-  photoUrl              String?
-  membershipDate        DateTime?
-  baptismDate           DateTime?
-  notes                 String? // encrypted at rest
-  profession            String?
-  motherParish          String?
-  maritalStatus         String?
-  pastoralNotes         String?
-  emergencyContactName  String?
-  emergencyContactPhone String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  emailConsent          Boolean            @default(true)
-  consentUpdatedAt      DateTime?
-  archivedAt            DateTime?
-  bankingName           String?
-  ministryRoles         MinistryRole[]     @default([])
-  transactions          Transaction[]
-  pettyCashSessions     PettyCashSession[]
-  pettyCashReceipts     PettyCashReceipt[]
-  dgrReceipts           DgrReceipt[]
-  celebrationSends      CelebrationSend[]
-  clearances            PersonClearance[]
+  mobileHash             String?
+  workPhone              String?
+  homePhone              String?
+  photoUrl               String?
+  membershipDate         DateTime?
+  baptismDate            DateTime?
+  notes                  String? // encrypted at rest
+  profession             String?
+  motherParish           String?
+  maritalStatus          String?
+  pastoralNotes          String?
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  emailConsent           Boolean                 @default(true)
+  consentUpdatedAt       DateTime?
+  archivedAt             DateTime?
+  bankingName            String?
+  ministryRoles          MinistryRole[]          @default([])
+  transactions           Transaction[]
+  pettyCashSessions      PettyCashSession[]
+  pettyCashReceipts      PettyCashReceipt[]
+  dgrReceipts            DgrReceipt[]
+  celebrationSends       CelebrationSend[]
+  clearances             PersonClearance[]
+  sundaySchoolTeaching   SundaySchoolTeacher[]
+  sundaySchoolEnrolments SundaySchoolEnrolment[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -1130,4 +1132,53 @@ model PersonClearance {
   @@index([type, expiresAt])
   // FK index.
   @@index([verifiedById])
+}
+
+// Sunday School (OSS-9). A class belongs to one school year (AU school year =
+// calendar year). `level` is the progression order (0 = Kindy/Prep) used to sort
+// and to promote children on rollover; `name` is the display label. `location`
+// is an optional campus/room/group label ("" = none — NOT NULL so the unique
+// below holds; Postgres treats NULLs as distinct). Archive, never delete, so
+// OSS-10 attendance history survives.
+model SundaySchoolClass {
+  id         Int                     @id @default(autoincrement())
+  year       Int
+  name       String
+  level      Int
+  location   String                  @default("")
+  archivedAt DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  teachers   SundaySchoolTeacher[]
+  enrolments SundaySchoolEnrolment[]
+
+  @@unique([year, name, location])
+  @@index([year, archivedAt])
+}
+
+// A Person (tagged SUNDAY_SCHOOL_TEACHER) who teaches a class.
+model SundaySchoolTeacher {
+  id       Int               @id @default(autoincrement())
+  classId  Int
+  personId Int
+  class    SundaySchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  person   Person            @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, personId])
+  @@index([personId])
+}
+
+// A child's place in a class. `year` is copied from the class so the DB can
+// enforce one class per child per school year.
+model SundaySchoolEnrolment {
+  id         Int               @id @default(autoincrement())
+  classId    Int
+  personId   Int
+  year       Int
+  enrolledAt DateTime          @default(now())
+  class      SundaySchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  person     Person            @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, year])
+  @@index([classId])
 }
