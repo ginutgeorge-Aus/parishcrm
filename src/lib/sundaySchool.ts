@@ -19,7 +19,7 @@ export const ClassFormSchema = z.object({
     .regex(/^\d{1,3}$/, "Level must be a whole number")
     .transform(Number)
     .pipe(z.number().max(MAX_LEVEL, `Level must be 0–${MAX_LEVEL}`)),
-  location: z.string().trim().max(80, "Location is too long").optional().transform((v) => v ?? ""),
+  location: z.string().trim().max(80, "Location is too long").default(""),
 })
 
 /** The school year "now" — the Sydney calendar year (AU school year = calendar year). */
