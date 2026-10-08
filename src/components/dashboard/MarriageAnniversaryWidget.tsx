@@ -23,7 +23,9 @@ type MarriageFamily = {
 export function elapsedYears(marriageDate: Date, at: Date = new Date()): number {
   const { year, month, day } = sydneyParts(at)
   const anniMonth = marriageDate.getUTCMonth() + 1
-  const beforeAnniversary = month < anniMonth || (month === anniMonth && day < marriageDate.getUTCDate())
+  // 29 Feb is observed on 28 Feb in non-leap years (same rule as calendarDateInYear).
+  const anniDay = Math.min(marriageDate.getUTCDate(), new Date(Date.UTC(year, anniMonth, 0)).getUTCDate())
+  const beforeAnniversary = month < anniMonth || (month === anniMonth && day < anniDay)
   return year - marriageDate.getUTCFullYear() - (beforeAnniversary ? 1 : 0)
 }
 

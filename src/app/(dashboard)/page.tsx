@@ -6,7 +6,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { canViewAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
 import { accountBalance } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, type Money } from "@/lib/formatting"
-import { sydneyToday } from "@/lib/dates"
+import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC } from "@/lib/dates"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { upcomingBirthdays as computeUpcomingBirthdays } from "@/lib/birthdays"
@@ -36,6 +36,13 @@ export default async function DashboardPage() {
 
   const in30Days = new Date(Date.UTC(year, thisMonth, day + 30))
   const thirtyDaysAgo = new Date(Date.UTC(year, thisMonth, day - 30))
+  // createdAt and Event.date are real instants (not date-only), so bound them
+  // by the true UTC instants of Sydney midnight / end-of-day, not the
+  // UTC-midnight date anchors above.
+  const ymd = (d: Date) => d.toISOString().slice(0, 10)
+  const createdSince = sydneyStartOfDayUTC(ymd(thirtyDaysAgo))
+  const eventsFrom = sydneyStartOfDayUTC(ymd(today))
+  const eventsTo = sydneyEndOfDayUTC(ymd(in30Days))
 
   const startOfMonth = new Date(Date.UTC(year, thisMonth, 1))
   const startOfNextMonth = new Date(Date.UTC(year, thisMonth + 1, 1))
@@ -107,12 +114,12 @@ export default async function DashboardPage() {
     }),
     prisma.family.count({ where: { archivedAt: null } }),
     prisma.family.count({ where: { status: "ACTIVE", archivedAt: null } }),
-    prisma.family.count({ where: { createdAt: { gte: thirtyDaysAgo }, archivedAt: null } }),
-    prisma.person.count({ where: { createdAt: { gte: thirtyDaysAgo }, archivedAt: null } }),
+    prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
+    prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
     prisma.pettyCashSession.count({ where: { status: "OPEN" } }),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
-    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: today, lte: in30Days } }, { kind: "recurring" }] } }),
+    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } }),
     canViewAccounting(role)
       ? prisma.transaction.aggregate({
           where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth } },

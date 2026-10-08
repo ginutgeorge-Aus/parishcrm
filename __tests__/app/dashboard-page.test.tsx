@@ -130,17 +130,17 @@ describe("DashboardPage date math (Sydney day, UTC-midnight bounds)", () => {
     })
   })
 
-  it("bounds 'added (30 days)' and upcoming events on UTC-midnight Sydney dates", async () => {
+  it("bounds 'added (30 days)' and upcoming events by Sydney-day instants", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks()
     await DashboardPage()
     expect(prisma.family.count as jest.Mock).toHaveBeenCalledWith({
-      where: { createdAt: { gte: new Date("2026-01-30T00:00:00.000Z") }, archivedAt: null },
+      where: { createdAt: { gte: new Date("2026-01-29T13:00:00.000Z") }, archivedAt: null },
     })
     const eventWhere = (prisma.event.count as jest.Mock).mock.calls[0][0].where
     expect(eventWhere.OR[0].date).toEqual({
-      gte: new Date("2026-03-01T00:00:00.000Z"),
-      lte: new Date("2026-03-31T00:00:00.000Z"),
+      gte: new Date("2026-02-28T13:00:00.000Z"),
+      lte: new Date("2026-03-31T12:59:59.999Z"),
     })
   })
 
