@@ -171,18 +171,26 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   const year = g.cls.year
   const existing = await prisma.sundaySchoolEnrolment.findMany({
     where: { personId: { in: ids }, year },
-    select: { personId: true, classId: true },
+    select: { personId: true, classId: true, class: { select: { archivedAt: true } } },
   })
-  const movedFrom = existing.filter((e) => e.classId !== classId)
-  await prisma.$transaction(
-    ids.map((personId) =>
-      prisma.sundaySchoolEnrolment.upsert({
-        where: { personId_year: { personId, year } },
-        create: { classId, personId, year },
-        update: { classId },
-      }),
-    ),
-  )
+  // Only a live class counts as a "move"; a row left in an archived class is
+  // simply re-pointed (one enrolment per child per year).
+  const movedFrom = existing.filter((e) => e.classId !== classId && !e.class.archivedAt)
+  try {
+    await prisma.$transaction(
+      ids.map((personId) =>
+        prisma.sundaySchoolEnrolment.upsert({
+          where: { personId_year: { personId, year } },
+          create: { classId, personId, year },
+          update: { classId },
+        }),
+      ),
+    )
+  } catch (e) {
+    // Two editors enrolling the same child at once: both upserts take the insert path.
+    if (isP2002(e)) return { error: "Someone else just changed these enrolments — try again" }
+    throw e
+  }
   await logAudit(actorId(g.session), "SS_ENROLLED", ENTITY, classId, { personIds: ids, moved: movedFrom.length })
   revalidatePath(`/sunday-school/${classId}`)
   for (const m of new Set(movedFrom.map((e) => e.classId))) revalidatePath(`/sunday-school/${m}`)
@@ -221,7 +229,11 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
     orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
     select: {
       id: true, name: true, level: true, location: true,
-      teachers: { where: { person: { archivedAt: null } }, select: { personId: true } },
+      // Same rule as addTeacher: only people still tagged as teachers carry over.
+      teachers: {
+        where: { person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } } },
+        select: { personId: true },
+      },
       enrolments: { where: { person: { archivedAt: null } }, select: { personId: true } },
     },
   })
@@ -234,6 +246,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   })))
 
   let newIds: Map<number, number>
+  let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
       const map = new Map<number, number>()
@@ -248,21 +261,23 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
         c.teacherPersonIds.map((personId) => ({ classId: map.get(c.sourceId)!, personId })))
       if (teachers.length) await tx.sundaySchoolTeacher.createMany({ data: teachers, skipDuplicates: true })
       const enrolments = plan.placements.map((p) => ({ classId: map.get(p.targetSourceId)!, personId: p.personId, year: toYear }))
-      if (enrolments.length) await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })
+      // skipDuplicates: a child already enrolled in toYear keeps that place, so
+      // report the rows actually written, not the plan.
+      if (enrolments.length) placed = (await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })).count
       return map
     })
   } catch (e) {
-    // A concurrent rollover (or a class created meanwhile) hit the unique.
-    if (isP2002(e)) return { error: `${toYear} already has classes — roll over is one-time` }
+    // A concurrent rollover, or an archived toYear class with the same name and location.
+    if (isP2002(e)) return { error: `${toYear} already has a class with the same name and location (it may be archived) — rename or remove it first` }
     throw e
   }
 
   const firstId = newIds.values().next().value as number
   await logAudit(actorId(g.session), "SS_ROLLOVER", ENTITY, firstId, {
-    fromYear, classes: plan.classes.length, placed: plan.placements.length, unplaced: plan.unplaced.length,
+    fromYear, classes: plan.classes.length, placed, unplaced: plan.unplaced.length,
   })
   revalidatePath("/sunday-school")
   return {
-    success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(plan.placements.length)}; ${plan.unplaced.length} need placing by hand`,
+    success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(placed)}; ${plan.unplaced.length} need placing by hand`,
   }
 }

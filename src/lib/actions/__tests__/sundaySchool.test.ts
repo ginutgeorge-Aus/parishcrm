@@ -138,7 +138,10 @@ describe("enrolChildren", () => {
     as(UserRole.ADMIN)
     liveClass()
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
-    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([{ personId: 3, classId: 9 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([
+      { personId: 3, classId: 9, class: { archivedAt: null } },
+      { personId: 2, classId: 8, class: { archivedAt: new Date() } },
+    ])
     const r = await enrolChildren(1, [2, 3, 3])
     expect(prisma.sundaySchoolEnrolment.upsert).toHaveBeenCalledTimes(2)
     expect((prisma.sundaySchoolEnrolment.upsert as jest.Mock).mock.calls[1][0]).toEqual({
@@ -147,6 +150,14 @@ describe("enrolChildren", () => {
       update: { classId: 1 },
     })
     expect(r).toEqual({ success: "Enrolled 2 (1 moved from another class)" })
+  })
+  it("maps a concurrent enrol race to a retry message", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2002" })
+    expect(await enrolChildren(1, [2])).toEqual({ error: "Someone else just changed these enrolments — try again" })
   })
   it("rejects an unknown or archived person", async () => {
     as(UserRole.ADMIN)
@@ -191,7 +202,11 @@ describe("rolloverYear", () => {
     ])
     ;(prisma.sundaySchoolClass.create as jest.Mock)
       .mockResolvedValueOnce({ id: 101 }).mockResolvedValueOnce({ id: 102 })
+    ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 })
     const r = await rolloverYear(2026)
+    expect((prisma.sundaySchoolClass.findMany as jest.Mock).mock.calls[0][0].select.teachers.where).toEqual({
+      person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } },
+    })
     expect(prisma.sundaySchoolClass.create).toHaveBeenNthCalledWith(1, {
       data: { year: 2027, name: "Kindy", level: 0, location: "" }, select: { id: true },
     })
@@ -204,13 +219,26 @@ describe("rolloverYear", () => {
     })
     expect(r).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 1 need placing by hand" })
   })
-  it("maps a concurrent rollover's unique violation to the one-time error", async () => {
+  it("counts only enrolments actually written", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, name: "Kindy", level: 0, location: "", teachers: [], enrolments: [{ personId: 10 }, { personId: 11 }] },
+      { id: 2, name: "Years 1–2", level: 1, location: "", teachers: [], enrolments: [] },
+    ])
+    ;(prisma.sundaySchoolClass.create as jest.Mock).mockResolvedValueOnce({ id: 101 }).mockResolvedValueOnce({ id: 102 })
+    ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 }) // one already placed
+    expect(await rolloverYear(2026)).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 0 need placing by hand" })
+  })
+  it("maps a unique violation (archived or concurrent copy) to a clear error", async () => {
     as(UserRole.ADMIN)
     ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
     ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([
       { id: 1, name: "Kindy", level: 0, location: "", teachers: [], enrolments: [] },
     ])
     ;(prisma.sundaySchoolClass.create as jest.Mock).mockRejectedValueOnce({ code: "P2002" })
-    expect(await rolloverYear(2026)).toEqual({ error: "2027 already has classes — roll over is one-time" })
+    expect(await rolloverYear(2026)).toEqual({
+      error: "2027 already has a class with the same name and location (it may be archived) — rename or remove it first",
+    })
   })
 })

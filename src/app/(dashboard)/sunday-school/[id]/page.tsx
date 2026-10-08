@@ -56,7 +56,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         where: { archivedAt: null, sundaySchoolEnrolments: { none: { classId: id } } },
         select: {
           id: true, firstName: true, lastName: true, role: true, family: { select: { name: true } },
-          sundaySchoolEnrolments: { where: { year: cls.year }, select: { class: { select: { name: true } } } },
+          sundaySchoolEnrolments: { where: { year: cls.year, class: { archivedAt: null } }, select: { class: { select: { name: true } } } },
         },
         orderBy: byName,
         take: CANDIDATE_CAP,
