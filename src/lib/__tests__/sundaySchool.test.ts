@@ -1,4 +1,4 @@
-import { ClassFormSchema, currentSchoolYear, planRollover, MAX_LEVEL } from "@/lib/sundaySchool"
+import { ClassFormSchema, currentSchoolYear, parseSchoolYear, planRollover, MAX_LEVEL } from "@/lib/sundaySchool"
 
 describe("ClassFormSchema", () => {
   it("trims and coerces", () => {
@@ -23,6 +23,16 @@ describe("currentSchoolYear", () => {
   it("uses the Sydney calendar year (31 Dec 14:00Z is already 1 Jan in Sydney)", () => {
     expect(currentSchoolYear(new Date("2026-12-31T14:00:00Z"))).toBe(2027)
     expect(currentSchoolYear(new Date("2026-06-01T00:00:00Z"))).toBe(2026)
+  })
+})
+
+describe("parseSchoolYear", () => {
+  const at = new Date("2026-06-01T00:00:00Z")
+  it("accepts an in-range four-digit year", () => {
+    expect(parseSchoolYear("2027", at)).toBe(2027)
+  })
+  it.each([undefined, "", "abc", "2027x", "1999", "2101", "20270"])("falls back to the current year for %j", (raw) => {
+    expect(parseSchoolYear(raw, at)).toBe(2026)
   })
 })
 

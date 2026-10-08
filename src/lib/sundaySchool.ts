@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { sydneyParts } from "@/lib/dates"
+import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 
 /** Highest class level (0 = Kindy/Prep … 12 = Year 12, headroom for youth groups). */
 export const MAX_LEVEL = 20
@@ -25,6 +26,12 @@ export const ClassFormSchema = z.object({
 /** The school year "now" — the Sydney calendar year (AU school year = calendar year). */
 export function currentSchoolYear(at: Date = new Date()): number {
   return sydneyParts(at).year
+}
+
+/** A `?year=` search param as a school year; anything missing or out of range = the current year. */
+export function parseSchoolYear(raw: string | undefined, at: Date = new Date()): number {
+  const n = /^\d{4}$/.test(raw ?? "") ? Number(raw) : Number.NaN
+  return n >= MIN_YEAR && n <= MAX_YEAR ? n : currentSchoolYear(at)
 }
 
 export type RolloverClassInput = {
