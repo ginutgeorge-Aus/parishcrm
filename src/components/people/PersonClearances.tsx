@@ -27,8 +27,8 @@ const STATUS_BADGE: Record<ClearanceStatus, { variant: "default" | "secondary" |
   EXPIRED: { variant: "destructive" },
 }
 
-/** Status pill for one clearance. */
-function StatusBadge({ status }: Readonly<{ status: ClearanceStatus }>) {
+/** Status pill for one clearance (also used on the Sunday School class page). */
+export function ClearanceStatusBadge({ status }: Readonly<{ status: ClearanceStatus }>) {
   const { variant, className } = STATUS_BADGE[status]
   return <Badge variant={variant} className={className}>{CLEARANCE_STATUS_LABELS[status]}</Badge>
 }
@@ -209,7 +209,7 @@ function ClearanceRow({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{CLEARANCE_TYPE_LABELS[row.type]}</span>
-          <StatusBadge status={row.status} />
+          <ClearanceStatusBadge status={row.status} />
         </div>
         {canManage && !editing && (
           <div className="flex flex-wrap items-center gap-1">
