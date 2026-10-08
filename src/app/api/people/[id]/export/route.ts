@@ -108,7 +108,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     "PERSON_EXPORTED",
     "Person",
     id,
-    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "receiptSentTo", "registrationCustomAnswers", "clearances"] },
+    { exportedFields: ["dateOfBirth", "mobile", "workPhone", "homePhone", "pastoralNotes", "emergencyContactName", "emergencyContactPhone", "familyFields", "transactionDescriptions", "transactionNotes", "receiptSentTo", "registrationCustomAnswers", "clearances"] },
     ip
   )
 

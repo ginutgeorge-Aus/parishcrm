@@ -170,7 +170,7 @@ describe("GET /api/people/[id]/export", () => {
     await GET(makeRequest(), makeProps("1"))
     const exported = mockLogAudit.mock.calls[0][4].exportedFields
     expect(exported).toEqual(
-      expect.arrayContaining(["dateOfBirth", "mobile", "workPhone", "homePhone", "familyFields"])
+      expect.arrayContaining(["dateOfBirth", "mobile", "workPhone", "homePhone", "familyFields", "transactionNotes"])
     )
   })
 
