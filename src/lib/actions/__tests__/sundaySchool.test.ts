@@ -4,7 +4,7 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
   const m = {
-    sundaySchoolClass: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
+    sundaySchoolClass: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), createManyAndReturn: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
     sundaySchoolTeacher: { create: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     person: { findFirst: jest.fn(), findMany: jest.fn() },
@@ -200,15 +200,21 @@ describe("rolloverYear", () => {
       { id: 1, name: "Kindy", level: 0, location: "", teachers: [{ personId: 7 }], enrolments: [{ personId: 10 }] },
       { id: 2, name: "Years 1–2", level: 1, location: "", teachers: [], enrolments: [{ personId: 20 }] },
     ])
-    ;(prisma.sundaySchoolClass.create as jest.Mock)
-      .mockResolvedValueOnce({ id: 101 }).mockResolvedValueOnce({ id: 102 })
+    // Returned out of order on purpose: ids are matched by (name, location).
+    ;(prisma.sundaySchoolClass.createManyAndReturn as jest.Mock).mockResolvedValue([
+      { id: 102, name: "Years 1–2", location: "" }, { id: 101, name: "Kindy", location: "" },
+    ])
     ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 })
     const r = await rolloverYear(2026)
     expect((prisma.sundaySchoolClass.findMany as jest.Mock).mock.calls[0][0].select.teachers.where).toEqual({
       person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } },
     })
-    expect(prisma.sundaySchoolClass.create).toHaveBeenNthCalledWith(1, {
-      data: { year: 2027, name: "Kindy", level: 0, location: "" }, select: { id: true },
+    expect(prisma.sundaySchoolClass.createManyAndReturn).toHaveBeenCalledWith({
+      data: [
+        { year: 2027, name: "Kindy", level: 0, location: "" },
+        { year: 2027, name: "Years 1–2", level: 1, location: "" },
+      ],
+      select: { id: true, name: true, location: true },
     })
     expect(prisma.sundaySchoolTeacher.createMany).toHaveBeenCalledWith({ data: [{ classId: 101, personId: 7 }], skipDuplicates: true })
     expect(prisma.sundaySchoolEnrolment.createMany).toHaveBeenCalledWith({
@@ -223,10 +229,12 @@ describe("rolloverYear", () => {
     as(UserRole.ADMIN)
     ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
     ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([
-      { id: 1, name: "Kindy", level: 0, location: "", teachers: [], enrolments: [{ personId: 10 }, { personId: 11 }] },
-      { id: 2, name: "Years 1–2", level: 1, location: "", teachers: [], enrolments: [] },
+      { id: 1, name: "C1", level: 0, location: "", teachers: [], enrolments: [{ personId: 10 }, { personId: 11 }] },
+      { id: 2, name: "C2", level: 1, location: "", teachers: [], enrolments: [] },
     ])
-    ;(prisma.sundaySchoolClass.create as jest.Mock).mockResolvedValueOnce({ id: 101 }).mockResolvedValueOnce({ id: 102 })
+    ;(prisma.sundaySchoolClass.createManyAndReturn as jest.Mock).mockResolvedValue([
+      { id: 101, name: "C1", location: "" }, { id: 102, name: "C2", location: "" },
+    ])
     ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 }) // one already placed
     expect(await rolloverYear(2026)).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 0 need placing by hand" })
   })
@@ -236,7 +244,7 @@ describe("rolloverYear", () => {
     ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([
       { id: 1, name: "Kindy", level: 0, location: "", teachers: [], enrolments: [] },
     ])
-    ;(prisma.sundaySchoolClass.create as jest.Mock).mockRejectedValueOnce({ code: "P2002" })
+    ;(prisma.sundaySchoolClass.createManyAndReturn as jest.Mock).mockRejectedValueOnce({ code: "P2002" })
     expect(await rolloverYear(2026)).toEqual({
       error: "2027 already has a class with the same name and location (it may be archived) — rename or remove it first",
     })

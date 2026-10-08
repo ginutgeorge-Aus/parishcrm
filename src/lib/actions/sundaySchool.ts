@@ -249,14 +249,15 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
-      const map = new Map<number, number>()
-      for (const c of plan.classes) {
-        const created = await tx.sundaySchoolClass.create({
-          data: { year: toYear, name: c.name, level: c.level, location: c.location },
-          select: { id: true },
-        })
-        map.set(c.sourceId, created.id)
-      }
+      // One insert; rows are matched back by (name, location) — unique within a
+      // year — so correctness never depends on createManyAndReturn's row order.
+      const created = await tx.sundaySchoolClass.createManyAndReturn({
+        data: plan.classes.map((c) => ({ year: toYear, name: c.name, level: c.level, location: c.location })),
+        select: { id: true, name: true, location: true },
+      })
+      const key = (name: string, location: string) => `${name}\u0000${location}`
+      const idByKey = new Map(created.map((r) => [key(r.name, r.location), r.id]))
+      const map = new Map(plan.classes.map((c) => [c.sourceId, idByKey.get(key(c.name, c.location))!]))
       const teachers = plan.classes.flatMap((c) =>
         c.teacherPersonIds.map((personId) => ({ classId: map.get(c.sourceId)!, personId })))
       if (teachers.length) await tx.sundaySchoolTeacher.createMany({ data: teachers, skipDuplicates: true })
@@ -272,7 +273,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
     throw e
   }
 
-  const firstId = newIds.values().next().value as number
+  const firstId = Math.min(...newIds.values())
   await logAudit(actorId(g.session), "SS_ROLLOVER", ENTITY, firstId, {
     fromYear, classes: plan.classes.length, placed, unplaced: plan.unplaced.length,
   })

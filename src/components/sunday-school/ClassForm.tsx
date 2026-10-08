@@ -23,6 +23,7 @@ export function ClassForm({
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
+  const submitLabel = cls ? "Save changes" : "Create class"
 
   return (
     <form action={formAction} className="max-w-md space-y-4">
@@ -63,7 +64,7 @@ export function ClassForm({
 
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Saving…" : cls ? "Save changes" : "Create class"}
+          {isPending ? "Saving…" : submitLabel}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
       </div>
