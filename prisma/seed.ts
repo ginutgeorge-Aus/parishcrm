@@ -3,6 +3,7 @@ import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { hash } from "bcryptjs"
 import { encrypt } from "../src/lib/cryptoCore"
+import { currentSchoolYear } from "../src/lib/sundaySchool"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -83,6 +84,31 @@ async function main() {
       membershipDate: new Date("2018-01-01"),
       ministryRoles: ["VOLUNTEER", "SUNDAY_SCHOOL_TEACHER"],
     },
+  })
+
+  // Sunday School demo (create-only): a synthetic child in one class this year,
+  // taught by Jane. Upserts on natural keys, not explicit ids, so the Person
+  // id sequence is untouched.
+  const testChild = await prisma.person.upsert({
+    where: { familyId_firstName_lastName: { familyId: demoFamily.id, firstName: "Test", lastName: "Child" } },
+    update: {},
+    create: { familyId: demoFamily.id, firstName: "Test", lastName: "Child", role: "CHILD", classification: "MEMBER" },
+  })
+  const schoolYear = currentSchoolYear()
+  const demoClass = await prisma.sundaySchoolClass.upsert({
+    where: { year_name_location: { year: schoolYear, name: "Years 1–2", location: "" } },
+    update: {},
+    create: { year: schoolYear, name: "Years 1–2", level: 1 },
+  })
+  await prisma.sundaySchoolTeacher.upsert({
+    where: { classId_personId: { classId: demoClass.id, personId: 2 } },
+    update: {},
+    create: { classId: demoClass.id, personId: 2 },
+  })
+  await prisma.sundaySchoolEnrolment.upsert({
+    where: { personId_year: { personId: testChild.id, year: schoolYear } },
+    update: {},
+    create: { classId: demoClass.id, personId: testChild.id, year: schoolYear },
   })
 
   // Delete old default accounts (skip if transactions are linked)
