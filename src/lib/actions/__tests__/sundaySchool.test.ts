@@ -233,6 +233,14 @@ describe("unenrolChild / removeTeacher success paths", () => {
     expect(prisma.sundaySchoolEnrolment.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 5 } })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_UNENROLLED", "SundaySchoolClass", 1, { personId: 5 })
   })
+  it("refuses to add a teacher whose tag was removed mid-request", async () => {
+    as(UserRole.ADMIN); liveClass()
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([])
+    expect(await addTeacher(1, 7)).toEqual({ error: "Tag this person as a Sunday school teacher first" })
+    expect(prisma.sundaySchoolTeacher.create).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("refuses to unenrol, add or remove a teacher once the class was archived mid-request", async () => {
     as(UserRole.ADMIN); liveClass()
     ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])

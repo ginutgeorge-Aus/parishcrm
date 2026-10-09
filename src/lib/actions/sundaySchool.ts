@@ -19,6 +19,7 @@ import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 const MAX_BATCH = 200
+const NOT_TEACHER = "Tag this person as a Sunday school teacher first"
 const ENTITY = "SundaySchoolClass"
 const DUPLICATE_CLASS = "A class with this name and location already exists for that year (it may be archived)"
 
@@ -154,12 +155,21 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
     where: { id: personId, archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } },
     select: { id: true },
   })
-  if (!person) return { error: "Tag this person as a Sunday school teacher first" }
+  if (!person) return { error: NOT_TEACHER }
 
   try {
-    const live = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.create({ data: { classId, personId } }))
+    const live = await withLiveClass(classId, async (tx) => {
+      // Re-check the tag under FOR SHARE: an untag (UPDATE on Person) waits for
+      // this insert, or the insert is refused if the untag committed first.
+      const ok = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM "Person" WHERE id = ${personId} AND "archivedAt" IS NULL
+          AND 'SUNDAY_SCHOOL_TEACHER' = ANY("ministryRoles") FOR SHARE`
+      if (ok.length === 0) throw new Error(NOT_TEACHER)
+      await tx.sundaySchoolTeacher.create({ data: { classId, personId } })
+    })
     if (!live) return { error: "Class not found" }
   } catch (e) {
+    if (e instanceof Error && e.message === NOT_TEACHER) return { error: NOT_TEACHER }
     // Already assigned (unique classId_personId) — idempotent.
     if (!isP2002(e)) throw e
   }
