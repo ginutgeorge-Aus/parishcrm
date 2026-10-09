@@ -10,6 +10,7 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
     checkouts: jest.fn(async () => ({ expired: 0 })),
     celebrations: jest.fn(async () => ({})),
     errorDigest: jest.fn(async () => ({})),
+    clearanceDigest: jest.fn(async () => ({})),
     ...overrides,
   }
 }
@@ -21,6 +22,23 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks())
 
 describe("tick", () => {
+  it("runs the monthly clearance digest on the 1st and records the month as its success key", async () => {
+    const s = initialState(); const j = jobs()
+    const first = new Date("2026-06-30T21:00:00Z") // Wed 2026-07-01 07:00 AEST
+    await tick(s, j, first)
+    expect(j.clearanceDigest).toHaveBeenCalledWith(first)
+    expect(s.clearanceDigest.lastSuccessKey).toBe("2026-07")
+    await tick(s, j, new Date("2026-06-30T22:00:00Z"))
+    expect(j.clearanceDigest).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the digest open when sends failed (failed > 0), so a later tick retries it", async () => {
+    const s = initialState()
+    const j = jobs({ clearanceDigest: jest.fn(async () => ({ flagged: 3, sent: 0, failed: 2 })) })
+    await tick(s, j, new Date("2026-06-30T21:00:00Z"))
+    expect(s.clearanceDigest.lastSuccessKey).toBeNull()
+  })
+
   it("runs due jobs and records their start", async () => {
     const s = initialState(); const j = jobs()
     await tick(s, j, NOW)

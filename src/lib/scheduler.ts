@@ -1,4 +1,4 @@
-import { sydneyClock, sydneyWeekStartYMD } from "@/lib/dates"
+import { sydneyClock, sydneyMonthKey, sydneyWeekStartYMD } from "@/lib/dates"
 import type { Env } from "@/lib/schedulerFlag"
 
 export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
@@ -7,11 +7,11 @@ export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
  * Pure schedule for the in-app scheduler (see schedulerRunner.ts). No I/O, so
  * every "is it due?" decision is unit-testable against fixed instants. Times
  * are Sydney wall-clock. Interval jobs run every 30 min; period jobs run once
- * per Sydney day/week from an opening hour, retrying (30 min apart, at most 3 times) until
+ * per Sydney day/week/month from an opening hour, retrying (30 min apart, at most 3 times) until
  * one attempt fully succeeds. This in-memory state only avoids wasted work — the
  * jobs' own DB markers are what prevent duplicate sends after a restart.
  */
-export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest"
+export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest" | "clearanceDigest"
 type JobState = {
   lastStart: number | null
   lastSuccessKey: string | null // Sydney day / week of the last full success (period jobs only)
@@ -20,29 +20,51 @@ type JobState = {
 }
 export type SchedulerState = Record<JobName, JobState>
 
-const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest"]
+const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest", "clearanceDigest"]
 
 const EVERY_MS = 30 * 60_000
 const CELEBRATIONS_FROM_HOUR = 7
 const DIGEST_FROM_HOUR = 9
+const CLEARANCE_DIGEST_FROM_HOUR = 7
 // A permanently failing recipient must not be retried all day/week.
 const MAX_ATTEMPTS_PER_PERIOD = 3
 
 export function initialState(): SchedulerState {
   const fresh = (): JobState => ({ lastStart: null, lastSuccessKey: null, attempts: { key: null, count: 0 }, running: false })
-  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh() }
+  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh(), clearanceDigest: fresh() }
 }
 
-/** The period a success counts for: Sydney day (celebrations), Sydney week (digest), none (interval jobs). */
+/**
+ * The period a success counts for: Sydney day (celebrations), Sydney week (error digest),
+ * Sydney month (clearance digest), none (interval jobs).
+ * @param job - Job to key.
+ * @param now - Current instant.
+ * @returns Period key, or null for interval jobs.
+ */
 export function successKey(job: JobName, now: Date): string | null {
   if (job === "celebrations") return sydneyClock(now).ymd
   if (job === "errorDigest") return sydneyWeekStartYMD(now)
+  if (job === "clearanceDigest") return sydneyMonthKey(now)
   return null
 }
 
+/**
+ * Whether the job's Sydney-time window is open at `now`.
+ * @param job - Job to check.
+ * @param now - Current instant.
+ * @param env - Environment flags.
+ * @returns True when the job may run.
+ */
 function windowOpen(job: JobName, now: Date, env: Env): boolean {
   const c = sydneyClock(now)
   if (job === "celebrations") return c.hour >= CELEBRATIONS_FROM_HOUR
+  // Monthly: opens on the 1st (Sydney) from 07:00 and stays open to the end of
+  // the 7th, so an outage on the 1st catches up; the Sydney-month success key
+  // sends once, and the 3-attempt cap applies within that month.
+  if (job === "clearanceDigest") {
+    const day = Number(c.ymd.slice(8, 10))
+    return day <= 7 && (day > 1 || c.hour >= CLEARANCE_DIGEST_FROM_HOUR)
+  }
   // GITHUB_TOKEN is also the feedback widget's credential, so the digest needs its own opt-in.
   if (env.ERROR_DIGEST !== "true" || !env.GITHUB_TOKEN || !env.GITHUB_REPO) return false
   return c.weekday > 1 || c.hour >= DIGEST_FROM_HOUR

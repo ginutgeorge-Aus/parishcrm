@@ -6,8 +6,12 @@ const DIGEST = { GITHUB_TOKEN: "t", GITHUB_REPO: "o/r", ERROR_DIGEST: "true" }
 const at = (sydHour: number, min = 0) => new Date(Date.UTC(2026, 6, 1, sydHour + 14, min))
 const MIN = 60_000
 
+/** Build a scheduler state with `patch` merged over fresh per-job state. */
 function state(patch: Partial<Record<keyof SchedulerState, Partial<SchedulerState["reminders"]>>> = {}): SchedulerState {
   const s = initialState()
+  // `at()` is 2 July, inside the clearance digest's 1st-7th catch-up window, so
+  // default it to already-sent unless a test patches clearanceDigest.
+  if (!("clearanceDigest" in patch)) s.clearanceDigest.lastSuccessKey = "2026-07"
   for (const [k, v] of Object.entries(patch)) Object.assign(s[k as keyof SchedulerState], v)
   return s
 }
@@ -89,10 +93,63 @@ describe("dueJobs — errorDigest", () => {
   })
 })
 
+describe("dueJobs — clearanceDigest (monthly)", () => {
+  const quiet = { reminders: { running: true }, checkouts: { running: true }, celebrations: { running: true }, clearanceDigest: {} }
+  // Wed 2026-07-01 Sydney (AEST, UTC+10): 07:00 = 2026-06-30T21:00Z
+  const FIRST_0700 = new Date("2026-06-30T21:00:00Z")
+  const MIN = 60_000
+  it("is not due before 07:00 Sydney on the 1st", () => {
+    expect(dueJobs(new Date("2026-06-30T20:59:00Z"), state(quiet), {})).toEqual([])
+  })
+  it("is due from 07:00 Sydney on the 1st, all day, until it succeeds", () => {
+    expect(dueJobs(FIRST_0700, state(quiet), {})).toEqual(["clearanceDigest"])
+    expect(dueJobs(new Date("2026-07-01T13:59:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 23:59 AEST
+  })
+  it("stays due through the 7th so an outage on the 1st catches up", () => {
+    expect(dueJobs(new Date("2026-07-01T21:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 2 Jul 07:00
+    expect(dueJobs(new Date("2026-07-07T13:59:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 7 Jul 23:59
+  })
+  it("is not due from the 8th to month end", () => {
+    expect(dueJobs(new Date("2026-07-07T14:00:00Z"), state(quiet), {})).toEqual([]) // 8 Jul 00:00
+    expect(dueJobs(new Date("2026-06-29T21:00:00Z"), state(quiet), {})).toEqual([]) // 30 Jun 07:00
+  })
+  it("is not due again that month after a success", () => {
+    expect(dueJobs(FIRST_0700, state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), {})).toEqual([])
+  })
+  it("is due again next month (new key)", () => {
+    // Sat 2026-08-01 07:00 AEST = 2026-07-31T21:00Z
+    expect(dueJobs(new Date("2026-07-31T21:00:00Z"), state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), {})).toEqual(["clearanceDigest"])
+  })
+  it("backs off 30 min after an unsuccessful attempt and gives up after 3 (same cap as celebrations)", () => {
+    const s = state(quiet)
+    let t = FIRST_0700.getTime()
+    for (let i = 0; i < 3; i++) {
+      expect(dueJobs(new Date(t), s, {})).toEqual(["clearanceDigest"])
+      recordStart("clearanceDigest", s, new Date(t))
+      expect(dueJobs(new Date(t + 29 * MIN), s, {})).toEqual([])
+      t += 30 * MIN
+    }
+    expect(dueJobs(new Date(t), s, {})).toEqual([])
+  })
+  it("uses Sydney time under daylight saving (AEDT, UTC+11): 1 Nov 2026", () => {
+    expect(dueJobs(new Date("2026-10-31T19:59:00Z"), state(quiet), {})).toEqual([]) // 06:59 AEDT
+    expect(dueJobs(new Date("2026-10-31T20:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 07:00 AEDT
+  })
+  it("rolls over on 1 Jan at Sydney time, not UTC", () => {
+    // 2026-12-31T20:00Z = Fri 2027-01-01 07:00 AEDT
+    expect(dueJobs(new Date("2026-12-31T20:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"])
+    expect(successKey("clearanceDigest", new Date("2026-12-31T20:00:00Z"))).toBe("2027-01")
+  })
+  it("does not need ERROR_DIGEST or GitHub config", () => {
+    expect(dueJobs(FIRST_0700, state(quiet), { ERROR_DIGEST: "false" })).toEqual(["clearanceDigest"])
+  })
+})
+
 describe("successKey", () => {
   it("is the Sydney day for celebrations and the Sydney week for the digest", () => {
     expect(successKey("celebrations", at(9))).toBe("2026-07-02")
     expect(successKey("errorDigest", at(9))).toBe("2026-06-29")
+    expect(successKey("clearanceDigest", at(9))).toBe("2026-07")
   })
   it("is null for interval jobs", () => {
     expect(successKey("reminders", at(9))).toBeNull()
