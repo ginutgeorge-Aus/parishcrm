@@ -45,8 +45,7 @@ function complianceUrl(): string | null {
  */
 export async function sendClearanceDigest(now: Date): Promise<ClearanceDigestResult> {
   const today = sydneyToday(now)
-  const { rows, truncated } = await loadComplianceRows(today)
-  if (truncated) logger.error("[clearanceDigest] more people than the compliance cap; digest covers the first batch only")
+  const { rows } = await loadComplianceRows(today)
   const buckets = bucketCompliance(rows)
   if (bucketsEmpty(buckets)) return { flagged: 0, sent: 0, failed: 0 }
   const flagged = countFlaggedPeople(buckets)

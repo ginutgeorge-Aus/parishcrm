@@ -26,6 +26,7 @@ jest.mock("@/components/people/WwccBatchVerify", () => {
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { loadComplianceRows, loadWwccVerifyBatch, toComplianceRow } from "@/lib/clearanceCompliance"
+import { COMPLIANCE_CAP } from "@/lib/clearanceCompliance"
 import ClearancesPage from "../page"
 
 const mockAuth = auth as jest.Mock
@@ -34,6 +35,12 @@ const TODAY = new Date()
 const mkRow = (id: number, expired: boolean) => toComplianceRow({
   id, firstName: "P" + id, lastName: "Testperson", ministryRoles: ["STAFF"], family: { name: "F" },
   clearances: expired ? [{ id: String(id * 10), type: "WWCC" as const, number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }] : [],
+}, TODAY)
+
+/** A person holding both clearances, current and verified: matches no status filter except none. */
+const complete = (id: number) => toComplianceRow({
+  id, firstName: "P" + id, lastName: "Testperson", ministryRoles: ["STAFF"], family: { name: "F" },
+  clearances: (["WWCC", "SAFE_MINISTRY"] as const).map((type, i) => ({ id: `${id}${i}`, type, number: "x", expiresAt: new Date("2099-01-01T00:00:00Z"), verifiedAt: new Date() })),
 }, TODAY)
 
 /** Renders the page to static markup with the given search params. */
@@ -45,8 +52,8 @@ describe("ClearancesPage", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "7" } })
-    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [mkRow(1, true), mkRow(2, false)], truncated: false })
-    ;(loadWwccVerifyBatch as jest.Mock).mockResolvedValue({ rows: [{ clearanceId: "c1" }], truncated: false })
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [mkRow(1, true), mkRow(2, false)] })
+    ;(loadWwccVerifyBatch as jest.Mock).mockResolvedValue({ rows: [{ clearanceId: "c1" }] })
   })
 
   it("redirects an unauthenticated visitor to /login", async () => {
@@ -66,9 +73,25 @@ describe("ClearancesPage", () => {
     expect(html).toContain("view=batch")
   })
   it("applies a valid status filter and carries it into the CSV link", async () => {
+    // person 1: WWCC expired, Safe Ministry missing; person 2: both missing; person 3: not missing anything
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [mkRow(1, true), mkRow(2, false), complete(3)] })
     const html = await render({ status: "missing" })
-    expect(html).toContain("rows:2") // both people have a MISSING cell
+    expect(html).toContain("rows:2") // person 3 has both clearances and is filtered out
     expect(html).toContain("/api/clearances/export?status=missing")
+  })
+  it("filters before capping: a match past the cap is still listed", async () => {
+    const filler = Array.from({ length: COMPLIANCE_CAP }, (_, i) => complete(i + 1))
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [...filler, mkRow(99999, true)] })
+    const html = await render({ status: "expired" })
+    expect(html).toContain("rows:1")
+    expect(html).not.toContain("Too many people")
+  })
+  it("caps an unfiltered list and says so", async () => {
+    const many = Array.from({ length: COMPLIANCE_CAP + 1 }, (_, i) => complete(i + 1))
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: many })
+    const html = await render()
+    expect(html).toContain(`rows:${COMPLIANCE_CAP}`)
+    expect(html).toContain("Too many people")
   })
   it("ignores an unknown status", async () => {
     expect(await render({ status: "bogus" })).toContain("rows:2")

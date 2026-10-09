@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { canManageClearances } from "@/lib/roleGuard"
 import { sydneyToday } from "@/lib/dates"
-import { loadComplianceRows, loadWwccVerifyBatch, filterRows } from "@/lib/clearanceCompliance"
+import { loadComplianceRows, loadWwccVerifyBatch, filterRows, capRows } from "@/lib/clearanceCompliance"
 import { getWwccVerifyUrl } from "@/lib/clearanceSettings"
 import { COMPLIANCE_FILTERS, FILTER_LABELS, parseComplianceFilter } from "@/lib/clearanceComplianceView"
 import { ClearanceComplianceTable } from "@/components/people/ClearanceComplianceTable"
@@ -51,8 +51,9 @@ export default async function ClearancesPage(
   }
 
   const filter = parseComplianceFilter(status)
-  const { rows: all, truncated } = await loadComplianceRows(today)
-  const rows = filterRows(all, filter)
+  const { rows: all } = await loadComplianceRows(today)
+  const matched = filterRows(all, filter)
+  const { rows, truncated } = capRows(matched)
   const exportHref = filter ? `/api/clearances/export?status=${filter}` : "/api/clearances/export"
 
   return (
@@ -81,15 +82,15 @@ export default async function ClearancesPage(
       </nav>
 
       <p className="text-sm text-muted-foreground">
-        {rows.length} of {all.length} people with a ministry role or clearance on file
+        {matched.length} of {all.length} people with a ministry role or clearance on file
       </p>
       {truncated && (
         <p className="text-sm text-warning bg-warning/10 border border-warning/40 rounded px-3 py-2">
-          Too many people to list in full — showing the first {all.length}.
+          Too many people to list in full — showing the first {rows.length}.
         </p>
       )}
 
-      <ClearanceComplianceTable rows={rows} />
+      <ClearanceComplianceTable rows={rows} filtered={filter !== null} />
     </div>
   )
 }

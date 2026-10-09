@@ -19,9 +19,10 @@ function StatusCell({ cell }: Readonly<{ cell: ComplianceCell }>) {
 /**
  * Read-only compliance table: one row per person with their WWCC and Safe
  * Ministry status. Names link to the profile where staff upload and verify.
- * Carries no WWC numbers or dates of birth.
+ * Carries no WWC numbers or dates of birth. `filtered` only picks the
+ * empty-state wording.
  */
-export function ClearanceComplianceTable({ rows }: Readonly<{ rows: ComplianceRow[] }>) {
+export function ClearanceComplianceTable({ rows, filtered = false }: Readonly<{ rows: ComplianceRow[]; filtered?: boolean }>) {
   return (
     <Table>
       <TableHeader>
@@ -37,7 +38,9 @@ export function ClearanceComplianceTable({ rows }: Readonly<{ rows: ComplianceRo
         {rows.length === 0 && (
           <TableRow>
             <TableCell colSpan={5} className="text-center text-muted-foreground">
-              Nobody matches. Tag people with a ministry role on their profile to track their clearances.
+              {filtered
+                ? "Nobody matches this filter."
+                : "Nobody to list. Tag people with a ministry role on their profile to track their clearances."}
             </TableCell>
           </TableRow>
         )}

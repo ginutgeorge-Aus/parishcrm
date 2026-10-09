@@ -21,7 +21,7 @@ import {
  * loader below is the single place that decrypts it.
  */
 
-/** Rows decrypted/listed per request; one past it is fetched to detect truncation. */
+/** Most rows the page and CSV list per request, and most WWCCs the batch view decrypts. */
 export const COMPLIANCE_CAP = 2000
 
 export type ComplianceCell = {
@@ -89,7 +89,7 @@ export function toComplianceRow(p: CompliancePerson, today: Date): ComplianceRow
 }
 
 /** The (non-null) statuses of a row's two cells. */
-export function rowStatuses(row: ComplianceRow): ClearanceStatus[] {
+function rowStatuses(row: ComplianceRow): ClearanceStatus[] {
   return [row.wwcc.status, row.safeMinistry.status].filter((s): s is ClearanceStatus => s !== null)
 }
 
@@ -140,27 +140,28 @@ export function countFlaggedPeople(b: ComplianceBuckets): number {
 
 /**
  * Loads every active person with a ministry role or any clearance, ordered by
- * surname, as list rows. `truncated` is true when more than COMPLIANCE_CAP
- * people matched (rows then holds the first COMPLIANCE_CAP).
+ * surname, as list rows. Not capped: nothing here is decrypted, so the digest
+ * sees everyone and the page and CSV filter first, then cap with `capRows`.
  */
-export async function loadComplianceRows(today: Date): Promise<{ rows: ComplianceRow[]; truncated: boolean }> {
+export async function loadComplianceRows(today: Date): Promise<{ rows: ComplianceRow[] }> {
   const people = await prisma.person.findMany({
     where: {
       archivedAt: null,
       OR: [{ ministryRoles: { isEmpty: false } }, { clearances: { some: {} } }],
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-    take: COMPLIANCE_CAP + 1,
     select: {
       id: true, firstName: true, lastName: true, ministryRoles: true,
       family: { select: { name: true } },
       clearances: { select: { id: true, type: true, number: true, expiresAt: true, verifiedAt: true } },
     },
   })
-  return {
-    rows: people.slice(0, COMPLIANCE_CAP).map((p) => toComplianceRow(p, today)),
-    truncated: people.length > COMPLIANCE_CAP,
-  }
+  return { rows: people.map((p) => toComplianceRow(p, today)) }
+}
+
+/** The first COMPLIANCE_CAP rows, and whether any were left out. Apply after filtering. */
+export function capRows(rows: ComplianceRow[]): { rows: ComplianceRow[]; truncated: boolean } {
+  return { rows: rows.slice(0, COMPLIANCE_CAP), truncated: rows.length > COMPLIANCE_CAP }
 }
 
 /** Decrypts a stored value; null when absent or when decryption fails. */

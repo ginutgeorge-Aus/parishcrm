@@ -14,7 +14,7 @@ import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { rateLimit } from "@/lib/rateLimit"
 import { MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
-import { loadComplianceRows, toComplianceRow } from "@/lib/clearanceCompliance"
+import { loadComplianceRows, toComplianceRow, COMPLIANCE_CAP } from "@/lib/clearanceCompliance"
 import { GET } from "../route"
 
 const mockAuth = auth as jest.Mock
@@ -31,7 +31,7 @@ describe("GET /api/clearances/export", () => {
     jest.clearAllMocks()
     ;(rateLimit as jest.Mock).mockReturnValue(true)
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "7" } })
-    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [row("Testperson")], truncated: false })
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [row("Testperson")] })
   })
 
   it("401 when unauthenticated", async () => {
@@ -59,18 +59,23 @@ describe("GET /api/clearances/export", () => {
     expect(header).not.toMatch(/number|birth|dob/i)
   })
   it("neutralises spreadsheet formulas in names (escapeCsv)", async () => {
-    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [row("=cmd")], truncated: false })
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [row("=cmd")] })
     const text = await (await GET(req())).text()
     expect(text.split("\n")[1].startsWith("'=cmd,")).toBe(true)
+  })
+  it("flags truncation when the filtered export exceeds the cap", async () => {
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: Array.from({ length: COMPLIANCE_CAP + 1 }, (_, i) => row("P" + i)) })
+    const res = await GET(req())
+    expect((await res.text()).split("\n")).toHaveLength(COMPLIANCE_CAP + 1)
+    expect(res.headers.get("X-Export-Truncated")).toBe("true")
   })
   it("honours ?status=, audits CLEARANCE_EXPORTED, flags truncation", async () => {
     ;(loadComplianceRows as jest.Mock).mockResolvedValue({
       rows: [row("Testperson"), row("Other", [{ id: "c9", type: "WWCC", number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }])],
-      truncated: true,
     })
     const res = await GET(req("?status=expired"))
     expect((await res.text()).split("\n")).toHaveLength(2) // header + the one expired person
-    expect(res.headers.get("X-Export-Truncated")).toBe("true")
+    expect(res.headers.get("X-Export-Truncated")).toBeNull()
     expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_EXPORTED", "Person", undefined, { rowCount: 1, filter: "expired" }, expect.any(String))
   })
 })

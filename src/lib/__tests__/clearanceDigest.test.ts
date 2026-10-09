@@ -18,7 +18,7 @@ jest.mock("@/lib/clearanceCompliance", () => ({
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email"
 import { logAudit } from "@/lib/audit"
-import { loadComplianceRows, toComplianceRow } from "@/lib/clearanceCompliance"
+import { loadComplianceRows, toComplianceRow, COMPLIANCE_CAP } from "@/lib/clearanceCompliance"
 import { runClearanceDigest, runClearanceDigestLocked } from "@/lib/clearanceDigest"
 
 const findUnique = prisma.appSetting.findUnique as jest.Mock
@@ -57,7 +57,7 @@ beforeEach(() => {
   create.mockResolvedValue({})
   users.mockResolvedValue([{ email: "admin@example.com" }, { email: "pastor@example.com" }])
   send.mockResolvedValue(undefined)
-  ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: flaggedRows(), truncated: false })
+  ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: flaggedRows() })
 })
 
 describe("runClearanceDigestLocked", () => {
@@ -82,8 +82,17 @@ describe("runClearanceDigestLocked", () => {
     expect(create).toHaveBeenCalledWith({ data: { key: KEY, value: lease(FIRST) } })
   })
 
+  it("covers people past the page cap (digest is not truncated)", async () => {
+    const many = Array.from({ length: COMPLIANCE_CAP + 3 }, (_, i) => toComplianceRow({
+      id: i + 1, firstName: "P" + i, lastName: "Testperson", ministryRoles: ["STAFF"], family: { name: "F" }, clearances: [],
+    }, new Date()))
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: many })
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(r).toMatchObject({ flagged: COMPLIANCE_CAP + 3, sent: 2, failed: 0 })
+  })
+
   it("sends nothing when every bucket is empty, but still records the month so it is not retried", async () => {
-    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: cleanRows(), truncated: false })
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: cleanRows() })
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).not.toHaveBeenCalled()
     expect(r).toEqual({ flagged: 0, sent: 0, failed: 0 })

@@ -8,7 +8,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { escapeCsv } from "@/lib/csvUtils"
 import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
-import { loadComplianceRows, filterRows, type ComplianceCell } from "@/lib/clearanceCompliance"
+import { loadComplianceRows, filterRows, capRows, type ComplianceCell } from "@/lib/clearanceCompliance"
 import { CLEARANCE_STATUS_LABELS, dmy, parseComplianceFilter } from "@/lib/clearanceComplianceView"
 
 export const runtime = "nodejs"
@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
 
   const filter = parseComplianceFilter(req.nextUrl.searchParams.get("status"))
   const now = new Date()
-  const { rows: all, truncated } = await loadComplianceRows(sydneyToday(now))
-  const rows = filterRows(all, filter)
+  const { rows: all } = await loadComplianceRows(sydneyToday(now))
+  const { rows, truncated } = capRows(filterRows(all, filter))
 
   const csv = [
     HEADERS,

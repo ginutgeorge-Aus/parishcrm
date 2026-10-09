@@ -9,7 +9,7 @@ jest.mock("@/lib/crypto", () => ({
 import { prisma } from "@/lib/prisma"
 import {
   toComplianceRow, matchesFilter, filterRows, bucketCompliance, bucketsEmpty, countFlaggedPeople,
-  loadComplianceRows, loadWwccVerifyBatch, COMPLIANCE_CAP, type CompliancePerson,
+  loadComplianceRows, capRows, loadWwccVerifyBatch, COMPLIANCE_CAP, type CompliancePerson,
 } from "@/lib/clearanceCompliance"
 
 const TODAY = new Date("2026-10-06T00:00:00.000Z")
@@ -95,22 +95,34 @@ describe("loadComplianceRows", () => {
 
   it("queries active people with a ministry role or any clearance and never selects document bytes", async () => {
     findMany.mockResolvedValue([person()])
-    const { rows, truncated } = await loadComplianceRows(TODAY)
+    const { rows } = await loadComplianceRows(TODAY)
     const arg = findMany.mock.calls[0][0]
     expect(arg.where).toEqual({
       archivedAt: null,
       OR: [{ ministryRoles: { isEmpty: false } }, { clearances: { some: {} } }],
     })
     expect(arg.select.clearances.select.document).toBeUndefined()
-    expect(arg.take).toBe(COMPLIANCE_CAP + 1)
+    expect(arg.take).toBeUndefined() // not capped: filters and the digest must see everyone
     expect(rows).toHaveLength(1)
-    expect(truncated).toBe(false)
   })
-  it("flags truncation when the cap is exceeded", async () => {
-    findMany.mockResolvedValue(Array.from({ length: COMPLIANCE_CAP + 1 }, (_, i) => person({ id: i + 1 })))
-    const { rows, truncated } = await loadComplianceRows(TODAY)
-    expect(rows).toHaveLength(COMPLIANCE_CAP)
-    expect(truncated).toBe(true)
+  it("returns more than COMPLIANCE_CAP people", async () => {
+    findMany.mockResolvedValue(Array.from({ length: COMPLIANCE_CAP + 5 }, (_, i) => person({ id: i + 1 })))
+    const { rows } = await loadComplianceRows(TODAY)
+    expect(rows).toHaveLength(COMPLIANCE_CAP + 5)
+  })
+})
+
+describe("capRows", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => toComplianceRow(person({ id: i + 1 }), TODAY))
+  it("keeps everything at or under the cap", () => {
+    const r = capRows(many(COMPLIANCE_CAP))
+    expect(r.rows).toHaveLength(COMPLIANCE_CAP)
+    expect(r.truncated).toBe(false)
+  })
+  it("cuts to the cap and flags truncation when over", () => {
+    const r = capRows(many(COMPLIANCE_CAP + 1))
+    expect(r.rows).toHaveLength(COMPLIANCE_CAP)
+    expect(r.truncated).toBe(true)
   })
 })
 
