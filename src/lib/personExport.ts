@@ -80,7 +80,7 @@ export function decryptTransactionForExport<T extends {
     amount: tx.amount.toString(),
     description: safeDecrypt(tx.description),
     // notes is PII free-text encrypted at rest (src/lib/actions/transaction.ts).
-    ...(tx.notes !== undefined && { notes: tx.notes ? safeDecrypt(tx.notes) : null }),
+    ...(tx.notes !== undefined && { notes: tx.notes === null ? null : safeDecrypt(tx.notes) }),
     receiptSends: tx.receiptSends.map((rs) => ({ ...rs, sentTo: safeDecrypt(rs.sentTo) })),
   }
 }
