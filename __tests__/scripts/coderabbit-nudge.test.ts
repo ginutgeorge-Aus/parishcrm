@@ -70,6 +70,12 @@ test("parseRateLimitReset: reads 'available in N minutes' from updated_at", () =
   assert.equal(reset?.toISOString(), "2026-10-07T02:56:21.000Z")
 })
 
+test("parseRateLimitReset: accepts the colon form 'available in: N minutes'", () => {
+  const body = "Review rate limited. **Next review available in: 21 minutes**"
+  const reset = parseRateLimitReset(comment({ user: BOT, body, updatedAt: "2026-10-07T00:00:00Z" }))
+  assert.equal(reset?.toISOString(), "2026-10-07T00:21:00.000Z")
+})
+
 test("parseRateLimitReset: hours + minutes + seconds", () => {
   const body = "Review rate limited. **Next included review available in 1 hour, 2 minutes and 3 seconds.**"
   const reset = parseRateLimitReset(comment({ user: BOT, body, updatedAt: "2026-10-07T00:00:00Z" }))
