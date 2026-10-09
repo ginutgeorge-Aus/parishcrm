@@ -363,6 +363,10 @@ describe("concurrent edits between read and write", () => {
     const runTx = jest.fn().mockResolvedValue([{ count: 0 }]) // every write misses
     const result = await rotateModel("personClearance", { delegate, runTx, apply: true })
     expect(result).toEqual({ changed: 0, badRows: 0, conflicts: 1 })
+    // Pin the retry limit: 1 batch read + 3 re-reads, 1 batch write + 3 retries.
+    expect(delegate.findMany).toHaveBeenCalledTimes(4)
+    expect(delegate.updateMany).toHaveBeenCalledTimes(4)
+    expect(runTx).toHaveBeenCalledTimes(4)
   })
 })
 
