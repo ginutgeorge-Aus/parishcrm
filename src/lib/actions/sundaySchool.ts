@@ -232,33 +232,36 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
 
   const ALREADY_ROLLED = `${toYear} already has classes — roll over is one-time`
   if ((await prisma.sundaySchoolClass.count({ where: { year: toYear } })) > 0) return { error: ALREADY_ROLLED }
-  const source = await prisma.sundaySchoolClass.findMany({
-    where: { year: fromYear, archivedAt: null },
-    orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
-    select: {
-      id: true, name: true, level: true, location: true,
-      // Same rule as addTeacher: only people still tagged as teachers carry over.
-      teachers: {
-        where: { person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } } },
-        select: { personId: true },
-      },
-      enrolments: { where: { person: { archivedAt: null } }, select: { personId: true } },
-    },
-  })
-  if (source.length === 0) return { error: `No classes in ${fromYear} to roll over` }
-
-  const plan = planRollover(source.map((c) => ({
-    id: c.id, name: c.name, level: c.level, location: c.location,
-    teacherPersonIds: c.teachers.map((t) => t.personId),
-    childPersonIds: c.enrolments.map((e) => e.personId),
-  })))
-
+  const NO_SOURCE = `No classes in ${fromYear} to roll over`
   let newIds: Map<number, number>
+  let plan: ReturnType<typeof planRollover> = { classes: [], placements: [], unplaced: [] }
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
       // Authoritative guard: Serializable makes a concurrent insert into toYear fail one side.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
+      // Read and plan the source inside the same snapshot, so an enrolment or
+      // teacher change during rollover conflicts (P2034) instead of being lost.
+      const source = await tx.sundaySchoolClass.findMany({
+        where: { year: fromYear, archivedAt: null },
+        orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
+        select: {
+          id: true, name: true, level: true, location: true,
+          // Same rule as addTeacher: only people still tagged as teachers carry over.
+          teachers: {
+            where: { person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } } },
+            select: { personId: true },
+          },
+          enrolments: { where: { person: { archivedAt: null } }, select: { personId: true } },
+        },
+      })
+      if (source.length === 0) throw new Error(NO_SOURCE)
+
+      plan = planRollover(source.map((c) => ({
+        id: c.id, name: c.name, level: c.level, location: c.location,
+        teacherPersonIds: c.teachers.map((t) => t.personId),
+        childPersonIds: c.enrolments.map((e) => e.personId),
+      })))
       // One insert; rows are matched back by (name, location) — unique within a
       // year — so correctness never depends on createManyAndReturn's row order.
       const created = await tx.sundaySchoolClass.createManyAndReturn({
@@ -278,7 +281,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       return map
     }, { isolationLevel: "Serializable" })
   } catch (e) {
-    if (e instanceof Error && e.message === ALREADY_ROLLED) return { error: ALREADY_ROLLED }
+    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE)) return { error: e.message }
     // Serialization failure: another editor changed toYear mid-rollover.
     if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }
