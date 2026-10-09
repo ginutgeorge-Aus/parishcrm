@@ -86,7 +86,7 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
     })
 
   if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nothing to verify: no unverified or expiring WWCCs.</p>
+    return <p className="text-sm text-muted-foreground">No unverified WWCCs to check. Verified WWCCs come back here when renewed.</p>
   }
 
   return (
@@ -124,7 +124,6 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
             <TableHead>Date of birth</TableHead>
             <TableHead>WWC number</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Last verified</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -155,7 +154,6 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
                     <div key={i} className="text-xs text-destructive">{i}</div>
                   ))}
                 </TableCell>
-                <TableCell>{r.verifiedDmy ?? "—"}</TableCell>
               </TableRow>
             )
           })}

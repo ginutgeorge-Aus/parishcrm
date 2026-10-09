@@ -14,12 +14,12 @@ const writeText = jest.fn().mockResolvedValue(undefined)
 const row = (over: Partial<WwccBatchRow> = {}): WwccBatchRow => ({
   clearanceId: "c1", personId: 10, familyName: "Testperson", givenName: "Alex",
   dobDmy: "05/03/1990", number: "WWC0000000E", status: "UNVERIFIED",
-  expiresDmy: "01/06/2027", verifiedDmy: null, updatedAt: "2026-10-01T00:00:00.000Z", ...over,
+  expiresDmy: "01/06/2027", updatedAt: "2026-10-01T00:00:00.000Z", ...over,
 })
 const rows = [
   row(),
   row({ clearanceId: "c2", personId: 11, familyName: "Sample", givenName: "Bo", dobDmy: null }),
-  row({ clearanceId: "c3", personId: 12, familyName: "Other", givenName: "Cy", status: "EXPIRING", verifiedDmy: "01/09/2026" }),
+  row({ clearanceId: "c3", personId: 12, familyName: "Other", givenName: "Cy", status: "EXPIRING" }),
 ]
 
 beforeEach(() => {
@@ -105,5 +105,6 @@ it("shows a stale-row error from the action", async () => {
 
 it("shows an empty state when nothing needs verifying", () => {
   render(<WwccBatchVerify rows={[]} verifyUrl="https://p.test" />)
-  expect(screen.getByText(/nothing to verify/i)).toBeInTheDocument()
+  expect(screen.getByText(/no unverified wwccs to check/i)).toBeInTheDocument()
+  expect(screen.queryByText(/no expiring/i)).not.toBeInTheDocument()
 })

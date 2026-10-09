@@ -66,7 +66,6 @@ export type WwccBatchRow = {
   number: string | null
   status: "UNVERIFIED" | "EXPIRING"
   expiresDmy: string | null
-  verifiedDmy: string | null
   /** ISO `updatedAt` as loaded; the bulk verify guard rejects the row if it changed since. */
   updatedAt: string
 }

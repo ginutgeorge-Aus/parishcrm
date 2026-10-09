@@ -46,7 +46,7 @@ describe("ClearancesPage", () => {
     jest.clearAllMocks()
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "7" } })
     ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: [mkRow(1, true), mkRow(2, false)], truncated: false })
-    ;(loadWwccVerifyBatch as jest.Mock).mockResolvedValue([{ clearanceId: "c1" }])
+    ;(loadWwccVerifyBatch as jest.Mock).mockResolvedValue({ rows: [{ clearanceId: "c1" }], truncated: false })
   })
 
   it("redirects an unauthenticated visitor to /login", async () => {
@@ -78,5 +78,10 @@ describe("ClearancesPage", () => {
     expect(html).toContain("batch:1:https://portal.example.test/login")
     expect(loadComplianceRows).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_BATCH_VIEWED", "Person", undefined, { rowCount: 1 })
+    expect(html).not.toContain("Too many WWCCs")
+  })
+  it("batch view shows the truncation notice when the batch hit the cap", async () => {
+    ;(loadWwccVerifyBatch as jest.Mock).mockResolvedValue({ rows: [{ clearanceId: "c1" }], truncated: true })
+    expect(await render({ view: "batch" })).toContain("Too many WWCCs to list in full")
   })
 })

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
+import { DECRYPTION_ERROR_PLACEHOLDER } from "@/lib/cryptoCore"
 import { ClearanceType, type MinistryRole } from "@/lib/generated/prisma/enums"
-import { clearanceStatus, EXPIRING_WINDOW_DAYS, type ClearanceStatus } from "@/lib/clearanceStatus"
+import { clearanceStatus, daysUntilExpiry, EXPIRING_WINDOW_DAYS, type ClearanceStatus } from "@/lib/clearanceStatus"
 import { safeDobDate } from "@/lib/formatting"
 import {
   COMPLIANCE_FILTERS, FILTER_STATUS, dmy, type ComplianceFilter, type WwccBatchRow,
@@ -12,7 +13,9 @@ import {
  * the monthly digest. A person is "required" to hold both clearance types when
  * they carry at least one ministry role; a person with no role who nonetheless
  * has a clearance on file is listed too, but an absent type is then simply
- * not required (`status: null`) rather than MISSING.
+ * not required (`status: null`) rather than MISSING. The page lists such a
+ * person so their clearance can still be managed, but the digest (see
+ * `bucketCompliance`) only covers people with a ministry role.
  *
  * The WWC number is never put on a row here (only `hasNumber`); the batch
  * loader below is the single place that decrypts it.
@@ -105,12 +108,14 @@ export type ComplianceBuckets = Record<ComplianceFilter, BucketEntry[]>
 
 /**
  * Groups rows into the digest buckets (expired / expiring / missing /
- * unverified). A person appears once per bucket with the clearance type(s)
+ * unverified) for people with at least one ministry role; a person with no
+ * role is not required to hold a clearance, so is never digested. A person appears once per bucket with the clearance type(s)
  * that put them there, so two problems on one person show in two buckets.
  */
 export function bucketCompliance(rows: ComplianceRow[]): ComplianceBuckets {
   const buckets: ComplianceBuckets = { expired: [], expiring: [], missing: [], unverified: [] }
   for (const row of rows) {
+    if (row.ministryRoles.length === 0) continue
     const cells: [ClearanceType, ComplianceCell][] = [
       [ClearanceType.WWCC, row.wwcc],
       [ClearanceType.SAFE_MINISTRY, row.safeMinistry],
@@ -158,56 +163,56 @@ export async function loadComplianceRows(today: Date): Promise<{ rows: Complianc
   }
 }
 
-// What cryptoCore.safeDecrypt returns when a value cannot be decrypted.
-const DECRYPT_FAILED = "[decryption error]"
-
 /** Decrypts a stored value; null when absent or when decryption fails. */
 function decryptOrNull(value: string | null): string | null {
   if (!value) return null
   const plain = safeDecrypt(value)
-  return plain === DECRYPT_FAILED ? null : plain
+  return plain === DECRYPTION_ERROR_PLACEHOLDER ? null : plain
 }
 
 /**
  * WWCCs that need checking on the OCG portal: never verified (verifiedAt null)
- * and not yet expired (UNVERIFIED, or EXPIRING while unverified), with the
- * three portal fields decrypted (surname, DOB dd/mm/yyyy, WWC number). This is
- * the only loader that returns a WWC number or DOB; callers must be gated by
+ * and not yet expired (expiry today or later, or none), with the three portal
+ * fields decrypted (surname, DOB dd/mm/yyyy, WWC number). The filtering is in
+ * the query so the COMPLIANCE_CAP applies to rows that need checking;
+ * `truncated` is true when more than the cap matched. This is the only loader
+ * that returns a WWC number or DOB; callers must be gated by
  * `canManageClearances`. A DOB or number that is absent or cannot be decrypted
  * comes back null so the UI flags the row instead of offering junk to paste.
+ * @param today Sydney calendar date at UTC midnight
  */
-export async function loadWwccVerifyBatch(today: Date): Promise<WwccBatchRow[]> {
+export async function loadWwccVerifyBatch(today: Date): Promise<{ rows: WwccBatchRow[]; truncated: boolean }> {
   const clearances = await prisma.personClearance.findMany({
-    where: { type: ClearanceType.WWCC, person: { archivedAt: null } },
+    where: {
+      type: ClearanceType.WWCC,
+      person: { archivedAt: null },
+      verifiedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gte: today } }],
+    },
     orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
-    take: COMPLIANCE_CAP,
+    take: COMPLIANCE_CAP + 1,
     select: {
-      id: true, number: true, expiresAt: true, verifiedAt: true, updatedAt: true,
+      id: true, number: true, expiresAt: true, updatedAt: true,
       person: { select: { id: true, firstName: true, lastName: true, dateOfBirth: true } },
     },
   })
-  const out: WwccBatchRow[] = []
-  for (const c of clearances) {
-    const status = clearanceStatus(c, today)
-    // Verified rows are done until renewal (a changed number/expiry clears verification); expired ones cannot pass the portal.
-    if (c.verifiedAt || status === "EXPIRED") continue
+  const rows: WwccBatchRow[] = clearances.slice(0, COMPLIANCE_CAP).map((c) => {
     // clearanceStatus gives UNVERIFIED precedence over EXPIRING; the batch list still
     // wants to show that an unverified WWCC is also lapsing soon.
-    const daysLeft = c.expiresAt ? Math.floor((c.expiresAt.getTime() - today.getTime()) / 86_400_000) : null
-    const batchStatus: WwccBatchRow["status"] = daysLeft !== null && daysLeft <= EXPIRING_WINDOW_DAYS ? "EXPIRING" : "UNVERIFIED"
+    const daysLeft = daysUntilExpiry(c.expiresAt, today)
+    const status: WwccBatchRow["status"] = daysLeft !== null && daysLeft <= EXPIRING_WINDOW_DAYS ? "EXPIRING" : "UNVERIFIED"
     const dobPlain = decryptOrNull(c.person.dateOfBirth)
-    out.push({
+    return {
       clearanceId: c.id,
       personId: c.person.id,
       familyName: c.person.lastName,
       givenName: c.person.firstName,
       dobDmy: dmy(dobPlain ? safeDobDate(dobPlain) : null),
       number: decryptOrNull(c.number),
-      status: batchStatus,
+      status,
       expiresDmy: dmy(c.expiresAt),
-      verifiedDmy: dmy(c.verifiedAt),
       updatedAt: c.updatedAt.toISOString(),
-    })
-  }
-  return out
+    }
+  })
+  return { rows, truncated: clearances.length > COMPLIANCE_CAP }
 }

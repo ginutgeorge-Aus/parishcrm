@@ -75,6 +75,13 @@ describe("filters and buckets", () => {
     expect(bucketsEmpty(b)).toBe(false)
     expect(countFlaggedPeople(b)).toBe(2)
   })
+  it("leaves a person with no ministry role out of every bucket, even with an expired WWCC", () => {
+    const noRole = toComplianceRow(person({ id: 9, ministryRoles: [], clearances: [clr("WWCC", { expiresAt: d("2026-09-01") })] }), TODAY)
+    expect(noRole.wwcc.status).toBe("EXPIRED") // still listed on the page
+    const b = bucketCompliance([noRole])
+    expect(bucketsEmpty(b)).toBe(true)
+    expect(countFlaggedPeople(b)).toBe(0)
+  })
   it("reports empty buckets when everyone is verified", () => {
     const b = bucketCompliance([rows[1]])
     expect(bucketsEmpty(b)).toBe(true)
@@ -118,29 +125,38 @@ describe("loadWwccVerifyBatch", () => {
   })
 
   it("keeps only never-verified, unexpired WWCC rows, decrypts DOB + number, formats dd/mm/yyyy", async () => {
+    // The DB applies the verified/expired filters (asserted on `where` below), so it returns only these.
     findMany.mockResolvedValue([
-      dbRow(),                                                                                   // unverified
-      dbRow({ id: "c12", expiresAt: d("2026-11-15") }),                                             // unverified + expiring: keep
-      dbRow({ id: "c15", verifiedAt: new Date("2026-09-01T00:00:00Z"), expiresAt: d("2026-11-15") }), // verified + expiring: skip (renewal clears verification)
-      dbRow({ id: "c13", verifiedAt: new Date("2026-09-01T00:00:00Z") }),                           // verified: skip
-      dbRow({ id: "c14", expiresAt: d("2026-09-01") }),                                             // expired: skip
+      dbRow(),                                       // unverified
+      dbRow({ id: "c12", expiresAt: d("2026-11-15") }), // unverified + expiring: keep
     ])
-    const out = await loadWwccVerifyBatch(TODAY)
-    expect(findMany.mock.calls[0][0].where).toEqual({ type: "WWCC", person: { archivedAt: null } })
+    const { rows: out, truncated } = await loadWwccVerifyBatch(TODAY)
+    expect(truncated).toBe(false)
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      type: "WWCC", person: { archivedAt: null }, verifiedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gte: TODAY } }],
+    })
+    expect(findMany.mock.calls[0][0].take).toBe(COMPLIANCE_CAP + 1)
     expect(out.map((r) => [r.clearanceId, r.status])).toEqual([["c11", "UNVERIFIED"], ["c12", "EXPIRING"]])
     expect(out[0]).toMatchObject({
       personId: 1, familyName: "Testperson", givenName: "Alex",
-      dobDmy: "05/03/1990", number: "WWC0000000E", expiresDmy: "01/06/2027", verifiedDmy: null,
+      dobDmy: "05/03/1990", number: "WWC0000000E", expiresDmy: "01/06/2027",
       updatedAt: "2026-09-30T01:02:03.000Z",
     })
-    expect(out[1].verifiedDmy).toBeNull()
+    expect(out[0]).not.toHaveProperty("verifiedDmy")
+  })
+  it("flags truncation when more than the cap needs checking, returning only the cap", async () => {
+    findMany.mockResolvedValue(Array.from({ length: COMPLIANCE_CAP + 1 }, (_, i) => dbRow({ id: `c${i}` })))
+    const { rows, truncated } = await loadWwccVerifyBatch(TODAY)
+    expect(rows).toHaveLength(COMPLIANCE_CAP)
+    expect(truncated).toBe(true)
   })
   it("treats a missing or undecryptable DOB / number as null so the row is flagged, never pasted as junk", async () => {
     findMany.mockResolvedValue([
       dbRow({ number: null }, { dateOfBirth: null }),
       dbRow({ id: "c12", number: "enc:bad" }, { dateOfBirth: "enc:bad" }),
     ])
-    const out = await loadWwccVerifyBatch(TODAY)
+    const { rows: out } = await loadWwccVerifyBatch(TODAY)
     expect(out[0]).toMatchObject({ dobDmy: null, number: null })
     expect(out[1]).toMatchObject({ dobDmy: null, number: null })
   })

@@ -6,7 +6,7 @@ import {
 const row = (over: Partial<WwccBatchRow> = {}): WwccBatchRow => ({
   clearanceId: "c1", personId: 10, familyName: "Testperson", givenName: "Alex",
   dobDmy: "05/03/1990", number: "WWC0000000E", status: "UNVERIFIED",
-  expiresDmy: "01/06/2027", verifiedDmy: null, updatedAt: "2026-09-30T01:02:03.000Z", ...over,
+  expiresDmy: "01/06/2027", updatedAt: "2026-09-30T01:02:03.000Z", ...over,
 })
 
 describe("parseComplianceFilter", () => {

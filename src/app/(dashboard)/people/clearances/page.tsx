@@ -29,7 +29,7 @@ export default async function ClearancesPage(
   const today = sydneyToday()
 
   if (view === "batch") {
-    const [rows, verifyUrl] = await Promise.all([loadWwccVerifyBatch(today), getWwccVerifyUrl()])
+    const [{ rows, truncated }, verifyUrl] = await Promise.all([loadWwccVerifyBatch(today), getWwccVerifyUrl()])
     // Decrypted DOBs and WWC numbers are shown in bulk here, so leave a trace.
     await logAudit(actorId(session), "CLEARANCE_BATCH_VIEWED", "Person", undefined, { rowCount: rows.length })
     return (
@@ -40,6 +40,11 @@ export default async function ClearancesPage(
             <Link href="/people/clearances">Back to compliance</Link>
           </Button>
         </div>
+        {truncated && (
+          <p className="text-sm text-warning bg-warning/10 border border-warning/40 rounded px-3 py-2">
+            Too many WWCCs to list in full — showing the first {rows.length}. Verify these, then reload for the rest.
+          </p>
+        )}
         <WwccBatchVerify rows={rows} verifyUrl={verifyUrl} />
       </div>
     )
