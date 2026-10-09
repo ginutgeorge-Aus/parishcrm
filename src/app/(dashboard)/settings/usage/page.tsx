@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import { auth } from "@/auth"
 import { isAdmin } from "@/lib/roleGuard"
 import { getUsageSummary } from "@/lib/usage"
@@ -28,8 +29,16 @@ export default async function UsagePage(props: Readonly<Props>) {
       <div className="flex items-center justify-between">
         <h1 className="text-[clamp(1.5rem,4vw,2.25rem)] font-semibold">Usage</h1>
         <div className="flex gap-2 text-sm">
-          <a href="/settings/usage?days=30" className={`inline-flex items-center justify-center min-h-11 px-3 ${days === 30 ? "font-semibold underline" : "text-muted-foreground"}`}>30 days</a>
-          <a href="/settings/usage?days=90" className={`inline-flex items-center justify-center min-h-11 px-3 ${days === 90 ? "font-semibold underline" : "text-muted-foreground"}`}>90 days</a>
+          {([30, 90] as const).map((d) => (
+            <Link
+              key={d}
+              href={`/settings/usage?days=${d}`}
+              aria-current={days === d ? "page" : undefined}
+              className={`inline-flex items-center justify-center min-h-11 px-3 ${days === d ? "font-semibold underline" : "text-muted-foreground"}`}
+            >
+              {d} days
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -40,7 +49,7 @@ export default async function UsagePage(props: Readonly<Props>) {
 
       <section>
         <h2 className="mb-2 text-lg font-medium">Feature adoption</h2>
-        <Table>
+        <Table aria-label="Feature adoption">
           <TableHeader>
             <TableRow>
               <TableHead>Feature area</TableHead>
@@ -62,7 +71,7 @@ export default async function UsagePage(props: Readonly<Props>) {
         <h2 className="mb-2 text-lg font-medium">Activity trend (12 weeks)</h2>
         <div className="flex items-end gap-1 h-24">
           {s.weeklyTrend.map((w) => (
-            <div key={w.label} className="flex-1 bg-primary/70 rounded-t" style={{ height: `${(w.count / maxTrend) * 100}%` }} title={`${w.label}: ${w.count}`} />
+            <div key={w.label} className="flex-1 bg-primary/70 rounded-t" role="img" aria-label={`${w.label}: ${w.count} actions`} style={{ height: `${(w.count / maxTrend) * 100}%` }} title={`${w.label}: ${w.count}`} />
           ))}
         </div>
       </section>

@@ -160,7 +160,7 @@ export function AnniversariesClient({
 
       {/* Desktop: table */}
       <div className="hidden overflow-x-auto md:block">
-        <Table className="min-w-table">
+        <Table aria-label="Anniversaries" className="min-w-table">
           <TableHeader>
             <TableRow>
               <TableHead className="whitespace-nowrap">Couple</TableHead>

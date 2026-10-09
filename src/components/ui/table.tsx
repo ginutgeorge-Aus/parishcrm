@@ -1,14 +1,51 @@
-"use client"
-
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * True while the element's content is wider than its box, i.e. it can scroll
+ * horizontally. Re-measured on resize via ResizeObserver (skipped where
+ * unavailable, e.g. old browsers / jsdom, leaving it false).
+ *
+ * @param ref - Ref to the scroll container to observe.
+ * @param enabled - When false, nothing is measured or observed.
+ * @returns Whether the container currently overflows horizontally.
+ */
+function useHorizontalOverflow(ref: React.RefObject<HTMLElement | null>, enabled: boolean): boolean {
+  const [overflows, setOverflows] = React.useState(false)
+  React.useEffect(() => {
+    const el = ref.current
+    if (!enabled || !el) return
+    const measure = () => setOverflows(el.scrollWidth > el.clientWidth)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [ref, enabled])
+  return overflows
+}
+
+/**
+ * Table in a horizontally scrollable container; pass aria-label to make it a
+ * named region that is a keyboard tab stop only while it actually overflows.
+ */
 function Table({ className, ...props }: React.ComponentProps<"table">) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const label = props["aria-label"]
+  const overflows = useHorizontalOverflow(containerRef, Boolean(label))
   return (
+    // A labelled table's scroll container becomes a named region, and focusable
+    // only when it overflows, so keyboard users can scroll it (axe:
+    // scrollable-region-focusable) without a redundant tab stop on tables that
+    // fit. Opt-in via aria-label: unlabelled tables stay plain, so pages don't
+    // fill up with identically named landmarks.
     <div
+      ref={containerRef}
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      {...(label ? { role: "region", "aria-label": label, ...(overflows && { tabIndex: 0 }) } : {})}
+      className="relative w-full overflow-x-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <table
         data-slot="table"

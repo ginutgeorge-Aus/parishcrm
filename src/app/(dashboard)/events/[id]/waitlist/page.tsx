@@ -77,7 +77,7 @@ export default async function WaitlistPage(props: Readonly<Props>) {
       ) : (
         <>
           <div className="hidden md:block overflow-x-auto">
-            <Table className="min-w-table">
+            <Table aria-label="Waitlist" className="min-w-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>Ticket</TableHead>

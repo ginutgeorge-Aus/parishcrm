@@ -38,7 +38,7 @@ export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) 
 
   return (
     <>
-    <ul className="divide-y divide-gray-200 rounded-md border">
+    <ul className="divide-y divide-border rounded-md border">
       {list.map((d) => (
         <li key={d.id} className="flex items-center justify-between gap-4 p-3">
           <div className="min-w-0">
@@ -47,7 +47,7 @@ export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) 
               Last used {new Date(d.lastUsedAt).toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })}
             </p>
           </div>
-          <Button variant="outline" size="sm" disabled={pending} onClick={() => revoke(d.id)}>
+          <Button variant="outline" size="sm" disabled={pending} aria-label={`Revoke ${d.label ?? "Unknown device"}`} onClick={() => revoke(d.id)}>
             Revoke
           </Button>
         </li>

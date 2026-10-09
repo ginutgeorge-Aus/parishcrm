@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useId, useState, useEffect, useMemo, useRef } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -161,6 +161,7 @@ export function Sidebar({
 
   const [mobileOpen, setMobileOpen] = useState(false)
   const drawerRef = useRef<HTMLDivElement>(null)
+  const drawerId = useId()
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const wasOpenRef = useRef(false)
@@ -168,7 +169,12 @@ export function Sidebar({
   // Close the mobile drawer on Escape so keyboard users aren't trapped.
   useEffect(() => {
     if (!mobileOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false) }
+    // Skip an Escape a nested Radix layer (Dialog, Select…) already handled —
+    // it calls preventDefault — or closing the drawer under it makes the
+    // dialog's trigger inert and drops focus to <body>.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) setMobileOpen(false)
+    }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [mobileOpen])
@@ -292,6 +298,8 @@ export function Sidebar({
           onClick={() => setMobileOpen(true)}
           className="-ml-2.5 p-2.5 text-primary-foreground/60 hover:text-primary-foreground"
           aria-label="Open menu"
+          aria-expanded={mobileOpen}
+          aria-controls={drawerId}
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -316,6 +324,7 @@ export function Sidebar({
       {/* Mobile drawer — always fully expanded, unaffected by the desktop rail */}
       <div
         ref={drawerRef}
+        id={drawerId}
         role="dialog"
         aria-modal={mobileOpen}
         aria-label="Navigation"

@@ -95,3 +95,26 @@ it("auto-expands the active group after the session resolves on a cold reload", 
   const accountingToggle = screen.getByRole("button", { name: /^accounting$/i })
   expect(accountingToggle).toHaveAttribute("aria-expanded", "true")
 })
+
+it("renders unique, resolvable aria-controls ids even though nav renders twice", () => {
+  mockRole = "ADMIN"
+  const { container } = render(<Sidebar churchName="Example Church" />)
+  const ids = Array.from(container.querySelectorAll("[id]")).map((el) => el.id)
+  expect(new Set(ids).size).toBe(ids.length)
+  for (const btn of Array.from(container.querySelectorAll("button[aria-controls]"))) {
+    const target = btn.getAttribute("aria-controls")!
+    expect(container.querySelectorAll(`[id="${target}"]`)).toHaveLength(1)
+  }
+})
+
+it("Escape already handled by an open dialog does not also close the mobile drawer", () => {
+  render(<Sidebar churchName="Example Church" />)
+  fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
+  const handled = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+  handled.preventDefault()
+  window.dispatchEvent(handled)
+  expect(screen.getByRole("button", { name: "Open menu" })).toHaveAttribute("aria-expanded", "true")
+
+  fireEvent.keyDown(window, { key: "Escape" })
+  expect(screen.getByRole("button", { name: "Open menu" })).toHaveAttribute("aria-expanded", "false")
+})

@@ -1,3 +1,4 @@
+import { useId } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
@@ -18,7 +19,9 @@ export function SidebarGroup({
   onToggle: () => void
   onNavigate: () => void
 }>) {
-  const panelId = `sidebar-group-${group.label.toLowerCase().replace(/\s+/g, "-")}`
+  // useId, not a label slug: the nav renders twice (mobile drawer + desktop
+  // aside), so a slug id would be duplicated and aria-controls ambiguous.
+  const panelId = useId()
 
   return (
     <div>
@@ -38,8 +41,8 @@ export function SidebarGroup({
         }
       </button>
 
-      {isOpen && (
-        <div id={panelId} className="mt-0.5 space-y-0.5">
+      {/* Always rendered so aria-controls resolves while collapsed. */}
+      <div id={panelId} hidden={!isOpen} className="mt-0.5 space-y-0.5">
           {group.items.map((entry) => (
             <SidebarEntry
               key={"subLabel" in entry ? entry.subLabel : entry.href}
@@ -48,8 +51,7 @@ export function SidebarGroup({
               onNavigate={onNavigate}
             />
           ))}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
