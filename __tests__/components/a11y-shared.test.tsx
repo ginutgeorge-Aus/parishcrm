@@ -21,14 +21,30 @@ describe("loading skeletons announce a loading status", () => {
   })
 })
 
-it("Table's scroll container is a keyboard-focusable, named region", () => {
-  render(
-    <Table aria-label="Transactions">
-      <TableBody><TableRow><TableCell>x</TableCell></TableRow></TableBody>
-    </Table>
-  )
-  const region = screen.getByRole("region", { name: "Transactions" })
-  expect(region).toHaveAttribute("tabindex", "0")
+describe("labelled Table scroll container", () => {
+  const renderTable = () =>
+    render(
+      <Table aria-label="Transactions">
+        <TableBody><TableRow><TableCell>x</TableCell></TableRow></TableBody>
+      </Table>
+    )
+  const setWidths = (scrollWidth: number, clientWidth: number) => {
+    jest.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(scrollWidth)
+    jest.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(clientWidth)
+  }
+  afterEach(() => jest.restoreAllMocks())
+
+  it("is a keyboard-focusable named region when it overflows", () => {
+    setWidths(800, 400)
+    renderTable()
+    expect(screen.getByRole("region", { name: "Transactions" })).toHaveAttribute("tabindex", "0")
+  })
+
+  it("is a named region but not a tab stop when it fits", () => {
+    setWidths(400, 400)
+    renderTable()
+    expect(screen.getByRole("region", { name: "Transactions" })).not.toHaveAttribute("tabindex")
+  })
 })
 
 it("an unlabelled Table adds no landmark or tab stop", () => {

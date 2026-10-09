@@ -99,7 +99,7 @@ it("auto-expands the active group after the session resolves on a cold reload", 
 it("renders unique, resolvable aria-controls ids even though nav renders twice", () => {
   mockRole = "ADMIN"
   const { container } = render(<Sidebar churchName="Example Church" />)
-  const ids = Array.from(container.querySelectorAll("[id^=sidebar-group], [id*=sidebar]")).map((el) => el.id)
+  const ids = Array.from(container.querySelectorAll("[id]")).map((el) => el.id)
   expect(new Set(ids).size).toBe(ids.length)
   for (const btn of Array.from(container.querySelectorAll("button[aria-controls]"))) {
     const target = btn.getAttribute("aria-controls")!
