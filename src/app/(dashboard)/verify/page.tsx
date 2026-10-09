@@ -98,7 +98,7 @@ export default async function VerifyPage({
         <div className="space-y-6">
           {versions.map((v) => (
             <section key={v}>
-              <h3 className="mb-2 text-sm font-semibold text-muted-foreground">{v}</h3>
+              <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{v}</h2>
               <div className="space-y-2">
                 {grouped.get(v)!.map((row) => (
                   <CheckpointRow

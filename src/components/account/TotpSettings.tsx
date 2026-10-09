@@ -27,6 +27,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
   const [copyStatus, setCopyStatus] = useState<string>("")
   const [pending, startTransition] = useTransition()
   const codesHeadingRef = useRef<HTMLParagraphElement>(null)
+  const prevKind = useRef<Mode["kind"]>("idle")
 
   // Clicking Set up / Turn off / New backup codes unmounts the focused button;
   // move focus to the first control of the form (or the codes heading) that replaces it.
@@ -34,6 +35,9 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     if (mode.kind === "enrolling") document.getElementById("totp-confirm")?.focus()
     else if (mode.kind === "regenerate" || mode.kind === "disable") document.getElementById("totp-manage")?.focus()
     else if (mode.kind === "codes") codesHeadingRef.current?.focus()
+    // Cancel / "I've saved these codes" unmounts the focused button: return focus to the idle action.
+    else if (prevKind.current !== "idle") document.getElementById("totp-idle-action")?.focus()
+    prevKind.current = mode.kind
   }, [mode.kind])
 
   /**
@@ -50,7 +54,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     }
   }
 
-  const reset = () => { setMode({ kind: "idle" }); setCode(""); setPassword(""); setError(null) }
+  const reset = () => { setMode({ kind: "idle" }); setCode(""); setPassword(""); setError(null); setCopyStatus("") }
   const run = (fn: () => Promise<void>) => startTransition(async () => {
     setError(null)
     try {
@@ -94,7 +98,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
           run(async () => {
             const res = await confirmTotpEnrolment(code, password)
             if ("error" in res) setError(res.error)
-            else { setCode(""); setPassword(""); setMode({ kind: "codes", codes: res.backupCodes }) }
+            else { setCode(""); setPassword(""); setCopyStatus(""); setMode({ kind: "codes", codes: res.backupCodes }) }
           })
         }}
       >
@@ -149,7 +153,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
             } else {
               const res = await regenerateBackupCodes(code)
               if ("error" in res) setError(res.error)
-              else { setCode(""); setMode({ kind: "codes", codes: res.backupCodes }) }
+              else { setCode(""); setCopyStatus(""); setMode({ kind: "codes", codes: res.backupCodes }) }
             }
           })
         }}
@@ -180,7 +184,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     return (
       <div className="space-y-2">
         <Button
-          variant="outline" size="sm" disabled={pending}
+          id="totp-idle-action" variant="outline" size="sm" disabled={pending}
           onClick={() => run(async () => {
             const res = await startTotpEnrolment()
             if ("error" in res) setError(res.error)
@@ -201,7 +205,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
         <span className="text-muted-foreground">{status.backupCodesRemaining} of 10 backup codes left.</span>
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => setMode({ kind: "regenerate" })}>New backup codes</Button>
+        <Button id="totp-idle-action" variant="outline" size="sm" onClick={() => setMode({ kind: "regenerate" })}>New backup codes</Button>
         <Button variant="outline" size="sm" onClick={() => setMode({ kind: "disable" })}>Turn off</Button>
       </div>
     </div>

@@ -122,6 +122,7 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
           </Button>
           <DeleteConfirmButton
             onConfirm={resetAll}
+            disabled={pending}
             title="Reset receipt wording to defaults?"
             description="This replaces your custom receipt text, including the legal text, with the defaults and saves immediately. This cannot be undone."
             triggerLabel="Reset all to defaults"
