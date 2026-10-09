@@ -9,12 +9,13 @@ import { PeopleFilters } from "@/components/people/PeopleFilters"
 import { Button } from "@/components/ui/button"
 import { safeDecrypt } from "@/lib/crypto"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
+import { parseMinistryRoleFilter } from "@/lib/ministryRoles"
 
 const PEOPLE_CAP = 500
 const MAX_QUERY_LENGTH = 100
 
 export default async function PeoplePage(
-  props: Readonly<{ searchParams: Promise<{ q?: string; classification?: string; role?: string }> }>
+  props: Readonly<{ searchParams: Promise<{ q?: string; classification?: string; role?: string; ministryRole?: string }> }>
 ) {
   const searchParams = await props.searchParams
   const session = await auth()
@@ -29,6 +30,7 @@ export default async function PeoplePage(
   const roleFilter = Object.values(FamilyRole).includes(searchParams.role as FamilyRole)
     ? (searchParams.role as FamilyRole)
     : null
+  const ministryRoleFilter = parseMinistryRoleFilter(searchParams.ministryRole)
 
   // Shared filter for both the page query and the total count — kept as one
   // object so the two can never drift out of sync.
@@ -42,6 +44,7 @@ export default async function PeoplePage(
     }),
     ...(classificationFilter && { classification: classificationFilter }),
     ...(roleFilter && { role: roleFilter }),
+    ...(ministryRoleFilter && { ministryRoles: { has: ministryRoleFilter } }),
   }
 
   const [people, totalCount] = await Promise.all([
@@ -73,6 +76,7 @@ export default async function PeoplePage(
   if (q) exportParams.set("q", q)
   if (classificationFilter) exportParams.set("classification", classificationFilter)
   if (roleFilter) exportParams.set("role", roleFilter)
+  if (ministryRoleFilter) exportParams.set("ministryRole", ministryRoleFilter)
   const exportUrl = `/api/people/export?${exportParams.toString()}`
 
   return (

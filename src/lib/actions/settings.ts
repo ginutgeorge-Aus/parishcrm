@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
-import { revalidatePath, revalidateTag, updateTag } from "next/cache"
+import { revalidatePath, updateTag } from "next/cache"
 import { z } from "zod"
 
 import type { ActionResultWithSuccess } from "./types"
@@ -158,9 +158,9 @@ export async function upsertSetting(_prev: ActionResultWithSuccess, formData: Fo
   // Log the key only — raw values can hold PII (emails) or 5000-char HTML.
   await logAudit(userId, "SETTING_UPDATED", "AppSetting", undefined, { key })
 
-  // Bust the cached card-fee reader so checkout/registration pick up the new
-  // rate immediately (mirrors church-settings above).
-  if (CARD_FEE_KEYS.has(key)) revalidateTag("card-fee", "max")
+  // updateTag (not SWR revalidateTag) — the very next checkout must gross up at
+  // the new rate, or the church absorbs the difference.
+  if (CARD_FEE_KEYS.has(key)) updateTag("card-fee")
   revalidatePath("/settings")
   return { success: "Settings saved" }
 }
@@ -223,9 +223,9 @@ export async function updateChurchInfo(_prev: ActionResultWithSuccess, formData:
   const userId = actorId(session)
   await logAudit(userId, "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 
-  // Bust the cached getChurchSettings DB read so receipts pick up the change immediately.
-  // Next 16 requires the profile arg; "max" = stale-while-revalidate.
-  revalidateTag("church-settings", "max")
+  // updateTag (not SWR revalidateTag) so receipts/emails read the new details on
+  // the very next request instead of one stale render.
+  updateTag("church-settings")
   revalidatePath("/settings")
   return { success: "Church information saved" }
 }

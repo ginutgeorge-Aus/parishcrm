@@ -78,6 +78,9 @@ export const FIELDS: Record<string, string[]> = {
   // TOTP authenticator secrets (src/lib/actions/totp.ts). Both are plain
   // encrypt(base32) strings; pending is short-lived but must still rotate.
   user: ["totpSecret", "totpPendingSecret"],
+  // Child-safety clearances (src/lib/actions/clearance.ts). `document` is a
+  // BYTEA blob like transactionAttachment.data — see BLOB_FIELDS.
+  personClearance: ["number", "documentName", "document", "verificationNote"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
@@ -85,10 +88,12 @@ export const FIELDS: Record<string, string[]> = {
 // writes a Buffer back (a plain-string re-encrypt would corrupt the column).
 export const BLOB_FIELDS: Record<string, string[]> = {
   transactionAttachment: ["data"],
+  personClearance: ["document"],
 }
 
 // Returns the re-encrypted update for one row, or null if nothing to do.
-// blobFields names the BYTEA columns among `fields`: their value is a Buffer
+// blobFields names the BYTEA columns among `fields`: their value is a Buffer or
+// Uint8Array
 // (UTF-8 bytes of the ciphertext string), re-keyed and written back as a Buffer.
 function rotateRow(
   row: Record<string, unknown>,
@@ -99,8 +104,10 @@ function rotateRow(
   for (const f of fields) {
     const val = row[f]
     if (blobFields.has(f)) {
-      if (!Buffer.isBuffer(val)) continue
-      const str = val.toString("utf8")
+      // Prisma 7 may hand BYTEA back as a plain Uint8Array; Buffer is a subclass,
+      // so one instanceof check covers both.
+      if (!(val instanceof Uint8Array)) continue
+      const str = Buffer.from(val).toString("utf8")
       const kid = keyIdOf(str)
       if (kid && kid !== CURRENT) update[f] = Buffer.from(encrypt(decrypt(str)), "utf8")
       continue

@@ -1,6 +1,7 @@
 "use client"
 
 import { useId, useState, useTransition } from "react"
+import { unstable_rethrow } from "next/navigation"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -85,7 +86,19 @@ export function DeleteConfirmButton({
 
   function handleConfirm() {
     startTransition(async () => {
-      const result = await onConfirm()
+      let result: Awaited<ReturnType<typeof onConfirm>>
+      try {
+        result = await onConfirm()
+      } catch (err) {
+        // Redirecting actions (deletePerson, archiveFamily…) reject with Next's
+        // redirect control-flow error after a successful mutation — let it
+        // through so navigation happens.
+        unstable_rethrow(err)
+        // A genuine failure (network drop, 500) surfaces inline, not via the
+        // route error boundary.
+        setError("Something went wrong. Try again.")
+        return
+      }
       if (result && "error" in result && result.error) {
         setError(result.error)
       } else {

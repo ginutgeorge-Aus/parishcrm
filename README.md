@@ -23,7 +23,7 @@ config presets.
 - **Frontend:** Next.js 16 App Router, React 19, TypeScript
 - **Backend:** Next.js Server Actions + API routes
 - **Database:** Prisma 7 + PostgreSQL
-- **Auth:** NextAuth v5 / Auth.js (JWT, email OTP 2FA, trusted devices)
+- **Auth:** NextAuth v5 / Auth.js (JWT, email OTP or authenticator-app (TOTP) 2FA, backup codes, trusted devices)
 - **UI:** shadcn/ui + Tailwind CSS v4
 - **Testing:** Jest 30 + React Testing Library (unit)
 
@@ -138,7 +138,7 @@ docs/                   topic docs + specs/plans
 
 ## Core features
 
-- **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes.
+- **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails.
 - **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
@@ -158,7 +158,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 | `PASTOR` | Full CRUD + pastoral notes + accounting view/entry |
 | `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN accounts), no pastoral notes |
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
-| `VIEWER` | Read-only people/families/events — no pastoral notes, no accounting |
+| `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
 | `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in) |
 
 Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `canViewAccounting`; accounting **mutations** require `canAccessAccounting` (ADMIN | PASTOR only). All DB mutations are guarded at **both** the page and the action.
@@ -166,7 +166,7 @@ Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `
 ### Authentication
 
 - **Server Components/Actions:** `auth()` from `@/auth`. **Client Components:** `useSession()`.
-- **2FA:** email OTP after password. Password and OTP each lock after 5 wrong attempts (15-min cooldown; ADMIN can unlock).
+- **2FA:** after password — email OTP, or an authenticator app (TOTP, opt-in on My Account) with 10 single-use backup codes. Password and second factor each lock after 5 wrong attempts (15-min cooldown; ADMIN can unlock; an admin can reset a lost authenticator). See [Login & two-step verification](https://ginutgeorge-aus.github.io/parishcrm/docs/login-and-two-step-verification/).
 - **Trusted devices:** "remember this device" skips OTP for 14 days; MFA still required on new devices.
 - **Session:** JWT, 60-minute idle timeout.
 
@@ -182,7 +182,7 @@ Generated client at `src/lib/generated/prisma/`; enums from `@/lib/generated/pri
 
 ### Encryption
 
-Sensitive fields are encrypted at rest with **AES-256-GCM**, automatically on read/write through the Server Actions layer — family contact/location, person contact + date of birth, pastoral notes, transaction descriptions, receipt destinations, and registration contact details. Email fields carry a blind-index `emailHash` for lookups without decryption. A versioned keyring supports rotation.
+Sensitive fields are encrypted at rest with **AES-256-GCM**, automatically on read/write through the Server Actions layer — family contact/location, person contact + date of birth, pastoral notes, transaction descriptions, receipt destinations, and registration contact details, and child-safety clearance numbers/documents. Email fields carry a blind-index `emailHash` for lookups without decryption. A versioned keyring supports rotation.
 
 ### Audit logging
 

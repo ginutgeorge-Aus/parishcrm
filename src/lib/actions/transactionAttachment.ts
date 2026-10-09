@@ -11,6 +11,7 @@ import { isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 
 // Receipt/invoice attachments for a transaction, mirroring Xero's
 // "attach files". Storage reuses the EventImage pattern — the bytes live in a
@@ -22,31 +23,9 @@ import { assertNotDemo } from "@/lib/demoMode"
 // must never rest in the DB where a mis-gated read path could expose it. The
 // blob is base64-encoded then encrypted and stored as UTF-8 bytes in the BYTEA
 // column; the download route reverses this. `decrypt` is plaintext-safe.
-// 4 MB, not 5: leaves multipart-overhead headroom under next.config's 5mb
-// serverActions.bodySizeLimit so Next doesn't reject the body before this check runs (B5).
-const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024
-const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "application/pdf"])
-const MAX_FILENAME_LEN = 255
 // Bound attachments per transaction — an editor could otherwise pin unlimited
 // 5 MB blobs to a single row (storage DoS). 20 covers any real receipt set.
 const MAX_ATTACHMENTS_PER_TX = 20
-
-// Sniff the real content type from the leading magic bytes — never trust the
-// attacker-controlled `file.type`, which is persisted as `contentType` and used
-// to serve the file. Returns null when the bytes match no allowed type.
-function sniffContentType(bytes: Buffer): "image/jpeg" | "image/png" | "application/pdf" | null {
-  if (bytes.subarray(0, 4).toString("latin1") === "%PDF") return "application/pdf"
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg"
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png"
-  return null
-}
-
-function sanitizeFilename(name: string): string {
-  // Strip any path segments a browser might include and bound the length.
-  const base = name.split(/[\\/]/).pop() ?? "attachment"
-  const trimmed = base.trim().slice(0, MAX_FILENAME_LEN)
-  return trimmed || "attachment"
-}
 
 export async function attachTransactionReceipt(
   transactionId: number,
@@ -62,10 +41,10 @@ export async function attachTransactionReceipt(
 
   const file = formData.get("file")
   if (!(file instanceof File) || file.size === 0) return { error: "Please choose a file to attach." }
-  if (!ALLOWED_MIME.has(file.type)) return { error: "Attachment must be a JPEG, PNG or PDF." }
+  if (!ALLOWED_UPLOAD_TYPES.has(file.type)) return { error: "Attachment must be a JPEG, PNG or PDF." }
   // Size is checked BEFORE arrayBuffer() to avoid buffering an oversized upload
   // into memory (OOM DoS — security.md).
-  if (file.size > MAX_ATTACHMENT_BYTES) return { error: "Attachment must be 4 MB or smaller." }
+  if (file.size > MAX_UPLOAD_BYTES) return { error: "Attachment must be 4 MB or smaller." }
 
   // Parent must exist before we write the child row (FK / IDOR guard).
   const tx = await prisma.transaction.findUnique({
