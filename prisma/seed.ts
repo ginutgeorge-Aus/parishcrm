@@ -88,7 +88,8 @@ async function main() {
 
   // The fixed-id upserts above do not advance Person_id_seq; bump it so the
   // generated id below cannot collide with ids 1 and 2.
-  await prisma.$executeRaw`SELECT setval(pg_get_serial_sequence('"Person"', 'id'), (SELECT COALESCE(MAX(id), 1) FROM "Person"))`
+  // Sequence bump has no typed Prisma equivalent; static SQL, no input.
+  await prisma.$executeRaw`SELECT setval(pg_get_serial_sequence('"Person"', 'id'), (SELECT COALESCE(MAX(id), 1) FROM "Person"))` // nosemgrep: crm-no-raw-sql
 
   // Sunday School demo (create-only): a synthetic child in one class this year,
   // taught by Jane (only if the row at id 2 really is a tagged teacher).

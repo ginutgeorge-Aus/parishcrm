@@ -13,7 +13,7 @@ import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
-import { isP2002, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
+import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
@@ -274,7 +274,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   } catch (e) {
     if (e instanceof Error && e.message === ALREADY_ROLLED) return { error: ALREADY_ROLLED }
     // Serialization failure: another editor changed toYear mid-rollover.
-    if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2034") {
+    if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }
     }
     // A concurrent rollover, or an archived toYear class with the same name and location.
