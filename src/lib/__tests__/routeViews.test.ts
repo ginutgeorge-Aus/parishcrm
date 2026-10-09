@@ -72,5 +72,8 @@ describe("routeViews", () => {
     const out = await getTopRoutes(30)
     expect(out).toHaveLength(20)
     expect(out[0]).toEqual({ route: "/r24", count: 25 })
+    // The cap must apply after merging: the query itself takes no limit or order.
+    const args = (prisma.routeViewDaily.groupBy as jest.Mock).mock.calls.at(-1)[0]
+    expect(args).toEqual({ by: ["route"], where: { date: { gte: expect.any(Date) } }, _sum: { count: true } })
   })
 })
