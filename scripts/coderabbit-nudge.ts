@@ -21,7 +21,8 @@ const DEFAULT_WAIT_MS = 60 * 60 * 1000
 const IN_FLIGHT_MS = 30 * 60 * 1000
 /** An untimed notice this close to a timed one is the same rate-limit event. */
 const PAIR_MS = 5 * 60 * 1000
-const TIMED = /available in\s+([^.*\n]+)/i
+// Seen as "available in 4 minutes" and "available in: 21 minutes".
+const TIMED = /available in:?(?:\*\*)?\s+([^.*\n]+)/i
 
 export type Pr = {
   number: number
@@ -135,7 +136,7 @@ async function gh<T>(path: string, init?: { method: string; body: unknown }): Pr
   if (init) {
     const res = await fetch(`https://api.github.com${path}`, {
       method: init.method,
-      headers,
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(init.body),
     })
     if (!res.ok) throw new Error(`${init.method} ${path} → ${res.status} ${await res.text()}`)
