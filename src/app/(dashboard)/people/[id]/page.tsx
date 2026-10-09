@@ -3,7 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople, canManageClearances, canViewClearanceStatus } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { CLASSIFICATION_BADGE, CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
 import { DeletePersonButton } from "@/components/people/DeletePersonButton"
+import { MinistryRoleBadges } from "@/components/people/MinistryRoleBadges"
+import type { MinistryRole } from "@/lib/generated/prisma/enums"
 import {
   Table,
   TableBody,
@@ -23,6 +25,10 @@ import {
 } from "@/components/ui/table"
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+import { PersonClearances } from "@/components/people/PersonClearances"
+import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "@/lib/clearanceView"
+import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
+import { sydneyToday } from "@/lib/dates"
 
 function field(label: string, value: string | null | undefined) {
   return (
@@ -77,8 +83,9 @@ function PersonInfoCards({
   displayPerson,
   dob,
   showPastoralNotes,
+  clearanceCard,
 }: Readonly<{
-  person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null }
+  person: { gender: string | null; membershipDate: Date | null; baptismDate: Date | null; ministryRoles: MinistryRole[] }
   displayPerson: {
     email: string | null
     mobile: string | null
@@ -91,6 +98,7 @@ function PersonInfoCards({
   }
   dob: string | null
   showPastoralNotes: boolean
+  clearanceCard: ClearanceCardData | null
 }>) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -117,6 +125,14 @@ function PersonInfoCards({
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           {field("Membership date", person.membershipDate?.toLocaleDateString(APP_LOCALE) ?? null)}
           {field("Baptism date", person.baptismDate?.toLocaleDateString(APP_LOCALE) ?? null)}
+          {person.ministryRoles.length > 0 && (
+            <div className="col-span-2">
+              <span className="text-muted-foreground text-sm">Ministry roles</span>
+              <div className="mt-1">
+                <MinistryRoleBadges roles={person.ministryRoles} />
+              </div>
+            </div>
+          )}
           {displayPerson.notes && (
             <div className="col-span-2">
               {field("Notes", displayPerson.notes)}
@@ -136,6 +152,15 @@ function PersonInfoCards({
                 {field("Pastoral notes", displayPerson.pastoralNotes)}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {clearanceCard && (
+        <Card className="md:col-span-2">
+          <CardHeader><CardTitle className="text-base">Safeguarding</CardTitle></CardHeader>
+          <CardContent>
+            <PersonClearances {...clearanceCard} />
           </CardContent>
         </Card>
       )}
@@ -247,20 +272,43 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     void logAudit(userId, "VIEW_PASTORAL_NOTES", "Person", person.id)
   }
   const userCanSeeGiving = canAccessAccounting(session?.user?.role)
-  const givingTransactions = userCanSeeGiving
-    ? await prisma.transaction.findMany({
-        where: { personId: person.id, isGiving: true },
-        orderBy: { date: "desc" },
-        // KNOWN SCALING BOUND: shows the 2000 most recent giving rows. A decades-
-        // active weekly donor could exceed this; reducing the cap is deliberately
-        // avoided because the per-FY giving totals on this page must stay correct
-        // (truncation would understate them). Move to year-scoped lazy loading
-        // before that ceiling is realistic.
-        take: 2000,
-        select: { id: true, date: true, description: true, amount: true },
-      })
-    : []
-
+  // Safeguarding card. Gate BEFORE querying/decrypting: AUDITOR/EVENT_ORGANISER
+  // get nothing; VIEWER gets status badges only (buildClearanceCard strips the
+  // rest). Never select the `document` blob here.
+  const role = session?.user?.role
+  const canManage = canManageClearances(role)
+  // Independent reads run together: clearances, the verify-portal URL (managers
+  // only), and giving history (accounting roles only).
+  const [clearanceRows, wwccVerifyUrl, givingTransactions] = await Promise.all([
+    canViewClearanceStatus(role)
+      ? prisma.personClearance.findMany({
+          where: { personId: person.id },
+          select: clearanceSelectFor(role),
+        })
+      : Promise.resolve([]),
+    canManage ? getWwccVerifyUrl() : Promise.resolve(DEFAULT_WWCC_VERIFY_URL),
+    userCanSeeGiving
+      ? prisma.transaction.findMany({
+          where: { personId: person.id, isGiving: true },
+          orderBy: { date: "desc" },
+          // KNOWN SCALING BOUND: shows the 2000 most recent giving rows. A decades-
+          // active weekly donor could exceed this; reducing the cap is deliberately
+          // avoided because the per-FY giving totals on this page must stay correct
+          // (truncation would understate them). Move to year-scoped lazy loading
+          // before that ceiling is realistic.
+          take: 2000,
+          select: { id: true, date: true, description: true, amount: true },
+        })
+      : Promise.resolve([]),
+  ])
+  const clearanceCard = buildClearanceCard({
+    role: session?.user?.role,
+    personId: person.id,
+    rows: clearanceRows,
+    today: sydneyToday(),
+    wwccVerifyUrl,
+    ministryRoleCount: person.ministryRoles.length,
+  })
   const decryptedGivingTransactions = givingTransactions.map((t) => ({
     ...t,
     description: safeDecrypt(t.description),
@@ -313,6 +361,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         displayPerson={displayPerson}
         dob={dob}
         showPastoralNotes={showPastoralNotes}
+        clearanceCard={clearanceCard}
       />
 
       {userCanSeeGiving && (

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Printer } from "lucide-react"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
 import { CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
+import { MINISTRY_ROLES, MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
 
 export function PeopleFilters() {
   const router = useRouter()
@@ -85,6 +86,20 @@ export function PeopleFilters() {
           <SelectItem value="ALL">All roles</SelectItem>
           {Object.values(FamilyRole).map((r) => (
             <SelectItem key={r} value={r}>{FAMILY_ROLE_LABELS[r]}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={searchParams.get("ministryRole") ?? "ALL"}
+        onValueChange={(v: string) => update("ministryRole", v === "ALL" ? "" : v)}
+      >
+        <SelectTrigger className="w-48" aria-label="Filter by ministry role">
+          <SelectValue placeholder="Ministry role" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ALL">All ministry roles</SelectItem>
+          {MINISTRY_ROLES.map((r) => (
+            <SelectItem key={r} value={r}>{MINISTRY_ROLE_LABELS[r]}</SelectItem>
           ))}
         </SelectContent>
       </Select>

@@ -13,8 +13,18 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 // configured church name into AuthCard's logo alt text.
 export function ForgotPasswordForm() {
   const [state, action, pending] = useActionState(
-    async (_prev: { error?: string; success?: true } | undefined, formData: FormData) => {
-      return requestPasswordReset(formData.get("email") as string)
+    async (_prev: { error?: string; success?: true; email?: string } | undefined, formData: FormData) => {
+      const email = formData.get("email") as string
+      try {
+        const result = await requestPasswordReset(email)
+        // Echo the email back: React 19 resets the uncontrolled input after
+        // every action, so an error would otherwise wipe what the user typed.
+        return { ...result, email }
+      } catch {
+        // Transport/DB-level rejection — surface a retry instead of crashing
+        // to the route error boundary (mirrors ResetPasswordForm).
+        return { error: "Something went wrong. Please try again.", email }
+      }
     },
     undefined
   )
@@ -43,6 +53,7 @@ export function ForgotPasswordForm() {
               autoComplete="email"
               required
               placeholder="you@example.com"
+              defaultValue={state?.email}
               aria-invalid={state?.error ? true : undefined}
               aria-describedby={state?.error ? "forgot-error" : undefined}
             />

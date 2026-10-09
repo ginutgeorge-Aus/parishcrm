@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { CATEGORIES, RECURS } from "@/lib/eventConstants"
-import { sydneyDatetimeLocalToUTC } from "@/lib/dates"
+import { sydneyDatetimeLocalToUTC, isValidDatetimeLocal } from "@/lib/dates"
 import { parseCustomQuestions, MAX_CUSTOM_QUESTIONS } from "@/lib/eventQuestions"
 import { parseOrganizers } from "@/lib/eventOrganizers"
 import { parseTiers } from "@/lib/eventTiers"
@@ -15,12 +15,12 @@ export const EventSchema = z.object({
   description: z.string().max(2000).optional(),
   kind: z.enum(["one_off", "recurring"]).default("one_off"),
   category: z.enum(CATEGORIES).catch("worship"),
-  // Validate the exact string sydneyDatetimeLocalToUTC parses (`v + ":00.000Z"`),
-  // not a bare `new Date(v)` — a date-only value like "2026-08-01" is valid to
-  // `new Date` but becomes Invalid Date once the converter appends the time.
-  date: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid date"),
-  endDate: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid end date"),
-  registrationDeadline: z.string().optional().refine(v => !v || !Number.isNaN(new Date(v + ":00.000Z").getTime()), "Invalid registration deadline"),
+  // Same strict `YYYY-MM-DDTHH:mm` calendar check sydneyDatetimeLocalToUTC uses,
+  // not a bare `new Date(v)` — date-only values and impossible dates
+  // ("2026-02-30T10:00") must be rejected, not rolled over.
+  date: z.string().optional().refine(v => !v || isValidDatetimeLocal(v), "Invalid date"),
+  endDate: z.string().optional().refine(v => !v || isValidDatetimeLocal(v), "Invalid end date"),
+  registrationDeadline: z.string().optional().refine(v => !v || isValidDatetimeLocal(v), "Invalid registration deadline"),
   recurs: z.enum(RECURS).optional(),
   recursLabel: z.string().max(40).optional(),
   startTime: z.string().max(40).optional(),

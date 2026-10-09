@@ -14,6 +14,7 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("next/cache", () => ({
   revalidatePath: jest.fn(),
   revalidateTag: jest.fn(),
+  updateTag: jest.fn(),
   unstable_cache: (fn: unknown) => fn,
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
@@ -21,7 +22,7 @@ jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefine
 import { upsertSetting, getIdleTimeoutMinutes, updateChurchInfo, updatePettyCashCustodian } from "@/lib/actions/settings"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { revalidatePath, revalidateTag } from "next/cache"
+import { revalidatePath, revalidateTag, updateTag } from "next/cache"
 import { logAudit } from "@/lib/audit"
 
 const mockAuth = auth as jest.Mock
@@ -29,6 +30,7 @@ const mockUpsert = prisma.appSetting.upsert as jest.Mock
 const mockFindUnique = prisma.appSetting.findUnique as jest.Mock
 const mockRevalidate = revalidatePath as jest.Mock
 const mockRevalidateTag = revalidateTag as jest.Mock
+const mockUpdateTag = updateTag as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
 
 function makeFormData(key: string, value: string) {
@@ -222,13 +224,14 @@ describe("updateChurchInfo", () => {
     )
   })
 
-  it("busts the church-settings cache tag on success", async () => {
+  it("expires the church-settings cache tag on success (read-your-writes)", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     await updateChurchInfo(
       undefined,
       churchForm({ churchName: "Example Church", churchAddress: "1 St", churchABN: "12 345 678 901" })
     )
-    expect(mockRevalidateTag).toHaveBeenCalledWith("church-settings", "max")
+    expect(mockUpdateTag).toHaveBeenCalledWith("church-settings")
+    expect(mockRevalidateTag).not.toHaveBeenCalled()
     expect(mockRevalidate).toHaveBeenCalledWith("/settings")
   })
 
@@ -239,6 +242,25 @@ describe("updateChurchInfo", () => {
       churchForm({ churchName: "Example Church", churchAddress: "1 St", churchABN: "12 345 678 901" })
     )
     expect(mockRevalidateTag).not.toHaveBeenCalled()
+    expect(mockUpdateTag).not.toHaveBeenCalled()
+  })
+})
+
+describe("upsertSetting card-fee cache", () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it("expires the card-fee tag immediately so the next checkout uses the new rate", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const result = await upsertSetting(undefined, makeFormData("cardFeePercent", "1.75"))
+    expect(result).toEqual({ success: "Settings saved" })
+    expect(mockUpdateTag).toHaveBeenCalledWith("card-fee")
+    expect(mockRevalidateTag).not.toHaveBeenCalled()
+  })
+
+  it("does not touch the card-fee tag for unrelated keys", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    await upsertSetting(undefined, makeFormData("ownerNotificationEmail", "a@b.com"))
+    expect(mockUpdateTag).not.toHaveBeenCalled()
   })
 })
 

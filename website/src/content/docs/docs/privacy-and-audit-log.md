@@ -40,6 +40,8 @@ audit-logging failure doesn't go silently unnoticed. The recorded IP address is 
 one derived from the trusted reverse proxy's header position, never a raw, client-spoofable
 value.
 
+**Clearance records.** WWCC / Safe Ministry changes are audited as `CLEARANCE_ADDED`, `CLEARANCE_UPDATED`, `CLEARANCE_VERIFIED`, `CLEARANCE_UNVERIFIED` and `CLEARANCE_REMOVED` against the person. Every time a clearance document is opened, `CLEARANCE_VIEWED` is recorded with the client IP. The audit entries carry the clearance type and id only — never the WWC number, note or file contents. The document route answers `404` to anyone who may not manage clearances (including read-only VIEWER accounts), and is rate-limited.
+
 **What's deliberately *not* logged.** Metadata is scoped to avoid duplicating the very PII
 the log exists to hold accountable access to — for example, a person-record update logs
 which family the person belongs to, not the person's new phone number or notes content.

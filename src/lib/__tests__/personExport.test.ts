@@ -7,6 +7,7 @@ import {
   decryptFamilyScalars,
   decryptTransactionForExport,
   decryptRegistrationForExport,
+  decryptClearanceForExport,
 } from "@/lib/personExport"
 import { hmacEmail, encrypt } from "@/lib/crypto"
 
@@ -139,5 +140,48 @@ describe("decryptRegistrationForExport", () => {
   it("returns null for a corrupt encrypted customAnswers string instead of throwing", () => {
     const registration = { email: null, phone: null, customAnswers: "enc:not-valid-ciphertext" }
     expect(decryptRegistrationForExport(registration).customAnswers).toBeNull()
+  })
+})
+
+describe("decryptClearanceForExport", () => {
+  const base = {
+    type: "WWCC",
+    number: encrypt("WWC0000000E"),
+    expiresAt: new Date("2027-03-04T00:00:00.000Z"),
+    documentName: encrypt("wwcc.pdf"),
+    documentType: "application/pdf",
+    documentSize: 1234,
+    verifiedAt: new Date("2026-10-01T01:02:03.000Z"),
+    verifiedBy: { name: "Admin User" },
+    verificationNote: encrypt("Checked on portal"),
+    createdAt: new Date("2026-09-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-10-01T01:02:03.000Z"),
+  }
+
+  it("decrypts fields, formats expiry as YYYY-MM-DD and flattens the verifier name", () => {
+    expect(decryptClearanceForExport(base)).toEqual({
+      type: "WWCC",
+      number: "WWC0000000E",
+      expiresAt: "2027-03-04",
+      documentName: "wwcc.pdf",
+      documentType: "application/pdf",
+      documentSize: 1234,
+      verifiedAt: base.verifiedAt,
+      verifiedBy: "Admin User",
+      verificationNote: "Checked on portal",
+      createdAt: base.createdAt,
+      updatedAt: base.updatedAt,
+    })
+  })
+
+  it("returns nulls for absent fields and never carries a document blob", () => {
+    const bare = {
+      ...base, number: null, expiresAt: null, documentName: null, documentType: null,
+      documentSize: null, verifiedAt: null, verifiedBy: null, verificationNote: null,
+      document: Buffer.from("secret"),
+    }
+    const out = decryptClearanceForExport(bare)
+    expect(out).toMatchObject({ number: null, expiresAt: null, documentName: null, verifiedBy: null, verificationNote: null })
+    expect(out).not.toHaveProperty("document")
   })
 })

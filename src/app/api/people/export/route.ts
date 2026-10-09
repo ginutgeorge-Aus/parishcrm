@@ -10,6 +10,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
 import { MONTH_ABBR } from "@/lib/formatting"
 import { escapeCsv } from "@/lib/csvUtils"
+import { MINISTRY_ROLE_LABELS, parseMinistryRoleFilter } from "@/lib/ministryRoles"
 
 function fmtDate(d: Date | null): string {
   if (!d) return ""
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
   const roleFilter = Object.values(FamilyRole).includes(
     searchParams.get("role") as FamilyRole
   ) ? (searchParams.get("role") as FamilyRole) : null
+  const ministryRoleFilter = parseMinistryRoleFilter(searchParams.get("ministryRole"))
 
   // Safety cap: every row decrypts email/mobile/DOB in memory before the
   // first byte is written, so an unbounded findMany grows memory with the
@@ -60,6 +62,7 @@ export async function GET(req: NextRequest) {
       }),
       ...(classificationFilter && { classification: classificationFilter }),
       ...(roleFilter && { role: roleFilter }),
+      ...(ministryRoleFilter && { ministryRoles: { has: ministryRoleFilter } }),
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     take: EXPORT_CAP,
@@ -73,13 +76,14 @@ export async function GET(req: NextRequest) {
       dateOfBirth: true,
       membershipDate: true,
       baptismDate: true,
+      ministryRoles: true,
       family: { select: { name: true } },
     },
   })
 
   const headers = [
     "First Name", "Last Name", "Family", "Role", "Classification",
-    "Email", "Mobile", "Date of Birth", "Membership Date", "Baptism Date",
+    "Email", "Mobile", "Date of Birth", "Membership Date", "Baptism Date", "Ministry Roles",
   ]
 
   const rows = people.map((p) => [
@@ -93,6 +97,7 @@ export async function GET(req: NextRequest) {
     p.dateOfBirth ? safeDecrypt(p.dateOfBirth) : "",
     fmtDate(p.membershipDate),
     fmtDate(p.baptismDate),
+    p.ministryRoles.map((r) => MINISTRY_ROLE_LABELS[r]).join("; "),
   ])
 
   const csv = [headers, ...rows]

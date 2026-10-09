@@ -157,6 +157,12 @@ export async function updateFamily(
   redirect(`/families/${id}`)
 }
 
+/**
+ * Permanently delete a family (ADMIN only), allowed only for a family archived
+ * past the retention floor with no linked transactions or active members.
+ * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED.
+ * @param id Family.id
+ */
 export async function deleteFamily(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -200,8 +206,24 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
     return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
   }
 
+  // Clearances cascade with the members (family -> person -> clearance), so
+  // capture them first and audit each as CLEARANCE_REMOVED once the delete
+  // commits. Archived members can't gain clearances (upsertClearance 404s
+  // them), so nothing slips in between this read and the delete.
+  const removedClearances = await prisma.personClearance.findMany({
+    where: { person: { familyId: id } },
+    select: { id: true, type: true, personId: true },
+  })
   await prisma.family.delete({ where: { id } })
-  await logAudit(actorId(session), "FAMILY_DELETED", "Family", id)
+  const actor = actorId(session)
+  await logAudit(actor, "FAMILY_DELETED", "Family", id)
+  for (const c of removedClearances) {
+    await logAudit(actor, "CLEARANCE_REMOVED", "Person", c.personId, {
+      type: c.type,
+      clearanceId: c.id,
+      cascade: true,
+    })
+  }
   revalidatePath("/families")
   redirect("/families")
 }
