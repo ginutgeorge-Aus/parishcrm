@@ -233,6 +233,15 @@ describe("unenrolChild / removeTeacher success paths", () => {
     expect(prisma.sundaySchoolEnrolment.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 5 } })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_UNENROLLED", "SundaySchoolClass", 1, { personId: 5 })
   })
+  it("refuses to unenrol or remove a teacher once the class was archived mid-request", async () => {
+    as(UserRole.ADMIN); liveClass()
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])
+    expect(await unenrolChild(1, 5)).toEqual({ error: "Class not found" })
+    expect(await removeTeacher(1, 7)).toEqual({ error: "Class not found" })
+    expect(prisma.sundaySchoolEnrolment.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolTeacher.deleteMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("deletes the teacher link and audits", async () => {
     as(UserRole.ADMIN); liveClass()
     await removeTeacher(1, 7)

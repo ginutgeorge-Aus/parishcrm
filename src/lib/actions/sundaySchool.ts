@@ -12,6 +12,7 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
@@ -150,12 +151,30 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
   revalidatePath("/sunday-school")
 }
 
+/**
+ * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
+ * concurrent archive (an UPDATE needing the row lock) waits until `fn` commits,
+ * and `fn` is skipped if the class was archived after the caller's check.
+ * Returns false when the class is no longer live.
+ */
+async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
+    if (rows.length === 0) return false
+    await fn(tx)
+    return true
+  })
+}
+
 /** Remove a teacher from a class (missing link = success). canEdit-gated. */
 export async function removeTeacher(classId: number, personId: number): Promise<ActionResult> {
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  await prisma.sundaySchoolTeacher.deleteMany({ where: { classId, personId } })
+  if (!(await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } })))) {
+    return { error: "Class not found" }
+  }
   await logAudit(actorId(g.session), "SS_TEACHER_REMOVED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
@@ -222,7 +241,9 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  await prisma.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } })
+  if (!(await withLiveClass(classId, (tx) => tx.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } })))) {
+    return { error: "Class not found" }
+  }
   await logAudit(actorId(g.session), "SS_UNENROLLED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
