@@ -19,6 +19,7 @@ import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 const MAX_BATCH = 200
+const PERSON_GONE = "Person not found"
 const NOT_TEACHER = "Tag this person as a Sunday school teacher first"
 const ENTITY = "SundaySchoolClass"
 const DUPLICATE_CLASS = "A class with this name and location already exists for that year (it may be archived)"
@@ -206,7 +207,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   if (!ids.every(isValidPgId)) return { error: "Invalid person" }
 
   const found = await prisma.person.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true } })
-  if (found.length !== ids.length) return { error: "Person not found" }
+  if (found.length !== ids.length) return { error: PERSON_GONE }
 
   const year = g.cls.year
   const existing = await prisma.sundaySchoolEnrolment.findMany({
@@ -223,6 +224,11 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const rows = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
       if (rows.length === 0) return false
+      // Same for the people: an archive (UPDATE on Person) waits for these
+      // enrolments, or they're refused if it already committed.
+      const people = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
+      if (people.length !== ids.length) throw new Error(PERSON_GONE)
       for (const personId of ids) {
         await tx.sundaySchoolEnrolment.upsert({
           where: { personId_year: { personId, year } },
@@ -235,6 +241,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
     }, { timeout: 30_000 })
     if (!live) return { error: "Class not found" }
   } catch (e) {
+    if (e instanceof Error && e.message === PERSON_GONE) return { error: PERSON_GONE }
     // Two editors enrolling the same child at once: both upserts take the insert path.
     if (isP2002(e)) return { error: "Someone else just changed these enrolments — try again" }
     throw e
@@ -264,9 +271,10 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
  * Roll `fromYear` over to the next year in one transaction: copy every live
  * class and its teachers, then move each child up one level at the same
  * location (see planRollover). One-time: refused once next year has any class,
- * archived or not (archived classes still occupy the year). The check is
- * repeated inside a Serializable transaction so a concurrent editor cannot slip
- * a class in between the check and the copy.
+ * archived or not (archived classes still occupy the year). Inside the
+ * transaction the class, teacher and enrolment tables are locked first, so
+ * in-flight class/teacher/enrolment writes finish before the source is read
+ * and new ones wait until the copy commits.
  */
 export async function rolloverYear(fromYear: number): Promise<ActionResultWithSuccess> {
   const g = await editor()
@@ -282,10 +290,13 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
-      // Authoritative guard: Serializable makes a concurrent insert into toYear fail one side.
+      // SHARE ROW EXCLUSIVE blocks every insert/update/delete on these tables
+      // (and other rollovers) but not plain reads. At READ COMMITTED each later
+      // statement sees everything committed before the lock was granted, so the
+      // toYear check and the source read below can't miss a concurrent write.
+      await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+      // Authoritative one-time guard.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
-      // Read and plan the source inside the same snapshot, so an enrolment or
-      // teacher change during rollover conflicts (P2034) instead of being lost.
       const source = await tx.sundaySchoolClass.findMany({
         where: { year: fromYear, archivedAt: null },
         orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
@@ -323,10 +334,10 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // report the rows actually written, not the plan.
       if (enrolments.length) placed = (await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })).count
       return map
-    }, { isolationLevel: "Serializable" })
+    }, { isolationLevel: "ReadCommitted" })
   } catch (e) {
     if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE)) return { error: e.message }
-    // Serialization failure: another editor changed toYear mid-rollover.
+    // Deadlock/serialization failure (P2034): a concurrent write collided with the lock.
     if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }
     }

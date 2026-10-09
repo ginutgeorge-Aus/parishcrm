@@ -367,6 +367,8 @@ removeRollMarker(classId: number, userId: number): Promise<ActionResult>  // can
 
 Order in the two roll actions: `assertNotDemo()` → `auth()`; no session → Unauthorized → `isValidPgId` ids → `canMarkRoll(actorId(session), classId, role)` else `{ error: "Unauthorized" }` → class `findFirst({ id, archivedAt: null }, select { year })` else "Class not found" → `parseRollDate(ymd, cls.year, sydneyTodayYMD())` (blank not allowed here: reject `!ymd`) → status via `parseAttendanceStatus` (undefined → "Invalid status") → write → audit → `revalidatePath` both roll paths + `/sunday-school/${classId}`.
 
+Concurrency (same pattern as OSS-9's `withLiveClass`): after the guards, run each roll action's eligibility check + write in ONE `prisma.$transaction`. First `SELECT … FROM "SundaySchoolClass" WHERE id = … AND "archivedAt" IS NULL FOR SHARE` (archive waits / write refused if archive committed), then lock the relevant enrolment row(s) `FOR SHARE` (`"SundaySchoolEnrolment" WHERE "classId" = … AND "personId" = ANY(…)`) and re-check eligibility under those locks — a concurrent move/unenrol waits or the mark is refused. The historical-correction rule below still applies inside the transaction.
+
 `setAttendance` specifics:
 - IDOR: child must be enrolled in THIS class and not archived (`sundaySchoolEnrolment.findFirst({ where: { classId, personId, person: { archivedAt: null } } })`, matching the roster) **or** already have a row in this class+date session (correcting history after a move). Else `{ error: "Child is not in this class" }`.
 - Session: module-private `ensureSession(classId, date)`:
@@ -467,6 +469,7 @@ Run: `npm test -- --testPathPatterns="RollList"` → FAIL.
 
 Props: `{ classId: number; date: string; rows: RollRow[]; readOnly: boolean; dateHrefBase: string }`.
 - Copy the state model from `src/components/events/CheckInList.tsx`: `Record<personId, AttendanceStatus|null>` lazily initialised, adjust-state-during-render on new `rows`, per-row `pendingIds` Set guard, optimistic set → server call → revert on `{ error }` or throw.
+- Serialize bulk vs per-row: while **Mark unmarked present** is pending, disable every row's buttons; while any row is pending, disable the bulk button. On bulk success, set to `PRESENT` only rows still `null` locally (never overwrite a row changed meanwhile), then `router.refresh()` so the list matches the DB.
 - Header (sticky on mobile: `sticky top-0 z-10 bg-muted pb-2`): `<input type="date" max={today}>` whose change does `router.push(`${dateHrefBase}?date=${v}`)`; counts line from `rollCounts`; search `Input`; **Mark unmarked present** button (hidden when `readOnly` or no unmarked) → on success set every `null` row to `PRESENT` locally.
 - Row: name (+ "not enrolled" muted tag when `!enrolled`), then a 3-button group `role="group" aria-label={`Attendance for ${name}`}`; each button `aria-pressed`, `min-h-11 min-w-20`, design tokens only (Present `bg-income/10 text-income`, Late `bg-warning/20 text-warning-foreground`, Absent `bg-destructive/10 text-destructive`, inactive `variant="outline"`). Tap active → clear. Lists of any size: plain `<ul>`; no virtualisation needed at Sunday School sizes (YAGNI), one roundtrip per tap.
 - At ≤ 360 px the buttons wrap under the name (`flex-wrap`), no horizontal scroll.

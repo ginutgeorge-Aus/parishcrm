@@ -10,6 +10,7 @@ jest.mock("@/lib/prisma", () => {
     person: { findFirst: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
+    $executeRaw: jest.fn(),
   }
   m.$transaction.mockImplementation((arg: unknown) =>
     typeof arg === "function" ? (arg as (tx: typeof m) => unknown)(m) : Promise.all(arg as unknown[]))
@@ -39,7 +40,9 @@ const form = (o: Record<string, string>) => {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([{ id: 1 }])
+  // Lock reads find their rows: the people lock echoes the ids it was given.
+  ;(prisma.$queryRaw as jest.Mock).mockImplementation((sql: TemplateStringsArray, ...vals: unknown[]) =>
+    Promise.resolve(Array.isArray(vals[0]) ? (vals[0] as number[]).map((id) => ({ id })) : [{ id: 1 }]))
 })
 
 describe("guards", () => {
@@ -197,6 +200,16 @@ describe("enrolChildren", () => {
     expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
+  it("refuses when a person is archived before the enrolment transaction", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([{ id: 2 }])
+    expect(await enrolChildren(1, [2, 3])).toEqual({ error: "Person not found" })
+    expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("maps a concurrent enrol race to a retry message", async () => {
     as(UserRole.ADMIN)
     liveClass()
@@ -287,6 +300,9 @@ describe("rolloverYear", () => {
     ])
     ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 })
     const r = await rolloverYear(2026)
+    // Locks the three tables first, then reads at READ COMMITTED.
+    expect((prisma.$executeRaw as jest.Mock).mock.calls[0][0].join("?")).toContain('IN SHARE ROW EXCLUSIVE MODE')
+    expect((prisma.$transaction as jest.Mock).mock.calls[0][1]).toEqual({ isolationLevel: "ReadCommitted" })
     expect((prisma.sundaySchoolClass.findMany as jest.Mock).mock.calls[0][0].select.teachers.where).toEqual({
       person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } },
     })
