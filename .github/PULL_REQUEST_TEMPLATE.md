@@ -16,6 +16,7 @@
 - [ ] Schema change? migration committed (`prisma migrate dev`) + client regenerated
 - [ ] Role checks enforced at **both** page and action for any new mutation
 - [ ] **Feature?** docs page added/updated in `website/src/content/docs/docs/` (what, who, config) — see the **Wiki check** job summary (docs coverage)
+- [ ] **Feature or behaviour change?** README feature/stack summary still accurate (update it in this PR if the change makes a README claim stale)
 - [ ] No secrets, member PII, or real credentials in the diff
 - [ ] **Bugfix?** a failing-first regression test ships in this PR (guardrail ladder L3)
 - [ ] **Class bitten twice?** promoted to a guardrail — `.semgrep/rules.yml` rule or CI gate (L4–5), not just a note

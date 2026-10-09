@@ -1,0 +1,56 @@
+name: CodeRabbit Nudge
+
+# CodeRabbit's free OSS plan reviews ~1 PR/hour. Pushes past the limit get
+# "Review rate limited" while the CodeRabbit check still passes. Each hour this
+# posts `@coderabbitai review` on ONE open PR whose head commit CodeRabbit hasn't
+# reviewed (skips while rate limited or a review is in flight). PR labels:
+# `review-next` = go first, `no-coderabbit` = never nudge.
+#
+# Needs secret CODERABBIT_NUDGE_PAT: fine-grained PAT of the owner account,
+# this repo only, Pull requests + Issues read/write. CodeRabbit ignores commands
+# from bots, so github.token can't be used. An expired/revoked PAT makes the run
+# fail (401), which emails the owner. Forks: the job is skipped (repo guard).
+
+on:
+  schedule:
+    - cron: '23 * * * *'     # hourly at :23
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only print which PR would be nudged'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coderabbit-nudge
+  cancel-in-progress: true
+
+jobs:
+  nudge:
+    if: github.repository == 'ginutgeorge-Aus/parishcrm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/coderabbit-nudge.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Nudge CodeRabbit
+        env:
+          GH_TOKEN: ${{ secrets.CODERABBIT_NUDGE_PAT }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::CODERABBIT_NUDGE_PAT not set — see the header of this workflow."
+            exit 1
+          fi
+          args=""
+          [ "$DRY_RUN" = "true" ] && args="--dry-run"
+          node --no-warnings scripts/coderabbit-nudge.ts $args

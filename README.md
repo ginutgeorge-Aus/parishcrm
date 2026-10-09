@@ -23,7 +23,7 @@ config presets.
 - **Frontend:** Next.js 16 App Router, React 19, TypeScript
 - **Backend:** Next.js Server Actions + API routes
 - **Database:** Prisma 7 + PostgreSQL
-- **Auth:** NextAuth v5 / Auth.js (JWT, email OTP 2FA, trusted devices)
+- **Auth:** NextAuth v5 / Auth.js (JWT, email OTP or authenticator-app (TOTP) 2FA, backup codes, trusted devices)
 - **UI:** shadcn/ui + Tailwind CSS v4
 - **Testing:** Jest 30 + React Testing Library (unit)
 
@@ -167,7 +167,7 @@ Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `
 ### Authentication
 
 - **Server Components/Actions:** `auth()` from `@/auth`. **Client Components:** `useSession()`.
-- **2FA:** email OTP after password. Password and OTP each lock after 5 wrong attempts (15-min cooldown; ADMIN can unlock).
+- **2FA:** after password — email OTP, or an authenticator app (TOTP, opt-in on My Account) with 10 single-use backup codes. Password and second factor each lock after 5 wrong attempts (15-min cooldown; ADMIN can unlock; an admin can reset a lost authenticator). See [Login & two-step verification](https://ginutgeorge-aus.github.io/parishcrm/docs/login-and-two-step-verification/).
 - **Trusted devices:** "remember this device" skips OTP for 14 days; MFA still required on new devices.
 - **Session:** JWT, 60-minute idle timeout.
 
