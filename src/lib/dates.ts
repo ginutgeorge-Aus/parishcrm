@@ -227,7 +227,23 @@ export function formatSydneyDateTime(d: Date): string {
  */
 function sydneyWallClockToUTC(naive: Date): Date {
   const guess = new Date(naive.getTime() - sydneyOffsetMs(naive))
-  return new Date(naive.getTime() - sydneyOffsetMs(guess))
+  const second = new Date(naive.getTime() - sydneyOffsetMs(guess))
+  // A wall time inside a DST gap (e.g. a zone that skips midnight) has no real
+  // instant; the passes then disagree and the second can land on the wrong
+  // calendar day. Keep whichever candidate still falls on the requested date.
+  return sameSydneyDate(second, naive) ? second : guess
+}
+
+/**
+ * Whether real instant `d` falls on the calendar date of naive wall-clock `naive`.
+ *
+ * @param d - a real UTC instant
+ * @param naive - Sydney wall-clock time encoded as a UTC Date
+ * @returns true when both name the same Sydney calendar date
+ */
+function sameSydneyDate(d: Date, naive: Date): boolean {
+  const { year, month, day } = sydneyParts(d)
+  return year === naive.getUTCFullYear() && month === naive.getUTCMonth() + 1 && day === naive.getUTCDate()
 }
 
 /**

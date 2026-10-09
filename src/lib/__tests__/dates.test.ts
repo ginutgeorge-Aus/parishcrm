@@ -29,6 +29,13 @@ describe("timezone config", () => {
     // 2025-07-01T00:00:00Z = 20:00 on 30 Jun in New York (EDT -4)
     expect(formatSydneyDate(new Date("2025-07-01T00:00:00Z"))).toBe("Mon 30 Jun 2025")
   })
+
+  it("start of day lands on the requested date when DST skips midnight", () => {
+    const { sydneyStartOfDayUTC, sydneyEndOfDayUTC } = load("America/Santiago")
+    // Chile skips 00:00–01:00 on 2026-09-06 (-04 → -03): the day starts 01:00 local = 04:00Z.
+    expect(sydneyStartOfDayUTC("2026-09-06").toISOString()).toBe("2026-09-06T04:00:00.000Z")
+    expect(sydneyEndOfDayUTC("2026-09-05").toISOString()).toBe("2026-09-06T03:59:59.999Z")
+  })
 })
 
 describe("sydneyDatetimeLocalToUTC", () => {
