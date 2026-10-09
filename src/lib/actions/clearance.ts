@@ -11,7 +11,7 @@ import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUp
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
-import type { ActionResult } from "./types"
+import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 // WWCC / Safe Ministry clearances on a person. Storage mirrors
 // TransactionAttachment (transactionAttachment.ts): the file is base64-encoded,
@@ -313,4 +313,68 @@ export async function deleteClearance(clearanceId: string, seenUpdatedAt: string
     clearanceId: row.id,
   })
   revalidatePath(`/people/${row.personId}`)
+}
+
+// Not exported: a "use server" module may only export async functions.
+const BULK_VERIFY_MAX = 200
+
+/** Thrown inside the bulk-verify transaction to roll it back when any row went stale. */
+class StaleBatchError extends Error {}
+
+/**
+ * Marks many clearances verified in one step (the "Mark verified" button on the
+ * WWCC batch helper). One optional note (for example the portal's status text)
+ * is stored on every row. All-or-nothing: if any id is missing, archived, a WWCC
+ * without a number, or was verified/archived since the page loaded, nothing is
+ * written. The update is conditioned on `verifiedAt: null` inside a transaction,
+ * so it can never overwrite a verification made by someone else in the meantime.
+ * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
+ * is written per clearance actually updated.
+ * @param ids PersonClearance.id values (max 200)
+ * @param note optional free text, max 500 chars, stored encrypted
+ */
+export async function verifyClearancesBulk(ids: string[], note?: string): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+
+  if (!Array.isArray(ids) || ids.length === 0) return { error: "Select at least one clearance" }
+  if (ids.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }
+  if (!ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64)) return { error: "Invalid selection" }
+  const cleanNote = typeof note === "string" ? note.trim() : ""
+  if (cleanNote.length > MAX_NOTE_LEN) return { error: `Note is too long (max ${MAX_NOTE_LEN} characters)` }
+
+  const unique = [...new Set(ids)]
+  const found = await prisma.personClearance.findMany({
+    where: { id: { in: unique }, person: { archivedAt: null } },
+    select: { id: true, personId: true, type: true, number: true },
+  })
+  if (found.length !== unique.length) return { error: "Some selected clearances no longer exist" }
+  const noNumber = found.filter((c) => c.type === "WWCC" && !c.number)
+  if (noNumber.length > 0) {
+    return { error: `${noNumber.length} selected WWCC record(s) have no WWC number — add it before verifying` }
+  }
+
+  const actor = actorId(session)
+  let count: number
+  try {
+    count = await prisma.$transaction(async (tx) => {
+      const res = await tx.personClearance.updateMany({
+        where: { id: { in: unique }, verifiedAt: null, ...LIVE_PERSON },
+        data: { verifiedAt: new Date(), verifiedById: actor, verificationNote: cleanNote ? encrypt(cleanNote) : null },
+      })
+      if (res.count !== unique.length) throw new StaleBatchError()
+      return res.count
+    })
+  } catch (e) {
+    if (e instanceof StaleBatchError) return { error: STALE_ERROR }
+    throw e
+  }
+  for (const c of found) {
+    await logAudit(actor, "CLEARANCE_VERIFIED", "Person", c.personId, { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" })
+  }
+  revalidatePath("/people/clearances")
+  for (const personId of new Set(found.map((c) => c.personId))) revalidatePath(`/people/${personId}`)
+  return { success: `Marked ${count} clearance(s) verified` }
 }
