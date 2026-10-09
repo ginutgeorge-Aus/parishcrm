@@ -28,7 +28,8 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
     select: {
       id: true, year: true, name: true, level: true, location: true, archivedAt: true,
       teachers: {
-        where: { person: { archivedAt: null } },
+        // Untagged teachers are hidden: addTeacher and rollover reject them too.
+        where: { person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } } },
         orderBy: { person: { lastName: "asc" } },
         select: { person: { select: {
           id: true, firstName: true, lastName: true,

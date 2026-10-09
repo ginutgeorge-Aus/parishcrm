@@ -25,13 +25,14 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
     orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
     select: {
       id: true, name: true, level: true, location: true,
-      teachers: { where: { person: { archivedAt: null } }, select: { person: { select: { firstName: true, lastName: true } } } },
+      teachers: { where: { person: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" } } }, select: { person: { select: { firstName: true, lastName: true } } } },
       _count: { select: { enrolments: { where: { person: { archivedAt: null } } } } },
     },
   })
-  // Rollover is one-time: only offered while next year is still empty.
+  // Rollover is one-time: only offered while next year has no classes at all
+  // (archived included), matching rolloverYear's guard.
   const canRollover = editor && classes.length > 0 && year < MAX_YEAR
-    && (await prisma.sundaySchoolClass.count({ where: { year: year + 1, archivedAt: null } })) === 0
+    && (await prisma.sundaySchoolClass.count({ where: { year: year + 1 } })) === 0
 
   const groups = new Map<string, typeof classes>()
   for (const c of classes) groups.set(c.location, [...(groups.get(c.location) ?? []), c])

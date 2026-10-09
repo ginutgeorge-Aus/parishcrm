@@ -71,7 +71,7 @@ describe("/sunday-school", () => {
     const html = await render("2026")
     expect(html).toContain("New class")
     expect(html).toContain("Roll over to 2027")
-    expect(prisma.sundaySchoolClass.count).toHaveBeenCalledWith({ where: { year: 2027, archivedAt: null } })
+    expect(prisma.sundaySchoolClass.count).toHaveBeenCalledWith({ where: { year: 2027 } })
   })
 
   it("hides Roll over once next year has classes", async () => {

@@ -106,7 +106,7 @@ async function main() {
   })
   // Skip associations when the class was archived since the last seed run.
   if (!demoClass.archivedAt) {
-    if (jane.firstName === "Jane" && jane.lastName === "Sample" && jane.ministryRoles.includes("SUNDAY_SCHOOL_TEACHER")) {
+    if (jane.archivedAt === null && jane.firstName === "Jane" && jane.lastName === "Sample" && jane.ministryRoles.includes("SUNDAY_SCHOOL_TEACHER")) {
       await prisma.sundaySchoolTeacher.upsert({
         where: { classId_personId: { classId: demoClass.id, personId: jane.id } },
         update: {},
