@@ -12,9 +12,16 @@ name: CodeRabbit Nudge
 # from bots, so github.token can't be used. An expired/revoked PAT makes the run
 # fail (401), which emails the owner. Forks: the job is skipped (repo guard).
 
+# Triggers: any CodeRabbit comment on a PR (a finished review or a rate-limit
+# notice — the moment the next slot becomes knowable), plus an hourly cron as a
+# backstop (GitHub's scheduler often runs hours late). A rate-limited run waits
+# for the reset (--wait) and decides again; a newer event cancels the waiting
+# run, so only one ever sleeps.
 on:
+  issue_comment:
+    types: [created, edited]
   schedule:
-    - cron: '23 * * * *'     # hourly at :23
+    - cron: '23 * * * *'     # hourly at :23 (backstop)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,19 +32,27 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: coderabbit-nudge
-  cancel-in-progress: true
-
 jobs:
   nudge:
     # The PAT lives in environment `coderabbit-nudge`, whose deployment policy
     # allows only `main` — GitHub withholds it from runs on any other ref even if
     # a branch edits this file. The ref check just skips such runs cleanly.
-    if: github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main'
+    # issue_comment runs from main; only CodeRabbit's own PR comments count —
+    # not our nudge (PAT owner), not other people/bots, and not CodeRabbit's
+    # instant "Review triggered" ack (it would re-nudge mid-review).
+    if: >-
+      github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main' &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request && github.event.comment.user.login == 'coderabbitai[bot]' &&
+        !contains(github.event.comment.body, 'Review triggered')))
+    # Job-level, so only runs that pass the `if` join the group: an unrelated
+    # comment's skipped run can't cancel a run sleeping until the reset.
+    concurrency:
+      group: coderabbit-nudge
+      cancel-in-progress: true
     environment: coderabbit-nudge
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 75   # > the script's 65-min --wait cap
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +71,6 @@ jobs:
             echo "::error::CODERABBIT_NUDGE_PAT not set — see the header of this workflow."
             exit 1
           fi
-          args=""
+          args="--wait"
           [ "$DRY_RUN" = "true" ] && args="--dry-run"
           node --no-warnings scripts/coderabbit-nudge.ts $args
