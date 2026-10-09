@@ -64,3 +64,11 @@ it("keeps Members/Events/Settings groups as flat NavItem arrays", () => {
     expect(group.items.every((entry) => !("subLabel" in entry))).toBe(true)
   }
 })
+
+it("shows the Clearances link only to editors (canManageClearances = canEdit)", () => {
+  const visible = (flags: typeof allTrueFlags) =>
+    flattenNavItems(buildNavGroups(flags).find((g) => g.label === "Members")!.items)
+      .filter((i) => i.show).map((i) => i.label)
+  expect(visible(allTrueFlags)).toContain("Clearances")
+  expect(visible({ ...allTrueFlags, isEditor: false })).not.toContain("Clearances")
+})
