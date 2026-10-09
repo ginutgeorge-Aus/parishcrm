@@ -78,16 +78,15 @@ export async function createClass(year: number, _prev: ActionResult, formData: F
 
   let id: number
   try {
-    // Serializable + a read of the year's classes: a concurrent rolloverYear
-    // into this year (same read-then-insert) conflicts, so one side gets P2034
-    // instead of both committing a mix of copied and hand-made classes.
+    // Same table lock as rolloverYear, so a create and a rollover run one after
+    // the other instead of interleaving.
     id = await prisma.$transaction(async (tx) => {
-      await tx.sundaySchoolClass.count({ where: { year } })
+      // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
+      await tx.$executeRaw`LOCK TABLE "SundaySchoolClass" IN SHARE ROW EXCLUSIVE MODE`
       return (await tx.sundaySchoolClass.create({ data: { year, ...form.data }, select: { id: true } })).id
-    }, { isolationLevel: "Serializable" })
+    })
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
-    if (isP2034(e)) return { error: `${year} was changed by someone else — try again` }
     throw e
   }
   await logAudit(actorId(g.session), "SS_CLASS_CREATED", ENTITY, id, { year, ...form.data })
@@ -136,6 +135,7 @@ export async function archiveClass(id: number): Promise<ActionResult> {
  */
 async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
+    // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
     const rows = await tx.$queryRaw<{ id: number }[]>`
       SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
     if (rows.length === 0) return false
@@ -162,6 +162,7 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
     const live = await withLiveClass(classId, async (tx) => {
       // Re-check the tag under FOR SHARE: an untag (UPDATE on Person) waits for
       // this insert, or the insert is refused if the untag committed first.
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       const ok = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ${personId} AND "archivedAt" IS NULL
           AND 'SUNDAY_SCHOOL_TEACHER' = ANY("ministryRoles") FOR SHARE`
@@ -221,11 +222,13 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
     // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs
     // the row lock) until the enrolments commit, and fails if it already has.
     const live = await prisma.$transaction(async (tx) => {
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       const rows = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
       if (rows.length === 0) return false
       // Same for the people: an archive (UPDATE on Person) waits for these
       // enrolments, or they're refused if it already committed.
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
@@ -294,6 +297,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // (and other rollovers) but not plain reads. At READ COMMITTED each later
       // statement sees everything committed before the lock was granted, so the
       // toYear check and the source read below can't miss a concurrent write.
+      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
       // Authoritative one-time guard.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
@@ -334,7 +338,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // report the rows actually written, not the plan.
       if (enrolments.length) placed = (await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })).count
       return map
-    }, { isolationLevel: "ReadCommitted" })
+      // LOCK TABLE may wait out an in-flight enrol batch (30s timeout) first.
+    }, { isolationLevel: "ReadCommitted", timeout: 60_000 })
   } catch (e) {
     if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE)) return { error: e.message }
     // Deadlock/serialization failure (P2034): a concurrent write collided with the lock.
