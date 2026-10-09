@@ -84,7 +84,8 @@ export async function createClass(year: number, _prev: ActionResult, formData: F
       // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass" IN SHARE ROW EXCLUSIVE MODE`
       return (await tx.sundaySchoolClass.create({ data: { year, ...form.data }, select: { id: true } })).id
-    })
+      // May queue behind a rollover (itself up to 60s), so outlast it.
+    }, { timeout: 90_000 })
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
     throw e
