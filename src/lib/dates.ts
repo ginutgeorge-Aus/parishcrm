@@ -115,6 +115,17 @@ function sydneyOffsetMs(at: Date): number {
 }
 
 /**
+ * True only for a real calendar `YYYY-MM-DDTHH:mm` value. `Date` alone would
+ * accept other separators and silently roll impossible dates over
+ * (`2026-02-30` -> 2 March), so require the exact shape and a UTC round-trip.
+ */
+export function isValidDatetimeLocal(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return false
+  const d = new Date(v + ":00.000Z")
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 16) === v
+}
+
+/**
  * Read a `datetime-local` input value (`YYYY-MM-DDTHH:mm`, no timezone) as a
  * Sydney wall-clock time and return the matching UTC instant. Without this the
  * server (UTC in prod) parses the naive string as UTC, shifting every event
@@ -123,8 +134,13 @@ function sydneyOffsetMs(at: Date): number {
  * Two passes: the offset at the naive instant is only a first guess — the naive
  * reading sits a whole offset away from the real instant, so it can land across
  * a DST transition. Re-read the offset at the guessed instant.
+ *
+ * Malformed or impossible input (`2026-02-30T10:00`) returns an Invalid Date
+ * (`getTime()` is NaN) instead of throwing a RangeError from `Intl`; callers
+ * validate with the same `isValidDatetimeLocal` check (see `EventSchema`).
  */
 export function sydneyDatetimeLocalToUTC(local: string): Date {
+  if (!isValidDatetimeLocal(local)) return new Date(Number.NaN)
   const naive = new Date(local + ":00.000Z").getTime()
   const guess = naive - sydneyOffsetMs(new Date(naive))
   return new Date(naive - sydneyOffsetMs(new Date(guess)))

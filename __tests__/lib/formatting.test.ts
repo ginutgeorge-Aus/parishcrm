@@ -79,6 +79,42 @@ describe("toCents", () => {
     // 0.1 + 0.2 === 0.30000000000000004
     expect(toCents(0.1 + 0.2)).toBe(30)
   })
+  it("expands exponent notation exactly instead of mis-scaling it", () => {
+    expect(toCents(1e-7)).toBe(0)
+    expect(toCents(d("1e-7"))).toBe(0)
+    expect(toCents(d("1.5e-2"))).toBe(1)
+    expect(toCents(d("1.5E+3"))).toBe(150000)
+    expect(toCents(d("-2e1"))).toBe(-2000)
+    expect(toCents(d("1e13"))).toBe(1e15) // largest-ish exact amount still fine
+  })
+  it("accepts bare-dot coefficients in exponent notation", () => {
+    expect(toCents(d(".5e2"))).toBe(5000)
+    expect(toCents(d("5.e2"))).toBe(50000)
+    expect(toCents(d("-.5e1"))).toBe(-500)
+  })
+  it("returns NaN when cents exceed Number.MAX_SAFE_INTEGER", () => {
+    expect(toCents(d("9007199254740993e-2"))).toBeNaN()
+    expect(toCents(1e21)).toBeNaN()
+    expect(toCents(d("90071992547409.91"))).toBe(9007199254740991)
+  })
+  it("applies exponent cutoffs to the normalised decimal position", () => {
+    expect(toCents(d("0e100"))).toBe(0)
+    expect(toCents(d("1" + "0".repeat(51) + "e-51"))).toBe(100)
+    expect(toCents(d("0.00012e3"))).toBe(12)
+    expect(toCents(d("5e-3"))).toBe(0)
+  })
+  it("returns NaN for malformed input rather than a wrong amount", () => {
+    for (const bad of ["", "abc", "1,234.50", "1.2.3", "--5", "1e", "e5", ".", "1e999", "$5"]) {
+      expect(toCents(d(bad))).toBeNaN()
+    }
+    expect(toCents(Number.NaN)).toBeNaN()
+    expect(toCents(Infinity)).toBeNaN()
+  })
+  it("still accepts bare-dot and signed forms", () => {
+    expect(toCents(d(".5"))).toBe(50)
+    expect(toCents(d("5."))).toBe(500)
+    expect(toCents(d("+5"))).toBe(500)
+  })
 })
 
 describe("sumCents", () => {
