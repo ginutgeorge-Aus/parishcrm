@@ -6,7 +6,6 @@ import type { NavGroup } from "@/components/layout/sidebar/navData"
 
 const group: NavGroup = {
   label: "Accounting",
-  basePath: "/accounting",
   items: [
     {
       subLabel: "Transactions",

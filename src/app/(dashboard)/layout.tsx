@@ -9,6 +9,18 @@ import { countPendingFamilyUpdates } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
 
+/**
+ * Number of verify checkpoints with no recorded result. Uses a DB-side
+ * groupBy over the current checkpoint ids instead of loading every row.
+ */
+async function countUntestedCheckpoints(): Promise<number> {
+  const tested = await prisma.checkpointResult.groupBy({
+    by: ["checkpointId"],
+    where: { checkpointId: { in: TEST_CHECKPOINTS.map((c) => c.id) } },
+  })
+  return TEST_CHECKPOINTS.length - tested.length
+}
+
 export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const [idleMinutes, session, { name: churchName }] = await Promise.all([
     getIdleTimeoutMinutes(),
@@ -20,12 +32,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   const [pendingUpdates, verifyPending, membershipPending] = await Promise.all([
     canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
     isAdmin(role)
-      ? prisma.checkpointResult
-          .findMany({ select: { checkpointId: true } })
-          .then((rows) => {
-            const tested = new Set(rows.map((r) => r.checkpointId))
-            return TEST_CHECKPOINTS.filter((c) => !tested.has(c.id)).length
-          })
+      ? countUntestedCheckpoints()
       : Promise.resolve(0),
     canEdit(role)
       ? prisma.membershipApplication.count({ where: { status: "PENDING" } })

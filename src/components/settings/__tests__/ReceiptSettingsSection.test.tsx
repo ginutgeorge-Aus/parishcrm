@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSection"
 import {
   updateReceiptSettings,
@@ -69,13 +69,24 @@ describe("ReceiptSettingsSection", () => {
     expect(screen.getByLabelText(/legal text/i)).toHaveAttribute("maxlength", "4000")
   })
 
-  it("resets all fields to defaults", async () => {
+  it("asks for confirmation before resetting, and Cancel resets nothing", async () => {
+    render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    fireEvent.click(screen.getByRole("button", { name: /reset all to defaults/i }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(resetReceiptSettings).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole("button", { name: /cancel/i }))
+    expect(resetReceiptSettings).not.toHaveBeenCalled()
+  })
+
+  it("resets all fields to defaults after confirming", async () => {
     const edited = { ...DEFAULT_RECEIPT_SETTINGS, numberPrefix: "RCPT" }
     render(<ReceiptSettingsSection settings={edited} />)
     const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
     expect(prefix.value).toBe("RCPT")
 
-    fireEvent.click(screen.getByRole("button", { name: /reset/i }))
+    fireEvent.click(screen.getByRole("button", { name: /reset all to defaults/i }))
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: /^reset$/i }))
 
     await waitFor(() => expect(resetReceiptSettings).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(prefix.value).toBe(DEFAULT_RECEIPT_SETTINGS.numberPrefix))

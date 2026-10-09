@@ -35,6 +35,9 @@ test("success closes the dialog", async () => {
 
 test("Next control-flow errors (redirect after a successful delete) are re-thrown, not swallowed", async () => {
   const redirectErr = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/families;307;" })
-  await confirmWith(() => Promise.reject(redirectErr))
+  mockRethrow.mockImplementation((e: unknown) => { throw e })
+  // The rethrown error escapes startTransition and surfaces from the awaited act() scope.
+  await expect(confirmWith(() => Promise.reject(redirectErr))).rejects.toBe(redirectErr)
   expect(mockRethrow).toHaveBeenCalledWith(redirectErr)
+  expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
 })
