@@ -12,6 +12,7 @@ import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUp
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
+import { BULK_VERIFY_MAX } from "@/lib/clearanceComplianceView"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 // WWCC / Safe Ministry clearances on a person. Storage mirrors
@@ -315,7 +316,6 @@ export async function deleteClearance(clearanceId: string, seenUpdatedAt: string
 }
 
 // Not exported: a "use server" module may only export async functions.
-const BULK_VERIFY_MAX = 200
 
 /** Thrown inside the bulk-verify transaction to roll it back when any row went stale. */
 class StaleBatchError extends Error {}

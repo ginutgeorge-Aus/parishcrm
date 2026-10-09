@@ -6,7 +6,7 @@ jest.mock("@/lib/actions/clearance", () => ({ verifyClearancesBulk: jest.fn() })
 
 import { verifyClearancesBulk } from "@/lib/actions/clearance"
 import { WwccBatchVerify } from "@/components/people/WwccBatchVerify"
-import type { WwccBatchRow } from "@/lib/clearanceComplianceView"
+import { BULK_VERIFY_MAX, type WwccBatchRow } from "@/lib/clearanceComplianceView"
 
 const mockVerify = verifyClearancesBulk as jest.Mock
 const writeText = jest.fn().mockResolvedValue(undefined)
@@ -84,6 +84,16 @@ it("select all ticks only ready rows", () => {
   fireEvent.click(screen.getByRole("checkbox", { name: /select all ready/i }))
   expect(screen.getByRole("checkbox", { name: /select alex testperson/i })).toBeChecked()
   expect(screen.getByRole("checkbox", { name: /select bo sample/i })).not.toBeChecked()
+})
+
+it("select all stops at the bulk limit so the server never rejects the batch", async () => {
+  mockVerify.mockResolvedValue({ success: "ok" })
+  const many = Array.from({ length: BULK_VERIFY_MAX + 5 }, (_, i) => row({ clearanceId: `m${i}`, personId: 100 + i, givenName: `G${i}` }))
+  render(<WwccBatchVerify rows={many} verifyUrl="https://p.test" />)
+  fireEvent.click(screen.getByRole("checkbox", { name: /select the first 200 ready rows/i }))
+  fireEvent.click(screen.getByRole("button", { name: /mark verified \(200\)/i }))
+  await waitFor(() => expect(mockVerify).toHaveBeenCalled())
+  expect(mockVerify.mock.calls[0][0]).toHaveLength(BULK_VERIFY_MAX)
 })
 
 it("shows an action error and does not refresh", async () => {

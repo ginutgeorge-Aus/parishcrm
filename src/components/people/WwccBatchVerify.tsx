@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { verifyClearancesBulk } from "@/lib/actions/clearance"
-import { batchRowIssues, batchTsv, isBatchRowReady, type WwccBatchRow } from "@/lib/clearanceComplianceView"
+import { BULK_VERIFY_MAX, batchRowIssues, batchTsv, isBatchRowReady, type WwccBatchRow } from "@/lib/clearanceComplianceView"
 
 type Message = { kind: "success" | "error"; text: string }
 
@@ -55,13 +55,15 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
   const [copiedAll, setCopiedAll] = useState(false)
 
   const ready = rows.filter(isBatchRowReady)
-  const allReadySelected = ready.length > 0 && ready.every((r) => selected.has(r.clearanceId))
+  // Select all takes at most one server batch: the action rejects more than BULK_VERIFY_MAX.
+  const selectable = ready.slice(0, BULK_VERIFY_MAX)
+  const allReadySelected = selectable.length > 0 && selectable.every((r) => selected.has(r.clearanceId))
 
-  /** Ticks or unticks one row. */
+  /** Ticks or unticks one row; a tick past BULK_VERIFY_MAX is ignored. */
   const toggle = (id: string, on: boolean) =>
     setSelected((prev) => {
       const next = new Set(prev)
-      if (on) next.add(id)
+      if (on && next.size < BULK_VERIFY_MAX) next.add(id)
       else next.delete(id)
       return next
     })
@@ -114,10 +116,10 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
           <TableRow>
             <TableHead className="w-10">
               <Checkbox
-                aria-label="Select all ready rows"
+                aria-label={ready.length > BULK_VERIFY_MAX ? `Select the first ${BULK_VERIFY_MAX} ready rows` : "Select all ready rows"}
                 checked={allReadySelected}
                 disabled={ready.length === 0}
-                onCheckedChange={(on) => setSelected(on === true ? new Set(ready.map((r) => r.clearanceId)) : new Set())}
+                onCheckedChange={(on) => setSelected(on === true ? new Set(selectable.map((r) => r.clearanceId)) : new Set())}
               />
             </TableHead>
             <TableHead>Family name</TableHead>
@@ -136,7 +138,7 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
                   <Checkbox
                     aria-label={`Select ${who}`}
                     checked={selected.has(r.clearanceId)}
-                    disabled={issues.length > 0}
+                    disabled={issues.length > 0 || (!selected.has(r.clearanceId) && selected.size >= BULK_VERIFY_MAX)}
                     onCheckedChange={(on) => toggle(r.clearanceId, on === true)}
                   />
                 </TableCell>

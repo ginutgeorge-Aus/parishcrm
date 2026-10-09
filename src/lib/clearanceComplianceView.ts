@@ -21,6 +21,9 @@ export const CLEARANCE_STATUS_VARIANT: Record<ClearanceStatus, StatusBadgeVarian
 }
 
 /** Filter chips, in display order (also the digest bucket order). */
+/** Most clearances one Mark verified request may carry (the server action rejects more). */
+export const BULK_VERIFY_MAX = 200
+
 export const COMPLIANCE_FILTERS = ["expired", "expiring", "missing", "unverified"] as const
 export type ComplianceFilter = (typeof COMPLIANCE_FILTERS)[number]
 
