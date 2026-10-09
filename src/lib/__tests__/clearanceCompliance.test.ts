@@ -112,7 +112,7 @@ describe("loadWwccVerifyBatch", () => {
   beforeEach(() => jest.clearAllMocks())
 
   const dbRow = (over: Record<string, unknown> = {}, p: Record<string, unknown> = {}) => ({
-    id: "c11", number: "enc:WWC0000000E", expiresAt: d("2027-06-01"), verifiedAt: null,
+    id: "c11", number: "enc:WWC0000000E", expiresAt: d("2027-06-01"), verifiedAt: null, updatedAt: new Date("2026-09-30T01:02:03.000Z"),
     person: { id: 1, firstName: "Alex", lastName: "Testperson", dateOfBirth: "enc:1990-03-05", ...p },
     ...over,
   })
@@ -131,6 +131,7 @@ describe("loadWwccVerifyBatch", () => {
     expect(out[0]).toMatchObject({
       personId: 1, familyName: "Testperson", givenName: "Alex",
       dobDmy: "05/03/1990", number: "WWC0000000E", expiresDmy: "01/06/2027", verifiedDmy: null,
+      updatedAt: "2026-09-30T01:02:03.000Z",
     })
     expect(out[1].verifiedDmy).toBeNull()
   })

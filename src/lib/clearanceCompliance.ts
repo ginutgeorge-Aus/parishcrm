@@ -182,7 +182,7 @@ export async function loadWwccVerifyBatch(today: Date): Promise<WwccBatchRow[]> 
     orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
     take: COMPLIANCE_CAP,
     select: {
-      id: true, number: true, expiresAt: true, verifiedAt: true,
+      id: true, number: true, expiresAt: true, verifiedAt: true, updatedAt: true,
       person: { select: { id: true, firstName: true, lastName: true, dateOfBirth: true } },
     },
   })
@@ -206,6 +206,7 @@ export async function loadWwccVerifyBatch(today: Date): Promise<WwccBatchRow[]> 
       status: batchStatus,
       expiresDmy: dmy(c.expiresAt),
       verifiedDmy: dmy(c.verifiedAt),
+      updatedAt: c.updatedAt.toISOString(),
     })
   }
   return out

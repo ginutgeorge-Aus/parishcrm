@@ -326,26 +326,37 @@ class StaleBatchError extends Error {}
  * WWCC batch helper). One optional note (for example the portal's status text)
  * is stored on every row. All-or-nothing: if any id is missing, archived, a WWCC
  * without a number, or was verified/archived since the page loaded, nothing is
- * written. The update is conditioned on `verifiedAt: null` inside a transaction,
- * so it can never overwrite a verification made by someone else in the meantime.
+ * written. Each item carries the `updatedAt` the admin saw; the update is
+ * conditioned on it and on `verifiedAt: null` inside a transaction, so it can
+ * never vouch for a number/expiry edited since, nor overwrite another verification.
  * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
  * is written per clearance actually updated.
- * @param ids PersonClearance.id values (max 200)
+ * @param items PersonClearance.id + ISO `updatedAt` as rendered (max 200)
  * @param note optional free text, max 500 chars, stored encrypted
  */
-export async function verifyClearancesBulk(ids: string[], note?: string): Promise<ActionResultWithSuccess> {
+export async function verifyClearancesBulk(
+  items: { id: string; seenUpdatedAt: string }[],
+  note?: string,
+): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
-  if (!Array.isArray(ids) || ids.length === 0) return { error: "Select at least one clearance" }
-  if (ids.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }
-  if (!ids.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64)) return { error: "Invalid selection" }
+  if (!Array.isArray(items) || items.length === 0) return { error: "Select at least one clearance" }
+  if (items.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }
+  const seenById = new Map<string, Date>()
+  for (const item of items) {
+    const id = item?.id
+    if (typeof id !== "string" || id.length === 0 || id.length > 64) return { error: "Invalid selection" }
+    const seenAt = parseSeenUpdatedAt(item.seenUpdatedAt)
+    if (!seenAt) return { error: STALE_ERROR }
+    seenById.set(id, seenAt)
+  }
   const cleanNote = typeof note === "string" ? note.trim() : ""
   if (cleanNote.length > MAX_NOTE_LEN) return { error: `Note is too long (max ${MAX_NOTE_LEN} characters)` }
 
-  const unique = [...new Set(ids)]
+  const unique = [...seenById.keys()]
   const found = await prisma.personClearance.findMany({
     where: { id: { in: unique }, person: { archivedAt: null } },
     select: { id: true, personId: true, type: true, number: true },
@@ -361,7 +372,11 @@ export async function verifyClearancesBulk(ids: string[], note?: string): Promis
   try {
     count = await prisma.$transaction(async (tx) => {
       const res = await tx.personClearance.updateMany({
-        where: { id: { in: unique }, verifiedAt: null, ...LIVE_PERSON },
+        where: {
+          OR: unique.map((id) => ({ id, updatedAt: seenById.get(id) as Date })),
+          verifiedAt: null,
+          ...LIVE_PERSON,
+        },
         data: { verifiedAt: new Date(), verifiedById: actor, verificationNote: cleanNote ? encrypt(cleanNote) : null },
       })
       if (res.count !== unique.length) throw new StaleBatchError()
