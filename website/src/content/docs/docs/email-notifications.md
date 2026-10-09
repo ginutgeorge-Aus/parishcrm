@@ -44,11 +44,12 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 | Receipt | Manual single/batch send from Accounting | Admin-customizable intro/signoff; the transaction description is never put in the subject (it's encrypted-at-rest PII, and subjects sit in plaintext in mail logs). |
 | DGR (tax-deductible giving) receipt | Annual receipt generation | Attached PDF; admin-customizable subject/intro. |
 | Birthday / anniversary blessing | Automatic daily sweep (opt-in per parish), or a manual per-person/bulk send | Skips anyone without email consent; the automatic sweep uses an idempotent claim so it can never double-send even if the cron fires twice. |
+| Clearance compliance digest | Automatic, once a month (1st), to ADMIN and PASTOR users | Names of people with expired, expiring (60 days), missing or unverified WWCC / Safe Ministry clearances, a link to `/people/clearances`, and a reminder to act on OCG barring alerts. Never includes WWC numbers or dates of birth. Skipped when nothing needs attention. |
 | Owner delivery-failure alert | Any of the above exhausts its retries or hits an ambiguous socket error | Goes to `ownerNotificationEmail`; distinguishes a confirmed failure from an "unknown, don't blindly resend" case. |
 
 ### Scheduled sends
 
-Event reminders and birthday/anniversary emails are sent by the app's in-process scheduler, on by default in production (`IN_APP_CRON`). On a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the bearer-authenticated `/api/cron/*` endpoints from an external scheduler instead — see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
+Event reminders, birthday/anniversary emails and the monthly clearance digest are sent by the app's in-process scheduler, on by default in production (`IN_APP_CRON`). On a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the bearer-authenticated `/api/cron/*` endpoints from an external scheduler instead — see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
 
 ### Customizable templates
 

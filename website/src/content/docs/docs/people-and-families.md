@@ -61,6 +61,17 @@ Status badges: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)**
 
 The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL). Outside NSW, add or edit that row in the `AppSetting` table to point at your state's check; if unset or not a valid `https://` URL the NSW URL is used.
 
+### Clearance compliance (`/people/clearances`)
+
+*People → Clearances* in the sidebar (ADMIN, PASTOR and OFFICE_ADMIN only). It lists every active person who has a ministry role or a clearance on file, with a WWCC status and a Safe Ministry status for each: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** or **Expired**. Anyone with a ministry role is expected to hold both clearances, so an absent one shows as Missing. A person with no ministry role is not marked Missing for a clearance they do not have. The list covers the first 2,000 people and says so if there are more.
+
+- **Filter chips** (Expired, Expiring, Missing, Unverified) narrow the list to people with that status on either clearance.
+- **Export CSV** downloads the current filter: names, roles, statuses and dates only. It never contains WWC numbers or dates of birth. Each export is written to the audit log (`CLEARANCE_EXPORTED`).
+- **Verify WWCC batch** (`?view=batch`) lists every WWCC that has a record, has never been verified and has not expired, in the order the NSW Office of the Children's Guardian (OCG) employer portal asks for it: family name, date of birth (dd/mm/yyyy) and WWC number, each with a copy button, plus **Copy all rows**. A verified WWCC is not listed, even if it expires soon, because renewing it clears the verification. The portal has no public API, so you check the workers there, tick the rows it confirmed, add an optional note (up to 500 characters, such as the portal's outcome) and press **Mark verified**. That records who verified each clearance and when. Rows with no date of birth or number are flagged and cannot be ticked. You can mark up to 200 at a time.
+- **Mark verified is all or nothing.** If any selected clearance was edited or verified by someone else since the page loaded, nothing is saved and you see "This clearance changed. Refresh and try again." Reload the page and tick the rows again.
+- **Audit log.** Opening the batch view writes `CLEARANCE_BATCH_VIEWED`. Each clearance you mark verified writes its own `CLEARANCE_VERIFIED` entry.
+- **Monthly digest.** Once a month, ADMIN and PASTOR users get one email naming the people with expired, expiring, missing or unverified clearances, with a link to this page. It also reminds you to act on any barring-alert email the OCG sends to the employer when a registered worker is barred. Nothing is sent when every clearance is in order. See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
+
 ## How it works
 
 ### Data model

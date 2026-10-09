@@ -161,8 +161,8 @@ Sign in as the admin you created, then:
 
 ## Scheduled jobs
 
-Event reminders, abandoned-checkout cleanup, celebration emails and the weekly
-error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
+Event reminders, abandoned-checkout cleanup, celebration emails, the monthly
+clearance-compliance digest and the weekly error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
 Nothing to schedule — as long as the app stays running.
 Run a single app replica: each replica runs its own timer. The weekly error
 digest is opt-in (`ERROR_DIGEST=true`).
