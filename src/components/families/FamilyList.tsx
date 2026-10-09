@@ -66,7 +66,7 @@ export function FamilyList({
 
       {/* Desktop: table */}
       <div className="hidden overflow-x-auto md:block">
-      <Table>
+      <Table aria-label="Families">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>

@@ -278,7 +278,7 @@ export function BankReviewTable({
       </div>
 
       <div className="hidden md:block border rounded-md overflow-x-auto">
-        <Table>
+        <Table aria-label="Bank statement lines">
           <TableHeader>
             <TableRow>
               <TableHead className="w-28">Date</TableHead>

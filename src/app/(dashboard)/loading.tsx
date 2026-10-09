@@ -1,9 +1,11 @@
+import { LoadingStatus } from "@/components/shared/LoadingStatus"
+
 // Dashboard runs ~18 parallel queries plus field decryption; without a
 // route-level skeleton the user stares at a blank <main> on cold load.
 // Mirrors the page's Money / People / Needs-attention card-grid layout.
 export default function Loading() {
   return (
-    <div className="space-y-8" aria-hidden="true">
+    <LoadingStatus className="space-y-8">
       <div className="h-8 w-64 rounded bg-muted animate-pulse" />
 
       {/* Money — 4 stat cards */}
@@ -32,6 +34,6 @@ export default function Loading() {
           <div key={i} className="h-48 rounded-lg bg-muted animate-pulse" />
         ))}
       </div>
-    </div>
+    </LoadingStatus>
   )
 }

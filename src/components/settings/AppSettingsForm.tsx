@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import { upsertSetting } from "@/lib/actions/settings"
 import { IDLE_TIMEOUT_OPTIONS_LIST } from "@/lib/settingsConstants"
 import { Button } from "@/components/ui/button"
@@ -15,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import { useKeepFormValues } from "./useKeepFormValues"
 
 type Props = {
   ownerNotificationEmail: string
@@ -25,11 +25,11 @@ type Props = {
 }
 
 export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed }: Readonly<Props>) {
-  const [state, formAction, isPending] = useActionState(upsertSetting, undefined)
-  const [membershipState, membershipFormAction, isMembershipPending] = useActionState(upsertSetting, undefined)
-  const [idleState, idleFormAction, isIdlePending] = useActionState(upsertSetting, undefined)
-  const [pctState, pctFormAction, isPctPending] = useActionState(upsertSetting, undefined)
-  const [fixedState, fixedFormAction, isFixedPending] = useActionState(upsertSetting, undefined)
+  const [state, formAction, isPending, keepOwner] = useKeepFormValues(upsertSetting)
+  const [membershipState, membershipFormAction, isMembershipPending, keepMembership] = useKeepFormValues(upsertSetting)
+  const [idleState, idleFormAction, isIdlePending] = useKeepFormValues(upsertSetting)
+  const [pctState, pctFormAction, isPctPending, keepPct] = useKeepFormValues(upsertSetting)
+  const [fixedState, fixedFormAction, isFixedPending, keepFixed] = useKeepFormValues(upsertSetting)
 
   return (
     <div className="space-y-8">
@@ -46,7 +46,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
               id="owner-email"
               name="value"
               type="email"
-              defaultValue={ownerNotificationEmail}
+              defaultValue={keepOwner("value", ownerNotificationEmail)}
               placeholder="owner@example.com"
               className="mt-1"
             />
@@ -69,7 +69,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
               id="membership-email"
               name="value"
               type="text"
-              defaultValue={membershipSecretaryEmail}
+              defaultValue={keepMembership("value", membershipSecretaryEmail)}
               placeholder="secretary@example.com, admin@example.com"
               className="mt-1"
             />
@@ -124,7 +124,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
                 step="0.01"
                 min={0}
                 max={10}
-                defaultValue={cardFeePercent}
+                defaultValue={keepPct("value", cardFeePercent)}
                 placeholder="1.7"
                 className="mt-1"
               />
@@ -143,7 +143,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
                 step="0.01"
                 min={0}
                 max={5}
-                defaultValue={cardFeeFixed}
+                defaultValue={keepFixed("value", cardFeeFixed)}
                 placeholder="0.30"
                 className="mt-1"
               />

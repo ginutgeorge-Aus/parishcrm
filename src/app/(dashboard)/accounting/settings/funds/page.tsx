@@ -71,7 +71,7 @@ export default async function FundsPage() {
       </ul>
 
       <div className="hidden overflow-x-auto md:block">
-        <Table>
+        <Table aria-label="Funds">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>

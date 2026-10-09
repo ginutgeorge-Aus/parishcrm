@@ -1,3 +1,5 @@
+import { LoadingStatus } from "@/components/shared/LoadingStatus"
+
 // Shared loading skeleton for list pages (people, families, users, events)
 // whose Server Components run DB queries — shown via route-level loading.tsx so
 // the user sees structured placeholders instead of a blank flash on navigation.
@@ -6,7 +8,7 @@
 // h-10 for denser table rows used by AccountingPageSkeleton).
 export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: Readonly<{ rows?: number; rowHeight?: string }>) {
   return (
-    <div className="space-y-6" aria-hidden="true">
+    <LoadingStatus className="space-y-6">
       {/* Heading + action button row */}
       <div className="flex items-center justify-between">
         <div className="h-7 w-48 rounded bg-muted animate-pulse" />
@@ -20,6 +22,6 @@ export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: Readonly<{ ro
           <div key={i} className={`${rowHeight} w-full rounded bg-muted animate-pulse`} />
         ))}
       </div>
-    </div>
+    </LoadingStatus>
   )
 }

@@ -19,8 +19,9 @@ describe("DetailPageSkeleton", () => {
     expect(pulses).toHaveLength(7)
   })
 
-  it("is hidden from assistive tech", () => {
+  it("hides the placeholder blocks from assistive tech but announces loading", () => {
     const { container } = render(<DetailPageSkeleton />)
-    expect(container.firstChild).toHaveAttribute("aria-hidden", "true")
+    expect(container.firstChild).toHaveAttribute("role", "status")
+    expect(container.querySelector('[aria-hidden="true"] .animate-pulse')).not.toBeNull()
   })
 })
