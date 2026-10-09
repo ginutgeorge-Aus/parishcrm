@@ -183,12 +183,14 @@ with `Authorization: Bearer $CRON_SECRET`:
 | `send-reminders` | every 30 min |
 | `sweep-checkouts` | every 30 min |
 | `send-celebrations` | 07:00 **and** 07:30 Sydney (`0,30 21 * * *` UTC in winter, `0,30 20 * * *` in summer) — the second call retries failed sends; a later day can't, since only that day's birthdays are due |
+| `send-clearance-digest` | daily at 07:00 Sydney (`0 21 * * *` UTC in winter, `0 20 * * *` in summer). It sends once, on the first call of each Sydney month, and skips the rest |
 | `error-issues` | weekly, Monday 09:00 Sydney — only if you want the GitHub error digest |
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-reminders
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/sweep-checkouts
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-celebrations
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-clearance-digest
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 

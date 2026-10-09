@@ -18,7 +18,7 @@ scheduler.
 |---|---|
 | Event reminders, abandoned-checkout cleanup | Every 30 minutes |
 | Birthday/anniversary emails | Once per Sydney day, from 07:00 |
-| Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down; at most 3 attempts per day). Opt-in: needs `CLEARANCE_DIGEST=true`. Emails ADMIN and PASTOR users about people with a ministry role; nothing is sent in a month where every clearance is in order. |
+| Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down; at most 3 attempts per day per process; the count resets when the app restarts). Opt-in: needs `CLEARANCE_DIGEST=true`. Emails ADMIN and PASTOR users about people with a ministry role; nothing is sent in a month where every clearance is in order. |
 | Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
 
 A period job that does not fully succeed is retried 30 minutes later, at most
@@ -75,7 +75,7 @@ environment and your scheduler's `Authorization: Bearer` header.
   GitHub issue (matched by a fingerprint marker in the issue body) before
   filing a new one. It also purges error-log and route-view rows older than
   90 days.
-- **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a restart, a second tick or an overlapping manual call cannot send the month twice. If every send fails the month stays open and the job retries; once at least one recipient has the email the month is marked done.
+- **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a second tick or an overlapping manual call cannot send at the same time. If the app stops after sending but before it marks the month done, the lease expires after 30 minutes and a retry may send again. If every send fails the month stays open and the job retries; once at least one recipient has the email the month is marked done.
 - None of these endpoints require a session login — they authenticate only
   via the `CRON_SECRET` bearer token, so they're safe to call from an
   external scheduler with no browser session.
