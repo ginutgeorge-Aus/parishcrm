@@ -35,6 +35,17 @@ test("success closes the dialog", async () => {
 
 test("Next control-flow errors (redirect after a successful delete) are re-thrown, not swallowed", async () => {
   const redirectErr = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/families;307;" })
-  await confirmWith(() => Promise.reject(redirectErr))
+  mockRethrow.mockImplementation((e: unknown) => { throw e })
+  // The rethrown error becomes an unhandled rejection inside startTransition; observe it.
+  const unhandled = jest.fn()
+  process.on("unhandledRejection", unhandled)
+  try {
+    await confirmWith(() => Promise.reject(redirectErr))
+  } catch (e) {
+    expect(e).toBe(redirectErr)
+  } finally {
+    process.off("unhandledRejection", unhandled)
+  }
   expect(mockRethrow).toHaveBeenCalledWith(redirectErr)
+  expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
 })
