@@ -70,13 +70,14 @@ export default async function VerifyPage({
         Check each change works. {pendingCount} pending verification.
       </p>
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <nav aria-label="Filter checkpoints" className="mb-6 flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <Link
             key={f}
             href={f === "pending" ? "/verify" : `/verify?filter=${f}`}
+            aria-current={f === filter ? "page" : undefined}
             className={cn(
-              "rounded-full border px-3 py-1 text-sm transition-colors",
+              "inline-flex min-h-11 items-center rounded-full border px-3 py-1 text-sm transition-colors",
               f === filter
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input text-muted-foreground hover:bg-muted",
@@ -85,7 +86,7 @@ export default async function VerifyPage({
             {TAB_LABEL[f]}
           </Link>
         ))}
-      </div>
+      </nav>
 
       {visible.length === 0 ? (
         <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">

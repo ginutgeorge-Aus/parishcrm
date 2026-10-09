@@ -11,7 +11,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 |--------|---------|
 | `create-admin-user` | Create an ADMIN account |
 | `encrypt-person-email`, `encrypt-family-location`, `encrypt-registration-contact`, `encrypt-family-update-payload`, `encrypt-petty-cash-fields`, `encrypt-petty-cash-transfer`, `encrypt-registration-customanswers`, `encrypt-transaction-notes`, `encrypt-person-notes` | Encryption backfills (idempotent, dry-run default). `encrypt-transaction-notes` encrypts historical plaintext `Transaction.notes` at rest; `encrypt-person-notes` does the same for `Person.notes` |
-| `rotate-encryption-key` | Re-encrypt all fields under a new key (usage in the script header). Run `--apply` in a maintenance window (app stopped): rows are rewritten by id, so a concurrent edit can be reverted |
+| `rotate-encryption-key` | Re-encrypt all fields under a new key (usage in the script header). Safe with the app running: each write is conditional on the ciphertext it read, so a concurrent edit is never reverted. A changed row is re-read and retried (3x); rows that keep changing are reported as conflicts and the run exits non-zero — re-run to finish |
 | `set-default-monthly-dues` | One-time backfill: `Family.monthlyDues` for member families with no amount |
 | `backfill-petty-cash-sundays` | Backfill the weekly petty-cash session for past Sundays that never had one auto-opened |
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate `PettyCashReceipt`/`Expense` `importKey` values before a `@unique` is added |

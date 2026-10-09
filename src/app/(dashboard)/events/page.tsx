@@ -167,7 +167,7 @@ export default async function EventsPage(
 
       {/* Desktop: table */}
       <div className="hidden md:block bg-card rounded-xl border border-border overflow-x-auto">
-        <Table>
+        <Table aria-label="Events">
           <TableHeader className="bg-muted">
             <TableRow>
               {["Event", "Date", "Status", "Tickets Sold", "Revenue", "Actions"].map(h => (

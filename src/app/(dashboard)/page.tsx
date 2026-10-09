@@ -6,7 +6,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { canViewAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
 import { accountBalance } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, type Money } from "@/lib/formatting"
-import { sydneyToday } from "@/lib/dates"
+import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC } from "@/lib/dates"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { upcomingBirthdays as computeUpcomingBirthdays } from "@/lib/birthdays"
@@ -27,21 +27,27 @@ export default async function DashboardPage() {
   // and ~11am AEST the server date is a day behind, skewing "last 30 days",
   // upcoming-events, and birthday windows. sydneyToday() anchors at UTC
   // midnight (the app's date-only storage convention), so all the date math
-  // below is correct in prod (UTC server).
+  // below uses Date.UTC + getUTC* — never local-time constructors/getters,
+  // which shift by the process TZ on any non-UTC host.
   const today = sydneyToday()
+  const year = today.getUTCFullYear()
+  const thisMonth = today.getUTCMonth()
+  const day = today.getUTCDate()
 
-  const in30Days = new Date(today)
-  in30Days.setDate(today.getDate() + 30)
+  const in30Days = new Date(Date.UTC(year, thisMonth, day + 30))
+  const thirtyDaysAgo = new Date(Date.UTC(year, thisMonth, day - 30))
+  // createdAt and Event.date are real instants (not date-only), so bound them
+  // by the true UTC instants of Sydney midnight / end-of-day, not the
+  // UTC-midnight date anchors above.
+  const ymd = (d: Date) => d.toISOString().slice(0, 10)
+  const createdSince = sydneyStartOfDayUTC(ymd(thirtyDaysAgo))
+  const eventsFrom = sydneyStartOfDayUTC(ymd(today))
+  const eventsTo = sydneyEndOfDayUTC(ymd(in30Days))
 
-  const thirtyDaysAgo = new Date(today)
-  thirtyDaysAgo.setDate(today.getDate() - 30)
-
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
-  const sameMonthLastYear = new Date(today.getFullYear() - 1, today.getMonth(), 1)
-  const endSameMonthLastYear = new Date(today.getFullYear() - 1, today.getMonth() + 1, 1)
-
-  const thisMonth = today.getMonth()
+  const startOfMonth = new Date(Date.UTC(year, thisMonth, 1))
+  const startOfNextMonth = new Date(Date.UTC(year, thisMonth + 1, 1))
+  const sameMonthLastYear = new Date(Date.UTC(year - 1, thisMonth, 1))
+  const endSameMonthLastYear = new Date(Date.UTC(year - 1, thisMonth + 1, 1))
 
   // Reports/dashboard show all accounts (incl. deactivated-with-history), not
   // just active ones — a deactivated account can still have a balance worth
@@ -108,12 +114,12 @@ export default async function DashboardPage() {
     }),
     prisma.family.count({ where: { archivedAt: null } }),
     prisma.family.count({ where: { status: "ACTIVE", archivedAt: null } }),
-    prisma.family.count({ where: { createdAt: { gte: thirtyDaysAgo }, archivedAt: null } }),
-    prisma.person.count({ where: { createdAt: { gte: thirtyDaysAgo }, archivedAt: null } }),
+    prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
+    prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
     prisma.pettyCashSession.count({ where: { status: "OPEN" } }),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
-    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()), lte: in30Days } }, { kind: "recurring" }] } }),
+    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } }),
     canViewAccounting(role)
       ? prisma.transaction.aggregate({
           where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth } },
@@ -206,11 +212,12 @@ export default async function DashboardPage() {
   const upcomingAnniversaries = computeUpcomingAnniversaries(anniversaryFamilies, 7, today)
 
   const marriageAnniversaries = marriageFamilies
-    .filter((f) => f.marriageDate?.getMonth() === thisMonth)
-    .sort((a, b) => a.marriageDate!.getDate() - b.marriageDate!.getDate())
+    .filter((f) => f.marriageDate?.getUTCMonth() === thisMonth)
+    .sort((a, b) => a.marriageDate!.getUTCDate() - b.marriageDate!.getUTCDate())
 
 
-  const fmtDate = (d: Date) => `${d.getDate()} ${MONTH_ABBR_TITLE[d.getMonth()]} ${d.getFullYear()}`
+  // asOfDate is a UTC-midnight calendar date — read it with UTC getters.
+  const fmtDate = (d: Date) => `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
@@ -229,9 +236,15 @@ export default async function DashboardPage() {
     { label: "Added (30 days)", value: recentFamilies + recentPeople, sub: `${recentFamilies} families · ${recentPeople} people` },
   ]
 
-  // Giving trend vs the same month last year — drives the arrow + colour.
+  // Giving trend vs the same month last year — drives the arrow + colour. A
+  // zero delta (e.g. a fresh install) is neutral, not a green "up".
   const givingDelta = givingNow - givingLastYearAmt
-  const givingUp = givingDelta >= 0
+  const givingTrend =
+    givingDelta > 0
+      ? { arrow: "▲", srLabel: "Up", className: "text-income" }
+      : givingDelta < 0
+        ? { arrow: "▼", srLabel: "Down", className: "text-expense" }
+        : null
 
   // "Needs attention" tiles, only the ones this role can act on. A non-zero
   // count makes the tile actionable (gold accent + link).
@@ -309,9 +322,14 @@ export default async function DashboardPage() {
               <CardContent className="px-4 pb-4">
                 <p className="text-3xl font-bold tabular">{fmt(givingNow)}</p>
                 <p className="mt-1 flex items-center gap-1 text-xs">
-                  <span className={`tabular font-medium ${givingUp ? "text-income" : "text-expense"}`}>
-                    {givingUp ? "▲" : "▼"} {fmt(Math.abs(givingDelta))}
-                  </span>
+                  {givingTrend ? (
+                    <span className={`tabular font-medium ${givingTrend.className}`}>
+                      <span aria-hidden="true">{givingTrend.arrow}</span>
+                      <span className="sr-only">{givingTrend.srLabel}</span> {fmt(Math.abs(givingDelta))}
+                    </span>
+                  ) : (
+                    <span className="font-medium text-muted-foreground">No change</span>
+                  )}
                   <span className="text-muted-foreground">vs last year</span>
                 </p>
               </CardContent>

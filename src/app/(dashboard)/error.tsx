@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 
 export default function DashboardError({
   error,
@@ -9,21 +9,29 @@ export default function DashboardError({
   error: Error & { digest?: string }
   reset: () => void
 }>) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
   useEffect(() => {
     // Log only the opaque Next.js digest — never the raw error, which may carry
     // decrypted member/financial fragments a future client reporter would leak.
     console.error("Dashboard page error", error.digest)
   }, [error.digest])
 
+  // Move focus to the heading so keyboard/screen-reader users learn the page
+  // content was replaced (the link they activated may no longer exist).
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
   return (
     <div className="flex h-full min-h-96 items-center justify-center">
       <div className="text-center">
-        <h2 className="text-lg font-semibold text-foreground mb-2">Something went wrong</h2>
+        <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-foreground mb-2">Something went wrong</h2>
         <p className="text-sm text-muted-foreground mb-1">An unexpected error occurred on this page.</p>
         <p className="text-sm text-muted-foreground mb-4">If this keeps happening, use the Feedback button to report it.</p>
         <button
           onClick={reset}
-          className="rounded bg-primary min-w-[44px] min-h-[44px] px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          className="rounded bg-primary min-w-[44px] min-h-[44px] px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           Try again
         </button>
