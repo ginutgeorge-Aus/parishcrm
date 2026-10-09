@@ -6,8 +6,9 @@ name: CodeRabbit Nudge
 # reviewed (skips while rate limited or a review is in flight). PR labels:
 # `review-next` = go first, `no-coderabbit` = never nudge.
 #
-# Needs secret CODERABBIT_NUDGE_PAT: fine-grained PAT of the owner account,
-# this repo only, Pull requests + Issues read/write. CodeRabbit ignores commands
+# Needs secret CODERABBIT_NUDGE_PAT in environment `coderabbit-nudge` (deployment
+# branches: main only): fine-grained PAT of the owner account, this repo only,
+# Pull requests + Issues read/write. CodeRabbit ignores commands
 # from bots, so github.token can't be used. An expired/revoked PAT makes the run
 # fail (401), which emails the owner. Forks: the job is skipped (repo guard).
 
@@ -30,8 +31,11 @@ concurrency:
 
 jobs:
   nudge:
-    # main only: a manual run from another branch would hand the PAT to that branch's script
+    # The PAT lives in environment `coderabbit-nudge`, whose deployment policy
+    # allows only `main` — GitHub withholds it from runs on any other ref even if
+    # a branch edits this file. The ref check just skips such runs cleanly.
     if: github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main'
+    environment: coderabbit-nudge
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
