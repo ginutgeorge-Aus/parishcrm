@@ -1,15 +1,15 @@
 "use client"
 
-import { useActionState } from "react"
 import { updateMembershipSettings } from "@/lib/actions/settings"
 import type { MembershipSettings } from "@/lib/membershipSettings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { useKeepFormValues } from "./useKeepFormValues"
 
 export function MembershipSettingsForm({ settings }: Readonly<{ settings: MembershipSettings }>) {
-  const [state, formAction, isPending] = useActionState(updateMembershipSettings, undefined)
+  const [state, formAction, isPending, keep, keepChecked] = useKeepFormValues(updateMembershipSettings)
 
   return (
     <section>
@@ -21,7 +21,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
             id="membershipParishFields"
             name="membershipParishFields"
             type="checkbox"
-            defaultChecked={settings.parishFields}
+            defaultChecked={keepChecked("membershipParishFields", settings.parishFields)}
             className="mt-1 size-4"
           />
           <Label htmlFor="membershipParishFields" className="font-normal">
@@ -35,7 +35,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
             name="membershipMinDues"
             inputMode="decimal"
             maxLength={20}
-            defaultValue={settings.minDues ?? ""}
+            defaultValue={keep("membershipMinDues", settings.minDues ?? "")}
             placeholder="Blank = no minimum"
             className="mt-1"
           />
@@ -47,7 +47,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
             id="membershipHomeAddressLabel"
             name="membershipHomeAddressLabel"
             maxLength={80}
-            defaultValue={settings.homeAddressLabel}
+            defaultValue={keep("membershipHomeAddressLabel", settings.homeAddressLabel)}
             placeholder="Blank = don't ask (e.g. Address in India)"
             className="mt-1"
           />
@@ -58,7 +58,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
             id="membershipArrivalDateLabel"
             name="membershipArrivalDateLabel"
             maxLength={80}
-            defaultValue={settings.arrivalDateLabel}
+            defaultValue={keep("membershipArrivalDateLabel", settings.arrivalDateLabel)}
             placeholder="Blank = don't ask (e.g. Date of arrival in Australia)"
             className="mt-1"
           />
