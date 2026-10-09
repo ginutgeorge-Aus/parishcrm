@@ -1,10 +1,10 @@
 ---
 title: "Scheduled Jobs"
-description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, a monthly clearance-compliance digest, and an optional error digest — run in-app by default, or via HTTP…"
+description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, an optional monthly clearance-compliance digest, and an optional error digest — run in-app by default, or via HTTP…"
 ---
 
 A few background tasks — event reminder emails, abandoned-checkout cleanup,
-birthday/anniversary emails, a monthly clearance-compliance digest, and an
+birthday/anniversary emails, an optional monthly clearance-compliance digest, and an
 optional error digest — run inside the
 app by default: an in-process timer starts at boot (`IN_APP_CRON`, on in
 production, off in development unless `IN_APP_CRON=true`) and checks for due
@@ -18,7 +18,7 @@ scheduler.
 |---|---|
 | Event reminders, abandoned-checkout cleanup | Every 30 minutes |
 | Birthday/anniversary emails | Once per Sydney day, from 07:00 |
-| Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down). Emails ADMIN and PASTOR users; nothing is sent in a month where every clearance is in order. |
+| Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down; at most 3 attempts per day). Opt-in: needs `CLEARANCE_DIGEST=true`. Emails ADMIN and PASTOR users about people with a ministry role; nothing is sent in a month where every clearance is in order. |
 | Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
 
 A period job that does not fully succeed is retried 30 minutes later, at most
@@ -47,7 +47,7 @@ curl -fsS -X POST \
 | `POST /api/cron/send-reminders` | Sends event reminder emails to registrants for events with a reminder due. | Hourly |
 | `POST /api/cron/sweep-checkouts` | Expires abandoned card-payment checkout sessions and scrubs their (already-encrypted) staged PII payload. | Hourly |
 | `POST /api/cron/send-celebrations` | Sends birthday and wedding-anniversary emails, if enabled in Settings. | Daily |
-| `POST /api/cron/send-clearance-digest` | Sends the monthly clearance-compliance digest to ADMIN and PASTOR users. A manual call sends again even if this month's digest already went out. | Monthly (1st) |
+| `POST /api/cron/send-clearance-digest` | Sends the monthly clearance-compliance digest to ADMIN and PASTOR users. An explicit call, so it does not need `CLEARANCE_DIGEST`. It respects the once-per-month guard: if this month's digest already went out it returns `{"status":"already-sent","month":"YYYY-MM"}` (HTTP 200) and sends nothing, so daily or retrying schedulers are safe. Add `?force=1` to send again deliberately. | Monthly (1st) |
 | `POST /api/cron/error-issues` | Optional — groups recent server errors by fingerprint and files one GitHub issue per new error group (deduplicated against already-open issues); also purges old error/analytics rows. Only useful if `GITHUB_TOKEN` / `GITHUB_REPO` are set. | Weekly |
 
 All five require `CRON_SECRET` to be set — with it unset, each endpoint
@@ -89,6 +89,7 @@ environment and your scheduler's `Authorization: Bearer` header.
 |---|---|
 | `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on/off. Unset = on in production only. |
 | `ERROR_DIGEST` | `true` enables the weekly error digest (also needs `GITHUB_TOKEN`/`GITHUB_REPO`). |
+| `CLEARANCE_DIGEST` | `true` enables the monthly clearance-compliance digest in the in-app scheduler. The manual endpoint ignores it. |
 | `CRON_SECRET` | Required for all five endpoints to do anything. Unset = every call returns `503`. |
 | `GITHUB_TOKEN`, `GITHUB_REPO` | Required for `error-issues` to file anything — otherwise it's a harmless no-op call. |
 

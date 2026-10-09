@@ -98,50 +98,72 @@ describe("dueJobs — clearanceDigest (monthly)", () => {
   // Wed 2026-07-01 Sydney (AEST, UTC+10): 07:00 = 2026-06-30T21:00Z
   const FIRST_0700 = new Date("2026-06-30T21:00:00Z")
   const MIN = 60_000
+  const ON = { CLEARANCE_DIGEST: "true" }
   it("is not due before 07:00 Sydney on the 1st", () => {
-    expect(dueJobs(new Date("2026-06-30T20:59:00Z"), state(quiet), {})).toEqual([])
+    expect(dueJobs(new Date("2026-06-30T20:59:00Z"), state(quiet), ON)).toEqual([])
   })
   it("is due from 07:00 Sydney on the 1st, all day, until it succeeds", () => {
-    expect(dueJobs(FIRST_0700, state(quiet), {})).toEqual(["clearanceDigest"])
-    expect(dueJobs(new Date("2026-07-01T13:59:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 23:59 AEST
+    expect(dueJobs(FIRST_0700, state(quiet), ON)).toEqual(["clearanceDigest"])
+    expect(dueJobs(new Date("2026-07-01T13:59:00Z"), state(quiet), ON)).toEqual(["clearanceDigest"]) // 23:59 AEST
   })
   it("stays due through the 7th so an outage on the 1st catches up", () => {
-    expect(dueJobs(new Date("2026-07-01T21:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 2 Jul 07:00
-    expect(dueJobs(new Date("2026-07-07T13:59:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 7 Jul 23:59
+    expect(dueJobs(new Date("2026-07-01T21:00:00Z"), state(quiet), ON)).toEqual(["clearanceDigest"]) // 2 Jul 07:00
+    expect(dueJobs(new Date("2026-07-07T13:59:00Z"), state(quiet), ON)).toEqual(["clearanceDigest"]) // 7 Jul 23:59
   })
   it("is not due from the 8th to month end", () => {
-    expect(dueJobs(new Date("2026-07-07T14:00:00Z"), state(quiet), {})).toEqual([]) // 8 Jul 00:00
-    expect(dueJobs(new Date("2026-06-29T21:00:00Z"), state(quiet), {})).toEqual([]) // 30 Jun 07:00
+    expect(dueJobs(new Date("2026-07-07T14:00:00Z"), state(quiet), ON)).toEqual([]) // 8 Jul 00:00
+    expect(dueJobs(new Date("2026-06-29T21:00:00Z"), state(quiet), ON)).toEqual([]) // 30 Jun 07:00
   })
   it("is not due again that month after a success", () => {
-    expect(dueJobs(FIRST_0700, state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), {})).toEqual([])
+    expect(dueJobs(FIRST_0700, state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), ON)).toEqual([])
   })
   it("is due again next month (new key)", () => {
     // Sat 2026-08-01 07:00 AEST = 2026-07-31T21:00Z
-    expect(dueJobs(new Date("2026-07-31T21:00:00Z"), state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), {})).toEqual(["clearanceDigest"])
+    expect(dueJobs(new Date("2026-07-31T21:00:00Z"), state({ ...quiet, clearanceDigest: { lastSuccessKey: "2026-07" } }), ON)).toEqual(["clearanceDigest"])
   })
   it("backs off 30 min after an unsuccessful attempt and gives up after 3 (same cap as celebrations)", () => {
     const s = state(quiet)
     let t = FIRST_0700.getTime()
     for (let i = 0; i < 3; i++) {
-      expect(dueJobs(new Date(t), s, {})).toEqual(["clearanceDigest"])
+      expect(dueJobs(new Date(t), s, ON)).toEqual(["clearanceDigest"])
       recordStart("clearanceDigest", s, new Date(t))
-      expect(dueJobs(new Date(t + 29 * MIN), s, {})).toEqual([])
+      expect(dueJobs(new Date(t + 29 * MIN), s, ON)).toEqual([])
       t += 30 * MIN
     }
-    expect(dueJobs(new Date(t), s, {})).toEqual([])
+    expect(dueJobs(new Date(t), s, ON)).toEqual([])
   })
   it("uses Sydney time under daylight saving (AEDT, UTC+11): 1 Nov 2026", () => {
-    expect(dueJobs(new Date("2026-10-31T19:59:00Z"), state(quiet), {})).toEqual([]) // 06:59 AEDT
-    expect(dueJobs(new Date("2026-10-31T20:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"]) // 07:00 AEDT
+    expect(dueJobs(new Date("2026-10-31T19:59:00Z"), state(quiet), ON)).toEqual([]) // 06:59 AEDT
+    expect(dueJobs(new Date("2026-10-31T20:00:00Z"), state(quiet), ON)).toEqual(["clearanceDigest"]) // 07:00 AEDT
   })
   it("rolls over on 1 Jan at Sydney time, not UTC", () => {
     // 2026-12-31T20:00Z = Fri 2027-01-01 07:00 AEDT
-    expect(dueJobs(new Date("2026-12-31T20:00:00Z"), state(quiet), {})).toEqual(["clearanceDigest"])
+    expect(dueJobs(new Date("2026-12-31T20:00:00Z"), state(quiet), ON)).toEqual(["clearanceDigest"])
     expect(successKey("clearanceDigest", new Date("2026-12-31T20:00:00Z"))).toBe("2027-01")
   })
   it("does not need ERROR_DIGEST or GitHub config", () => {
-    expect(dueJobs(FIRST_0700, state(quiet), { ERROR_DIGEST: "false" })).toEqual(["clearanceDigest"])
+    expect(dueJobs(FIRST_0700, state(quiet), { ...ON, ERROR_DIGEST: "false" })).toEqual(["clearanceDigest"])
+  })
+  it("is skipped unless CLEARANCE_DIGEST=true (opt-in)", () => {
+    expect(dueJobs(FIRST_0700, state(quiet), {})).toEqual([])
+    expect(dueJobs(FIRST_0700, state(quiet), { CLEARANCE_DIGEST: "false" })).toEqual([])
+    expect(dueJobs(FIRST_0700, state(quiet), { CLEARANCE_DIGEST: "1" })).toEqual([])
+  })
+  it("3 failures on the 1st stop it that day but it is due again on the 2nd", () => {
+    const s = state(quiet)
+    let t = FIRST_0700.getTime()
+    for (let i = 0; i < 3; i++) { recordStart("clearanceDigest", s, new Date(t)); t += 30 * MIN }
+    expect(dueJobs(new Date(t), s, ON)).toEqual([]) // 1st, 08:30 AEST: budget spent
+    expect(dueJobs(new Date("2026-07-01T13:59:00Z"), s, ON)).toEqual([]) // 1st 23:59
+    expect(dueJobs(new Date("2026-07-01T21:00:00Z"), s, ON)).toEqual(["clearanceDigest"]) // 2nd 07:00
+    recordStart("clearanceDigest", s, new Date("2026-07-01T21:00:00Z"))
+    expect(s.clearanceDigest.attempts).toEqual({ key: "2026-07-02", count: 1 })
+  })
+  it("a success on the 1st keeps it quiet on the 2nd (success is per month)", () => {
+    const s = state(quiet)
+    recordStart("clearanceDigest", s, FIRST_0700)
+    s.clearanceDigest.lastSuccessKey = successKey("clearanceDigest", FIRST_0700)
+    expect(dueJobs(new Date("2026-07-01T21:00:00Z"), s, ON)).toEqual([])
   })
 })
 

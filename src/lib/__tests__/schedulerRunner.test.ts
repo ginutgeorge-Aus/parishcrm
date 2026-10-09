@@ -15,11 +15,17 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
   }
 }
 
+const OLD_CLEARANCE_DIGEST = process.env.CLEARANCE_DIGEST
 beforeEach(() => {
+  process.env.CLEARANCE_DIGEST = "true" // the clearance digest is opt-in
   jest.spyOn(console, "log").mockImplementation(() => {})
   jest.spyOn(console, "error").mockImplementation(() => {})
 })
-afterEach(() => jest.restoreAllMocks())
+afterEach(() => {
+  if (OLD_CLEARANCE_DIGEST === undefined) delete process.env.CLEARANCE_DIGEST
+  else process.env.CLEARANCE_DIGEST = OLD_CLEARANCE_DIGEST
+  jest.restoreAllMocks()
+})
 
 describe("tick", () => {
   it("runs the monthly clearance digest on the 1st and records the month as its success key", async () => {

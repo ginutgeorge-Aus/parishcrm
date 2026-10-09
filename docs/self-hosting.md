@@ -161,11 +161,13 @@ Sign in as the admin you created, then:
 
 ## Scheduled jobs
 
-Event reminders, abandoned-checkout cleanup, celebration emails, the monthly
-clearance-compliance digest and the weekly error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
+Event reminders, abandoned-checkout cleanup, celebration emails and the optional
+monthly clearance-compliance and weekly error digests run inside the app by default (`IN_APP_CRON`, see `.env.example`).
 Nothing to schedule — as long as the app stays running.
-Run a single app replica: each replica runs its own timer. The weekly error
-digest is opt-in (`ERROR_DIGEST=true`).
+Run a single app replica: each replica runs its own timer. The weekly error digest is opt-in (`ERROR_DIGEST=true`), as is the monthly
+clearance digest (`CLEARANCE_DIGEST=true`). `POST /api/cron/send-clearance-digest`
+works without the flag and skips if this month's digest was already sent
+(`?force=1` resends).
 
 **Upgrading from external crons?** Remove them when you deploy this version, or
 set `IN_APP_CRON=false` to keep them — don't run both. Jobs normally skip work
