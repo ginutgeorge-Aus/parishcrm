@@ -371,20 +371,17 @@ Concurrency (same pattern as OSS-9's `withLiveClass`): after the guards, run eac
 
 `setAttendance` specifics:
 - IDOR: child must be enrolled in THIS class and not archived (`sundaySchoolEnrolment.findFirst({ where: { classId, personId, person: { archivedAt: null } } })`, matching the roster) **or** already have a row in this class+date session (correcting history after a move). Else `{ error: "Child is not in this class" }`.
-- Session: module-private `ensureSession(classId, date)`:
+- Session: module-private `ensureSession(tx, classId, date)` — takes the roll action's transaction client, so a rolled-back mark leaves no empty session:
   ```ts
-  /** Get-or-create the (class, date) session; a concurrent first mark may win the insert (P2002) — re-read then. */
-  async function ensureSession(classId: number, date: Date): Promise<number> {
-    try {
-      const s = await prisma.sundaySchoolSession.upsert({
-        where: { classId_date: { classId, date } }, create: { classId, date }, update: {}, select: { id: true },
-      })
-      return s.id
-    } catch (e) {
-      if (!isP2002(e)) throw e
-      const s = await prisma.sundaySchoolSession.findUniqueOrThrow({ where: { classId_date: { classId, date } }, select: { id: true } })
-      return s.id
-    }
+  /**
+   * Get-or-create the (class, date) session inside the caller's transaction.
+   * createMany + skipDuplicates is INSERT … ON CONFLICT DO NOTHING, so a
+   * concurrent first mark never raises P2002 (which would abort the transaction).
+   */
+  async function ensureSession(tx: Prisma.TransactionClient, classId: number, date: Date): Promise<number> {
+    await tx.sundaySchoolSession.createMany({ data: [{ classId, date }], skipDuplicates: true })
+    const s = await tx.sundaySchoolSession.findUniqueOrThrow({ where: { classId_date: { classId, date } }, select: { id: true } })
+    return s.id
   }
   ```
 - `status === null` → `sundaySchoolAttendance.deleteMany({ where: { sessionId, personId } })` (do not create a session just to clear: look it up with `findUnique`; if absent, return success).
@@ -403,7 +400,7 @@ Concurrency (same pattern as OSS-9's `withLiveClass`): after the guards, run eac
   - unknown status `"HERE"` → "Invalid status".
   - child not enrolled and no prior mark → "Child is not in this class"; not enrolled but prior mark exists → allowed.
   - happy path: upsert called with `where: { sessionId_personId: { sessionId: 55, personId: 3 } }`, `markedById: 1`; audit meta; revalidates `/sunday-school/4/roll` and `/my-classes/4/roll`.
-  - `ensureSession` P2002 on upsert → falls back to `findUniqueOrThrow`.
+  - `ensureSession` uses `createMany({ skipDuplicates: true })` then `findUniqueOrThrow` on the passed `tx` (existing session → same id, no P2002).
   - clear with no session → success, no `upsert` on session.
   - `markUnmarkedPresent` → `createMany` with `skipDuplicates: true` and only enrolled ids; returns `{ success: "Marked 2 present" }`. (`createMany` returns `{ count }`; use it for N.)
   - `addRollMarker` as OFFICE_ADMIN with a VIEWER target → "User is not an event organiser"; as EVENT_ORGANISER → Unauthorized.
@@ -602,7 +599,7 @@ Closes OSS-10 (epic OSS-8). Builds on OSS-9.
 ## Test plan
 - [x] Pure roll helpers, access matrix, action guards/IDOR/date rules/bulk, RollList behaviour, organiser allow-list, page gates
 - [x] `npm run lint`, `tsc --noEmit`
-- [x] Local smoke as admin, organiser (assigned / unassigned / downgraded), viewer; 360 px
+- [ ] Local smoke as admin, organiser (assigned / unassigned / downgraded), viewer; 360 px — tick only after it has actually been run
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
