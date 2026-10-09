@@ -217,13 +217,26 @@ export function formatSydneyDateTime(d: Date): string {
 }
 
 /**
+ * Converts a naive wall-clock reading (Sydney time written as if it were UTC)
+ * to the real UTC instant. Two passes: the offset at the naive instant is only
+ * a first guess and can sit across a DST transition from the real instant, so
+ * re-read the offset at the guessed instant (same as sydneyDatetimeLocalToUTC).
+ *
+ * @param naive - Sydney wall-clock time encoded as a UTC Date
+ * @returns the matching real UTC instant
+ */
+function sydneyWallClockToUTC(naive: Date): Date {
+  const guess = new Date(naive.getTime() - sydneyOffsetMs(naive))
+  return new Date(naive.getTime() - sydneyOffsetMs(guess))
+}
+
+/**
  * The UTC instant of Sydney 00:00:00.000 on the given `YYYY-MM-DD` calendar
  * date. Use as the `gte` lower bound when filtering real (non-date-only)
  * timestamps (e.g. AuditLog.createdAt) by a Sydney calendar day.
  */
 export function sydneyStartOfDayUTC(ymd: string): Date {
-  const naive = new Date(ymd + "T00:00:00.000Z")
-  return new Date(naive.getTime() - sydneyOffsetMs(naive))
+  return sydneyWallClockToUTC(new Date(ymd + "T00:00:00.000Z"))
 }
 
 /**
@@ -233,8 +246,7 @@ export function sydneyStartOfDayUTC(ymd: string): Date {
  * .999 millisecond precision is preserved.
  */
 export function sydneyEndOfDayUTC(ymd: string): Date {
-  const naive = new Date(ymd + "T23:59:59.999Z")
-  return new Date(naive.getTime() - sydneyOffsetMs(naive))
+  return sydneyWallClockToUTC(new Date(ymd + "T23:59:59.999Z"))
 }
 
 /**

@@ -48,6 +48,24 @@ describe("sydneyStartOfDayUTC", () => {
   })
 })
 
+describe("sydneyStartOfDayUTC / sydneyEndOfDayUTC across DST transitions", () => {
+  it("start of the day DST ends (2026-04-05) is Sydney midnight AEDT", () => {
+    expect(sydneyStartOfDayUTC("2026-04-05")).toEqual(new Date("2026-04-04T13:00:00.000Z"))
+  })
+
+  it("start of the day DST begins (2026-10-04) is Sydney midnight AEST", () => {
+    expect(sydneyStartOfDayUTC("2026-10-04")).toEqual(new Date("2026-10-03T14:00:00.000Z"))
+  })
+
+  it("end of the day before DST ends (2026-04-04) is 23:59:59.999 AEDT", () => {
+    expect(sydneyEndOfDayUTC("2026-04-04")).toEqual(new Date("2026-04-04T12:59:59.999Z"))
+  })
+
+  it("end of the day before DST begins (2026-10-03) is 23:59:59.999 AEST", () => {
+    expect(sydneyEndOfDayUTC("2026-10-03")).toEqual(new Date("2026-10-03T13:59:59.999Z"))
+  })
+})
+
 describe("sydneyEndOfDayUTC", () => {
   it("maps a winter (AEST) Sydney date end to the same UTC day 13:59:59.999", () => {
     // Sydney 2026-06-20 23:59:59.999 AEST = 2026-06-20 13:59:59.999 UTC
