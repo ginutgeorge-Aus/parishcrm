@@ -43,10 +43,15 @@ function pr(over: Partial<Pr>): Pr {
 }
 
 test("isReviewed: only a CodeRabbit review on the head commit counts", () => {
-  assert.equal(isReviewed([{ user: BOT, commitId: "abc" }], [], "abc"), true)
-  assert.equal(isReviewed([{ user: BOT, commitId: "old" }], [], "abc"), false)
-  assert.equal(isReviewed([{ user: "human", commitId: "abc" }], [], "abc"), false)
+  const body = "**Actionable comments posted: 1**"
+  assert.equal(isReviewed([{ user: BOT, commitId: "abc", body }], [], "abc"), true)
+  assert.equal(isReviewed([{ user: BOT, commitId: "old", body }], [], "abc"), false)
+  assert.equal(isReviewed([{ user: "human", commitId: "abc", body }], [], "abc"), false)
   assert.equal(isReviewed([], [], "abc"), false)
+})
+
+test("isReviewed: an empty-body review (a CodeRabbit thread reply) is not a review", () => {
+  assert.equal(isReviewed([{ user: BOT, commitId: "abc", body: "" }], [], "abc"), false)
 })
 
 test("isReviewed: clean review recorded only in the summary comment counts", () => {

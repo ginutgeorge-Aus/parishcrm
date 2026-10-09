@@ -36,7 +36,7 @@ export type Pr = {
   updatedAt: string
 }
 
-export type Review = { user: string; commitId: string }
+export type Review = { user: string; commitId: string; body: string }
 
 export type Comment = { user: string; body: string; createdAt: string; updatedAt: string }
 
@@ -51,7 +51,9 @@ export type Comment = { user: string; body: string; createdAt: string; updatedAt
  * @param headSha - the PR's head commit SHA
  */
 export function isReviewed(reviews: Review[], comments: Comment[], headSha: string): boolean {
-  if (reviews.some((r) => r.user === BOT && r.commitId === headSha)) return true
+  // An empty-body review is CodeRabbit replying inside a thread (recorded at the
+  // current head), not a review of that commit.
+  if (reviews.some((r) => r.user === BOT && r.commitId === headSha && r.body.trim() !== "")) return true
   return comments.some((c) => c.user === BOT && c.body.includes(`"coveredCommitId":"${headSha}"`))
 }
 
@@ -206,7 +208,7 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
   const unreviewed: Pr[] = []
   const allComments: Comment[] = []
   for (const pr of prs) {
-    const reviews = await gh<{ user: { login: string } | null; commit_id: string }[]>(
+    const reviews = await gh<{ user: { login: string } | null; commit_id: string; body: string | null }[]>(
       `/repos/${REPO}/pulls/${pr.number}/reviews`,
     )
     const comments = (
@@ -219,7 +221,7 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    if (!isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id })), comments, pr.headSha)) {
+    if (!isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) {
       unreviewed.push(pr)
     }
   }
