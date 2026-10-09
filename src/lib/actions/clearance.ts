@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -35,8 +36,6 @@ function dateToYmd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null
 }
 
-// What safeDecrypt returns for unreadable ciphertext (cryptoCore.ts).
-const DECRYPTION_ERROR = "[decryption error]"
 const STALE_ERROR = "This clearance changed. Refresh and try again."
 
 // Every write re-checks the archived-person boundary in its own predicate, so an
@@ -348,7 +347,7 @@ export async function verifyClearancesBulk(
   const seenById = new Map<string, Date>()
   for (const item of items) {
     const id = item?.id
-    if (typeof id !== "string" || id.length === 0 || id.length > 64) return { error: "Invalid selection" }
+    if (typeof id !== "string" || !CUID_ID_RE.test(id)) return { error: "Invalid selection" }
     const seenAt = parseSeenUpdatedAt(item.seenUpdatedAt)
     if (!seenAt) return { error: STALE_ERROR }
     seenById.set(id, seenAt)
@@ -386,9 +385,12 @@ export async function verifyClearancesBulk(
     if (e instanceof StaleBatchError) return { error: STALE_ERROR }
     throw e
   }
-  for (const c of found) {
-    await logAudit(actor, "CLEARANCE_VERIFIED", "Person", c.personId, { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" })
-  }
+  // logAudit never throws (it logs and swallows), so concurrent writes cannot reject.
+  await Promise.all(
+    found.map((c) =>
+      logAudit(actor, "CLEARANCE_VERIFIED", "Person", c.personId, { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" }),
+    ),
+  )
   revalidatePath("/people/clearances")
   for (const personId of new Set(found.map((c) => c.personId))) revalidatePath(`/people/${personId}`)
   return { success: `Marked ${count} clearance(s) verified` }

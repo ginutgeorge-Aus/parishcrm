@@ -65,6 +65,24 @@ describe("verifyClearancesBulk", () => {
     expect(updateMany).not.toHaveBeenCalled()
   })
 
+  it("rejects ids that are not cuid-shaped (spaces, operators, punctuation)", async () => {
+    for (const bad of ["c 11", "c11'; --", "{\"$ne\":1}", "a/b", "x".repeat(65)]) {
+      expect(await verifyClearancesBulk([it1(bad)])).toEqual({ error: "Invalid selection" })
+    }
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it("writes one audit entry per clearance concurrently (all started before any resolves)", async () => {
+    const resolvers: (() => void)[] = []
+    ;(logAudit as jest.Mock).mockImplementation(() => new Promise<void>((r) => resolvers.push(r)))
+    const pending = verifyClearancesBulk([it1("c11"), it1("c12")])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(logAudit).toHaveBeenCalledTimes(2)
+    resolvers.forEach((r) => r())
+    expect(await pending).toEqual({ success: "Marked 2 clearance(s) verified" })
+    ;(logAudit as jest.Mock).mockResolvedValue(undefined)
+  })
+
   it("rejects a note over 500 characters", async () => {
     expect(await verifyClearancesBulk([it1("c11")], "x".repeat(501))).toEqual({ error: "Note is too long (max 500 characters)" })
   })
