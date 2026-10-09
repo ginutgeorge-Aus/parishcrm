@@ -8,7 +8,7 @@ import {
 
 export type NavItem = { href: string; label: string; icon: React.ElementType; show: boolean; badge?: number }
 export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
-export type NavGroup = { label: string; basePath: string; items: NavEntry[] }
+export type NavGroup = { label: string; items: NavEntry[] }
 
 export type NavFlags = {
   isAccounting: boolean
@@ -31,7 +31,6 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
   return [
     {
       label: "Members",
-      basePath: "",
       items: [
         { href: "/", label: "Dashboard", icon: Home, show: true },
         { href: "/families", label: "Families", icon: Users, show: canViewPeople },
@@ -46,14 +45,12 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Events",
-      basePath: "/events",
       items: [
         { href: "/events", label: "Events", icon: CalendarDays, show: canViewPeople },
       ],
     },
     {
       label: "Accounting",
-      basePath: "/accounting",
       items: [
         {
           subLabel: "Transactions",
@@ -93,7 +90,6 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Settings",
-      basePath: "",
       items: [
         { href: "/account", label: "My Account", icon: MonitorSmartphone, show: true },
         { href: "/reports", label: "My Reports", icon: MessagesSquare, show: true },
