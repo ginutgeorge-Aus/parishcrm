@@ -40,7 +40,7 @@ export default async function UsagePage(props: Readonly<Props>) {
 
       <section>
         <h2 className="mb-2 text-lg font-medium">Feature adoption</h2>
-        <Table>
+        <Table aria-label="Feature adoption">
           <TableHeader>
             <TableRow>
               <TableHead>Feature area</TableHead>

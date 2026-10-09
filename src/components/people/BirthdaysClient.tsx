@@ -151,7 +151,7 @@ export function BirthdaysClient({
 
       {/* Desktop: table */}
       <div className="hidden overflow-x-auto md:block">
-        <Table className="min-w-table">
+        <Table aria-label="Birthdays" className="min-w-table">
           <TableHeader>
             <TableRow>
               <TableHead className="whitespace-nowrap">Name</TableHead>

@@ -83,7 +83,7 @@ export function PaymentAccountsManager({ accounts }: Readonly<{ accounts: Paymen
 
       {/* Desktop table */}
       <div className="hidden overflow-x-auto md:block">
-        <Table>
+        <Table aria-label="Payment accounts">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>

@@ -65,7 +65,7 @@ export function PeopleList({ people }: Readonly<{ people: Person[] }>) {
 
       {/* Desktop: table */}
       <div className="hidden overflow-x-auto md:block">
-      <Table>
+      <Table aria-label="People">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>

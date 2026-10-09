@@ -111,7 +111,7 @@ export default async function ArchivedFamiliesPage({
 
       {/* Desktop: table */}
       <div className="hidden overflow-x-auto md:block">
-        <Table className="min-w-table">
+        <Table aria-label="Archived families" className="min-w-table">
           <TableHeader>
             <TableRow>
               <TableHead>Family</TableHead>
