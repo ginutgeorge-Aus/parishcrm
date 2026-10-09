@@ -8,8 +8,20 @@ import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { RolloverButton } from "@/components/sunday-school/RolloverButton"
+import { FormFeedback } from "@/components/ui/FormFeedback"
 
-type Props = { searchParams: Promise<{ year?: string }> }
+type Props = { searchParams: Promise<{ year?: string; rolled?: string }> }
+
+/** Exact shape of rolloverYear's success message — anything else in `?rolled=` is ignored. */
+const ROLLED = /^Created \d+ classes for \d{4}; moved \d+ child(?:ren)?; \d+ need placing by hand$/
+
+/**
+ * The roll-over summary passed by RolloverButton, or null when absent or not
+ * the expected shape (so a crafted link can't show arbitrary text).
+ */
+function rolledSummary(raw: string | undefined): string | null {
+  return raw && ROLLED.test(raw) ? raw : null
+}
 
 /** Sunday School classes for one school year, grouped by location. canViewPeople to view; canEdit sees controls. */
 export default async function SundaySchoolPage(props: Readonly<Props>) {
@@ -19,6 +31,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
   const sp = await props.searchParams
   const year = parseSchoolYear(sp.year)
   const editor = canEdit(session.user.role)
+  const rolled = rolledSummary(sp.rolled)
 
   const classes = await prisma.sundaySchoolClass.findMany({
     where: { year, archivedAt: null },
@@ -56,6 +69,8 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
           )}
         </nav>
       </div>
+
+      {rolled && <FormFeedback state={{ success: rolled }} />}
 
       {editor && (
         <div className="flex flex-wrap items-start gap-3">

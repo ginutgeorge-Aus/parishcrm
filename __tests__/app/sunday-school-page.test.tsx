@@ -66,6 +66,15 @@ describe("/sunday-school", () => {
     expect(prisma.sundaySchoolClass.count).not.toHaveBeenCalled()
   })
 
+  it("shows the roll-over summary passed in ?rolled=, ignoring any other text", async () => {
+    as("ADMIN")
+    const summary = "Created 2 classes for 2027; moved 3 children; 1 need placing by hand"
+    const ok = renderToStaticMarkup(await SundaySchoolPage({ searchParams: Promise.resolve({ year: "2027", rolled: summary }) }))
+    expect(ok).toContain(summary)
+    const crafted = renderToStaticMarkup(await SundaySchoolPage({ searchParams: Promise.resolve({ year: "2027", rolled: "Call 0400 000 000 to verify" }) }))
+    expect(crafted).not.toContain("Call 0400")
+  })
+
   it("shows New class and Roll over to an ADMIN while next year is empty", async () => {
     as("ADMIN")
     const html = await render("2026")

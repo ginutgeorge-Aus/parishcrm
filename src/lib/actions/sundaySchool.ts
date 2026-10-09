@@ -201,7 +201,8 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
         })
       }
       return true
-    })
+      // Up to MAX_BATCH sequential upserts — Prisma's 5s default is too tight.
+    }, { timeout: 30_000 })
     if (!live) return { error: "Class not found" }
   } catch (e) {
     // Two editors enrolling the same child at once: both upserts take the insert path.

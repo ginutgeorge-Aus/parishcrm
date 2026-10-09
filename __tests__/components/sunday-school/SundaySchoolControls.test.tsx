@@ -67,13 +67,14 @@ describe("TeachersPanel", () => {
 })
 
 describe("RolloverButton", () => {
-  it("rolls over, reports the result and opens next year", async () => {
+  it("rolls over and opens next year carrying the summary", async () => {
     ;(rolloverYear as jest.Mock).mockResolvedValue({ success: "Created 2 classes for 2027; moved 1 child; 0 need placing by hand" })
     render(<RolloverButton fromYear={2026} classCount={2} />)
     await confirm("Roll over to 2027", "Roll over")
     expect(rolloverYear).toHaveBeenCalledWith(2026)
-    expect(push).toHaveBeenCalledWith("/sunday-school?year=2027")
-    expect(screen.getByRole("status")).toHaveTextContent("Created 2 classes for 2027")
+    expect(push).toHaveBeenCalledWith(
+      `/sunday-school?year=2027&rolled=${encodeURIComponent("Created 2 classes for 2027; moved 1 child; 0 need placing by hand")}`,
+    )
   })
 
   it("keeps the dialog open with the refusal message", async () => {
