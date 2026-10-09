@@ -43,6 +43,9 @@ describe("tick", () => {
     const j = jobs({ clearanceDigest: jest.fn(async () => ({ flagged: 3, sent: 0, failed: 2 })) })
     await tick(s, j, new Date("2026-06-30T21:00:00Z"))
     expect(s.clearanceDigest.lastSuccessKey).toBeNull()
+    await tick(s, j, new Date("2026-06-30T21:30:00Z"))
+    expect(j.clearanceDigest).toHaveBeenCalledTimes(2)
+    expect(s.clearanceDigest.lastSuccessKey).toBeNull()
   })
 
   it("runs due jobs and records their start", async () => {
