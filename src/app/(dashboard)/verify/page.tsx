@@ -18,6 +18,8 @@ const TAB_LABEL: Record<Filter, string> = {
   all: "All",
 }
 
+export const metadata = { title: "Verify" }
+
 export default async function VerifyPage({
   searchParams,
 }: Readonly<{
@@ -65,7 +67,7 @@ export default async function VerifyPage({
 
   return (
     <div className="max-w-3xl">
-      <h2 className="mb-1 text-2xl font-semibold text-foreground">Verify</h2>
+      <h1 className="mb-1 text-2xl font-semibold text-foreground">Verify</h1>
       <p className="mb-4 text-sm text-muted-foreground">
         Check each change works. {pendingCount} pending verification.
       </p>

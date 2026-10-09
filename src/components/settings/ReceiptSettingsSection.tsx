@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 
 // Maps each editable ReceiptSettings field to its AppSetting key (what the
 // server actions expect) plus display metadata.
@@ -68,17 +69,17 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
     })
   }
 
-  function resetAll() {
+  /**
+   * Resets every receipt setting to its default. Runs inside the confirm dialog;
+   * returns `{ error }` so the dialog stays open and shows the message.
+   */
+  async function resetAll(): Promise<{ error?: string }> {
     setFeedback(undefined)
-    startTransition(async () => {
-      const r = await resetReceiptSettings()
-      if ("error" in r) {
-        setFeedback({ error: r.error })
-        return
-      }
-      setFields(DEFAULT_RECEIPT_SETTINGS)
-      setFeedback({ success: "Reset to defaults." })
-    })
+    const r = await resetReceiptSettings()
+    if ("error" in r) return { error: r.error }
+    setFields(DEFAULT_RECEIPT_SETTINGS)
+    setFeedback({ success: "Reset to defaults." })
+    return {}
   }
 
   return (
@@ -119,9 +120,17 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
           <Button type="button" onClick={save} disabled={pending}>
             {pending ? "Saving…" : "Save"}
           </Button>
-          <Button type="button" variant="outline" onClick={resetAll} disabled={pending}>
-            Reset all to defaults
-          </Button>
+          <DeleteConfirmButton
+            onConfirm={resetAll}
+            title="Reset receipt wording to defaults?"
+            description="This replaces your custom receipt text, including the legal text, with the defaults and saves immediately. This cannot be undone."
+            triggerLabel="Reset all to defaults"
+            triggerVariant="outline"
+            triggerSize="default"
+            triggerClassName=""
+            confirmLabel="Reset"
+            pendingLabel="Resetting…"
+          />
         </div>
       </div>
     </div>

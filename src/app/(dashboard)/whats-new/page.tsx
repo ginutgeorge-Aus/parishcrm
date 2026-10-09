@@ -1,11 +1,13 @@
 import { WHATS_NEW } from "@/lib/whatsNew"
 
+export const metadata = { title: "What's New" }
+
 // Full release-notes history. All authenticated roles may view (no guard) —
 // product news, no sensitive data. The (dashboard) layout enforces auth.
 export default async function WhatsNewPage() {
   return (
     <div className="max-w-3xl">
-      <h2 className="text-2xl font-semibold text-foreground mb-6">What&apos;s New</h2>
+      <h1 className="text-2xl font-semibold text-foreground mb-6">What&apos;s New</h1>
 
       {WHATS_NEW.length === 0 ? (
         <p className="text-sm text-muted-foreground">No release notes yet.</p>
