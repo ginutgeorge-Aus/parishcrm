@@ -51,4 +51,26 @@ describe("routeViews", () => {
     ])
     expect(await getTopRoutes(30)).toEqual([{ route: "/reports", count: 40 }])
   })
+
+  it("getTopRoutes folds legacy per-record rows into their template and sorts desc", async () => {
+    ;(prisma.routeViewDaily.groupBy as jest.Mock).mockResolvedValue([
+      { route: "/people/1", _sum: { count: 5 } },
+      { route: "/reports", _sum: { count: 7 } },
+      { route: "/people/[id]", _sum: { count: 4 } },
+      { route: "/people/2", _sum: { count: null } },
+    ])
+    expect(await getTopRoutes(30)).toEqual([
+      { route: "/people/[id]", count: 9 },
+      { route: "/reports", count: 7 },
+    ])
+  })
+
+  it("getTopRoutes caps the merged result at 20", async () => {
+    ;(prisma.routeViewDaily.groupBy as jest.Mock).mockResolvedValue(
+      Array.from({ length: 25 }, (_, i) => ({ route: `/r${i}`, _sum: { count: i + 1 } }))
+    )
+    const out = await getTopRoutes(30)
+    expect(out).toHaveLength(20)
+    expect(out[0]).toEqual({ route: "/r24", count: 25 })
+  })
 })

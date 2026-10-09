@@ -35,17 +35,34 @@ export function recordRouteView(rawRoute: string, now: Date = new Date()): void 
     .catch(() => {})
 }
 
+/**
+ * Top routes by view count over the last `days` days. Stored routes are
+ * re-normalised and merged on read so rows written before normalisation
+ * (e.g. `/people/42`) fold into their `/people/[id]` template immediately,
+ * preserving totals, instead of lingering until retention deletes them.
+ *
+ * @param days - lookback window in days
+ * @param now - reference time (injectable for tests)
+ * @returns up to 20 routes with summed counts, highest first
+ */
 export async function getTopRoutes(
   days: number,
   now: Date = new Date()
 ): Promise<{ route: string; count: number }[]> {
   const since = utcDay(new Date(now.getTime() - days * 86_400_000))
+  // No `take` here: the top 20 must be chosen AFTER merging legacy per-record rows.
   const rows = await prisma.routeViewDaily.groupBy({
     by: ["route"],
     where: { date: { gte: since } },
     _sum: { count: true },
-    orderBy: { _sum: { count: "desc" } },
-    take: 20,
   })
-  return rows.map((r) => ({ route: r.route, count: r._sum.count ?? 0 }))
+  const merged = new Map<string, number>()
+  for (const r of rows) {
+    const route = normalizeRoute(r.route)
+    merged.set(route, (merged.get(route) ?? 0) + (r._sum.count ?? 0))
+  }
+  return [...merged]
+    .map(([route, count]) => ({ route, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20)
 }
