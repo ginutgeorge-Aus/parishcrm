@@ -1,6 +1,5 @@
 "use client"
 
-import { useActionState } from "react"
 import { updateLetterSettings } from "@/lib/actions/settings"
 import type { LetterSettings } from "@/lib/letterSettings"
 import { Button } from "@/components/ui/button"
@@ -8,14 +7,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { useKeepFormValues } from "./useKeepFormValues"
 
 export function LetterSettingsForm({ settings }: Readonly<{ settings: LetterSettings }>) {
-  const [state, formAction, isPending] = useActionState(updateLetterSettings, undefined)
+  const [state, formAction, isPending, keep] = useKeepFormValues(updateLetterSettings)
 
   const field = (name: string, label: string, def: string) => (
     <div>
       <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} type="text" defaultValue={def} className="mt-1" maxLength={120} />
+      <Input id={name} name={name} type="text" defaultValue={keep(name, def)} className="mt-1" maxLength={120} />
     </div>
   )
 
@@ -55,7 +55,7 @@ export function LetterSettingsForm({ settings }: Readonly<{ settings: LetterSett
         ] as const).map(([name, lbl, def]) => (
           <div key={name}>
             <Label htmlFor={name}>{lbl}</Label>
-            <Textarea id={name} name={name} defaultValue={def} rows={5} maxLength={4000} className="mt-1" placeholder="Blank = default text" />
+            <Textarea id={name} name={name} defaultValue={keep(name, def)} rows={5} maxLength={4000} className="mt-1" placeholder="Blank = default text" />
           </div>
         ))}
         <p className="text-xs text-muted-foreground">

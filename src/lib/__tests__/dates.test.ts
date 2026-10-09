@@ -2,6 +2,7 @@ import {
   formatSydneyDate,
   formatSydneyTime,
   sydneyDatetimeLocalToUTC,
+  isValidDatetimeLocal,
   zoneLabel,
   toSydneyDatetimeLocal,
 } from "@/lib/dates"
@@ -29,6 +30,19 @@ describe("timezone config", () => {
     // 2025-07-01T00:00:00Z = 20:00 on 30 Jun in New York (EDT -4)
     expect(formatSydneyDate(new Date("2025-07-01T00:00:00Z"))).toBe("Mon 30 Jun 2025")
   })
+
+  it("start of day lands on the requested date when DST skips midnight", () => {
+    const { sydneyStartOfDayUTC, sydneyEndOfDayUTC } = load("America/Santiago")
+    // Chile skips 00:00–01:00 on 2026-09-06 (-04 → -03): the day starts 01:00 local = 04:00Z.
+    expect(sydneyStartOfDayUTC("2026-09-06").toISOString()).toBe("2026-09-06T04:00:00.000Z")
+    expect(sydneyEndOfDayUTC("2026-09-05").toISOString()).toBe("2026-09-06T03:59:59.999Z")
+  })
+
+  it("end of day includes a repeated final hour when DST falls back at midnight", () => {
+    const { sydneyEndOfDayUTC } = load("America/Santiago")
+    // Chile repeats 23:00–24:00 on 2026-04-04 (-03 → -04): the day ends 03:59:59.999Z.
+    expect(sydneyEndOfDayUTC("2026-04-04").toISOString()).toBe("2026-04-05T03:59:59.999Z")
+  })
 })
 
 describe("sydneyDatetimeLocalToUTC", () => {
@@ -53,6 +67,27 @@ describe("sydneyDatetimeLocalToUTC", () => {
       "2026-10-03T15:00:00.000Z",
     )
   })
+})
+
+describe("sydneyDatetimeLocalToUTC malformed input", () => {
+  it.each(["", "garbage", "2026-08-01", "2026-13-45T99:99", "2026-02-30T10:00", "2026-08-01 10:00"])(
+    "returns an Invalid Date instead of throwing for %j",
+    (bad) => {
+      let d: Date | undefined
+      expect(() => { d = sydneyDatetimeLocalToUTC(bad) }).not.toThrow()
+      expect(Number.isNaN(d!.getTime())).toBe(true)
+    },
+  )
+})
+
+describe("isValidDatetimeLocal", () => {
+  it("accepts a real YYYY-MM-DDTHH:mm value", () => {
+    expect(isValidDatetimeLocal("2028-02-29T23:59")).toBe(true)
+  })
+  it.each(["2026-02-30T10:00", "2026-02-29T10:00", "2026-08-01", "2026-08-01 10:00", "2026-08-01T24:00", "2026-8-1T10:00"])(
+    "rejects %j instead of rolling it over",
+    (bad) => expect(isValidDatetimeLocal(bad)).toBe(false),
+  )
 })
 
 describe("toSydneyDatetimeLocal", () => {
