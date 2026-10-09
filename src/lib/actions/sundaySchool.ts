@@ -117,7 +117,9 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
 export async function archiveClass(id: number): Promise<ActionResult> {
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
-  await prisma.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } })
+  const { count } = await prisma.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } })
+  // Archived by someone else since editableClass(): no row changed, no audit.
+  if (count === 0) return { error: "Class not found" }
   await logAudit(actorId(g.session), "SS_CLASS_ARCHIVED", ENTITY, id)
   revalidatePath("/sunday-school")
   revalidatePath(`/sunday-school/${id}`)
@@ -185,15 +187,22 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   // simply re-pointed (one enrolment per child per year).
   const movedFrom = existing.filter((e) => e.classId !== classId && !e.class.archivedAt)
   try {
-    await prisma.$transaction(
-      ids.map((personId) =>
-        prisma.sundaySchoolEnrolment.upsert({
+    // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs
+    // the row lock) until the enrolments commit, and fails if it already has.
+    const live = await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
+      if (rows.length === 0) return false
+      for (const personId of ids) {
+        await tx.sundaySchoolEnrolment.upsert({
           where: { personId_year: { personId, year } },
           create: { classId, personId, year },
           update: { classId },
-        }),
-      ),
-    )
+        })
+      }
+      return true
+    })
+    if (!live) return { error: "Class not found" }
   } catch (e) {
     // Two editors enrolling the same child at once: both upserts take the insert path.
     if (isP2002(e)) return { error: "Someone else just changed these enrolments — try again" }

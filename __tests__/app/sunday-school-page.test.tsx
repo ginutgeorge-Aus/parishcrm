@@ -140,7 +140,12 @@ describe("/sunday-school/[id]", () => {
     ;(prisma.person.findMany as jest.Mock)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 4, firstName: "Amy", lastName: "Brown", role: "CHILD", family: { name: "Brown" }, sundaySchoolEnrolments: [{ class: { name: "Years 3–4" } }] }])
+      .mockResolvedValueOnce([{ id: 5, firstName: "Ann", lastName: "Adams", role: "HEAD", family: { name: "Adams" }, sundaySchoolEnrolments: [] }])
     const html = await renderClass()
+    // Children and adults are fetched (and capped) separately, then merged by name.
+    expect(html).toContain("Ann Adams:false:null,Amy Brown:true:Years 3–4")
+    expect((prisma.person.findMany as jest.Mock).mock.calls[1][0].where.role).toEqual({ equals: "CHILD" })
+    expect((prisma.person.findMany as jest.Mock).mock.calls[2][0].where.role).toEqual({ not: "CHILD" })
     expect(html).toContain("Amy Brown:true:Years 3–4")
     expect(html).toContain(">Edit<")
     expect((prisma.person.findMany as jest.Mock).mock.calls[0][0].where).toEqual({

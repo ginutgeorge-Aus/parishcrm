@@ -368,7 +368,7 @@ removeRollMarker(classId: number, userId: number): Promise<ActionResult>  // can
 Order in the two roll actions: `assertNotDemo()` → `auth()`; no session → Unauthorized → `isValidPgId` ids → `canMarkRoll(actorId(session), classId, role)` else `{ error: "Unauthorized" }` → class `findFirst({ id, archivedAt: null }, select { year })` else "Class not found" → `parseRollDate(ymd, cls.year, sydneyTodayYMD())` (blank not allowed here: reject `!ymd`) → status via `parseAttendanceStatus` (undefined → "Invalid status") → write → audit → `revalidatePath` both roll paths + `/sunday-school/${classId}`.
 
 `setAttendance` specifics:
-- IDOR: child must be enrolled in THIS class (`sundaySchoolEnrolment.findFirst({ where: { classId, personId } })`) **or** already have a row in this class+date session (correcting history after a move). Else `{ error: "Child is not in this class" }`.
+- IDOR: child must be enrolled in THIS class and not archived (`sundaySchoolEnrolment.findFirst({ where: { classId, personId, person: { archivedAt: null } } })`, matching the roster) **or** already have a row in this class+date session (correcting history after a move). Else `{ error: "Child is not in this class" }`.
 - Session: module-private `ensureSession(classId, date)`:
   ```ts
   /** Get-or-create the (class, date) session; a concurrent first mark may win the insert (P2002) — re-read then. */
@@ -490,8 +490,9 @@ if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return tr
 ```tsx
 // session; canViewPeople else redirect("/"); parseRouteId else notFound()
 // cls year lookup (findUnique select year, archivedAt) else notFound()
-// parsed = parseRollDate(sp.date, cls.year, sydneyTodayYMD())
-//   if !parsed.ok && !sp.date -> redirect(`?date=${cls.year}-12-31`) when the class year is past, else render the error
+// rawDate = typeof sp.date === "string" ? sp.date : undefined   // repeated ?date= arrives as string[] — ignore it
+// parsed = parseRollDate(rawDate, cls.year, sydneyTodayYMD())
+//   if !parsed.ok && !rawDate -> redirect(`?date=${cls.year}-12-31`) when the class year is past, else render the error
 //   if !parsed.ok -> render error text + date picker only
 // roll = await loadRoll(id, parsed.ymd)
 // readOnly = roll.cls.archived || !(await canMarkRoll(actorId(session), id, session.user.role))   // VIEWER -> read only
@@ -503,7 +504,7 @@ if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return tr
 
 `/my-classes` — list `sundaySchoolRollMarker.findMany({ where: { userId, class: { archivedAt: null } }, select: { class: { select: { id, name, year, location } } }, orderBy: { class: { name: "asc" } } })` → cards linking to `/my-classes/{id}/roll`. Empty state: "No classes assigned to you yet. An administrator will add you to the classes you teach." Layout gate is the existing `(organiser)/layout.tsx` (EVENT_ORGANISER or editor) — no change.
 
-`/my-classes/[id]/roll` — IDOR gate exactly like `my-events/[id]/check-in`: `if (!(await canMarkRoll(userId, id, role))) notFound()`; then same body as Step 2 with `readOnly = roll.cls.archived`, `dateHrefBase = /my-classes/${id}/roll`, back link `/my-classes`.
+`/my-classes/[id]/roll` — IDOR gate exactly like `my-events/[id]/check-in`: `if (!(await canMarkRoll(userId, id, role))) notFound()`; then same body as Step 2 (incl. the `rawDate` normalisation) with `readOnly = roll.cls.archived`, `dateHrefBase = /my-classes/${id}/roll`, back link `/my-classes`.
 
 `OrganiserHeader`: keep the crest link to `/my-events`; add two text links "Events" (`/my-events`) and "Classes" (`/my-classes`) before Sign out (`text-primary-foreground/80 hover:…`, same as the sign-out button styling). Also on `/my-events` page's empty state no change.
 

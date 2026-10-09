@@ -46,24 +46,30 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
   if (!cls) notFound()
 
   const editor = canEdit(session.user.role) && !cls.archivedAt
-  const [teacherCandidates, enrolCandidates] = editor
+  // Children and everyone else are capped separately so a large adult roll can
+  // never crowd children out of the picker (the usual "Children only" view).
+  const enrolQuery = (role: { equals: "CHILD" } | { not: "CHILD" }) => prisma.person.findMany({
+    where: { archivedAt: null, role, sundaySchoolEnrolments: { none: { classId: id } } },
+    select: {
+      id: true, firstName: true, lastName: true, role: true, family: { select: { name: true } },
+      sundaySchoolEnrolments: { where: { year: cls.year, class: { archivedAt: null } }, select: { class: { select: { name: true } } } },
+    },
+    orderBy: byName,
+    take: CANDIDATE_CAP,
+  })
+  const [teacherCandidates, childCandidates, otherCandidates] = editor
     ? await Promise.all([
       prisma.person.findMany({
         where: { archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" }, sundaySchoolTeaching: { none: { classId: id } } },
         select: { id: true, firstName: true, lastName: true },
         orderBy: byName,
       }),
-      prisma.person.findMany({
-        where: { archivedAt: null, sundaySchoolEnrolments: { none: { classId: id } } },
-        select: {
-          id: true, firstName: true, lastName: true, role: true, family: { select: { name: true } },
-          sundaySchoolEnrolments: { where: { year: cls.year, class: { archivedAt: null } }, select: { class: { select: { name: true } } } },
-        },
-        orderBy: byName,
-        take: CANDIDATE_CAP,
-      }),
+      enrolQuery({ equals: "CHILD" }),
+      enrolQuery({ not: "CHILD" }),
     ])
-    : [[], []]
+    : [[], [], []]
+  const enrolCandidates = [...childCandidates, ...otherCandidates]
+    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName))
 
   const today = sydneyToday()
   const teachers = cls.teachers.map(({ person: p }) => ({

@@ -9,6 +9,7 @@ jest.mock("@/lib/prisma", () => {
     sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     person: { findFirst: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   }
   m.$transaction.mockImplementation((arg: unknown) =>
     typeof arg === "function" ? (arg as (tx: typeof m) => unknown)(m) : Promise.all(arg as unknown[]))
@@ -36,7 +37,10 @@ const form = (o: Record<string, string>) => {
   return fd
 }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([{ id: 1 }])
+})
 
 describe("guards", () => {
   it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])("%s cannot mutate", async (role) => {
@@ -128,11 +132,19 @@ describe("updateClass / archiveClass", () => {
   it("archives instead of deleting", async () => {
     as(UserRole.ADMIN)
     liveClass()
+    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     expect(await archiveClass(1)).toBeUndefined()
     expect(prisma.sundaySchoolClass.updateMany).toHaveBeenCalledWith({
       where: { id: 1, archivedAt: null }, data: { archivedAt: expect.any(Date) },
     })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_CLASS_ARCHIVED", "SundaySchoolClass", 1)
+  })
+  it("does not audit an archive that changed no row", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await archiveClass(1)).toEqual({ error: "Class not found" })
+    expect(logAudit).not.toHaveBeenCalled()
   })
 })
 
@@ -174,6 +186,16 @@ describe("enrolChildren", () => {
       update: { classId: 1 },
     })
     expect(r).toEqual({ success: "Enrolled 2 (1 moved from another class)" })
+  })
+  it("refuses when the class is archived before the enrolment transaction", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([])
+    expect(await enrolChildren(1, [2])).toEqual({ error: "Class not found" })
+    expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
   })
   it("maps a concurrent enrol race to a retry message", async () => {
     as(UserRole.ADMIN)
