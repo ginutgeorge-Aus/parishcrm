@@ -41,11 +41,12 @@ export type Money = { toString(): string } | number | null | undefined
 /**
  * Expand a plain-decimal-with-exponent string (`1e-7`, `1.5E+3`) to positional
  * notation using string shifts only, so no float rounding creeps in. Anything
- * that is not `digits[.digits]e[+-]digits` is returned unchanged.
+ * that is not `digits[.digits]e[+-]digits` (bare-dot `.5e2` / `5.e2` allowed)
+ * is returned unchanged.
  */
 function expandExponent(s: string): string {
-  const m = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(s)
-  if (!m) return s
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?[eE]([+-]?\d+)$/.exec(s)
+  if (!m || (!m[2] && !m[3])) return s
   const [, sign, int, frac = "", expStr] = m
   const exp = Number(expStr)
   // Normalise the coefficient (strip leading zeros) so the cutoffs below look at
@@ -73,7 +74,8 @@ function expandExponent(s: string): string {
  * Exponent notation (`1e-7`, which `Number#toString` and Decimal emit for very
  * small/large values) is expanded exactly, never mis-scaled. Malformed input
  * (`""`, `"abc"`, `"1,234"`, `"1.2.3"`, non-finite numbers) returns `NaN`
- * rather than a wrong amount: callers' `> 0` / `>= 0` guards then reject it,
+ * rather than a wrong amount (so do cent values beyond Number.MAX_SAFE_INTEGER,
+ * which a double cannot hold exactly): callers' `> 0` / `>= 0` guards then reject it,
  * and render paths don't throw.
  */
 export function toCents(m: Money): number {
@@ -83,6 +85,7 @@ export function toCents(m: Money): number {
   if (!match || (!match[2] && !match[3])) return Number.NaN
   const [, sign, whole, frac = ""] = match
   const cents = Number.parseInt(whole || "0", 10) * 100 + Number.parseInt((frac + "00").slice(0, 2), 10)
+  if (!Number.isSafeInteger(cents)) return Number.NaN // not exactly representable
   return sign === "-" ? -cents : cents
 }
 

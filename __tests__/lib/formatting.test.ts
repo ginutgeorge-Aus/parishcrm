@@ -85,7 +85,17 @@ describe("toCents", () => {
     expect(toCents(d("1.5e-2"))).toBe(1)
     expect(toCents(d("1.5E+3"))).toBe(150000)
     expect(toCents(d("-2e1"))).toBe(-2000)
-    expect(toCents(1e21)).toBe(1e23)
+    expect(toCents(d("1e13"))).toBe(1e15) // largest-ish exact amount still fine
+  })
+  it("accepts bare-dot coefficients in exponent notation", () => {
+    expect(toCents(d(".5e2"))).toBe(5000)
+    expect(toCents(d("5.e2"))).toBe(50000)
+    expect(toCents(d("-.5e1"))).toBe(-500)
+  })
+  it("returns NaN when cents exceed Number.MAX_SAFE_INTEGER", () => {
+    expect(toCents(d("9007199254740993e-2"))).toBeNaN()
+    expect(toCents(1e21)).toBeNaN()
+    expect(toCents(d("90071992547409.91"))).toBe(9007199254740991)
   })
   it("applies exponent cutoffs to the normalised decimal position", () => {
     expect(toCents(d("0e100"))).toBe(0)
