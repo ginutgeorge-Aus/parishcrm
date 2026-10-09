@@ -92,20 +92,25 @@ export function pendingReset(comments: Comment[], now: Date): Date | null {
   return latest
 }
 
+/** CodeRabbit's instant "Review triggered" acknowledgement — not a review result. */
+export const ACK = /Actions performed|Review triggered/i
+
 /**
  * True when someone posted the review command recently and CodeRabbit has not
- * replied since — a review is probably running, so another nudge would waste it.
+ * answered since — a review is probably running, so another nudge would waste it.
+ * The instant ack doesn't count as an answer; an edit to an older CodeRabbit
+ * comment (its summary gets the review result) does, via updatedAt.
  * @param comments - issue comments on one PR, any order
  * @param now - current time
  */
 export function nudgeInFlight(comments: Comment[], now: Date): boolean {
-  const sorted = [...comments].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
   let lastNudge = -1
   let lastReply = -1
-  for (const c of sorted) {
-    const t = Date.parse(c.createdAt)
-    if (c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND)) lastNudge = t
-    if (c.user === BOT) lastReply = t
+  for (const c of comments) {
+    if (c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND)) lastNudge = Math.max(lastNudge, Date.parse(c.createdAt))
+    if (c.user === BOT && !ACK.test(c.body)) {
+      lastReply = Math.max(lastReply, Date.parse(c.createdAt), Date.parse(c.updatedAt))
+    }
   }
   return lastNudge > lastReply && now.getTime() - lastNudge < IN_FLIGHT_MS
 }

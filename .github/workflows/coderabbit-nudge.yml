@@ -32,21 +32,24 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: coderabbit-nudge
-  cancel-in-progress: true
-
 jobs:
   nudge:
     # The PAT lives in environment `coderabbit-nudge`, whose deployment policy
     # allows only `main` — GitHub withholds it from runs on any other ref even if
     # a branch edits this file. The ref check just skips such runs cleanly.
-    # issue_comment runs from main; only CodeRabbit's own PR comments count
-    # (our nudge comments, by the PAT owner, must not retrigger this).
+    # issue_comment runs from main; only CodeRabbit's own PR comments count —
+    # not our nudge (PAT owner), not other people/bots, and not CodeRabbit's
+    # instant "Review triggered" ack (it would re-nudge mid-review).
     if: >-
       github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main' &&
       (github.event_name != 'issue_comment' ||
-       (github.event.issue.pull_request && github.event.comment.user.login == 'coderabbitai[bot]'))
+       (github.event.issue.pull_request && github.event.comment.user.login == 'coderabbitai[bot]' &&
+        !contains(github.event.comment.body, 'Review triggered')))
+    # Job-level, so only runs that pass the `if` join the group: an unrelated
+    # comment's skipped run can't cancel a run sleeping until the reset.
+    concurrency:
+      group: coderabbit-nudge
+      cancel-in-progress: true
     environment: coderabbit-nudge
     runs-on: ubuntu-latest
     timeout-minutes: 75   # > the script's 65-min --wait cap

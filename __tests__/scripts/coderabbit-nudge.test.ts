@@ -119,6 +119,20 @@ test("nudgeInFlight: recent unanswered command blocks; answered or stale does no
   assert.equal(nudgeInFlight([comment({ body: "@codex review", createdAt: "2026-10-07T02:55:00Z" })], now), false)
 })
 
+test("nudgeInFlight: CodeRabbit's 'Review triggered' ack is not an answer; a later summary edit is", () => {
+  const now = new Date("2026-10-07T03:00:00Z")
+  const nudge = comment({ body: "@coderabbitai review", createdAt: "2026-10-07T02:50:00Z" })
+  const ack = comment({
+    user: BOT,
+    body: "<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>✅ Actions performed</summary>\n\nReview triggered.\n\n</details>",
+    createdAt: "2026-10-07T02:50:10Z",
+    updatedAt: "2026-10-07T02:50:10Z",
+  })
+  assert.equal(nudgeInFlight([nudge, ack], now), true)
+  const summaryEdited = comment({ user: BOT, body: "walkthrough", createdAt: "2026-10-06T00:00:00Z", updatedAt: "2026-10-07T02:58:00Z" })
+  assert.equal(nudgeInFlight([summaryEdited, nudge, ack], now), false)
+})
+
 test("pickNext: review-next > human > bot, newest activity first, skips drafts and opt-outs", () => {
   const bot = pr({ number: 1, authorIsBot: true, updatedAt: "2026-10-06T00:00:00Z" })
   const staleHuman = pr({ number: 2, updatedAt: "2026-09-10T00:00:00Z" })
