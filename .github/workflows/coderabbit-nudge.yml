@@ -30,7 +30,8 @@ concurrency:
 
 jobs:
   nudge:
-    if: github.repository == 'ginutgeorge-Aus/parishcrm'
+    # main only: a manual run from another branch would hand the PAT to that branch's script
+    if: github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
