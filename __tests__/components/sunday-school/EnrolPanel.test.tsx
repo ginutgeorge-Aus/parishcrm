@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 
 jest.mock("@/lib/actions/sundaySchool", () => ({
   enrolChildren: jest.fn().mockResolvedValue({ success: "Enrolled 2" }),
@@ -6,7 +6,7 @@ jest.mock("@/lib/actions/sundaySchool", () => ({
 }))
 
 import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
-import { enrolChildren } from "@/lib/actions/sundaySchool"
+import { enrolChildren, unenrolChild } from "@/lib/actions/sundaySchool"
 
 const enrolled = [{ id: 1, name: "Test Child", familyName: "Sample" }]
 const candidates = [
@@ -51,6 +51,22 @@ describe("EnrolPanel", () => {
     await waitFor(() => expect(enrolChildren).toHaveBeenCalledTimes(1))
     expect(enrolChildren).toHaveBeenCalledWith(9, [2, 3])
     expect(await screen.findByText("Enrolled 2")).toBeInTheDocument()
+  })
+
+  it("removes a child after confirming", async () => {
+    render(<EnrolPanel classId={9} enrolled={enrolled} candidates={candidates} readOnly={false} />)
+    fireEvent.click(screen.getByRole("button", { name: "Remove Test Child" }))
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }))
+    await waitFor(() => expect(unenrolChild).toHaveBeenCalledWith(9, 1))
+  })
+
+  it("shows an error when the enrol call rejects", async () => {
+    ;(enrolChildren as jest.Mock).mockRejectedValueOnce(new Error("network"))
+    render(<EnrolPanel classId={9} enrolled={enrolled} candidates={candidates} readOnly={false} />)
+    fireEvent.click(screen.getByLabelText(/Amy Brown/))
+    fireEvent.click(screen.getByRole("button", { name: "Enrol 1" }))
+    expect(await screen.findByText(/Could not enrol/)).toBeInTheDocument()
   })
 
   it("hides every control when read-only", () => {

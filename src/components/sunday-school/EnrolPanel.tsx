@@ -51,9 +51,13 @@ export function EnrolPanel({
   function submit() {
     const ids = [...selected]
     startTransition(async () => {
-      const r = await enrolChildren(classId, ids)
-      setResult(r ?? null)
-      if (r && "success" in r) setSelected(new Set())
+      try {
+        const r = await enrolChildren(classId, ids)
+        setResult(r ?? null)
+        if (r && "success" in r) setSelected(new Set())
+      } catch {
+        setResult({ error: "Could not enrol — check your connection and try again" })
+      }
     })
   }
 

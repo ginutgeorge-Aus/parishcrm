@@ -213,7 +213,10 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
 /**
  * Roll `fromYear` over to the next year in one transaction: copy every live
  * class and its teachers, then move each child up one level at the same
- * location (see planRollover). One-time: refused once next year has classes.
+ * location (see planRollover). One-time: refused once next year has any class,
+ * archived or not (archived classes still occupy the year). The check is
+ * repeated inside a Serializable transaction so a concurrent editor cannot slip
+ * a class in between the check and the copy.
  */
 export async function rolloverYear(fromYear: number): Promise<ActionResultWithSuccess> {
   const g = await editor()
@@ -221,9 +224,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   if (!Number.isInteger(fromYear) || fromYear < MIN_YEAR || fromYear >= MAX_YEAR) return { error: "Invalid school year" }
   const toYear = fromYear + 1
 
-  if ((await prisma.sundaySchoolClass.count({ where: { year: toYear, archivedAt: null } })) > 0) {
-    return { error: `${toYear} already has classes — roll over is one-time` }
-  }
+  const ALREADY_ROLLED = `${toYear} already has classes — roll over is one-time`
+  if ((await prisma.sundaySchoolClass.count({ where: { year: toYear } })) > 0) return { error: ALREADY_ROLLED }
   const source = await prisma.sundaySchoolClass.findMany({
     where: { year: fromYear, archivedAt: null },
     orderBy: [{ location: "asc" }, { level: "asc" }, { name: "asc" }],
@@ -249,6 +251,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
+      // Authoritative guard: Serializable makes a concurrent insert into toYear fail one side.
+      if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
       // One insert; rows are matched back by (name, location) — unique within a
       // year — so correctness never depends on createManyAndReturn's row order.
       const created = await tx.sundaySchoolClass.createManyAndReturn({
@@ -266,19 +270,27 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // report the rows actually written, not the plan.
       if (enrolments.length) placed = (await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })).count
       return map
-    })
+    }, { isolationLevel: "Serializable" })
   } catch (e) {
+    if (e instanceof Error && e.message === ALREADY_ROLLED) return { error: ALREADY_ROLLED }
+    // Serialization failure: another editor changed toYear mid-rollover.
+    if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2034") {
+      return { error: `${toYear} was changed by someone else during roll over — try again` }
+    }
     // A concurrent rollover, or an archived toYear class with the same name and location.
     if (isP2002(e)) return { error: `${toYear} already has a class with the same name and location (it may be archived) — rename or remove it first` }
     throw e
   }
 
+  // Planned moves skipped by skipDuplicates (child already enrolled in toYear)
+  // are not placed by us either — count them as needing a hand.
+  const needPlacing = plan.unplaced.length + (plan.placements.length - placed)
   const firstId = Math.min(...newIds.values())
   await logAudit(actorId(g.session), "SS_ROLLOVER", ENTITY, firstId, {
-    fromYear, classes: plan.classes.length, placed, unplaced: plan.unplaced.length,
+    fromYear, classes: plan.classes.length, placed, unplaced: needPlacing,
   })
   revalidatePath("/sunday-school")
   return {
-    success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(placed)}; ${plan.unplaced.length} need placing by hand`,
+    success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(placed)}; ${needPlacing} need placing by hand`,
   }
 }

@@ -77,7 +77,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
         </p>
       ) : (
         [...groups.entries()].map(([location, rows]) => (
-          <section key={location || "-"} className="space-y-2">
+          <section key={`loc:${location}`} className="space-y-2">
             {showHeadings && (
               <h3 className="text-sm font-semibold text-muted-foreground">{location || "No location"}</h3>
             )}

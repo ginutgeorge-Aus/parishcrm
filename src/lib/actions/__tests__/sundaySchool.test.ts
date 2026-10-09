@@ -180,6 +180,21 @@ describe("enrolChildren", () => {
   })
 })
 
+describe("unenrolChild / removeTeacher success paths", () => {
+  it("deletes the enrolment and audits", async () => {
+    as(UserRole.ADMIN); liveClass()
+    await unenrolChild(1, 5)
+    expect(prisma.sundaySchoolEnrolment.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 5 } })
+    expect(logAudit).toHaveBeenCalledWith(1, "SS_UNENROLLED", "SundaySchoolClass", 1, { personId: 5 })
+  })
+  it("deletes the teacher link and audits", async () => {
+    as(UserRole.ADMIN); liveClass()
+    await removeTeacher(1, 7)
+    expect(prisma.sundaySchoolTeacher.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 7 } })
+    expect(logAudit).toHaveBeenCalledWith(1, "SS_TEACHER_REMOVED", "SundaySchoolClass", 1, { personId: 7 })
+  })
+})
+
 describe("rolloverYear", () => {
   it("refuses when next year already has classes", async () => {
     as(UserRole.ADMIN)
@@ -236,7 +251,22 @@ describe("rolloverYear", () => {
       { id: 101, name: "C1", location: "" }, { id: 102, name: "C2", location: "" },
     ])
     ;(prisma.sundaySchoolEnrolment.createMany as jest.Mock).mockResolvedValue({ count: 1 }) // one already placed
-    expect(await rolloverYear(2026)).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 0 need placing by hand" })
+    expect(await rolloverYear(2026)).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 1 need placing by hand" })
+  })
+  it("counts any class in next year, archived included", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(1)
+    await rolloverYear(2026)
+    expect(prisma.sundaySchoolClass.count).toHaveBeenCalledWith({ where: { year: 2027 } })
+  })
+  it("maps a serialization failure to a retry message", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, name: "Kindy", level: 0, location: "", teachers: [], enrolments: [] },
+    ])
+    ;(prisma.sundaySchoolClass.createManyAndReturn as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    expect(await rolloverYear(2026)).toEqual({ error: "2027 was changed by someone else during roll over — try again" })
   })
   it("maps a unique violation (archived or concurrent copy) to a clear error", async () => {
     as(UserRole.ADMIN)

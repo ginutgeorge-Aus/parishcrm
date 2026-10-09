@@ -68,7 +68,7 @@ async function main() {
     },
   })
 
-  await prisma.person.upsert({
+  const jane = await prisma.person.upsert({
     where: { id: 2 },
     update: {},
     create: {
@@ -86,9 +86,12 @@ async function main() {
     },
   })
 
+  // The fixed-id upserts above do not advance Person_id_seq; bump it so the
+  // generated id below cannot collide with ids 1 and 2.
+  await prisma.$executeRaw`SELECT setval(pg_get_serial_sequence('"Person"', 'id'), (SELECT COALESCE(MAX(id), 1) FROM "Person"))`
+
   // Sunday School demo (create-only): a synthetic child in one class this year,
-  // taught by Jane. Upserts on natural keys, not explicit ids, so the Person
-  // id sequence is untouched.
+  // taught by Jane (only if the row at id 2 really is a tagged teacher).
   const testChild = await prisma.person.upsert({
     where: { familyId_firstName_lastName: { familyId: demoFamily.id, firstName: "Test", lastName: "Child" } },
     update: {},
@@ -100,16 +103,21 @@ async function main() {
     update: {},
     create: { year: schoolYear, name: "Years 1–2", level: 1 },
   })
-  await prisma.sundaySchoolTeacher.upsert({
-    where: { classId_personId: { classId: demoClass.id, personId: 2 } },
-    update: {},
-    create: { classId: demoClass.id, personId: 2 },
-  })
-  await prisma.sundaySchoolEnrolment.upsert({
-    where: { personId_year: { personId: testChild.id, year: schoolYear } },
-    update: {},
-    create: { classId: demoClass.id, personId: testChild.id, year: schoolYear },
-  })
+  // Skip associations when the class was archived since the last seed run.
+  if (!demoClass.archivedAt) {
+    if (jane.firstName === "Jane" && jane.lastName === "Sample" && jane.ministryRoles.includes("SUNDAY_SCHOOL_TEACHER")) {
+      await prisma.sundaySchoolTeacher.upsert({
+        where: { classId_personId: { classId: demoClass.id, personId: jane.id } },
+        update: {},
+        create: { classId: demoClass.id, personId: jane.id },
+      })
+    }
+    await prisma.sundaySchoolEnrolment.upsert({
+      where: { personId_year: { personId: testChild.id, year: schoolYear } },
+      update: {},
+      create: { classId: demoClass.id, personId: testChild.id, year: schoolYear },
+    })
+  }
 
   // Delete old default accounts (skip if transactions are linked)
   try {

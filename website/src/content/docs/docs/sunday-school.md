@@ -19,12 +19,12 @@ look but not change anything.
   shows people whose family role is Child. A child can be in one class per year: enrolling a child
   who is already in another class moves them. The child's class also shows on their profile.
 - **Archive** — removing a class archives it; enrolments and (later) attendance history are kept.
-- **Roll over to next year** — on the class list, once per year: copies every class and its
-  teachers into next year and moves each child up one level at the same location. Children in the
+- **Roll over to next year** — on the class list, once per year: copies every active class and its
+  still-tagged teachers into next year and moves each child up one level at the same location. Children in the
   top class, or where two next-level classes exist at the same location, are left for you to place.
 
 ## How it works
 
 Classes, teacher links and enrolments are three tables keyed to People; nothing here is
 encrypted because it holds only names you already see in People, class names and levels.
-One-class-per-child-per-year is enforced by the database. Every change is written to the audit log.
+One-class-per-child-per-year is enforced by the database. Every change made through Sunday School is written to the audit log.
