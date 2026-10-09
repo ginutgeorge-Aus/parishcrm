@@ -127,6 +127,22 @@ export async function archiveClass(id: number): Promise<ActionResult> {
 }
 
 /**
+ * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
+ * concurrent archive (an UPDATE needing the row lock) waits until `fn` commits,
+ * and `fn` is skipped if the class was archived after the caller's check.
+ * Returns false when the class is no longer live.
+ */
+async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
+    if (rows.length === 0) return false
+    await fn(tx)
+    return true
+  })
+}
+
+/**
  * Assign a teacher. Only live People tagged SUNDAY_SCHOOL_TEACHER qualify, so
  * every teacher is on the clearance compliance list. Duplicate = success.
  */
@@ -141,7 +157,8 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
   if (!person) return { error: "Tag this person as a Sunday school teacher first" }
 
   try {
-    await prisma.sundaySchoolTeacher.create({ data: { classId, personId } })
+    const live = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.create({ data: { classId, personId } }))
+    if (!live) return { error: "Class not found" }
   } catch (e) {
     // Already assigned (unique classId_personId) — idempotent.
     if (!isP2002(e)) throw e
@@ -149,22 +166,6 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
   await logAudit(actorId(g.session), "SS_TEACHER_ADDED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
-}
-
-/**
- * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
- * concurrent archive (an UPDATE needing the row lock) waits until `fn` commits,
- * and `fn` is skipped if the class was archived after the caller's check.
- * Returns false when the class is no longer live.
- */
-async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: number }[]>`
-      SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
-    if (rows.length === 0) return false
-    await fn(tx)
-    return true
-  })
 }
 
 /** Remove a teacher from a class (missing link = success). canEdit-gated. */
