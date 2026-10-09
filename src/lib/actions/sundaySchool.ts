@@ -75,10 +75,16 @@ export async function createClass(year: number, _prev: ActionResult, formData: F
 
   let id: number
   try {
-    const created = await prisma.sundaySchoolClass.create({ data: { year, ...form.data }, select: { id: true } })
-    id = created.id
+    // Serializable + a read of the year's classes: a concurrent rolloverYear
+    // into this year (same read-then-insert) conflicts, so one side gets P2034
+    // instead of both committing a mix of copied and hand-made classes.
+    id = await prisma.$transaction(async (tx) => {
+      await tx.sundaySchoolClass.count({ where: { year } })
+      return (await tx.sundaySchoolClass.create({ data: { year, ...form.data }, select: { id: true } })).id
+    }, { isolationLevel: "Serializable" })
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
+    if (isP2034(e)) return { error: `${year} was changed by someone else — try again` }
     throw e
   }
   await logAudit(actorId(g.session), "SS_CLASS_CREATED", ENTITY, id, { year, ...form.data })

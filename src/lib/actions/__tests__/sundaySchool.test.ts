@@ -92,6 +92,20 @@ describe("createClass", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "SS_CLASS_CREATED", "SundaySchoolClass", 5, expect.any(Object))
     expect(redirect).toHaveBeenCalledWith("/sunday-school/5")
   })
+  it("reads the year inside a serializable transaction so a concurrent rollover conflicts", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.create as jest.Mock).mockResolvedValue({ id: 5 })
+    await expect(createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+    expect(prisma.sundaySchoolClass.count).toHaveBeenCalledWith({ where: { year: 2026 } })
+  })
+  it("maps a serialization conflict to a retry message", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.create as jest.Mock).mockRejectedValue({ code: "P2034" })
+    expect(await createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).toEqual({
+      error: "2026 was changed by someone else — try again",
+    })
+  })
 })
 
 describe("updateClass / archiveClass", () => {
