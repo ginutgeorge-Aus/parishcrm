@@ -112,8 +112,18 @@ describe("updateClass / archiveClass", () => {
   it("updates name/level/location but never the year", async () => {
     as(UserRole.PASTOR)
     liveClass()
+    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await expect(updateClass(1, undefined, form({ name: "Years 1–2", level: "1", year: "2030" }))).rejects.toThrow("NEXT_REDIRECT")
-    expect(prisma.sundaySchoolClass.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { name: "Years 1–2", level: 1, location: "" } })
+    expect(prisma.sundaySchoolClass.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, archivedAt: null }, data: { name: "Years 1–2", level: 1, location: "" },
+    })
+  })
+  it("refuses an update when the class was archived after the guard", async () => {
+    as(UserRole.PASTOR)
+    liveClass()
+    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await updateClass(1, undefined, form({ name: "Years 1–2", level: "1" }))).toEqual({ error: "Class not found" })
+    expect(logAudit).not.toHaveBeenCalled()
   })
   it("archives instead of deleting", async () => {
     as(UserRole.ADMIN)

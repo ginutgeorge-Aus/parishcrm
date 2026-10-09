@@ -100,7 +100,9 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
   if ("error" in form) return { error: form.error }
 
   try {
-    await prisma.sundaySchoolClass.update({ where: { id }, data: form.data })
+    // Conditional write: a class archived since editableClass() is left untouched.
+    const { count } = await prisma.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data })
+    if (count === 0) return { error: "Class not found" }
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
     throw e
