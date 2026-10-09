@@ -6,6 +6,7 @@ import {
   parseRateLimitReset,
   pendingReset,
   pickNext,
+  waitForReset,
   type Comment,
   type Pr,
 } from "../../scripts/coderabbit-nudge"
@@ -130,4 +131,15 @@ test("pickNext: review-next > human > bot, newest activity first, skips drafts a
   assert.equal(pickNext([bot, staleHuman, activeHuman])?.number, 3)
   assert.equal(pickNext([bot, draft, optOut])?.number, 1)
   assert.equal(pickNext([draft, optOut]), null)
+})
+
+test("waitForReset: sleeps until just past a reset within the cap", () => {
+  const now = new Date("2026-10-09T20:00:00Z")
+  assert.equal(waitForReset(new Date("2026-10-09T20:30:00Z"), now, 65 * 60_000), 31 * 60_000)
+})
+
+test("waitForReset: no wait when nothing is pending or the reset is past the cap", () => {
+  const now = new Date("2026-10-09T20:00:00Z")
+  assert.equal(waitForReset(null, now, 65 * 60_000), null)
+  assert.equal(waitForReset(new Date("2026-10-09T21:30:00Z"), now, 65 * 60_000), null)
 })

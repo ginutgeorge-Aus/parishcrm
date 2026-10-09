@@ -9,7 +9,7 @@
 // Runs on plain Node 24 (type stripping) with no dependencies — erasable TS only.
 // GH_TOKEN must be a user PAT: CodeRabbit ignores commands posted by bots.
 //
-// Usage: GH_TOKEN=... NUDGE_REPO=owner/repo node scripts/coderabbit-nudge.ts [--dry-run]
+// Usage: GH_TOKEN=... NUDGE_REPO=owner/repo node scripts/coderabbit-nudge.ts [--dry-run] [--wait]
 // (in Actions, GITHUB_REPOSITORY supplies the repo)
 
 const REPO = process.env.NUDGE_REPO || process.env.GITHUB_REPOSITORY || ""
@@ -19,6 +19,8 @@ const COMMAND = "@coderabbitai review"
 const DEFAULT_WAIT_MS = 60 * 60 * 1000
 /** A nudge this recent with no reply yet means a review may be in flight. */
 const IN_FLIGHT_MS = 30 * 60 * 1000
+/** Longest `--wait` sleep; the workflow job timeout must exceed it. */
+const MAX_WAIT_MS = 65 * 60 * 1000
 /** An untimed notice this close to a timed one is the same rate-limit event. */
 const PAIR_MS = 5 * 60 * 1000
 // Seen as "available in 4 minutes" and "available in: 21 minutes".
@@ -122,6 +124,22 @@ export function pickNext(prs: Pr[]): Pr | null {
   return eligible[0] ?? null
 }
 
+/** Slack past CodeRabbit's stated reset, so the retry doesn't land a second early. */
+const RESET_SLACK_MS = 60 * 1000
+
+/**
+ * How long to sleep before retrying a rate-limited run, or null when nothing is
+ * pending or the reset is further away than `maxMs` (the job would time out).
+ * @param reset - pending rate-limit reset, if any
+ * @param now - current time
+ * @param maxMs - longest wait the caller allows
+ */
+export function waitForReset(reset: Date | null, now: Date, maxMs: number): number | null {
+  if (!reset) return null
+  const ms = reset.getTime() - now.getTime() + RESET_SLACK_MS
+  return ms <= maxMs ? ms : null
+}
+
 /**
  * Calls the GitHub REST API, following `Link: rel="next"` for GET lists.
  * @param path - API path starting with `/`
@@ -153,11 +171,12 @@ async function gh<T>(path: string, init?: { method: string; body: unknown }): Pr
   return out as T
 }
 
-/** Fetches state, decides, and posts at most one review command. */
-async function main() {
-  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN not set")
-  if (!REPO) throw new Error("NUDGE_REPO / GITHUB_REPOSITORY not set")
-  const dryRun = process.argv.includes("--dry-run")
+/**
+ * Fetches state, decides, and posts at most one review command.
+ * Returns the pending rate-limit reset when it skipped for that reason.
+ * @param dryRun - print the decision instead of commenting
+ */
+async function runOnce(dryRun: boolean): Promise<Date | null> {
   const now = new Date()
 
   type ApiPr = {
@@ -193,7 +212,7 @@ async function main() {
     allComments.push(...comments)
     if (nudgeInFlight(comments, now)) {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
-      return
+      return null
     }
     if (!isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id })), comments, pr.headSha)) {
       unreviewed.push(pr)
@@ -203,20 +222,37 @@ async function main() {
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
   const reset = pendingReset(allComments, now)
   if (reset) {
-    console.log(`CodeRabbit rate limited until ${reset.toISOString()}. Skipping run.`)
-    return
+    console.log(`CodeRabbit rate limited until ${reset.toISOString()}.`)
+    return reset
   }
   const next = pickNext(unreviewed)
   if (!next) {
     console.log("Nothing to nudge.")
-    return
+    return null
   }
   if (dryRun) {
     console.log(`[dry-run] would comment "${COMMAND}" on #${next.number} (${next.author})`)
-    return
+    return null
   }
   await gh(`/repos/${REPO}/issues/${next.number}/comments`, { method: "POST", body: { body: COMMAND } })
   console.log(`Posted "${COMMAND}" on #${next.number} (${next.author}).`)
+  return null
+}
+
+/**
+ * One run; with `--wait`, a rate-limited run sleeps until the reset (up to
+ * MAX_WAIT_MS, under the job timeout) and decides again once.
+ */
+async function main() {
+  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN not set")
+  if (!REPO) throw new Error("NUDGE_REPO / GITHUB_REPOSITORY not set")
+  const dryRun = process.argv.includes("--dry-run")
+  const reset = await runOnce(dryRun)
+  const ms = process.argv.includes("--wait") ? waitForReset(reset, new Date(), MAX_WAIT_MS) : null
+  if (ms === null) return
+  console.log(`Waiting ${Math.ceil(ms / 60_000)} min for the reset…`)
+  await new Promise((r) => setTimeout(r, ms))
+  await runOnce(dryRun)
 }
 
 if (process.env.NODE_ENV !== "test") {
