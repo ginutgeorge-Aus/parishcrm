@@ -27,6 +27,13 @@ it("redirects an unauthenticated visitor", async () => {
   await expect(ReportsPage()).rejects.toThrow("REDIRECT")
 })
 
+it.each(["abc", "", "0", "-3"])("redirects a session with malformed user id %j without touching Prisma", async (id) => {
+  mockAuth.mockResolvedValue({ user: { id, role: "VIEWER" } })
+  await expect(ReportsPage()).rejects.toThrow("REDIRECT")
+  expect(mockFindMany).not.toHaveBeenCalled()
+  expect(mockSync).not.toHaveBeenCalled()
+})
+
 it("syncs status then queries only this user's reports", async () => {
   await ReportsPage()
   expect(mockSync).toHaveBeenCalled()
