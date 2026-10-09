@@ -272,13 +272,17 @@ export function sydneyStartOfDayUTC(ymd: string): Date {
 }
 
 /**
- * The UTC instant of Sydney 23:59:59.999 on the given `YYYY-MM-DD` calendar
+ * The last UTC instant (ms precision) of the given `YYYY-MM-DD` Sydney calendar
  * date. Use as the `lte` upper bound when filtering real (non-date-only)
- * timestamps by a Sydney calendar day. The offset is whole hours, so the
- * .999 millisecond precision is preserved.
+ * timestamps by a Sydney calendar day. Computed as the next day's start minus
+ * 1 ms, so a zone that repeats or skips its final hour still gets the true end.
+ *
+ * @param ymd - calendar date as `YYYY-MM-DD`
+ * @returns the UTC instant 1 ms before the next Sydney day begins
  */
 export function sydneyEndOfDayUTC(ymd: string): Date {
-  return sydneyWallClockToUTC(new Date(ymd + "T23:59:59.999Z"))
+  const next = new Date(new Date(ymd + "T00:00:00.000Z").getTime() + 86_400_000).toISOString().slice(0, 10)
+  return new Date(sydneyStartOfDayUTC(next).getTime() - 1)
 }
 
 /**
