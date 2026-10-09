@@ -33,7 +33,7 @@ const TODAY = new Date()
 /** Builds a synthetic compliance row; `expired` gives an expired WWCC. */
 const mkRow = (id: number, expired: boolean) => toComplianceRow({
   id, firstName: "P" + id, lastName: "Testperson", ministryRoles: ["STAFF"], family: { name: "F" },
-  clearances: expired ? [{ id: id * 10, type: "WWCC", number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }] : [],
+  clearances: expired ? [{ id: String(id * 10), type: "WWCC" as const, number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }] : [],
 }, TODAY)
 
 /** Renders the page to static markup with the given search params. */
