@@ -52,13 +52,12 @@ export default async function DashboardPage() {
   // Reports/dashboard show all accounts (incl. deactivated-with-history), not
   // just active ones — a deactivated account can still have a balance worth
   // showing until its history ages out.
-  const accounts = canViewAccounting(role) ? await getPaymentAccounts({ activeOnly: false }) : []
-
-  const openingBalances = canViewAccounting(role)
-    ? await prisma.accountOpeningBalance.findMany()
-    : []
+  const [accounts, openingBalances] = canViewAccounting(role)
+    ? await Promise.all([getPaymentAccounts({ activeOnly: false }), prisma.accountOpeningBalance.findMany()])
+    : [[], []]
 
   const obByAccountId = new Map(openingBalances.map((ob) => [ob.paymentAccountId, ob]))
+  const balancedAccounts = accounts.filter((acct) => obByAccountId.has(acct.id))
 
   const [
     rawPeople,
@@ -71,7 +70,7 @@ export default async function DashboardPage() {
     upcomingEventCount,
     givingThisMonth,
     givingLastYear,
-    accountAggs,
+    accountSums,
     personCount,
     pendingUpdates,
   ] = await Promise.all([
@@ -133,26 +132,23 @@ export default async function DashboardPage() {
         })
       : Promise.resolve({ _sum: { amount: null } }),
 
-    // Per-account income/expense since its opening-balance asOfDate. One
-    // account with no opening balance set yet contributes nulls (dashboard
-    // renders "—" + a link to set it), rather than blocking the others.
-    Promise.all(
-      accounts.map(async (acct) => {
-        const ob = obByAccountId.get(acct.id)
-        if (!ob) return { accountId: acct.id, income: null as Money, expense: null as Money }
-        const [incomeAgg, expenseAgg] = await Promise.all([
-          prisma.transaction.aggregate({
-            where: { paymentAccountId: acct.id, type: "INCOME", date: { gte: ob.asOfDate } },
-            _sum: { amount: true },
-          }),
-          prisma.transaction.aggregate({
-            where: { paymentAccountId: acct.id, type: "EXPENSE", date: { gte: ob.asOfDate } },
-            _sum: { amount: true },
-          }),
-        ])
-        return { accountId: acct.id, income: incomeAgg._sum.amount, expense: expenseAgg._sum.amount }
-      })
-    ),
+    // Per-account income/expense since its opening-balance asOfDate, in one
+    // groupBy (each account has its own asOfDate, hence the OR). An account
+    // with no opening balance set yet is left out and renders "—" + a link to
+    // set it, rather than blocking the others.
+    balancedAccounts.length > 0
+      ? prisma.transaction.groupBy({
+          by: ["paymentAccountId", "type"],
+          where: {
+            type: { in: ["INCOME", "EXPENSE"] },
+            OR: balancedAccounts.map((acct) => ({
+              paymentAccountId: acct.id,
+              date: { gte: obByAccountId.get(acct.id)!.asOfDate },
+            })),
+          },
+          _sum: { amount: true },
+        })
+      : Promise.resolve([]),
 
     prisma.person.count({ where: { archivedAt: null } }),
     canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
@@ -221,8 +217,9 @@ export default async function DashboardPage() {
 
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
-    const agg = accountAggs.find((a) => a.accountId === acct.id)
-    const balance = ob && agg ? accountBalance(ob.amount, agg.income, agg.expense) : null
+    const sumOf = (type: string): Money =>
+      accountSums.find((g) => g.paymentAccountId === acct.id && g.type === type)?._sum.amount ?? null
+    const balance = ob ? accountBalance(ob.amount, sumOf("INCOME"), sumOf("EXPENSE")) : null
     return { label: acct.name, balance, ob }
   })
 

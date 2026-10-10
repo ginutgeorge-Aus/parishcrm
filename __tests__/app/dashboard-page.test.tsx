@@ -10,7 +10,7 @@ jest.mock("@/lib/prisma", () => ({
     pettyCashSession: { count: jest.fn() },
     event: { count: jest.fn() },
     registration: { findMany: jest.fn() },
-    transaction: { aggregate: jest.fn() },
+    transaction: { aggregate: jest.fn(), groupBy: jest.fn() },
     auditLog: { findMany: jest.fn() },
     familyUpdateSubmission: { count: jest.fn() },
   },
@@ -49,6 +49,7 @@ function primeMocks() {
   ;(prisma.event.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.registration.findMany as jest.Mock).mockResolvedValue([])
   ;(prisma.transaction.aggregate as jest.Mock).mockResolvedValue({ _sum: { amount: null } })
+  ;(prisma.transaction.groupBy as jest.Mock).mockResolvedValue([])
   ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([])
 }
 
@@ -154,6 +155,57 @@ describe("DashboardPage date math (Sydney day, UTC-midnight bounds)", () => {
     const el = await DashboardPage()
     const widget = findElement(el, (e) => e.type === MarriageAnniversaryWidget)
     expect(widget.props.families.map((f: { id: number }) => f.id)).toEqual([1])
+  })
+})
+
+describe("DashboardPage account balances", () => {
+  it("sums every account's income/expense (deactivated included) since its own asOfDate in one groupBy", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    const asOf1 = new Date("2026-01-01T00:00:00Z")
+    const asOf2 = new Date("2026-03-01T00:00:00Z")
+    ;(prisma.paymentAccount.findMany as jest.Mock).mockResolvedValue([
+      { id: "a1", name: "Main Cheque", isActive: true },
+      { id: "a2", name: "Old Savings", isActive: false }, // deactivated, with history: still shown
+      { id: "a3", name: "No Opening Yet", isActive: true },
+    ])
+    ;(prisma.accountOpeningBalance.findMany as jest.Mock).mockResolvedValue([
+      { paymentAccountId: "a1", amount: "100.00", asOfDate: asOf1 },
+      { paymentAccountId: "a2", amount: "10.00", asOfDate: asOf2 },
+    ])
+    ;(prisma.transaction.groupBy as jest.Mock).mockResolvedValue([
+      { paymentAccountId: "a1", type: "INCOME", _sum: { amount: "50.25" } },
+      { paymentAccountId: "a1", type: "EXPENSE", _sum: { amount: "20.00" } },
+      { paymentAccountId: "a2", type: "EXPENSE", _sum: { amount: "4.50" } },
+    ])
+    const html = renderToStaticMarkup(await DashboardPage())
+
+    expect(prisma.transaction.groupBy).toHaveBeenCalledTimes(1)
+    expect(prisma.transaction.groupBy).toHaveBeenCalledWith({
+      by: ["paymentAccountId", "type"],
+      where: {
+        type: { in: ["INCOME", "EXPENSE"] },
+        OR: [
+          { paymentAccountId: "a1", date: { gte: asOf1 } },
+          { paymentAccountId: "a2", date: { gte: asOf2 } },
+        ],
+      },
+      _sum: { amount: true },
+    })
+    // Only the two giving totals still use aggregate — no per-account queries.
+    expect(prisma.transaction.aggregate).toHaveBeenCalledTimes(2)
+    expect(html).toContain("$130.25")
+    expect(html).toContain("$5.50")
+    expect(html).toContain("Old Savings")
+    expect((prisma.paymentAccount.findMany as jest.Mock).mock.calls[0][0]?.where ?? {}).not.toHaveProperty("isActive")
+  })
+
+  it("skips the groupBy when no account has an opening balance", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    ;(prisma.paymentAccount.findMany as jest.Mock).mockResolvedValue([{ id: "a1", name: "Main Cheque", isActive: true }])
+    await DashboardPage()
+    expect(prisma.transaction.groupBy).not.toHaveBeenCalled()
   })
 })
 
