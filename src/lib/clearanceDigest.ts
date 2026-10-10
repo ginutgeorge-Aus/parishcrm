@@ -15,6 +15,7 @@ import { renderClearanceDigestEmail } from "@/lib/clearanceDigestEmail"
 export type ClearanceDigestResult = { flagged: number; sent: number; failed: number }
 
 const LAST_MONTH_KEY = "clearanceDigestLastMonth"
+const DELIVERED_KEY = "clearanceDigestDelivered"
 const LEASE_PREFIX = "running:"
 // A run that dies mid-send leaves its lease behind; after this long a later run
 // may reclaim it so the month is not silently lost. A digest is a handful of
@@ -37,14 +38,47 @@ function complianceUrl(): string | null {
   }
 }
 
+/** Lowercased, trimmed email, so the delivered list matches regardless of case. */
+function normEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+/** Emails already sent this Sydney `month` (empty for another month, a missing row or bad JSON). */
+async function loadDelivered(month: string): Promise<Set<string>> {
+  const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
+  if (!row) return new Set()
+  try {
+    const parsed = JSON.parse(row.value) as { month?: unknown; emails?: unknown }
+    if (parsed.month !== month || !Array.isArray(parsed.emails)) return new Set()
+    return new Set(parsed.emails.filter((e): e is string => typeof e === "string").map(normEmail))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Saves the delivered list for `month`. Best effort: never throws, because mail is already out. */
+async function saveDelivered(month: string, emails: Set<string>): Promise<void> {
+  const value = JSON.stringify({ month, emails: [...emails] })
+  try {
+    await prisma.appSetting.upsert({ where: { key: DELIVERED_KEY }, create: { key: DELIVERED_KEY, value }, update: { value } })
+  } catch (e) {
+    logger.error(`[clearanceDigest] could not save the delivered list: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 /**
  * Builds and sends the digest: expired / expiring / missing / unverified
- * clearances, names only, to every active ADMIN and PASTOR. An all-clear month
- * sends nothing. Ambiguous delivery errors count as sent so a maybe-delivered
- * email is never repeated. No lease handling here; see runClearanceDigestLocked.
+ * clearances, names only, to every active ADMIN and PASTOR who has not already
+ * got this Sydney month's digest. Delivered addresses are kept per month in an
+ * app setting (email addresses only), so a retry after a partial failure sends
+ * only to the rest. `force` ignores and resets that list. An all-clear month
+ * sends nothing. Ambiguous delivery errors count as delivered so a
+ * maybe-delivered email is never repeated. `sent`/`failed` count this run only.
+ * No lease handling here; see runClearanceDigestLocked.
  */
-export async function sendClearanceDigest(now: Date): Promise<ClearanceDigestResult> {
+export async function sendClearanceDigest(now: Date, opts: { force?: boolean } = {}): Promise<ClearanceDigestResult> {
   const today = sydneyToday(now)
+  const month = sydneyMonthKey(now)
   const { rows } = await loadComplianceRows(today)
   const buckets = bucketCompliance(rows)
   if (bucketsEmpty(buckets)) return { flagged: 0, sent: 0, failed: 0 }
@@ -59,6 +93,11 @@ export async function sendClearanceDigest(now: Date): Promise<ClearanceDigestRes
     return { flagged, sent: 0, failed: 0 }
   }
 
+  const delivered = opts.force ? new Set<string>() : await loadDelivered(month)
+  if (opts.force) await saveDelivered(month, delivered)
+  const pending = recipients.filter((r) => !delivered.has(normEmail(r.email)))
+  if (pending.length === 0) return { flagged, sent: 0, failed: 0 }
+
   const { subject, html, text } = renderClearanceDigestEmail({
     churchName: await getChurchName(),
     asOf: formatDMY(today),
@@ -68,7 +107,7 @@ export async function sendClearanceDigest(now: Date): Promise<ClearanceDigestRes
 
   let sent = 0
   let failed = 0
-  for (const r of recipients) {
+  for (const r of pending) {
     try {
       await sendEmail(r.email, subject, html, text)
       sent++
@@ -79,8 +118,11 @@ export async function sendClearanceDigest(now: Date): Promise<ClearanceDigestRes
       } else {
         failed++
         logger.error("[clearanceDigest] send failed for one recipient")
+        continue
       }
     }
+    delivered.add(normEmail(r.email))
+    await saveDelivered(month, delivered)
   }
   await logAudit(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, {
     flagged, sent, failed,
@@ -108,8 +150,10 @@ async function releaseLease(prevValue: string | null, lease: string): Promise<vo
  * Runs the digest at most once per Sydney month and never concurrently.
  * Guard: one AppSetting row. `<YYYY-MM>` = that month is done;
  * `running:<month>:<ms>` = a lease held by an in-flight run, taken by
- * compare-and-set. A run that fails (throws, or every send fails) restores the
- * previous value so a later attempt retries the month. Returns "locked" when
+ * compare-and-set. A run that fails (throws, or any send fails) restores the
+ * previous value so a later attempt retries the month; delivered recipients
+ * are tracked separately (see sendClearanceDigest), so that retry only emails
+ * the ones still missing. `force` resends to everyone. Returns "locked" when
  * another run holds a fresh lease or won the race and "done" when this month
  * already ran (never with `force`); the two stay distinct so a scheduler that
  * saw "locked" is never mistaken for finished.
@@ -138,14 +182,14 @@ export async function runClearanceDigestLocked(
 
   let result: ClearanceDigestResult
   try {
-    result = await sendClearanceDigest(now)
+    result = await sendClearanceDigest(now, { force: opts.force })
   } catch (e) {
     await releaseLease(prev?.value ?? null, lease)
     throw e
   }
-  // Every recipient failed cleanly: nothing was delivered, so release and let
-  // the scheduler retry (it sees failed > 0 and keeps the month open).
-  if (result.failed > 0 && result.sent === 0) {
+  // Someone still has no email: release and keep the month open. The scheduler
+  // sees failed > 0 and retries; delivered recipients are skipped next time.
+  if (result.failed > 0) {
     await releaseLease(prev?.value ?? null, lease)
     return result
   }

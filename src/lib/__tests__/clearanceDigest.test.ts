@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    appSetting: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
+    appSetting: { findUnique: jest.fn(), create: jest.fn(), upsert: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
     user: { findMany: jest.fn() },
   },
 }))
@@ -23,6 +23,12 @@ import { runClearanceDigest, runClearanceDigestLocked } from "@/lib/clearanceDig
 
 const findUnique = prisma.appSetting.findUnique as jest.Mock
 const create = prisma.appSetting.create as jest.Mock
+const upsert = prisma.appSetting.upsert as jest.Mock
+const DKEY = "clearanceDigestDelivered"
+/** findUnique mock: lease row (`last`) plus the delivered row (`delivered`, or none). */
+const setRows = (last: string, delivered?: { month: string; emails: string[] }) =>
+  findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
+    where.key === KEY ? { key: KEY, value: last } : delivered ? { key: DKEY, value: JSON.stringify(delivered) } : null)
 const updateMany = prisma.appSetting.updateMany as jest.Mock
 const settingDeleteMany = prisma.appSetting.deleteMany as jest.Mock
 const users = prisma.user.findMany as jest.Mock
@@ -51,7 +57,8 @@ const cleanRows = () => [
 
 beforeEach(() => {
   jest.clearAllMocks()
-  findUnique.mockResolvedValue({ key: KEY, value: "2026-10" })
+  setRows("2026-10")
+  upsert.mockResolvedValue({})
   updateMany.mockResolvedValue({ count: 1 })
   settingDeleteMany.mockResolvedValue({ count: 1 })
   create.mockResolvedValue({})
@@ -100,20 +107,20 @@ describe("runClearanceDigestLocked", () => {
   })
 
   it("is 'done' (no work) when this month already ran, unless forced", async () => {
-    findUnique.mockResolvedValue({ key: KEY, value: MONTH })
+    setRows(MONTH)
     expect(await runClearanceDigestLocked(FIRST)).toBe("done")
     expect(send).not.toHaveBeenCalled()
     expect(await runClearanceDigestLocked(FIRST, { force: true })).toMatchObject({ sent: 2 })
   })
 
   it("is 'locked' while another run holds a fresh lease", async () => {
-    findUnique.mockResolvedValue({ key: KEY, value: lease(new Date(FIRST.getTime() - 60_000)) })
+    setRows(lease(new Date(FIRST.getTime() - 60_000)))
     expect(await runClearanceDigestLocked(FIRST)).toBe("locked")
     expect(send).not.toHaveBeenCalled()
   })
 
   it("reclaims a stale lease (crashed run)", async () => {
-    findUnique.mockResolvedValue({ key: KEY, value: lease(new Date(FIRST.getTime() - 3 * 60 * 60_000)) })
+    setRows(lease(new Date(FIRST.getTime() - 3 * 60 * 60_000)))
     expect(await runClearanceDigestLocked(FIRST)).toMatchObject({ sent: 2 })
   })
 
@@ -130,11 +137,54 @@ describe("runClearanceDigestLocked", () => {
     expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } })
   })
 
-  it("keeps the month recorded after a partial failure (no resend to those who got it)", async () => {
+  it("after a partial failure records who got it, keeps the month open, and a retry emails only the failed one", async () => {
     send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 1 })
+    expect(upsert).toHaveBeenLastCalledWith({
+      where: { key: DKEY },
+      create: { key: DKEY, value: JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }) },
+      update: { value: JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }) },
+    })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } }) // open
+
+    jest.clearAllMocks()
+    send.mockResolvedValue(undefined)
+    setRows("2026-10", { month: MONTH, emails: ["admin@example.com"] })
+    const retry = await runClearanceDigestLocked(new Date(FIRST.getTime() + 30 * 60_000))
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0][0]).toBe("pastor@example.com")
+    expect(retry).toEqual({ flagged: 1, sent: 1, failed: 0 })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: expect.stringContaining("running:") }, data: { value: MONTH } })
+  })
+
+  it("marks the month done without sending when everyone already has it (case-insensitive)", async () => {
+    setRows("2026-10", { month: MONTH, emails: ["ADMIN@example.com", "pastor@Example.com"] })
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(send).not.toHaveBeenCalled()
+    expect(r).toEqual({ flagged: 1, sent: 0, failed: 0 })
     expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+  })
+
+  it("force resends to everyone and resets the delivered list", async () => {
+    setRows(MONTH, { month: MONTH, emails: ["admin@example.com", "pastor@example.com"] })
+    const r = await runClearanceDigestLocked(FIRST, { force: true })
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(r).toMatchObject({ sent: 2, failed: 0 })
+    expect(upsert.mock.calls[0][0].update.value).toBe(JSON.stringify({ month: MONTH, emails: [] }))
+  })
+
+  it("ignores a delivered list from an earlier month", async () => {
+    setRows("2026-10", { month: "2026-10", emails: ["admin@example.com", "pastor@example.com"] })
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(r).toMatchObject({ sent: 2 })
+    expect(upsert.mock.calls.at(-1)![0].update.value).toBe(JSON.stringify({ month: MONTH, emails: ["admin@example.com", "pastor@example.com"] }))
+  })
+
+  it("stores only email addresses in the delivered list", async () => {
+    await runClearanceDigestLocked(FIRST)
+    for (const [arg] of upsert.mock.calls) expect(Object.keys(JSON.parse(arg.create.value)).sort()).toEqual(["emails", "month"])
   })
 
   it("treats an ambiguous delivery error as sent (never resend on a maybe)", async () => {
@@ -157,11 +207,11 @@ describe("runClearanceDigestLocked", () => {
 
 describe("runClearanceDigest (scheduler entry)", () => {
   it("returns zeros when the month is already done", async () => {
-    findUnique.mockResolvedValue({ key: KEY, value: MONTH })
+    setRows(MONTH)
     expect(await runClearanceDigest(FIRST)).toEqual({ flagged: 0, sent: 0, failed: 0 })
   })
   it("throws when locked so the scheduler does not record success", async () => {
-    findUnique.mockResolvedValue({ key: KEY, value: lease(new Date(FIRST.getTime() - 60_000)) })
+    setRows(lease(new Date(FIRST.getTime() - 60_000)))
     await expect(runClearanceDigest(FIRST)).rejects.toThrow(/in progress/)
   })
 })

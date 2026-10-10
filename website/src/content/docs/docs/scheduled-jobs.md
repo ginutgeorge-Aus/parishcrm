@@ -75,7 +75,7 @@ environment and your scheduler's `Authorization: Bearer` header.
   GitHub issue (matched by a fingerprint marker in the issue body) before
   filing a new one. It also purges error-log and route-view rows older than
   90 days.
-- **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a second tick or an overlapping manual call cannot send at the same time. If the app stops after sending but before it marks the month done, the lease expires after 30 minutes and a retry may send again. If every send fails the month stays open and the job retries; once at least one recipient has the email the month is marked done.
+- **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a second tick or an overlapping manual call cannot send at the same time. If the app stops after sending but before it marks the month done, the lease expires after 30 minutes and a retry may send again. It also keeps the addresses already emailed this month (`clearanceDigestDelivered`, email addresses only). If any send fails the month stays open and the job retries, emailing only those who have not got it yet; once everyone has it the month is marked done. `?force=1` emails everyone again and resets that list.
 - None of these endpoints require a session login — they authenticate only
   via the `CRON_SECRET` bearer token, so they're safe to call from an
   external scheduler with no browser session.
