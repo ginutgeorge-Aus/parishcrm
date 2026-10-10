@@ -80,11 +80,16 @@ describe("safeDobDate (extra edges)", () => {
     expect(safeDobDate("2025-02-29")).toBeNull()
   })
   it("returns midnight UTC for a plain date and for a timestamp's written date", () => {
-    expect(safeDobDate("1990-05-15T13:45:00Z")?.toISOString()).toBe("1990-05-15T00:00:00.000Z")
+    expect(safeDobDate("1990-05-15")?.toISOString()).toBe("1990-05-15T00:00:00.000Z")
+    // UTC instant is 1990-05-16; the written date (15th) must win, not the instant.
+    expect(safeDobDate("1990-05-15T23:30:00-05:00")?.toISOString()).toBe("1990-05-15T00:00:00.000Z")
   })
   it("falls back to native parsing for non-ISO-prefixed but parseable text", () => {
-    // NOTE: no YYYY-MM-DD prefix, so the calendar roll-over check is skipped.
-    expect(safeDobDate("May 15, 1990")).toBeInstanceOf(Date)
+    // NOTE: no YYYY-MM-DD prefix, so the calendar roll-over check is skipped and the
+    // text parses to *server-local* midnight — on an Australia/Sydney server the UTC
+    // date is the 14th. Assert the local calendar date, which holds in any timezone.
+    const d = safeDobDate("May 15, 1990")
+    expect([d?.getFullYear(), d?.getMonth(), d?.getDate()]).toEqual([1990, 4, 15])
   })
 })
 
@@ -109,11 +114,9 @@ describe("sessionDateFromTitle (extra edges)", () => {
     sessionDateFromTitle("31-AUG-2025")
     expect(errSpy).not.toHaveBeenCalled()
   })
-  it("rolls an impossible day over rather than rejecting it", () => {
-    // NOTE: "31-FEB-2025" is not a real date but the helper does not validate the day;
-    // it normalises to 2025-03-03. Titles come from pettyCashTitle so this is latent.
-    expect(sessionDateFromTitle("31-FEB-2025")?.toISOString()).toBe("2025-03-03T00:00:00.000Z")
-  })
+  // Latent: the helper rolls "31-FEB-2025" over to 2025-03-03 instead of rejecting it.
+  // Titles come from pettyCashTitle, so no live caller hits it. Tracked in #215.
+  it.todo("rejects an impossible day such as 31-FEB-2025")
 })
 
 describe("maskEmail (extra edges)", () => {

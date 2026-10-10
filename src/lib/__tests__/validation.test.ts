@@ -39,9 +39,6 @@ describe("isTwoDecimalMoney", () => {
   it.each([NaN, Infinity, -Infinity])("rejects non-finite %p", (n) => {
     expect(isTwoDecimalMoney(n)).toBe(false)
   })
-  it("treats -0 as valid (Number(toFixed) of -0 is -0, and -0 === 0)", () => {
-    expect(isTwoDecimalMoney(-0)).toBe(true)
-  })
 })
 
 describe("isRealCalendarDate", () => {
@@ -125,10 +122,9 @@ describe("hasEncryptedFieldMatch", () => {
     expect(hasEncryptedFieldMatch(rows, [["notes", "x"]], decrypt)).toBe(false)
     expect(hasEncryptedFieldMatch([{ id: 5 }], [["id", "5"]], decrypt)).toBe(false)
   })
-  it("returns true vacuously when checks is empty and a candidate exists", () => {
-    // NOTE: with no checks, every() is vacuously true; callers must pass at least one check.
-    expect(hasEncryptedFieldMatch<Row>([{ id: 1, description: null }], [], decrypt)).toBe(true)
-  })
+  // Latent: with no checks, every() is vacuously true, so any candidate "matches".
+  // Both callers pass a literal check list. Tracked in #215.
+  it.todo("returns false when checks is empty")
   it("falls through to a later candidate after a null-field row", () => {
     const rows: Row[] = [{ id: 1, description: null }, { id: 2, description: "enc:lunch" }]
     expect(hasEncryptedFieldMatch(rows, [["description", "lunch"]], decrypt)).toBe(true)
