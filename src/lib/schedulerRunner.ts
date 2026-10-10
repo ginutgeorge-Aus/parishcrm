@@ -16,6 +16,7 @@ const DEFAULT_JOBS: Jobs = {
   checkouts: async () => (await import("@/lib/checkoutSweep")).sweepExpiredCheckouts(),
   celebrations: async (now) => (await import("@/lib/celebrationSweep")).runCelebrationSweep(now),
   errorDigest: async (now) => (await import("@/lib/errorDigest")).runErrorDigestOncePerWeek(now),
+  clearanceDigest: async (now) => (await import("@/lib/clearanceDigest")).runClearanceDigest(now),
 }
 
 // Keep only numbers (recursively) so a result can never leak a name or email into logs.

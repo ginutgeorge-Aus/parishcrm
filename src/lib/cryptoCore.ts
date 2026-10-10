@@ -164,7 +164,7 @@ export function decrypt(value: string): string {
 // ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
 // single bad row degrades to a visible marker instead of 500-ing the whole
 // export. Use only on read paths that iterate many rows.
-const DECRYPTION_ERROR_PLACEHOLDER = "[decryption error]"
+export const DECRYPTION_ERROR_PLACEHOLDER = "[decryption error]"
 
 export function safeDecrypt(value: string): string {
   try {

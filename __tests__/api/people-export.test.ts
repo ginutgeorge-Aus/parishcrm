@@ -170,7 +170,7 @@ describe("GET /api/people/[id]/export", () => {
     await GET(makeRequest(), makeProps("1"))
     const exported = mockLogAudit.mock.calls[0][4].exportedFields
     expect(exported).toEqual(
-      expect.arrayContaining(["dateOfBirth", "mobile", "workPhone", "homePhone", "familyFields"])
+      expect.arrayContaining(["dateOfBirth", "mobile", "workPhone", "homePhone", "familyFields", "transactionNotes"])
     )
   })
 
@@ -203,6 +203,31 @@ describe("GET /api/people/[id]/export", () => {
     expect(include.clearances.select).toBeDefined()
     expect(include.clearances.select.document).toBeUndefined()
     expect(mockLogAudit.mock.calls[0][4].exportedFields).toContain("clearances")
+  })
+
+  it("exports transactions once, decrypted, and not duplicated under person", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockPersonFindFirst.mockResolvedValue({
+      ...mockPerson,
+      transactions: [{
+        id: 7,
+        amount: { toString: () => "25.00" },
+        description: "enc:Weekly offering",
+        notes: "enc:Paid by cousin",
+        receiptSends: [{ sentTo: "enc:john@example.com" }],
+      }],
+    })
+    const res = await GET(makeRequest(), makeProps("1"))
+    const body = await res.json()
+    expect(body.person).not.toHaveProperty("transactions")
+    expect(body.transactions).toEqual([{
+      id: 7,
+      amount: "25.00",
+      description: "Weekly offering",
+      notes: "Paid by cousin",
+      receiptSends: [{ sentTo: "john@example.com" }],
+    }])
+    expect(JSON.stringify(body)).not.toContain("enc:")
   })
 
   it("matches registrations by the email blind index, not a full-table scan", async () => {

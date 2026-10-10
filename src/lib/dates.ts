@@ -71,6 +71,11 @@ export function sydneyWeekStartYMD(at: Date = new Date()): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** The Sydney calendar month (`YYYY-MM`) containing `at`. */
+export function sydneyMonthKey(at: Date = new Date()): string {
+  return sydneyClock(at).ymd.slice(0, 7)
+}
+
 /**
  * The inclusive end-of-day UTC instant for a UTC-midnight calendar date. Use as
  * the `lte` upper bound of a date range so every transaction stamped anywhere
