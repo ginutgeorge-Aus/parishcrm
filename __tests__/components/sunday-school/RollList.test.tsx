@@ -129,3 +129,14 @@ it("a late failure doesn't revert onto a newly shown date", async () => {
   expect(btn("Ben Brown", "Present")).toHaveAttribute("aria-pressed", "true")
   expect(btn("Ben Brown", "Absent")).toHaveAttribute("aria-pressed", "false")
 })
+
+it("a late bulk success doesn't mark rows on a newly shown date", async () => {
+  let resolve!: (v: { success: string }) => void
+  ;(markUnmarkedPresent as jest.Mock).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+  const { rerender } = render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Mark unmarked present" })) })
+  // Back/Forward: new date's roll, where Amy is still unmarked.
+  rerender(<RollList {...props} date="2026-10-04" rows={[{ ...rows[0] }, rows[1]]} />)
+  await act(async () => { resolve({ success: "Marked 1 present" }) })
+  expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "false")
+})

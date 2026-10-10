@@ -106,8 +106,9 @@ export function RollList({
           return
         }
         // Only enrolled rows still unmarked locally (the server skips the rest);
-        // never overwrite a mark made meanwhile.
-        setState(prev => {
+        // never overwrite a mark made meanwhile. Skip if the shown date changed
+        // (e.g. browser Back) so old rows never mark another date's roll.
+        if (shownDate.current === date) setState(prev => {
           const next = { ...prev }
           for (const r of rows) if (r.enrolled && !next[r.personId]) next[r.personId] = "PRESENT"
           return next
