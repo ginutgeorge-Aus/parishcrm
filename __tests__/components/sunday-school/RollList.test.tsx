@@ -83,6 +83,12 @@ it("changing the date navigates", () => {
   expect(push).toHaveBeenCalledWith("/sunday-school/4/roll?date=2026-10-04")
 })
 
+it("ignores a partially typed year", () => {
+  render(<RollList {...props} />)
+  fireEvent.change(screen.getByLabelText("Roll date"), { target: { value: "0002-10-04" } })
+  expect(push).not.toHaveBeenCalled()
+})
+
 it("tags a marked child who is no longer enrolled", () => {
   render(<RollList {...props} rows={[{ personId: 3, name: "Cal Cole", status: "PRESENT", enrolled: false }]} />)
   expect(screen.getByText("not enrolled")).toBeInTheDocument()

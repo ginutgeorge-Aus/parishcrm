@@ -119,7 +119,9 @@ export function RollList({
             aria-label="Roll date"
             value={date}
             max={today}
-            onChange={e => { if (e.target.value) router.push(`${dateHrefBase}?date=${e.target.value}`) }}
+            // Desktop typing emits partial years (0002-10-04); the class year is
+            // fixed, so only navigate once the year matches the roll's.
+            onChange={e => { if (e.target.value.slice(0, 4) === date.slice(0, 4)) router.push(`${dateHrefBase}?date=${e.target.value}`) }}
             className="w-auto"
           />
           <Input
