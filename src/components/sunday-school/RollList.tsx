@@ -67,6 +67,14 @@ export function RollList({
   }
 
   /**
+   * Show a request's late feedback only while its date is still on screen, so
+   * a result from before a Back/Forward never lands on another date's roll.
+   */
+  function lateFeedback(fb: { error?: string; success?: string }) {
+    if (shownDate.current === date) setFeedback(fb)
+  }
+
+  /**
    * Undo a failed optimistic mark, then refetch the roll: rows refreshed while
    * the mark was in flight (another phone) make prevStatus stale, so the
    * server's current status must win.
@@ -94,11 +102,11 @@ export function RollList({
         const result = await setAttendance(classId, date, r.personId, next)
         if (result && "error" in result) {
           revert(r.personId, prevStatus)
-          setFeedback({ error: result.error })
+          lateFeedback({ error: result.error })
         }
       } catch {
         revert(r.personId, prevStatus)
-        setFeedback({ error: "Couldn't save that mark. Please try again." })
+        lateFeedback({ error: "Couldn't save that mark. Please try again." })
       } finally {
         settle(r.personId)
       }
@@ -114,7 +122,7 @@ export function RollList({
       try {
         const result = await markUnmarkedPresent(classId, date)
         if (result && "error" in result) {
-          setFeedback({ error: result.error })
+          lateFeedback({ error: result.error })
           return
         }
         // Only enrolled rows still unmarked locally (the server skips the rest);
@@ -125,10 +133,10 @@ export function RollList({
           for (const r of rows) if (r.enrolled && !next[r.personId]) next[r.personId] = "PRESENT"
           return next
         })
-        if (result) setFeedback({ success: result.success })
+        if (result) lateFeedback({ success: result.success })
         router.refresh()
       } catch {
-        setFeedback({ error: "Couldn't mark the class present. Please try again." })
+        lateFeedback({ error: "Couldn't mark the class present. Please try again." })
       } finally {
         setBulkPending(false)
       }
