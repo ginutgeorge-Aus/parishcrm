@@ -94,8 +94,11 @@ export function pendingReset(comments: Comment[], now: Date): Date | null {
   return latest
 }
 
-/** CodeRabbit's instant "Review triggered" acknowledgement — not a review result. */
-export const ACK = /Actions performed|Review triggered/i
+/**
+ * CodeRabbit comments that aren't a review result: the instant "Review triggered"
+ * ack, and the summary while it's edited to a "review in progress" placeholder.
+ */
+export const ACK = /Actions performed|Review triggered|review in progress by coderabbit\.ai/i
 
 /**
  * True when someone posted the review command recently and CodeRabbit has not
