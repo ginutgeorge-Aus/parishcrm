@@ -80,8 +80,9 @@ See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
 | Variable | Purpose |
 |---|---|
 | `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on or off. Unset = on in production only. Set `false` on a host that sleeps/scales to zero and call the endpoints below instead; don't run both. |
+| `CLEARANCE_DIGEST` | `true` enables the monthly clearance-compliance digest (1st of the month, 07:00 Sydney) in the in-app scheduler. The manual `POST /api/cron/send-clearance-digest` endpoint does not need it, but it does need `CRON_SECRET` as a bearer token. |
 | `ERROR_DIGEST` | `true` enables the weekly error digest in the in-app scheduler. Also needs `GITHUB_TOKEN` and `GITHUB_REPO`. |
-| `CRON_SECRET` | Bearer secret required by `POST /api/cron/{send-reminders,sweep-checkouts,send-celebrations,error-issues}`. Unset = those endpoints refuse every call, disabling reminders, celebration emails, the abandoned-checkout cleanup sweep, and (if configured) the error digest. |
+| `CRON_SECRET` | Bearer secret required by `POST /api/cron/{send-reminders,sweep-checkouts,send-celebrations,send-clearance-digest,error-issues}`. Unset = those endpoints refuse every call, disabling reminders, celebration emails, the abandoned-checkout cleanup sweep, and (if configured) the error digest. |
 
 ## Card payments (optional)
 

@@ -138,6 +138,7 @@ docs/                   topic docs + specs/plans
 
 ## Core features
 
+- **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by) with a compliance page (filters, CSV), an OCG verify-batch helper and a monthly expiry digest email.
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
 - **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins.
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails.

@@ -76,6 +76,8 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No |
+| Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |
+| Clearance digest email (monthly, opt-in) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — status badge only | Yes | Yes | Yes | No | Yes | No |
 | Accounting — view (transactions, reports, petty cash, receipt audit) | Yes | Yes | Yes | Yes | No | No |
 | Accounting — mutate (create/edit transactions, reconcile, close petty cash) | Yes | Yes | No | No | No | No |
