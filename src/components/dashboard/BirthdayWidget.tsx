@@ -14,7 +14,7 @@ export function BirthdayWidget({ birthdays, truncated = false }: Readonly<{ birt
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">🎂 Birthdays this week</CardTitle>
+        <CardTitle as="h4" className="text-base"><span aria-hidden="true">🎂</span> Birthdays this week</CardTitle>
       </CardHeader>
       <CardContent>
         {birthdays.length === 0 ? (

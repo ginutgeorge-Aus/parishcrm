@@ -11,11 +11,17 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TeachersPanel } from "@/components/sunday-school/TeachersPanel"
 import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
+import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
+import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
+import { rollCounts } from "@/lib/sundaySchoolRollView"
 
 const CANDIDATE_CAP = 2000
 const byName = [{ lastName: "asc" as const }, { firstName: "asc" as const }]
 
-/** Class detail: teachers (with WWCC status) and enrolled children. canViewPeople to view; canEdit manages. */
+/**
+ * Class detail: teachers (with WWCC status), enrolled children, recent rolls and
+ * roll markers. canViewPeople to view; canEdit manages.
+ */
 export default async function ClassPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
@@ -68,6 +74,22 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
       enrolQuery({ not: "CHILD" }),
     ])
     : [[], [], []]
+  const [rollMarkers, assignableMarkers, sessions] = await Promise.all([
+    editor
+      ? prisma.sundaySchoolRollMarker.findMany({
+        where: { classId: id, user: { archivedAt: null } },
+        select: { user: { select: { id: true, name: true, email: true, role: true } } },
+        orderBy: { user: { name: "asc" } },
+      })
+      : [],
+    editor ? listAssignableOrganisers() : [],
+    prisma.sundaySchoolSession.findMany({
+      where: { classId: id },
+      orderBy: { date: "desc" },
+      take: 10,
+      select: { date: true, attendance: { select: { status: true } } },
+    }),
+  ])
   const enrolCandidates = [...childCandidates, ...otherCandidates]
     .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName))
 
@@ -94,11 +116,18 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
             {cls.name}
             {cls.archivedAt && <Badge variant="secondary">Archived</Badge>}
           </h2>
-          {editor && (
-            <Button variant="outline" asChild>
-              <Link href={`/sunday-school/${cls.id}/edit`}>Edit</Link>
-            </Button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {!cls.archivedAt && (
+              <Button asChild>
+                <Link href={`/sunday-school/${cls.id}/roll`}>{editor ? "Take roll" : "View roll"}</Link>
+              </Button>
+            )}
+            {editor && (
+              <Button variant="outline" asChild>
+                <Link href={`/sunday-school/${cls.id}/edit`}>Edit</Link>
+              </Button>
+            )}
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">{meta}</p>
       </div>
@@ -121,6 +150,44 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
           <EnrolPanel classId={cls.id} enrolled={enrolled} candidates={candidates} readOnly={!editor} />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Recent rolls</CardTitle></CardHeader>
+        <CardContent>
+          {sessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No rolls taken yet.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {sessions.map((s) => {
+                const ymd = s.date.toISOString().slice(0, 10)
+                const c = rollCounts(s.attendance)
+                return (
+                  <li key={ymd}>
+                    <Link href={`/sunday-school/${cls.id}/roll?date=${ymd}`} className="flex flex-wrap justify-between gap-2 py-2 text-sm hover:underline">
+                      <span className="font-medium text-foreground">{formatRollDate(s.date)}</span>
+                      <span className="text-muted-foreground">{c.present} present · {c.late} late · {c.absent} absent</span>
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      {editor && (
+        <Card>
+          <CardHeader><CardTitle>Roll markers</CardTitle></CardHeader>
+          <CardContent>
+            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === "EVENT_ORGANISER" }))} assignable={assignableMarkers} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
+}
+
+/** "Sun 4 Oct 2026" for a `@db.Date` (UTC midnight), so read in UTC. */
+function formatRollDate(d: Date): string {
+  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
 }

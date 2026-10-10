@@ -140,7 +140,7 @@ docs/                   topic docs + specs/plans
 
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by) with a compliance page (filters, CSV), an OCG verify-batch helper and a monthly expiry digest email.
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
-- **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover.
+- **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins.
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails.
 - **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
@@ -161,7 +161,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 | `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN accounts), no pastoral notes |
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
 | `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
-| `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in) |
+| `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in), plus rolls for Sunday School classes they're assigned to |
 
 Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `canViewAccounting`; accounting **mutations** require `canAccessAccounting` (ADMIN | PASTOR only). All DB mutations are guarded at **both** the page and the action.
 
