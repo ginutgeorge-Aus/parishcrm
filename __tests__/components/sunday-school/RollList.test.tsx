@@ -117,3 +117,15 @@ it("a new date's roll never inherits another date's marks", () => {
   rerender(<RollList {...props} date="2026-10-04" rows={[{ ...rows[0] }, rows[1]]} />)
   expect(btn("Amy Adams", "Late")).toHaveAttribute("aria-pressed", "false")
 })
+
+it("a late failure doesn't revert onto a newly shown date", async () => {
+  let resolve!: (v: { error: string }) => void
+  ;(setAttendance as jest.Mock).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+  const { rerender } = render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Ben Brown", "Late")) })
+  // Back/Forward: new date's roll, where Ben is Present.
+  rerender(<RollList {...props} date="2026-10-04" rows={[rows[0], { ...rows[1], status: "PRESENT" }]} />)
+  await act(async () => { resolve({ error: "Unauthorized" }) })
+  expect(btn("Ben Brown", "Present")).toHaveAttribute("aria-pressed", "true")
+  expect(btn("Ben Brown", "Absent")).toHaveAttribute("aria-pressed", "false")
+})

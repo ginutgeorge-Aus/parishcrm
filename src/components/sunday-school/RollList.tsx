@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { setAttendance, markUnmarkedPresent } from "@/lib/actions/sundaySchoolAttendance"
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums"
@@ -46,6 +46,10 @@ export function RollList({
     setState(cur => Object.fromEntries(rows.map(r => [r.personId, sameDate && pendingIds.has(r.personId) ? (cur[r.personId] ?? r.status) : r.status])))
   }
   const busy = bulkPending || pendingIds.size > 0
+  // The date on screen now; a late failure only reverts if it's still the
+  // request's date (Back/Forward can change it despite the locked picker).
+  const shownDate = useRef(date)
+  useEffect(() => { shownDate.current = date }, [date])
 
   const counts = rollCounts(rows.map(r => ({ status: state[r.personId] ?? null })))
   const q = query.trim().toLowerCase()
@@ -77,11 +81,11 @@ export function RollList({
       try {
         const result = await setAttendance(classId, date, r.personId, next)
         if (result && "error" in result) {
-          setState(prev => ({ ...prev, [r.personId]: prevStatus }))
+          if (shownDate.current === date) setState(prev => ({ ...prev, [r.personId]: prevStatus }))
           setFeedback({ error: result.error })
         }
       } catch {
-        setState(prev => ({ ...prev, [r.personId]: prevStatus }))
+        if (shownDate.current === date) setState(prev => ({ ...prev, [r.personId]: prevStatus }))
         setFeedback({ error: "Couldn't save that mark. Please try again." })
       } finally {
         settle(r.personId)
