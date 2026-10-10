@@ -31,8 +31,9 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
  * Keeps this run's lease fresh while `fn` runs: every third of `leaseMs` it
  * compare-and-sets the lease to `running:<period>:<now>`, so a run that
  * outlives `leaseMs` can't be reclaimed and repeated by another invocation.
- * A failed write is logged and retried on the next tick (the old lease still
- * stands); losing the CAS means another run took over, so renewal stops.
+ * A failed write is logged, then the row is re-read in case it committed
+ * anyway; otherwise the next tick retries from the old lease. Losing the CAS
+ * means another run took over, so renewal stops.
  * @param opts the run's options (key, period, lease length, error sink)
  * @param initial the lease value this run acquired
  * @returns `current()` for the latest lease value and `stop()`, which also waits for an in-flight renewal
@@ -53,8 +54,12 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
         clearInterval(timer)
         opts.logError(`lease lost for ${opts.periodKey}: another run took it over`)
       })
-      .catch((e: unknown) => {
+      .catch(async (e: unknown) => {
         opts.logError(`lease renewal failed: ${e instanceof Error ? e.message : String(e)}`)
+        // The write may have committed before the connection failed: adopt
+        // `next` if the row holds it, else the next tick retries from `current`.
+        const row = await prisma.appSetting.findUnique({ where: { key: opts.settingKey } }).catch(() => null)
+        if (row?.value === next) current = next
       })
       .finally(() => { inFlight = null })
   }, opts.leaseMs / 3)

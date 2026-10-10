@@ -102,3 +102,46 @@ describe("runOncePerPeriodLocked lease heartbeat", () => {
     await run
   })
 })
+
+describe("runOncePerPeriodLocked lease heartbeat — edge cases", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.useFakeTimers({ now: START })
+    mockFindUnique.mockResolvedValue(null)
+    mockCreate.mockResolvedValue({})
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+  })
+  afterEach(() => jest.useRealTimers())
+
+  it("adopts the new lease when a renewal errors but committed", async () => {
+    const work = deferred()
+    const run = runOncePerPeriodLocked(opts(), () => work.promise.then(() => "ok"))
+    const renewed = `running:2026-10:${START + LEASE_MS / 3}`
+    mockUpdateMany.mockRejectedValueOnce(new Error("connection reset"))
+    mockFindUnique.mockResolvedValueOnce({ key: "k", value: renewed })
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    expect(mockUpdateMany).toHaveBeenLastCalledWith({
+      where: { key: "k", value: renewed },
+      data: { value: `running:2026-10:${START + (2 * LEASE_MS) / 3}` },
+    })
+    work.resolve()
+    await run
+  })
+
+  it("keeps a run past leaseMs exclusive against a competing invocation", async () => {
+    const work = deferred()
+    const run = runOncePerPeriodLocked(opts(), () => work.promise.then(() => "ok"))
+    await jest.advanceTimersByTimeAsync(LEASE_MS * 2)
+    const latest = (mockUpdateMany.mock.lastCall?.[0] as { data: { value: string } }).data.value
+    expect(latest).toBe(`running:2026-10:${START + LEASE_MS * 2}`)
+    mockFindUnique.mockResolvedValueOnce({ key: "k", value: latest })
+    const rival = jest.fn()
+    await expect(
+      runOncePerPeriodLocked({ ...opts(), now: new Date(Date.now()) }, rival),
+    ).resolves.toBe("locked")
+    expect(rival).not.toHaveBeenCalled()
+    work.resolve()
+    await run
+  })
+})
