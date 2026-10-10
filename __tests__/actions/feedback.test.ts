@@ -269,7 +269,7 @@ describe("syncMyReports", () => {
   it("returns after the time budget even if GitHub hangs, so the page still renders", async () => {
     jest.useFakeTimers()
     try {
-      mockReportFindMany.mockResolvedValue([{ id: 1, issueNumber: 70, status: "OPEN", syncedAt: null }])
+      mockReportFindMany.mockResolvedValue([{ id: 70, issueNumber: 70, status: "OPEN", syncedAt: null }]) // unique id: its poll never settles, so it stays in flight
       mockGetIssue.mockReturnValue(new Promise(() => {})) // never settles
       let done = false
       const p = syncMyReports().then(() => { done = true })
@@ -279,6 +279,25 @@ describe("syncMyReports", () => {
       await p
       expect(done).toBe(true)
       expect(mockReportUpdate).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("does not re-poll a row whose poll from an earlier load is still in flight", async () => {
+    jest.useFakeTimers()
+    try {
+      mockReportFindMany.mockResolvedValue([{ id: 9, issueNumber: 90, status: "OPEN", syncedAt: null }])
+      let release: (v: unknown) => void = () => {}
+      mockGetIssue.mockReturnValueOnce(new Promise((r) => { release = r }))
+      const first = syncMyReports()
+      await jest.advanceTimersByTimeAsync(3_000)
+      await first // returned on budget; poll still in flight
+      await syncMyReports() // overlapping load
+      expect(mockGetIssue).toHaveBeenCalledTimes(1)
+      release({ state: "open", stateReason: null })
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockReportUpdate).toHaveBeenCalledTimes(1)
     } finally {
       jest.useRealTimers()
     }

@@ -147,6 +147,10 @@ const STALE_MS = 60_000
 const MAX_SYNCS_PER_LOAD = 20
 const SYNC_CONCURRENCY = 5
 const SYNC_BUDGET_MS = 3_000
+// Report ids with a GitHub poll in flight in this process. A run that outlives
+// the page's budget keeps going in the background with syncedAt unchanged, so
+// without this an overlapping load would poll the same rows again.
+const syncing = new Set<number>()
 
 export async function syncMyReports(): Promise<void> {
   // Derive the reporter from the session — never trust a caller-supplied id, or
@@ -168,12 +172,14 @@ export async function syncMyReports(): Promise<void> {
   // GITHUB_TOKEN rate limit; oldest-synced first so every row is refreshed
   // across loads.
   const stale = listed
-    .filter((r) => r.status === "OPEN" && (r.syncedAt === null || r.syncedAt < cutoff))
+    .filter((r) => r.status === "OPEN" && (r.syncedAt === null || r.syncedAt < cutoff) && !syncing.has(r.id))
     .sort((a, b) => (a.syncedAt?.getTime() ?? -Infinity) - (b.syncedAt?.getTime() ?? -Infinity))
     .slice(0, MAX_SYNCS_PER_LOAD)
 
   /** Refreshes one row from GitHub; stale-tolerant, so a failure leaves it as-is. */
   async function syncOne(report: { id: number; issueNumber: number }): Promise<void> {
+    if (syncing.has(report.id)) return
+    syncing.add(report.id)
     try {
       const { state, stateReason } = await getIssue(report.issueNumber)
       await prisma.report.update({
@@ -182,6 +188,8 @@ export async function syncMyReports(): Promise<void> {
       })
     } catch {
       // Leave the row as-is; a later load retries it.
+    } finally {
+      syncing.delete(report.id)
     }
   }
   // A few at a time (GitHub discourages bursts of concurrent calls), and the
