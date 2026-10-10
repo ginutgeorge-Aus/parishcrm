@@ -7,7 +7,7 @@ export default [
     'settings-and-branding', 'regional-configuration', 'scheduled-jobs', 'operations-scripts',
   ]),
   g('People & Families', [
-    'people-and-families', 'family-csv-import', 'birthdays-and-celebrations', 'family-self-update',
+    'people-and-families', 'family-csv-import', 'birthdays-and-celebrations', 'sunday-school', 'family-self-update',
   ]),
   g('Dashboard & Accounting', [
     'dashboard', 'accounting-overview', 'transactions', 'budgets', 'financial-reports',
