@@ -71,6 +71,8 @@ export type WwccBatchRow = {
   expiresDmy: string | null
   /** ISO `updatedAt` as loaded; the bulk verify guard rejects the row if it changed since. */
   updatedAt: string
+  /** ISO `Person.updatedAt` as loaded; a DOB or name edit since then makes the row stale. */
+  personUpdatedAt: string
 }
 
 /** Reasons a row cannot be pasted into the portal or marked verified. */
