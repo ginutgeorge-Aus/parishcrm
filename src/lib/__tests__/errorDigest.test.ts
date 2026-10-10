@@ -161,7 +161,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     const err = jest.spyOn(console, "error").mockImplementation(() => {})
     await expect(runErrorDigestLocked(MON)).resolves.toEqual({ filed: 0, skipped: 0, purged: 0 })
     expect(updateMany).toHaveBeenCalledTimes(4) // lease + 3 finalize attempts
-    expect(err).toHaveBeenCalledWith(expect.stringContaining("mark week done"))
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("failed to mark 2026-07-06 done"))
     err.mockRestore()
   })
 
