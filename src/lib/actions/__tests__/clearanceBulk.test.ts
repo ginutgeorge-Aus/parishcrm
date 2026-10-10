@@ -113,10 +113,19 @@ describe("verifyClearancesBulk", () => {
   it.each([
     ["missing", null],
     ["undecryptable", "enc:bad"],
+    ["not a date", "enc:unknown"],
   ])("refuses a row whose date of birth is %s", async (_label, dob) => {
     findMany.mockResolvedValue([found[0], { ...found[1], person: { dateOfBirth: dob } }])
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
       error: "1 selected WWCC record(s) have no date of birth — add it before verifying",
+    })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a WWC number that cannot be decrypted", async () => {
+    findMany.mockResolvedValue([found[0], { ...found[1], number: "enc:bad" }])
+    expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
+      error: "1 selected WWCC record(s) have no WWC number — add it before verifying",
     })
     expect(updateMany).not.toHaveBeenCalled()
   })

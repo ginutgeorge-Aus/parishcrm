@@ -172,6 +172,16 @@ function decryptOrNull(value: string | null): string | null {
 }
 
 /**
+ * The two decrypted portal fields of a WWCC, exactly as the batch page shows
+ * them: null when absent, undecryptable, or (DOB) not a real date. Shared with
+ * verifyClearancesBulk so the action refuses every row the page disables.
+ */
+export function wwccPortalFields(c: { number: string | null; person: { dateOfBirth: string | null } }): { dobDmy: string | null; number: string | null } {
+  const dobPlain = decryptOrNull(c.person.dateOfBirth)
+  return { dobDmy: dmy(dobPlain ? safeDobDate(dobPlain) : null), number: decryptOrNull(c.number) }
+}
+
+/**
  * WWCCs that need checking on the OCG portal: never verified (verifiedAt null)
  * and not yet expired (expiry today or later, or none), with the three portal
  * fields decrypted (surname, DOB dd/mm/yyyy, WWC number). The filtering is in
@@ -202,14 +212,14 @@ export async function loadWwccVerifyBatch(today: Date): Promise<{ rows: WwccBatc
     // wants to show that an unverified WWCC is also lapsing soon.
     const daysLeft = daysUntilExpiry(c.expiresAt, today)
     const status: WwccBatchRow["status"] = daysLeft !== null && daysLeft <= EXPIRING_WINDOW_DAYS ? "EXPIRING" : "UNVERIFIED"
-    const dobPlain = decryptOrNull(c.person.dateOfBirth)
+    const { dobDmy, number } = wwccPortalFields(c)
     return {
       clearanceId: c.id,
       personId: c.person.id,
       familyName: c.person.lastName,
       givenName: c.person.firstName,
-      dobDmy: dmy(dobPlain ? safeDobDate(dobPlain) : null),
-      number: decryptOrNull(c.number),
+      dobDmy,
+      number,
       status,
       expiresDmy: dmy(c.expiresAt),
       updatedAt: c.updatedAt.toISOString(),

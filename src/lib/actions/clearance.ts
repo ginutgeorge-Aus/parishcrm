@@ -14,6 +14,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { sydneyToday } from "@/lib/dates"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
 import { BULK_VERIFY_MAX } from "@/lib/clearanceComplianceView"
+import { wwccPortalFields } from "@/lib/clearanceCompliance"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 // WWCC / Safe Ministry clearances on a person. Storage mirrors
@@ -363,12 +364,13 @@ export async function verifyClearancesBulk(
   })
   if (found.length !== unique.length) return { error: "Some selected clearances no longer exist" }
   if (found.some((c) => c.type !== "WWCC")) return { error: "Only WWCC clearances can be verified in bulk" }
-  const noNumber = found.filter((c) => !c.number)
+  // Refuse every row the batch page disables: the same decrypt + date checks.
+  const fields = found.map((c) => wwccPortalFields(c))
+  const noNumber = fields.filter((f) => !f.number)
   if (noNumber.length > 0) {
     return { error: `${noNumber.length} selected WWCC record(s) have no WWC number — add it before verifying` }
   }
-  // The portal check needs a DOB; mirror the batch page, which disables rows without one.
-  const noDob = found.filter((c) => !c.person.dateOfBirth || safeDecrypt(c.person.dateOfBirth) === DECRYPTION_ERROR)
+  const noDob = fields.filter((f) => !f.dobDmy)
   if (noDob.length > 0) {
     return { error: `${noDob.length} selected WWCC record(s) have no date of birth — add it before verifying` }
   }
