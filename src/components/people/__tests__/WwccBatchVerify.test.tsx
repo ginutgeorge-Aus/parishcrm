@@ -14,7 +14,7 @@ const writeText = jest.fn().mockResolvedValue(undefined)
 const row = (over: Partial<WwccBatchRow> = {}): WwccBatchRow => ({
   clearanceId: "c1", personId: 10, familyName: "Testperson", givenName: "Alex",
   dobDmy: "05/03/1990", number: "WWC0000000E", status: "UNVERIFIED",
-  expiresDmy: "01/06/2027", updatedAt: "2026-10-01T00:00:00.000Z", ...over,
+  expiresDmy: "01/06/2027", updatedAt: "2026-10-01T00:00:00.000Z", personUpdatedAt: "2026-09-01T00:00:00.000Z", ...over,
 })
 const rows = [
   row(),
@@ -70,8 +70,8 @@ it("Mark verified is disabled until a row is ticked, then sends id/updatedAt ite
   fireEvent.click(mark)
   await waitFor(() => expect(mockVerify).toHaveBeenCalledWith(
     [
-      { id: "c1", seenUpdatedAt: "2026-10-01T00:00:00.000Z" },
-      { id: "c3", seenUpdatedAt: "2026-10-01T00:00:00.000Z" },
+      { id: "c1", seenUpdatedAt: "2026-10-01T00:00:00.000Z", seenPersonUpdatedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "c3", seenUpdatedAt: "2026-10-01T00:00:00.000Z", seenPersonUpdatedAt: "2026-09-01T00:00:00.000Z" },
     ],
     "OCG: current",
   ))
