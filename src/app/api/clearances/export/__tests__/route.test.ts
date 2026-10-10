@@ -69,6 +69,17 @@ describe("GET /api/clearances/export", () => {
     expect((await res.text()).split("\n")).toHaveLength(COMPLIANCE_CAP + 1)
     expect(res.headers.get("X-Export-Truncated")).toBe("true")
   })
+  it("filters before capping, so matches after COMPLIANCE_CAP non-matching rows still export", async () => {
+    const expired = [{ id: "c9", type: "WWCC", number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }]
+    ;(loadComplianceRows as jest.Mock).mockResolvedValue({
+      rows: [...Array.from({ length: COMPLIANCE_CAP + 1 }, (_, i) => row("P" + i)), row("Late", expired)],
+    })
+    const res = await GET(req("?status=expired"))
+    const lines = (await res.text()).split("\n")
+    expect(lines).toHaveLength(2)
+    expect(lines[1].startsWith("Late,")).toBe(true)
+    expect(res.headers.get("X-Export-Truncated")).toBeNull()
+  })
   it("honours ?status=, audits CLEARANCE_EXPORTED, flags truncation", async () => {
     ;(loadComplianceRows as jest.Mock).mockResolvedValue({
       rows: [row("Testperson"), row("Other", [{ id: "c9", type: "WWCC", number: "x", expiresAt: new Date("2020-01-01T00:00:00Z"), verifiedAt: new Date() }])],

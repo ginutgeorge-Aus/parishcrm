@@ -101,6 +101,12 @@ describe("verifyClearancesBulk", () => {
     expect(updateMany).not.toHaveBeenCalled()
   })
 
+  it("refuses non-WWCC clearances (e.g. Safe Ministry) without writing", async () => {
+    findMany.mockResolvedValue([found[0], { ...found[1], type: "SAFE_MINISTRY" }])
+    expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({ error: "Only WWCC clearances can be verified in bulk" })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
   it("verifies the de-duplicated set with actor, time and trimmed note, audits each, revalidates", async () => {
     const res = await verifyClearancesBulk([it1("c11"), it1("c12"), it1("c11")], "  OCG: current  ")
     expect(findMany).toHaveBeenCalledWith({
@@ -111,6 +117,7 @@ describe("verifyClearancesBulk", () => {
       where: {
         OR: [{ id: "c11", updatedAt: new Date(T) }, { id: "c12", updatedAt: new Date(T) }],
         verifiedAt: null,
+        type: "WWCC",
         person: { archivedAt: null },
       },
       data: { verifiedAt: expect.any(Date), verifiedById: 7, verificationNote: "enc:OCG: current" },

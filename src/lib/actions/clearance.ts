@@ -323,8 +323,8 @@ class StaleBatchError extends Error {}
 /**
  * Marks many clearances verified in one step (the "Mark verified" button on the
  * WWCC batch helper). One optional note (for example the portal's status text)
- * is stored on every row. All-or-nothing: if any id is missing, archived, a WWCC
- * without a number, or was verified/archived since the page loaded, nothing is
+ * is stored on every row. WWCC rows only. All-or-nothing: if any id is missing,
+ * archived, not a WWCC, a WWCC without a number, or was verified/archived since the page loaded, nothing is
  * written. Each item carries the `updatedAt` the admin saw; the update is
  * conditioned on it and on `verifiedAt: null` inside a transaction, so it can
  * never vouch for a number/expiry edited since, nor overwrite another verification.
@@ -361,7 +361,8 @@ export async function verifyClearancesBulk(
     select: { id: true, personId: true, type: true, number: true },
   })
   if (found.length !== unique.length) return { error: "Some selected clearances no longer exist" }
-  const noNumber = found.filter((c) => c.type === "WWCC" && !c.number)
+  if (found.some((c) => c.type !== "WWCC")) return { error: "Only WWCC clearances can be verified in bulk" }
+  const noNumber = found.filter((c) => !c.number)
   if (noNumber.length > 0) {
     return { error: `${noNumber.length} selected WWCC record(s) have no WWC number — add it before verifying` }
   }
@@ -374,6 +375,7 @@ export async function verifyClearancesBulk(
         where: {
           OR: unique.map((id) => ({ id, updatedAt: seenById.get(id) as Date })),
           verifiedAt: null,
+          type: "WWCC",
           ...LIVE_PERSON,
         },
         data: { verifiedAt: new Date(), verifiedById: actor, verificationNote: cleanNote ? encrypt(cleanNote) : null },
