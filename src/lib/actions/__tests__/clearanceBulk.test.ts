@@ -114,6 +114,7 @@ describe("verifyClearancesBulk", () => {
     ["missing", null],
     ["undecryptable", "enc:bad"],
     ["not a date", "enc:unknown"],
+    ["an impossible date", "enc:2019-02-30"],
   ])("refuses a row whose date of birth is %s", async (_label, dob) => {
     findMany.mockResolvedValue([found[0], { ...found[1], person: { dateOfBirth: dob } }])
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
