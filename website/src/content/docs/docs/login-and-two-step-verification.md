@@ -144,7 +144,8 @@ whose sessions were force-invalidated (by a password change, forced reset, or ex
 sign-out), has its session killed immediately even though the JWT itself hasn't expired.
 Non-"remembered" sessions get a 4-hour hard cap plus an idle timeout (default 60 minutes,
 configurable by an admin in Settings); "remembered" sessions instead get a 7-day sliding idle
-window with no separate hard cap.
+window with no separate hard cap. The in-browser inactivity timer (the "Session expiring" warning)
+follows the same rule, so an idle open tab only signs a remembered session out after 7 days.
 
 ## Configuration
 
