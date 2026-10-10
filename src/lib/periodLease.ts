@@ -48,6 +48,44 @@ async function releaseLease<T>(opts: OncePerPeriodOptions<T>, prevValue: string 
 }
 
 /**
+ * Compare-and-sets the lease into the setting row (or creates it).
+ * @param settingKey AppSetting key
+ * @param prevValue the value read before, or null when there was no row
+ * @param lease the lease value to write
+ * @returns false when another run won the race
+ */
+async function acquireLease(settingKey: string, prevValue: string | null, lease: string): Promise<boolean> {
+  if (prevValue !== null) {
+    const { count } = await prisma.appSetting.updateMany({ where: { key: settingKey, value: prevValue }, data: { value: lease } })
+    return count > 0
+  }
+  try {
+    await prisma.appSetting.create({ data: { key: settingKey, value: lease } })
+    return true
+  } catch (e) {
+    if (isP2002(e)) return false
+    throw e
+  }
+}
+
+/**
+ * Swaps this run's lease for the done marker, retried; never throws (the
+ * work's side effects already happened), only logs.
+ * @param opts the run's options (key, period, error sink)
+ * @param lease the lease value this run wrote
+ */
+async function markDone<T>(opts: OncePerPeriodOptions<T>, lease: string): Promise<void> {
+  try {
+    await withRetry(
+      () => prisma.appSetting.updateMany({ where: { key: opts.settingKey, value: lease }, data: { value: opts.periodKey } }),
+      { attempts: 3, baseDelayMs: 200 },
+    )
+  } catch (e) {
+    opts.logError(`ran but failed to mark ${opts.periodKey} done: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+/**
  * Runs `fn` at most once per period and never concurrently, guarded by one
  * AppSetting row: `<period>` = that period is done, `running:<period>:<ms>` =
  * a lease held by an in-flight run, taken by compare-and-set. If `fn` throws
@@ -73,17 +111,7 @@ export async function runOncePerPeriodLocked<T>(
   if (prev?.value === periodKey && !opts.force) return "done"
 
   const lease = `${LEASE_PREFIX}${periodKey}:${now.getTime()}`
-  if (prev) {
-    const { count } = await prisma.appSetting.updateMany({ where: { key: settingKey, value: prev.value }, data: { value: lease } })
-    if (count === 0) return "locked"
-  } else {
-    try {
-      await prisma.appSetting.create({ data: { key: settingKey, value: lease } })
-    } catch (e) {
-      if (isP2002(e)) return "locked"
-      throw e
-    }
-  }
+  if (!(await acquireLease(settingKey, prev?.value ?? null, lease))) return "locked"
 
   let result: T
   try {
@@ -96,13 +124,6 @@ export async function runOncePerPeriodLocked<T>(
     await releaseLease(opts, prev?.value ?? null, lease)
     return result
   }
-  try {
-    await withRetry(
-      () => prisma.appSetting.updateMany({ where: { key: settingKey, value: lease }, data: { value: periodKey } }),
-      { attempts: 3, baseDelayMs: 200 },
-    )
-  } catch (e) {
-    opts.logError(`ran but failed to mark ${periodKey} done: ${e instanceof Error ? e.message : String(e)}`)
-  }
+  await markDone(opts, lease)
   return result
 }
