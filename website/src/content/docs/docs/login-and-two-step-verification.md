@@ -146,7 +146,8 @@ Non-"remembered" sessions get a 4-hour hard cap plus an idle timeout (default 60
 configurable by an admin in Settings); "remembered" sessions instead get a 7-day sliding idle
 window with no separate hard cap. A minute before the idle timeout, a "Session expiring" notice
 appears; only its **Stay logged in** button keeps the session (moving the mouse or scrolling while
-it shows does not), so walking away from a screen still signs you out.
+it shows does not), so walking away from a screen still signs you out. This in-browser timer
+currently uses the idle timeout for remembered sessions too ([#203](https://github.com/ginutgeorge-Aus/parishcrm/issues/203)).
 
 ## Configuration
 

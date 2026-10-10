@@ -28,6 +28,12 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   // Mirrors showWarning for the event handler, which must not re-subscribe.
   const warningRef = useRef(false)
   const [showWarning, setShowWarning] = useState(false)
+  // A new idle window (admin changed the setting) starts without a warning.
+  const [prevIdleMs, setPrevIdleMs] = useState(idleMs)
+  if (prevIdleMs !== idleMs) {
+    setPrevIdleMs(idleMs)
+    setShowWarning(false)
+  }
 
   /**
    * Records activity and refreshes the server session (throttled) so the
@@ -63,6 +69,10 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
       }
     }
 
+    // A changed idleMinutes restarts this effect with a fresh window; drop any
+    // warning left from the old one so passive activity counts again (the
+    // banner itself is cleared during render, below the state declarations).
+    warningRef.current = false
     touch()
     const interval = setInterval(check, CHECK_MS)
     EVENTS.forEach((e) => window.addEventListener(e, onActivity, { passive: true }))

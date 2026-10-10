@@ -73,3 +73,17 @@ it("ignores activity while the warning shows, so logout still happens on time", 
   advance(MIN)
   expect(logout).toHaveBeenCalledTimes(1)
 })
+
+it("clears a showing warning when the idle window changes", () => {
+  const { rerender } = render(<IdleTimeout idleMinutes={15} />)
+  advance(14 * MIN + 1_000)
+  expect(screen.getByRole("alert")).toBeInTheDocument()
+  rerender(<IdleTimeout idleMinutes={30} />)
+  expect(screen.queryByRole("alert")).toBeNull()
+  // Passive activity counts again: it pushes the new window back.
+  advance(20 * MIN)
+  fireEvent.mouseMove(window)
+  advance(20 * MIN)
+  expect(screen.queryByRole("alert")).toBeNull()
+  expect(logout).not.toHaveBeenCalled()
+})
