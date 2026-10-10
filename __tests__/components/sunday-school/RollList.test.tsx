@@ -34,6 +34,7 @@ it("marks optimistically, then clears on a second tap", async () => {
   await act(async () => { fireEvent.click(btn("Amy Adams", "Present")) })
   expect(setAttendance).toHaveBeenLastCalledWith(4, "2026-10-11", 1, null)
   expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "false")
+  expect(refresh).not.toHaveBeenCalled()
 })
 
 it("reverts and shows the error when the server refuses", async () => {
@@ -43,6 +44,8 @@ it("reverts and shows the error when the server refuses", async () => {
   expect(btn("Ben Brown", "Absent")).toHaveAttribute("aria-pressed", "true")
   expect(btn("Ben Brown", "Late")).toHaveAttribute("aria-pressed", "false")
   expect(screen.getByText("Unauthorized")).toBeInTheDocument()
+  // Resync: rows refreshed mid-request would make the reverted status stale.
+  expect(refresh).toHaveBeenCalled()
 })
 
 it("reverts when the action throws", async () => {
@@ -51,6 +54,7 @@ it("reverts when the action throws", async () => {
   await act(async () => { fireEvent.click(btn("Amy Adams", "Late")) })
   expect(btn("Amy Adams", "Late")).toHaveAttribute("aria-pressed", "false")
   expect(screen.getByRole("alert")).toBeInTheDocument()
+  expect(refresh).toHaveBeenCalled()
 })
 
 it("Mark unmarked present fills only unmarked rows", async () => {

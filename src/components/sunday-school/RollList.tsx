@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useTransition } from "react"
+import { useLayoutEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { setAttendance, markUnmarkedPresent } from "@/lib/actions/sundaySchoolAttendance"
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums"
@@ -48,8 +48,10 @@ export function RollList({
   const busy = bulkPending || pendingIds.size > 0
   // The date on screen now; a late failure only reverts if it's still the
   // request's date (Back/Forward can change it despite the locked picker).
+  // Layout effect: updated synchronously in the commit, so no promise callback
+  // can run between a date change rendering and the ref seeing it.
   const shownDate = useRef(date)
-  useEffect(() => { shownDate.current = date }, [date])
+  useLayoutEffect(() => { shownDate.current = date }, [date])
 
   const counts = rollCounts(rows.map(r => ({ status: state[r.personId] ?? null })))
   const q = query.trim().toLowerCase()
@@ -62,6 +64,16 @@ export function RollList({
       next.delete(personId)
       return next
     })
+  }
+
+  /**
+   * Undo a failed optimistic mark, then refetch the roll: rows refreshed while
+   * the mark was in flight (another phone) make prevStatus stale, so the
+   * server's current status must win.
+   */
+  function revert(personId: number, prevStatus: Status) {
+    if (shownDate.current === date) setState(prev => ({ ...prev, [personId]: prevStatus }))
+    router.refresh()
   }
 
   /**
@@ -81,11 +93,11 @@ export function RollList({
       try {
         const result = await setAttendance(classId, date, r.personId, next)
         if (result && "error" in result) {
-          if (shownDate.current === date) setState(prev => ({ ...prev, [r.personId]: prevStatus }))
+          revert(r.personId, prevStatus)
           setFeedback({ error: result.error })
         }
       } catch {
-        if (shownDate.current === date) setState(prev => ({ ...prev, [r.personId]: prevStatus }))
+        revert(r.personId, prevStatus)
         setFeedback({ error: "Couldn't save that mark. Please try again." })
       } finally {
         settle(r.personId)
