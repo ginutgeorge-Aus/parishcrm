@@ -266,6 +266,35 @@ describe("syncMyReports", () => {
     expect(peak).toBe(5)
   })
 
+  it("shares the 5-call cap across overlapping loads and never re-polls a queued row", async () => {
+    jest.useFakeTimers()
+    try {
+      const rows = (base: number) =>
+        Array.from({ length: 8 }, (_, i) => ({ id: base + i, issueNumber: base + i, status: "OPEN", syncedAt: null }))
+      let inFlight = 0
+      let peak = 0
+      mockGetIssue.mockImplementation(async () => {
+        inFlight++
+        peak = Math.max(peak, inFlight)
+        await new Promise((r) => setTimeout(r, 4_000)) // outlives the page budget
+        inFlight--
+        return { state: "open", stateReason: null }
+      })
+      mockReportFindMany.mockResolvedValueOnce(rows(200))
+      const first = syncMyReports()
+      await jest.advanceTimersByTimeAsync(3_000)
+      await first // returned on budget: 5 polls in flight, 3 queued
+      mockReportFindMany.mockResolvedValueOnce([...rows(200), ...rows(300)]) // another user's/tab's load
+      const second = syncMyReports()
+      await jest.advanceTimersByTimeAsync(20_000)
+      await second
+      expect(peak).toBe(5)
+      expect(mockGetIssue).toHaveBeenCalledTimes(16) // rows 200-207 once each, never re-polled
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("returns after the time budget even if GitHub hangs, so the page still renders", async () => {
     jest.useFakeTimers()
     try {
