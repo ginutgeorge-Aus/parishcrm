@@ -39,12 +39,14 @@ jobs:
     # a branch edits this file. The ref check just skips such runs cleanly.
     # issue_comment runs from main; only CodeRabbit's own PR comments count —
     # not our nudge (PAT owner), not other people/bots, and not CodeRabbit's
-    # instant "Review triggered" ack (it would re-nudge mid-review).
+    # instant "Review triggered" ack or its "review in progress" summary edit
+    # (either would re-nudge mid-review).
     if: >-
       github.repository == 'ginutgeorge-Aus/parishcrm' && github.ref == 'refs/heads/main' &&
       (github.event_name != 'issue_comment' ||
        (github.event.issue.pull_request && github.event.comment.user.login == 'coderabbitai[bot]' &&
-        !contains(github.event.comment.body, 'Review triggered')))
+        !contains(github.event.comment.body, 'Review triggered') &&
+        !contains(github.event.comment.body, 'review in progress by coderabbit.ai')))
     # Job-level, so only runs that pass the `if` join the group: an unrelated
     # comment's skipped run can't cancel a run sleeping until the reset.
     concurrency:
