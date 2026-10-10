@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,9 +24,48 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [copyStatus, setCopyStatus] = useState<string>("")
   const [pending, startTransition] = useTransition()
+  const codesHeadingRef = useRef<HTMLParagraphElement>(null)
+  const prevKind = useRef<Mode["kind"]>("idle")
 
-  const reset = () => { setMode({ kind: "idle" }); setCode(""); setPassword(""); setError(null) }
+  // Clicking Set up / Turn off / New backup codes unmounts the focused button;
+  // move focus to the first control of the form (or the codes heading) that replaces it.
+  useEffect(() => {
+    if (mode.kind === "enrolling") document.getElementById("totp-confirm")?.focus()
+    else if (mode.kind === "regenerate" || mode.kind === "disable") document.getElementById("totp-manage")?.focus()
+    else if (mode.kind === "codes") codesHeadingRef.current?.focus()
+    // Cancel / "I've saved these codes" unmounts the focused button: return focus to the idle action.
+    else if (prevKind.current !== "idle") {
+      document.getElementById(prevKind.current === "disable" ? "totp-turn-off" : "totp-idle-action")?.focus()
+    }
+    prevKind.current = mode.kind
+  }, [mode.kind])
+
+  // A successful turn-off / enrolment refreshes `status`, swapping the idle buttons: the
+  // trigger focused above is gone by then, so land on the new idle action instead.
+  const prevEnabled = useRef(status.enabled)
+  useEffect(() => {
+    if (prevEnabled.current === status.enabled) return
+    prevEnabled.current = status.enabled
+    document.getElementById("totp-idle-action")?.focus()
+  }, [status.enabled])
+
+  /**
+   * Copies the backup codes to the clipboard and reports the outcome in the
+   * live region; fails visibly when the clipboard is unavailable or rejects.
+   */
+  async function copyCodes(text: string) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(text)
+      setCopyStatus("Copied")
+    } catch {
+      setCopyStatus("Could not copy. Select the codes and copy them manually.")
+    }
+  }
+
+  const reset = () => { setMode({ kind: "idle" }); setCode(""); setPassword(""); setError(null); setCopyStatus("") }
   const run = (fn: () => Promise<void>) => startTransition(async () => {
     setError(null)
     try {
@@ -40,7 +79,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     const text = mode.codes.join("\n")
     return (
       <div className="space-y-3 rounded-md border p-4">
-        <p className="text-sm font-medium">Save your backup codes</p>
+        <p ref={codesHeadingRef} tabIndex={-1} className="text-sm font-medium outline-none">Save your backup codes</p>
         <p className="text-sm text-muted-foreground">
           Each code signs you in once if you lose your phone. They won&apos;t be shown again.
         </p>
@@ -48,7 +87,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
           {mode.codes.map((c) => <li key={c}>{c}</li>)}
         </ul>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(text).catch(() => {})}>
+          <Button variant="outline" size="sm" onClick={() => copyCodes(text)}>
             Copy
           </Button>
           <Button variant="outline" size="sm" asChild>
@@ -56,6 +95,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
           </Button>
           <Button size="sm" onClick={() => { reset(); router.refresh() }}>I&apos;ve saved these codes</Button>
         </div>
+        <p role="status" className="text-sm text-muted-foreground">{copyStatus}</p>
       </div>
     )
   }
@@ -69,7 +109,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
           run(async () => {
             const res = await confirmTotpEnrolment(code, password)
             if ("error" in res) setError(res.error)
-            else { setCode(""); setPassword(""); setMode({ kind: "codes", codes: res.backupCodes }) }
+            else { setCode(""); setPassword(""); setCopyStatus(""); setMode({ kind: "codes", codes: res.backupCodes }) }
           })
         }}
       >
@@ -124,7 +164,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
             } else {
               const res = await regenerateBackupCodes(code)
               if ("error" in res) setError(res.error)
-              else { setCode(""); setMode({ kind: "codes", codes: res.backupCodes }) }
+              else { setCode(""); setCopyStatus(""); setMode({ kind: "codes", codes: res.backupCodes }) }
             }
           })
         }}
@@ -155,7 +195,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     return (
       <div className="space-y-2">
         <Button
-          variant="outline" size="sm" disabled={pending}
+          id="totp-idle-action" variant="outline" size="sm" disabled={pending}
           onClick={() => run(async () => {
             const res = await startTotpEnrolment()
             if ("error" in res) setError(res.error)
@@ -176,8 +216,8 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
         <span className="text-muted-foreground">{status.backupCodesRemaining} of 10 backup codes left.</span>
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => setMode({ kind: "regenerate" })}>New backup codes</Button>
-        <Button variant="outline" size="sm" onClick={() => setMode({ kind: "disable" })}>Turn off</Button>
+        <Button id="totp-idle-action" variant="outline" size="sm" onClick={() => setMode({ kind: "regenerate" })}>New backup codes</Button>
+        <Button id="totp-turn-off" variant="outline" size="sm" onClick={() => setMode({ kind: "disable" })}>Turn off</Button>
       </div>
     </div>
   )

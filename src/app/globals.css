@@ -161,3 +161,10 @@
     letter-spacing: -0.02em;
   }
 }
+
+/* Skeleton pulses are decorative — stop them for users who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
+}

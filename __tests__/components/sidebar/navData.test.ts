@@ -72,3 +72,11 @@ it("shows the Clearances link only to editors (canManageClearances = canEdit)", 
   expect(visible(allTrueFlags)).toContain("Clearances")
   expect(visible({ ...allTrueFlags, isEditor: false })).not.toContain("Clearances")
 })
+
+it("shows Sunday School in Members only to roles that can view people", () => {
+  const find = (canViewPeople: boolean) =>
+    flattenNavItems(buildNavGroups({ ...allTrueFlags, canViewPeople }).find((g) => g.label === "Members")!.items)
+      .find((i) => i.href === "/sunday-school")
+  expect(find(true)).toMatchObject({ label: "Sunday School", show: true })
+  expect(find(false)?.show).toBe(false)
+})

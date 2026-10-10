@@ -72,6 +72,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events` |
 | View people & families | Yes | Yes | Yes | No | Yes | No |
 | Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events only |
+| Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No |
 | Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |

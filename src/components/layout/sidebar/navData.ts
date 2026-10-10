@@ -3,12 +3,12 @@ import {
   BookOpen, ArrowLeftRight, Landmark, PiggyBank, TrendingUp, BarChart2, BarChart3,
   CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck, BadgeCheck,
   SlidersHorizontal, ListChecks, Scale, Cake, HandCoins, Gift, Inbox, MonitorSmartphone,
-  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart,
+  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School,
 } from "lucide-react"
 
 export type NavItem = { href: string; label: string; icon: React.ElementType; show: boolean; badge?: number }
 export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
-export type NavGroup = { label: string; basePath: string; items: NavEntry[] }
+export type NavGroup = { label: string; items: NavEntry[] }
 
 export type NavFlags = {
   isAccounting: boolean
@@ -31,7 +31,6 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
   return [
     {
       label: "Members",
-      basePath: "",
       items: [
         { href: "/", label: "Dashboard", icon: Home, show: true },
         { href: "/families", label: "Families", icon: Users, show: canViewPeople },
@@ -39,6 +38,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor },
+        { href: "/sunday-school", label: "Sunday School", icon: School, show: canViewPeople },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor, badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor, badge: membershipPending },
         { href: "/welcome-letter", label: "Welcome Letter", icon: MailPlus, show: isEditor },
@@ -46,14 +46,12 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Events",
-      basePath: "/events",
       items: [
         { href: "/events", label: "Events", icon: CalendarDays, show: canViewPeople },
       ],
     },
     {
       label: "Accounting",
-      basePath: "/accounting",
       items: [
         {
           subLabel: "Transactions",
@@ -93,7 +91,6 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Settings",
-      basePath: "",
       items: [
         { href: "/account", label: "My Account", icon: MonitorSmartphone, show: true },
         { href: "/reports", label: "My Reports", icon: MessagesSquare, show: true },

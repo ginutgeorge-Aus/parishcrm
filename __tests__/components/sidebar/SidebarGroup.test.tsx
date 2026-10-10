@@ -6,7 +6,6 @@ import type { NavGroup } from "@/components/layout/sidebar/navData"
 
 const group: NavGroup = {
   label: "Accounting",
-  basePath: "/accounting",
   items: [
     {
       subLabel: "Transactions",
@@ -43,7 +42,10 @@ it("renders sub-headers with at least one visible item, hides empty ones", () =>
 
 it("hides entries when the group is closed", () => {
   renderGroup(false)
-  expect(screen.queryByText("Overview")).not.toBeInTheDocument()
+  // Panel stays mounted (so aria-controls resolves) but is hidden from AT + layout.
+  expect(screen.queryByRole("link", { name: /overview/i })).not.toBeInTheDocument()
+  const header = screen.getByRole("button", { name: /accounting/i })
+  expect(document.getElementById(header.getAttribute("aria-controls")!)).not.toBeVisible()
 })
 
 it("calls onToggle when the header is clicked", () => {

@@ -6,6 +6,7 @@ import {
   parseRateLimitReset,
   pendingReset,
   pickNext,
+  waitForReset,
   type Comment,
   type Pr,
 } from "../../scripts/coderabbit-nudge"
@@ -42,10 +43,15 @@ function pr(over: Partial<Pr>): Pr {
 }
 
 test("isReviewed: only a CodeRabbit review on the head commit counts", () => {
-  assert.equal(isReviewed([{ user: BOT, commitId: "abc" }], [], "abc"), true)
-  assert.equal(isReviewed([{ user: BOT, commitId: "old" }], [], "abc"), false)
-  assert.equal(isReviewed([{ user: "human", commitId: "abc" }], [], "abc"), false)
+  const body = "**Actionable comments posted: 1**"
+  assert.equal(isReviewed([{ user: BOT, commitId: "abc", body }], [], "abc"), true)
+  assert.equal(isReviewed([{ user: BOT, commitId: "old", body }], [], "abc"), false)
+  assert.equal(isReviewed([{ user: "human", commitId: "abc", body }], [], "abc"), false)
   assert.equal(isReviewed([], [], "abc"), false)
+})
+
+test("isReviewed: an empty-body review (a CodeRabbit thread reply) is not a review", () => {
+  assert.equal(isReviewed([{ user: BOT, commitId: "abc", body: "" }], [], "abc"), false)
 })
 
 test("isReviewed: clean review recorded only in the summary comment counts", () => {
@@ -68,6 +74,12 @@ test("isReviewed: rate-limited summary naming head in 'between' line, or a non-b
 test("parseRateLimitReset: reads 'available in N minutes' from updated_at", () => {
   const reset = parseRateLimitReset(comment({ user: BOT, body: RATE_LIMIT_BODY, updatedAt: "2026-10-07T02:39:21Z" }))
   assert.equal(reset?.toISOString(), "2026-10-07T02:56:21.000Z")
+})
+
+test("parseRateLimitReset: accepts the colon form 'available in: N minutes'", () => {
+  const body = "Review rate limited. **Next review available in: 21 minutes**"
+  const reset = parseRateLimitReset(comment({ user: BOT, body, updatedAt: "2026-10-07T00:00:00Z" }))
+  assert.equal(reset?.toISOString(), "2026-10-07T00:21:00.000Z")
 })
 
 test("parseRateLimitReset: hours + minutes + seconds", () => {
@@ -112,6 +124,20 @@ test("nudgeInFlight: recent unanswered command blocks; answered or stale does no
   assert.equal(nudgeInFlight([comment({ body: "@codex review", createdAt: "2026-10-07T02:55:00Z" })], now), false)
 })
 
+test("nudgeInFlight: CodeRabbit's 'Review triggered' ack is not an answer; a later summary edit is", () => {
+  const now = new Date("2026-10-07T03:00:00Z")
+  const nudge = comment({ body: "@coderabbitai review", createdAt: "2026-10-07T02:50:00Z" })
+  const ack = comment({
+    user: BOT,
+    body: "<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>✅ Actions performed</summary>\n\nReview triggered.\n\n</details>",
+    createdAt: "2026-10-07T02:50:10Z",
+    updatedAt: "2026-10-07T02:50:10Z",
+  })
+  assert.equal(nudgeInFlight([nudge, ack], now), true)
+  const summaryEdited = comment({ user: BOT, body: "walkthrough", createdAt: "2026-10-06T00:00:00Z", updatedAt: "2026-10-07T02:58:00Z" })
+  assert.equal(nudgeInFlight([summaryEdited, nudge, ack], now), false)
+})
+
 test("pickNext: review-next > human > bot, newest activity first, skips drafts and opt-outs", () => {
   const bot = pr({ number: 1, authorIsBot: true, updatedAt: "2026-10-06T00:00:00Z" })
   const staleHuman = pr({ number: 2, updatedAt: "2026-09-10T00:00:00Z" })
@@ -124,4 +150,15 @@ test("pickNext: review-next > human > bot, newest activity first, skips drafts a
   assert.equal(pickNext([bot, staleHuman, activeHuman])?.number, 3)
   assert.equal(pickNext([bot, draft, optOut])?.number, 1)
   assert.equal(pickNext([draft, optOut]), null)
+})
+
+test("waitForReset: sleeps until just past a reset within the cap", () => {
+  const now = new Date("2026-10-09T20:00:00Z")
+  assert.equal(waitForReset(new Date("2026-10-09T20:30:00Z"), now, 65 * 60_000), 31 * 60_000)
+})
+
+test("waitForReset: no wait when nothing is pending or the reset is past the cap", () => {
+  const now = new Date("2026-10-09T20:00:00Z")
+  assert.equal(waitForReset(null, now, 65 * 60_000), null)
+  assert.equal(waitForReset(new Date("2026-10-09T21:30:00Z"), now, 65 * 60_000), null)
 })

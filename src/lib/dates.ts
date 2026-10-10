@@ -238,24 +238,56 @@ export function formatSydneyDateTime(d: Date): string {
 }
 
 /**
+ * Converts a naive wall-clock reading (Sydney time written as if it were UTC)
+ * to the real UTC instant. Two passes: the offset at the naive instant is only
+ * a first guess and can sit across a DST transition from the real instant, so
+ * re-read the offset at the guessed instant (same as sydneyDatetimeLocalToUTC).
+ *
+ * @param naive - Sydney wall-clock time encoded as a UTC Date
+ * @returns the matching real UTC instant
+ */
+function sydneyWallClockToUTC(naive: Date): Date {
+  const guess = new Date(naive.getTime() - sydneyOffsetMs(naive))
+  const second = new Date(naive.getTime() - sydneyOffsetMs(guess))
+  // A wall time inside a DST gap (e.g. a zone that skips midnight) has no real
+  // instant; the passes then disagree and the second can land on the wrong
+  // calendar day. Keep whichever candidate still falls on the requested date.
+  return sameSydneyDate(second, naive) ? second : guess
+}
+
+/**
+ * Whether real instant `d` falls on the calendar date of naive wall-clock `naive`.
+ *
+ * @param d - a real UTC instant
+ * @param naive - Sydney wall-clock time encoded as a UTC Date
+ * @returns true when both name the same Sydney calendar date
+ */
+function sameSydneyDate(d: Date, naive: Date): boolean {
+  const { year, month, day } = sydneyParts(d)
+  return year === naive.getUTCFullYear() && month === naive.getUTCMonth() + 1 && day === naive.getUTCDate()
+}
+
+/**
  * The UTC instant of Sydney 00:00:00.000 on the given `YYYY-MM-DD` calendar
  * date. Use as the `gte` lower bound when filtering real (non-date-only)
  * timestamps (e.g. AuditLog.createdAt) by a Sydney calendar day.
  */
 export function sydneyStartOfDayUTC(ymd: string): Date {
-  const naive = new Date(ymd + "T00:00:00.000Z")
-  return new Date(naive.getTime() - sydneyOffsetMs(naive))
+  return sydneyWallClockToUTC(new Date(ymd + "T00:00:00.000Z"))
 }
 
 /**
- * The UTC instant of Sydney 23:59:59.999 on the given `YYYY-MM-DD` calendar
+ * The last UTC instant (ms precision) of the given `YYYY-MM-DD` Sydney calendar
  * date. Use as the `lte` upper bound when filtering real (non-date-only)
- * timestamps by a Sydney calendar day. The offset is whole hours, so the
- * .999 millisecond precision is preserved.
+ * timestamps by a Sydney calendar day. Computed as the next day's start minus
+ * 1 ms, so a zone that repeats or skips its final hour still gets the true end.
+ *
+ * @param ymd - calendar date as `YYYY-MM-DD`
+ * @returns the UTC instant 1 ms before the next Sydney day begins
  */
 export function sydneyEndOfDayUTC(ymd: string): Date {
-  const naive = new Date(ymd + "T23:59:59.999Z")
-  return new Date(naive.getTime() - sydneyOffsetMs(naive))
+  const next = new Date(new Date(ymd + "T00:00:00.000Z").getTime() + 86_400_000).toISOString().slice(0, 10)
+  return new Date(sydneyStartOfDayUTC(next).getTime() - 1)
 }
 
 /**
