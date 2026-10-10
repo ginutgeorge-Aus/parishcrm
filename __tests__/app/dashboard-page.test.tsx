@@ -159,15 +159,15 @@ describe("DashboardPage date math (Sydney day, UTC-midnight bounds)", () => {
 })
 
 describe("DashboardPage account balances", () => {
-  it("sums every account's income/expense since its own asOfDate in one groupBy", async () => {
+  it("sums every account's income/expense (deactivated included) since its own asOfDate in one groupBy", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks()
     const asOf1 = new Date("2026-01-01T00:00:00Z")
     const asOf2 = new Date("2026-03-01T00:00:00Z")
     ;(prisma.paymentAccount.findMany as jest.Mock).mockResolvedValue([
       { id: "a1", name: "Main Cheque", isActive: true },
-      { id: "a2", name: "Savings Account", isActive: true },
-      { id: "a3", name: "No Opening Yet", isActive: false },
+      { id: "a2", name: "Old Savings", isActive: false }, // deactivated, with history: still shown
+      { id: "a3", name: "No Opening Yet", isActive: true },
     ])
     ;(prisma.accountOpeningBalance.findMany as jest.Mock).mockResolvedValue([
       { paymentAccountId: "a1", amount: "100.00", asOfDate: asOf1 },
@@ -196,6 +196,8 @@ describe("DashboardPage account balances", () => {
     expect(prisma.transaction.aggregate).toHaveBeenCalledTimes(2)
     expect(html).toContain("$130.25")
     expect(html).toContain("$5.50")
+    expect(html).toContain("Old Savings")
+    expect((prisma.paymentAccount.findMany as jest.Mock).mock.calls[0][0]?.where ?? {}).not.toHaveProperty("isActive")
   })
 
   it("skips the groupBy when no account has an opening balance", async () => {
