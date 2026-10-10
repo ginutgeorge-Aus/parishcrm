@@ -160,11 +160,14 @@ describe("isValidEmail", () => {
     expect(isValidEmail(v)).toBe(false)
   })
   it("enforces the 254-character limit", () => {
-    const domain = "@example.com"
-    const ok = "a".repeat(254 - domain.length) + domain
+    // 64-char local part (the SMTP max) + a long domain of valid <=63-char labels.
+    const local = "a".repeat(64)
+    const domain = (last: number) => `@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(last)}.com`
+    const ok = local + domain(57)
     expect(ok).toHaveLength(254)
-    // Local part exceeds 64 chars but the regex does not enforce that; only total length is capped.
     expect(isValidEmail(ok)).toBe(true)
-    expect(isValidEmail("a" + ok)).toBe(false)
+    expect(isValidEmail(local + domain(58))).toBe(false)
   })
+  // Latent: only the total length is capped, so a >64-char local part passes. Tracked in #215.
+  it.todo("rejects a local part longer than 64 characters")
 })
