@@ -24,6 +24,9 @@ const fmtDate = (d: Date) =>
 
 export const metadata = { title: "My Reports" }
 
+// Newest reports shown; older ones stay in the DB but aren't listed.
+const MAX_REPORTS = 50
+
 export default async function ReportsPage() {
   const session = await auth()
   if (!session?.user) redirect("/login")
@@ -41,8 +44,9 @@ export default async function ReportsPage() {
 
   const reports = await prisma.report.findMany({
     where: { userId },
-    select: { id: true, type: true, title: true, summary: true, status: true, createdAt: true },
+    select: { id: true, type: true, summary: true, status: true, createdAt: true },
     orderBy: { createdAt: "desc" },
+    take: MAX_REPORTS,
   })
 
   return (
@@ -54,9 +58,12 @@ export default async function ReportsPage() {
       </p>
 
       {reports.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          You haven&apos;t submitted any reports yet.
-        </p>
+        <div className="rounded-lg border border-dashed p-6 text-center">
+          <p className="text-sm font-medium text-foreground">No reports yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Found a bug or have an idea? Click <strong>Feedback</strong> in the sidebar to send it.
+          </p>
+        </div>
       ) : (
         <ul className="space-y-3">
           {reports.map((r) => (
@@ -76,6 +83,9 @@ export default async function ReportsPage() {
             </li>
           ))}
         </ul>
+      )}
+      {reports.length === MAX_REPORTS && (
+        <p className="mt-4 text-xs text-muted-foreground">Showing your {MAX_REPORTS} most recent reports.</p>
       )}
     </div>
   )

@@ -20,10 +20,16 @@ An applicant or family member never needs to do anything to *receive* these emai
 
 ### The send chokepoint
 
-`sendEmail()` and the type-specific `send*Email()` helpers (`sendPasswordResetEmail`, `sendFamilyUpdateInviteEmail`, `sendWelcomeEmail`, `sendMembershipNotificationEmail`, `sendWelcomeLetterEmail`, `sendRegistrationConfirmationEmail`, `sendEventReminderEmail`, `sendPaymentReminderEmail`, `sendReceiptEmail`, `sendDgrReceiptEmail`) all live in `src/lib/email.ts` and route every real send through a single internal function, `sendMailWithRetry`. No caller ever talks to the `nodemailer` transport directly. Under Resend, each message carries one `Idempotency-Key` reused across its internal retries (429/5xx/network), so a retry can never deliver a duplicate; a network failure that outlasts the retries is reported as "delivery UNKNOWN". That chokepoint:
+`sendEmail()` and the type-specific `send*Email()` helpers (`sendPasswordResetEmail`, `sendFamilyUpdateInviteEmail`, `sendWelcomeEmail`, `sendMembershipNotificationEmail`, `sendWelcomeLetterEmail`, `sendRegistrationConfirmationEmail`, `sendEventReminderEmail`, `sendPaymentReminderEmail`, `sendReceiptEmail`, `sendDgrReceiptEmail`) all live in `src/lib/email.ts` and route every real send through a single internal function, `sendMailWithRetry`. No caller ever talks to the `nodemailer` transport directly. Retry behaviour depends on the provider.
+
+With **Gmail SMTP** (the default), that chokepoint:
 
 - Retries up to 3 times (short backoff) but **only** for errors that provably happened *before* the message reached the server (connection refused, DNS failure, TLS handshake failure, or a 4xx SMTP temporary-reject reply) — retrying after the server may have already accepted the message risks sending a duplicate.
 - Treats certain socket errors (timeout, reset, broken pipe) as **ambiguous** — the message may or may not have gone out — and does *not* retry them; instead it fails the send and raises an "email delivery UNKNOWN" alert so a human checks before manually resending.
+With **Resend** (`RESEND_API_KEY` set, `src/lib/resendTransport.ts`), each message carries one `Idempotency-Key` that is reused across its retries, so a retry can never deliver a duplicate. Because of that, Resend **does** retry timeouts, network errors, 429 (honouring `Retry-After`) and 5xx replies. If an attempt may have reached Resend and the retries run out, the send is reported as "delivery UNKNOWN".
+
+With either provider, the chokepoint:
+
 - On any exhausted/permanent failure, fires a best-effort alert email to the configured `ownerNotificationEmail` address (swallowing its own errors so an alert failure can never mask or loop on the original one).
 
 Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both HTML and a plain-text fallback.

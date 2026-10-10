@@ -40,6 +40,11 @@ it("syncs status then queries only this user's reports", async () => {
   expect(mockFindMany.mock.calls[0][0].where).toEqual({ userId: 7 })
 })
 
+it("caps the list at the 50 newest reports", async () => {
+  await ReportsPage()
+  expect(mockFindMany.mock.calls[0][0]).toMatchObject({ take: 50, orderBy: { createdAt: "desc" } })
+})
+
 it("renders the reports with type and status", async () => {
   mockFindMany.mockResolvedValue([
     { id: 1, type: "BUG", title: "Bug: broke", summary: "broke", status: "RESOLVED", createdAt: new Date("2026-06-01") },
@@ -53,5 +58,6 @@ it("renders the reports with type and status", async () => {
 
 it("shows an empty state when there are no reports", async () => {
   const html = renderToStaticMarkup(await ReportsPage())
-  expect(html).toContain("haven")
+  expect(html).toContain("No reports yet")
+  expect(html).toContain("Feedback")
 })
