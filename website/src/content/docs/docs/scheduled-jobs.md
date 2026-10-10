@@ -1,10 +1,11 @@
 ---
 title: "Scheduled Jobs"
-description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, and an optional error digest — run in-app by default, or via HTTP…"
+description: "A few background tasks — event reminder emails, abandoned-checkout cleanup, birthday/anniversary emails, an optional monthly clearance-compliance digest, and an optional error digest — run in-app by default, or via HTTP…"
 ---
 
 A few background tasks — event reminder emails, abandoned-checkout cleanup,
-birthday/anniversary emails, and an optional error digest — run inside the
+birthday/anniversary emails, an optional monthly clearance-compliance digest, and an
+optional error digest — run inside the
 app by default: an in-process timer starts at boot (`IN_APP_CRON`, on in
 production, off in development unless `IN_APP_CRON=true`) and checks for due
 jobs every 5 minutes. Nothing to schedule, as long as the app stays running.
@@ -17,10 +18,11 @@ scheduler.
 |---|---|
 | Event reminders, abandoned-checkout cleanup | Every 30 minutes |
 | Birthday/anniversary emails | Once per Sydney day, from 07:00 |
+| Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down; at most 3 attempts per day per process; the count resets when the app restarts). Opt-in: needs `CLEARANCE_DIGEST=true`. Emails ADMIN and PASTOR users about people with a ministry role; nothing is sent in a month where every clearance is in order. |
 | Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
 
 A period job that does not fully succeed is retried 30 minutes later, at most
-3 times per day or week. The timer only fires while the process is up, so on a
+3 times per day, week or month. The timer only fires while the process is up, so on a
 host that scales to zero or sleeps idle apps, set `IN_APP_CRON=false` and use
 the endpoints below instead. Run a single app replica: each replica runs its
 own timer. **Do not run both** the in-app scheduler and an external cron —
@@ -45,9 +47,10 @@ curl -fsS -X POST \
 | `POST /api/cron/send-reminders` | Sends event reminder emails to registrants for events with a reminder due. | Hourly |
 | `POST /api/cron/sweep-checkouts` | Expires abandoned card-payment checkout sessions and scrubs their (already-encrypted) staged PII payload. | Hourly |
 | `POST /api/cron/send-celebrations` | Sends birthday and wedding-anniversary emails, if enabled in Settings. | Daily |
+| `POST /api/cron/send-clearance-digest` | Sends the monthly clearance-compliance digest to ADMIN and PASTOR users. An explicit call, so it does not need `CLEARANCE_DIGEST`. It respects the once-per-month guard: if this month's digest already went out it returns `{"status":"already-sent","month":"YYYY-MM"}` (HTTP 200) and sends nothing, so daily or retrying schedulers are safe. Add `?force=1` to send again deliberately. | Monthly (1st) |
 | `POST /api/cron/error-issues` | Optional — groups recent server errors by fingerprint and files one GitHub issue per new error group (deduplicated against already-open issues); also purges old error/analytics rows. Only useful if `GITHUB_TOKEN` / `GITHUB_REPO` are set. | Weekly |
 
-All four require `CRON_SECRET` to be set — with it unset, each endpoint
+All five require `CRON_SECRET` to be set — with it unset, each endpoint
 returns `503` and logs a loud warning rather than silently doing nothing, so
 a misconfigured deployment is easy to notice. Set `CRON_SECRET` to a random
 value (`openssl rand -base64 32`) and use the identical value in both the app
@@ -72,6 +75,7 @@ environment and your scheduler's `Authorization: Bearer` header.
   GitHub issue (matched by a fingerprint marker in the issue body) before
   filing a new one. It also purges error-log and route-view rows older than
   90 days.
+- **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a second tick or an overlapping manual call cannot send at the same time. If the app stops after sending but before it marks the month done, the lease expires after 30 minutes and a retry may send again. It also keeps the addresses recorded as sent this month (`clearanceDigestDelivered`, email addresses only; an ambiguous mail-server error counts as sent). If any send fails the month stays open and the job retries, emailing only addresses not yet recorded; once all are recorded the month is marked done. If that list cannot be saved, failed sends are not retried, to avoid repeats. `?force=1` emails everyone again and replaces that list.
 - None of these endpoints require a session login — they authenticate only
   via the `CRON_SECRET` bearer token, so they're safe to call from an
   external scheduler with no browser session.
@@ -85,7 +89,8 @@ environment and your scheduler's `Authorization: Bearer` header.
 |---|---|
 | `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on/off. Unset = on in production only. |
 | `ERROR_DIGEST` | `true` enables the weekly error digest (also needs `GITHUB_TOKEN`/`GITHUB_REPO`). |
-| `CRON_SECRET` | Required for all four endpoints to do anything. Unset = every call returns `503`. |
+| `CLEARANCE_DIGEST` | `true` enables the monthly clearance-compliance digest in the in-app scheduler. The manual endpoint ignores it. |
+| `CRON_SECRET` | Required for all five endpoints to do anything. Unset = every call returns `503`. |
 | `GITHUB_TOKEN`, `GITHUB_REPO` | Required for `error-issues` to file anything — otherwise it's a harmless no-op call. |
 
 See [Environment Variables](/parishcrm/docs/environment-variables/) for the full reference.

@@ -102,7 +102,7 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/stripe/webhook")).toBe(true)
     // Every bearer-gated cron route must bypass the session gate, or the
     // middleware 302s the scheduler to /login and the job silently never runs.
-    for (const cron of ["send-reminders", "sweep-checkouts", "send-celebrations", "error-issues"]) {
+    for (const cron of ["send-reminders", "sweep-checkouts", "send-celebrations", "error-issues", "send-clearance-digest"]) {
       expect(isPublicPath(`/api/cron/${cron}`)).toBe(true)
     }
     expect(isPublicPath("/e/spring-fair")).toBe(true)

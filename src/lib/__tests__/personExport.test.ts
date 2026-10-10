@@ -115,6 +115,13 @@ describe("decryptTransactionForExport", () => {
       receiptSends: [{ sentTo: "member@example.com" }],
     })
   })
+
+  it("decrypts encrypted notes and keeps a null notes as null", () => {
+    const base = { amount: { toString: () => "1.00" }, description: encrypt("Gift"), receiptSends: [] }
+    expect(decryptTransactionForExport({ ...base, notes: encrypt("Paid by cousin") }).notes).toBe("Paid by cousin")
+    expect(decryptTransactionForExport({ ...base, notes: null }).notes).toBeNull()
+    expect(decryptTransactionForExport({ ...base, notes: "" }).notes).toBe("")
+  })
 })
 
 describe("decryptRegistrationForExport", () => {

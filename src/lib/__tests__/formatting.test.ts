@@ -41,6 +41,15 @@ describe("fmtAUD / fmtAUDAccounting currency config", () => {
 })
 
 describe("safeDobDate", () => {
+  it.each(["2019-02-30", "2023-02-29", "2020-04-31", "2020-13-01"])("rejects the impossible date %s instead of rolling it over", (v) => {
+    expect(safeDobDate(v)).toBeNull()
+  })
+  it("keeps the written calendar date when the value has a timezone offset", () => {
+    expect(safeDobDate("2000-01-01T00:00:00+10:00")?.toISOString()).toBe("2000-01-01T00:00:00.000Z")
+  })
+  it("accepts a leap day", () => {
+    expect(safeDobDate("2020-02-29")?.getUTCDate()).toBe(29)
+  })
   it("parses a valid ISO date string", () => {
     const d = safeDobDate("1990-05-15")
     expect(d).toBeInstanceOf(Date)
