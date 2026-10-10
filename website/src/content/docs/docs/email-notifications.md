@@ -26,7 +26,8 @@ With **Gmail SMTP** (the default), that chokepoint:
 
 - Retries up to 3 times (short backoff) but **only** for errors that provably happened *before* the message reached the server (connection refused, DNS failure, TLS handshake failure, or a 4xx SMTP temporary-reject reply) — retrying after the server may have already accepted the message risks sending a duplicate.
 - Treats certain socket errors (timeout, reset, broken pipe) as **ambiguous** — the message may or may not have gone out — and does *not* retry them; instead it fails the send and raises an "email delivery UNKNOWN" alert so a human checks before manually resending.
-With **Resend** (`RESEND_API_KEY` set, `src/lib/resendTransport.ts`), each message carries one `Idempotency-Key` that is reused across its retries, so a retry can never deliver a duplicate. Because of that, Resend **does** retry timeouts, network errors, 429 (honouring `Retry-After`) and 5xx replies. If an attempt may have reached Resend and the retries run out, the send is reported as "delivery UNKNOWN".
+
+With **Resend** (`RESEND_API_KEY` set, `src/lib/resendTransport.ts`), each message carries one `Idempotency-Key` that is reused across its retries, so a retry can never deliver a duplicate. Because of that, Resend **does** retry timeouts, network errors, 429 (honouring `Retry-After`), 5xx replies, and `409 concurrent_idempotent_requests` (the original request under that key is still being processed). Only a timeout/network error or an in-flight 409 leaves delivery uncertain: if one of those happened and the retries run out, the send is reported as "delivery UNKNOWN". An exhausted run of 5xx/429 replies with no ambiguous attempt is reported as a plain failure.
 
 With either provider, the chokepoint:
 

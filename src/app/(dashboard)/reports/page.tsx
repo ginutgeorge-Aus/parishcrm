@@ -6,6 +6,7 @@ import { syncMyReports } from "@/lib/actions/feedback"
 import { Badge } from "@/components/ui/badge"
 import type { ReportStatus, ReportType } from "@/lib/generated/prisma/enums"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { MAX_LISTED_REPORTS } from "@/lib/reportStatus"
 
 const TYPE_LABEL: Record<ReportType, string> = {
   BUG: "Bug",
@@ -23,9 +24,6 @@ const fmtDate = (d: Date) =>
   new Intl.DateTimeFormat(APP_LOCALE, { timeZone: APP_TIMEZONE, dateStyle: "medium" }).format(d)
 
 export const metadata = { title: "My Reports" }
-
-// Newest reports shown; older ones stay in the DB but aren't listed.
-const MAX_REPORTS = 50
 
 export default async function ReportsPage() {
   const session = await auth()
@@ -46,7 +44,7 @@ export default async function ReportsPage() {
     where: { userId },
     select: { id: true, type: true, summary: true, status: true, createdAt: true },
     orderBy: { createdAt: "desc" },
-    take: MAX_REPORTS,
+    take: MAX_LISTED_REPORTS,
   })
 
   return (
@@ -84,8 +82,8 @@ export default async function ReportsPage() {
           ))}
         </ul>
       )}
-      {reports.length === MAX_REPORTS && (
-        <p className="mt-4 text-xs text-muted-foreground">Showing your {MAX_REPORTS} most recent reports.</p>
+      {reports.length === MAX_LISTED_REPORTS && (
+        <p className="mt-4 text-xs text-muted-foreground">Showing your {MAX_LISTED_REPORTS} most recent reports.</p>
       )}
     </div>
   )

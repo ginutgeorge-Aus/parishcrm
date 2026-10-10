@@ -59,5 +59,5 @@ it("renders the reports with type and status", async () => {
 it("shows an empty state when there are no reports", async () => {
   const html = renderToStaticMarkup(await ReportsPage())
   expect(html).toContain("No reports yet")
-  expect(html).toContain("Feedback")
+  expect(html).toContain("Found a bug or have an idea? Click <strong>Feedback</strong> in the sidebar to send it.")
 })
