@@ -145,6 +145,8 @@ export async function submitFeedback(input: FeedbackInput): Promise<FeedbackResu
 // Any GitHub failure is swallowed so the list still renders from the mirror.
 const STALE_MS = 60_000
 const MAX_SYNCS_PER_LOAD = 20
+const SYNC_CONCURRENCY = 5
+const SYNC_BUDGET_MS = 3_000
 
 export async function syncMyReports(): Promise<void> {
   // Derive the reporter from the session — never trust a caller-supplied id, or
@@ -162,7 +164,7 @@ export async function syncMyReports(): Promise<void> {
     orderBy: { createdAt: "desc" },
     take: MAX_LISTED_REPORTS,
   })
-  // Cap per-load GitHub calls — one sequential API call per row, shared
+  // Cap per-load GitHub calls — one API call per row, shared
   // GITHUB_TOKEN rate limit; oldest-synced first so every row is refreshed
   // across loads.
   const stale = listed
@@ -170,7 +172,8 @@ export async function syncMyReports(): Promise<void> {
     .sort((a, b) => (a.syncedAt?.getTime() ?? -Infinity) - (b.syncedAt?.getTime() ?? -Infinity))
     .slice(0, MAX_SYNCS_PER_LOAD)
 
-  for (const report of stale) {
+  /** Refreshes one row from GitHub; stale-tolerant, so a failure leaves it as-is. */
+  async function syncOne(report: { id: number; issueNumber: number }): Promise<void> {
     try {
       const { state, stateReason } = await getIssue(report.issueNumber)
       await prisma.report.update({
@@ -178,7 +181,20 @@ export async function syncMyReports(): Promise<void> {
         data: { status: issueStateToStatus(state, stateReason), syncedAt: new Date() },
       })
     } catch {
-      // Stale-tolerant: leave the row as-is and move on.
+      // Leave the row as-is; a later load retries it.
     }
   }
+  // A few at a time (GitHub discourages bursts of concurrent calls), and the
+  // page waits at most SYNC_BUDGET_MS: a slow or hung GitHub (each call may
+  // take up to its 5 s timeout) must not hold the list. Calls still in flight
+  // finish in the background and their rows show fresh on the next load.
+  const work = (async () => {
+    for (let i = 0; i < stale.length; i += SYNC_CONCURRENCY) {
+      await Promise.all(stale.slice(i, i + SYNC_CONCURRENCY).map(syncOne))
+    }
+  })()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const budget = new Promise<void>((resolve) => { timer = setTimeout(resolve, SYNC_BUDGET_MS) })
+  await Promise.race([work, budget])
+  clearTimeout(timer)
 }

@@ -245,6 +245,45 @@ describe("syncMyReports", () => {
     expect(mockGetIssue.mock.calls.map((c) => c[0])).toEqual([64, 65, 61])
   })
 
+  it("polls up to 5 issues at once instead of one after another", async () => {
+    mockReportFindMany.mockResolvedValue(
+      Array.from({ length: 12 }, (_, i) => ({ id: i + 1, issueNumber: 100 + i, status: "OPEN", syncedAt: null })),
+    )
+    let inFlight = 0
+    let peak = 0
+    mockGetIssue.mockImplementation(async () => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 5))
+      inFlight--
+      return { state: "open", stateReason: null }
+    })
+
+    await syncMyReports()
+
+    expect(mockGetIssue).toHaveBeenCalledTimes(12)
+    expect(mockReportUpdate).toHaveBeenCalledTimes(12)
+    expect(peak).toBe(5)
+  })
+
+  it("returns after the time budget even if GitHub hangs, so the page still renders", async () => {
+    jest.useFakeTimers()
+    try {
+      mockReportFindMany.mockResolvedValue([{ id: 1, issueNumber: 70, status: "OPEN", syncedAt: null }])
+      mockGetIssue.mockReturnValue(new Promise(() => {})) // never settles
+      let done = false
+      const p = syncMyReports().then(() => { done = true })
+      await jest.advanceTimersByTimeAsync(2_999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      await p
+      expect(done).toBe(true)
+      expect(mockReportUpdate).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("throws instead of silently querying with a NaN userId when the session id is malformed", async () => {
     mockAuth.mockResolvedValue(session({ id: "" }))
     await expect(syncMyReports()).rejects.toThrow("Authenticated session is missing a valid user id")
