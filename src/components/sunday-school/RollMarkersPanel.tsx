@@ -9,6 +9,8 @@ import {
 import { addRollMarker, removeRollMarker } from "@/lib/actions/sundaySchoolAttendance"
 
 type Login = { id: number; name: string; email: string }
+/** An assigned marker; `active` false = the login is no longer an Event organiser, so it grants nothing. */
+type Marker = Login & { active: boolean }
 
 /**
  * Assign volunteer logins (EVENT_ORGANISER) that may take this class's roll
@@ -16,7 +18,7 @@ type Login = { id: number; name: string; email: string }
  */
 export function RollMarkersPanel({
   classId, markers, assignable,
-}: Readonly<{ classId: number; markers: Login[]; assignable: Login[] }>) {
+}: Readonly<{ classId: number; markers: Marker[]; assignable: Login[] }>) {
   const [selected, setSelected] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -48,6 +50,7 @@ export function RollMarkersPanel({
             <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
               <span className="min-w-0 truncate">
                 {m.name} <span className="text-muted-foreground">({m.email})</span>
+                {!m.active && <span className="ml-2 text-xs text-destructive">inactive: no longer an Event organiser</span>}
               </span>
               <Button
                 variant="ghost"

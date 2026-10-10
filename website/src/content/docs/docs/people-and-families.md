@@ -47,7 +47,7 @@ Each person can be tagged with any number of ministry roles: **Staff**, **Volunt
 | `OFFICE_ADMIN` | Create/edit families & people, cannot see pastoral notes or emergency-contact fields, cannot delete/merge/import |
 | `AUDITOR` | No access — people/family pages redirect away (accounting-only role) |
 | `VIEWER` | Read-only list/detail views and the clearance status badge only (never the number or document), no pastoral notes, no edit actions |
-| `EVENT_ORGANISER` | No access to People/Families at all — confined to their own managed events, plus children's names on the Sunday School rolls they're assigned to |
+| `EVENT_ORGANISER` | No access to People/Families at all — confined to their own managed events, plus children's names and attendance marks on the Sunday School rolls they're assigned to |
 
 ### Safeguarding clearances (WWCC and Safe Ministry)
 

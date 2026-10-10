@@ -28,7 +28,8 @@ jest.mock("@/components/sunday-school/EnrolPanel", () => ({
     <div data-testid="enrol" data-readonly={String(p.readOnly)}>{p.candidates.map((c) => `${c.name}:${c.isChild}:${c.currentClass}`).join(",")}</div>,
 }))
 jest.mock("@/components/sunday-school/RollMarkersPanel", () => ({
-  RollMarkersPanel: (p: { markers: { name: string }[] }) => <div data-testid="markers">{p.markers.map((m) => m.name).join(",")}</div>,
+  RollMarkersPanel: (p: { markers: { name: string; active: boolean }[] }) =>
+    <div data-testid="markers">{p.markers.map((m) => `${m.name}:${m.active}`).join(",")}</div>,
 }))
 jest.mock("@/lib/actions/eventAccess", () => ({ listAssignableOrganisers: jest.fn().mockResolvedValue([]) }))
 jest.mock("@/lib/actions/sundaySchool", () => ({ createClass: jest.fn(), updateClass: jest.fn() }))
@@ -156,7 +157,10 @@ describe("/sunday-school/[id]", () => {
     as("ADMIN")
     ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
-    ;(prisma.sundaySchoolRollMarker.findMany as jest.Mock).mockResolvedValueOnce([{ user: { id: 9, name: "Vol One", email: "vol@example.com" } }])
+    ;(prisma.sundaySchoolRollMarker.findMany as jest.Mock).mockResolvedValueOnce([
+      { user: { id: 9, name: "Vol One", email: "vol@example.com", role: "EVENT_ORGANISER" } },
+      { user: { id: 8, name: "Ex Vol", email: "ex@example.com", role: "VIEWER" } },
+    ])
     ;(prisma.sundaySchoolSession.findMany as jest.Mock).mockResolvedValueOnce([
       { date: new Date("2026-10-04T00:00:00.000Z"), attendance: [{ status: "PRESENT" }, { status: "LATE" }, { status: "ABSENT" }] },
     ])
@@ -165,7 +169,7 @@ describe("/sunday-school/[id]", () => {
     expect(html).toContain('href="/sunday-school/1/roll?date=2026-10-04"')
     expect(html).toMatch(/Sun,? 4 Oct 2026/)
     expect(html).toContain("1 present · 1 late · 1 absent")
-    expect(html).toContain("Vol One")
+    expect(html).toContain("Vol One:true,Ex Vol:false")
   })
 
   it("loads candidates for an editor, flagging children and current class", async () => {

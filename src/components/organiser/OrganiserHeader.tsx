@@ -13,7 +13,7 @@ export function OrganiserHeader() {
         <span className="rounded bg-white p-0.5">
           <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-8 w-auto" unoptimized />
         </span>
-        <span className="hidden font-display text-lg font-semibold tracking-tight sm:inline">My Events</span>
+        <span className="sr-only font-display text-lg font-semibold tracking-tight sm:not-sr-only">My Events</span>
       </Link>
       <nav className="flex items-center gap-1 text-sm">
         <Link href="/my-events" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">

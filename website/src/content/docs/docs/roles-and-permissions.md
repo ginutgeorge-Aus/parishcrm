@@ -35,7 +35,7 @@ these helpers, so the permission boundary lives in one place.
 | `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN or PASTOR accounts or grant either role (self-escalation guard). |
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
-| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages. |
+| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages and the rolls of Sunday School classes they're assigned to (`/my-classes`). |
 
 ### Role-assignment limits (privilege escalation guard)
 

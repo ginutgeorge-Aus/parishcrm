@@ -36,13 +36,16 @@ export function RollList({
   const [pendingIds, setPendingIds] = useState<Set<number>>(() => new Set())
   const [bulkPending, setBulkPending] = useState(false)
 
-  // A refreshed roll (marks from another phone, a new date) replaces the local
-  // map, keeping only in-flight optimistic marks. Adjust-state-during-render.
-  const [prevRows, setPrevRows] = useState(rows)
-  if (rows !== prevRows) {
-    setPrevRows(rows)
-    setState(prev => Object.fromEntries(rows.map(r => [r.personId, pendingIds.has(r.personId) ? (prev[r.personId] ?? r.status) : r.status])))
+  // A refreshed roll (marks from another phone) replaces the local map, keeping
+  // only in-flight optimistic marks — and only for the same date: a new date's
+  // roll never inherits another date's marks. Adjust-state-during-render.
+  const [prev, setPrev] = useState({ rows, date })
+  if (rows !== prev.rows || date !== prev.date) {
+    const sameDate = date === prev.date
+    setPrev({ rows, date })
+    setState(cur => Object.fromEntries(rows.map(r => [r.personId, sameDate && pendingIds.has(r.personId) ? (cur[r.personId] ?? r.status) : r.status])))
   }
+  const busy = bulkPending || pendingIds.size > 0
 
   const counts = rollCounts(rows.map(r => ({ status: state[r.personId] ?? null })))
   const q = query.trim().toLowerCase()
@@ -57,10 +60,15 @@ export function RollList({
     })
   }
 
-  /** Tap a status button: mark it, or clear when it's already the active one. */
+  /**
+   * Tap a status button: mark it, or clear when it's already the active one.
+   * A child who has left the class can't be cleared (their mark is the only
+   * link to this roll), so re-tapping their active status does nothing.
+   */
   function mark(r: RollRow, tapped: AttendanceStatus) {
     if (pendingIds.has(r.personId) || bulkPending) return
     const prevStatus = state[r.personId] ?? null
+    if (prevStatus === tapped && !r.enrolled) return
     const next: Status = prevStatus === tapped ? null : tapped
     setState(prev => ({ ...prev, [r.personId]: next }))
     setFeedback(null)
@@ -83,7 +91,7 @@ export function RollList({
 
   /** Mark every child still unmarked as Present, then resync with the server. */
   function markRestPresent() {
-    if (bulkPending || pendingIds.size > 0) return
+    if (busy) return
     setFeedback(null)
     setBulkPending(true)
     startTransition(async () => {
@@ -119,6 +127,8 @@ export function RollList({
             aria-label="Roll date"
             value={date}
             max={today}
+            // Locked while a mark is saving so a late failure can't revert a row on another date's roll.
+            disabled={busy}
             // Desktop typing emits partial years (0002-10-04); the class year is
             // fixed, so only navigate once the year matches the roll's.
             onChange={e => { if (e.target.value.slice(0, 4) === date.slice(0, 4)) router.push(`${dateHrefBase}?date=${e.target.value}`) }}
@@ -137,7 +147,7 @@ export function RollList({
             {counts.present} present · {counts.late} late · {counts.absent} absent · {counts.unmarked} not marked
           </p>
           {!readOnly && counts.unmarked > 0 && (
-            <Button onClick={markRestPresent} disabled={bulkPending || pendingIds.size > 0} className="min-h-11">
+            <Button onClick={markRestPresent} disabled={busy} className="min-h-11">
               Mark unmarked present
             </Button>
           )}

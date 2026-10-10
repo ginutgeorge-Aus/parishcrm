@@ -160,7 +160,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 | `OFFICE_ADMIN` | People/family/event edit, read-only accounting, user management (not ADMIN accounts), no pastoral notes |
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
 | `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
-| `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in) |
+| `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in), plus rolls for Sunday School classes they're assigned to |
 
 Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `canViewAccounting`; accounting **mutations** require `canAccessAccounting` (ADMIN | PASTOR only). All DB mutations are guarded at **both** the page and the action.
 

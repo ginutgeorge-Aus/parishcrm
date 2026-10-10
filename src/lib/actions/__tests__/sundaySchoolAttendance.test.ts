@@ -7,7 +7,7 @@ jest.mock("@/lib/prisma", () => {
     sundaySchoolClass: { findFirst: jest.fn() },
     sundaySchoolSession: { findUnique: jest.fn(), createMany: jest.fn(), findUniqueOrThrow: jest.fn() },
     sundaySchoolAttendance: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
-    sundaySchoolRollMarker: { create: jest.fn(), deleteMany: jest.fn() },
+    sundaySchoolRollMarker: { createMany: jest.fn(), deleteMany: jest.fn() },
     user: { findFirst: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
@@ -34,16 +34,18 @@ const p = prisma as unknown as {
   sundaySchoolClass: { findFirst: jest.Mock }
   sundaySchoolSession: { findUnique: jest.Mock; createMany: jest.Mock; findUniqueOrThrow: jest.Mock }
   sundaySchoolAttendance: { findUnique: jest.Mock; upsert: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock }
-  sundaySchoolRollMarker: { create: jest.Mock; deleteMany: jest.Mock }
+  sundaySchoolRollMarker: { createMany: jest.Mock; deleteMany: jest.Mock }
   user: { findFirst: jest.Mock }
   $queryRaw: jest.Mock
 }
-/** Lock queries: class row found; `enrolled` = person ids the enrolment lock returns. */
-const locks = (enrolled: number[], classLive = true) =>
-  p.$queryRaw.mockImplementation((sql: TemplateStringsArray) =>
-    Promise.resolve(sql.join("?").includes('FROM "SundaySchoolClass"')
-      ? (classLive ? [{ id: 4 }] : [])
-      : enrolled.map((personId) => ({ personId }))))
+/** Lock queries: class row; `enrolled` = person ids the enrolment lock returns; Person row live or archived. */
+const locks = (enrolled: number[], classLive = true, personLive = true) =>
+  p.$queryRaw.mockImplementation((sql: TemplateStringsArray) => {
+    const q = sql.join("?")
+    if (q.includes('FROM "SundaySchoolClass"')) return Promise.resolve(classLive ? [{ id: 4 }] : [])
+    if (q.includes('FROM "Person"')) return Promise.resolve(personLive ? [{ id: 3 }] : [])
+    return Promise.resolve(enrolled.map((personId) => ({ personId })))
+  })
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -117,6 +119,22 @@ describe("setAttendance", () => {
     })
     expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalled()
   })
+  it("refuses correcting a prior mark once the Person is archived", async () => {
+    locks([], true, false)
+    p.sundaySchoolSession.findUnique.mockResolvedValue({ id: 55 })
+    p.sundaySchoolAttendance.findUnique.mockResolvedValue({ id: 9 })
+    expect(await setAttendance(4, "2026-10-04", 3, "ABSENT")).toEqual({ error: "Child is not in this class" })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
+  })
+  it("won't clear the only mark of a child who has left the class", async () => {
+    locks([])
+    p.sundaySchoolSession.findUnique.mockResolvedValue({ id: 55 })
+    p.sundaySchoolAttendance.findUnique.mockResolvedValue({ id: 9 })
+    expect(await setAttendance(4, "2026-10-04", 3, null)).toEqual({
+      error: "This child has left the class, so their mark can be changed but not cleared",
+    })
+    expect(p.sundaySchoolAttendance.deleteMany).not.toHaveBeenCalled()
+  })
   it("creates the session lazily and upserts the mark", async () => {
     expect(await setAttendance(4, "2026-10-11", 3, "PRESENT")).toBeUndefined()
     const date = new Date("2026-10-11T00:00:00.000Z")
@@ -177,7 +195,7 @@ describe("roll markers", () => {
     as(role)
     expect(await addRollMarker(4, 9)).toEqual({ error: "Unauthorized" })
     expect(await removeRollMarker(4, 9)).toEqual({ error: "Unauthorized" })
-    expect(p.sundaySchoolRollMarker.create).not.toHaveBeenCalled()
+    expect(p.sundaySchoolRollMarker.createMany).not.toHaveBeenCalled()
     expect(p.sundaySchoolRollMarker.deleteMany).not.toHaveBeenCalled()
   })
   it("refuses a non-organiser or archived target", async () => {
@@ -187,12 +205,20 @@ describe("roll markers", () => {
     expect(await addRollMarker(4, 9)).toEqual({ error: "User not found" })
     expect(p.user.findFirst.mock.calls[0][0].where).toEqual({ id: 9, archivedAt: null })
   })
-  it("assigns an organiser; duplicate is success", async () => {
+  it("assigns an organiser idempotently under the class lock", async () => {
     p.user.findFirst.mockResolvedValue({ role: UserRole.EVENT_ORGANISER })
-    p.sundaySchoolRollMarker.create.mockRejectedValueOnce(Object.assign(new Error("dup"), { code: "P2002" }))
     expect(await addRollMarker(4, 9)).toBeUndefined()
+    expect(p.sundaySchoolRollMarker.createMany).toHaveBeenCalledWith({ data: [{ classId: 4, userId: 9 }], skipDuplicates: true })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_ROLL_MARKER_ADDED", "SundaySchoolClass", 4, { targetUserId: 9 })
     expect(revalidatePath).toHaveBeenCalledWith("/my-classes")
+  })
+  it("refuses marker changes once the class is archived under the lock", async () => {
+    p.user.findFirst.mockResolvedValue({ role: UserRole.EVENT_ORGANISER })
+    locks([], false)
+    expect(await addRollMarker(4, 9)).toEqual({ error: "Class not found" })
+    expect(await removeRollMarker(4, 9)).toEqual({ error: "Class not found" })
+    expect(p.sundaySchoolRollMarker.createMany).not.toHaveBeenCalled()
+    expect(p.sundaySchoolRollMarker.deleteMany).not.toHaveBeenCalled()
   })
   it("removes with deleteMany", async () => {
     expect(await removeRollMarker(4, 9)).toBeUndefined()

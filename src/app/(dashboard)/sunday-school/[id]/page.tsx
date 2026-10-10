@@ -78,7 +78,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
     editor
       ? prisma.sundaySchoolRollMarker.findMany({
         where: { classId: id, user: { archivedAt: null } },
-        select: { user: { select: { id: true, name: true, email: true } } },
+        select: { user: { select: { id: true, name: true, email: true, role: true } } },
         orderBy: { user: { name: "asc" } },
       })
       : [],
@@ -179,7 +179,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         <Card>
           <CardHeader><CardTitle>Roll markers</CardTitle></CardHeader>
           <CardContent>
-            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map((m) => m.user)} assignable={assignableMarkers} />
+            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === "EVENT_ORGANISER" }))} assignable={assignableMarkers} />
           </CardContent>
         </Card>
       )}

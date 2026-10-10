@@ -25,8 +25,8 @@ look but not change anything.
 
 ### Taking the roll
 
-Open a class and press **Take roll** (`/sunday-school/[id]/roll`). The date defaults to today;
-change it to enter an earlier week. Each child has **Present**, **Late** and **Absent** buttons:
+Open a class and press **Take roll** (`/sunday-school/[id]/roll`). The date defaults to today (a
+past year's class opens on 31 December instead); change it to enter an earlier week. Each child has **Present**, **Late** and **Absent** buttons:
 one tap marks, tapping the same button again clears it. **Mark unmarked present** fills in
 everyone you haven't marked, so for a full class you tap only the absentees. Counts at the top
 update as you go. Late counts as attended. The class page lists the last ten rolls with their
@@ -46,5 +46,6 @@ One-class-per-child-per-year is enforced by the database. Every change made thro
 
 A roll (one per class and date) is created on the first mark; a child with no mark has no row.
 Each mark records who marked it and when. A child moved to another class keeps their earlier
-marks, and still shows on those past rolls tagged "not enrolled". Every mark, bulk action and
+marks, and still shows on those past rolls tagged "not enrolled"; such a mark can be changed but not
+cleared, so it is never lost by a stray tap. Every mark, bulk action and
 roll-marker change is in the audit log.

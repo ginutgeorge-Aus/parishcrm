@@ -17,12 +17,13 @@ import { UserRole, type AttendanceStatus } from "@/lib/generated/prisma/enums"
 import { canEdit } from "@/lib/roleGuard"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
-import { isP2002, isValidPgId } from "@/lib/validation"
+import { isValidPgId } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 const ENTITY = "SundaySchoolClass"
 const CLASS_GONE = "Class not found"
 const NOT_IN_CLASS = "Child is not in this class"
+const KEEP_HISTORY = "This child has left the class, so their mark can be changed but not cleared"
 
 type RollGuard = { error: string } | { actor: number; ymd: string }
 
@@ -105,7 +106,8 @@ function revalidateRoll(classId: number): void {
 /**
  * Mark one child Present / Late / Absent for a class + date, or clear the mark
  * (`status` null). The child must be enrolled in this class now, or already
- * marked in this session (correcting history after a move). canMarkRoll-gated.
+ * marked in this session (correcting history after a move; such a mark can be
+ * changed but not cleared). canMarkRoll-gated.
  */
 export async function setAttendance(
   classId: number,
@@ -125,10 +127,17 @@ export async function setAttendance(
       const enrolled = (await lockEnrolled(tx, classId, [personId])).length > 0
       const session = await tx.sundaySchoolSession.findUnique({ where: { classId_date: { classId, date } }, select: { id: true } })
       if (!enrolled) {
-        const prior = session
+        // Correcting history for a child since moved out: the Person must still
+        // be live (FOR SHARE, so an archive waits), and the existing mark is the
+        // only link to this roll, so it can be changed but never cleared.
+        // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+        const live = await tx.$queryRaw<{ id: number }[]>`
+          SELECT id FROM "Person" WHERE id = ${personId} AND "archivedAt" IS NULL FOR SHARE`
+        const prior = session && live.length > 0
           ? await tx.sundaySchoolAttendance.findUnique({ where: { sessionId_personId: { sessionId: session.id, personId } }, select: { id: true } })
           : null
         if (!prior) throw new Error(NOT_IN_CLASS)
+        if (next === null) throw new Error(KEEP_HISTORY)
       }
       if (next === null) {
         // Don't create a session just to clear a mark.
@@ -144,7 +153,7 @@ export async function setAttendance(
     })
     if (!r.live) return { error: CLASS_GONE }
   } catch (e) {
-    if (e instanceof Error && e.message === NOT_IN_CLASS) return { error: NOT_IN_CLASS }
+    if (e instanceof Error && (e.message === NOT_IN_CLASS || e.message === KEEP_HISTORY)) return { error: e.message }
     throw e
   }
   await logAudit(g.actor, "SS_ATTENDANCE_MARKED", ENTITY, classId, { date: g.ymd, personId, status: next })
@@ -203,11 +212,13 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
   if (!user) return { error: "User not found" }
   if (user.role !== UserRole.EVENT_ORGANISER) return { error: "User is not an event organiser" }
 
-  try {
-    await prisma.sundaySchoolRollMarker.create({ data: { classId, userId } })
-  } catch (e) {
-    if (!isP2002(e)) throw e
-  }
+  // Under the class lock, so an archive can't commit between the guard and the write.
+  const r = await withLiveClass(classId, async (tx) => {
+    // Already assigned = success. createMany + skipDuplicates avoids a P2002
+    // that would abort the transaction.
+    await tx.sundaySchoolRollMarker.createMany({ data: [{ classId, userId }], skipDuplicates: true })
+  })
+  if (!r.live) return { error: CLASS_GONE }
   await logAudit(actorId(g.session), "SS_ROLL_MARKER_ADDED", ENTITY, classId, { targetUserId: userId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/my-classes")
@@ -217,7 +228,8 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
 export async function removeRollMarker(classId: number, userId: number): Promise<ActionResult> {
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
-  await prisma.sundaySchoolRollMarker.deleteMany({ where: { classId, userId } })
+  const r = await withLiveClass(classId, (tx) => tx.sundaySchoolRollMarker.deleteMany({ where: { classId, userId } }))
+  if (!r.live) return { error: CLASS_GONE }
   await logAudit(actorId(g.session), "SS_ROLL_MARKER_REMOVED", ENTITY, classId, { targetUserId: userId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/my-classes")

@@ -93,3 +93,27 @@ it("tags a marked child who is no longer enrolled", () => {
   render(<RollList {...props} rows={[{ personId: 3, name: "Cal Cole", status: "PRESENT", enrolled: false }]} />)
   expect(screen.getByText("not enrolled")).toBeInTheDocument()
 })
+
+it("won't clear a mark for a child who has left the class", async () => {
+  render(<RollList {...props} rows={[{ personId: 3, name: "Cal Cole", status: "PRESENT", enrolled: false }]} />)
+  await act(async () => { fireEvent.click(btn("Cal Cole", "Present")) })
+  expect(setAttendance).not.toHaveBeenCalled()
+  expect(btn("Cal Cole", "Present")).toHaveAttribute("aria-pressed", "true")
+})
+
+it("locks the date picker while a mark is saving", async () => {
+  let resolve!: (v: undefined) => void
+  ;(setAttendance as jest.Mock).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+  render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Amy Adams", "Present")) })
+  expect(screen.getByLabelText("Roll date")).toBeDisabled()
+  await act(async () => { resolve(undefined) })
+  expect(screen.getByLabelText("Roll date")).not.toBeDisabled()
+})
+
+it("a new date's roll never inherits another date's marks", () => {
+  const { rerender } = render(<RollList {...props} />)
+  fireEvent.click(btn("Amy Adams", "Late"))
+  rerender(<RollList {...props} date="2026-10-04" rows={[{ ...rows[0] }, rows[1]]} />)
+  expect(btn("Amy Adams", "Late")).toHaveAttribute("aria-pressed", "false")
+})
