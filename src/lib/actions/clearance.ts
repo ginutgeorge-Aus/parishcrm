@@ -327,16 +327,16 @@ class StaleBatchError extends Error {}
  * WWCC batch helper). One optional note (for example the portal's status text)
  * is stored on every row. WWCC rows only. All-or-nothing: if any id is missing,
  * archived, not a WWCC, expired, missing its number or the person's DOB, or
- * was verified/archived since the page loaded, nothing is written. Each item carries the `updatedAt` the admin saw; the update is
- * conditioned on it and on `verifiedAt: null` inside a transaction, so it can
- * never vouch for a number/expiry edited since, nor overwrite another verification.
+ * was verified/archived since the page loaded, nothing is written. Each item carries the clearance and person `updatedAt` the admin saw; the update is
+ * conditioned on both and on `verifiedAt: null` inside a transaction, so it can
+ * never vouch for a number/expiry or DOB edited since, nor overwrite another verification.
  * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
  * is written per clearance actually updated.
- * @param items PersonClearance.id + ISO `updatedAt` as rendered (max 200)
+ * @param items PersonClearance.id + ISO clearance and person `updatedAt` as rendered (max 200)
  * @param note optional free text, max 500 chars, stored encrypted
  */
 export async function verifyClearancesBulk(
-  items: { id: string; seenUpdatedAt: string }[],
+  items: { id: string; seenUpdatedAt: string; seenPersonUpdatedAt: string }[],
   note?: string,
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
@@ -346,13 +346,14 @@ export async function verifyClearancesBulk(
 
   if (!Array.isArray(items) || items.length === 0) return { error: "Select at least one clearance" }
   if (items.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }
-  const seenById = new Map<string, Date>()
+  const seenById = new Map<string, { at: Date; personAt: Date }>()
   for (const item of items) {
     const id = item?.id
     if (typeof id !== "string" || !CUID_ID_RE.test(id)) return { error: "Invalid selection" }
-    const seenAt = parseSeenUpdatedAt(item.seenUpdatedAt)
-    if (!seenAt) return { error: STALE_ERROR }
-    seenById.set(id, seenAt)
+    const at = parseSeenUpdatedAt(item.seenUpdatedAt)
+    const personAt = parseSeenUpdatedAt(item.seenPersonUpdatedAt)
+    if (!at || !personAt) return { error: STALE_ERROR }
+    seenById.set(id, { at, personAt })
   }
   const cleanNote = typeof note === "string" ? note.trim() : ""
   if (cleanNote.length > MAX_NOTE_LEN) return { error: `Note is too long (max ${MAX_NOTE_LEN} characters)` }
@@ -389,7 +390,10 @@ export async function verifyClearancesBulk(
     count = await prisma.$transaction(async (tx) => {
       const res = await tx.personClearance.updateMany({
         where: {
-          OR: unique.map((id) => ({ id, updatedAt: seenById.get(id) as Date })),
+          OR: unique.map((id) => {
+            const seen = seenById.get(id) as { at: Date; personAt: Date }
+            return { id, updatedAt: seen.at, person: { updatedAt: seen.personAt } }
+          }),
           AND: [notExpired],
           verifiedAt: null,
           type: "WWCC",
