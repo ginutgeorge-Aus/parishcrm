@@ -114,9 +114,10 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
   let sent = 0
   let failed = 0
   let saved = true
+  // Sequential on purpose: each send is recorded before the next, so a retry only mails addresses not yet recorded.
   for (const r of pending) {
     try {
-      await sendEmail(r.to, subject, html, text)
+      await sendEmail(r.to, subject, html, text) // NOSONAR S9382
       sent++
     } catch (err) {
       if (isAmbiguousDeliveryError(err)) {
@@ -130,7 +131,7 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
     }
     delivered.add(r.key)
     // Only the latest write matters: each one stores the whole set, so a later success repairs an earlier failure.
-    saved = await saveDelivered(month, delivered)
+    saved = await saveDelivered(month, delivered) // NOSONAR S9382
   }
   await logAudit(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, {
     flagged, sent, failed,
