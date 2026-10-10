@@ -56,13 +56,15 @@ async function loadDelivered(month: string): Promise<Set<string>> {
   }
 }
 
-/** Saves the delivered list for `month`. Best effort: never throws, because mail is already out. */
-async function saveDelivered(month: string, emails: Set<string>): Promise<void> {
+/** Saves the delivered list for `month`; false when the write failed. Never throws, because mail is already out. */
+async function saveDelivered(month: string, emails: Set<string>): Promise<boolean> {
   const value = JSON.stringify({ month, emails: [...emails] })
   try {
     await prisma.appSetting.upsert({ where: { key: DELIVERED_KEY }, create: { key: DELIVERED_KEY, value }, update: { value } })
+    return true
   } catch (e) {
     logger.error(`[clearanceDigest] could not save the delivered list: ${e instanceof Error ? e.message : String(e)}`)
+    return false
   }
 }
 
@@ -71,9 +73,12 @@ async function saveDelivered(month: string, emails: Set<string>): Promise<void> 
  * clearances, names only, to every active ADMIN and PASTOR who has not already
  * got this Sydney month's digest. Delivered addresses are kept per month in an
  * app setting (email addresses only), so a retry after a partial failure sends
- * only to the rest. `force` ignores and resets that list. An all-clear month
- * sends nothing. Ambiguous delivery errors count as delivered so a
- * maybe-delivered email is never repeated. `sent`/`failed` count this run only.
+ * only to the rest. `force` ignores that list and replaces it with this run's
+ * deliveries. An all-clear month sends nothing. Ambiguous delivery errors count
+ * as delivered so a maybe-delivered email is never repeated; likewise, if the
+ * list could not be saved, failures are not reported for retry (a retry could
+ * not tell who already has it). Addresses differing only in case or spaces get
+ * one email. `sent`/`failed` count this run only.
  * No lease handling here; see runClearanceDigestLocked.
  */
 export async function sendClearanceDigest(now: Date, opts: { force?: boolean } = {}): Promise<ClearanceDigestResult> {
@@ -84,17 +89,17 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
   if (bucketsEmpty(buckets)) return { flagged: 0, sent: 0, failed: 0 }
   const flagged = countFlaggedPeople(buckets)
 
-  const recipients = await prisma.user.findMany({
+  const users = await prisma.user.findMany({
     where: { role: { in: [UserRole.ADMIN, UserRole.PASTOR] }, archivedAt: null },
     select: { email: true },
   })
+  const recipients = [...new Map(users.map((u) => [normEmail(u.email), u])).values()]
   if (recipients.length === 0) {
     logger.error("[clearanceDigest] no active ADMIN or PASTOR to email; digest not sent")
     return { flagged, sent: 0, failed: 0 }
   }
 
   const delivered = opts.force ? new Set<string>() : await loadDelivered(month)
-  if (opts.force) await saveDelivered(month, delivered)
   const pending = recipients.filter((r) => !delivered.has(normEmail(r.email)))
   if (pending.length === 0) return { flagged, sent: 0, failed: 0 }
 
@@ -107,6 +112,7 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
 
   let sent = 0
   let failed = 0
+  let saved = true
   for (const r of pending) {
     try {
       await sendEmail(r.email, subject, html, text)
@@ -122,13 +128,17 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
       }
     }
     delivered.add(normEmail(r.email))
-    await saveDelivered(month, delivered)
+    if (!(await saveDelivered(month, delivered))) saved = false
   }
   await logAudit(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, {
     flagged, sent, failed,
     expired: buckets.expired.length, expiring: buckets.expiring.length,
     missing: buckets.missing.length, unverified: buckets.unverified.length,
   })
+  if (failed > 0 && !saved) {
+    logger.error("[clearanceDigest] delivered list not saved; not retrying the failed sends, to avoid repeats")
+    return { flagged, sent, failed: 0 }
+  }
   return { flagged, sent, failed }
 }
 

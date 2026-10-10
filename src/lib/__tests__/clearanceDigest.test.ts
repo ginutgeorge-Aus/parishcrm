@@ -166,12 +166,28 @@ describe("runClearanceDigestLocked", () => {
     expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
   })
 
-  it("force resends to everyone and resets the delivered list", async () => {
+  it("force resends to everyone and replaces the delivered list with this run's deliveries", async () => {
     setRows(MONTH, { month: MONTH, emails: ["admin@example.com", "pastor@example.com"] })
     const r = await runClearanceDigestLocked(FIRST, { force: true })
     expect(send).toHaveBeenCalledTimes(2)
     expect(r).toMatchObject({ sent: 2, failed: 0 })
-    expect(upsert.mock.calls[0][0].update.value).toBe(JSON.stringify({ month: MONTH, emails: [] }))
+    // No eager reset: the first write already holds a real delivery.
+    expect(upsert.mock.calls[0][0].update.value).toBe(JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }))
+  })
+
+  it("emails an address once when two accounts differ only by case or spaces", async () => {
+    users.mockResolvedValue([{ email: "admin@example.com" }, { email: " Admin@Example.com " }])
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
+  })
+
+  it("does not report failures for retry when the delivered list could not be saved", async () => {
+    send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
+    upsert.mockRejectedValue(new Error("db down"))
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } }) // done, no repeat
   })
 
   it("ignores a delivered list from an earlier month", async () => {
