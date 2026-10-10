@@ -504,7 +504,7 @@ if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return tr
 
 `/my-classes` — list `sundaySchoolRollMarker.findMany({ where: { userId, class: { archivedAt: null } }, select: { class: { select: { id, name, year, location } } }, orderBy: { class: { name: "asc" } } })` → cards linking to `/my-classes/{id}/roll`. Empty state: "No classes assigned to you yet. An administrator will add you to the classes you teach." Layout gate is the existing `(organiser)/layout.tsx` (EVENT_ORGANISER or editor) — no change.
 
-`/my-classes/[id]/roll` — IDOR gate exactly like `my-events/[id]/check-in`: `if (!(await canMarkRoll(userId, id, role))) notFound()`; then same body as Step 2 (incl. the `rawDate` normalisation) with `readOnly = roll.cls.archived`, `dateHrefBase = /my-classes/${id}/roll`, back link `/my-classes`.
+`/my-classes/[id]/roll` — IDOR gate exactly like `my-events/[id]/check-in`: `if (!(await canMarkRoll(userId, id, role))) notFound()`; then the Step 2 body **after** its session/`canViewPeople` gate (that redirect would bounce EVENT_ORGANISER, who isn't in `canViewPeople`) — from `parseRouteId` on, incl. the `rawDate` normalisation — with `readOnly = roll.cls.archived`, `dateHrefBase = /my-classes/${id}/roll`, back link `/my-classes`.
 
 `OrganiserHeader`: keep the crest link to `/my-events`; add two text links "Events" (`/my-events`) and "Classes" (`/my-classes`) before Sign out (`text-primary-foreground/80 hover:…`, same as the sign-out button styling). Also on `/my-events` page's empty state no change.
 
