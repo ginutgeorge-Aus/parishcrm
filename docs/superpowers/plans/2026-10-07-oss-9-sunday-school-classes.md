@@ -847,7 +847,7 @@ One-class-per-child-per-year is enforced by the database. Every change is writte
 - **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover.
 ```
 
-- [ ] **Step 5: Website build check** — `cd website && npm ci && npm run build 2>&1 | tail -5` (the website is a separate Astro build; this is not the app build). Expected: success, `sunday-school` page emitted.
+- [ ] **Step 5: Website build check** — `(set -o pipefail; cd website && npm ci && npm run build 2>&1 | tail -5)` (the website is a separate Astro build; this is not the app build). Expected: success, `sunday-school` page emitted.
 
 - [ ] **Step 6: Commit** — `docs(sunday-school): classes, teachers, enrolment`.
 
@@ -858,6 +858,7 @@ One-class-per-child-per-year is enforced by the database. Every change is writte
 - [ ] **Step 1: Touched suites + lint + types**
 
 ```bash
+set -euo pipefail
 npm test -- --testPathPatterns="sundaySchool|sunday-school|EnrolPanel|navData|person" 2>&1 | tail -25
 npm run lint 2>&1 | tail -15
 npx tsc --noEmit 2>&1 | tail -15

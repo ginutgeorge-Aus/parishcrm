@@ -550,7 +550,7 @@ Helper table: `| \`canMarkRoll\` (\`src/lib/sundaySchoolAccess.ts\`) | Editors f
 
 - [ ] **Step 4: README** — Sunday School bullet: append ", mobile roll (present/late/absent) for staff and assigned volunteer logins".
 
-- [ ] **Step 5: Website build** — `cd website && npm run build 2>&1 | tail -5` → success.
+- [ ] **Step 5: Website build** — `(set -o pipefail; cd website && npm run build 2>&1 | tail -5)` → success.
 
 - [ ] **Step 6: Commit** — `docs(sunday-school): taking the roll`.
 
@@ -563,6 +563,7 @@ Helper table: `| \`canMarkRoll\` (\`src/lib/sundaySchoolAccess.ts\`) | Editors f
 - [ ] **Step 2: Checks**
 
 ```bash
+set -euo pipefail
 npm test -- --testPathPatterns="sundaySchool|sunday-school|RollList|organiserAccess" 2>&1 | tail -25
 npm run lint 2>&1 | tail -15
 npx tsc --noEmit 2>&1 | tail -15
