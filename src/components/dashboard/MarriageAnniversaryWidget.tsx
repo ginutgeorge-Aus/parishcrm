@@ -33,7 +33,7 @@ export function MarriageAnniversaryWidget({ families }: Readonly<{ families: Mar
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">💍 Wedding anniversaries this month</CardTitle>
+        <CardTitle as="h4" className="text-base"><span aria-hidden="true">💍</span> Wedding anniversaries this month</CardTitle>
       </CardHeader>
       <CardContent>
         {families.length === 0 ? (
