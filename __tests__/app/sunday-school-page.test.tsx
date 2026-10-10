@@ -6,6 +6,8 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     sundaySchoolClass: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     person: { findMany: jest.fn() },
+    sundaySchoolRollMarker: { findMany: jest.fn().mockResolvedValue([]) },
+    sundaySchoolSession: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 jest.mock("next/navigation", () => ({
@@ -25,6 +27,10 @@ jest.mock("@/components/sunday-school/EnrolPanel", () => ({
   EnrolPanel: (p: { readOnly: boolean; candidates: { name: string; isChild: boolean; currentClass: string | null }[] }) =>
     <div data-testid="enrol" data-readonly={String(p.readOnly)}>{p.candidates.map((c) => `${c.name}:${c.isChild}:${c.currentClass}`).join(",")}</div>,
 }))
+jest.mock("@/components/sunday-school/RollMarkersPanel", () => ({
+  RollMarkersPanel: (p: { markers: { name: string }[] }) => <div data-testid="markers">{p.markers.map((m) => m.name).join(",")}</div>,
+}))
+jest.mock("@/lib/actions/eventAccess", () => ({ listAssignableOrganisers: jest.fn().mockResolvedValue([]) }))
 jest.mock("@/lib/actions/sundaySchool", () => ({ createClass: jest.fn(), updateClass: jest.fn() }))
 
 import { auth } from "@/auth"
@@ -140,7 +146,26 @@ describe("/sunday-school/[id]", () => {
     expect(html).toContain("Jane Sample:MISSING")
     expect(html).toContain('data-readonly="true"')
     expect(html).not.toContain(">Edit<")
+    expect(html).toContain(">View roll<")
+    expect(html).not.toContain('data-testid="markers"')
     expect(prisma.person.findMany).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolRollMarker.findMany).not.toHaveBeenCalled()
+  })
+
+  it("lists recent rolls with counts and shows roll markers to an editor", async () => {
+    as("ADMIN")
+    ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.sundaySchoolRollMarker.findMany as jest.Mock).mockResolvedValueOnce([{ user: { id: 9, name: "Vol One", email: "vol@example.com" } }])
+    ;(prisma.sundaySchoolSession.findMany as jest.Mock).mockResolvedValueOnce([
+      { date: new Date("2026-10-04T00:00:00.000Z"), attendance: [{ status: "PRESENT" }, { status: "LATE" }, { status: "ABSENT" }] },
+    ])
+    const html = await renderClass()
+    expect(html).toContain(">Take roll<")
+    expect(html).toContain('href="/sunday-school/1/roll?date=2026-10-04"')
+    expect(html).toMatch(/Sun,? 4 Oct 2026/)
+    expect(html).toContain("1 present · 1 late · 1 absent")
+    expect(html).toContain("Vol One")
   })
 
   it("loads candidates for an editor, flagging children and current class", async () => {
@@ -167,6 +192,7 @@ describe("/sunday-school/[id]", () => {
     ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls(new Date()))
     const html = await renderClass()
     expect(html).toContain("Archived")
+    expect(html).not.toContain("Take roll")
     expect(html).toContain('data-readonly="true"')
     expect(prisma.person.findMany).not.toHaveBeenCalled()
   })

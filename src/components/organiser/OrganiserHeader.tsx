@@ -13,16 +13,24 @@ export function OrganiserHeader() {
         <span className="rounded bg-white p-0.5">
           <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-8 w-auto" unoptimized />
         </span>
-        <span className="font-display text-lg font-semibold tracking-tight">My Events</span>
+        <span className="hidden font-display text-lg font-semibold tracking-tight sm:inline">My Events</span>
       </Link>
-      <button
-        onClick={() => logout()}
-        aria-label="Sign out"
-        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground"
-      >
-        <LogOut className="h-4 w-4" />
-        Sign out
-      </button>
+      <nav className="flex items-center gap-1 text-sm">
+        <Link href="/my-events" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+          Events
+        </Link>
+        <Link href="/my-classes" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+          Classes
+        </Link>
+        <button
+          onClick={() => logout()}
+          aria-label="Sign out"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="hidden sm:inline">Sign out</span>
+        </button>
+      </nav>
     </header>
   )
 }
