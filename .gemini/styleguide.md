@@ -25,7 +25,7 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
   user id) — do not flag the missing `roleGuard` helper there, but do flag any owner-scoping gap. Accounting
   reads gate on `canViewAccounting`; creating and editing accounting entries needs
   `canAccessAccounting` (ADMIN/PASTOR), but these are ADMIN-only via `isAdmin`: transaction deletion,
-  petty-cash deletion and import, account/account-group/fund/payment-account CRUD, budget management,
+  petty-cash deletion and import, account/account-group/fund/payment-account CRUD, setting budget amounts (variance notes are ADMIN/PASTOR),
   and accounting settings — flag any widening of those to `canAccessAccounting`. Watch for IDOR (acting on an id the user
   does not own) and self-action bugs (e.g. a user demoting or deleting themselves).
 - **Auth split.** `src/auth.config.ts` is the lean callbacks-only config imported by
