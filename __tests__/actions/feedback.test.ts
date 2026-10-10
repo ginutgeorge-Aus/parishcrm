@@ -182,7 +182,7 @@ describe("syncMyReports", () => {
   })
 
   it("updates a closed-as-completed open report to RESOLVED", async () => {
-    mockReportFindMany.mockResolvedValue([{ id: 1, issueNumber: 50 }])
+    mockReportFindMany.mockResolvedValue([{ id: 1, issueNumber: 50, status: "OPEN", syncedAt: null }])
     mockGetIssue.mockResolvedValue({ state: "closed", stateReason: "completed" })
 
     await syncMyReports()
@@ -193,7 +193,7 @@ describe("syncMyReports", () => {
   })
 
   it("updates a closed-as-not-planned open report to DECLINED", async () => {
-    mockReportFindMany.mockResolvedValue([{ id: 2, issueNumber: 51 }])
+    mockReportFindMany.mockResolvedValue([{ id: 2, issueNumber: 51, status: "OPEN", syncedAt: null }])
     mockGetIssue.mockResolvedValue({ state: "closed", stateReason: "not_planned" })
 
     await syncMyReports()
@@ -202,7 +202,7 @@ describe("syncMyReports", () => {
   })
 
   it("leaves a still-open issue unchanged but stamps syncedAt", async () => {
-    mockReportFindMany.mockResolvedValue([{ id: 3, issueNumber: 52 }])
+    mockReportFindMany.mockResolvedValue([{ id: 3, issueNumber: 52, status: "OPEN", syncedAt: null }])
     mockGetIssue.mockResolvedValue({ state: "open", stateReason: null })
 
     await syncMyReports()
@@ -211,21 +211,38 @@ describe("syncMyReports", () => {
   })
 
   it("swallows a GitHub error and does not update that row", async () => {
-    mockReportFindMany.mockResolvedValue([{ id: 4, issueNumber: 53 }])
+    mockReportFindMany.mockResolvedValue([{ id: 4, issueNumber: 53, status: "OPEN", syncedAt: null }])
     mockGetIssue.mockRejectedValue(new Error("GitHub issue fetch failed: 404"))
 
     await expect(syncMyReports()).resolves.toBeUndefined()
     expect(mockReportUpdate).not.toHaveBeenCalled()
   })
 
-  it("queries only the session user's OPEN, stale reports", async () => {
+  it("queries only the session user's newest listed reports", async () => {
     mockReportFindMany.mockResolvedValue([])
     await syncMyReports()
-    const where = mockReportFindMany.mock.calls[0][0].where
-    expect(where.userId).toBe(7)
-    expect(where.status).toBe("OPEN")
-    expect(where.OR).toBeDefined()
+    expect(mockReportFindMany.mock.calls[0][0]).toMatchObject({
+      where: { userId: 7 },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    })
     expect(mockGetIssue).not.toHaveBeenCalled()
+  })
+
+  it("polls only OPEN, stale rows, never-synced and oldest-synced first", async () => {
+    const now = Date.now()
+    mockReportFindMany.mockResolvedValue([
+      { id: 1, issueNumber: 61, status: "OPEN", syncedAt: new Date(now - 120_000) },
+      { id: 2, issueNumber: 62, status: "RESOLVED", syncedAt: null },
+      { id: 3, issueNumber: 63, status: "OPEN", syncedAt: new Date(now - 1_000) },
+      { id: 4, issueNumber: 64, status: "OPEN", syncedAt: null },
+      { id: 5, issueNumber: 65, status: "OPEN", syncedAt: new Date(now - 600_000) },
+    ])
+    mockGetIssue.mockResolvedValue({ state: "open", stateReason: null })
+
+    await syncMyReports()
+
+    expect(mockGetIssue.mock.calls.map((c) => c[0])).toEqual([64, 65, 61])
   })
 
   it("throws instead of silently querying with a NaN userId when the session id is malformed", async () => {

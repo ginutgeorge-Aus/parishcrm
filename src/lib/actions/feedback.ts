@@ -5,7 +5,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { createIssue, getIssue } from "@/lib/github"
-import { issueStateToStatus } from "@/lib/reportStatus"
+import { issueStateToStatus, MAX_LISTED_REPORTS } from "@/lib/reportStatus"
 import { logAudit } from "@/lib/audit"
 import { rateLimit } from "@/lib/rateLimit"
 import { escapeMarkdown, buildIssueTitle, buildIssueBody } from "@/lib/feedbackIssue"
@@ -144,6 +144,7 @@ export async function submitFeedback(input: FeedbackInput): Promise<FeedbackResu
 // last synced more than STALE_MS ago are polled; RESOLVED/DECLINED are terminal.
 // Any GitHub failure is swallowed so the list still renders from the mirror.
 const STALE_MS = 60_000
+const MAX_SYNCS_PER_LOAD = 20
 
 export async function syncMyReports(): Promise<void> {
   // Derive the reporter from the session — never trust a caller-supplied id, or
@@ -153,19 +154,21 @@ export async function syncMyReports(): Promise<void> {
   const userId = actorId(session)
 
   const cutoff = new Date(Date.now() - STALE_MS)
-  const stale = await prisma.report.findMany({
-    where: {
-      userId,
-      status: "OPEN",
-      OR: [{ syncedAt: null }, { syncedAt: { lt: cutoff } }],
-    },
-    select: { id: true, issueNumber: true },
-    // Cap per-load GitHub calls — one sequential API call per row, shared
-    // GITHUB_TOKEN rate limit; oldest-synced first so every row is refreshed
-    // across loads.
-    orderBy: { syncedAt: { sort: "asc", nulls: "first" } },
-    take: 20,
+  // Only the reports the /reports page lists (its newest MAX_LISTED_REPORTS) —
+  // hidden older rows must not spend GitHub calls or delay visible refreshes.
+  const listed = await prisma.report.findMany({
+    where: { userId },
+    select: { id: true, issueNumber: true, status: true, syncedAt: true },
+    orderBy: { createdAt: "desc" },
+    take: MAX_LISTED_REPORTS,
   })
+  // Cap per-load GitHub calls — one sequential API call per row, shared
+  // GITHUB_TOKEN rate limit; oldest-synced first so every row is refreshed
+  // across loads.
+  const stale = listed
+    .filter((r) => r.status === "OPEN" && (r.syncedAt === null || r.syncedAt < cutoff))
+    .sort((a, b) => (a.syncedAt?.getTime() ?? -Infinity) - (b.syncedAt?.getTime() ?? -Infinity))
+    .slice(0, MAX_SYNCS_PER_LOAD)
 
   for (const report of stale) {
     try {

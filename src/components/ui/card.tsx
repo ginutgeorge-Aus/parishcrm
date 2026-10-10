@@ -33,9 +33,12 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+type CardTitleTag = "div" | "h2" | "h3" | "h4"
+
+/** Card heading text. Pass `as="h3"` (etc.) so the title shows up in screen-reader heading navigation. */
+function CardTitle({ className, as: Tag = "div", ...props }: React.ComponentProps<"div"> & { as?: CardTitleTag }) {
   return (
-    <div
+    <Tag
       data-slot="card-title"
       className={cn(
         "font-sans text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

@@ -6,6 +6,11 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton"
 import { DetailPageSkeleton } from "@/components/shared/DetailPageSkeleton"
 import DashboardLoading from "@/app/(dashboard)/loading"
+import AccountingLoading from "@/app/(dashboard)/accounting/loading"
+import MembershipsLoading from "@/app/(dashboard)/memberships/loading"
+import ReportsLoading from "@/app/(dashboard)/reports/loading"
+import { CardTitle } from "@/components/ui/card"
+import { BirthdayWidget } from "@/components/dashboard/BirthdayWidget"
 import DashboardError from "@/app/(dashboard)/error"
 
 describe("loading skeletons announce a loading status", () => {
@@ -13,6 +18,9 @@ describe("loading skeletons announce a loading status", () => {
     ["ListPageSkeleton", <ListPageSkeleton key="l" />],
     ["DetailPageSkeleton", <DetailPageSkeleton key="d" />],
     ["dashboard loading.tsx", <DashboardLoading key="r" />],
+    ["accounting loading.tsx", <AccountingLoading key="a" />],
+    ["memberships loading.tsx", <MembershipsLoading key="m" />],
+    ["reports loading.tsx", <ReportsLoading key="p" />],
   ])("%s", (_name, el) => {
     render(el)
     const status = screen.getByRole("status")
@@ -63,4 +71,22 @@ it("dashboard error boundary moves focus to its heading", () => {
   expect(screen.getByRole("heading", { name: /something went wrong/i })).toHaveFocus()
   // Focus alone announces it — no role="alert", which would read it twice.
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+})
+
+describe("CardTitle heading level", () => {
+  it("renders a div by default", () => {
+    render(<CardTitle>Plain</CardTitle>)
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+  })
+
+  it("renders the requested heading element", () => {
+    render(<CardTitle as="h3">Totals</CardTitle>)
+    expect(screen.getByRole("heading", { level: 3, name: "Totals" })).toBeInTheDocument()
+  })
+
+  it("dashboard widgets expose a heading without reading the emoji", () => {
+    render(<BirthdayWidget birthdays={[]} truncated={false} />)
+    const heading = screen.getByRole("heading", { level: 4, name: "Birthdays this week" })
+    expect(heading.querySelector('[aria-hidden="true"]')).toHaveTextContent("🎂")
+  })
 })
