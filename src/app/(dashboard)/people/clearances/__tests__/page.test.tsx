@@ -93,6 +93,12 @@ describe("ClearancesPage", () => {
     expect(html).toContain(`rows:${COMPLIANCE_CAP}`)
     expect(html).toContain("Too many people")
   })
+  it("audits the list view with its filter and row count, and no names", async () => {
+    await render({ status: "expired" })
+    expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_LIST_VIEWED", "Person", undefined, { filter: "expired", rowCount: 1 })
+    await render()
+    expect(logAudit).toHaveBeenLastCalledWith(7, "CLEARANCE_LIST_VIEWED", "Person", undefined, { filter: null, rowCount: 2 })
+  })
   it("ignores an unknown status", async () => {
     expect(await render({ status: "bogus" })).toContain("rows:2")
   })

@@ -54,6 +54,8 @@ export default async function ClearancesPage(
   const { rows: all } = await loadComplianceRows(today)
   const matched = filterRows(all, filter)
   const { rows, truncated } = capRows(matched)
+  // Who looked at clearance statuses, and through which filter.
+  await logAudit(actorId(session), "CLEARANCE_LIST_VIEWED", "Person", undefined, { filter, rowCount: rows.length })
   const exportHref = filter ? `/api/clearances/export?status=${filter}` : "/api/clearances/export"
 
   return (
