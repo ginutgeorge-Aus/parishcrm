@@ -4,6 +4,18 @@ import { withRetry } from "@/lib/retry"
 
 const LEASE_PREFIX = "running:"
 
+/**
+ * Thrown by the work when `leaseHeld()` turns false: another run took the lease
+ * over, so this one stops before repeating side effects. runOncePerPeriodLocked
+ * reports it as "locked" and leaves the new owner's row alone.
+ */
+export class LeaseLostError extends Error {
+  constructor() {
+    super("lease lost to another run")
+    this.name = "LeaseLostError"
+  }
+}
+
 export type OncePerPeriodOptions<T> = {
   /** AppSetting key holding the done-period marker or the lease. */
   settingKey: string
@@ -36,10 +48,11 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
  * means another run took over, so renewal stops.
  * @param opts the run's options (key, period, lease length, error sink)
  * @param initial the lease value this run acquired
- * @returns `current()` for the latest lease value and `stop()`, which also waits for an in-flight renewal
+ * @returns `current()` for the latest lease value, `held()` (false once lost) and `stop()`, which also waits for an in-flight renewal
  */
 function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
   let current = initial
+  let lost = false
   let inFlight: Promise<void> | null = null
   const timer = setInterval(() => {
     if (inFlight) return
@@ -51,6 +64,7 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
           current = next
           return
         }
+        lost = true
         clearInterval(timer)
         opts.logError(`lease lost for ${opts.periodKey}: another run took it over`)
       })
@@ -66,6 +80,7 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
   timer.unref?.()
   return {
     current: () => current,
+    held: () => !lost,
     async stop() {
       clearInterval(timer)
       await inFlight
@@ -146,11 +161,12 @@ async function markDone<T>(opts: OncePerPeriodOptions<T>, lease: string): Promis
  * distinct: a scheduler that treated "locked" as done would never retry if the
  * lease owner then failed.
  * @param opts setting key, period, lease length, force/keepOpen and error sink
- * @param fn the once-per-period work
+ * @param fn the once-per-period work; gets `leaseHeld()` to check before each
+ *   side effect, and throws LeaseLostError when it turns false
  */
 export async function runOncePerPeriodLocked<T>(
   opts: OncePerPeriodOptions<T>,
-  fn: () => Promise<T>,
+  fn: (leaseHeld: () => boolean) => Promise<T>,
 ): Promise<T | "done" | "locked"> {
   const { settingKey, periodKey, now } = opts
   const prev = await prisma.appSetting.findUnique({ where: { key: settingKey } })
@@ -163,13 +179,16 @@ export async function runOncePerPeriodLocked<T>(
   const heartbeat = startHeartbeat(opts, lease)
   let result: T
   try {
-    result = await fn()
+    result = await fn(heartbeat.held)
   } catch (e) {
     await heartbeat.stop()
+    // The row now belongs to the run that took over: leave it alone.
+    if (e instanceof LeaseLostError) return "locked"
     await releaseLease(opts, prev?.value ?? null, heartbeat.current())
     throw e
   }
   await heartbeat.stop()
+  if (!heartbeat.held()) return result
   if (opts.keepOpen?.(result)) {
     await releaseLease(opts, prev?.value ?? null, heartbeat.current())
     return result

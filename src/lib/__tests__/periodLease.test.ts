@@ -14,7 +14,7 @@ jest.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { runOncePerPeriodLocked } from "@/lib/periodLease"
+import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 
 const START = Date.UTC(2026, 9, 1)
 const LEASE_MS = 3_000
@@ -143,5 +143,36 @@ describe("runOncePerPeriodLocked lease heartbeat — edge cases", () => {
     expect(rival).not.toHaveBeenCalled()
     work.resolve()
     await run
+  })
+})
+
+describe("runOncePerPeriodLocked lease loss", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.useFakeTimers({ now: START })
+    mockFindUnique.mockResolvedValue(null)
+    mockCreate.mockResolvedValue({})
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+  })
+  afterEach(() => jest.useRealTimers())
+
+  it("tells the work its lease is lost, and reports 'locked' when it stops", async () => {
+    const work = deferred()
+    const seen: boolean[] = []
+    const run = runOncePerPeriodLocked(opts(), async (leaseHeld) => {
+      seen.push(leaseHeld())
+      await work.promise
+      seen.push(leaseHeld())
+      if (!leaseHeld()) throw new LeaseLostError()
+      return "ok"
+    })
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+    expect(seen).toEqual([true, false])
+    // The new owner's row is left alone: no release, no done-marking.
+    expect(mockDeleteMany).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { value: "2026-10" } }))
   })
 })

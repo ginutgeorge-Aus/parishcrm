@@ -13,6 +13,7 @@ jest.mock("@/lib/github", () => ({
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { runErrorDigest, runErrorDigestLocked, runErrorDigestOncePerWeek } from "@/lib/errorDigest"
+import { LeaseLostError } from "@/lib/periodLease"
 
 const groupBy = prisma.errorLog.groupBy as jest.Mock
 const findFirst = prisma.errorLog.findFirst as jest.Mock
@@ -36,6 +37,19 @@ describe("runErrorDigest", () => {
     expect((createIssue as jest.Mock).mock.calls[0][0].body).toContain("<!-- fingerprint:abc123 -->")
     expect(r.filed).toBe(1)
     expect(r.purged).toBe(3)
+  })
+
+  it("stops filing once its lease is lost", async () => {
+    groupBy.mockResolvedValue([
+      { fingerprint: "a1", _count: { _all: 1 }, _min: { createdAt: new Date() }, _max: { createdAt: new Date() } },
+      { fingerprint: "b2", _count: { _all: 1 }, _min: { createdAt: new Date() }, _max: { createdAt: new Date() } },
+    ])
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(createIssue).toHaveBeenCalledTimes(1)
+    expect(deleteMany).not.toHaveBeenCalled()
   })
 
   it("skips when an open issue already carries the fingerprint marker", async () => {

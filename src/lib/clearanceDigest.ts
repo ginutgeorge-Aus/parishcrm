@@ -5,7 +5,7 @@ import { sendEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { sydneyMonthKey, sydneyToday } from "@/lib/dates"
 import { formatDMY } from "@/lib/formatting"
-import { runOncePerPeriodLocked } from "@/lib/periodLease"
+import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { loadComplianceRows, bucketCompliance, bucketsEmpty, countFlaggedPeople } from "@/lib/clearanceCompliance"
 import { renderClearanceDigestEmail } from "@/lib/clearanceDigestEmail"
@@ -70,9 +70,15 @@ async function saveDelivered(month: string, emails: Set<string>): Promise<boolea
  * list could not be saved, failures are not reported for retry (a retry could
  * not tell who already has it). Addresses differing only in case or spaces get
  * one email. `sent`/`failed` count this run only.
- * No lease handling here; see runClearanceDigestLocked.
+ * Lease handling lives in runClearanceDigestLocked; this only checks
+ * `leaseHeld` before each send and, once it turns false, audits what it sent
+ * and throws LeaseLostError.
  */
-export async function sendClearanceDigest(now: Date, opts: { force?: boolean } = {}): Promise<ClearanceDigestResult> {
+export async function sendClearanceDigest(
+  now: Date,
+  opts: { force?: boolean; leaseHeld?: () => boolean } = {},
+): Promise<ClearanceDigestResult> {
+  const leaseHeld = opts.leaseHeld ?? (() => true)
   const today = sydneyToday(now)
   const month = sydneyMonthKey(now)
   const { rows } = await loadComplianceRows(today)
@@ -104,7 +110,13 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
   let sent = 0
   let failed = 0
   let saved = true
+  let leaseLost = false
   for (const r of pending) {
+    // Another run took the lease over: stop before emailing anyone twice.
+    if (!leaseHeld()) {
+      leaseLost = true
+      break
+    }
     try {
       await sendEmail(r.email, subject, html, text)
       sent++
@@ -126,6 +138,7 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
     expired: buckets.expired.length, expiring: buckets.expiring.length,
     missing: buckets.missing.length, unverified: buckets.unverified.length,
   })
+  if (leaseLost) throw new LeaseLostError()
   if (failed > 0 && !saved) {
     logger.error("[clearanceDigest] delivered list not saved; not retrying the failed sends, to avoid repeats")
     return { flagged, sent, failed: 0 }
@@ -156,7 +169,7 @@ export async function runClearanceDigestLocked(
       keepOpen: (r) => r.failed > 0,
       logError: (message) => logger.error(`[clearanceDigest] ${message}`),
     },
-    () => sendClearanceDigest(now, { force: opts.force }),
+    (leaseHeld) => sendClearanceDigest(now, { force: opts.force, leaseHeld }),
   )
 }
 
