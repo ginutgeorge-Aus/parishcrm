@@ -138,6 +138,18 @@ test("nudgeInFlight: CodeRabbit's 'Review triggered' ack is not an answer; a lat
   assert.equal(nudgeInFlight([summaryEdited, nudge, ack], now), false)
 })
 
+test("nudgeInFlight: a summary edited to 'review in progress' is not an answer", () => {
+  const now = new Date("2026-10-07T03:00:00Z")
+  const nudge = comment({ body: "@coderabbitai review", createdAt: "2026-10-07T02:50:00Z" })
+  const inProgress = comment({
+    user: BOT,
+    body: "<!-- This is an auto-generated comment: review in progress by coderabbit.ai -->\n\n> [!NOTE]\n> Currently processing new changes in this PR. This may take a few minutes, please wait...\n\nwalkthrough",
+    createdAt: "2026-10-06T00:00:00Z",
+    updatedAt: "2026-10-07T02:51:00Z",
+  })
+  assert.equal(nudgeInFlight([inProgress, nudge], now), true)
+})
+
 test("pickNext: review-next > human > bot, newest activity first, skips drafts and opt-outs", () => {
   const bot = pr({ number: 1, authorIsBot: true, updatedAt: "2026-10-06T00:00:00Z" })
   const staleHuman = pr({ number: 2, updatedAt: "2026-09-10T00:00:00Z" })
