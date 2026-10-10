@@ -388,7 +388,7 @@ Concurrency (same pattern as OSS-9's `withLiveClass`): after the guards, run eac
 - else `upsert({ where: { sessionId_personId }, create: { sessionId, personId, status, markedById: actor }, update: { status, markedById: actor } })`.
 - Audit `SS_ATTENDANCE_MARKED`, entity `"SundaySchoolClass"`, id `classId`, meta `{ date: ymd, personId, status }`.
 
-`markUnmarkedPresent`: same guards; `ensureSession`; enrolled ids = `enrolment.findMany({ where: { classId, person: { archivedAt: null } }, select: { personId } })`; `createMany({ data: ids.map(… status: "PRESENT", markedById), skipDuplicates: true })` — `skipDuplicates` leaves every existing mark (incl. Absent/Late) untouched. Audit once with `{ date, count }`. Return `{ success: "Marked N present" }`.
+`markUnmarkedPresent`: same guards; enrolled ids = `enrolment.findMany({ where: { classId, person: { archivedAt: null } }, select: { personId } })` **first** — if empty, skip `ensureSession` (no empty session in Recent sessions), audit `{ date, count: 0 }` and return `{ success: "Marked 0 present" }`; else `ensureSession`; `createMany({ data: ids.map(… status: "PRESENT", markedById), skipDuplicates: true })` — `skipDuplicates` leaves every existing mark (incl. Absent/Late) untouched. Audit once with `{ date, count }`. Return `{ success: "Marked N present" }`.
 
 `addRollMarker`/`removeRollMarker`: copy `addEventManager`/`removeEventManager` (`src/lib/actions/eventAccess.ts:60-95`) with `sundaySchoolRollMarker`, class must be live, audit `SS_ROLL_MARKER_ADDED` / `SS_ROLL_MARKER_REMOVED` with `{ targetUserId }`, revalidate `/sunday-school/${classId}` and `/my-classes`.
 
@@ -492,7 +492,7 @@ if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return tr
 // cls year lookup (findUnique select year, archivedAt) else notFound()
 // rawDate = typeof sp.date === "string" ? sp.date : undefined   // repeated ?date= arrives as string[] — ignore it
 // parsed = parseRollDate(rawDate, cls.year, sydneyTodayYMD())
-//   if !parsed.ok && !rawDate -> redirect(`?date=${cls.year}-12-31`) when the class year is past, else render the error
+//   if !parsed.ok && !rawDate?.trim() -> redirect(`?date=${cls.year}-12-31`) when the class year is past, else render the error
 //   if !parsed.ok -> render error text + date picker only
 // roll = await loadRoll(id, parsed.ymd)
 // readOnly = roll.cls.archived || !(await canMarkRoll(actorId(session), id, session.user.role))   // VIEWER -> read only
@@ -511,7 +511,7 @@ if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return tr
 - [ ] **Step 4: Class detail page additions** (OSS-9 page)
 
 - **Take roll** button (`/sunday-school/{id}/roll`) shown to anyone with `canViewPeople` (VIEWER lands read-only), hidden for archived classes.
-- **Recent sessions** card: `sundaySchoolSession.findMany({ where: { classId: id }, orderBy: { date: "desc" }, take: 10, select: { date: true, attendance: { select: { status: true } } } })` → rows "Sun 5 Oct 2026 — 14 present · 2 late · 3 absent" (`@db.Date` is UTC midnight, so format with the UTC-parts `formatDMY` from `src/lib/formatting.ts`, not `formatSydneyDate`; link `/sunday-school/{id}/roll?date=${d.toISOString().slice(0, 10)}`).
+- **Recent sessions** card: `sundaySchoolSession.findMany({ where: { classId: id }, orderBy: { date: "desc" }, take: 10, select: { date: true, attendance: { select: { status: true } } } })` → rows "Sun 4 Oct 2026 — 14 present · 2 late · 3 absent" (`@db.Date` is UTC midnight, so format with the UTC-parts `formatDMY` from `src/lib/formatting.ts`, not `formatSydneyDate`; link `/sunday-school/{id}/roll?date=${d.toISOString().slice(0, 10)}`).
 - **Roll markers** card (editor only): `RollMarkersPanel` — copy `src/components/events/EventManagersPanel.tsx`, swap actions to `addRollMarker`/`removeRollMarker`, candidates from `listAssignableOrganisers()` (already canEdit-gated). Helper text: "Volunteer logins (role *Event organiser*) that can take this class's roll from their phone. Create the login under Users."
 
 - [ ] **Step 5: Page tests** — add to `__tests__/app/sunday-school-page.test.tsx` (from OSS-9) or a new `__tests__/app/sunday-school-roll-page.test.tsx`: AUDITOR → redirect `/`; VIEWER → RollList `readOnly`; ADMIN → not readOnly; organiser page with `canMarkRoll` false → `notFound`. Run `npm test -- --testPathPatterns="sunday-school-roll-page|sunday-school-page"` → PASS.
