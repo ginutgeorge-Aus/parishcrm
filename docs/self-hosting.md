@@ -161,11 +161,13 @@ Sign in as the admin you created, then:
 
 ## Scheduled jobs
 
-Event reminders, abandoned-checkout cleanup, celebration emails and the weekly
-error digest run inside the app by default (`IN_APP_CRON`, see `.env.example`).
+Event reminders, abandoned-checkout cleanup, celebration emails and the optional
+monthly clearance-compliance and weekly error digests run inside the app by default (`IN_APP_CRON`, see `.env.example`).
 Nothing to schedule — as long as the app stays running.
-Run a single app replica: each replica runs its own timer. The weekly error
-digest is opt-in (`ERROR_DIGEST=true`).
+Run a single app replica: each replica runs its own timer. The weekly error digest is opt-in (`ERROR_DIGEST=true`), as is the monthly
+clearance digest (`CLEARANCE_DIGEST=true`). `POST /api/cron/send-clearance-digest`
+works without the flag and skips if this month's digest was already sent
+(`?force=1` resends).
 
 **Upgrading from external crons?** Remove them when you deploy this version, or
 set `IN_APP_CRON=false` to keep them — don't run both. Jobs normally skip work
@@ -181,12 +183,14 @@ with `Authorization: Bearer $CRON_SECRET`:
 | `send-reminders` | every 30 min |
 | `sweep-checkouts` | every 30 min |
 | `send-celebrations` | 07:00 **and** 07:30 Sydney (`0,30 21 * * *` UTC in winter, `0,30 20 * * *` in summer) — the second call retries failed sends; a later day can't, since only that day's birthdays are due |
+| `send-clearance-digest` | daily at 07:00 Sydney (`0 21 * * *` UTC in winter, `0 20 * * *` in summer). It sends once, on the first call of each Sydney month, and skips the rest — unless an email failed, in which case the next daily call retries only the failed recipients |
 | `error-issues` | weekly, Monday 09:00 Sydney — only if you want the GitHub error digest |
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-reminders
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/sweep-checkouts
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-celebrations
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/send-clearance-digest
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 

@@ -7,11 +7,15 @@ import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
+import { sydneyToday } from "@/lib/dates"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
-import type { ActionResult } from "./types"
+import { BULK_VERIFY_MAX } from "@/lib/clearanceComplianceView"
+import { wwccPortalFields } from "@/lib/clearanceCompliance"
+import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 // WWCC / Safe Ministry clearances on a person. Storage mirrors
 // TransactionAttachment (transactionAttachment.ts): the file is base64-encoded,
@@ -35,8 +39,6 @@ function dateToYmd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null
 }
 
-// What safeDecrypt returns for unreadable ciphertext (cryptoCore.ts).
-const DECRYPTION_ERROR = "[decryption error]"
 const STALE_ERROR = "This clearance changed. Refresh and try again."
 
 // Every write re-checks the archived-person boundary in its own predicate, so an
@@ -313,4 +315,102 @@ export async function deleteClearance(clearanceId: string, seenUpdatedAt: string
     clearanceId: row.id,
   })
   revalidatePath(`/people/${row.personId}`)
+}
+
+// Not exported: a "use server" module may only export async functions.
+
+/** Thrown inside the bulk-verify transaction to roll it back when any row went stale. */
+class StaleBatchError extends Error {}
+
+/**
+ * Marks many clearances verified in one step (the "Mark verified" button on the
+ * WWCC batch helper). One optional note (for example the portal's status text)
+ * is stored on every row. WWCC rows only. All-or-nothing: if any id is missing,
+ * archived, not a WWCC, expired, missing its number or the person's DOB, or
+ * was verified/archived since the page loaded, nothing is written. Each item carries the `updatedAt` the admin saw; the update is
+ * conditioned on it and on `verifiedAt: null` inside a transaction, so it can
+ * never vouch for a number/expiry edited since, nor overwrite another verification.
+ * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
+ * is written per clearance actually updated.
+ * @param items PersonClearance.id + ISO `updatedAt` as rendered (max 200)
+ * @param note optional free text, max 500 chars, stored encrypted
+ */
+export async function verifyClearancesBulk(
+  items: { id: string; seenUpdatedAt: string }[],
+  note?: string,
+): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+
+  if (!Array.isArray(items) || items.length === 0) return { error: "Select at least one clearance" }
+  if (items.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }
+  const seenById = new Map<string, Date>()
+  for (const item of items) {
+    const id = item?.id
+    if (typeof id !== "string" || !CUID_ID_RE.test(id)) return { error: "Invalid selection" }
+    const seenAt = parseSeenUpdatedAt(item.seenUpdatedAt)
+    if (!seenAt) return { error: STALE_ERROR }
+    seenById.set(id, seenAt)
+  }
+  const cleanNote = typeof note === "string" ? note.trim() : ""
+  if (cleanNote.length > MAX_NOTE_LEN) return { error: `Note is too long (max ${MAX_NOTE_LEN} characters)` }
+
+  const unique = [...seenById.keys()]
+  const found = await prisma.personClearance.findMany({
+    where: { id: { in: unique }, person: { archivedAt: null } },
+    select: { id: true, personId: true, type: true, number: true, expiresAt: true, person: { select: { dateOfBirth: true } } },
+  })
+  if (found.length !== unique.length) return { error: "Some selected clearances no longer exist" }
+  if (found.some((c) => c.type !== "WWCC")) return { error: "Only WWCC clearances can be verified in bulk" }
+  // Refuse every row the batch page disables: the same decrypt + date checks.
+  const fields = found.map((c) => wwccPortalFields(c))
+  const noNumber = fields.filter((f) => !f.number)
+  if (noNumber.length > 0) {
+    return { error: `${noNumber.length} selected WWCC record(s) have no WWC number — add it before verifying` }
+  }
+  const noDob = fields.filter((f) => !f.dobDmy)
+  if (noDob.length > 0) {
+    return { error: `${noDob.length} selected WWCC record(s) have no date of birth — add it before verifying` }
+  }
+  // Same non-expired rule as the batch loader; re-applied in the update so a
+  // page loaded before Sydney midnight cannot verify a WWCC that expired since.
+  const today = sydneyToday()
+  const expired = found.filter((c) => c.expiresAt && c.expiresAt < today)
+  if (expired.length > 0) {
+    return { error: `${expired.length} selected WWCC record(s) have expired — record the renewal instead` }
+  }
+  const notExpired = { OR: [{ expiresAt: null }, { expiresAt: { gte: today } }] }
+
+  const actor = actorId(session)
+  let count: number
+  try {
+    count = await prisma.$transaction(async (tx) => {
+      const res = await tx.personClearance.updateMany({
+        where: {
+          OR: unique.map((id) => ({ id, updatedAt: seenById.get(id) as Date })),
+          AND: [notExpired],
+          verifiedAt: null,
+          type: "WWCC",
+          ...LIVE_PERSON,
+        },
+        data: { verifiedAt: new Date(), verifiedById: actor, verificationNote: cleanNote ? encrypt(cleanNote) : null },
+      })
+      if (res.count !== unique.length) throw new StaleBatchError()
+      return res.count
+    })
+  } catch (e) {
+    if (e instanceof StaleBatchError) return { error: STALE_ERROR }
+    throw e
+  }
+  // logAudit never throws (it logs and swallows), so concurrent writes cannot reject.
+  await Promise.all(
+    found.map((c) =>
+      logAudit(actor, "CLEARANCE_VERIFIED", "Person", c.personId, { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" }),
+    ),
+  )
+  revalidatePath("/people/clearances")
+  for (const personId of new Set(found.map((c) => c.personId))) revalidatePath(`/people/${personId}`)
+  return { success: `Marked ${count} clearance(s) verified` }
 }
