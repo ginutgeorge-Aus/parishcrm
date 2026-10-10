@@ -142,7 +142,9 @@ async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient)
     if (rows.length === 0) return false
     await fn(tx)
     return true
-  })
+    // The teacher/enrolment write may queue behind a rollover's table lock
+    // (itself up to 60s), so outlast it like createClass does.
+  }, { timeout: 90_000 })
 }
 
 /**

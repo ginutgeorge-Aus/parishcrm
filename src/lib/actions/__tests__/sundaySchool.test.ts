@@ -239,6 +239,11 @@ describe("unenrolChild / removeTeacher success paths", () => {
     expect(prisma.sundaySchoolEnrolment.deleteMany).toHaveBeenCalledWith({ where: { classId: 1, personId: 5 } })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_UNENROLLED", "SundaySchoolClass", 1, { personId: 5 })
   })
+  it("gives the live-class transaction room to queue behind a rollover", async () => {
+    as(UserRole.ADMIN); liveClass()
+    await unenrolChild(1, 5)
+    expect((prisma.$transaction as jest.Mock).mock.calls[0][1]).toEqual({ timeout: 90_000 })
+  })
   it("refuses to add a teacher whose tag was removed mid-request", async () => {
     as(UserRole.ADMIN); liveClass()
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
