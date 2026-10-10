@@ -36,9 +36,9 @@ model Family {
 }
 
 model Person {
-  id                     Int                     @id @default(autoincrement())
+  id                     Int                      @id @default(autoincrement())
   familyId               Int
-  family                 Family                  @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  family                 Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
   firstName              String
   lastName               String
   middleName             String?
@@ -46,8 +46,8 @@ model Person {
   suffix                 String?
   gender                 Gender?
   dateOfBirth            String?
-  role                   FamilyRole              @default(OTHER)
-  classification         Classification          @default(MEMBER)
+  role                   FamilyRole               @default(OTHER)
+  classification         Classification           @default(MEMBER)
   email                  String?
   // Deterministic blind index of email (HMAC, see crypto-core.hmacEmail) so the
   // person-export matches registrations by an indexed lookup instead of a
@@ -70,13 +70,13 @@ model Person {
   pastoralNotes          String?
   emergencyContactName   String?
   emergencyContactPhone  String?
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  emailConsent           Boolean                 @default(true)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  emailConsent           Boolean                  @default(true)
   consentUpdatedAt       DateTime?
   archivedAt             DateTime?
   bankingName            String?
-  ministryRoles          MinistryRole[]          @default([])
+  ministryRoles          MinistryRole[]           @default([])
   transactions           Transaction[]
   pettyCashSessions      PettyCashSession[]
   pettyCashReceipts      PettyCashReceipt[]
@@ -85,6 +85,7 @@ model Person {
   clearances             PersonClearance[]
   sundaySchoolTeaching   SundaySchoolTeacher[]
   sundaySchoolEnrolments SundaySchoolEnrolment[]
+  sundaySchoolAttendance SundaySchoolAttendance[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -103,52 +104,54 @@ model Person {
 }
 
 model User {
-  id                     Int                      @id @default(autoincrement())
-  name                   String
-  email                  String                   @unique
-  passwordHash           String
-  role                   UserRole                 @default(VIEWER)
-  failedLoginAttempts    Int                      @default(0)
-  lockedUntil            DateTime?
-  otpCode                String?
-  otpExpiresAt           DateTime?
-  failedOtpAttempts      Int                      @default(0)
-  otpLockedUntil         DateTime?
+  id                           Int                      @id @default(autoincrement())
+  name                         String
+  email                        String                   @unique
+  passwordHash                 String
+  role                         UserRole                 @default(VIEWER)
+  failedLoginAttempts          Int                      @default(0)
+  lockedUntil                  DateTime?
+  otpCode                      String?
+  otpExpiresAt                 DateTime?
+  failedOtpAttempts            Int                      @default(0)
+  otpLockedUntil               DateTime?
   // TOTP authenticator 2FA (opt-in). Secrets are AES-256-GCM ciphertext
   // (src/lib/crypto.ts). totpLastStep = last accepted 30-s step; a code is
   // only accepted for a strictly newer step (replay guard).
-  totpSecret             String?
-  totpPendingSecret      String?
-  totpEnabledAt          DateTime?
-  totpLastStep           Int?
-  passwordResetToken     String?                  @unique
-  passwordResetExpires   DateTime?
+  totpSecret                   String?
+  totpPendingSecret            String?
+  totpEnabledAt                DateTime?
+  totpLastStep                 Int?
+  passwordResetToken           String?                  @unique
+  passwordResetExpires         DateTime?
   // server-side logout/invalidation anchor. Logout sets this to now; the
   // jwtCallback rejects any token issued (token.loginAt) before it, so a stolen
   // token is dead after logout instead of valid until the 24h JWT maxAge.
-  sessionsValidFrom      DateTime?
+  sessionsValidFrom            DateTime?
   // soft-delete. deleteUser() can't hard-delete a user who has ever logged
   // in — AuditLog rows are append-only (DB trigger) and RESTRICT the FK, so the
   // delete throws P2003. Archiving instead preserves the audit trail + actor
   // accountability. Archived users are filtered from every list and rejected at
   // login; deleteUser tombstones their email so the address frees for re-invite.
-  archivedAt             DateTime?
-  createdAt              DateTime                 @default(now())
-  receiptSends           ReceiptSend[]
-  paymentReminderSends   PaymentReminderSend[]
-  auditLogs              AuditLog[]
-  invitesCreated         FamilyUpdateInvite[]     @relation("InviteCreatedBy")
-  submissionsReviewed    FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
-  trustedDevices         TrustedDevice[]
-  backupCodes            BackupCode[]
-  reports                Report[]
-  checkpointResults      CheckpointResult[]
-  dgrReceiptsCreated     DgrReceipt[]             @relation("DgrReceiptCreatedBy")
-  dgrReceiptsSent        DgrReceipt[]             @relation("DgrReceiptSentBy")
-  membershipReviews      MembershipApplication[]  @relation("MembershipReviewedBy")
-  transactionAttachments TransactionAttachment[]  @relation("TransactionAttachmentUploadedBy")
-  managedEvents          EventManager[]
-  clearancesVerified     PersonClearance[]        @relation("ClearanceVerifiedBy")
+  archivedAt                   DateTime?
+  createdAt                    DateTime                 @default(now())
+  receiptSends                 ReceiptSend[]
+  paymentReminderSends         PaymentReminderSend[]
+  auditLogs                    AuditLog[]
+  sundaySchoolRollMarkers      SundaySchoolRollMarker[]
+  sundaySchoolAttendanceMarked SundaySchoolAttendance[] @relation("SsAttendanceMarkedBy")
+  invitesCreated               FamilyUpdateInvite[]     @relation("InviteCreatedBy")
+  submissionsReviewed          FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
+  trustedDevices               TrustedDevice[]
+  backupCodes                  BackupCode[]
+  reports                      Report[]
+  checkpointResults            CheckpointResult[]
+  dgrReceiptsCreated           DgrReceipt[]             @relation("DgrReceiptCreatedBy")
+  dgrReceiptsSent              DgrReceipt[]             @relation("DgrReceiptSentBy")
+  membershipReviews            MembershipApplication[]  @relation("MembershipReviewedBy")
+  transactionAttachments       TransactionAttachment[]  @relation("TransactionAttachmentUploadedBy")
+  managedEvents                EventManager[]
+  clearancesVerified           PersonClearance[]        @relation("ClearanceVerifiedBy")
 }
 
 model TrustedDevice {
@@ -1141,16 +1144,18 @@ model PersonClearance {
 // below holds; Postgres treats NULLs as distinct). Archive, never delete, so
 // OSS-10 attendance history survives.
 model SundaySchoolClass {
-  id         Int                     @id @default(autoincrement())
-  year       Int
-  name       String
-  level      Int
-  location   String                  @default("")
-  archivedAt DateTime?
-  createdAt  DateTime                @default(now())
-  updatedAt  DateTime                @updatedAt
-  teachers   SundaySchoolTeacher[]
-  enrolments SundaySchoolEnrolment[]
+  id          Int                      @id @default(autoincrement())
+  year        Int
+  name        String
+  level       Int
+  location    String                   @default("")
+  archivedAt  DateTime?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  teachers    SundaySchoolTeacher[]
+  enrolments  SundaySchoolEnrolment[]
+  sessions    SundaySchoolSession[]
+  rollMarkers SundaySchoolRollMarker[]
 
   @@unique([year, name, location])
   @@index([year, archivedAt])
@@ -1181,4 +1186,53 @@ model SundaySchoolEnrolment {
 
   @@unique([personId, year])
   @@index([classId])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+}
+
+// One roll per class per calendar date, created on the first mark (OSS-10).
+model SundaySchoolSession {
+  id         Int                      @id @default(autoincrement())
+  classId    Int
+  date       DateTime                 @db.Date
+  createdAt  DateTime                 @default(now())
+  class      SundaySchoolClass        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  attendance SundaySchoolAttendance[]
+
+  @@unique([classId, date])
+}
+
+// One mark per child per session. No row = not marked.
+model SundaySchoolAttendance {
+  id         Int                 @id @default(autoincrement())
+  sessionId  Int
+  personId   Int
+  status     AttendanceStatus
+  markedAt   DateTime            @updatedAt
+  markedById Int?
+  session    SundaySchoolSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  person     Person              @relation(fields: [personId], references: [id], onDelete: Cascade)
+  markedBy   User?               @relation("SsAttendanceMarkedBy", fields: [markedById], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, personId])
+  @@index([personId])
+  @@index([markedById])
+}
+
+// A login account (EVENT_ORGANISER) allowed to take this class's roll. Twin of
+// EventManager; the role is re-checked at use (see sundaySchoolAccess.ts).
+model SundaySchoolRollMarker {
+  id        Int               @id @default(autoincrement())
+  classId   Int
+  userId    Int
+  createdAt DateTime          @default(now())
+  class     SundaySchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, userId])
+  @@index([userId])
 }
