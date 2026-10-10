@@ -112,7 +112,7 @@ export function RollList({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-background pb-2 pt-1">
+      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-muted pb-2 pt-1">
         <div className="flex flex-wrap items-center gap-3">
           <Input
             type="date"
