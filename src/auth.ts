@@ -14,6 +14,7 @@ import { logger } from "@/lib/logger"
 import { auditIpFromHeaders } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
+import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 
 // bcrypt hash (cost 12, matching the real hash cost used at
 // signup/reset — src/lib/actions/auth.ts, src/lib/actions/user.ts) for a dummy
@@ -505,8 +506,7 @@ export async function jwtCallback({
     if (remember) {
       // 7-day sliding idle: a continuously-used remembered session stays alive;
       // 7 days without activity ends it. No separate hard cap.
-      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
-      if (lastActivity && now - lastActivity > SEVEN_DAYS_MS) return null
+      if (lastActivity && now - lastActivity > REMEMBERED_IDLE_MINUTES * 60 * 1000) return null
     } else {
       // Non-remembered: 4h hard cap + DB-configurable idle (default 60min).
       const FOUR_HOURS_MS = 4 * 60 * 60 * 1000
@@ -543,6 +543,7 @@ export const { auth, handlers, signOut } = NextAuth({
       session.user.role = token.role as UserRole
       session.user.id = token.id as string
       session.deviceTrustGrant = token.deviceTrustGrant
+      session.remember = token.remember === true
       return session
     },
   },
