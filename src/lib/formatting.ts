@@ -197,6 +197,9 @@ export function safeDobDate(value: string | null | undefined): Date | null {
     const y = Number(ymd[1]), m = Number(ymd[2]), day = Number(ymd[3])
     const check = new Date(Date.UTC(y, m - 1, day))
     if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== day) return null
+    // The calendar date as written, not the instant: an offset suffix
+    // (2000-01-01T00:00:00+10:00) must not shift the DOB a day in UTC.
+    return check
   }
   return d
 }
