@@ -186,10 +186,22 @@ export function parseISODate(s: string | null | undefined): Date | null {
 // string) yields an Invalid Date whose .toLocaleDateString()/.getFullYear()
 // throws or renders "Invalid Date" downstream. Return null
 // instead so callers uniformly treat an unparseable DOB as "no DOB".
+// An impossible calendar date (2019-02-30) is rejected too: `new Date` would
+// silently roll it into the next month.
 export function safeDobDate(value: string | null | undefined): Date | null {
   if (!value) return null
   const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d
+  if (Number.isNaN(d.getTime())) return null
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (ymd) {
+    const y = Number(ymd[1]), m = Number(ymd[2]), day = Number(ymd[3])
+    const check = new Date(Date.UTC(y, m - 1, day))
+    if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== day) return null
+    // The calendar date as written, not the instant: an offset suffix
+    // (2000-01-01T00:00:00+10:00) must not shift the DOB a day in UTC.
+    return check
+  }
+  return d
 }
 
 // Mask an email for display next to who-updated info: keep the first character

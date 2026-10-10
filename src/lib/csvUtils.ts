@@ -13,7 +13,8 @@ export function escapeCsv(val: string | number | null | undefined): string {
   // a spreadsheet can trim leading whitespace before evaluating whether a cell
   // starts with a formula character, so "\t=cmd|..." is a bypass of the plain
   // "=+-@" check.
-  const safe = !isPlainNumber && /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+  // Leading spaces count too: a spreadsheet may trim them before evaluating.
+  const safe = !isPlainNumber && /^\s*[=+\-@]|^[\t\r]/.test(s) ? `'${s}` : s
   if (safe.includes(",") || safe.includes('"') || safe.includes("\n") || safe.includes("\r")) {
     return `"${safe.replace(/"/g, '""')}"`
   }

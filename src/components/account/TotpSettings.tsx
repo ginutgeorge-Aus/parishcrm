@@ -36,9 +36,20 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     else if (mode.kind === "regenerate" || mode.kind === "disable") document.getElementById("totp-manage")?.focus()
     else if (mode.kind === "codes") codesHeadingRef.current?.focus()
     // Cancel / "I've saved these codes" unmounts the focused button: return focus to the idle action.
-    else if (prevKind.current !== "idle") document.getElementById("totp-idle-action")?.focus()
+    else if (prevKind.current !== "idle") {
+      document.getElementById(prevKind.current === "disable" ? "totp-turn-off" : "totp-idle-action")?.focus()
+    }
     prevKind.current = mode.kind
   }, [mode.kind])
+
+  // A successful turn-off / enrolment refreshes `status`, swapping the idle buttons: the
+  // trigger focused above is gone by then, so land on the new idle action instead.
+  const prevEnabled = useRef(status.enabled)
+  useEffect(() => {
+    if (prevEnabled.current === status.enabled) return
+    prevEnabled.current = status.enabled
+    document.getElementById("totp-idle-action")?.focus()
+  }, [status.enabled])
 
   /**
    * Copies the backup codes to the clipboard and reports the outcome in the
@@ -206,7 +217,7 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
       </p>
       <div className="flex flex-wrap gap-2">
         <Button id="totp-idle-action" variant="outline" size="sm" onClick={() => setMode({ kind: "regenerate" })}>New backup codes</Button>
-        <Button variant="outline" size="sm" onClick={() => setMode({ kind: "disable" })}>Turn off</Button>
+        <Button id="totp-turn-off" variant="outline" size="sm" onClick={() => setMode({ kind: "disable" })}>Turn off</Button>
       </div>
     </div>
   )

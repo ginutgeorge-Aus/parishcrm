@@ -64,3 +64,19 @@ it("keeps Members/Events/Settings groups as flat NavItem arrays", () => {
     expect(group.items.every((entry) => !("subLabel" in entry))).toBe(true)
   }
 })
+
+it("shows the Clearances link only to editors (canManageClearances = canEdit)", () => {
+  const visible = (flags: typeof allTrueFlags) =>
+    flattenNavItems(buildNavGroups(flags).find((g) => g.label === "Members")!.items)
+      .filter((i) => i.show).map((i) => i.label)
+  expect(visible(allTrueFlags)).toContain("Clearances")
+  expect(visible({ ...allTrueFlags, isEditor: false })).not.toContain("Clearances")
+})
+
+it("shows Sunday School in Members only to roles that can view people", () => {
+  const find = (canViewPeople: boolean) =>
+    flattenNavItems(buildNavGroups({ ...allTrueFlags, canViewPeople }).find((g) => g.label === "Members")!.items)
+      .find((i) => i.href === "/sunday-school")
+  expect(find(true)).toMatchObject({ label: "Sunday School", show: true })
+  expect(find(false)?.show).toBe(false)
+})

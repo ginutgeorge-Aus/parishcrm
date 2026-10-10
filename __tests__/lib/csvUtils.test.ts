@@ -8,6 +8,12 @@ describe("escapeCsv", () => {
     expect(escapeCsv("-1+cmd")).toBe("'-1+cmd") // leading - but not a plain number → prefixed
   })
 
+  it("neutralises formulas hidden behind leading whitespace", () => {
+    expect(escapeCsv("  =1+1")).toBe("'  =1+1")
+    expect(escapeCsv(" @SUM(A1)")).toBe("' @SUM(A1)")
+    expect(escapeCsv(" Tithes")).toBe(" Tithes")
+  })
+
   it("leaves a plain negative number numeric, not a text literal", () => {
     expect(escapeCsv("-100.00")).toBe("-100.00")
     expect(escapeCsv(-100)).toBe("-100")

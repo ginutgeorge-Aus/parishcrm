@@ -1,9 +1,9 @@
 import {
   Users, User, UserCog, Home, Upload,
   BookOpen, ArrowLeftRight, Landmark, PiggyBank, TrendingUp, BarChart2, BarChart3,
-  CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck,
+  CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck, BadgeCheck,
   SlidersHorizontal, ListChecks, Scale, Cake, HandCoins, Gift, Inbox, MonitorSmartphone,
-  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart,
+  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School,
 } from "lucide-react"
 
 export type NavItem = { href: string; label: string; icon: React.ElementType; show: boolean; badge?: number }
@@ -37,6 +37,8 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/people", label: "People", icon: User, show: canViewPeople },
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople },
+        { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor },
+        { href: "/sunday-school", label: "Sunday School", icon: School, show: canViewPeople },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor, badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor, badge: membershipPending },
         { href: "/welcome-letter", label: "Welcome Letter", icon: MailPlus, show: isEditor },

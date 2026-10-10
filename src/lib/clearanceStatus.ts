@@ -28,6 +28,16 @@ export const CLEARANCE_STATUS_LABELS: Record<ClearanceStatus, string> = {
 const DAY_MS = 86_400_000
 
 /**
+ * Whole days from `today` until `expiresAt` (negative once past, 0 on the
+ * expiry date itself), or null when there is no expiry date.
+ * @param expiresAt expiry (@db.Date, UTC midnight) or null
+ * @param today Sydney calendar date at UTC midnight
+ */
+export function daysUntilExpiry(expiresAt: Date | null, today: Date): number | null {
+  return expiresAt ? Math.floor((expiresAt.getTime() - today.getTime()) / DAY_MS) : null
+}
+
+/**
  * Status of a clearance. Precedence: no row -> MISSING; past expiry -> EXPIRED;
  * not verified -> UNVERIFIED; within EXPIRING_WINDOW_DAYS of expiry ->
  * EXPIRING (a clearance is valid through its expiry date, so expiry == today
@@ -42,7 +52,7 @@ export function clearanceStatus(
   today: Date,
 ): ClearanceStatus {
   if (!c) return "MISSING"
-  const daysLeft = c.expiresAt ? Math.floor((c.expiresAt.getTime() - today.getTime()) / DAY_MS) : null
+  const daysLeft = daysUntilExpiry(c.expiresAt, today)
   if (daysLeft !== null && daysLeft < 0) return "EXPIRED"
   if (!c.verifiedAt) return "UNVERIFIED"
   if (daysLeft !== null && daysLeft <= EXPIRING_WINDOW_DAYS) return "EXPIRING"
