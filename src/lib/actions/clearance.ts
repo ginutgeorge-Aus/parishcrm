@@ -11,6 +11,7 @@ import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCo
 import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
+import { sydneyToday } from "@/lib/dates"
 import { ClearanceType } from "@/lib/generated/prisma/enums"
 import { BULK_VERIFY_MAX } from "@/lib/clearanceComplianceView"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -324,8 +325,8 @@ class StaleBatchError extends Error {}
  * Marks many clearances verified in one step (the "Mark verified" button on the
  * WWCC batch helper). One optional note (for example the portal's status text)
  * is stored on every row. WWCC rows only. All-or-nothing: if any id is missing,
- * archived, not a WWCC, a WWCC without a number, or was verified/archived since the page loaded, nothing is
- * written. Each item carries the `updatedAt` the admin saw; the update is
+ * archived, not a WWCC, expired, missing its number or the person's DOB, or
+ * was verified/archived since the page loaded, nothing is written. Each item carries the `updatedAt` the admin saw; the update is
  * conditioned on it and on `verifiedAt: null` inside a transaction, so it can
  * never vouch for a number/expiry edited since, nor overwrite another verification.
  * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
@@ -358,7 +359,7 @@ export async function verifyClearancesBulk(
   const unique = [...seenById.keys()]
   const found = await prisma.personClearance.findMany({
     where: { id: { in: unique }, person: { archivedAt: null } },
-    select: { id: true, personId: true, type: true, number: true },
+    select: { id: true, personId: true, type: true, number: true, expiresAt: true, person: { select: { dateOfBirth: true } } },
   })
   if (found.length !== unique.length) return { error: "Some selected clearances no longer exist" }
   if (found.some((c) => c.type !== "WWCC")) return { error: "Only WWCC clearances can be verified in bulk" }
@@ -366,6 +367,19 @@ export async function verifyClearancesBulk(
   if (noNumber.length > 0) {
     return { error: `${noNumber.length} selected WWCC record(s) have no WWC number — add it before verifying` }
   }
+  // The portal check needs a DOB; mirror the batch page, which disables rows without one.
+  const noDob = found.filter((c) => !c.person.dateOfBirth || safeDecrypt(c.person.dateOfBirth) === DECRYPTION_ERROR)
+  if (noDob.length > 0) {
+    return { error: `${noDob.length} selected WWCC record(s) have no date of birth — add it before verifying` }
+  }
+  // Same non-expired rule as the batch loader; re-applied in the update so a
+  // page loaded before Sydney midnight cannot verify a WWCC that expired since.
+  const today = sydneyToday()
+  const expired = found.filter((c) => c.expiresAt && c.expiresAt < today)
+  if (expired.length > 0) {
+    return { error: `${expired.length} selected WWCC record(s) have expired — record the renewal instead` }
+  }
+  const notExpired = { OR: [{ expiresAt: null }, { expiresAt: { gte: today } }] }
 
   const actor = actorId(session)
   let count: number
@@ -374,6 +388,7 @@ export async function verifyClearancesBulk(
       const res = await tx.personClearance.updateMany({
         where: {
           OR: unique.map((id) => ({ id, updatedAt: seenById.get(id) as Date })),
+          AND: [notExpired],
           verifiedAt: null,
           type: "WWCC",
           ...LIVE_PERSON,

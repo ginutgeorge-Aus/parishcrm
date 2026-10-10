@@ -2,7 +2,10 @@
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
-jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
+jest.mock("@/lib/crypto", () => ({
+  encrypt: jest.fn((v: string) => `enc:${v}`),
+  safeDecrypt: jest.fn((v: string) => (v === "enc:bad" ? "[decryption error]" : v.replace(/^enc:/, ""))),
+}))
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -26,8 +29,8 @@ const transaction = prisma.$transaction as jest.Mock
 const T = "2026-09-30T01:02:03.000Z"
 const it1 = (id: string) => ({ id, seenUpdatedAt: T })
 const found = [
-  { id: "c11", personId: 1, type: "WWCC", number: "enc:x" },
-  { id: "c12", personId: 2, type: "WWCC", number: "enc:y" },
+  { id: "c11", personId: 1, type: "WWCC", number: "enc:x", expiresAt: null, person: { dateOfBirth: "enc:2010-01-01" } },
+  { id: "c12", personId: 2, type: "WWCC", number: "enc:y", expiresAt: null, person: { dateOfBirth: "enc:2011-02-02" } },
 ]
 
 describe("verifyClearancesBulk", () => {
@@ -107,15 +110,35 @@ describe("verifyClearancesBulk", () => {
     expect(updateMany).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["missing", null],
+    ["undecryptable", "enc:bad"],
+  ])("refuses a row whose date of birth is %s", async (_label, dob) => {
+    findMany.mockResolvedValue([found[0], { ...found[1], person: { dateOfBirth: dob } }])
+    expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
+      error: "1 selected WWCC record(s) have no date of birth — add it before verifying",
+    })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses an expired WWCC and re-checks expiry in the update", async () => {
+    findMany.mockResolvedValue([found[0], { ...found[1], expiresAt: new Date("2020-01-01T00:00:00Z") }])
+    expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
+      error: "1 selected WWCC record(s) have expired — record the renewal instead",
+    })
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
   it("verifies the de-duplicated set with actor, time and trimmed note, audits each, revalidates", async () => {
     const res = await verifyClearancesBulk([it1("c11"), it1("c12"), it1("c11")], "  OCG: current  ")
     expect(findMany).toHaveBeenCalledWith({
       where: { id: { in: ["c11", "c12"] }, person: { archivedAt: null } },
-      select: { id: true, personId: true, type: true, number: true },
+      select: { id: true, personId: true, type: true, number: true, expiresAt: true, person: { select: { dateOfBirth: true } } },
     })
     expect(updateMany).toHaveBeenCalledWith({
       where: {
         OR: [{ id: "c11", updatedAt: new Date(T) }, { id: "c12", updatedAt: new Date(T) }],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gte: expect.any(Date) } }] }],
         verifiedAt: null,
         type: "WWCC",
         person: { archivedAt: null },
