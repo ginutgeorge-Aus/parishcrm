@@ -20,9 +20,10 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
   feedback and event registration/waitlist forms. Assigned-organiser (`EVENT_ORGANISER`) event flows
   such as attendee check-in and payment reminders are authorized per event via `canManageEvent` in
   `src/lib/eventManager.ts` (page and action), not a `roleGuard` helper — do not flag that. Accounting
-  reads gate on `canViewAccounting`; ordinary accounting-entry mutations need `canAccessAccounting`
-  (ADMIN/PASTOR), but account/fund CRUD and petty-cash deletion are ADMIN-only via `isAdmin` — flag any
-  widening of those to `canAccessAccounting`. Watch for IDOR (acting on an id the user
+  reads gate on `canViewAccounting`; creating and editing accounting entries needs
+  `canAccessAccounting` (ADMIN/PASTOR), but these are ADMIN-only via `isAdmin`: transaction deletion,
+  petty-cash deletion and import, account/account-group/fund/payment-account CRUD, and accounting
+  settings — flag any widening of those to `canAccessAccounting`. Watch for IDOR (acting on an id the user
   does not own) and self-action bugs (e.g. a user demoting or deleting themselves).
 - **Auth split.** `src/auth.config.ts` is the lean callbacks-only config imported by
   `src/middleware.ts`; the full config (Credentials, Prisma, bcrypt) lives in `src/auth.ts`. Middleware
