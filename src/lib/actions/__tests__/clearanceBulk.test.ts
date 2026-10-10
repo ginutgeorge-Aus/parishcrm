@@ -25,10 +25,12 @@ const mockAuth = auth as jest.Mock
 const findMany = prisma.personClearance.findMany as jest.Mock
 const updateMany = prisma.personClearance.updateMany as jest.Mock
 const transaction = prisma.$transaction as jest.Mock
+const queryRaw = jest.fn().mockResolvedValue([])
 
 const T = "2026-09-30T01:02:03.000Z"
 const P = "2026-09-29T05:06:07.000Z"
-const it1 = (id: string) => ({ id, seenUpdatedAt: T, seenPersonUpdatedAt: P })
+const P2 = "2026-09-28T08:09:10.000Z"
+const it1 = (id: string, personAt = P) => ({ id, seenUpdatedAt: T, seenPersonUpdatedAt: personAt })
 const found = [
   { id: "c11", personId: 1, type: "WWCC", number: "enc:x", expiresAt: null, person: { dateOfBirth: "enc:2010-01-01" } },
   { id: "c12", personId: 2, type: "WWCC", number: "enc:y", expiresAt: null, person: { dateOfBirth: "enc:2011-02-02" } },
@@ -40,7 +42,7 @@ describe("verifyClearancesBulk", () => {
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "7" } })
     findMany.mockResolvedValue(found)
     updateMany.mockResolvedValue({ count: 2 })
-    transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb({ personClearance: { updateMany } }))
+    transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb({ personClearance: { updateMany }, $queryRaw: queryRaw }))
   })
 
   it("is blocked in demo mode before anything else", async () => {
@@ -141,7 +143,7 @@ describe("verifyClearancesBulk", () => {
   })
 
   it("verifies the de-duplicated set with actor, time and trimmed note, audits each, revalidates", async () => {
-    const res = await verifyClearancesBulk([it1("c11"), it1("c12"), it1("c11")], "  OCG: current  ")
+    const res = await verifyClearancesBulk([it1("c11"), it1("c12", P2), it1("c11")], "  OCG: current  ")
     expect(findMany).toHaveBeenCalledWith({
       where: { id: { in: ["c11", "c12"] }, person: { archivedAt: null } },
       select: { id: true, personId: true, type: true, number: true, expiresAt: true, person: { select: { dateOfBirth: true } } },
@@ -150,7 +152,7 @@ describe("verifyClearancesBulk", () => {
       where: {
         OR: [
           { id: "c11", updatedAt: new Date(T), person: { updatedAt: new Date(P) } },
-          { id: "c12", updatedAt: new Date(T), person: { updatedAt: new Date(P) } },
+          { id: "c12", updatedAt: new Date(T), person: { updatedAt: new Date(P2) } },
         ],
         AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gte: expect.any(Date) } }] }],
         verifiedAt: null,
@@ -159,6 +161,12 @@ describe("verifyClearancesBulk", () => {
       },
       data: { verifiedAt: expect.any(Date), verifiedById: 7, verificationNote: "enc:OCG: current" },
     })
+    // People are locked FOR SHARE before the guarded update, inside the same transaction.
+    expect(queryRaw).toHaveBeenCalledTimes(1)
+    const [sql, ids] = queryRaw.mock.calls[0]
+    expect(sql.join("?")).toMatch(/FROM "Person" WHERE id = ANY\(\?::int\[\]\) FOR SHARE/)
+    expect(ids).toEqual([1, 2])
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(updateMany.mock.invocationCallOrder[0])
     expect(logAudit).toHaveBeenCalledTimes(2)
     expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_VERIFIED", "Person", 1, { clearanceId: "c11", type: "WWCC", bulk: true, hasNote: true })
     expect(revalidatePath).toHaveBeenCalledWith("/people/clearances")

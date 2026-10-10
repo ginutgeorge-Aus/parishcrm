@@ -387,7 +387,15 @@ export async function verifyClearancesBulk(
   const actor = actorId(session)
   let count: number
   try {
+    const personIds = [...new Set(found.map((c) => c.personId))]
     count = await prisma.$transaction(async (tx) => {
+      // Lock the people first: a DOB edit (UPDATE on Person) then either
+      // committed before this lock — and the next statement's fresh snapshot
+      // sees its new updatedAt, so the guard below fails — or waits until we
+      // commit. Without it the relation predicate could pass on a DOB edit
+      // committing mid-statement.
+      // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+      await tx.$queryRaw`SELECT id FROM "Person" WHERE id = ANY(${personIds}::int[]) FOR SHARE`
       const res = await tx.personClearance.updateMany({
         where: {
           OR: unique.map((id) => {
