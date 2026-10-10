@@ -19,7 +19,10 @@ Next.js 16 App Router + Server Actions, TypeScript, Prisma 7 over `@prisma/adapt
   controls. Turnstile is optional (only active when configured) and covers only the membership,
   feedback and event registration/waitlist forms. Assigned-organiser (`EVENT_ORGANISER`) event flows
   such as attendee check-in and payment reminders are authorized per event via `canManageEvent` in
-  `src/lib/eventManager.ts` (page and action), not a `roleGuard` helper — do not flag that. Self-service
+  `src/lib/eventManager.ts` (page and action), not a `roleGuard` helper — do not flag that. Likewise
+  Sunday-school roll marking (`setAttendance`, `markUnmarkedPresent`, staff and organiser roll pages)
+  is authorized per class via `canMarkRoll` in `src/lib/sundaySchoolAccess.ts`, which deliberately
+  lets an assigned `EVENT_ORGANISER` mark only their own classes. Self-service
   account actions (`/account`: TOTP, trusted devices) need only an authenticated session and must act
   solely on the session user's own records (target derived from `auth()`, never a client-supplied
   user id) — do not flag the missing `roleGuard` helper there, but do flag any owner-scoping gap. Accounting
