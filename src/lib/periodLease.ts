@@ -9,7 +9,7 @@ export type OncePerPeriodOptions<T> = {
   settingKey: string
   /** The period this run covers, e.g. a Sydney week start or `YYYY-MM`. */
   periodKey: string
-  /** How long a lease counts as held; an older one may be reclaimed. */
+  /** How long a lease counts as held; an older one may be reclaimed. Renewed every `leaseMs / 3` while the run is active. */
   leaseMs: number
   now: Date
   /** Run even when the period is already done (still never concurrently). */
@@ -25,6 +25,52 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
   if (!value.startsWith(LEASE_PREFIX)) return false
   const startedAt = Number(value.slice(value.lastIndexOf(":") + 1))
   return Number.isFinite(startedAt) && now.getTime() - startedAt < leaseMs
+}
+
+/**
+ * Keeps this run's lease fresh while `fn` runs: every third of `leaseMs` it
+ * compare-and-sets the lease to `running:<period>:<now>`, so a run that
+ * outlives `leaseMs` can't be reclaimed and repeated by another invocation.
+ * A failed write is logged, then the row is re-read in case it committed
+ * anyway; otherwise the next tick retries from the old lease. Losing the CAS
+ * means another run took over, so renewal stops.
+ * @param opts the run's options (key, period, lease length, error sink)
+ * @param initial the lease value this run acquired
+ * @returns `current()` for the latest lease value and `stop()`, which also waits for an in-flight renewal
+ */
+function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
+  let current = initial
+  let inFlight: Promise<void> | null = null
+  const timer = setInterval(() => {
+    if (inFlight) return
+    const next = `${LEASE_PREFIX}${opts.periodKey}:${Date.now()}`
+    inFlight = prisma.appSetting
+      .updateMany({ where: { key: opts.settingKey, value: current }, data: { value: next } })
+      .then(({ count }) => {
+        if (count > 0) {
+          current = next
+          return
+        }
+        clearInterval(timer)
+        opts.logError(`lease lost for ${opts.periodKey}: another run took it over`)
+      })
+      .catch(async (e: unknown) => {
+        opts.logError(`lease renewal failed: ${e instanceof Error ? e.message : String(e)}`)
+        // The write may have committed before the connection failed: adopt
+        // `next` if the row holds it, else the next tick retries from `current`.
+        const row = await prisma.appSetting.findUnique({ where: { key: opts.settingKey } }).catch(() => null)
+        if (row?.value === next) current = next
+      })
+      .finally(() => { inFlight = null })
+  }, opts.leaseMs / 3)
+  timer.unref?.()
+  return {
+    current: () => current,
+    async stop() {
+      clearInterval(timer)
+      await inFlight
+    },
+  }
 }
 
 /**
@@ -93,6 +139,7 @@ async function markDone<T>(opts: OncePerPeriodOptions<T>, lease: string): Promis
  * retries the period. After success the done-write is retried and never
  * rethrown: `fn` has side effects (issues filed, mail sent) that a re-run would
  * repeat; if the write still fails the lease expires and a later run may repeat.
+ * While `fn` runs a heartbeat renews the lease, so a slow run stays exclusive.
  *
  * Returns "locked" when another run holds a fresh lease or won the race, and
  * "done" when this period already ran (never with `force`). The two stay
@@ -113,17 +160,20 @@ export async function runOncePerPeriodLocked<T>(
   const lease = `${LEASE_PREFIX}${periodKey}:${now.getTime()}`
   if (!(await acquireLease(settingKey, prev?.value ?? null, lease))) return "locked"
 
+  const heartbeat = startHeartbeat(opts, lease)
   let result: T
   try {
     result = await fn()
   } catch (e) {
-    await releaseLease(opts, prev?.value ?? null, lease)
+    await heartbeat.stop()
+    await releaseLease(opts, prev?.value ?? null, heartbeat.current())
     throw e
   }
+  await heartbeat.stop()
   if (opts.keepOpen?.(result)) {
-    await releaseLease(opts, prev?.value ?? null, lease)
+    await releaseLease(opts, prev?.value ?? null, heartbeat.current())
     return result
   }
-  await markDone(opts, lease)
+  await markDone(opts, heartbeat.current())
   return result
 }
