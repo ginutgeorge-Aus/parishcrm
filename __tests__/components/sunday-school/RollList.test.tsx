@@ -1,0 +1,89 @@
+import { render, screen, fireEvent, act, within } from "@testing-library/react"
+import { RollList } from "@/components/sunday-school/RollList"
+
+jest.mock("@/lib/actions/sundaySchoolAttendance", () => ({
+  setAttendance: jest.fn().mockResolvedValue(undefined),
+  markUnmarkedPresent: jest.fn().mockResolvedValue({ success: "Marked 1 present" }),
+}))
+const push = jest.fn()
+const refresh = jest.fn()
+jest.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }))
+import { setAttendance, markUnmarkedPresent } from "@/lib/actions/sundaySchoolAttendance"
+
+const rows = [
+  { personId: 1, name: "Amy Adams", status: null, enrolled: true },
+  { personId: 2, name: "Ben Brown", status: "ABSENT" as const, enrolled: true },
+]
+const props = { classId: 4, date: "2026-10-11", today: "2026-10-11", rows, readOnly: false, dateHrefBase: "/sunday-school/4/roll" }
+const group = (name: string) => screen.getByRole("group", { name: `Attendance for ${name}` })
+const btn = (name: string, label: string) => within(group(name)).getByRole("button", { name: label })
+
+beforeEach(() => jest.clearAllMocks())
+
+it("shows live counts", () => {
+  render(<RollList {...props} />)
+  expect(screen.getByText("0 present · 0 late · 1 absent · 1 not marked")).toBeInTheDocument()
+})
+
+it("marks optimistically, then clears on a second tap", async () => {
+  render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Amy Adams", "Present")) })
+  expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "true")
+  expect(setAttendance).toHaveBeenCalledWith(4, "2026-10-11", 1, "PRESENT")
+  expect(screen.getByText("1 present · 0 late · 1 absent · 0 not marked")).toBeInTheDocument()
+  await act(async () => { fireEvent.click(btn("Amy Adams", "Present")) })
+  expect(setAttendance).toHaveBeenLastCalledWith(4, "2026-10-11", 1, null)
+  expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "false")
+})
+
+it("reverts and shows the error when the server refuses", async () => {
+  ;(setAttendance as jest.Mock).mockResolvedValueOnce({ error: "Unauthorized" })
+  render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Ben Brown", "Late")) })
+  expect(btn("Ben Brown", "Absent")).toHaveAttribute("aria-pressed", "true")
+  expect(btn("Ben Brown", "Late")).toHaveAttribute("aria-pressed", "false")
+  expect(screen.getByText("Unauthorized")).toBeInTheDocument()
+})
+
+it("reverts when the action throws", async () => {
+  ;(setAttendance as jest.Mock).mockRejectedValueOnce(new Error("network"))
+  render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Amy Adams", "Late")) })
+  expect(btn("Amy Adams", "Late")).toHaveAttribute("aria-pressed", "false")
+  expect(screen.getByRole("alert")).toBeInTheDocument()
+})
+
+it("Mark unmarked present fills only unmarked rows", async () => {
+  render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Mark unmarked present" })) })
+  expect(markUnmarkedPresent).toHaveBeenCalledWith(4, "2026-10-11")
+  expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "true")
+  expect(btn("Ben Brown", "Absent")).toHaveAttribute("aria-pressed", "true")
+  expect(refresh).toHaveBeenCalled()
+})
+
+it("read only: no enabled buttons, no bulk action", () => {
+  render(<RollList {...props} readOnly />)
+  expect(screen.queryByRole("button", { name: "Mark unmarked present" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("group", { name: /Attendance for/ })).not.toBeInTheDocument()
+  expect(screen.getByText("Absent")).toBeInTheDocument()
+  expect(screen.getByText("Not marked")).toBeInTheDocument()
+})
+
+it("search filters by name", () => {
+  render(<RollList {...props} />)
+  fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "be" } })
+  expect(screen.queryByText("Amy Adams")).not.toBeInTheDocument()
+  expect(screen.getByText("Ben Brown")).toBeInTheDocument()
+})
+
+it("changing the date navigates", () => {
+  render(<RollList {...props} />)
+  fireEvent.change(screen.getByLabelText("Roll date"), { target: { value: "2026-10-04" } })
+  expect(push).toHaveBeenCalledWith("/sunday-school/4/roll?date=2026-10-04")
+})
+
+it("tags a marked child who is no longer enrolled", () => {
+  render(<RollList {...props} rows={[{ personId: 3, name: "Cal Cole", status: "PRESENT", enrolled: false }]} />)
+  expect(screen.getByText("not enrolled")).toBeInTheDocument()
+})
