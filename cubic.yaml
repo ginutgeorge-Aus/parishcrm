@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://cubic.dev/schema/cubic-repository-config.schema.json
+# cubic AI review settings — https://docs.cubic.dev/configure/cubic-yaml
+version: 1
+
+reviews:
+  enabled: true
+  sensitivity: medium
+  check_drafts: false
+  incremental_commits: true
+  resolve_threads_when_addressed: true
+  auto_approve: disabled
+  ignore:
+    files:
+      - "src/lib/generated/**"
+      - "package-lock.json"
+      - "CHANGELOG.md"
+      - "**/*.snap"
+  custom_rules:
+    - name: ParishCRM review guide
+      description: Project conventions for auth, encryption, money, dates and public-repo data safety.
+      file_paths:
+        - .gemini/styleguide.md
+
+pr_descriptions:
+  generate: false
