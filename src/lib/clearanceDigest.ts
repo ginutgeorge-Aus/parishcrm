@@ -78,7 +78,7 @@ async function saveDelivered(month: string, emails: Set<string>): Promise<boolea
  * as delivered so a maybe-delivered email is never repeated; likewise, if the
  * list could not be saved, failures are not reported for retry (a retry could
  * not tell who already has it). Addresses differing only in case or spaces get
- * one email. `sent`/`failed` count this run only.
+ * one email, sent to the trimmed address. `sent`/`failed` count this run only.
  * No lease handling here; see runClearanceDigestLocked.
  */
 export async function sendClearanceDigest(now: Date, opts: { force?: boolean } = {}): Promise<ClearanceDigestResult> {
@@ -93,14 +93,15 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
     where: { role: { in: [UserRole.ADMIN, UserRole.PASTOR] }, archivedAt: null },
     select: { email: true },
   })
-  const recipients = [...new Map(users.map((u) => [normEmail(u.email), u])).values()]
+  // One entry per mailbox: the trimmed address is what we send to, the normalised one is the tracking key.
+  const recipients = [...new Map(users.map((u) => [normEmail(u.email), { to: u.email.trim(), key: normEmail(u.email) }])).values()]
   if (recipients.length === 0) {
     logger.error("[clearanceDigest] no active ADMIN or PASTOR to email; digest not sent")
     return { flagged, sent: 0, failed: 0 }
   }
 
   const delivered = opts.force ? new Set<string>() : await loadDelivered(month)
-  const pending = recipients.filter((r) => !delivered.has(normEmail(r.email)))
+  const pending = recipients.filter((r) => !delivered.has(r.key))
   if (pending.length === 0) return { flagged, sent: 0, failed: 0 }
 
   const { subject, html, text } = renderClearanceDigestEmail({
@@ -113,9 +114,10 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
   let sent = 0
   let failed = 0
   let saved = true
+  // Sequential on purpose: each send is recorded before the next, so a retry only mails addresses not yet recorded.
   for (const r of pending) {
     try {
-      await sendEmail(r.email, subject, html, text)
+      await sendEmail(r.to, subject, html, text) // NOSONAR S9382
       sent++
     } catch (err) {
       if (isAmbiguousDeliveryError(err)) {
@@ -127,8 +129,9 @@ export async function sendClearanceDigest(now: Date, opts: { force?: boolean } =
         continue
       }
     }
-    delivered.add(normEmail(r.email))
-    if (!(await saveDelivered(month, delivered))) saved = false
+    delivered.add(r.key)
+    // Only the latest write matters: each one stores the whole set, so a later success repairs an earlier failure.
+    saved = await saveDelivered(month, delivered) // NOSONAR S9382
   }
   await logAudit(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, {
     flagged, sent, failed,
