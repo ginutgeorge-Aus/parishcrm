@@ -42,6 +42,15 @@ export function TotpSettings({ status }: Readonly<{ status: TotpStatus }>) {
     prevKind.current = mode.kind
   }, [mode.kind])
 
+  // A successful turn-off / enrolment refreshes `status`, swapping the idle buttons: the
+  // trigger focused above is gone by then, so land on the new idle action instead.
+  const prevEnabled = useRef(status.enabled)
+  useEffect(() => {
+    if (prevEnabled.current === status.enabled) return
+    prevEnabled.current = status.enabled
+    document.getElementById("totp-idle-action")?.focus()
+  }, [status.enabled])
+
   /**
    * Copies the backup codes to the clipboard and reports the outcome in the
    * live region; fails visibly when the clipboard is unavailable or rejects.
