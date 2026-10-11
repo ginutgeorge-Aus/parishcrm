@@ -24,7 +24,7 @@ look but not change anything.
   top class, or where two next-level classes exist at the same location, are left for you to place.
   Rolling over **locks the year you rolled from**: its classes, teachers, enrolments, roll markers and
   rolls become read-only (a *Locked* badge shows, and edit controls are hidden), so history can't drift
-  after children have moved on. Locking is permanent and cannot be undone from the app.
+  after children have moved on. An **admin** can reopen a locked year with **Unlock year** on the class list (it asks to confirm); the year then stays editable, since roll over is one-time.
 
 ### Taking the roll
 

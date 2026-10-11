@@ -13,7 +13,7 @@ import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { canEdit } from "@/lib/roleGuard"
+import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
 import { isYearLockedTx, lockLiveClass, YEAR_LOCKED, type ClassLockState } from "@/lib/sundaySchoolYearLock"
@@ -374,4 +374,23 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   return {
     success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(placed)}; ${needPlacing} need placing by hand`,
   }
+}
+
+/**
+ * Re-open a school year closed by rollover (deletes its SundaySchoolYearLock
+ * row). ADMIN only. Idempotent: an already-open year returns an error and
+ * audits nothing. Rolling the year over again re-locks it.
+ */
+export async function unlockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
+
+  const { count } = await prisma.sundaySchoolYearLock.deleteMany({ where: { year } })
+  if (count === 0) return { error: `${year} is not locked` }
+  await logAudit(actorId(session), "SS_YEAR_UNLOCKED", ENTITY, undefined, { year })
+  revalidatePath("/sunday-school")
+  return { success: `Unlocked ${year}` }
 }

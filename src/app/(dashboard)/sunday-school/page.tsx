@@ -2,7 +2,8 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canEdit, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, canViewPeople, isAdmin } from "@/lib/roleGuard"
+import { LockedYearNotice } from "@/components/sunday-school/LockedYearNotice"
 import { parseSchoolYear } from "@/lib/sundaySchool"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
@@ -76,9 +77,12 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
       {rolled && <FormFeedback state={{ success: rolled }} />}
 
       {locked && (
-        <p className="text-sm text-muted-foreground">
-          {year} was rolled over and is locked — its classes, teachers, enrolments and rolls can no longer be changed.
-        </p>
+        <div className="space-y-2">
+          <LockedYearNotice year={year} canUnlock={isAdmin(session.user.role)} />
+          <p className="text-sm text-muted-foreground">
+            {year} was rolled over and is locked — its classes, teachers, enrolments and rolls can&apos;t be changed until an admin unlocks it.
+          </p>
+        </div>
       )}
 
       {editor && (
