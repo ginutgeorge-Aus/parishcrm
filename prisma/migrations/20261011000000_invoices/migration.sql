@@ -38,6 +38,7 @@ CREATE TABLE "Invoice" (
     "gstTotal" DECIMAL(10,2) NOT NULL,
     "total" DECIMAL(10,2) NOT NULL,
     "taxInvoice" BOOLEAN NOT NULL DEFAULT false,
+    "issuer" JSONB,
     "accountId" INTEGER NOT NULL,
     "fundId" INTEGER,
     "notes" TEXT,

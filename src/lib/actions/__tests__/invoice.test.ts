@@ -1,4 +1,4 @@
-import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact } from "@/lib/actions/invoice"
+import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices } from "@/lib/actions/invoice"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
@@ -147,4 +147,29 @@ describe("getRecipientContact", () => {
     expect(await getRecipientContact("person", 5)).toEqual({ email: "p@example.com", address: "2 Example Rd\nExampleton NSW 2000" })
   })
   it("rejects AUDITOR", async () => { as("AUDITOR"); expect(await getRecipientContact("person", 5)).toEqual({ error: "Unauthorized" }) })
+})
+
+describe("listInvoices", () => {
+  const base = { id: 11, invoiceNo: null, recipientName: "Example Scouts", issueDate: new Date("2026-10-11"), dueDate: new Date("2026-10-25"), paidAt: null,
+    lines: [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }] }
+  it("recomputes draft totals with the current GST setting but keeps sent totals", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([
+      { ...base, status: "DRAFT", total: { toString: () => "300.00" }, gstTotal: { toString: () => "0.00" } },
+      { ...base, id: 12, invoiceNo: "INV-0001", status: "SENT", total: { toString: () => "300.00" }, gstTotal: { toString: () => "0.00" } },
+    ])
+    const rows = await listInvoices()
+    expect(rows).toEqual([
+      expect.objectContaining({ id: 11, total: "330.00", gstTotal: "30.00", issueDate: "2026-10-11" }),
+      expect.objectContaining({ id: 12, total: "300.00", gstTotal: "0.00" }),
+    ])
+    expect(rows).not.toEqual(expect.arrayContaining([expect.objectContaining({ lines: expect.anything() })]))
+  })
+  it("applies status and date filters", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([])
+    await listInvoices({ status: "SENT" as never, from: "2026-10-01", to: "2026-10-31" })
+    expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: "SENT", issueDate: { gte: new Date("2026-10-01"), lte: new Date("2026-10-31") } },
+    }))
+  })
+  it("rejects VIEWER", async () => { as("VIEWER"); expect(await listInvoices()).toEqual({ error: "Unauthorized" }) })
 })

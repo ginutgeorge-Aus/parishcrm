@@ -162,9 +162,18 @@ export async function listInvoices(filter: { status?: InvoiceStatus; from?: stri
     where: { ...(filter.status ? { status: filter.status } : {}), ...(filter.from || filter.to ? { issueDate } : {}) },
     orderBy: [{ issueDate: "desc" }, { id: "desc" }],
     take: 500,
-    select: { id: true, invoiceNo: true, status: true, recipientName: true, issueDate: true, dueDate: true, total: true, gstTotal: true, paidAt: true },
+    select: { id: true, invoiceNo: true, status: true, recipientName: true, issueDate: true, dueDate: true, total: true, gstTotal: true, paidAt: true, lines: true },
   })
-  return rows.map((r) => ({ ...r, issueDate: ymdOf(r.issueDate), dueDate: ymdOf(r.dueDate), total: r.total.toString(), gstTotal: r.gstTotal.toString() }))
+  const { gstRegistered } = await getInvoiceSettings()
+  return rows.map(({ lines, ...r }) => {
+    // Drafts show totals for the current GST setting (same as the detail page and draft PDF).
+    const t = r.status === InvoiceStatus.DRAFT ? computeInvoiceTotals(lines as InvoiceLine[], gstRegistered) : null
+    return {
+      ...r, issueDate: ymdOf(r.issueDate), dueDate: ymdOf(r.dueDate),
+      total: t ? centsToDecimalString(t.totalCents) : r.total.toString(),
+      gstTotal: t ? centsToDecimalString(t.gstCents) : r.gstTotal.toString(),
+    }
+  })
 }
 
 /** Prefill contact for the picker: a member's email + their family address, or a customer's saved details. */

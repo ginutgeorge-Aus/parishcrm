@@ -17,6 +17,24 @@ export type InvoicePdfModel = {
 
 const money = (cents: number) => fmtAUD(centsToNumber(cents))
 
+/** Church identity + payment details frozen onto an invoice when it is sent. */
+export type IssuerSnapshot = Church & { paymentDetails: string }
+
+/** Read a stored issuer snapshot; null when absent or malformed (then live settings are used). */
+function parseIssuer(v: unknown): IssuerSnapshot | null {
+  if (!v || typeof v !== "object") return null
+  const o = v as Record<string, unknown>
+  const keys = ["name", "address", "abn", "email", "paymentDetails"] as const
+  if (!keys.every((k) => typeof o[k] === "string")) return null
+  return { name: o.name as string, address: o.address as string, abn: o.abn as string, email: o.email as string, paymentDetails: o.paymentDetails as string }
+}
+
+/** Build the snapshot to freeze at send: strict church details for a tax invoice, lenient otherwise. */
+export async function buildIssuerSnapshot(taxInvoice: boolean, settings: InvoiceSettings): Promise<IssuerSnapshot> {
+  const c = taxInvoice ? await getChurchSettingsStrict() : await getChurchSettings()
+  return { name: c.name, address: c.address, abn: c.abn, email: c.email, paymentDetails: settings.paymentDetails }
+}
+
 /**
  * Display totals: a draft's are recomputed from its lines with the current GST setting (the
  * stored ones date from the last save); sent invoices use the totals frozen at send.
@@ -74,11 +92,15 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
   const r = await prisma.invoice.findUnique({ where: { id } })
   if (!r) return null
   const recipientEmail = r.recipientEmail ? safeDecrypt(r.recipientEmail) : ""
-  const settings = settingsIn ?? (await getInvoiceSettings())
-  // A tax invoice must carry the church's ABN (ATO), so it uses the strict
-  // loader (throws when name/address/ABN are unset); a plain invoice doesn't.
-  const taxInvoice = r.status === "DRAFT" ? settings.gstRegistered : r.taxInvoice
-  const church = taxInvoice ? await getChurchSettingsStrict() : await getChurchSettings()
+  const live = settingsIn ?? (await getInvoiceSettings())
+  // Sent invoices render from the issuer snapshot frozen at send, so a re-send or download
+  // is always the same document. Drafts (and legacy rows without a snapshot) use live
+  // settings: a tax invoice needs the ABN (strict loader throws when unset).
+  const frozen = r.status === "DRAFT" ? null : parseIssuer(r.issuer)
+  const taxInvoice = r.status === "DRAFT" ? live.gstRegistered : r.taxInvoice
+  const issuer = frozen ?? (await buildIssuerSnapshot(taxInvoice, live))
+  const church = { name: issuer.name, address: issuer.address, abn: issuer.abn, email: issuer.email }
+  const settings: InvoiceSettings = { gstRegistered: live.gstRegistered, paymentDetails: issuer.paymentDetails }
   const model = buildInvoicePdfModel({
     invoiceNo: r.invoiceNo, status: r.status, taxInvoice: r.taxInvoice, issueDate: r.issueDate, dueDate: r.dueDate,
     recipientName: r.recipientName, recipientEmail, recipientAddress: r.recipientAddress ? safeDecrypt(r.recipientAddress) : "",
@@ -89,6 +111,6 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
   return {
     pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,
-    churchName: church.name,
+    churchName: church.name, paymentDetails: issuer.paymentDetails,
   }
 }

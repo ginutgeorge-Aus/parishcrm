@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { buildInvoicePdfModel, loadInvoicePdf, churchReadyError } from "@/lib/invoicePdfModel"
+import { buildInvoicePdfModel, loadInvoicePdf, churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
 import { prisma } from "@/lib/prisma"
 import { getChurchSettings, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
@@ -64,6 +64,19 @@ describe("loadInvoicePdf", () => {
     expect(getChurchSettings).toHaveBeenCalled()
     expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
+  it("sent invoice renders from its frozen issuer snapshot, not live settings", async () => {
+    const issuer = { name: "Old Church Name", address: "Old St", abn: "11111111111", email: "old@example.com", paymentDetails: "Old BSB" }
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, taxInvoice: true, issuer })
+    const out = await loadInvoicePdf(11)
+    expect(out).toMatchObject({ churchName: "Old Church Name", paymentDetails: "Old BSB" })
+    expect(getChurchSettings).not.toHaveBeenCalled()
+    expect(getChurchSettingsStrict).not.toHaveBeenCalled()
+  })
+  it("ignores a malformed snapshot and falls back to live settings", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, issuer: { name: 5 } })
+    expect(await loadInvoicePdf(11)).toMatchObject({ churchName: "Example Church" })
+    expect(getChurchSettings).toHaveBeenCalled()
+  })
   it("tax invoice uses strict church settings", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, taxInvoice: true })
     await loadInvoicePdf(11)
@@ -74,6 +87,21 @@ describe("loadInvoicePdf", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, status: "DRAFT", invoiceNo: null })
     expect(await loadInvoicePdf(11)).toMatchObject({ filename: "DRAFT-11.pdf" })
     expect(getChurchSettingsStrict).toHaveBeenCalled()
+  })
+})
+
+describe("buildIssuerSnapshot", () => {
+  beforeEach(() => jest.clearAllMocks())
+  it("uses strict settings for a tax invoice and includes payment details", async () => {
+    expect(await buildIssuerSnapshot(true, { gstRegistered: true, paymentDetails: "BSB 000-000" })).toEqual({
+      name: "Example Church", address: "1 Example St", abn: "51824753556", email: "", paymentDetails: "BSB 000-000",
+    })
+    expect(getChurchSettingsStrict).toHaveBeenCalled()
+  })
+  it("uses lenient settings for a plain invoice", async () => {
+    await buildIssuerSnapshot(false, { gstRegistered: false, paymentDetails: "" })
+    expect(getChurchSettings).toHaveBeenCalled()
+    expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
 })
 

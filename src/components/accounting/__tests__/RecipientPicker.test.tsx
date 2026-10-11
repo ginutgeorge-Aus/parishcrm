@@ -1,0 +1,94 @@
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import InvoiceForm from "@/components/accounting/InvoiceForm"
+import { getRecipientContact } from "@/lib/actions/invoice"
+import { createCustomerInline } from "@/lib/actions/customer"
+
+jest.mock("@/lib/actions/invoice", () => ({ createInvoice: jest.fn(), updateInvoice: jest.fn(), getRecipientContact: jest.fn() }))
+jest.mock("@/lib/actions/customer", () => ({ createCustomerInline: jest.fn() }))
+
+const props = {
+  recipients: [
+    { kind: "customer" as const, id: 3, name: "Example Scouts" },
+    { kind: "person" as const, id: 5, name: "Alex Example" },
+  ],
+  accounts: [{ id: 4, name: "4001 Hall hire" }], funds: [{ id: 2, name: "General" }], gstEnabled: true,
+}
+
+beforeEach(() => jest.clearAllMocks())
+
+function openPicker() {
+  fireEvent.click(screen.getByRole("button", { name: "Choose recipient" }))
+}
+
+describe("recipient picker in InvoiceForm", () => {
+  it("picking a member fills name, email and address", async () => {
+    ;(getRecipientContact as jest.Mock).mockResolvedValue({ email: "alex@example.com", address: "2 Example Rd" })
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("Alex Example"))
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveValue("alex@example.com"))
+    expect(screen.getByLabelText("Name")).toHaveValue("Alex Example")
+    expect(screen.getByLabelText("Address")).toHaveValue("2 Example Rd")
+    expect(getRecipientContact).toHaveBeenCalledWith("person", 5)
+  })
+
+  it("ignores a contact lookup error", async () => {
+    ;(getRecipientContact as jest.Mock).mockResolvedValue({ error: "Not found" })
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("Example Scouts"))
+    await waitFor(() => expect(getRecipientContact).toHaveBeenCalledWith("customer", 3))
+    expect(screen.getByLabelText("Email")).toHaveValue("")
+  })
+
+  it("creates a new customer inline and selects it", async () => {
+    ;(createCustomerInline as jest.Mock).mockResolvedValue({ id: 9, name: "New Group" })
+    ;(getRecipientContact as jest.Mock).mockResolvedValue({ email: "new@example.com", address: "" })
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("+ New customer"))
+    fireEvent.change(screen.getByLabelText("New customer name"), { target: { value: "New Group" } })
+    fireEvent.change(screen.getByLabelText("New customer email"), { target: { value: "new@example.com" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save customer" }))
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("New Group"))
+    expect(createCustomerInline).toHaveBeenCalledWith({ name: "New Group", email: "new@example.com", address: "" })
+  })
+
+  it("shows an inline-create error and can cancel", async () => {
+    ;(createCustomerInline as jest.Mock).mockResolvedValue({ error: "Name is required" })
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("+ New customer"))
+    fireEvent.click(screen.getByRole("button", { name: "Save customer" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Name is required")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByLabelText("New customer name")).not.toBeInTheDocument()
+  })
+
+  it("clears a picked recipient back to manual entry", async () => {
+    ;(getRecipientContact as jest.Mock).mockResolvedValue({ email: "", address: "" })
+    const { container } = render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("Example Scouts"))
+    await waitFor(() => expect(container.querySelector('input[name="recipientKind"]')).toHaveValue("customer"))
+    openPicker()
+    fireEvent.click(await screen.findByText("Clear (type recipient manually)"))
+    expect(container.querySelector('input[name="recipientKind"]')).toHaveValue("none")
+  })
+
+  it("prefills an existing draft", () => {
+    const { container } = render(<InvoiceForm {...props} edit={{
+      id: 11, invoiceNo: null, status: "DRAFT", personId: null, customerId: 3, recipientName: "Example Scouts",
+      recipientEmail: "scouts@example.com", recipientAddress: "1 Example St", issueDate: "2026-10-11", dueDate: "2026-10-25",
+      lines: [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }], subtotal: "300.00", gstTotal: "30.00", total: "330.00",
+      taxInvoice: false, accountId: 4, accountName: "Hall hire", fundId: 2, fundName: "General", notes: "Thanks",
+      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null,
+    }} />)
+    expect(screen.getByLabelText("Line 1 unit price")).toHaveValue("150.00")
+    expect(screen.getByTestId("invoice-total")).toHaveTextContent("$330.00")
+    expect(container.querySelector('input[name="recipientId"]')).toHaveValue("3")
+    expect(screen.getByLabelText("Notes (printed on the invoice)")).toHaveValue("Thanks")
+    fireEvent.click(screen.getByLabelText("Line 1 GST"))
+    expect(screen.getByTestId("invoice-gst")).toHaveTextContent("$0.00")
+  })
+})

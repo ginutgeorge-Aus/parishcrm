@@ -1091,6 +1091,9 @@ model Invoice {
   gstTotal         Decimal       @db.Decimal(10, 2)
   total            Decimal       @db.Decimal(10, 2)
   taxInvoice       Boolean       @default(false)
+  /// Church identity + payment details frozen at send ({ name, address, abn, email, paymentDetails }),
+  /// so re-sends and downloads of a sent invoice always render the same document.
+  issuer           Json?
   accountId        Int
   account          Account       @relation(fields: [accountId], references: [id])
   fundId           Int?

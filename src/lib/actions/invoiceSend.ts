@@ -11,7 +11,7 @@ import { isP2002, isValidPgId } from "@/lib/validation"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, formatInvoiceNo, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
-import { churchReadyError, loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { buildIssuerSnapshot, churchReadyError, loadInvoicePdf, type IssuerSnapshot } from "@/lib/invoicePdfModel"
 import { buildInvoiceEmail } from "@/lib/invoiceEmail"
 import { sendEmail } from "@/lib/email"
 
@@ -30,7 +30,7 @@ function revalidate(id: number) {
  * current GST setting and recompute the stored totals from the lines with that same flag,
  * so the frozen flag and the money can never disagree.
  */
-async function allocateAndFreeze(id: number, settings: InvoiceSettings): Promise<{ invoiceNo: string } | { error: string }> {
+async function allocateAndFreeze(id: number, settings: InvoiceSettings, issuer: IssuerSnapshot): Promise<{ invoiceNo: string } | { error: string }> {
   const taxInvoice = settings.gstRegistered
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -40,6 +40,7 @@ async function allocateAndFreeze(id: number, settings: InvoiceSettings): Promise
         const t = computeInvoiceTotals(row.lines as InvoiceLine[], taxInvoice)
         const frozen = {
           taxInvoice,
+          issuer,
           subtotal: centsToDecimalString(t.subtotalCents),
           gstTotal: centsToDecimalString(t.gstCents),
           total: centsToDecimalString(t.totalCents),
@@ -68,12 +69,12 @@ async function allocateAndFreeze(id: number, settings: InvoiceSettings): Promise
 }
 
 /** Email the PDF for an invoice (already SENT). Throws on render or mail failure. */
-async function emailInvoice(id: number, settings: InvoiceSettings): Promise<void> {
+async function emailInvoice(id: number, settings?: InvoiceSettings): Promise<void> {
   const out = await loadInvoicePdf(id, settings)
   if (!out || !out.invoiceNo || !out.recipientEmail) throw new Error("invoice not renderable")
   const mail = buildInvoiceEmail({
     churchName: out.churchName, recipientName: out.recipientName, invoiceNo: out.invoiceNo,
-    total: out.total, dueDate: out.dueDate, paymentDetails: settings.paymentDetails,
+    total: out.total, dueDate: out.dueDate, paymentDetails: out.paymentDetails,
   })
   await sendEmail(out.recipientEmail, mail.subject, mail.html, mail.text, [
     { filename: out.filename, content: out.pdf, contentType: "application/pdf" },
@@ -95,7 +96,13 @@ async function send(id: number, email: boolean): Promise<Result> {
   const notReady = await churchReadyError(settings.gstRegistered)
   if (notReady) return { error: notReady }
 
-  const alloc = await allocateAndFreeze(id, settings)
+  let issuer: IssuerSnapshot
+  try {
+    issuer = await buildIssuerSnapshot(settings.gstRegistered, settings)
+  } catch {
+    return { error: "Could not load church details. Please try again." }
+  }
+  const alloc = await allocateAndFreeze(id, settings, issuer)
   if ("error" in alloc) return alloc
   const { invoiceNo } = alloc
 
@@ -140,13 +147,12 @@ export async function resendInvoice(id: number): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Only sent invoices can be re-sent" }
-  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true, taxInvoice: true } })
+  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true } })
   if (!row || row.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be re-sent" }
   if (!row.recipientEmail) return { error: "This invoice has no recipient email" }
-  const notReady = await churchReadyError(row.taxInvoice)
-  if (notReady) return { error: notReady }
   try {
-    await emailInvoice(id, await getInvoiceSettings())
+    // Sent invoices render from their frozen issuer snapshot — no live settings needed.
+    await emailInvoice(id)
   } catch (e) {
     logger.error("resendInvoice failed", { message: e instanceof Error ? e.message : "unknown" })
     return { error: "Email failed. Please try again." }
