@@ -29,7 +29,7 @@ const CustomerSchema = z.object({
   notes: z.string().trim().max(2000),
 })
 
-const encOrNull = (v: string) => (v === "" ? null : encrypt(v))
+const encOrNull = (v: string) => (v ? encrypt(v) : null)
 const decOrNull = (v: string | null) => (v ? safeDecrypt(v) : null)
 
 /** Validate customer form fields and return the encrypted Prisma payload. */

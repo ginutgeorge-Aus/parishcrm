@@ -25,7 +25,7 @@ it("flattenNavItems expands sub-header groups into a flat item list", () => {
   const flat = flattenNavItems(accounting.items)
   expect(flat.map((i) => i.label)).toContain("Overview")
   expect(flat.map((i) => i.label)).toContain("Acct. Settings")
-  expect(flat).toHaveLength(19)
+  expect(flat).toHaveLength(21)
 })
 
 it("hides admin-only Accounting items when isAdmin is false", () => {

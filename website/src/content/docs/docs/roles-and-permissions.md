@@ -82,6 +82,8 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Accounting — view (transactions, reports, petty cash, receipt audit) | Yes | Yes | Yes | Yes | No | No |
 | Accounting — mutate (create/edit transactions, reconcile, close petty cash) | Yes | Yes | No | No | No | No |
 | CSV export (accounting) | Yes | Yes | Yes | Yes | No | No |
+| Invoices & customers — create, edit, send | Yes | Yes | No | No | No | No |
+| Invoices — view; recipient contact details and PDF download | Yes | Yes | Yes | Names/totals only, no contact or PDF | No | No |
 | User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR targets) | No | No | No |
 | Assign ADMIN or PASTOR role | Yes | No | No | No | No | No |
 | Own event: view registrations, check attendees in | Yes | Yes | Yes | No | No | Yes (own events) |

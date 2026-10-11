@@ -30,7 +30,7 @@ export type InvoiceListRow = {
 }
 
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
-const encOrNull = (v: string) => (v === "" ? null : encrypt(v))
+const encOrNull = (v: string) => (v ? encrypt(v) : null)
 const decOrNull = (v: string | null) => (v ? safeDecrypt(v) : null)
 
 /** Check the referenced account/fund/recipient exist and are usable. Returns an error message or null. */

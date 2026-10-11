@@ -3,7 +3,7 @@ import {
   BookOpen, ArrowLeftRight, Landmark, PiggyBank, TrendingUp, BarChart2, BarChart3,
   CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck, BadgeCheck,
   SlidersHorizontal, ListChecks, Scale, Cake, HandCoins, Gift, Inbox, MonitorSmartphone,
-  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School,
+  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
 } from "lucide-react"
 
 export type NavItem = { href: string; label: string; icon: React.ElementType; show: boolean; badge?: number }
@@ -83,6 +83,8 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
             { href: "/accounting/send-receipts", label: "Send Receipts", icon: ReceiptText, show: isAccounting },
             { href: "/accounting/receipt-audit", label: "Receipt Audit Log", icon: ReceiptText, show: isAccountingViewer },
             { href: "/accounting/dgr-receipts", label: "DGR Receipts", icon: ReceiptText, show: isAccountingViewer },
+            { href: "/accounting/invoices", label: "Invoices", icon: FileText, show: isAccountingViewer },
+            { href: "/accounting/customers", label: "Customers", icon: Building2, show: isAccountingViewer },
             { href: "/accounting/budget", label: "Budget", icon: PiggyBank, show: isAdmin },
             { href: "/accounting/settings", label: "Acct. Settings", icon: SlidersHorizontal, show: isAdmin },
           ],
