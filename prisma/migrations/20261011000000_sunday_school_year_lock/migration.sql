@@ -4,13 +4,17 @@
 -- Repair any enrolment whose year disagrees with its class (actions never
 -- produce one, but the new FK would reject it). Drop a mismatched row only when
 -- the child already has a correct enrolment in the class's year, since moving
--- it would break the (personId, year) unique.
+-- it would break the (personId, year) unique. That other enrolment must itself
+-- match its class, so two crossed mismatched rows are not both deleted; the
+-- UPDATE below then fails on the unique instead of losing data silently.
 DELETE FROM "SundaySchoolEnrolment" e
 USING "SundaySchoolClass" c
 WHERE c."id" = e."classId" AND e."year" <> c."year"
   AND EXISTS (
     SELECT 1 FROM "SundaySchoolEnrolment" o
+    JOIN "SundaySchoolClass" oc ON oc."id" = o."classId"
     WHERE o."personId" = e."personId" AND o."year" = c."year" AND o."id" <> e."id"
+      AND o."year" = oc."year"
   );
 
 UPDATE "SundaySchoolEnrolment" e
