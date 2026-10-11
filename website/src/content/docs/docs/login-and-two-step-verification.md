@@ -19,8 +19,9 @@ signed in, see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); 
 3. **Remember this device** is on the password screen and ticked by default. If it stays
    ticked, this browser skips the code step for 14 days after you finish sign-in. Untick it
    on shared computers.
-4. On success you're signed in and redirected to the dashboard (or, for an Event Organiser,
-   straight to `/my-events`).
+4. On success you're signed in and redirected to the page you originally asked for (the
+   sign-in page remembers it as `?next=`, same-site paths only), or the dashboard if none
+   (for an Event Organiser, straight to `/my-events`).
 
 **Signing in with an authenticator app:** once you've turned one on (see below), step 2
 changes. No email is sent; instead you enter the 6-digit code from your app. Choose **Use a

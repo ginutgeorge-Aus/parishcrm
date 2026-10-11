@@ -2,6 +2,7 @@ import NextAuth from "next-auth"
 import { NextResponse } from "next/server"
 import { authConfig } from "@/auth.config"
 import { buildCsp, isPublicPath, SECURITY_HEADERS, EVENT_IMAGE_PATH } from "@/lib/csp"
+import { loginRedirectPath } from "@/lib/safeNext"
 import { publicBodyTooLarge } from "@/lib/bodyLimit"
 import { isOrganiserAllowedPath } from "@/lib/organiserAccess"
 import {
@@ -67,7 +68,11 @@ export default auth(async (req) => {
   // the CSP header too — it executes no scripts, but keeping the policy on
   // every response closes the defense-in-depth gap.
   if (!req.auth?.user && !isPublic) {
-    return withSecurityHeaders(NextResponse.redirect(new URL("/login", req.nextUrl)), csp)
+    // Carry the requested path as ?next= so login returns the user there.
+    return withSecurityHeaders(
+      NextResponse.redirect(new URL(loginRedirectPath(pathname, req.nextUrl.search), req.nextUrl)),
+      csp,
+    )
   }
 
   // Event organisers are confined to /my-events (+ membership-gated export/print
