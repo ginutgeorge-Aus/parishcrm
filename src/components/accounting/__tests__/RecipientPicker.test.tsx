@@ -32,13 +32,32 @@ describe("recipient picker in InvoiceForm", () => {
     expect(getRecipientContact).toHaveBeenCalledWith("person", 5)
   })
 
-  it("ignores a contact lookup error", async () => {
+  it("surfaces a contact lookup error", async () => {
     ;(getRecipientContact as jest.Mock).mockResolvedValue({ error: "Not found" })
     render(<InvoiceForm {...props} />)
     openPicker()
     fireEvent.click(await screen.findByText("Example Scouts"))
-    await waitFor(() => expect(getRecipientContact).toHaveBeenCalledWith("customer", 3))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load this recipient's contact details")
     expect(screen.getByLabelText("Email")).toHaveValue("")
+  })
+
+  it("clears the previous recipient's contact at once and blocks saving until the lookup lands", async () => {
+    let resolve: (v: unknown) => void = () => {}
+    ;(getRecipientContact as jest.Mock)
+      .mockResolvedValueOnce({ email: "alex@example.com", address: "2 Example Rd" })
+      .mockImplementationOnce(() => new Promise((r) => { resolve = r }))
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("Alex Example"))
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveValue("alex@example.com"))
+    openPicker()
+    fireEvent.click(await screen.findByText("Example Scouts"))
+    expect(screen.getByLabelText("Email")).toHaveValue("")
+    expect(screen.getByLabelText("Address")).toHaveValue("")
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
+    resolve({ email: "scouts@example.com", address: "" })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled())
+    expect(screen.getByLabelText("Email")).toHaveValue("scouts@example.com")
   })
 
   it("creates a new customer inline and selects it", async () => {
@@ -90,5 +109,18 @@ describe("recipient picker in InvoiceForm", () => {
     expect(screen.getByLabelText("Notes (printed on the invoice)")).toHaveValue("Thanks")
     fireEvent.click(screen.getByLabelText("Line 1 GST"))
     expect(screen.getByTestId("invoice-gst")).toHaveTextContent("$0.00")
+  })
+
+  it("keeps stored per-line GST flags while GST is disabled", () => {
+    const { container } = render(<InvoiceForm {...props} gstEnabled={false} edit={{
+      id: 11, invoiceNo: null, status: "DRAFT", personId: null, customerId: null, recipientName: "X",
+      recipientEmail: null, recipientAddress: null, issueDate: "2026-10-11", dueDate: "2026-10-25",
+      lines: [{ description: "Hall hire", qty: 1, unitPriceCents: 10000, gst: true }], subtotal: "100.00", gstTotal: "0.00", total: "100.00",
+      taxInvoice: false, accountId: 4, accountName: "Hall hire", fundId: null, fundName: null, notes: null,
+      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null,
+    }} />)
+    const lines = JSON.parse((container.querySelector('input[name="lines"]') as HTMLInputElement).value)
+    expect(lines[0].gst).toBe(true)
+    expect(screen.getByTestId("invoice-total")).toHaveTextContent("$100.00")
   })
 })

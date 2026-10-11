@@ -33,15 +33,24 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
     edit ? edit.lines.map((l) => ({ description: l.description, qty: String(l.qty), unitPrice: (l.unitPriceCents / 100).toFixed(2), gst: l.gst })) : [blank(gstEnabled)],
   )
   const reqId = useRef(0)
+  const [lookupPending, setLookupPending] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
   const today = sydneyTodayYMD()
 
   async function pick(o: RecipientOption | null) {
-    if (!o) { setRecipient({ kind: "none", id: null, name }); return }
+    const my = ++reqId.current
+    setLookupError(null)
+    if (!o) { setRecipient({ kind: "none", id: null, name }); setLookupPending(false); return }
     setRecipient({ kind: o.kind, id: o.id, name: o.name })
     setName(o.name)
-    const my = ++reqId.current
+    // Clear the previous recipient's contact at once and block saving until the lookup
+    // lands, so a draft can never pair the new name with the old recipient's email.
+    setEmail(""); setAddress("")
+    setLookupPending(true)
     const res = await getRecipientContact(o.kind, o.id)
-    if (my !== reqId.current || "error" in res) return
+    if (my !== reqId.current) return
+    setLookupPending(false)
+    if ("error" in res) { setLookupError("Couldn't load this recipient's contact details — enter them below."); return }
     setEmail(res.email); setAddress(res.address)
   }
 
@@ -55,7 +64,9 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   }, [lines, gstEnabled])
 
   const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
-  const serialized = JSON.stringify(lines.map((l) => ({ ...l, gst: gstEnabled && l.gst })))
+  // Send each line's stored GST flag as-is: while GST is off the server ignores it, and
+  // keeping it means re-enabling GST restores the draft's tax classification.
+  const serialized = JSON.stringify(lines)
 
   return (
     <form action={formAction} className="max-w-3xl space-y-5">
@@ -68,6 +79,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
         <legend className="font-medium">Recipient</legend>
         <RecipientPicker options={options} value={recipient} onPick={pick}
           onCreated={(o) => { setOptions((xs) => [...xs, o]); void pick(o) }} />
+        {lookupError && <p role="alert" className="text-sm text-destructive">{lookupError}</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1"><Label htmlFor="recipientName">Name</Label>
             <Input id="recipientName" name="recipientName" value={name} onChange={(e) => setName(e.target.value)} required /></div>
@@ -124,7 +136,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       <div className="space-y-1"><Label htmlFor="notes">Notes (printed on the invoice)</Label>
         <Textarea id="notes" name="notes" rows={2} defaultValue={edit?.notes ?? ""} /></div>
 
-      <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save draft"}</Button>
+      <Button type="submit" disabled={isPending || lookupPending}>{isPending ? "Saving…" : "Save draft"}</Button>
     </form>
   )
 }
