@@ -1,11 +1,13 @@
 import { isPublicPath } from "@/lib/csp"
 
 // The ONLY paths an EVENT_ORGANISER may reach. Everything else redirects to
-// /my-events. The CSV-export API and the print page are allowed here because
+// /my-events. /my-classes pages self-gate on roll-marker membership
+// (canMarkRoll). The CSV-export API and the print page are allowed here because
 // they self-gate on EventManager membership (canManageEvent) — middleware only
 // needs to let the request through to that check.
 export function isOrganiserAllowedPath(pathname: string): boolean {
   if (pathname === "/my-events" || pathname.startsWith("/my-events/")) return true
+  if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return true
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true
   if (pathname.startsWith("/_next")) return true
   if (pathname === "/api/health") return true

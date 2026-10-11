@@ -239,12 +239,9 @@ export default async function DashboardPage() {
   // Giving trend vs the same month last year — drives the arrow + colour. A
   // zero delta (e.g. a fresh install) is neutral, not a green "up".
   const givingDelta = givingNow - givingLastYearAmt
-  const givingTrend =
-    givingDelta > 0
-      ? { arrow: "▲", srLabel: "Up", className: "text-income" }
-      : givingDelta < 0
-        ? { arrow: "▼", srLabel: "Down", className: "text-expense" }
-        : null
+  let givingTrend: { arrow: string; srLabel: string; className: string } | null = null
+  if (givingDelta > 0) givingTrend = { arrow: "▲", srLabel: "Up", className: "text-income" }
+  else if (givingDelta < 0) givingTrend = { arrow: "▼", srLabel: "Down", className: "text-expense" }
 
   // "Needs attention" tiles, only the ones this role can act on. A non-zero
   // count makes the tile actionable (gold accent + link).

@@ -25,6 +25,12 @@ describe("isOrganiserAllowedPath — /api/auth prefix", () => {
     expect(isOrganiserAllowedPath("/my-events/1")).toBe(true)
   })
 
+  it("allows /my-classes and its subpaths, not the staff Sunday School pages", () => {
+    expect(isOrganiserAllowedPath("/my-classes")).toBe(true)
+    expect(isOrganiserAllowedPath("/my-classes/4/roll")).toBe(true)
+    expect(isOrganiserAllowedPath("/sunday-school/4/roll")).toBe(false)
+  })
+
   it("blocks an arbitrary dashboard path", () => {
     expect(isOrganiserAllowedPath("/families")).toBe(false)
   })

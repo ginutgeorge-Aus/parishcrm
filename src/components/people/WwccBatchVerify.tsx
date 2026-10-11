@@ -68,12 +68,12 @@ export function WwccBatchVerify({ rows, verifyUrl }: Readonly<{ rows: WwccBatchR
       return next
     })
 
-  /** Sends the ticked rows (with their loaded updatedAt) to the bulk verify action and shows the result. */
+  /** Sends the ticked rows (with their loaded clearance and person updatedAt) to the bulk verify action and shows the result. */
   const markVerified = () =>
     startTransition(async () => {
       const items = rows
         .filter((r) => selected.has(r.clearanceId))
-        .map((r) => ({ id: r.clearanceId, seenUpdatedAt: r.updatedAt }))
+        .map((r) => ({ id: r.clearanceId, seenUpdatedAt: r.updatedAt, seenPersonUpdatedAt: r.personUpdatedAt }))
       const res = await verifyClearancesBulk(items, note)
       if (res && "error" in res) {
         setMessage({ kind: "error", text: res.error })
