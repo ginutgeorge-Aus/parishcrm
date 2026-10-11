@@ -4,8 +4,9 @@ jest.mock("@/lib/prisma", () => ({
   prisma: { trustedDevice: { create: jest.fn().mockResolvedValue({ id: "d1" }), updateMany: jest.fn(), deleteMany: jest.fn(), findMany: jest.fn() } },
 }))
 const cookieSet = jest.fn()
+const cookieGet = jest.fn()
 jest.mock("next/headers", () => ({
-  cookies: jest.fn(async () => ({ set: cookieSet })),
+  cookies: jest.fn(async () => ({ set: cookieSet, get: cookieGet })),
   headers: jest.fn(async () => ({ get: (k: string) => (k === "user-agent" ? "TestUA/1.0" : null) })),
 }))
 jest.mock("@/lib/trustedDevice", () => ({
@@ -124,5 +125,29 @@ describe("device trust requires a single-use OTP grant", () => {
     ;(prisma.trustedDevice.findMany as jest.Mock).mockResolvedValue([])
     expect(await listTrustedDevices()).toEqual([])
     expect(prisma.trustedDevice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 7, NOT: { tokenHash: { startsWith: "grant:" } } } }))
+  })
+
+  it("flags the device whose token matches this browser's cookie and never returns hashes", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "7" } })
+    cookieGet.mockReturnValue({ value: "MINE" })
+    const d = new Date()
+    ;(prisma.trustedDevice.findMany as jest.Mock).mockResolvedValue([
+      { id: "a", label: "Phone", createdAt: d, lastUsedAt: d, tokenHash: "hash:OTHER" },
+      { id: "b", label: "Laptop", createdAt: d, lastUsedAt: d, tokenHash: "hash:MINE" },
+    ])
+    const r = await listTrustedDevices()
+    expect(cookieGet).toHaveBeenCalledWith("trusted_device")
+    expect(r.map((x) => [x.id, x.isCurrent])).toEqual([["a", false], ["b", true]])
+    expect(r[0]).not.toHaveProperty("tokenHash")
+  })
+
+  it("marks nothing current when there is no device cookie", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "7" } })
+    cookieGet.mockReturnValue(undefined)
+    const d = new Date()
+    ;(prisma.trustedDevice.findMany as jest.Mock).mockResolvedValue([
+      { id: "a", label: null, createdAt: d, lastUsedAt: d, tokenHash: "hash:X" },
+    ])
+    expect((await listTrustedDevices())[0].isCurrent).toBe(false)
   })
 })

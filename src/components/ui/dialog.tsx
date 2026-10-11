@@ -62,23 +62,34 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-hidden sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          showCloseButton && "[&>:first-child]:-mt-4",
           className
         )}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
-            >
-              <XIcon
-              />
-              <span className="sr-only">Close</span>
-            </Button>
-          </DialogPrimitive.Close>
+          // Zero-height sticky wrapper keeps the close button pinned while a
+          // tall dialog scrolls (#150). `order-first` places it visually first
+          // (sticky needs it at the top) while it stays LAST in the DOM, so
+          // Radix's initial focus still lands on the first real control, not
+          // Close. Content's `[&>:first-child]:-mt-4` cancels the row-gap the
+          // extra row would add, leaving consumers' layout unchanged.
+          <div
+            data-slot="dialog-close-sticky"
+            className="sticky top-4 z-10 order-first h-0"
+          >
+            <DialogPrimitive.Close data-slot="dialog-close" asChild>
+              <Button
+                variant="ghost"
+                className="absolute -top-2 -right-2"
+                size="icon-sm"
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </Button>
+            </DialogPrimitive.Close>
+          </div>
         )}
       </DialogPrimitive.Content>
     </DialogPortal>
