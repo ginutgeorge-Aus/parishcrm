@@ -55,12 +55,15 @@ export async function runErrorDigest(
     filed++
   }
 
+  // Purges are side effects too: don't run them on a lease another run now owns.
+  if (!leaseHeld()) throw new LeaseLostError()
   const { count: purged } = await prisma.errorLog.deleteMany({
     where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
 
   // Reuse this weekly run to purge the aggregate route-view counter too
   // ( Phase 3) — no separate scheduler for a bare counter table.
+  if (!leaseHeld()) throw new LeaseLostError()
   await prisma.routeViewDaily.deleteMany({
     where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })

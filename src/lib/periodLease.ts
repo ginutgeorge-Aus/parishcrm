@@ -44,8 +44,9 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
  * compare-and-sets the lease to `running:<period>:<now>`, so a run that
  * outlives `leaseMs` can't be reclaimed and repeated by another invocation.
  * A failed write is logged, then the row is re-read in case it committed
- * anyway; otherwise the next tick retries from the old lease. Losing the CAS
- * means another run took over, so renewal stops.
+ * anyway; otherwise the next tick retries from the old lease. Losing the CAS,
+ * or a readback showing a foreign value, means another run took over, so
+ * renewal stops.
  * @param opts the run's options (key, period, lease length, error sink)
  * @param initial the lease value this run acquired
  * @returns `current()` for the latest lease value, `held()` (false once lost) and `stop()`, which also waits for an in-flight renewal
@@ -71,9 +72,18 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
       .catch(async (e: unknown) => {
         opts.logError(`lease renewal failed: ${e instanceof Error ? e.message : String(e)}`)
         // The write may have committed before the connection failed: adopt
-        // `next` if the row holds it, else the next tick retries from `current`.
+        // `next` if the row holds it. A value that is neither `current` nor
+        // `next` means another run took over: ownership is lost. If the
+        // readback fails too, the next tick retries from `current`.
         const row = await prisma.appSetting.findUnique({ where: { key: opts.settingKey } }).catch(() => null)
-        if (row?.value === next) current = next
+        if (!row) return
+        if (row.value === next) {
+          current = next
+        } else if (row.value !== current) {
+          lost = true
+          clearInterval(timer)
+          opts.logError(`lease lost for ${opts.periodKey}: another run took it over`)
+        }
       })
       .finally(() => { inFlight = null })
   }, opts.leaseMs / 3)
@@ -159,7 +169,9 @@ async function markDone<T>(opts: OncePerPeriodOptions<T>, lease: string): Promis
  * Returns "locked" when another run holds a fresh lease or won the race, and
  * "done" when this period already ran (never with `force`). The two stay
  * distinct: a scheduler that treated "locked" as done would never retry if the
- * lease owner then failed.
+ * lease owner then failed. A run whose lease the heartbeat found lost after
+ * `fn` finished also returns "locked", so the caller retries rather than
+ * recording success.
  * @param opts setting key, period, lease length, force/keepOpen and error sink
  * @param fn the once-per-period work; gets `leaseHeld()` to check before each
  *   side effect, and throws LeaseLostError when it turns false
@@ -188,7 +200,8 @@ export async function runOncePerPeriodLocked<T>(
     throw e
   }
   await heartbeat.stop()
-  if (!heartbeat.held()) return result
+  // Loss found after the work's last leaseHeld() check: don't record the period as done.
+  if (!heartbeat.held()) return "locked"
   if (opts.keepOpen?.(result)) {
     await releaseLease(opts, prev?.value ?? null, heartbeat.current())
     return result

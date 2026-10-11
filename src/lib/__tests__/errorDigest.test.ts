@@ -52,6 +52,24 @@ describe("runErrorDigest", () => {
     expect(deleteMany).not.toHaveBeenCalled()
   })
 
+  it("does not purge when the lease is lost after the last issue", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(deleteMany).not.toHaveBeenCalled()
+    expect(prisma.routeViewDaily.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("does not purge routeViewDaily when the lease is lost between the purges", async () => {
+    groupBy.mockResolvedValue([])
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(deleteMany).toHaveBeenCalledTimes(1)
+    expect(prisma.routeViewDaily.deleteMany).not.toHaveBeenCalled()
+  })
+
   it("skips when an open issue already carries the fingerprint marker", async () => {
     ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([{ number: 5, body: "x <!-- fingerprint:abc123 --> y" }])
     const r = await runErrorDigest(new Date())
