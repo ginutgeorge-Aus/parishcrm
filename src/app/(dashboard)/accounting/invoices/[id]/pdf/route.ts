@@ -4,7 +4,7 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
-import { loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { churchConfigMessage, loadInvoicePdf } from "@/lib/invoicePdfModel"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 /** Download an invoice PDF. Accounting viewers except AUDITOR (the PDF carries recipient contact details). */
@@ -21,8 +21,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     out = await loadInvoicePdf(id)
   } catch (e) {
     // Strict church settings throw when a tax invoice's ABN/name/address is unset.
-    const message = e instanceof Error && e.message.includes("not configured") ? e.message : "Could not render the invoice"
-    return NextResponse.json({ error: message }, { status: e instanceof Error && e.message.includes("not configured") ? 409 : 500 })
+    const configMessage = churchConfigMessage(e)
+    if (configMessage) return NextResponse.json({ error: configMessage }, { status: 409 })
+    return NextResponse.json({ error: "Could not render the invoice" }, { status: 500 })
   }
   if (!out) return NextResponse.json({ error: "Not found" }, { status: 404 })
   await logAudit(actorId(session), "INVOICE_PDF_DOWNLOADED", "Invoice", id, { invoiceNo: out.invoiceNo })

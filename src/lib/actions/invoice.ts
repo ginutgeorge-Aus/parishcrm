@@ -9,7 +9,7 @@ import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
-import { centsToDecimalString, computeInvoiceTotals, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
+import { centsToDecimalString, computeInvoiceTotals, INVOICE_LIST_LIMIT, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { isValidPgId } from "@/lib/validation"
 import type { ActionResult } from "./types"
@@ -161,7 +161,7 @@ export async function listInvoices(filter: { status?: InvoiceStatus; from?: stri
   const rows = await prisma.invoice.findMany({
     where: { ...(filter.status ? { status: filter.status } : {}), ...(filter.from || filter.to ? { issueDate } : {}) },
     orderBy: [{ issueDate: "desc" }, { id: "desc" }],
-    take: 500,
+    take: INVOICE_LIST_LIMIT,
     select: { id: true, invoiceNo: true, status: true, recipientName: true, issueDate: true, dueDate: true, total: true, gstTotal: true, paidAt: true, lines: true },
   })
   const { gstRegistered } = await getInvoiceSettings()

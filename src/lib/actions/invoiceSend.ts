@@ -26,11 +26,12 @@ function revalidate(id: number) {
 }
 
 /**
- * Allocate the INV number if missing (MAX+1, one P2002 retry), freeze taxInvoice from the
- * current GST setting and recompute the stored totals from the lines with that same flag,
- * so the frozen flag and the money can never disagree.
+ * In ONE transaction: allocate the INV number if missing (MAX+1, one P2002 retry), freeze
+ * taxInvoice + issuer, recompute the stored totals from the lines with that same GST flag,
+ * and flip DRAFT → SENT. Doing the flip in the same write means a concurrent draft edit can
+ * never land between freezing and sending (edited lines with stale totals).
  */
-async function allocateAndFreeze(id: number, settings: InvoiceSettings, issuer: IssuerSnapshot): Promise<{ invoiceNo: string } | { error: string }> {
+async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceSettings, issuer: IssuerSnapshot): Promise<{ invoiceNo: string } | { error: string }> {
   const taxInvoice = settings.gstRegistered
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -39,6 +40,9 @@ async function allocateAndFreeze(id: number, settings: InvoiceSettings, issuer: 
         if (!row || row.status !== InvoiceStatus.DRAFT) return CHANGED
         const t = computeInvoiceTotals(row.lines as InvoiceLine[], taxInvoice)
         const frozen = {
+          status: InvoiceStatus.SENT,
+          sentAt: new Date(),
+          sentById: uid,
           taxInvoice,
           issuer,
           subtotal: centsToDecimalString(t.subtotalCents),
@@ -102,15 +106,9 @@ async function send(id: number, email: boolean): Promise<Result> {
   } catch {
     return { error: "Could not load church details. Please try again." }
   }
-  const alloc = await allocateAndFreeze(id, settings, issuer)
+  const alloc = await allocateFreezeAndSend(id, uid, settings, issuer)
   if ("error" in alloc) return alloc
   const { invoiceNo } = alloc
-
-  const flip = await prisma.invoice.updateMany({
-    where: { id, status: InvoiceStatus.DRAFT },
-    data: { status: InvoiceStatus.SENT, sentAt: new Date(), sentById: uid },
-  })
-  if (flip.count === 0) return CHANGED
 
   if (!email) {
     await logAudit(uid, "INVOICE_MARKED_SENT", "Invoice", id, { invoiceNo })

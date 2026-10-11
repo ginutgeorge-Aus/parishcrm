@@ -47,9 +47,13 @@ describe("sendInvoice", () => {
     expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0007 emailed" })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "DRAFT", invoiceNo: null },
-      data: { seq: 7, invoiceNo: "INV-0007", taxInvoice: true, issuer, subtotal: "300.00", gstTotal: "30.00", total: "330.00" },
+      data: {
+        seq: 7, invoiceNo: "INV-0007", status: "SENT", sentAt: expect.any(Date), sentById: 1,
+        taxInvoice: true, issuer, subtotal: "300.00", gstTotal: "30.00", total: "330.00",
+      },
     })
-    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ status: "SENT", sentById: 1 }) })
+    // Freeze and the SENT flip are one write — no separate status update a draft edit could race.
+    expect(prisma.invoice.updateMany).toHaveBeenCalledTimes(1)
     expect(sendEmail).toHaveBeenCalledWith("scouts@example.com", "Invoice INV-0007 from Example Church", expect.any(String), expect.any(String),
       [{ filename: "INV-0007.pdf", content: expect.any(Buffer), contentType: "application/pdf" }])
     expect(getInvoiceSettings).toHaveBeenCalledTimes(1)
@@ -96,7 +100,7 @@ describe("sendInvoice", () => {
     })
     expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0003 emailed" })
     expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
-    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ total: "330.00", taxInvoice: true }) })
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ total: "330.00", taxInvoice: true, status: "SENT" }) })
   })
   it("retries once on a number collision", async () => {
     const p2002 = Object.assign(new Error("unique"), { code: "P2002" })

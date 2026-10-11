@@ -56,17 +56,22 @@ function drawLines(doc: PDFKit.PDFDocument, m: InvoicePdfModel, y: number, conte
     : [{ k: "description", w: 0.56, a: "left" }, { k: "qty", w: 0.1, a: "right" }, { k: "unitPrice", w: 0.16, a: "right" }, { k: "amount", w: 0.18, a: "right" }]
   const head: Record<string, string> = { description: "Description", qty: "Qty", unitPrice: m.showGst ? "Unit (ex GST)" : "Unit price", gst: "GST", amount: m.showGst ? "Amount (ex GST)" : "Amount" }
   const bottom = () => doc.page.height - MARGIN - FOOTER_H
+  const descW = contentW * cols[0].w - 8
   const row = (cells: Record<string, string>, bold: boolean, bg?: string) => {
-    if (y + ROW_H > bottom()) { doc.addPage(); y = MARGIN }
-    if (bg) doc.rect(MARGIN, y, contentW, ROW_H).fill(bg)
-    let x = MARGIN
     doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9.5).fillColor(SLATE_700)
+    // The description wraps (never truncated — it can be material); the row grows to fit it.
+    const h = Math.max(ROW_H, doc.heightOfString(cells.description ?? "", { width: descW }) + 12)
+    if (y + h > bottom()) { doc.addPage(); y = MARGIN }
+    if (bg) doc.rect(MARGIN, y, contentW, h).fill(bg)
+    doc.fillColor(SLATE_700)
+    let x = MARGIN
     for (const c of cols) {
       const w = contentW * c.w
-      doc.text(cells[c.k] ?? "", x + 4, y + 6, { width: w - 8, align: c.a as "left" | "right", lineBreak: false, ellipsis: true })
+      const wrap = c.k === "description"
+      doc.text(cells[c.k] ?? "", x + 4, y + 6, { width: w - 8, align: c.a as "left" | "right", lineBreak: wrap, ellipsis: !wrap })
       x += w
     }
-    y += ROW_H
+    y += h
   }
   row(head, true, LIGHT_BG)
   for (const l of m.lines) {

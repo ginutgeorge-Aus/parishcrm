@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { startTransition, useActionState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,7 +18,16 @@ export default function CustomerForm({ edit }: Readonly<{ edit?: CustomerView }>
     </div>
   )
   return (
-    <form action={formAction} className="max-w-xl space-y-4">
+    <form
+      className="max-w-xl space-y-4"
+      // onSubmit, not action={formAction}: React 19 resets uncontrolled fields after a form
+      // action, which would wipe the user's input when the server rejects the save.
+      onSubmit={(e) => {
+        e.preventDefault()
+        const data = new FormData(e.currentTarget)
+        startTransition(() => formAction(data))
+      }}
+    >
       {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
       {field("name", "Name")}
       {field("abn", "ABN (optional)")}

@@ -17,6 +17,7 @@ describe("renderInvoicePdf", () => {
     ["plain", { ...model, title: "Invoice" as const, showGst: false }],
     ["draft", { ...model, draft: true, invoiceNo: null }],
     ["many lines", { ...model, lines: Array.from({ length: 50 }, () => model.lines[0]) }],
+    ["long wrapping descriptions", { ...model, lines: Array.from({ length: 12 }, () => ({ ...model.lines[0], description: "Hall hire including kitchen, chairs and tables. ".repeat(10) })) }],
   ])("renders a %s invoice", async (_n, m) => {
     const pdf = await renderInvoicePdf(m)
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-")

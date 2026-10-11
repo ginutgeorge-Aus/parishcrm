@@ -8,6 +8,7 @@ import { fmtAUD, centsToNumber, toCents } from "@/lib/formatting"
 import { isRealCalendarDate } from "@/lib/validation"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { listInvoices } from "@/lib/actions/invoice"
+import { INVOICE_LIST_LIMIT } from "@/lib/invoice"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
@@ -59,6 +60,12 @@ export default async function InvoicesPage(props: Readonly<Props>) {
         </label>
         <Button type="submit" variant="outline">Filter</Button>
       </form>
+
+      {result.length >= INVOICE_LIST_LIMIT && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Showing the newest {INVOICE_LIST_LIMIT} invoices. Narrow the status or date filters to see older ones.
+        </p>
+      )}
 
       {result.length === 0 ? (
         <p className="text-sm text-muted-foreground">No invoices found.</p>

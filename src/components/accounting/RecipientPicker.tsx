@@ -18,12 +18,15 @@ export function RecipientPicker({ options, value, onPick, onCreated }: Readonly<
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState({ name: "", email: "", address: "" })
   const [err, setErr] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const people = options.filter((o) => o.kind === "person")
   const customers = options.filter((o) => o.kind === "customer")
 
   async function create() {
+    if (saving) return
     setErr(null)
-    const res = await createCustomerInline(draft)
+    setSaving(true)
+    const res = await createCustomerInline(draft).finally(() => setSaving(false))
     if ("error" in res) { setErr(res.error); return }
     const opt: RecipientOption = { kind: "customer", id: res.id, name: res.name }
     onCreated(opt)
@@ -51,7 +54,7 @@ export function RecipientPicker({ options, value, onPick, onCreated }: Readonly<
             <Input aria-label="New customer email" placeholder="Email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} />
             <Input aria-label="New customer address" placeholder="Address" value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
             <div className="flex gap-2">
-              <Button type="button" size="sm" onClick={create}>Save customer</Button>
+              <Button type="button" size="sm" onClick={create} disabled={saving}>{saving ? "Saving…" : "Save customer"}</Button>
               <Button type="button" size="sm" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
             </div>
           </div>

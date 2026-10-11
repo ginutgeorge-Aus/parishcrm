@@ -47,6 +47,12 @@ describe("InvoicesPage", () => {
     expect(renderToStaticMarkup(await call())).toContain("/accounting/invoices/new")
   })
 
+  it("says when the list hits its row cap", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue(Array.from({ length: 500 }, (_, i) => ({ ...row, id: i + 1 })))
+    expect(renderToStaticMarkup(await call())).toContain("Showing the newest 500 invoices")
+  })
+
   it("passes only valid filters through", async () => {
     as("ADMIN")
     await call({ status: "PAID", from: "2026-02-30", to: "2026-10-31" })

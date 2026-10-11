@@ -11,11 +11,14 @@ beforeEach(() => jest.clearAllMocks())
 
 describe("CustomerForm", () => {
   it("renders empty for a new customer and shows server errors", async () => {
-    ;(createCustomer as jest.Mock).mockResolvedValue({ error: "Name is required" })
+    ;(createCustomer as jest.Mock).mockResolvedValue({ error: "Enter a valid email" })
     render(<CustomerForm />)
     expect(screen.getByLabelText("Name")).toHaveValue("")
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Example Scouts" } })
     fireEvent.click(screen.getByRole("button", { name: "Save customer" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent("Name is required")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter a valid email")
+    // Rejected save keeps what the user typed.
+    expect(screen.getByLabelText("Name")).toHaveValue("Example Scouts")
   })
   it("prefills an existing customer and saves through updateCustomer", async () => {
     ;(updateCustomer as jest.Mock).mockResolvedValue(undefined)

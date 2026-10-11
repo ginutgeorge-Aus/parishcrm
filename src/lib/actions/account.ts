@@ -113,6 +113,9 @@ export async function updateAccount(
       if (parsed.data.type !== target.type) {
         const txCount = await tx.transaction.count({ where: { accountId: id } })
         if (txCount > 0) return "Cannot change account type while transactions exist"
+        // Invoices post to an INCOME account; retyping would leave them on an invalid one.
+        const invoiceCount = await tx.invoice.count({ where: { accountId: id } })
+        if (invoiceCount > 0) return "Cannot change account type while invoices use it"
       }
       await tx.account.update({ where: { id }, data: parsed.data })
       return null
@@ -138,11 +141,13 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
   // Transaction is not the only FK to Account — Budget, PettyCashReceipt and
   // PettyCashExpense also reference accountId. Without these checks a delete
   // throws an unhandled P2003 constraint error → 500.
-  const [budgetCount, pcReceiptCount, pcExpenseCount] = await Promise.all([
+  const [budgetCount, pcReceiptCount, pcExpenseCount, invoiceCount] = await Promise.all([
     prisma.budget.count({ where: { accountId: id } }),
     prisma.pettyCashReceipt.count({ where: { accountId: id } }),
     prisma.pettyCashExpense.count({ where: { accountId: id } }),
+    prisma.invoice.count({ where: { accountId: id } }),
   ])
+  if (invoiceCount > 0) return { error: `Cannot delete — ${invoiceCount} invoice(s) linked to this account` }
   if (budgetCount > 0) return { error: `Cannot delete — ${budgetCount} budget(s) linked to this account` }
   if (pcReceiptCount + pcExpenseCount > 0) {
     return { error: `Cannot delete — ${pcReceiptCount + pcExpenseCount} petty-cash entr(ies) linked to this account` }

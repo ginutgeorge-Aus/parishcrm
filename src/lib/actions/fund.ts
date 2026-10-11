@@ -72,12 +72,14 @@ export async function deleteFund(id: number): Promise<ActionResult> {
   try {
     result = await prisma.$transaction(
       async (txClient) => {
-        const [tx, rc, ex] = await Promise.all([
+        const [tx, rc, ex, inv] = await Promise.all([
           txClient.transaction.count({ where: { fundId: id } }),
           txClient.pettyCashReceipt.count({ where: { fundId: id } }),
           txClient.pettyCashExpense.count({ where: { fundId: id } }),
+          // Invoices' fundId is SET NULL on delete — count them so history isn't silently untagged.
+          txClient.invoice.count({ where: { fundId: id } }),
         ])
-        if (tx + rc + ex > 0) return { error: "Reassign or remove entries in this fund first." }
+        if (tx + rc + ex + inv > 0) return { error: "Reassign or remove entries in this fund first." }
         await txClient.fund.delete({ where: { id } })
         return undefined
       },

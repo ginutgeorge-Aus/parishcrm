@@ -16,6 +16,7 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { count: jest.fn() },
     pettyCashReceipt: { count: jest.fn() },
     pettyCashExpense: { count: jest.fn() },
+    invoice: { count: jest.fn().mockResolvedValue(0) },
   },
 }))
 
@@ -55,6 +56,17 @@ test("deleteFund blocked when referenced", async () => {
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(3)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.pettyCashExpense.count as jest.Mock).mockResolvedValue(0)
+  const r = await deleteFund(2)
+  expect(r).toEqual({ error: "Reassign or remove entries in this fund first." })
+})
+
+test("deleteFund blocked when only invoices reference it", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, name: "Building" })
+  ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.pettyCashExpense.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.invoice.count as jest.Mock).mockResolvedValueOnce(1)
   const r = await deleteFund(2)
   expect(r).toEqual({ error: "Reassign or remove entries in this fund first." })
 })

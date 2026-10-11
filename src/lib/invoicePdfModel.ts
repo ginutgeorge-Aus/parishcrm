@@ -57,10 +57,15 @@ export async function churchReadyError(taxInvoice: boolean): Promise<string | nu
     await getChurchSettingsStrict()
     return null
   } catch (e) {
-    return e instanceof Error && e.message.includes("not configured")
-      ? e.message.replace("issuing receipts", "issuing tax invoices")
-      : "Could not load church details. Please try again."
+    return churchConfigMessage(e) ?? "Could not load church details. Please try again."
   }
+}
+
+/** Invoice-worded message for a strict-settings "not configured" error; null for any other error. */
+export function churchConfigMessage(e: unknown): string | null {
+  return e instanceof Error && e.message.includes("not configured")
+    ? e.message.replace("issuing receipts", "issuing tax invoices")
+    : null
 }
 
 /** Shape an invoice row into display strings for the PDF renderer (pure apart from formatting). */

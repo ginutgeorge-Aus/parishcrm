@@ -6,7 +6,10 @@ import { loadInvoicePdf } from "@/lib/invoicePdfModel"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
-jest.mock("@/lib/invoicePdfModel", () => ({ loadInvoicePdf: jest.fn() }))
+jest.mock("@/lib/invoicePdfModel", () => ({
+  loadInvoicePdf: jest.fn(),
+  churchConfigMessage: jest.requireActual("@/lib/invoicePdfModel").churchConfigMessage,
+}))
 
 const mockAuth = auth as jest.Mock
 const call = (id: string) => GET({} as never, { params: Promise.resolve({ id }) })
@@ -34,7 +37,7 @@ describe("GET invoice pdf", () => {
     ;(loadInvoicePdf as jest.Mock).mockRejectedValue(new Error("Church ABN not configured — set church details in Settings before issuing receipts."))
     const res = await call("5")
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toContain("ABN not configured")
+    expect((await res.json()).error).toBe("Church ABN not configured — set church details in Settings before issuing tax invoices.")
   })
   it("500 without internals for other render errors", async () => {
     ;(loadInvoicePdf as jest.Mock).mockRejectedValue(new Error("db exploded"))

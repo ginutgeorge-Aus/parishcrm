@@ -6,6 +6,8 @@ import { MONEY_DECIMAL_RE, isRealCalendarDate, isValidEmail, isValidPgId } from 
 import { toCents } from "@/lib/formatting"
 
 export const INVOICE_MAX_LINES = 50
+/** Max rows the invoice list returns; the page says so when the cap is hit. */
+export const INVOICE_LIST_LIMIT = 500
 const GST_RATE_DIVISOR = 10 // 10% GST
 /** Largest total a Decimal(10,2) column holds: 99,999,999.99. */
 const MAX_INVOICE_TOTAL_CENTS = 9_999_999_999

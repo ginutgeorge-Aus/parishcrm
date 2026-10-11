@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useMemo, useRef, useState } from "react"
+import { startTransition, useActionState, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,6 +36,12 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   const [lookupPending, setLookupPending] = useState(false)
   const [lookupError, setLookupError] = useState<string | null>(null)
   const today = sydneyTodayYMD()
+  // Controlled fields: their state survives a rejected save (see the onSubmit note below).
+  const [issueDate, setIssueDate] = useState(edit?.issueDate ?? today)
+  const [dueDate, setDueDate] = useState(edit?.dueDate ?? today)
+  const [accountId, setAccountId] = useState(edit ? String(edit.accountId) : "")
+  const [fundId, setFundId] = useState(edit?.fundId ? String(edit.fundId) : "")
+  const [notes, setNotes] = useState(edit?.notes ?? "")
 
   async function pick(o: RecipientOption | null) {
     const my = ++reqId.current
@@ -69,7 +75,16 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   const serialized = JSON.stringify(lines)
 
   return (
-    <form action={formAction} className="max-w-3xl space-y-5">
+    <form
+      className="max-w-3xl space-y-5"
+      // onSubmit instead of action={formAction}: React 19 resets a form after an action
+      // completes, which clears <select>s even when controlled, losing input on a rejected save.
+      onSubmit={(e) => {
+        e.preventDefault()
+        const data = new FormData(e.currentTarget)
+        startTransition(() => formAction(data))
+      }}
+    >
       {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
       <input type="hidden" name="recipientKind" value={recipient.kind} />
       <input type="hidden" name="recipientId" value={recipient.id ?? ""} />
@@ -92,16 +107,16 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1"><Label htmlFor="issueDate">Issue date</Label>
-          <Input id="issueDate" name="issueDate" type="date" defaultValue={edit?.issueDate ?? today} required /></div>
+          <Input id="issueDate" name="issueDate" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required /></div>
         <div className="space-y-1"><Label htmlFor="dueDate">Due date</Label>
-          <Input id="dueDate" name="dueDate" type="date" defaultValue={edit?.dueDate ?? today} required /></div>
+          <Input id="dueDate" name="dueDate" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} required /></div>
         <div className="space-y-1"><Label htmlFor="accountId">Income account</Label>
-          <select id="accountId" name="accountId" defaultValue={edit?.accountId ?? ""} required className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="accountId" name="accountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} required className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
             <option value="" disabled>Choose…</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select></div>
         <div className="space-y-1"><Label htmlFor="fundId">Fund (optional)</Label>
-          <select id="fundId" name="fundId" defaultValue={edit?.fundId ?? ""} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="fundId" name="fundId" value={fundId} onChange={(e) => setFundId(e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
             <option value="">None</option>
             {funds.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select></div>
@@ -134,7 +149,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       </dl>
 
       <div className="space-y-1"><Label htmlFor="notes">Notes (printed on the invoice)</Label>
-        <Textarea id="notes" name="notes" rows={2} defaultValue={edit?.notes ?? ""} /></div>
+        <Textarea id="notes" name="notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
 
       <Button type="submit" disabled={isPending || lookupPending}>{isPending ? "Saving…" : "Save draft"}</Button>
     </form>

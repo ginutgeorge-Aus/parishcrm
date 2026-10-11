@@ -3,7 +3,7 @@ title: "Invoices"
 description: "Create, send and track invoices to church members or outside customers — hall hire, venue fees and other charges — with optional GST tax invoices and PDF download."
 ---
 
-Invoices let the church bill someone for a charge — hall hire, a venue fee, a camp fee — and keep track of whether it has been paid. An invoice can go to a **church member** (picked from People) or to a saved **customer** (an outside person or organisation, such as a community group that hires the hall). Customers are kept separate from People, so they never appear in the member directory, member counts or member emails.
+Invoices let the church bill someone for a charge — hall hire, a venue fee, a camp fee — by creating a draft, then emailing it or delivering it yourself as a PDF. An invoice can go to a **church member** (picked from People) or to a saved **customer** (an outside person or organisation, such as a community group that hires the hall). Customers are kept separate from People, so they never appear in the member directory, member counts or member emails.
 
 ## Using it
 
