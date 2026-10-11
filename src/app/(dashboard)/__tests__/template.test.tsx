@@ -23,7 +23,7 @@ describe("DashboardTemplate route-view counter", () => {
 
   it("renders children when present (returns children in output)", async () => {
     mockGet.mockReturnValue(null)
-    const testChild = { type: "div", props: { "data-testid": "test-child" }, $$typeof: Symbol.for("react.element") }
+    const testChild = <div data-testid="test-child" />
     const result = await DashboardTemplate({ children: testChild })
     
     // Server component returns JSX, which has children property
@@ -33,9 +33,12 @@ describe("DashboardTemplate route-view counter", () => {
 
   it("renders multiple children nodes in fragment", async () => {
     mockGet.mockReturnValue("/dashboard")
-    const child1 = { type: "div", props: { "data-testid": "child-1" }, $$typeof: Symbol.for("react.element") }
-    const child2 = { type: "div", props: { "data-testid": "child-2" }, $$typeof: Symbol.for("react.element") }
-    const children = { type: Symbol.for("react.fragment"), props: { children: [child1, child2] }, $$typeof: Symbol.for("react.element") }
+    const children = (
+      <>
+        <div data-testid="child-1" />
+        <div data-testid="child-2" />
+      </>
+    )
     
     const result = await DashboardTemplate({ children })
     

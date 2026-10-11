@@ -5,15 +5,17 @@ import { render, screen, fireEvent } from "@testing-library/react"
 import { AuditLogFilters } from "@/components/settings/AuditLogFilters"
 
 let mockPush = jest.fn()
+let mockParams = new URLSearchParams()
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockParams,
 }))
 
 beforeEach(() => {
   jest.clearAllMocks()
   jest.useFakeTimers()
   mockPush = jest.fn()
+  mockParams = new URLSearchParams()
 })
 
 afterEach(() => {
@@ -72,8 +74,12 @@ describe("AuditLogFilters", () => {
   })
 
   it("clears all filters when Clear button is clicked", () => {
+    mockParams = new URLSearchParams("action=VIEW_PASTORAL_NOTES&from=2026-01-01&to=2026-02-01")
     render(<AuditLogFilters />)
-    
+    expect(screen.getByLabelText("Filter audit log by action")).toHaveValue("VIEW_PASTORAL_NOTES")
+    expect(screen.getByLabelText("From date")).toHaveValue("2026-01-01")
+    expect(screen.getByLabelText("To date")).toHaveValue("2026-02-01")
+
     fireEvent.click(screen.getByRole("button", { name: "Clear" }))
     
     expect(mockPush).toHaveBeenCalledWith("/settings/audit-log")

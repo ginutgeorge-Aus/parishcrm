@@ -65,7 +65,8 @@ describe("ResetPasswordForm", () => {
   })
 
   it("disables submit button while pending", async () => {
-    mockReset.mockImplementation(() => new Promise(() => {}))
+    let settle: (v: unknown) => void = () => {}
+    mockReset.mockImplementation(() => new Promise((r) => { settle = r }))
     render(<ResetPasswordForm token="test-token" />)
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "ValidPass123!" } })
     fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "ValidPass123!" } })
@@ -73,11 +74,13 @@ describe("ResetPasswordForm", () => {
     const submitBtn = screen.getByRole("button", { name: /set new password/i })
     expect(submitBtn).not.toBeDisabled()
     
-    await act(async () => {
+    act(() => {
       fireEvent.submit(submitBtn.closest("form")!)
     })
-    
+    await screen.findByRole("button", { name: /saving/i })
     expect(submitBtn).toBeDisabled()
+    // Settle the action so React can finish the transition before teardown.
+    await act(async () => { settle({ error: "x" }) })
   })
 
   it("passes matching password and token to resetPassword action", async () => {

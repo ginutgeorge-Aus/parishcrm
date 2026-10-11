@@ -57,41 +57,31 @@ it("working filter hides untested checkpoints", async () => {
 })
 
 it("unknown filter defaults to pending", async () => {
-  // Invalid filter like ?filter=invalid should fall back to the pending default.
-  const text = await renderPage("ADMIN", "invalid-filter-name")
-  // Pending filter shows all checkpoints and count (same as default behavior)
-  for (const c of TEST_CHECKPOINTS) expect(text).toContain(c.title)
-  expect(text).toContain(`${TEST_CHECKPOINTS.length} pending`)
+  // One tested checkpoint: pending hides it, so a fallback to `all` would show it.
+  mockFind.mockResolvedValue([
+    { checkpointId: TEST_CHECKPOINTS[0].id, status: "WORKING", issueNumber: null },
+  ])
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  const ui = await VerifyPage({ searchParams: Promise.resolve({ filter: "invalid-filter-name" }) })
+  const { container } = render(ui)
+  const text = container.textContent ?? ""
+  for (const c of TEST_CHECKPOINTS.slice(1)) expect(text).toContain(c.title)
+  expect(text).not.toContain(TEST_CHECKPOINTS[0].title)
+  expect(text).toContain(`${TEST_CHECKPOINTS.length - 1} pending`)
+  expect(container.querySelector('a[aria-current="page"]')?.getAttribute("href")).toBe("/verify")
 })
 
 it("groups visible checkpoints by version, preserving authoring order", async () => {
-  // When checkpoints have results in multiple versions, they should be grouped
-  // with version headers. The grouping should preserve the authoring order
-  // of versions as they appear in the filtered results.
-  
-  // Create distinct test results spanning two versions
-  mockFind.mockResolvedValue([
-    { checkpointId: TEST_CHECKPOINTS[0].id, status: "WORKING", issueNumber: null },
-    { checkpointId: TEST_CHECKPOINTS[1].id, status: "BROKEN", issueNumber: 100 },
-    { checkpointId: TEST_CHECKPOINTS[2].id, status: "WORKING", issueNumber: null },
-  ])
-  
   mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   const ui = await VerifyPage({ searchParams: Promise.resolve({ filter: "all" }) })
   const container = render(ui).container
-  const text = container.textContent ?? ""
-  
-  // With results across the checkpoints, grouping sections should appear.
-  // The page groups by checkpoint.version, so if checkpoints have versions,
-  // version headers will be present.
-  const sections = container.querySelectorAll('section')
-  
-  // Filter to sections that look like version groups (they have an h2 child)
-  const versionSections = Array.from(sections).filter(s => s.querySelector('h2'))
-  
-  // Should have at least one version group if TEST_CHECKPOINTS have versions
-  if (TEST_CHECKPOINTS.some(c => c.version)) {
-    expect(versionSections.length).toBeGreaterThan(0)
+  const expected = [...new Set(TEST_CHECKPOINTS.map((c) => c.version))]
+  expect(expected.length).toBeGreaterThan(1) // fixture spans several versions
+  const sections = Array.from(container.querySelectorAll("section")).filter((s) => s.querySelector("h2"))
+  expect(sections.map((s) => s.querySelector("h2")?.textContent)).toEqual(expected)
+  // Each checkpoint renders inside its own version's section.
+  for (const c of TEST_CHECKPOINTS) {
+    const section = sections[expected.indexOf(c.version)]
+    expect(section.textContent).toContain(c.title)
   }
 })
-
