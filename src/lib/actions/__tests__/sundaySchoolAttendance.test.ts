@@ -39,10 +39,11 @@ const p = prisma as unknown as {
   $queryRaw: jest.Mock
 }
 /** Lock queries: class row; `enrolled` = person ids the enrolment lock returns; Person row live or archived. */
-const locks = (enrolled: number[], classLive = true, personLive = true) =>
+const locks = (enrolled: number[], classLive = true, personLive = true, yearLocked = false) =>
   p.$queryRaw.mockImplementation((sql: TemplateStringsArray) => {
     const q = sql.join("?")
-    if (q.includes('FROM "SundaySchoolClass"')) return Promise.resolve(classLive ? [{ id: 4 }] : [])
+    if (q.includes('FROM "SundaySchoolYearLock"')) return Promise.resolve(yearLocked ? [{ year: 2026 }] : [])
+    if (q.includes('FROM "SundaySchoolClass"')) return Promise.resolve(classLive ? [{ id: 4, year: 2026 }] : [])
     if (q.includes('FROM "Person"')) return Promise.resolve(personLive ? [{ id: 3 }] : [])
     return Promise.resolve(enrolled.map((personId) => ({ personId })))
   })
@@ -55,6 +56,23 @@ beforeEach(() => {
   p.sundaySchoolSession.findUnique.mockResolvedValue(null)
   p.sundaySchoolSession.findUniqueOrThrow.mockResolvedValue({ id: 55 })
   locks([3])
+})
+
+describe("year lock", () => {
+  const LOCKED = "This school year was rolled over and is locked — it can no longer be changed"
+  it("refuses every roll write for a rolled-over year, inside the transaction", async () => {
+    locks([3], true, true, true)
+    p.user.findFirst.mockResolvedValue({ role: UserRole.EVENT_ORGANISER })
+    expect(await setAttendance(4, "2026-10-11", 3, "PRESENT")).toEqual({ error: LOCKED })
+    expect(await markUnmarkedPresent(4, "2026-10-11")).toEqual({ error: LOCKED })
+    expect(await addRollMarker(4, 9)).toEqual({ error: LOCKED })
+    expect(await removeRollMarker(4, 9)).toEqual({ error: LOCKED })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
+    expect(p.sundaySchoolAttendance.createMany).not.toHaveBeenCalled()
+    expect(p.sundaySchoolRollMarker.createMany).not.toHaveBeenCalled()
+    expect(p.sundaySchoolRollMarker.deleteMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
 })
 
 describe("roll guards", () => {

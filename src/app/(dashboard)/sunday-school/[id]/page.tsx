@@ -14,6 +14,7 @@ import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
 import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { rollCounts } from "@/lib/sundaySchoolRollView"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 
 const CANDIDATE_CAP = 2000
 const byName = [{ lastName: "asc" as const }, { firstName: "asc" as const }]
@@ -51,7 +52,9 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
   })
   if (!cls) notFound()
 
-  const editor = canEdit(session.user.role) && !cls.archivedAt
+  // A rolled-over year is closed: same read-only view as an archived class.
+  const locked = (await lockedYears([cls.year])).has(cls.year)
+  const editor = canEdit(session.user.role) && !cls.archivedAt && !locked
   // Children and everyone else are capped separately so a large adult roll can
   // never crowd children out of the picker (the usual "Children only" view).
   const enrolQuery = (role: { equals: "CHILD" } | { not: "CHILD" }) => prisma.person.findMany({
@@ -115,6 +118,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
           <h2 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
             {cls.name}
             {cls.archivedAt && <Badge variant="secondary">Archived</Badge>}
+            {locked && <Badge variant="secondary">Locked (rolled over)</Badge>}
           </h2>
           <div className="flex flex-wrap gap-2">
             {!cls.archivedAt && (

@@ -7,6 +7,7 @@ jest.mock("@/lib/prisma", () => {
     sundaySchoolClass: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), createManyAndReturn: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
     sundaySchoolTeacher: { create: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
+    sundaySchoolYearLock: { upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
     person: { findFirst: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
@@ -26,8 +27,9 @@ import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 import {
-  addTeacher, enrolChildren, rolloverYear, createClass, updateClass, archiveClass, unenrolChild, removeTeacher,
+  addTeacher, enrolChildren, rolloverYear, createClass, updateClass, archiveClass, unenrolChild, removeTeacher, unlockSundaySchoolYear, lockSundaySchoolYear,
 } from "@/lib/actions/sundaySchool"
 
 const as = (role: UserRole) => (auth as jest.Mock).mockResolvedValue({ user: { id: "1", role } })
@@ -38,11 +40,132 @@ const form = (o: Record<string, string>) => {
   return fd
 }
 
+/** Row-lock replies, SQL-routed. Reset per test: a live class in an open year, live people. */
+const raw: { cls: unknown[]; people?: unknown[]; person?: unknown[]; yearLocked: boolean } = { cls: [], yearLocked: false }
+const LOCKED = "This school year was rolled over and is locked — it can no longer be changed"
+
 beforeEach(() => {
   jest.clearAllMocks()
-  // Lock reads find their rows: the people lock echoes the ids it was given.
-  ;(prisma.$queryRaw as jest.Mock).mockImplementation((sql: TemplateStringsArray, ...vals: unknown[]) =>
-    Promise.resolve(Array.isArray(vals[0]) ? (vals[0] as number[]).map((id) => ({ id })) : [{ id: 1 }]))
+  raw.cls = [{ id: 1, year: 2026 }]
+  raw.people = undefined
+  raw.person = undefined
+  raw.yearLocked = false
+  ;(prisma.$queryRaw as jest.Mock).mockImplementation((sql: TemplateStringsArray, ...vals: unknown[]) => {
+    const q = sql.join("?")
+    if (q.includes('FROM "SundaySchoolYearLock"')) return Promise.resolve(raw.yearLocked ? [{ year: 2026 }] : [])
+    if (q.includes('FROM "SundaySchoolClass"')) return Promise.resolve(raw.cls)
+    // Person locks: the batch lock echoes the ids it was given unless overridden.
+    if (Array.isArray(vals[0])) return Promise.resolve(raw.people ?? (vals[0] as number[]).map((id) => ({ id })))
+    return Promise.resolve(raw.person ?? [{ id: 1 }])
+  })
+})
+
+describe("lockSundaySchoolYear", () => {
+  it.each([UserRole.PASTOR, UserRole.OFFICE_ADMIN, UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])(
+    "%s is rejected with no write and no audit", async (role) => {
+      as(role)
+      expect(await lockSundaySchoolYear(2026)).toEqual({ error: "Unauthorized" })
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+      expect(prisma.sundaySchoolYearLock.createMany).not.toHaveBeenCalled()
+      expect(logAudit).not.toHaveBeenCalled()
+    })
+  it("rejects an invalid year and the live demo", async () => {
+    as(UserRole.ADMIN)
+    expect(await lockSundaySchoolYear(1999)).toEqual({ error: "Invalid school year" })
+    ;(assertNotDemo as jest.Mock).mockReturnValueOnce({ error: "Disabled in the live demo" })
+    expect(await lockSundaySchoolYear(2026)).toEqual({ error: "Disabled in the live demo" })
+    expect(prisma.sundaySchoolYearLock.createMany).not.toHaveBeenCalled()
+  })
+  it("takes the rollover table lock before writing the lock row, then audits", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolYearLock.createMany as jest.Mock).mockResolvedValue({ count: 1 })
+    expect(await lockSundaySchoolYear(2026)).toEqual({ success: "Locked 2026" })
+    const sql = (prisma.$executeRaw as jest.Mock).mock.calls[0][0].join("?")
+    expect(sql).toContain('LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE')
+    expect(prisma.sundaySchoolYearLock.createMany).toHaveBeenCalledWith({ data: [{ year: 2026 }], skipDuplicates: true })
+    expect((prisma.$transaction as jest.Mock).mock.calls[0][1]).toEqual({ timeout: 60_000 })
+    expect(logAudit).toHaveBeenCalledWith(1, "SS_YEAR_LOCKED", "SundaySchoolClass", undefined, { year: 2026 })
+    expect(revalidatePath).toHaveBeenCalledWith("/sunday-school")
+  })
+  it("reports an already-locked year without auditing", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolYearLock.createMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await lockSundaySchoolYear(2026)).toEqual({ error: "2026 is already locked" })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+})
+
+describe("unlockSundaySchoolYear", () => {
+  it.each([UserRole.PASTOR, UserRole.OFFICE_ADMIN, UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])(
+    "%s is rejected with no delete and no audit", async (role) => {
+      as(role)
+      expect(await unlockSundaySchoolYear(2026)).toEqual({ error: "Unauthorized" })
+      expect(prisma.sundaySchoolYearLock.deleteMany).not.toHaveBeenCalled()
+      expect(logAudit).not.toHaveBeenCalled()
+    })
+  it("rejects an invalid year", async () => {
+    as(UserRole.ADMIN)
+    expect(await unlockSundaySchoolYear(1999)).toEqual({ error: "Invalid school year" })
+    expect(prisma.sundaySchoolYearLock.deleteMany).not.toHaveBeenCalled()
+  })
+  it("blocks in the live demo", async () => {
+    ;(assertNotDemo as jest.Mock).mockReturnValueOnce({ error: "Disabled in the live demo" })
+    expect(await unlockSundaySchoolYear(2026)).toEqual({ error: "Disabled in the live demo" })
+    expect(prisma.sundaySchoolYearLock.deleteMany).not.toHaveBeenCalled()
+  })
+  it("deletes the lock row, audits and revalidates", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolYearLock.deleteMany as jest.Mock).mockResolvedValue({ count: 1 })
+    expect(await unlockSundaySchoolYear(2026)).toEqual({ success: "Unlocked 2026" })
+    expect(prisma.sundaySchoolYearLock.deleteMany).toHaveBeenCalledWith({ where: { year: 2026 } })
+    expect(logAudit).toHaveBeenCalledWith(1, "SS_YEAR_UNLOCKED", "SundaySchoolClass", undefined, { year: 2026 })
+    expect(revalidatePath).toHaveBeenCalledWith("/sunday-school")
+  })
+  it("reports a year that is not locked, without auditing", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolYearLock.deleteMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await unlockSundaySchoolYear(2026)).toEqual({ error: "2026 is not locked" })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+})
+
+describe("year lock (rolled-over year)", () => {
+  beforeEach(() => { raw.yearLocked = true })
+  it("refuses class edit and archive, writing nothing", async () => {
+    as(UserRole.ADMIN); liveClass()
+    expect(await updateClass(1, undefined, form({ name: "X", level: "1" }))).toEqual({ error: LOCKED })
+    expect(await archiveClass(1)).toEqual({ error: LOCKED })
+    expect(prisma.sundaySchoolClass.updateMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("refuses enrol, unenrol and teacher changes", async () => {
+    as(UserRole.ADMIN); liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
+    expect(await enrolChildren(1, [2])).toEqual({ error: LOCKED })
+    expect(await unenrolChild(1, 2)).toEqual({ error: LOCKED })
+    expect(await addTeacher(1, 7)).toEqual({ error: LOCKED })
+    expect(await removeTeacher(1, 7)).toEqual({ error: LOCKED })
+    expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolEnrolment.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolTeacher.create).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolTeacher.deleteMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("refuses a new class in a locked year", async () => {
+    as(UserRole.ADMIN)
+    expect(await createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).toEqual({ error: LOCKED })
+    expect(prisma.sundaySchoolClass.create).not.toHaveBeenCalled()
+  })
+  it("checks the lock after the class row lock, in the same transaction", async () => {
+    as(UserRole.ADMIN); liveClass()
+    await unenrolChild(1, 2)
+    const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"))
+    expect(calls[0]).toContain('FROM "SundaySchoolClass"')
+    expect(calls[0]).toContain("FOR SHARE")
+    expect(calls[1]).toContain('FROM "SundaySchoolYearLock"')
+  })
 })
 
 describe("guards", () => {
@@ -121,8 +244,9 @@ describe("updateClass / archiveClass", () => {
   it("refuses an update when the class was archived after the guard", async () => {
     as(UserRole.PASTOR)
     liveClass()
-    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    raw.cls = []
     expect(await updateClass(1, undefined, form({ name: "Years 1–2", level: "1" }))).toEqual({ error: "Class not found" })
+    expect(prisma.sundaySchoolClass.updateMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
   it("archives instead of deleting", async () => {
@@ -138,7 +262,7 @@ describe("updateClass / archiveClass", () => {
   it("does not audit an archive that changed no row", async () => {
     as(UserRole.ADMIN)
     liveClass()
-    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    raw.cls = []
     expect(await archiveClass(1)).toEqual({ error: "Class not found" })
     expect(logAudit).not.toHaveBeenCalled()
   })
@@ -188,7 +312,7 @@ describe("enrolChildren", () => {
     liveClass()
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
     ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
-    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([])
+    raw.cls = []
     expect(await enrolChildren(1, [2])).toEqual({ error: "Class not found" })
     expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
@@ -198,7 +322,7 @@ describe("enrolChildren", () => {
     liveClass()
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
     ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
-    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([{ id: 2 }])
+    raw.people = [{ id: 2 }]
     expect(await enrolChildren(1, [2, 3])).toEqual({ error: "Person not found" })
     expect(prisma.sundaySchoolEnrolment.upsert).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
@@ -247,14 +371,14 @@ describe("unenrolChild / removeTeacher success paths", () => {
   it("refuses to add a teacher whose tag was removed mid-request", async () => {
     as(UserRole.ADMIN); liveClass()
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
-    ;(prisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([])
+    raw.person = []
     expect(await addTeacher(1, 7)).toEqual({ error: "Tag this person as a Sunday school teacher first" })
     expect(prisma.sundaySchoolTeacher.create).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
   it("refuses to unenrol, add or remove a teacher once the class was archived mid-request", async () => {
     as(UserRole.ADMIN); liveClass()
-    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])
+    raw.cls = []
     expect(await unenrolChild(1, 5)).toEqual({ error: "Class not found" })
     expect(await removeTeacher(1, 7)).toEqual({ error: "Class not found" })
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
@@ -319,6 +443,15 @@ describe("rolloverYear", () => {
       fromYear: 2026, classes: 2, placed: 1, unplaced: 1,
     })
     expect(r).toEqual({ success: "Created 2 classes for 2027; moved 1 child; 1 need placing by hand" })
+    // Source year is locked in the same transaction as the copy.
+    expect(prisma.sundaySchoolYearLock.upsert).toHaveBeenCalledWith({ where: { year: 2026 }, create: { year: 2026 }, update: {} })
+  })
+  it("does not lock the year when the rollover fails", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.sundaySchoolClass.findMany as jest.Mock).mockResolvedValue([])
+    await rolloverYear(2026)
+    expect(prisma.sundaySchoolYearLock.upsert).not.toHaveBeenCalled()
   })
   it("counts only enrolments actually written", async () => {
     as(UserRole.ADMIN)

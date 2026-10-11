@@ -2,8 +2,11 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canEdit, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, canViewPeople, isAdmin } from "@/lib/roleGuard"
+import { LockedYearNotice, LockYearButton } from "@/components/sunday-school/LockedYearNotice"
+import { sydneyTodayYMD } from "@/lib/dates"
 import { parseSchoolYear } from "@/lib/sundaySchool"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -30,7 +33,9 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
   if (!canViewPeople(session.user.role)) redirect("/")
   const sp = await props.searchParams
   const year = parseSchoolYear(sp.year)
-  const editor = canEdit(session.user.role)
+  const locked = (await lockedYears([year])).has(year)
+  // A rolled-over year is closed: no new classes or second rollover.
+  const editor = canEdit(session.user.role) && !locked
   const rolled = rolledSummary(sp.rolled)
 
   const classes = await prisma.sundaySchoolClass.findMany({
@@ -72,12 +77,25 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
 
       {rolled && <FormFeedback state={{ success: rolled }} />}
 
+      {locked && (
+        <div className="space-y-2">
+          <LockedYearNotice year={year} canUnlock={isAdmin(session.user.role)} />
+          <p className="text-sm text-muted-foreground">
+            {year} was rolled over and is locked — its classes, teachers, enrolments and rolls can&apos;t be changed until an admin unlocks it.
+          </p>
+        </div>
+      )}
+
       {editor && (
         <div className="flex flex-wrap items-start gap-3">
           <Button asChild>
             <Link href={`/sunday-school/new?year=${year}`}>New class</Link>
           </Button>
           {canRollover && <RolloverButton fromYear={year} classCount={classes.length} />}
+          {/* Admin re-lock of an open past year (editor is already false when locked). */}
+          {isAdmin(session.user.role) && classes.length > 0 && year < Number.parseInt(sydneyTodayYMD().slice(0, 4), 10) && (
+            <LockYearButton year={year} />
+          )}
         </div>
       )}
 
