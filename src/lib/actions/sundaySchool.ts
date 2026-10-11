@@ -377,6 +377,34 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
 }
 
 /**
+ * Manually lock a school year (an admin re-closing a year after an unlock).
+ * ADMIN only. Takes the same table lock as rolloverYear before writing the
+ * lock row: without it a write that already read "no lock row" could commit
+ * after this lock. With it, in-flight writes (holding ROW SHARE via
+ * lockLiveClass) finish first and later ones wait, then see the row. Already
+ * locked returns an error and audits nothing.
+ */
+export async function lockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
+
+  const count = await prisma.$transaction(async (tx) => {
+    // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
+    await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+    // skipDuplicates = ON CONFLICT DO NOTHING; count 0 = it was already locked.
+    return (await tx.sundaySchoolYearLock.createMany({ data: [{ year }], skipDuplicates: true })).count
+    // LOCK TABLE may wait out an in-flight enrol batch, like rolloverYear.
+  }, { timeout: 60_000 })
+  if (count === 0) return { error: `${year} is already locked` }
+  await logAudit(actorId(session), "SS_YEAR_LOCKED", ENTITY, undefined, { year })
+  revalidatePath("/sunday-school")
+  return { success: `Locked ${year}` }
+}
+
+/**
  * Re-open a school year closed by rollover (deletes its SundaySchoolYearLock
  * row). ADMIN only. Idempotent: an already-open year returns an error and
  * audits nothing. Rolling the year over again re-locks it.

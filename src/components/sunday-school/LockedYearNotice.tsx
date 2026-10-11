@@ -3,7 +3,34 @@
 import { useRouter } from "next/navigation"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { Badge } from "@/components/ui/badge"
-import { unlockSundaySchoolYear } from "@/lib/actions/sundaySchool"
+import { lockSundaySchoolYear, unlockSundaySchoolYear } from "@/lib/actions/sundaySchool"
+
+/**
+ * ADMIN "Lock year" button for an open year, behind a confirm dialog that
+ * warns edits stop. The page decides who sees it; the action re-checks.
+ */
+export function LockYearButton({ year }: Readonly<{ year: number }>) {
+  const router = useRouter()
+  return (
+    <DeleteConfirmButton
+      onConfirm={async () => {
+        const r = await lockSundaySchoolYear(year)
+        if (r && "success" in r) {
+          router.refresh()
+          return
+        }
+        return r
+      }}
+      title={`Lock ${year}?`}
+      description={`Lock ${year}? Classes, enrolments and the roll for ${year} can't be edited until an admin unlocks it.`}
+      triggerLabel="Lock year"
+      triggerVariant="outline"
+      triggerClassName="min-h-11 sm:min-h-0"
+      confirmLabel="Lock"
+      pendingLabel="Locking…"
+    />
+  )
+}
 
 /**
  * "Locked (rolled over)" badge for a closed school year. When `canUnlock`
