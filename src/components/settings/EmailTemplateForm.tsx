@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useActionState, useEffect, useState, useTransition } from "react"
+import { useActionState, useEffect, useRef, useState, useTransition } from "react"
 import {
   updateEmailTemplate,
   resetEmailTemplate,
@@ -32,6 +32,7 @@ export function EmailTemplateForm({
   )
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
+  const previewGeneration = useRef(0)
   const [pending, start] = useTransition()
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
@@ -48,9 +49,10 @@ export function EmailTemplateForm({
   // pressed. Uses the initial fields; later edits re-render via the Preview button.
   useEffect(() => {
     let cancelled = false
+    const generation = previewGeneration.current
     Promise.resolve(previewEmailTemplate(templateKey, initial))
       .then((r) => {
-        if (!cancelled && r && "html" in r) setPreview(r.html)
+        if (!cancelled && generation === previewGeneration.current && r && "html" in r) setPreview(r.html)
       })
       .catch(() => {})
     return () => {
@@ -61,6 +63,7 @@ export function EmailTemplateForm({
 
   /** Re-renders the preview pane from the current (unsaved) field values. */
   function refreshPreview() {
+    previewGeneration.current += 1
     setMsg("")
     start(async () => {
       const r = await previewEmailTemplate(templateKey, fields)
@@ -69,6 +72,7 @@ export function EmailTemplateForm({
     })
   }
   function onReset() {
+    previewGeneration.current += 1
     start(async () => {
       const r = await resetEmailTemplate(templateKey)
       if (r && "success" in r) {
