@@ -12,7 +12,9 @@ of these fields until an admin saves a value in-app — see
 ## Using it
 
 Sign in as an `ADMIN` and open **Settings** from the sidebar. Each section
-below is its own form and saves independently.
+below is its own form and saves independently. A sticky bar at the top
+(General / Branding / Email / Members / Receipts / Security) jumps to each
+group without reloading, so unsaved edits elsewhere on the page are kept.
 
 ### Church Information
 
