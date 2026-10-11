@@ -42,7 +42,7 @@ export function parseOptimisticUpdatedAt(formData: FormData): Date | null {
 // (transaction.ts::createTransaction, pettyCashExpense.ts::createExpense):
 // candidates are pre-filtered by the caller's own DB query (date/amount/account
 // or session), then every listed encrypted field must match the submitted
-// plaintext for at least one candidate row.
+// plaintext for at least one candidate row (an empty check list matches nothing).
 //
 // `decrypt` MUST be `safeDecrypt` (@/lib/crypto), not the throwing `decrypt` —
 // one corrupt/unrotated-key candidate row would otherwise make the whole check
@@ -52,6 +52,8 @@ export function hasEncryptedFieldMatch<T>(
   checks: [keyof T, string][],
   decrypt: (value: string) => string
 ): boolean {
+  // every() over no checks is vacuously true — that would flag every candidate.
+  if (checks.length === 0) return false
   return candidates.some((c) =>
     checks.every(([field, expected]) => {
       const v = c[field]
@@ -69,12 +71,14 @@ export const MAX_YEAR = 2100
 
 // Stricter than /^[^\s@]+@[^\s@]+\.[^\s@]+$/, which accepted leading/trailing/
 // consecutive dots (".a@x.com", "a..b@x.com", "a@x..com", "a@x.com.") that mail
-// servers reject. Requires a dotted domain.
-export const EMAIL_REGEX =
+// servers reject. Requires a dotted domain. Use isValidEmail, which also
+// enforces the SMTP length limits.
+const EMAIL_REGEX =
   /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/
 
+/** EMAIL_REGEX plus the SMTP limits: 254 characters total, 64 before the @. */
 export function isValidEmail(email: string): boolean {
-  return email.length <= 254 && EMAIL_REGEX.test(email)
+  return email.length <= 254 && email.indexOf("@") <= 64 && EMAIL_REGEX.test(email)
 }
 
 // Postgres int4 upper bound — an id above this overflows the column and

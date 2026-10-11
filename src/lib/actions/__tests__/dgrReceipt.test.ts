@@ -202,6 +202,15 @@ describe("createDgrReceipt", () => {
     expect(prisma.dgrReceipt.create).toHaveBeenCalled()
   })
 
+  it.each([
+    ["a malformed address", "not-an-email"],
+    ["a local part over 64 characters (SMTP limit)", `${"a".repeat(65)}@example.com`],
+  ])("rejects a donor email with %s", async (_name, donorEmail) => {
+    const res = await createDgrReceipt(undefined, formDataWithLines({ donorEmail }))
+    expect(res).toEqual({ error: "Invalid email address" })
+    expect(prisma.dgrReceipt.create).not.toHaveBeenCalled()
+  })
+
   it("rejects a missing donor", async () => {
     ;(prisma.person.findUnique as jest.Mock).mockResolvedValue(null)
     ;(prisma.dgrReceipt.aggregate as jest.Mock).mockResolvedValue({ _max: { seq: null } })
