@@ -298,8 +298,9 @@ describe("syncMyReports", () => {
   it("returns after the time budget even if GitHub hangs, so the page still renders", async () => {
     jest.useFakeTimers()
     try {
-      mockReportFindMany.mockResolvedValue([{ id: 70, issueNumber: 70, status: "OPEN", syncedAt: null }]) // unique id: its poll never settles, so it stays in flight
-      mockGetIssue.mockReturnValue(new Promise(() => {})) // never settles
+      mockReportFindMany.mockResolvedValue([{ id: 70, issueNumber: 70, status: "OPEN", syncedAt: null }])
+      let hang: (e: Error) => void = () => {}
+      mockGetIssue.mockReturnValue(new Promise((_, reject) => { hang = reject })) // hangs past the budget
       let done = false
       const p = syncMyReports().then(() => { done = true })
       await jest.advanceTimersByTimeAsync(2_999)
@@ -308,6 +309,9 @@ describe("syncMyReports", () => {
       await p
       expect(done).toBe(true)
       expect(mockReportUpdate).not.toHaveBeenCalled()
+      // Settle the hung poll so row 70 and its process-wide sync slot don't leak into later tests.
+      hang(new Error("timeout"))
+      await jest.advanceTimersByTimeAsync(0)
     } finally {
       jest.useRealTimers()
     }
