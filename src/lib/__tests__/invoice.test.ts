@@ -79,5 +79,16 @@ describe("parseInvoiceDraft", () => {
     expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "1.5", unitPrice: "1", gst: false }])))
       .toEqual({ error: "Quantity must be a whole number from 1 to 9999" })
   })
+  it("rejects a total too large for the database", () => {
+    expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "9999", unitPrice: "99999.99", gst: false }])))
+      .toEqual({ error: "Invoice total is too large" })
+  })
+  it("rejects an id beyond int4", () => {
+    expect(parseInvoiceDraft(fd({ accountId: "2147483648" }))).toEqual({ error: "Invalid reference" })
+  })
+  it("rejects a zero quantity", () => {
+    expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "00", unitPrice: "1", gst: false }])))
+      .toEqual({ error: "Quantity must be a whole number from 1 to 9999" })
+  })
   it("rejects malformed lines JSON", () => expect(parseInvoiceDraft(fd({ lines: "{" }))).toEqual({ error: "Invalid line items" }))
 })

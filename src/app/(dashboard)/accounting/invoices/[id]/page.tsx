@@ -6,7 +6,8 @@ import { parseRouteId } from "@/lib/validation"
 import { fmtAUD, centsToNumber, toCents } from "@/lib/formatting"
 import { getInvoice } from "@/lib/actions/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
-import { lineGstCents } from "@/lib/invoice"
+import { computeInvoiceTotals, lineGstCents } from "@/lib/invoice"
+import { sydneyTodayYMD } from "@/lib/dates"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
@@ -28,6 +29,11 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
   const canManage = canAccessAccounting(role)
   const { gstRegistered } = await getInvoiceSettings()
   const showGst = inv.status === "DRAFT" ? gstRegistered : inv.taxInvoice
+  // Drafts: recompute with the current GST setting (stored totals date from the last save).
+  const totals = inv.status === "DRAFT"
+    ? computeInvoiceTotals(inv.lines, showGst)
+    : { subtotalCents: toCents(inv.subtotal), gstCents: toCents(inv.gstTotal), totalCents: toCents(inv.total) }
+  const day = (d: Date) => sydneyTodayYMD(d)
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -98,19 +104,19 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
       <dl className="ml-auto w-64 space-y-1 text-sm">
         {showGst && (
           <>
-            <div className="flex justify-between"><dt>Subtotal</dt><dd>{money(toCents(inv.subtotal))}</dd></div>
-            <div className="flex justify-between"><dt>GST</dt><dd>{money(toCents(inv.gstTotal))}</dd></div>
+            <div className="flex justify-between"><dt>Subtotal</dt><dd>{money(totals.subtotalCents)}</dd></div>
+            <div className="flex justify-between"><dt>GST</dt><dd>{money(totals.gstCents)}</dd></div>
           </>
         )}
-        <div className="flex justify-between font-semibold"><dt>Total</dt><dd>{money(toCents(inv.total))}</dd></div>
+        <div className="flex justify-between font-semibold"><dt>Total</dt><dd>{money(totals.totalCents)}</dd></div>
       </dl>
 
       {inv.notes && <p className="whitespace-pre-line text-sm"><span className="text-muted-foreground">Notes: </span>{inv.notes}</p>}
 
       <ul className="space-y-1 text-sm text-muted-foreground">
-        {inv.sentAt && <li>Sent {inv.sentAt.toISOString().slice(0, 10)}</li>}
-        {inv.paidAt && <li>Paid {inv.paidAt.toISOString().slice(0, 10)}</li>}
-        {inv.voidedAt && <li>Voided {inv.voidedAt.toISOString().slice(0, 10)}{inv.voidReason ? ` — ${inv.voidReason}` : ""}</li>}
+        {inv.sentAt && <li>Sent {day(inv.sentAt)}</li>}
+        {inv.paidAt && <li>Paid {day(inv.paidAt)}</li>}
+        {inv.voidedAt && <li>Voided {day(inv.voidedAt)}{inv.voidReason ? ` — ${inv.voidReason}` : ""}</li>}
       </ul>
     </div>
   )

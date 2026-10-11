@@ -16,7 +16,14 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   if (!canViewAccounting(role) || role === UserRole.AUDITOR) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   const id = parseRouteId(params.id)
   if (id === null) return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
-  const out = await loadInvoicePdf(id)
+  let out: Awaited<ReturnType<typeof loadInvoicePdf>>
+  try {
+    out = await loadInvoicePdf(id)
+  } catch (e) {
+    // Strict church settings throw when a tax invoice's ABN/name/address is unset.
+    const message = e instanceof Error && e.message.includes("not configured") ? e.message : "Could not render the invoice"
+    return NextResponse.json({ error: message }, { status: e instanceof Error && e.message.includes("not configured") ? 409 : 500 })
+  }
   if (!out) return NextResponse.json({ error: "Not found" }, { status: 404 })
   await logAudit(actorId(session), "INVOICE_PDF_DOWNLOADED", "Invoice", id, { invoiceNo: out.invoiceNo })
   return new NextResponse(out.pdf as unknown as BodyInit, {

@@ -7,12 +7,11 @@ import { logAudit } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { isP2002 } from "@/lib/validation"
+import { isP2002, isValidPgId } from "@/lib/validation"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
-import { formatInvoiceNo } from "@/lib/invoice"
-import { getInvoiceSettings } from "@/lib/invoiceSettings"
-import { getChurchSettings } from "@/lib/churchSettings"
-import { loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { centsToDecimalString, computeInvoiceTotals, formatInvoiceNo, type InvoiceLine } from "@/lib/invoice"
+import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
+import { churchReadyError, loadInvoicePdf } from "@/lib/invoicePdfModel"
 import { buildInvoiceEmail } from "@/lib/invoiceEmail"
 import { sendEmail } from "@/lib/email"
 
@@ -26,22 +25,36 @@ function revalidate(id: number) {
   revalidatePath(`${PATH}/${id}`)
 }
 
-/** Allocate INV number if missing (MAX+1, one P2002 retry) and freeze taxInvoice. Returns the number or an error. */
-async function allocateAndFreeze(id: number): Promise<{ invoiceNo: string } | { error: string }> {
-  const { gstRegistered } = await getInvoiceSettings()
+/**
+ * Allocate the INV number if missing (MAX+1, one P2002 retry), freeze taxInvoice from the
+ * current GST setting and recompute the stored totals from the lines with that same flag,
+ * so the frozen flag and the money can never disagree.
+ */
+async function allocateAndFreeze(id: number, settings: InvoiceSettings): Promise<{ invoiceNo: string } | { error: string }> {
+  const taxInvoice = settings.gstRegistered
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
-        const row = await tx.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true } })
+        const row = await tx.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, lines: true } })
         if (!row || row.status !== InvoiceStatus.DRAFT) return CHANGED
+        const t = computeInvoiceTotals(row.lines as InvoiceLine[], taxInvoice)
+        const frozen = {
+          taxInvoice,
+          subtotal: centsToDecimalString(t.subtotalCents),
+          gstTotal: centsToDecimalString(t.gstCents),
+          total: centsToDecimalString(t.totalCents),
+        }
         if (row.invoiceNo) {
-          await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: { taxInvoice: gstRegistered } })
-          return { invoiceNo: row.invoiceNo }
+          const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: frozen })
+          return res.count === 0 ? CHANGED : { invoiceNo: row.invoiceNo }
         }
         const agg = await tx.invoice.aggregate({ _max: { seq: true } })
         const seq = (agg._max.seq ?? 0) + 1
         const invoiceNo = formatInvoiceNo(seq)
-        const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null }, data: { seq, invoiceNo, taxInvoice: gstRegistered } })
+        const res = await tx.invoice.updateMany({
+          where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null },
+          data: { seq, invoiceNo, ...frozen },
+        })
         if (res.count === 0) return CHANGED
         return { invoiceNo }
       })
@@ -54,36 +67,42 @@ async function allocateAndFreeze(id: number): Promise<{ invoiceNo: string } | { 
   return { error: "Could not number the invoice. Please try again." }
 }
 
-/** Email the PDF for an invoice (already SENT). Throws on mail failure. */
-async function emailInvoice(id: number): Promise<string> {
-  const out = await loadInvoicePdf(id)
+/** Email the PDF for an invoice (already SENT). Throws on render or mail failure. */
+async function emailInvoice(id: number, settings: InvoiceSettings): Promise<void> {
+  const out = await loadInvoicePdf(id, settings)
   if (!out || !out.invoiceNo || !out.recipientEmail) throw new Error("invoice not renderable")
-  const [church, settings] = await Promise.all([getChurchSettings(), getInvoiceSettings()])
   const mail = buildInvoiceEmail({
-    churchName: church.name, recipientName: out.recipientName, invoiceNo: out.invoiceNo,
+    churchName: out.churchName, recipientName: out.recipientName, invoiceNo: out.invoiceNo,
     total: out.total, dueDate: out.dueDate, paymentDetails: settings.paymentDetails,
   })
   await sendEmail(out.recipientEmail, mail.subject, mail.html, mail.text, [
     { filename: out.filename, content: out.pdf, contentType: "application/pdf" },
   ])
-  return out.invoiceNo
 }
 
 /** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. */
 async function send(id: number, email: boolean): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return CHANGED
   const uid = actorId(session)
-  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true } })
+  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, recipientEmail: true } })
   if (!row || row.status !== InvoiceStatus.DRAFT) return CHANGED
   if (email && !row.recipientEmail) return { error: "Add a recipient email first, or use Mark as sent" }
 
-  const alloc = await allocateAndFreeze(id)
+  const settings = await getInvoiceSettings()
+  // Check before numbering: a tax invoice that can't render (no ABN etc.) must not get frozen.
+  const notReady = await churchReadyError(settings.gstRegistered)
+  if (notReady) return { error: notReady }
+
+  const alloc = await allocateAndFreeze(id, settings)
   if ("error" in alloc) return alloc
   const { invoiceNo } = alloc
 
-  const sentAt = new Date()
-  const flip = await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: { status: InvoiceStatus.SENT, sentAt, sentById: uid } })
+  const flip = await prisma.invoice.updateMany({
+    where: { id, status: InvoiceStatus.DRAFT },
+    data: { status: InvoiceStatus.SENT, sentAt: new Date(), sentById: uid },
+  })
   if (flip.count === 0) return CHANGED
 
   if (!email) {
@@ -92,13 +111,14 @@ async function send(id: number, email: boolean): Promise<Result> {
     return { success: `Invoice ${invoiceNo} marked as sent` }
   }
   try {
-    await emailInvoice(id)
+    await emailInvoice(id, settings)
   } catch (e) {
+    // Stay SENT: the mail may have been delivered before the error, so reopening the
+    // draft could let a second, different document go out under the same number.
     logger.error("sendInvoice email failed", { message: e instanceof Error ? e.message : "unknown" })
-    await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.SENT, sentAt }, data: { status: InvoiceStatus.DRAFT, sentAt: null, sentById: null } })
     await logAudit(uid, "INVOICE_SEND_FAILED", "Invoice", id, { invoiceNo })
     revalidate(id)
-    return { error: "Email failed — the invoice is still a draft (number kept). Try again or mark it as sent." }
+    return { error: `${invoiceNo} is marked as sent, but the email failed. Use Re-send to try again, or deliver it yourself.` }
   }
   await logAudit(uid, "INVOICE_SENT", "Invoice", id, { invoiceNo })
   revalidate(id)
@@ -119,11 +139,14 @@ export async function markInvoiceSent(id: number): Promise<Result> {
 export async function resendInvoice(id: number): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
-  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true } })
+  if (!isValidPgId(id)) return { error: "Only sent invoices can be re-sent" }
+  const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true, taxInvoice: true } })
   if (!row || row.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be re-sent" }
   if (!row.recipientEmail) return { error: "This invoice has no recipient email" }
+  const notReady = await churchReadyError(row.taxInvoice)
+  if (notReady) return { error: notReady }
   try {
-    await emailInvoice(id)
+    await emailInvoice(id, await getInvoiceSettings())
   } catch (e) {
     logger.error("resendInvoice failed", { message: e instanceof Error ? e.message : "unknown" })
     return { error: "Email failed. Please try again." }

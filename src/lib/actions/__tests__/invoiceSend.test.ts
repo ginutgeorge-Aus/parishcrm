@@ -3,22 +3,23 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { sendEmail } from "@/lib/email"
-import { loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { churchReadyError, loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { getInvoiceSettings } from "@/lib/invoiceSettings"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
-jest.mock("@/lib/invoicePdfModel", () => ({ loadInvoicePdf: jest.fn() }))
-jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn(async () => ({ gstRegistered: true, paymentDetails: "BSB 000-000" })) }))
-jest.mock("@/lib/churchSettings", () => ({ getChurchSettings: jest.fn(async () => ({ name: "Example Church", address: "", abn: "", email: "" })) }))
+jest.mock("@/lib/invoicePdfModel", () => ({ loadInvoicePdf: jest.fn(), churchReadyError: jest.fn() }))
+jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: { invoice: { findUnique: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }, $transaction: jest.fn() },
 }))
 
 const mockAuth = auth as jest.Mock
 const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role } })
-const draft = { id: 11, status: "DRAFT", invoiceNo: null, recipientEmail: "enc:scouts@example.com" }
+const lines = [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }]
+const draft = { id: 11, status: "DRAFT", invoiceNo: null, recipientEmail: "enc:scouts@example.com", lines, taxInvoice: false }
 beforeEach(() => {
   jest.clearAllMocks(); as("ADMIN")
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
@@ -26,18 +27,45 @@ beforeEach(() => {
   ;(prisma.invoice.aggregate as jest.Mock).mockResolvedValue({ _max: { seq: 6 } })
   ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
   ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
-  ;(loadInvoicePdf as jest.Mock).mockResolvedValue({ pdf: Buffer.from("%PDF"), filename: "INV-0007.pdf", recipientEmail: "scouts@example.com", invoiceNo: "INV-0007", recipientName: "Example Scouts", total: "$330.00", dueDate: "25 October 2026" })
+  ;(churchReadyError as jest.Mock).mockResolvedValue(null)
+  ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: true, paymentDetails: "BSB 000-000" })
+  ;(loadInvoicePdf as jest.Mock).mockResolvedValue({
+    pdf: Buffer.from("%PDF"), filename: "INV-0007.pdf", recipientEmail: "scouts@example.com", invoiceNo: "INV-0007",
+    recipientName: "Example Scouts", total: "$330.00", dueDate: "25 October 2026", churchName: "Example Church",
+  })
 })
 
 describe("sendInvoice", () => {
   it.each(["OFFICE_ADMIN", "AUDITOR", "VIEWER"])("rejects %s", async (r) => { as(r); expect(await sendInvoice(11)).toEqual({ error: "Unauthorized" }) })
-  it("allocates the next number, freezes GST, flips to SENT, emails the PDF", async () => {
+  it("rejects an invalid id without touching the DB", async () => {
+    expect(await sendInvoice(1.5)).toEqual({ error: "This invoice has changed. Reload and try again." })
+    expect(prisma.invoice.findUnique).not.toHaveBeenCalled()
+  })
+  it("allocates the next number, freezes GST + recomputed totals, flips to SENT, emails the PDF", async () => {
     expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0007 emailed" })
-    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT", invoiceNo: null }, data: { seq: 7, invoiceNo: "INV-0007", taxInvoice: true } })
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({
+      where: { id: 11, status: "DRAFT", invoiceNo: null },
+      data: { seq: 7, invoiceNo: "INV-0007", taxInvoice: true, subtotal: "300.00", gstTotal: "30.00", total: "330.00" },
+    })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ status: "SENT", sentById: 1 }) })
     expect(sendEmail).toHaveBeenCalledWith("scouts@example.com", "Invoice INV-0007 from Example Church", expect.any(String), expect.any(String),
       [{ filename: "INV-0007.pdf", content: expect.any(Buffer), contentType: "application/pdf" }])
+    expect(getInvoiceSettings).toHaveBeenCalledTimes(1)
+    expect(loadInvoicePdf).toHaveBeenCalledWith(11, { gstRegistered: true, paymentDetails: "BSB 000-000" })
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_SENT", "Invoice", 11, { invoiceNo: "INV-0007" })
+  })
+  it("strips GST from totals when the church is no longer GST registered", async () => {
+    ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })
+    await sendInvoice(11)
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ taxInvoice: false, gstTotal: "0.00", total: "300.00" }),
+    }))
+  })
+  it("refuses before numbering when church details are missing for a tax invoice", async () => {
+    ;(churchReadyError as jest.Mock).mockResolvedValue("Church ABN not configured — set church details in Settings before issuing tax invoices.")
+    expect(await sendInvoice(11)).toEqual({ error: "Church ABN not configured — set church details in Settings before issuing tax invoices." })
+    expect(churchReadyError).toHaveBeenCalledWith(true)
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
   it("requires an email", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, recipientEmail: null })
@@ -47,16 +75,21 @@ describe("sendInvoice", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, status: "SENT" })
     expect(await sendInvoice(11)).toEqual({ error: "This invoice has changed. Reload and try again." })
   })
-  it("reverts to DRAFT (keeping the number) when email fails", async () => {
+  it("stays SENT (never reopens the draft) when email fails", async () => {
     ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp"))
-    expect(await sendInvoice(11)).toEqual({ error: "Email failed — the invoice is still a draft (number kept). Try again or mark it as sent." })
-    expect(prisma.invoice.updateMany).toHaveBeenLastCalledWith({ where: { id: 11, status: "SENT", sentAt: expect.any(Date) }, data: { status: "DRAFT", sentAt: null, sentById: null } })
+    expect(await sendInvoice(11)).toEqual({ error: "INV-0007 is marked as sent, but the email failed. Use Re-send to try again, or deliver it yourself." })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "DRAFT" }) }))
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_SEND_FAILED", "Invoice", 11, { invoiceNo: "INV-0007" })
   })
-  it("keeps an existing number", async () => {
+  it("keeps an existing number but still refreezes totals", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, invoiceNo: "INV-0003" })
-    await sendInvoice(11)
+    ;(loadInvoicePdf as jest.Mock).mockResolvedValue({
+      pdf: Buffer.from("%PDF"), filename: "INV-0003.pdf", recipientEmail: "scouts@example.com", invoiceNo: "INV-0003",
+      recipientName: "Example Scouts", total: "$330.00", dueDate: "25 October 2026", churchName: "Example Church",
+    })
+    expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0003 emailed" })
     expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ total: "330.00", taxInvoice: true }) })
   })
   it("retries once on a number collision", async () => {
     const p2002 = Object.assign(new Error("unique"), { code: "P2002" })
@@ -71,6 +104,11 @@ describe("markInvoiceSent", () => {
     expect(sendEmail).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_MARKED_SENT", "Invoice", 11, { invoiceNo: "INV-0007" })
   })
+  it("also refuses a tax invoice when church details are missing", async () => {
+    ;(churchReadyError as jest.Mock).mockResolvedValue("Church ABN not configured")
+    expect(await markInvoiceSent(11)).toEqual({ error: "Church ABN not configured" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
 })
 
 describe("resendInvoice", () => {
@@ -78,8 +116,9 @@ describe("resendInvoice", () => {
     expect(await resendInvoice(11)).toEqual({ error: "Only sent invoices can be re-sent" })
   })
   it("re-emails a SENT invoice", async () => {
-    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, status: "SENT", invoiceNo: "INV-0007" })
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, status: "SENT", invoiceNo: "INV-0007", taxInvoice: true })
     expect(await resendInvoice(11)).toEqual({ success: "Invoice INV-0007 re-sent" })
+    expect(churchReadyError).toHaveBeenCalledWith(true)
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_RESENT", "Invoice", 11, { invoiceNo: "INV-0007" })
   })
 })

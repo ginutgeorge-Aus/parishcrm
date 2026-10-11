@@ -6,11 +6,11 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
-import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
-import { isValidEmail } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { isValidEmail, isValidPgId } from "@/lib/validation"
 import type { ActionResult } from "./types"
 
 const LIST_PATH = "/accounting/customers"
@@ -29,8 +29,6 @@ const CustomerSchema = z.object({
   notes: z.string().trim().max(2000),
 })
 
-const encOrNull = (v: string) => (v ? encrypt(v) : null)
-const decOrNull = (v: string | null) => (v ? safeDecrypt(v) : null)
 
 /** Validate customer form fields and return the encrypted Prisma payload. */
 function parseCustomer(formData: FormData): { data: { name: string; abn: string | null; email: string | null; phone: string | null; address: string | null; notes: string | null } } | { error: string } {
@@ -38,7 +36,7 @@ function parseCustomer(formData: FormData): { data: { name: string; abn: string 
   const p = CustomerSchema.safeParse({ name: get("name"), abn: get("abn"), email: get("email"), phone: get("phone"), address: get("address"), notes: get("notes") })
   if (!p.success) return { error: p.error.issues[0]?.message ?? "Invalid customer" }
   const d = p.data
-  return { data: { name: d.name, abn: d.abn || null, email: encOrNull(d.email), phone: encOrNull(d.phone), address: encOrNull(d.address), notes: encOrNull(d.notes) } }
+  return { data: { name: d.name, abn: d.abn || null, email: encryptOrNull(d.email), phone: encryptOrNull(d.phone), address: encryptOrNull(d.address), notes: encryptOrNull(d.notes) } }
 }
 
 /** Create a saved outside customer (ADMIN | PASTOR). */
@@ -57,6 +55,7 @@ export async function createCustomer(_prev: ActionResult, formData: FormData): P
 export async function updateCustomer(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "Customer not found" }
   const parsed = parseCustomer(formData)
   if ("error" in parsed) return parsed
   try {
@@ -73,6 +72,8 @@ export async function updateCustomer(id: number, _prev: ActionResult, formData: 
 export async function setCustomerActive(id: number, isActive: boolean): Promise<{ error: string } | { success: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "Customer not found" }
+  if (typeof isActive !== "boolean") return { error: "Invalid request" }
   try {
     await prisma.customer.update({ where: { id }, data: { isActive } })
   } catch {
@@ -109,18 +110,18 @@ export async function listCustomers(opts: { includeInactive?: boolean } = {}): P
   const masked = role === UserRole.AUDITOR
   return rows.map((r) => ({
     id: r.id, name: r.name, abn: r.abn, isActive: r.isActive,
-    email: masked ? null : decOrNull(r.email),
-    phone: masked ? null : decOrNull(r.phone),
-    address: masked ? null : decOrNull(r.address),
-    notes: masked ? null : decOrNull(r.notes),
+    email: masked ? null : decryptOrNull(r.email),
+    phone: masked ? null : decryptOrNull(r.phone),
+    address: masked ? null : decryptOrNull(r.address),
+    notes: masked ? null : decryptOrNull(r.notes),
   }))
 }
 
 /** Load one customer decrypted for the edit form (ADMIN | PASTOR). */
 export async function getCustomerForEdit(id: number): Promise<CustomerView | null> {
   const session = await auth()
-  if (!canAccessAccounting(session?.user?.role)) return null
+  if (!canAccessAccounting(session?.user?.role) || !isValidPgId(id)) return null
   const r = await prisma.customer.findUnique({ where: { id } })
   if (!r) return null
-  return { id: r.id, name: r.name, abn: r.abn, isActive: r.isActive, email: decOrNull(r.email), phone: decOrNull(r.phone), address: decOrNull(r.address), notes: decOrNull(r.notes) }
+  return { id: r.id, name: r.name, abn: r.abn, isActive: r.isActive, email: decryptOrNull(r.email), phone: decryptOrNull(r.phone), address: decryptOrNull(r.address), notes: decryptOrNull(r.notes) }
 }

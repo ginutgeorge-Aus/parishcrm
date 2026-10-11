@@ -5,12 +5,13 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
-import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { isValidPgId } from "@/lib/validation"
 import type { ActionResult } from "./types"
 
 const INVOICES_PATH = "/accounting/invoices"
@@ -30,11 +31,12 @@ export type InvoiceListRow = {
 }
 
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
-const encOrNull = (v: string) => (v ? encrypt(v) : null)
-const decOrNull = (v: string | null) => (v ? safeDecrypt(v) : null)
 
-/** Check the referenced account/fund/recipient exist and are usable. Returns an error message or null. */
-async function validateRefs(d: InvoiceDraftInput): Promise<string | null> {
+/**
+ * Check the referenced account/fund/recipient exist and are usable. Returns an error message or null.
+ * `keepCustomerId` lets a draft keep a customer that was deactivated after it was addressed.
+ */
+async function validateRefs(d: InvoiceDraftInput, keepCustomerId: number | null = null): Promise<string | null> {
   const account = await prisma.account.findUnique({ where: { id: d.accountId } })
   if (!account || account.type !== "INCOME" || !account.isActive) return "Choose an active income account"
   if (d.fundId !== null) {
@@ -47,7 +49,7 @@ async function validateRefs(d: InvoiceDraftInput): Promise<string | null> {
   }
   if (d.recipientKind === "customer" && d.recipientId !== null) {
     const c = await prisma.customer.findUnique({ where: { id: d.recipientId } })
-    if (!c || !c.isActive) return "Recipient not found"
+    if (!c || (!c.isActive && c.id !== keepCustomerId)) return "Recipient not found"
   }
   return null
 }
@@ -59,8 +61,8 @@ function toDraftData(d: InvoiceDraftInput, gstEnabled: boolean) {
     personId: d.recipientKind === "person" ? d.recipientId : null,
     customerId: d.recipientKind === "customer" ? d.recipientId : null,
     recipientName: d.recipientName,
-    recipientEmail: encOrNull(d.recipientEmail),
-    recipientAddress: encOrNull(d.recipientAddress),
+    recipientEmail: encryptOrNull(d.recipientEmail),
+    recipientAddress: encryptOrNull(d.recipientAddress),
     issueDate: new Date(d.issueDate),
     dueDate: new Date(d.dueDate),
     lines: d.lines,
@@ -69,7 +71,7 @@ function toDraftData(d: InvoiceDraftInput, gstEnabled: boolean) {
     total: centsToDecimalString(t.totalCents),
     accountId: d.accountId,
     fundId: d.fundId,
-    notes: encOrNull(d.notes),
+    notes: encryptOrNull(d.notes),
   }
 }
 
@@ -94,9 +96,12 @@ export async function createInvoice(_prev: ActionResult, formData: FormData): Pr
 export async function updateInvoice(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "Invoice not found" }
   const parsed = parseInvoiceDraft(formData)
   if ("error" in parsed) return parsed
-  const refErr = await validateRefs(parsed.data)
+  const current = await prisma.invoice.findUnique({ where: { id }, select: { customerId: true } })
+  if (!current) return { error: "Invoice not found" }
+  const refErr = await validateRefs(parsed.data, current.customerId)
   if (refErr) return { error: refErr }
   const { gstRegistered } = await getInvoiceSettings()
   const data = toDraftData(parsed.data, gstRegistered)
@@ -111,6 +116,7 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
 export async function deleteDraftInvoice(id: number): Promise<{ error: string } | { success: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "Invoice not found" }
   const res = await prisma.invoice.deleteMany({ where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null } })
   if (res.count === 0) return { error: "Only unnumbered draft invoices can be deleted" }
   await logAudit(actorId(session), "INVOICE_DELETED", "Invoice", id, {})
@@ -123,6 +129,7 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
   const session = await auth()
   const role = session?.user?.role
   if (!canViewAccounting(role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return null
   const r = await prisma.invoice.findUnique({
     where: { id },
     include: { account: { select: { name: true } }, fund: { select: { name: true } }, payment: { select: { id: true } } },
@@ -132,13 +139,13 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
   return {
     id: r.id, invoiceNo: r.invoiceNo, status: r.status, personId: r.personId, customerId: r.customerId,
     recipientName: r.recipientName,
-    recipientEmail: masked ? null : decOrNull(r.recipientEmail),
-    recipientAddress: masked ? null : decOrNull(r.recipientAddress),
+    recipientEmail: masked ? null : decryptOrNull(r.recipientEmail),
+    recipientAddress: masked ? null : decryptOrNull(r.recipientAddress),
     issueDate: ymdOf(r.issueDate), dueDate: ymdOf(r.dueDate), lines: r.lines as InvoiceLine[],
     subtotal: r.subtotal.toString(), gstTotal: r.gstTotal.toString(), total: r.total.toString(),
     taxInvoice: r.taxInvoice, accountId: r.accountId, accountName: r.account.name,
     fundId: r.fundId, fundName: r.fund?.name ?? null,
-    notes: masked ? null : decOrNull(r.notes),
+    notes: masked ? null : decryptOrNull(r.notes),
     sentAt: r.sentAt, paidAt: r.paidAt, voidedAt: r.voidedAt, voidReason: r.voidReason,
     paymentTransactionId: r.payment?.id ?? null,
   }
@@ -164,6 +171,7 @@ export async function listInvoices(filter: { status?: InvoiceStatus; from?: stri
 export async function getRecipientContact(kind: "person" | "customer", id: number): Promise<{ email: string; address: string } | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "Not found" }
   if (kind === "person") {
     const p = await prisma.person.findUnique({
       where: { id },
@@ -171,11 +179,11 @@ export async function getRecipientContact(kind: "person" | "customer", id: numbe
     })
     if (!p) return { error: "Not found" }
     const f = p.family
-    const line2 = [decOrNull(f?.suburb ?? null), decOrNull(f?.state ?? null), decOrNull(f?.postcode ?? null)].filter(Boolean).join(" ")
-    const address = [decOrNull(f?.address ?? null), line2].filter(Boolean).join("\n")
-    return { email: decOrNull(p.email) ?? "", address }
+    const line2 = [decryptOrNull(f?.suburb ?? null), decryptOrNull(f?.state ?? null), decryptOrNull(f?.postcode ?? null)].filter(Boolean).join(" ")
+    const address = [decryptOrNull(f?.address ?? null), line2].filter(Boolean).join("\n")
+    return { email: decryptOrNull(p.email) ?? "", address }
   }
   const c = await prisma.customer.findUnique({ where: { id } })
   if (!c) return { error: "Not found" }
-  return { email: decOrNull(c.email) ?? "", address: decOrNull(c.address) ?? "" }
+  return { email: decryptOrNull(c.email) ?? "", address: decryptOrNull(c.address) ?? "" }
 }

@@ -30,5 +30,17 @@ describe("GET invoice pdf", () => {
     expect(res.headers.get("Content-Disposition")).toBe('attachment; filename="INV-0001.pdf"')
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_PDF_DOWNLOADED", "Invoice", 5, { invoiceNo: "INV-0001" })
   })
+  it("409 with the reason when church details are missing for a tax invoice", async () => {
+    ;(loadInvoicePdf as jest.Mock).mockRejectedValue(new Error("Church ABN not configured — set church details in Settings before issuing receipts."))
+    const res = await call("5")
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain("ABN not configured")
+  })
+  it("500 without internals for other render errors", async () => {
+    ;(loadInvoicePdf as jest.Mock).mockRejectedValue(new Error("db exploded"))
+    const res = await call("5")
+    expect(res.status).toBe(500)
+    expect((await res.json()).error).toBe("Could not render the invoice")
+  })
   it("allows OFFICE_ADMIN", async () => { mockAuth.mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } }); expect((await call("5")).status).toBe(200) })
 })

@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { buildInvoicePdfModel, loadInvoicePdf } from "@/lib/invoicePdfModel"
+import { buildInvoicePdfModel, loadInvoicePdf, churchReadyError } from "@/lib/invoicePdfModel"
 import { prisma } from "@/lib/prisma"
 import { getChurchSettings, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
@@ -31,6 +31,10 @@ describe("buildInvoicePdfModel", () => {
   it("plain invoice hides GST", () => {
     expect(buildInvoicePdfModel({ ...base, taxInvoice: false }, church, { gstRegistered: true, paymentDetails: "" }))
       .toMatchObject({ title: "Invoice", showGst: false })
+  })
+  it("draft recomputes totals with the current GST setting", () => {
+    const m = buildInvoicePdfModel({ ...base, status: "DRAFT", invoiceNo: null, gstTotal: "0.00", total: "300.00" }, church, { gstRegistered: true, paymentDetails: "" })
+    expect(m).toMatchObject({ gstTotal: "$30.00", total: "$330.00" })
   })
   it("draft follows current settings", () => {
     expect(buildInvoicePdfModel({ ...base, status: "DRAFT", invoiceNo: null, taxInvoice: false }, church, { gstRegistered: true, paymentDetails: "" }))
@@ -70,5 +74,21 @@ describe("loadInvoicePdf", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, status: "DRAFT", invoiceNo: null })
     expect(await loadInvoicePdf(11)).toMatchObject({ filename: "DRAFT-11.pdf" })
     expect(getChurchSettingsStrict).toHaveBeenCalled()
+  })
+})
+
+describe("churchReadyError", () => {
+  beforeEach(() => jest.clearAllMocks())
+  it("is null for a plain invoice without checking", async () => {
+    expect(await churchReadyError(false)).toBeNull()
+    expect(getChurchSettingsStrict).not.toHaveBeenCalled()
+  })
+  it("returns the configuration message for a tax invoice", async () => {
+    ;(getChurchSettingsStrict as jest.Mock).mockRejectedValueOnce(new Error("Church ABN not configured — set church details in Settings before issuing receipts."))
+    expect(await churchReadyError(true)).toBe("Church ABN not configured — set church details in Settings before issuing tax invoices.")
+  })
+  it("hides other errors", async () => {
+    ;(getChurchSettingsStrict as jest.Mock).mockRejectedValueOnce(new Error("connection refused"))
+    expect(await churchReadyError(true)).toBe("Could not load church details. Please try again.")
   })
 })

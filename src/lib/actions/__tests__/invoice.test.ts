@@ -83,6 +83,21 @@ describe("createInvoice", () => {
 })
 
 describe("updateInvoice", () => {
+  beforeEach(() => (prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ customerId: 3 }))
+  it("rejects an invalid id", async () => {
+    expect(await updateInvoice(2 ** 31, undefined, fd())).toEqual({ error: "Invoice not found" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
+  it("lets a draft keep a customer deactivated after it was addressed", async () => {
+    ;(prisma.customer.findUnique as jest.Mock).mockResolvedValue({ id: 3, isActive: false })
+    await updateInvoice(11, undefined, fd())
+    expect(prisma.invoice.updateMany).toHaveBeenCalled()
+  })
+  it("still rejects switching to a different inactive customer", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ customerId: 8 })
+    ;(prisma.customer.findUnique as jest.Mock).mockResolvedValue({ id: 3, isActive: false })
+    expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "Recipient not found" })
+  })
   it("only updates drafts", async () => {
     ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "This invoice has changed. Reload and try again." })

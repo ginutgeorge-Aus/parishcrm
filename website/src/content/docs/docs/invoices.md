@@ -28,20 +28,20 @@ If the church is registered for GST, an ADMIN turns on **The church is registere
 
 The same settings card holds **Payment details** (for example bank account and reference instructions), printed under "How to pay" on every invoice.
 
-Whether an invoice is a tax invoice is fixed when it is sent, so changing the GST setting later never alters an invoice already issued.
+Whether an invoice is a tax invoice is fixed when it is sent — its GST and totals are recalculated from the lines at that moment — so changing the GST setting later never alters an invoice already issued. While still a draft, an invoice always shows totals for the current setting.
 
 ### Sending
 
 From an invoice's page, a draft can be:
 
-- **Send by email** — numbers the invoice, locks it, and emails the PDF to the recipient. If the email fails, the invoice stays a draft (keeping its new number) and you can try again or mark it as sent instead.
+- **Send by email** — numbers the invoice, locks it, and emails the PDF to the recipient. If the email fails, the invoice still counts as sent (the email may have got through before the error), so use **Re-send** to try again or deliver it yourself.
 - **Mark as sent (I'll deliver it)** — numbers and locks the invoice without emailing, for invoices you print, post or hand over.
 
 A sent invoice can be **re-sent** by email at any time. Sent invoices can't be edited.
 
 ### Numbering
 
-Invoices are numbered `INV-0001`, `INV-0002`, … in the order they are sent. Numbers are only given out when an invoice is sent or marked as sent, so deleting drafts never leaves gaps. A draft that already received a number (because its email failed) can't be deleted.
+Invoices are numbered `INV-0001`, `INV-0002`, … in the order they are sent. Numbers are only given out when an invoice is sent or marked as sent, so deleting drafts never leaves gaps.
 
 ### PDF download
 

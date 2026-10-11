@@ -117,7 +117,7 @@ Every mutation: `canAccessAccounting` (ADMIN | PASTOR), zod-validated, audit-log
 |---|---|---|
 | `createInvoice` / `updateInvoice` | DRAFT | totals recomputed server-side |
 | `deleteDraftInvoice` | DRAFT → (deleted) | |
-| `sendInvoice` | DRAFT → SENT | allocate number if missing, freeze `taxInvoice`, render PDF, email. Email failure → stays DRAFT, keeps number, error shown + audited |
+| `sendInvoice` | DRAFT → SENT | check church details (tax invoice), allocate number if missing, freeze `taxInvoice` + recompute totals, flip to SENT, email. Email failure → stays SENT (mail may have gone out), error shown + audited, user re-sends |
 | `markInvoiceSent` | DRAFT → SENT | same as send without email (print/post, no email) |
 | `resendInvoice` | SENT | re-render and re-email |
 | `markInvoicePaid` | SENT → PAID | `{mode:"link", transactionId}` or `{mode:"create", date, paymentAccountId}`; optional receipt |
