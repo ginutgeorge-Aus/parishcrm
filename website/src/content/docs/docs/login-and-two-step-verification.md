@@ -148,6 +148,9 @@ window with no separate hard cap. A minute before the idle timeout, a "Session e
 appears; only its **Stay logged in** button keeps the session (moving the mouse or scrolling while
 it shows does not), so walking away from a screen still signs you out. This in-browser timer
 currently uses the idle timeout for remembered sessions too ([#203](https://github.com/ginutgeorge-Aus/parishcrm/issues/203)).
+When your browser allows the app to store data, the timer counts activity in every open tab: working
+in one tab keeps an idle tab from signing you out, and its notice disappears on its own. If browser
+storage is blocked (for example by privacy settings), each tab uses its own timer.
 
 ## Configuration
 

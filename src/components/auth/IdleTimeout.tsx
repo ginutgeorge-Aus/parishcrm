@@ -13,6 +13,38 @@ const ACTIVITY_PING_MS = 60 * 1000
 const CHECK_MS = 1000
 
 const EVENTS = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"]
+// Last activity shared by every open tab: logout() ends the session in all of
+// them, so an idle tab must not log out while the user works in another.
+const SHARED_KEY = "idleTimeout:lastActivity"
+
+// Clock-skew allowance for shared timestamps. A value further ahead than this
+// comes from a clock-ahead tab and is ignored: honouring it would defer logout
+// until this tab's clock catches up (indefinitely, if the skew is large).
+const MAX_SKEW_MS = 5 * 1000
+
+/**
+ * Latest activity any tab has shared (0 when none, blocked, invalid, or more
+ * than MAX_SKEW_MS in the future).
+ */
+function readSharedActivity(): number {
+  try {
+    const raw = window.localStorage.getItem(SHARED_KEY)
+    if (raw === null) return 0
+    const v = Number(raw)
+    return Number.isFinite(v) && v <= Date.now() + MAX_SKEW_MS ? v : 0
+  } catch {
+    return 0
+  }
+}
+
+/** Shares this tab's activity with the other tabs (best effort). */
+function writeSharedActivity(at: number) {
+  try {
+    window.localStorage.setItem(SHARED_KEY, String(at))
+  } catch {
+    // Storage blocked (private mode, policy): this tab keeps its own clock.
+  }
+}
 
 export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: number }>) {
   const idleMs = idleMinutes * 60 * 1000
@@ -25,6 +57,8 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   useEffect(() => { updateRef.current = update }, [update])
   const lastActivityRef = useRef(0)
   const lastPingRef = useRef(0)
+  // Last activity this tab wrote to shared storage, so each check writes only news.
+  const lastSharedRef = useRef(0)
   // Mirrors showWarning for the event handler, which must not re-subscribe.
   const warningRef = useRef(false)
   const [showWarning, setShowWarning] = useState(false)
@@ -59,13 +93,26 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     }
     function check() {
       if (loggedOut) return
-      const idle = Date.now() - lastActivityRef.current
+      const shared = readSharedActivity()
+      // Never knowingly write an older value over a newer one from another tab
+      // (a throttled tab would otherwise regress the shared clock).
+      if (lastActivityRef.current > Math.max(lastSharedRef.current, shared)) {
+        lastSharedRef.current = lastActivityRef.current
+        writeSharedActivity(lastActivityRef.current)
+      }
+      const idle = Date.now() - Math.max(lastActivityRef.current, shared)
       if (idle >= idleMs) {
         loggedOut = true
         void logout()
-      } else if (idle >= idleMs - WARN_MS && !warningRef.current) {
-        warningRef.current = true
-        setShowWarning(true)
+      } else if (idle >= idleMs - WARN_MS) {
+        if (!warningRef.current) {
+          warningRef.current = true
+          setShowWarning(true)
+        }
+      } else if (warningRef.current) {
+        // Another tab saw activity (or its "Stay logged in"): the session lives on.
+        warningRef.current = false
+        setShowWarning(false)
       }
     }
 

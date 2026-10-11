@@ -87,3 +87,63 @@ it("clears a showing warning when the idle window changes", () => {
   expect(screen.queryByRole("alert")).toBeNull()
   expect(logout).not.toHaveBeenCalled()
 })
+
+describe("across tabs", () => {
+  const KEY = "idleTimeout:lastActivity"
+  beforeEach(() => window.localStorage.clear())
+
+  it("activity in another tab keeps this tab from logging out", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(10 * MIN)
+    window.localStorage.setItem(KEY, String(Date.now()))
+    advance(10 * MIN)
+    expect(logout).not.toHaveBeenCalled()
+    advance(6 * MIN)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it("activity in another tab clears this tab's warning", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(14 * MIN + 1_000)
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    window.localStorage.setItem(KEY, String(Date.now()))
+    advance(1_000)
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("shares this tab's activity with other tabs", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const at = Date.now()
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(at)
+  })
+
+  it("does not overwrite a newer stored value with this tab's older activity", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const newer = Date.now() + 2_000
+    window.localStorage.setItem(KEY, String(newer))
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(newer)
+  })
+
+  it("ignores a shared timestamp far in the future", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    window.localStorage.setItem(KEY, String(Date.now() + 60 * MIN))
+    advance(15 * MIN + 1_000)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it("still times out when storage is unavailable", () => {
+    const get = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked") })
+    const set = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked") })
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(15 * MIN + 1_000)
+    expect(logout).toHaveBeenCalledTimes(1)
+    get.mockRestore()
+    set.mockRestore()
+  })
+})
