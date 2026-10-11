@@ -73,7 +73,7 @@ export const MAX_YEAR = 2100
 // consecutive dots (".a@x.com", "a..b@x.com", "a@x..com", "a@x.com.") that mail
 // servers reject. Requires a dotted domain. Use isValidEmail, which also
 // enforces the SMTP length limits.
-export const EMAIL_REGEX =
+const EMAIL_REGEX =
   /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/
 
 /** EMAIL_REGEX plus the SMTP limits: 254 characters total, 64 before the @. */
