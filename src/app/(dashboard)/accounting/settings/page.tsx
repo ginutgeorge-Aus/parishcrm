@@ -12,12 +12,14 @@ import { PaymentAccountsManager } from "@/components/accounting/PaymentAccountsM
 import { getPettyCashDefaultCustodianId } from "@/lib/actions/settings"
 import { getAccountingLockDate } from "@/lib/accountingLock"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
+import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { InvoiceSettingsForm } from "@/components/accounting/InvoiceSettingsForm"
 
 export default async function AccountingSettingsPage() {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 
-  const [balances, people, custodianId, lockDate, accounts] = await Promise.all([
+  const [balances, people, custodianId, lockDate, accounts, invoiceSettings] = await Promise.all([
     prisma.accountOpeningBalance.findMany(),
     prisma.person.findMany({
       where: { archivedAt: null },
@@ -28,6 +30,7 @@ export default async function AccountingSettingsPage() {
     getPettyCashDefaultCustodianId(),
     getAccountingLockDate(),
     getPaymentAccounts(),
+    getInvoiceSettings(),
   ])
 
   const balancesByAccountId = new Map(
@@ -90,6 +93,17 @@ export default async function AccountingSettingsPage() {
           Manage the bank and cash accounts used across transactions, reconciliation, and reports.
         </p>
         <PaymentAccountsManager accounts={accounts} />
+      </div>
+
+      <div className="bg-card rounded-lg border border-border p-6">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+          Invoices
+        </h2>
+        <p className="text-sm text-muted-foreground mb-5">
+          GST registration switches new invoices to Tax Invoices with GST lines. Payment details
+          are printed on every invoice.
+        </p>
+        <InvoiceSettingsForm initial={invoiceSettings} />
       </div>
 
       <div className="bg-card rounded-lg border border-border p-6">
