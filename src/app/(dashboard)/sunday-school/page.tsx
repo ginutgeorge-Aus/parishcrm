@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, canViewPeople } from "@/lib/roleGuard"
 import { parseSchoolYear } from "@/lib/sundaySchool"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -30,7 +31,9 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
   if (!canViewPeople(session.user.role)) redirect("/")
   const sp = await props.searchParams
   const year = parseSchoolYear(sp.year)
-  const editor = canEdit(session.user.role)
+  const locked = (await lockedYears([year])).has(year)
+  // A rolled-over year is closed: no new classes or second rollover.
+  const editor = canEdit(session.user.role) && !locked
   const rolled = rolledSummary(sp.rolled)
 
   const classes = await prisma.sundaySchoolClass.findMany({
@@ -71,6 +74,12 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
       </div>
 
       {rolled && <FormFeedback state={{ success: rolled }} />}
+
+      {locked && (
+        <p className="text-sm text-muted-foreground">
+          {year} was rolled over and is locked — its classes, teachers, enrolments and rolls can no longer be changed.
+        </p>
+      )}
 
       {editor && (
         <div className="flex flex-wrap items-start gap-3">

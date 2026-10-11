@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { prisma } from "@/lib/prisma"
 import { loadRoll } from "@/lib/sundaySchoolRoll"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { parseRollDate } from "@/lib/sundaySchoolRollView"
 import { Badge } from "@/components/ui/badge"
 import { RollList } from "@/components/sunday-school/RollList"
@@ -18,6 +19,8 @@ export async function renderRollView({
 }: Readonly<{ classId: number; rawDate: string | undefined; canMark: boolean; hrefBase: string; backHref: string; backLabel: string }>) {
   const cls = await prisma.sundaySchoolClass.findUnique({ where: { id: classId }, select: { year: true, name: true } })
   if (!cls) notFound()
+  // A rolled-over year's roll is read-only (setAttendance refuses it too).
+  const locked = (await lockedYears([cls.year])).has(cls.year)
   const today = sydneyTodayYMD()
   const parsed = parseRollDate(rawDate, cls.year, today)
   if (!parsed.ok && !rawDate?.trim() && cls.year < Number.parseInt(today.slice(0, 4), 10)) {
@@ -34,6 +37,7 @@ export async function renderRollView({
       <h1 className="mb-4 flex items-center gap-2 text-2xl font-bold text-foreground">
         Roll · {cls.name}
         {roll?.cls.archived && <Badge variant="secondary">Archived</Badge>}
+        {locked && <Badge variant="secondary">Locked (rolled over)</Badge>}
       </h1>
       {parsed.ok && roll ? (
         <RollList
@@ -41,7 +45,7 @@ export async function renderRollView({
           date={parsed.ymd}
           today={today}
           rows={roll.rows}
-          readOnly={roll.cls.archived || !canMark}
+          readOnly={roll.cls.archived || locked || !canMark}
           dateHrefBase={hrefBase}
         />
       ) : (

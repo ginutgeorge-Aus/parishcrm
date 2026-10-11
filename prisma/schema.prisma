@@ -1158,7 +1158,19 @@ model SundaySchoolClass {
   rollMarkers SundaySchoolRollMarker[]
 
   @@unique([year, name, location])
+  // Target of SundaySchoolEnrolment's (classId, year) FK, so an enrolment's year
+  // can never differ from its class's year.
+  @@unique([id, year])
   @@index([year, archivedAt])
+}
+
+// A school year closed by rollover: no class, teacher, enrolment or roll in a
+// locked year may change. One row per locked year (absent = open), written by
+// rolloverYear in the same transaction as the copy. Not FK'd to the class: the
+// year is the key, and classes are never deleted.
+model SundaySchoolYearLock {
+  year     Int      @id
+  lockedAt DateTime @default(now())
 }
 
 // A Person (tagged SUNDAY_SCHOOL_TEACHER) who teaches a class.
@@ -1181,7 +1193,7 @@ model SundaySchoolEnrolment {
   personId   Int
   year       Int
   enrolledAt DateTime          @default(now())
-  class      SundaySchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  class      SundaySchoolClass @relation(fields: [classId, year], references: [id, year], onDelete: Cascade)
   person     Person            @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@unique([personId, year])

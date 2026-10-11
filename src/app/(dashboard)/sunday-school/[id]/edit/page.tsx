@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { updateClass } from "@/lib/actions/sundaySchool"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { ClassForm } from "@/components/sunday-school/ClassForm"
 import { ArchiveClassButton } from "@/components/sunday-school/ArchiveClassButton"
 
@@ -20,6 +21,8 @@ export default async function EditClassPage(props: Readonly<{ params: Promise<{ 
     select: { id: true, year: true, name: true, level: true, location: true, archivedAt: true },
   })
   if (!cls || cls.archivedAt) notFound()
+  // Rolled-over years are read-only; updateClass/archiveClass refuse them too.
+  if ((await lockedYears([cls.year])).has(cls.year)) redirect(`/sunday-school/${cls.id}`)
 
   return (
     <div className="space-y-4">

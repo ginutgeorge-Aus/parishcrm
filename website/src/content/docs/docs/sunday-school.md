@@ -22,6 +22,9 @@ look but not change anything.
 - **Roll over to next year** — on the class list, once per year: copies every active class and its
   still-tagged teachers into next year and moves each child up one level at the same location. Children in the
   top class, or where two next-level classes exist at the same location, are left for you to place.
+  Rolling over **locks the year you rolled from**: its classes, teachers, enrolments, roll markers and
+  rolls become read-only (a *Locked* badge shows, and edit controls are hidden), so history can't drift
+  after children have moved on. Locking is permanent and cannot be undone from the app.
 
 ### Taking the roll
 
@@ -35,7 +38,7 @@ counts.
 Volunteer teachers don't need dashboard access: create a login with the **Event organiser** role,
 then add it under **Roll markers** on the class. On their phone they sign in, go to **Classes**
 (`/my-classes`) and see only the classes they're assigned to. VIEWER accounts can see rolls but not
-change them. Rolls for archived classes are read-only. Future dates, and dates outside the class's
+change them. Rolls for archived classes, and for a year that has been rolled over, are read-only. Future dates, and dates outside the class's
 year, are refused.
 
 ## How it works
