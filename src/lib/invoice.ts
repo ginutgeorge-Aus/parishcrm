@@ -6,9 +6,9 @@ import { MONEY_DECIMAL_RE, isRealCalendarDate, isValidEmail, isValidPgId } from 
 import { toCents } from "@/lib/formatting"
 
 export const INVOICE_MAX_LINES = 50
-export const GST_RATE_DIVISOR = 10 // 10% GST
+const GST_RATE_DIVISOR = 10 // 10% GST
 /** Largest total a Decimal(10,2) column holds: 99,999,999.99. */
-export const MAX_INVOICE_TOTAL_CENTS = 9_999_999_999
+const MAX_INVOICE_TOTAL_CENTS = 9_999_999_999
 
 export type InvoiceLine = { description: string; qty: number; unitPriceCents: number; gst: boolean }
 export type InvoiceTotals = { subtotalCents: number; gstCents: number; totalCents: number }
@@ -44,14 +44,14 @@ export function formatInvoiceNo(seq: number): string {
 const ymd = (label: string) =>
   z.string().refine(isRealCalendarDate, `Invalid ${label}`)
 
-export const InvoiceLineInputSchema = z.object({
+const InvoiceLineInputSchema = z.object({
   description: z.string().trim().min(1, "Each line needs a description").max(500),
   qty: z.coerce.string().regex(/^(?!0+$)\d{1,4}$/, "Quantity must be a whole number from 1 to 9999"),
   unitPrice: z.string().max(12).regex(MONEY_DECIMAL_RE, "Unit price must be a dollar amount with up to 2 decimals"),
   gst: z.boolean(),
 })
 
-export const InvoiceDraftSchema = z
+const InvoiceDraftSchema = z
   .object({
     recipientKind: z.enum(["person", "customer", "none"]),
     recipientId: z.string(),
