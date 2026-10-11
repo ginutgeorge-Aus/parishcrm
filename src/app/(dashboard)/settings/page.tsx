@@ -20,6 +20,7 @@ import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSection"
 import { senderAddress } from "@/lib/mailConfig"
+import { SettingsNav } from "@/components/settings/SettingsNav"
 import { DemoNotice } from "@/components/DemoNotice"
 
 const GIT_SHA_DISPLAY_LENGTH = 7
@@ -77,47 +78,53 @@ export default async function SettingsPage() {
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-6">App Settings</h2>
       <DemoNotice />
-      <div className="space-y-10 max-w-lg">
-        <ChurchInfoForm
-          churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
-          churchAddress={get("churchAddress") || (process.env.CHURCH_ADDRESS ?? "")}
-          churchABN={get("churchABN") || (process.env.CHURCH_ABN ?? "")}
-          churchEmail={get("churchEmail") || senderAddress()}
-          churchWebsite={churchWebsite}
-        />
-        <hr className="border-border" />
-        <BrandingForm />
-        <hr className="border-border" />
-        <LetterSettingsForm settings={letterSettings} />
-        <hr className="border-border" />
-        <MembershipSettingsForm settings={membershipSettings} />
-        <hr className="border-border" />
-        <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
-        <hr className="border-border" />
-        <AnniversaryEmailForm subject={anniversaryTpl.subject} body={anniversaryTpl.body} />
-        <hr className="border-border" />
-        <AutoEmailToggles birthday={autoEmailFlags.birthday} anniversary={autoEmailFlags.anniversary} />
-        <hr className="border-border" />
-        <AppSettingsForm
-          ownerNotificationEmail={get("ownerNotificationEmail")}
-          membershipSecretaryEmail={get("membershipSecretaryEmail")}
-          idleTimeoutMinutes={Number.parseInt(get("SESSION_IDLE_TIMEOUT_MINUTES") || "60", 10) || 60}
-          cardFeePercent={get("cardFeePercent") || "1.7"}
-          cardFeeFixed={get("cardFeeFixed") || "0.30"}
-        />
-      </div>
-      <div className="mt-10">
-        <EmailTemplatesSection templates={emailTemplates} />
-      </div>
-      <div className="mt-10">
-        <ReceiptSettingsSection settings={receiptSettings} />
-      </div>
-      <div className="mt-10 max-w-lg">
-        <ActivityFeed
-          isAdmin
-          auditEntries={auditEntries}
-          registrations={recentRegistrations}
-        />
+      <SettingsNav />
+      <div className="space-y-12">
+        <section id="general" aria-label="General" className="scroll-mt-16 space-y-10 max-w-lg">
+          <ChurchInfoForm
+            churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
+            churchAddress={get("churchAddress") || (process.env.CHURCH_ADDRESS ?? "")}
+            churchABN={get("churchABN") || (process.env.CHURCH_ABN ?? "")}
+            churchEmail={get("churchEmail") || senderAddress()}
+            churchWebsite={churchWebsite}
+          />
+          <hr className="border-border" />
+          <AppSettingsForm
+            ownerNotificationEmail={get("ownerNotificationEmail")}
+            membershipSecretaryEmail={get("membershipSecretaryEmail")}
+            idleTimeoutMinutes={Number.parseInt(get("SESSION_IDLE_TIMEOUT_MINUTES") || "60", 10) || 60}
+            cardFeePercent={get("cardFeePercent") || "1.7"}
+            cardFeeFixed={get("cardFeeFixed") || "0.30"}
+          />
+        </section>
+        <section id="branding" aria-label="Branding" className="scroll-mt-16 max-w-lg">
+          <BrandingForm />
+        </section>
+        <section id="email" aria-label="Email" className="scroll-mt-16 space-y-10">
+          <div className="space-y-10 max-w-lg">
+            <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
+            <hr className="border-border" />
+            <AnniversaryEmailForm subject={anniversaryTpl.subject} body={anniversaryTpl.body} />
+            <hr className="border-border" />
+            <AutoEmailToggles birthday={autoEmailFlags.birthday} anniversary={autoEmailFlags.anniversary} />
+          </div>
+          <EmailTemplatesSection templates={emailTemplates} />
+        </section>
+        <section id="members" aria-label="Members" className="scroll-mt-16 space-y-10 max-w-lg">
+          <LetterSettingsForm settings={letterSettings} />
+          <hr className="border-border" />
+          <MembershipSettingsForm settings={membershipSettings} />
+        </section>
+        <section id="receipts" aria-label="Receipts" className="scroll-mt-16">
+          <ReceiptSettingsSection settings={receiptSettings} />
+        </section>
+        <section id="security" aria-label="Security" className="scroll-mt-16 max-w-lg">
+          <ActivityFeed
+            isAdmin
+            auditEntries={auditEntries}
+            registrations={recentRegistrations}
+          />
+        </section>
       </div>
       <div className="mt-8">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">About</h3>
