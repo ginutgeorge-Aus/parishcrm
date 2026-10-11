@@ -336,6 +336,18 @@ describe("syncMyReports", () => {
     }
   })
 
+  it("retries a row on the next load after its poll fails", async () => {
+    mockReportFindMany.mockResolvedValue([{ id: 9, issueNumber: 90, status: "OPEN", syncedAt: null }])
+    mockGetIssue
+      .mockRejectedValueOnce(new Error("GitHub failure"))
+      .mockResolvedValueOnce({ state: "open", stateReason: null })
+    await syncMyReports()
+    expect(mockReportUpdate).not.toHaveBeenCalled()
+    await syncMyReports() // failed poll released its sync slot
+    expect(mockGetIssue).toHaveBeenCalledTimes(2)
+    expect(mockReportUpdate).toHaveBeenCalledTimes(1)
+  })
+
   it("throws instead of silently querying with a NaN userId when the session id is malformed", async () => {
     mockAuth.mockResolvedValue(session({ id: "" }))
     await expect(syncMyReports()).rejects.toThrow("Authenticated session is missing a valid user id")
