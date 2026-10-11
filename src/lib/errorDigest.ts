@@ -1,13 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { sydneyWeekStartYMD } from "@/lib/dates"
-import { runOncePerPeriodLocked } from "@/lib/periodLease"
+import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
 
 export async function runErrorDigest(
-  now: Date = new Date()
+  now: Date = new Date(),
+  leaseHeld: () => boolean = () => true,
 ): Promise<{ filed: number; skipped: number; purged: number }> {
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
 
@@ -48,16 +49,21 @@ export async function runErrorDigest(
       "",
       "_Auto-filed from ErrorLog. No PII / no stacktrace._",
     ].join("\n")
+    // Another run took the lease over: stop before filing a duplicate.
+    if (!leaseHeld()) throw new LeaseLostError()
     await createIssue({ title, body, labels: [PROD_ERROR_LABEL] })
     filed++
   }
 
+  // Purges are side effects too: don't run them on a lease another run now owns.
+  if (!leaseHeld()) throw new LeaseLostError()
   const { count: purged } = await prisma.errorLog.deleteMany({
     where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
 
   // Reuse this weekly run to purge the aggregate route-view counter too
   // ( Phase 3) — no separate scheduler for a bare counter table.
+  if (!leaseHeld()) throw new LeaseLostError()
   await prisma.routeViewDaily.deleteMany({
     where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
@@ -97,7 +103,7 @@ export async function runErrorDigestLocked(
       // console.error, not logger.error: logger persists to ErrorLog, which this digest reads.
       logError: (message) => console.error(JSON.stringify({ level: "error", source: "errorDigest", message })),
     },
-    () => runErrorDigest(now),
+    (leaseHeld) => runErrorDigest(now, leaseHeld),
   )
 }
 

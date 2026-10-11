@@ -14,7 +14,7 @@ jest.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { runOncePerPeriodLocked } from "@/lib/periodLease"
+import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 
 const START = Date.UTC(2026, 9, 1)
 const LEASE_MS = 3_000
@@ -143,5 +143,68 @@ describe("runOncePerPeriodLocked lease heartbeat — edge cases", () => {
     expect(rival).not.toHaveBeenCalled()
     work.resolve()
     await run
+  })
+})
+
+describe("runOncePerPeriodLocked lease loss", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.useFakeTimers({ now: START })
+    mockFindUnique.mockResolvedValue(null)
+    mockCreate.mockResolvedValue({})
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+  })
+  afterEach(() => jest.useRealTimers())
+
+  it("tells the work its lease is lost, and reports 'locked' when it stops", async () => {
+    const work = deferred()
+    const seen: boolean[] = []
+    const run = runOncePerPeriodLocked(opts(), async (leaseHeld) => {
+      seen.push(leaseHeld())
+      await work.promise
+      seen.push(leaseHeld())
+      if (!leaseHeld()) throw new LeaseLostError()
+      return "ok"
+    })
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+    expect(seen).toEqual([true, false])
+    // The new owner's row is left alone: no release, no done-marking.
+    expect(mockDeleteMany).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { value: "2026-10" } }))
+  })
+
+  it("marks the lease lost when a failed renewal's readback shows a foreign value", async () => {
+    const logError = jest.fn()
+    const work = deferred()
+    const run = runOncePerPeriodLocked(opts(logError), async (leaseHeld) => {
+      await work.promise
+      return leaseHeld() ? "ok" : "lost"
+    })
+    mockUpdateMany.mockRejectedValueOnce(new Error("connection reset"))
+    mockFindUnique.mockResolvedValueOnce({ key: "k", value: "running:2026-10:999" })
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    const calls = mockUpdateMany.mock.calls.length
+    await jest.advanceTimersByTimeAsync(LEASE_MS)
+    expect(mockUpdateMany.mock.calls.length).toBe(calls) // heartbeat stopped
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("lease lost"))
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+  })
+
+  it("returns 'locked' when loss is found after the work's last leaseHeld() check", async () => {
+    const work = deferred()
+    const run = runOncePerPeriodLocked(opts(), async () => {
+      await work.promise
+      return "ok"
+    })
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+    expect(mockUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { value: "2026-10" } }))
+    expect(mockDeleteMany).not.toHaveBeenCalled()
   })
 })
