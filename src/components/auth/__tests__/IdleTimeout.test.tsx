@@ -120,6 +120,23 @@ describe("across tabs", () => {
     expect(Number(window.localStorage.getItem(KEY))).toBe(at)
   })
 
+  it("does not overwrite a newer stored value with this tab's older activity", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const newer = Date.now() + 2_000
+    window.localStorage.setItem(KEY, String(newer))
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(newer)
+  })
+
+  it("ignores a shared timestamp far in the future", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    window.localStorage.setItem(KEY, String(Date.now() + 60 * MIN))
+    advance(15 * MIN + 1_000)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
   it("still times out when storage is unavailable", () => {
     const get = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked") })
     const set = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked") })
