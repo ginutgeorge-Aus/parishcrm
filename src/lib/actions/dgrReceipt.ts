@@ -16,7 +16,7 @@ import { sendDgrReceiptEmail } from "@/lib/email"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { sumCents, centsToNumber, formatLongDate } from "@/lib/formatting"
-import { EMAIL_REGEX, MIN_YEAR, MAX_YEAR, isP2002, isTwoDecimalMoney, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { isValidEmail, MIN_YEAR, MAX_YEAR, isP2002, isTwoDecimalMoney, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 
 const LIST_PATH = "/accounting/dgr-receipts"
 
@@ -46,7 +46,7 @@ const LineSchema = z.object({
 
 const FormSchema = z.object({
   personId: z.coerce.number().int().positive(),
-  donorEmail: z.string().max(254).regex(EMAIL_REGEX, "Invalid email address"),
+  donorEmail: z.string().refine(isValidEmail, "Invalid email address"),
   fyEndYear: z.coerce.number().int().min(MIN_YEAR).max(MAX_YEAR),
 })
 

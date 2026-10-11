@@ -10,7 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { logAudit } from "@/lib/audit"
-import { MONEY_DECIMAL_RE, isValidPgId } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -21,7 +21,10 @@ const CreateSessionSchema = z.object({
   sessionDate: z
     .string()
     .max(10, "Invalid date")
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
+    // The title is built from these digits, so 2025-02-31 would become an
+    // impossible "31-FEB-2025" session.
+    .refine(isRealCalendarDate, "Invalid date"),
   custodianId: z.string().min(1, "Custodian is required").transform(Number),
   openingBalance: z
     .string()

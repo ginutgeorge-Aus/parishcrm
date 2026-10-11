@@ -134,9 +134,10 @@ export function pettyCashTitle(ymd: string): string {
 export function sessionDateFromTitle(title: string): Date | null {
   const m = /^(\d{2})-([A-Z]{3})-(\d{4})$/.exec(title)
   const month = m ? (MONTH_ABBR as readonly string[]).indexOf(m[2]) : -1
-  const d = m && month !== -1 ? new Date(Date.UTC(Number(m[3]), month, Number(m[1]))) : null
+  const day = Number(m?.[1])
+  const d = month === -1 ? null : new Date(Date.UTC(Number(m?.[3]), month, day))
   // Date.UTC rolls an impossible day over (31-FEB → 3 Mar); reject it instead.
-  if (!d || d.getUTCDate() !== Number(m?.[1]) || d.getUTCMonth() !== month) {
+  if (!d || d.getUTCDate() !== day || d.getUTCMonth() !== month) {
     console.error(`sessionDateFromTitle: unparseable session title "${title}"`)
     return null
   }

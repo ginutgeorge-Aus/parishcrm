@@ -1,5 +1,4 @@
 import {
-  EMAIL_REGEX,
   MONEY_DECIMAL_RE,
   SIGNED_MONEY_DECIMAL_RE,
   hasEncryptedFieldMatch,
@@ -172,6 +171,5 @@ describe("isValidEmail", () => {
   it("rejects a local part longer than 64 characters (SMTP limit)", () => {
     expect(isValidEmail(`${"a".repeat(64)}@example.com`)).toBe(true)
     expect(isValidEmail(`${"a".repeat(65)}@example.com`)).toBe(false)
-    expect(EMAIL_REGEX.test(`${"a".repeat(65)}@example.com`)).toBe(false)
   })
 })
