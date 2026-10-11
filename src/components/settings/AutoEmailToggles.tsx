@@ -37,7 +37,7 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
   return (
     <div className="max-w-lg space-y-4">
       <div>
-        <h3 className="text-lg font-semibold">Automated blessing emails</h3>
+        <h3 className="text-base font-semibold text-foreground mb-1">Automated blessing emails</h3>
         <p className="text-sm text-muted-foreground">
           When on, a daily job emails each member their birthday or anniversary blessing automatically —
           consent-gated, using the templates above. Leave off to send manually from the People pages.

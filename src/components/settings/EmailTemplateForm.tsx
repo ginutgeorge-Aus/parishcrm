@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useActionState, useState, useTransition } from "react"
+import { useActionState, useEffect, useState, useTransition } from "react"
 import {
   updateEmailTemplate,
   resetEmailTemplate,
@@ -21,10 +21,17 @@ export function EmailTemplateForm({
   templateKey: EmailTemplateKey
   initial: EmailTemplateFields
 }>) {
-  const [state, action, saving] = useActionState(updateEmailTemplate, undefined)
+  const [msg, setMsg] = useState<string>("")
+  const [state, action, saving] = useActionState(
+    /** Clears any lingering test-send/preview message, then saves. */
+    async (prev: Awaited<ReturnType<typeof updateEmailTemplate>> | undefined, fd: FormData) => {
+      setMsg("")
+      return updateEmailTemplate(prev, fd)
+    },
+    undefined
+  )
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
-  const [msg, setMsg] = useState<string>("")
   const [pending, start] = useTransition()
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
@@ -37,6 +44,22 @@ export function EmailTemplateForm({
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setFields((f) => ({ ...f, [k]: e.target.value }))
 
+  // Render the preview once on mount so the pane isn't blank until Preview is
+  // pressed. Uses the initial fields; later edits re-render via the Preview button.
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve(previewEmailTemplate(templateKey, initial))
+      .then((r) => {
+        if (!cancelled && r && "html" in r) setPreview(r.html)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
+  }, [])
+
+  /** Re-renders the preview pane from the current (unsaved) field values. */
   function refreshPreview() {
     setMsg("")
     start(async () => {
