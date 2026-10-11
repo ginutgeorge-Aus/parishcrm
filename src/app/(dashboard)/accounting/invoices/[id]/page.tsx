@@ -11,6 +11,7 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 import { DeleteDraftButton } from "@/components/accounting/InvoiceRowActions"
+import { InvoiceSendActions } from "@/components/accounting/InvoiceSendActions"
 
 const money = (cents: number) => fmtAUD(centsToNumber(cents))
 
@@ -49,6 +50,10 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
           )}
         </div>
       </div>
+
+      {canManage && (inv.status === "DRAFT" || inv.status === "SENT") && (
+        <InvoiceSendActions id={inv.id} status={inv.status} hasEmail={!!inv.recipientEmail} />
+      )}
 
       <dl className="grid gap-4 rounded-lg border border-border p-4 text-sm sm:grid-cols-2">
         <div>
