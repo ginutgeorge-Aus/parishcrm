@@ -81,6 +81,10 @@ export const FIELDS: Record<string, string[]> = {
   // Child-safety clearances (src/lib/actions/clearance.ts). `document` is a
   // BYTEA blob like transactionAttachment.data — see BLOB_FIELDS.
   personClearance: ["number", "documentName", "document", "verificationNote"],
+  // Invoices (src/lib/actions/customer.ts, invoice.ts): saved customer contact
+  // details and the invoice's recipient snapshot + notes.
+  customer: ["email", "phone", "address", "notes"],
+  invoice: ["recipientEmail", "recipientAddress", "notes"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
