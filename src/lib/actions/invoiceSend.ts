@@ -36,7 +36,7 @@ async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceS
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
-        const row = await tx.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, lines: true } })
+        const row = await tx.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, lines: true, updatedAt: true } })
         if (!row || row.status !== InvoiceStatus.DRAFT) return CHANGED
         const t = computeInvoiceTotals(row.lines as InvoiceLine[], taxInvoice)
         const frozen = {
@@ -50,14 +50,16 @@ async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceS
           total: centsToDecimalString(t.totalCents),
         }
         if (row.invoiceNo) {
-          const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: frozen })
+          // updatedAt predicate = optimistic version check: a draft edit committed after the
+          // read above bumps updatedAt, so this write matches 0 rows instead of freezing stale totals.
+          const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT, updatedAt: row.updatedAt }, data: frozen })
           return res.count === 0 ? CHANGED : { invoiceNo: row.invoiceNo }
         }
         const agg = await tx.invoice.aggregate({ _max: { seq: true } })
         const seq = (agg._max.seq ?? 0) + 1
         const invoiceNo = formatInvoiceNo(seq)
         const res = await tx.invoice.updateMany({
-          where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null },
+          where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null, updatedAt: row.updatedAt },
           data: { seq, invoiceNo, ...frozen },
         })
         if (res.count === 0) return CHANGED

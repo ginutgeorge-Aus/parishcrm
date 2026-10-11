@@ -41,6 +41,15 @@ describe("recipient picker in InvoiceForm", () => {
     expect(screen.getByLabelText("Email")).toHaveValue("")
   })
 
+  it("recovers when the lookup rejects (transport/server failure)", async () => {
+    ;(getRecipientContact as jest.Mock).mockRejectedValue(new Error("network"))
+    render(<InvoiceForm {...props} />)
+    openPicker()
+    fireEvent.click(await screen.findByText("Example Scouts"))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load this recipient's contact details")
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
+  })
+
   it("clears the previous recipient's contact at once and blocks saving until the lookup lands", async () => {
     let resolve: (v: unknown) => void = () => {}
     ;(getRecipientContact as jest.Mock)

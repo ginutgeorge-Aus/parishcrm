@@ -53,7 +53,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
     // lands, so a draft can never pair the new name with the old recipient's email.
     setEmail(""); setAddress("")
     setLookupPending(true)
-    const res = await getRecipientContact(o.kind, o.id)
+    const res = await getRecipientContact(o.kind, o.id).catch(() => ({ error: "lookup failed" }))
     if (my !== reqId.current) return
     setLookupPending(false)
     if ("error" in res) { setLookupError("Couldn't load this recipient's contact details — enter them below."); return }

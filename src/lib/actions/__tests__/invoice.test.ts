@@ -103,6 +103,10 @@ describe("updateInvoice", () => {
     expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "This invoice has changed. Reload and try again." })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11, status: "DRAFT" } }))
   })
+  it("bumps updatedAt explicitly (the send path's version check)", async () => {
+    await updateInvoice(11, undefined, fd())
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ updatedAt: expect.any(Date) }) }))
+  })
   it("audits on success", async () => {
     await updateInvoice(11, undefined, fd())
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })

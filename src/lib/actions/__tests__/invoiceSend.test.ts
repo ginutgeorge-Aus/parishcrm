@@ -20,7 +20,8 @@ const mockAuth = auth as jest.Mock
 const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role } })
 const lines = [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }]
 const issuer = { name: "Example Church", address: "1 Example St", abn: "51824753556", email: "church@example.com", paymentDetails: "BSB 000-000" }
-const draft = { id: 11, status: "DRAFT", invoiceNo: null, recipientEmail: "enc:scouts@example.com", lines, taxInvoice: false }
+const v1 = new Date("2026-10-11T00:00:00Z")
+const draft = { id: 11, status: "DRAFT", invoiceNo: null, recipientEmail: "enc:scouts@example.com", lines, taxInvoice: false, updatedAt: v1 }
 beforeEach(() => {
   jest.clearAllMocks(); as("ADMIN")
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
@@ -46,7 +47,7 @@ describe("sendInvoice", () => {
   it("allocates the next number, freezes GST + recomputed totals, flips to SENT, emails the PDF", async () => {
     expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0007 emailed" })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({
-      where: { id: 11, status: "DRAFT", invoiceNo: null },
+      where: { id: 11, status: "DRAFT", invoiceNo: null, updatedAt: v1 },
       data: {
         seq: 7, invoiceNo: "INV-0007", status: "SENT", sentAt: expect.any(Date), sentById: 1,
         taxInvoice: true, issuer, subtotal: "300.00", gstTotal: "30.00", total: "330.00",
@@ -78,6 +79,11 @@ describe("sendInvoice", () => {
     expect(await sendInvoice(11)).toEqual({ error: "Could not load church details. Please try again." })
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
+  it("refuses when the draft was edited after its lines were read (version check)", async () => {
+    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await sendInvoice(11)).toEqual({ error: "This invoice has changed. Reload and try again." })
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
   it("requires an email", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...draft, recipientEmail: null })
     expect(await sendInvoice(11)).toEqual({ error: "Add a recipient email first, or use Mark as sent" })
@@ -100,7 +106,7 @@ describe("sendInvoice", () => {
     })
     expect(await sendInvoice(11)).toEqual({ success: "Invoice INV-0003 emailed" })
     expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
-    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT" }, data: expect.objectContaining({ total: "330.00", taxInvoice: true, status: "SENT" }) })
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "DRAFT", updatedAt: v1 }, data: expect.objectContaining({ total: "330.00", taxInvoice: true, status: "SENT" }) })
   })
   it("retries once on a number collision", async () => {
     const p2002 = Object.assign(new Error("unique"), { code: "P2002" })

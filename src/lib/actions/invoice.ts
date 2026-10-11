@@ -105,7 +105,8 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
   if (refErr) return { error: refErr }
   const { gstRegistered } = await getInvoiceSettings()
   const data = toDraftData(parsed.data, gstRegistered)
-  const res = await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data })
+  // Explicit updatedAt: it is the version the send path checks, so never rely on implicit bumps.
+  const res = await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: { ...data, updatedAt: new Date() } })
   if (res.count === 0) return CHANGED
   await logAudit(actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
   revalidatePath(INVOICES_PATH)
