@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { safeNextPath } from "@/lib/safeNext"
 import { trustDevice } from "@/lib/actions/trustedDevice"
 
 export function LoginForm({
@@ -20,6 +21,8 @@ export function LoginForm({
 }: Readonly<{ churchName: string; demoLogins?: ReadonlyArray<{ label: string; email: string }> }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // Validated same-origin deep link from middleware (?next=); "/" if absent/unsafe.
+  const nextPath = safeNextPath(searchParams.get("next"))
   const didReset = searchParams.get("reset") === "1"
   const didSetup = searchParams.get("setup") === "1"
   const [email, setEmail] = useState("")
@@ -112,7 +115,7 @@ export function LoginForm({
       } else if (result?.error) {
         setError("Invalid email or password")
       } else if (result?.ok) {
-        router.push("/")
+        router.push(nextPath)
         router.refresh()
       }
     } catch {
@@ -132,7 +135,7 @@ export function LoginForm({
     try {
       const result = await signIn("credentials", { email: demoEmail, mode: "demo", redirect: false })
       if (result?.ok && !result.error) {
-        router.push("/")
+        router.push(nextPath)
         router.refresh()
       } else {
         setDemoError("Demo sign-in failed. Please try again.")
@@ -194,7 +197,7 @@ export function LoginForm({
         if (remember) {
           await trustDevice().catch(() => {}) // best-effort; never block login on trust failure
         }
-        router.push("/")
+        router.push(nextPath)
         router.refresh()
       }
     } catch {
@@ -224,7 +227,7 @@ export function LoginForm({
         if (remember) {
           await trustDevice().catch(() => {}) // best-effort; never block login on trust failure
         }
-        router.push("/")
+        router.push(nextPath)
         router.refresh()
       }
     } catch {
