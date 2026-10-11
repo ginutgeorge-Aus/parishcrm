@@ -245,6 +245,97 @@ describe("syncMyReports", () => {
     expect(mockGetIssue.mock.calls.map((c) => c[0])).toEqual([64, 65, 61])
   })
 
+  it("polls up to 5 issues at once instead of one after another", async () => {
+    mockReportFindMany.mockResolvedValue(
+      Array.from({ length: 12 }, (_, i) => ({ id: i + 1, issueNumber: 100 + i, status: "OPEN", syncedAt: null })),
+    )
+    let inFlight = 0
+    let peak = 0
+    mockGetIssue.mockImplementation(async () => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 5))
+      inFlight--
+      return { state: "open", stateReason: null }
+    })
+
+    await syncMyReports()
+
+    expect(mockGetIssue).toHaveBeenCalledTimes(12)
+    expect(mockReportUpdate).toHaveBeenCalledTimes(12)
+    expect(peak).toBe(5)
+  })
+
+  it("shares the 5-call cap across overlapping loads and never re-polls a queued row", async () => {
+    jest.useFakeTimers()
+    try {
+      const rows = (base: number) =>
+        Array.from({ length: 8 }, (_, i) => ({ id: base + i, issueNumber: base + i, status: "OPEN", syncedAt: null }))
+      let inFlight = 0
+      let peak = 0
+      mockGetIssue.mockImplementation(async () => {
+        inFlight++
+        peak = Math.max(peak, inFlight)
+        await new Promise((r) => setTimeout(r, 4_000)) // outlives the page budget
+        inFlight--
+        return { state: "open", stateReason: null }
+      })
+      mockReportFindMany.mockResolvedValueOnce(rows(200))
+      const first = syncMyReports()
+      await jest.advanceTimersByTimeAsync(3_000)
+      await first // returned on budget: 5 polls in flight, 3 queued
+      mockReportFindMany.mockResolvedValueOnce([...rows(200), ...rows(300)]) // another user's/tab's load
+      const second = syncMyReports()
+      await jest.advanceTimersByTimeAsync(20_000)
+      await second
+      expect(peak).toBe(5)
+      expect(mockGetIssue).toHaveBeenCalledTimes(16) // rows 200-207 once each, never re-polled
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("returns after the time budget even if GitHub hangs, so the page still renders", async () => {
+    jest.useFakeTimers()
+    try {
+      mockReportFindMany.mockResolvedValue([{ id: 70, issueNumber: 70, status: "OPEN", syncedAt: null }])
+      let hang: (e: Error) => void = () => {}
+      mockGetIssue.mockReturnValue(new Promise((_, reject) => { hang = reject })) // hangs past the budget
+      let done = false
+      const p = syncMyReports().then(() => { done = true })
+      await jest.advanceTimersByTimeAsync(2_999)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(1)
+      await p
+      expect(done).toBe(true)
+      expect(mockReportUpdate).not.toHaveBeenCalled()
+      // Settle the hung poll so row 70 and its process-wide sync slot don't leak into later tests.
+      hang(new Error("timeout"))
+      await jest.advanceTimersByTimeAsync(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("does not re-poll a row whose poll from an earlier load is still in flight", async () => {
+    jest.useFakeTimers()
+    try {
+      mockReportFindMany.mockResolvedValue([{ id: 9, issueNumber: 90, status: "OPEN", syncedAt: null }])
+      let release: (v: unknown) => void = () => {}
+      mockGetIssue.mockReturnValueOnce(new Promise((r) => { release = r }))
+      const first = syncMyReports()
+      await jest.advanceTimersByTimeAsync(3_000)
+      await first // returned on budget; poll still in flight
+      await syncMyReports() // overlapping load
+      expect(mockGetIssue).toHaveBeenCalledTimes(1)
+      release({ state: "open", stateReason: null })
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockReportUpdate).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("throws instead of silently querying with a NaN userId when the session id is malformed", async () => {
     mockAuth.mockResolvedValue(session({ id: "" }))
     await expect(syncMyReports()).rejects.toThrow("Authenticated session is missing a valid user id")
