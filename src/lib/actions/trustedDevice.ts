@@ -82,15 +82,23 @@ export async function revokeTrustedDevice(id: string): Promise<{ success: true }
   return { success: true }
 }
 
+/**
+ * List the signed-in user's trusted devices (pending grants excluded). Each
+ * row carries `isCurrent`: true when this browser's trusted-device cookie
+ * hashes to that row's token. The token hash itself is never returned.
+ */
 export async function listTrustedDevices(): Promise<
-  Array<{ id: string; label: string | null; createdAt: Date; lastUsedAt: Date }>
+  Array<{ id: string; label: string | null; createdAt: Date; lastUsedAt: Date; isCurrent: boolean }>
 > {
   const session = await auth()
   const userId = session?.user?.id ? Number.parseInt(session.user.id, 10) : Number.NaN
   if (!isValidPgId(userId)) return []
-  return prisma.trustedDevice.findMany({
+  const rows = await prisma.trustedDevice.findMany({
     where: { userId, NOT: { tokenHash: { startsWith: DEVICE_TRUST_GRANT_PREFIX } } },
     orderBy: { lastUsedAt: "desc" },
-    select: { id: true, label: true, createdAt: true, lastUsedAt: true },
+    select: { id: true, label: true, createdAt: true, lastUsedAt: true, tokenHash: true },
   })
+  const token = (await cookies()).get(TRUSTED_DEVICE_COOKIE)?.value
+  const currentHash = token ? hashDeviceToken(token) : null
+  return rows.map(({ tokenHash, ...d }) => ({ ...d, isCurrent: currentHash !== null && tokenHash === currentHash }))
 }

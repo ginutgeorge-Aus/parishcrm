@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { revokeTrustedDevice } from "@/lib/actions/trustedDevice"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
-type Device = { id: string; label: string | null; createdAt: Date; lastUsedAt: Date }
+type Device = { id: string; label: string | null; createdAt: Date; lastUsedAt: Date; isCurrent?: boolean }
 
 export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) {
   const [list, setList] = useState(devices)
@@ -42,12 +42,17 @@ export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) 
       {list.map((d) => (
         <li key={d.id} className="flex items-center justify-between gap-4 p-3">
           <div className="min-w-0">
-            <p className="truncate text-sm text-foreground">{d.label ?? "Unknown device"}</p>
+            <p className="truncate text-sm text-foreground">
+              {d.label ?? "Unknown device"}
+              {d.isCurrent && (
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">This device</span>
+              )}
+            </p>
             <p className="text-xs text-muted-foreground">
               Last used {new Date(d.lastUsedAt).toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })}
             </p>
           </div>
-          <Button variant="outline" size="sm" disabled={pending} aria-label={`Revoke ${d.label ?? "Unknown device"}`} onClick={() => revoke(d.id)}>
+          <Button variant="outline" size="sm" disabled={pending} aria-label={`Revoke ${d.label ?? "Unknown device"}${d.isCurrent ? " (this device)" : ""}`} onClick={() => revoke(d.id)}>
             Revoke
           </Button>
         </li>
