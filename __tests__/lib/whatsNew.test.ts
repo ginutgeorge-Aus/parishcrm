@@ -36,4 +36,11 @@ describe("whatsNew", () => {
     expect(findEntry("dev")).toBeUndefined()
     expect(findEntry(undefined)).toBeUndefined()
   })
+
+  it("each version appears exactly once (no duplicates)", () => {
+    const versions = WHATS_NEW.map((e) => e.version)
+    const uniqueVersions = new Set(versions)
+    expect(versions.length).toBe(uniqueVersions.size)
+    expect(versions.length).toBeGreaterThan(0)
+  })
 })

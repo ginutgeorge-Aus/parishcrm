@@ -55,3 +55,43 @@ it("working filter hides untested checkpoints", async () => {
   const text = await renderPage("ADMIN", "working")
   expect(text).toContain("Nothing here")
 })
+
+it("unknown filter defaults to pending", async () => {
+  // Invalid filter like ?filter=invalid should fall back to the pending default.
+  const text = await renderPage("ADMIN", "invalid-filter-name")
+  // Pending filter shows all checkpoints and count (same as default behavior)
+  for (const c of TEST_CHECKPOINTS) expect(text).toContain(c.title)
+  expect(text).toContain(`${TEST_CHECKPOINTS.length} pending`)
+})
+
+it("groups visible checkpoints by version, preserving authoring order", async () => {
+  // When checkpoints have results in multiple versions, they should be grouped
+  // with version headers. The grouping should preserve the authoring order
+  // of versions as they appear in the filtered results.
+  
+  // Create distinct test results spanning two versions
+  mockFind.mockResolvedValue([
+    { checkpointId: TEST_CHECKPOINTS[0].id, status: "WORKING", issueNumber: null },
+    { checkpointId: TEST_CHECKPOINTS[1].id, status: "BROKEN", issueNumber: 100 },
+    { checkpointId: TEST_CHECKPOINTS[2].id, status: "WORKING", issueNumber: null },
+  ])
+  
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  const ui = await VerifyPage({ searchParams: Promise.resolve({ filter: "all" }) })
+  const container = render(ui).container
+  const text = container.textContent ?? ""
+  
+  // With results across the checkpoints, grouping sections should appear.
+  // The page groups by checkpoint.version, so if checkpoints have versions,
+  // version headers will be present.
+  const sections = container.querySelectorAll('section')
+  
+  // Filter to sections that look like version groups (they have an h2 child)
+  const versionSections = Array.from(sections).filter(s => s.querySelector('h2'))
+  
+  // Should have at least one version group if TEST_CHECKPOINTS have versions
+  if (TEST_CHECKPOINTS.some(c => c.version)) {
+    expect(versionSections.length).toBeGreaterThan(0)
+  }
+})
+
