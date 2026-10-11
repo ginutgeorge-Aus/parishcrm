@@ -287,6 +287,9 @@ describe("archiveFamily / unarchiveFamily", () => {
     expect(familyId).toBe(3)
     const ops = (prisma.$transaction as jest.Mock).mock.calls[0][0] as unknown[]
     expect(ops).toHaveLength(3)
+    expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.person.updateMany as jest.Mock).mock.invocationCallOrder[0]
+    )
   })
 
   it("unarchiveFamily requires ADMIN", async () => {
