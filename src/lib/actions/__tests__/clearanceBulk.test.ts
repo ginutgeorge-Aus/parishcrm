@@ -164,7 +164,7 @@ describe("verifyClearancesBulk", () => {
     // People are locked FOR SHARE before the guarded update, inside the same transaction.
     expect(queryRaw).toHaveBeenCalledTimes(1)
     const [sql, ids] = queryRaw.mock.calls[0]
-    expect(sql.join("?")).toMatch(/FROM "Person" WHERE id = ANY\(\?::int\[\]\) FOR SHARE/)
+    expect(sql.join("?")).toMatch(/FROM "Person" WHERE id = ANY\(\?::int\[\]\) ORDER BY id FOR SHARE/)
     expect(ids).toEqual([1, 2])
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(updateMany.mock.invocationCallOrder[0])
     expect(logAudit).toHaveBeenCalledTimes(2)
@@ -179,6 +179,15 @@ describe("verifyClearancesBulk", () => {
     updateMany.mockResolvedValue({ count: 1 })
     await verifyClearancesBulk([it1("c11")], "   ")
     expect(updateMany.mock.calls[0][0].data.verificationNote).toBeNull()
+  })
+
+  it("maps a deadlock or write conflict to the stale error instead of throwing", async () => {
+    // adapter-pg surfaces Postgres 40P01/40001 as TransactionWriteConflict.
+    transaction.mockRejectedValueOnce(Object.assign(new Error("deadlock detected"), { cause: { kind: "TransactionWriteConflict" } }))
+    expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
+      error: "This clearance changed. Refresh and try again.",
+    })
+    expect(logAudit).not.toHaveBeenCalled()
   })
 
   it("fails whole batch and audits nothing when a row was verified since load", async () => {

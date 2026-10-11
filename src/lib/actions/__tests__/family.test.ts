@@ -52,6 +52,7 @@ jest.mock("@/lib/prisma", () => ({
     familyUpdateSubmission: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   },
 }))
 
@@ -275,6 +276,20 @@ describe("archiveFamily / unarchiveFamily", () => {
       where: { familyId: 3 },
       data: { archivedAt: expect.any(Date) },
     })
+  })
+
+  it("archiveFamily locks the members in id order before updating them", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 3 })
+    await expect(archiveFamily(3)).rejects.toThrow("NEXT_REDIRECT")
+    const [sql, familyId] = (prisma.$queryRaw as jest.Mock).mock.calls[0]
+    expect(sql.join("?")).toMatch(/FROM "Person" WHERE "familyId" = \? ORDER BY id FOR UPDATE/)
+    expect(familyId).toBe(3)
+    const ops = (prisma.$transaction as jest.Mock).mock.calls[0][0] as unknown[]
+    expect(ops).toHaveLength(3)
+    expect((prisma.$queryRaw as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.person.updateMany as jest.Mock).mock.invocationCallOrder[0]
+    )
   })
 
   it("unarchiveFamily requires ADMIN", async () => {

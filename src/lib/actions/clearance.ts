@@ -8,7 +8,7 @@ import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
-import { CUID_ID_RE, isP2002, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { CUID_ID_RE, isP2002, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
 import { assertNotDemo } from "@/lib/demoMode"
 import { sydneyToday } from "@/lib/dates"
@@ -393,9 +393,10 @@ export async function verifyClearancesBulk(
       // committed before this lock — and the next statement's fresh snapshot
       // sees its new updatedAt, so the guard below fails — or waits until we
       // commit. Without it the relation predicate could pass on a DOB edit
-      // committing mid-statement.
+      // committing mid-statement. ORDER BY id: archiveFamily locks members in
+      // the same order, so the two can't deadlock on opposite lock orders.
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-      await tx.$queryRaw`SELECT id FROM "Person" WHERE id = ANY(${personIds}::int[]) FOR SHARE`
+      await tx.$queryRaw`SELECT id FROM "Person" WHERE id = ANY(${personIds}::int[]) ORDER BY id FOR SHARE`
       const res = await tx.personClearance.updateMany({
         where: {
           OR: unique.map((id) => {
@@ -414,6 +415,9 @@ export async function verifyClearancesBulk(
     })
   } catch (e) {
     if (e instanceof StaleBatchError) return { error: STALE_ERROR }
+    // A deadlock/write conflict with a concurrent person write: nothing was
+    // committed, so the same "refresh and try again" outcome applies.
+    if (isP2034(e)) return { error: STALE_ERROR }
     throw e
   }
   // logAudit never throws (it logs and swallows), so concurrent writes cannot reject.

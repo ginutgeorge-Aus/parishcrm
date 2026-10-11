@@ -238,8 +238,12 @@ export async function archiveFamily(id: number): Promise<ActionResult> {
   // Family + members archive together or not at all — a partial failure
   // must never leave an archived family with still-active members.
   const now = new Date()
+  // Members are locked in id order first: bulk WWCC verify takes Person
+  // locks in the same order, so the two can't deadlock.
   await prisma.$transaction([
     prisma.family.update({ where: { id }, data: { archivedAt: now } }),
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    prisma.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`,
     prisma.person.updateMany({ where: { familyId: id }, data: { archivedAt: now } }),
   ])
   await logAudit(actorId(session), "FAMILY_ARCHIVED", "Family", id)
