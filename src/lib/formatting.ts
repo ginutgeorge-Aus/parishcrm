@@ -124,7 +124,8 @@ export function pettyCashTitle(ymd: string): string {
 
 /**
  * Inverse of `pettyCashTitle`: parse a `DD-MMM-YYYY` session title back to a
- * UTC-midnight Date, or `null` if the title is not in that format. Used to sort
+ * UTC-midnight Date, or `null` if the title is not in that format or names an
+ * impossible day (e.g. 31-FEB). Used to sort
  * the petty cash session list by session (Sunday) date rather than creation
  * time, and to derive a session's date for ledger mirroring. UTC midnight
  * matches the transfer date convention so all rows in a session share an
@@ -133,11 +134,13 @@ export function pettyCashTitle(ymd: string): string {
 export function sessionDateFromTitle(title: string): Date | null {
   const m = /^(\d{2})-([A-Z]{3})-(\d{4})$/.exec(title)
   const month = m ? (MONTH_ABBR as readonly string[]).indexOf(m[2]) : -1
-  if (!m || month === -1) {
+  const d = m && month !== -1 ? new Date(Date.UTC(Number(m[3]), month, Number(m[1]))) : null
+  // Date.UTC rolls an impossible day over (31-FEB → 3 Mar); reject it instead.
+  if (!d || d.getUTCDate() !== Number(m?.[1]) || d.getUTCMonth() !== month) {
     console.error(`sessionDateFromTitle: unparseable session title "${title}"`)
     return null
   }
-  return new Date(Date.UTC(Number(m[3]), month, Number(m[1])))
+  return d
 }
 
 /**

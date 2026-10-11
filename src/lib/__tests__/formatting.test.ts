@@ -114,9 +114,15 @@ describe("sessionDateFromTitle (extra edges)", () => {
     sessionDateFromTitle("31-AUG-2025")
     expect(errSpy).not.toHaveBeenCalled()
   })
-  // Latent: the helper rolls "31-FEB-2025" over to 2025-03-03 instead of rejecting it.
-  // Titles come from pettyCashTitle, so no live caller hits it. Tracked in #215.
-  it.todo("rejects an impossible day such as 31-FEB-2025")
+  it.each(["31-FEB-2025", "29-FEB-2025", "31-APR-2025", "00-JAN-2025"])("rejects the impossible day %s instead of rolling it over", (t) => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(sessionDateFromTitle(t)).toBeNull()
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+  it("accepts a leap day", () => {
+    expect(sessionDateFromTitle("29-FEB-2024")?.toISOString()).toBe("2024-02-29T00:00:00.000Z")
+  })
 })
 
 describe("maskEmail (extra edges)", () => {

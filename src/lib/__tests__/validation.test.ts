@@ -1,4 +1,5 @@
 import {
+  EMAIL_REGEX,
   MONEY_DECIMAL_RE,
   SIGNED_MONEY_DECIMAL_RE,
   hasEncryptedFieldMatch,
@@ -122,9 +123,9 @@ describe("hasEncryptedFieldMatch", () => {
     expect(hasEncryptedFieldMatch(rows, [["notes", "x"]], decrypt)).toBe(false)
     expect(hasEncryptedFieldMatch([{ id: 5 }], [["id", "5"]], decrypt)).toBe(false)
   })
-  // Latent: with no checks, every() is vacuously true, so any candidate "matches".
-  // Both callers pass a literal check list. Tracked in #215.
-  it.todo("returns false when checks is empty")
+  it("returns false when checks is empty instead of matching every candidate", () => {
+    expect(hasEncryptedFieldMatch<Row>([{ id: 1, description: "enc:x" }], [], decrypt)).toBe(false)
+  })
   it("falls through to a later candidate after a null-field row", () => {
     const rows: Row[] = [{ id: 1, description: null }, { id: 2, description: "enc:lunch" }]
     expect(hasEncryptedFieldMatch(rows, [["description", "lunch"]], decrypt)).toBe(true)
@@ -168,6 +169,9 @@ describe("isValidEmail", () => {
     expect(isValidEmail(ok)).toBe(true)
     expect(isValidEmail(local + domain(58))).toBe(false)
   })
-  // Latent: only the total length is capped, so a >64-char local part passes. Tracked in #215.
-  it.todo("rejects a local part longer than 64 characters")
+  it("rejects a local part longer than 64 characters (SMTP limit)", () => {
+    expect(isValidEmail(`${"a".repeat(64)}@example.com`)).toBe(true)
+    expect(isValidEmail(`${"a".repeat(65)}@example.com`)).toBe(false)
+    expect(EMAIL_REGEX.test(`${"a".repeat(65)}@example.com`)).toBe(false)
+  })
 })
