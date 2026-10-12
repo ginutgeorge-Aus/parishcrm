@@ -6,7 +6,7 @@ export function AnniversaryWidget({ anniversaries, truncated = false }: Readonly
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">💍 Anniversaries this week</CardTitle>
+        <CardTitle as="h4" className="text-base"><span aria-hidden="true">💍</span> Anniversaries this week</CardTitle>
       </CardHeader>
       <CardContent>
         {anniversaries.length === 0 ? (

@@ -1,4 +1,4 @@
-import { safeDobDate } from "@/lib/formatting"
+import { maskEmail, safeDobDate, sessionDateFromTitle } from "@/lib/formatting"
 
 describe("fmtAUD / fmtAUDAccounting currency config", () => {
   const ORIGINAL = { ...process.env }
@@ -71,5 +71,70 @@ describe("safeDobDate", () => {
   it("returns null for an impossible date", () => {
     expect(safeDobDate("2020-13-45")).toBeNull()
     expect(safeDobDate("not-a-date")).toBeNull()
+  })
+})
+
+describe("safeDobDate (extra edges)", () => {
+  it("accepts a leap day only in a leap year", () => {
+    expect(safeDobDate("2024-02-29")?.toISOString()).toBe("2024-02-29T00:00:00.000Z")
+    expect(safeDobDate("2025-02-29")).toBeNull()
+  })
+  it("returns midnight UTC for a plain date and for a timestamp's written date", () => {
+    expect(safeDobDate("1990-05-15")?.toISOString()).toBe("1990-05-15T00:00:00.000Z")
+    // UTC instant is 1990-05-16; the written date (15th) must win, not the instant.
+    expect(safeDobDate("1990-05-15T23:30:00-05:00")?.toISOString()).toBe("1990-05-15T00:00:00.000Z")
+  })
+  it("falls back to native parsing for non-ISO-prefixed but parseable text", () => {
+    // NOTE: no YYYY-MM-DD prefix, so the calendar roll-over check is skipped and the
+    // text parses to *server-local* midnight — on an Australia/Sydney server the UTC
+    // date is the 14th. Assert the local calendar date, which holds in any timezone.
+    const d = safeDobDate("May 15, 1990")
+    expect([d?.getFullYear(), d?.getMonth(), d?.getDate()]).toEqual([1990, 4, 15])
+  })
+})
+
+describe("sessionDateFromTitle (extra edges)", () => {
+  let errSpy: jest.SpyInstance
+  beforeEach(() => {
+    errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  })
+  afterEach(() => errSpy.mockRestore())
+
+  it("returns UTC midnight for a leap day", () => {
+    expect(sessionDateFromTitle("29-FEB-2024")?.toISOString()).toBe("2024-02-29T00:00:00.000Z")
+  })
+  it.each(["", "1-AUG-2025", "31-Aug-2025", "31-aug-2025", "31-AUG-25", " 31-AUG-2025", "31-AUG-2025 "])(
+    "returns null and logs for malformed title %j",
+    (t) => {
+      expect(sessionDateFromTitle(t)).toBeNull()
+      expect(errSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+  it("does not log on a valid title", () => {
+    sessionDateFromTitle("31-AUG-2025")
+    expect(errSpy).not.toHaveBeenCalled()
+  })
+  it.each(["31-FEB-2025", "29-FEB-2025", "31-APR-2025", "00-JAN-2025"])("rejects the impossible day %s instead of rolling it over", (t) => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(sessionDateFromTitle(t)).toBeNull()
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+  it("accepts a leap day", () => {
+    expect(sessionDateFromTitle("29-FEB-2024")?.toISOString()).toBe("2024-02-29T00:00:00.000Z")
+  })
+})
+
+describe("maskEmail (extra edges)", () => {
+  it("fully redacts empty, no-@ and leading-@ values", () => {
+    expect(maskEmail("")).toBe("***")
+    expect(maskEmail("no-at-sign")).toBe("***")
+    expect(maskEmail("@x.com")).toBe("***")
+  })
+  it("keeps everything from the first @ onward", () => {
+    expect(maskEmail("a@b@c.com")).toBe("a***@b@c.com")
+  })
+  it("never leaks the rest of the local part", () => {
+    expect(maskEmail("secretname@example.com")).not.toContain("ecretname")
   })
 })

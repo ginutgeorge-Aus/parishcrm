@@ -20,10 +20,17 @@ An applicant or family member never needs to do anything to *receive* these emai
 
 ### The send chokepoint
 
-`sendEmail()` and the type-specific `send*Email()` helpers (`sendPasswordResetEmail`, `sendFamilyUpdateInviteEmail`, `sendWelcomeEmail`, `sendMembershipNotificationEmail`, `sendWelcomeLetterEmail`, `sendRegistrationConfirmationEmail`, `sendEventReminderEmail`, `sendPaymentReminderEmail`, `sendReceiptEmail`, `sendDgrReceiptEmail`) all live in `src/lib/email.ts` and route every real send through a single internal function, `sendMailWithRetry`. No caller ever talks to the `nodemailer` transport directly. Under Resend, each message carries one `Idempotency-Key` reused across its internal retries (429/5xx/network), so a retry can never deliver a duplicate; a network failure that outlasts the retries is reported as "delivery UNKNOWN". That chokepoint:
+`sendEmail()` and the type-specific `send*Email()` helpers (`sendPasswordResetEmail`, `sendFamilyUpdateInviteEmail`, `sendWelcomeEmail`, `sendMembershipNotificationEmail`, `sendWelcomeLetterEmail`, `sendRegistrationConfirmationEmail`, `sendEventReminderEmail`, `sendPaymentReminderEmail`, `sendReceiptEmail`, `sendDgrReceiptEmail`) all live in `src/lib/email.ts` and route every real send through a single internal function, `sendMailWithRetry`. No caller ever talks to the `nodemailer` transport directly. Retry behaviour depends on the provider.
+
+With **Gmail SMTP** (the default), that chokepoint:
 
 - Retries up to 3 times (short backoff) but **only** for errors that provably happened *before* the message reached the server (connection refused, DNS failure, TLS handshake failure, or a 4xx SMTP temporary-reject reply) — retrying after the server may have already accepted the message risks sending a duplicate.
 - Treats certain socket errors (timeout, reset, broken pipe) as **ambiguous** — the message may or may not have gone out — and does *not* retry them; instead it fails the send and raises an "email delivery UNKNOWN" alert so a human checks before manually resending.
+
+With **Resend** (`RESEND_API_KEY` set, `src/lib/resendTransport.ts`), each message carries one `Idempotency-Key` that is reused across its retries, so a retry can never deliver a duplicate. Because of that, Resend **does** retry timeouts, network errors, 429 (honouring `Retry-After`), 5xx replies, and `409 concurrent_idempotent_requests` (the original request under that key is still being processed). Only a timeout/network error or an in-flight 409 leaves delivery uncertain: if one of those happened and the retries run out, the send is reported as "delivery UNKNOWN". An exhausted run of 5xx/429 replies with no ambiguous attempt is reported as a plain failure.
+
+With either provider, the chokepoint:
+
 - On any exhausted/permanent failure, fires a best-effort alert email to the configured `ownerNotificationEmail` address (swallowing its own errors so an alert failure can never mask or loop on the original one).
 
 Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both HTML and a plain-text fallback.
@@ -44,7 +51,7 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 | Receipt | Manual single/batch send from Accounting | Admin-customizable intro/signoff; the transaction description is never put in the subject (it's encrypted-at-rest PII, and subjects sit in plaintext in mail logs). |
 | DGR (tax-deductible giving) receipt | Annual receipt generation | Attached PDF; admin-customizable subject/intro. |
 | Birthday / anniversary blessing | Automatic daily sweep (opt-in per parish), or a manual per-person/bulk send | Skips anyone without email consent; the automatic sweep uses an idempotent claim so it can never double-send even if the cron fires twice. |
-| Clearance compliance digest | Opt-in (`CLEARANCE_DIGEST=true`); then once a month (1st), to ADMIN and PASTOR users | Names of people with expired, expiring (60 days), missing or unverified WWCC / Safe Ministry clearances, a link to `/people/clearances`, and a reminder to act on OCG barring alerts. Never includes WWC numbers or dates of birth. Skipped when nothing needs attention. A failed send is retried for that person only, so a repeat is unlikely (a manual forced run resends to everyone). |
+| Clearance compliance digest | Opt-in (`CLEARANCE_DIGEST=true`); then once a month (1st), to ADMIN and PASTOR users | Names of people with expired, expiring (60 days), missing or unverified WWCC / Safe Ministry clearances, a link to `/people/clearances`, and a reminder to act on OCG barring alerts. Never includes WWC numbers or dates of birth. Skipped when nothing needs attention. A retry goes only to addresses not recorded as sent; `?force=1` on the manual route resends to everyone. |
 | Owner delivery-failure alert | Any of the above exhausts its retries or hits an ambiguous socket error | Goes to `ownerNotificationEmail`; distinguishes a confirmed failure from an "unknown, don't blindly resend" case. |
 
 ### Scheduled sends

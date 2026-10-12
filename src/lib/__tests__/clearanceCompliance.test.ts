@@ -132,7 +132,7 @@ describe("loadWwccVerifyBatch", () => {
 
   const dbRow = (over: Record<string, unknown> = {}, p: Record<string, unknown> = {}) => ({
     id: "c11", number: "enc:WWC0000000E", expiresAt: d("2027-06-01"), verifiedAt: null, updatedAt: new Date("2026-09-30T01:02:03.000Z"),
-    person: { id: 1, firstName: "Alex", lastName: "Testperson", dateOfBirth: "enc:1990-03-05", ...p },
+    person: { id: 1, firstName: "Alex", lastName: "Testperson", dateOfBirth: "enc:1990-03-05", updatedAt: new Date("2026-09-29T05:06:07.000Z"), ...p },
     ...over,
   })
 
@@ -153,7 +153,7 @@ describe("loadWwccVerifyBatch", () => {
     expect(out[0]).toMatchObject({
       personId: 1, familyName: "Testperson", givenName: "Alex",
       dobDmy: "05/03/1990", number: "WWC0000000E", expiresDmy: "01/06/2027",
-      updatedAt: "2026-09-30T01:02:03.000Z",
+      updatedAt: "2026-09-30T01:02:03.000Z", personUpdatedAt: "2026-09-29T05:06:07.000Z",
     })
     expect(out[0]).not.toHaveProperty("verifiedDmy")
   })

@@ -4,7 +4,14 @@ function utcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 }
 
-const ID_SEGMENT = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|c[a-z0-9]{20,31})$/i
+const NUMERIC_ID = /^\d+$/
+const UUID_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+const CUID_ID = /^c[a-z0-9]{20,31}$/i
+
+/** True when a path segment is a record id (numeric, UUID or cuid). */
+function isIdSegment(seg: string): boolean {
+  return NUMERIC_ID.test(seg) || UUID_ID.test(seg) || CUID_ID.test(seg)
+}
 
 /**
  * Collapse record-id path segments (numeric, UUID, cuid) to `[id]` so the daily
@@ -14,7 +21,7 @@ const ID_SEGMENT = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 export function normalizeRoute(path: string): string {
   return path
     .split("/")
-    .map((seg) => (ID_SEGMENT.test(seg) ? "[id]" : seg))
+    .map((seg) => (isIdSegment(seg) ? "[id]" : seg))
     .join("/")
 }
 
