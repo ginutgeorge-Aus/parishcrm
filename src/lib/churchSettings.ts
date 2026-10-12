@@ -67,6 +67,16 @@ export async function getChurchSettings(): Promise<ChurchSettings> {
   return toSettings(rows)
 }
 
+/**
+ * Uncached read that propagates DB errors but doesn't require a configured
+ * identity — for documents frozen at issue (non-tax invoices): a DB blip must
+ * abort the send, not freeze env/default placeholders into the document.
+ * @returns the current church settings, straight from the DB
+ */
+export async function getChurchSettingsFresh(): Promise<ChurchSettings> {
+  return toSettings(await readChurchSettingRows())
+}
+
 // Strict read — for official financial documents (donation receipts, DGR tax
 // receipts + their PDFs). These MUST carry the real church name, address and ABN
 // (a DGR receipt with a placeholder ABN is not a valid tax receipt). Two ways a
@@ -85,7 +95,7 @@ export async function getChurchSettingsStrict(): Promise<ChurchSettings> {
   // previous name/address/ABN while it refreshes in the background. A financial
   // document must carry the CURRENT legal identity, so strict mode never reads
   // through that cache.
-  const settings = toSettings(await readChurchSettingRows())
+  const settings = await getChurchSettingsFresh()
   // Trim before validating — a saved value of only spaces is as blank on a
   // receipt as an empty string, and the settings schema doesn't require
   // non-whitespace content.

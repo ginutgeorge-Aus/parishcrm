@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { buildInvoicePdfModel, loadInvoicePdf, churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
 import { prisma } from "@/lib/prisma"
-import { getChurchSettings, getChurchSettingsStrict } from "@/lib/churchSettings"
+import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn() } } }))
@@ -9,7 +9,7 @@ jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v) }))
 jest.mock("@/lib/pdf/InvoicePdf", () => ({ renderInvoicePdf: jest.fn(async () => Buffer.from("%PDF")) }))
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({
-  getChurchSettings: jest.fn(async () => ({ name: "Example Church", address: "", abn: "", email: "", website: "" })),
+  getChurchSettingsFresh: jest.fn(async () => ({ name: "Example Church", address: "", abn: "", email: "", website: "" })),
   getChurchSettingsStrict: jest.fn(async () => ({ name: "Example Church", address: "1 Example St", abn: "51824753556", email: "", website: "" })),
 }))
 
@@ -61,7 +61,7 @@ describe("loadInvoicePdf", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue(row)
     const out = await loadInvoicePdf(11)
     expect(out).toMatchObject({ filename: "INV-0001.pdf", invoiceNo: "INV-0001", recipientEmail: "scouts@example.com", total: "$100.00" })
-    expect(getChurchSettings).toHaveBeenCalled()
+    expect(getChurchSettingsFresh).toHaveBeenCalled()
     expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
   it("sent invoice renders from its frozen issuer snapshot, not live settings", async () => {
@@ -69,13 +69,13 @@ describe("loadInvoicePdf", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, taxInvoice: true, issuer })
     const out = await loadInvoicePdf(11)
     expect(out).toMatchObject({ churchName: "Old Church Name", paymentDetails: "Old BSB" })
-    expect(getChurchSettings).not.toHaveBeenCalled()
+    expect(getChurchSettingsFresh).not.toHaveBeenCalled()
     expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
   it("ignores a malformed snapshot and falls back to live settings", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, issuer: { name: 5 } })
     expect(await loadInvoicePdf(11)).toMatchObject({ churchName: "Example Church" })
-    expect(getChurchSettings).toHaveBeenCalled()
+    expect(getChurchSettingsFresh).toHaveBeenCalled()
   })
   it("tax invoice uses strict church settings", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, taxInvoice: true })
@@ -100,7 +100,7 @@ describe("buildIssuerSnapshot", () => {
   })
   it("uses lenient settings for a plain invoice", async () => {
     await buildIssuerSnapshot(false, { gstRegistered: false, paymentDetails: "" })
-    expect(getChurchSettings).toHaveBeenCalled()
+    expect(getChurchSettingsFresh).toHaveBeenCalled()
     expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
 })

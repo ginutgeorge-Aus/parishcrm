@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
-import { getChurchSettings, getChurchSettingsStrict } from "@/lib/churchSettings"
+import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
 import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
 import { computeInvoiceTotals, lineGstCents, type InvoiceLine } from "@/lib/invoice"
@@ -29,9 +29,13 @@ function parseIssuer(v: unknown): IssuerSnapshot | null {
   return { name: o.name as string, address: o.address as string, abn: o.abn as string, email: o.email as string, paymentDetails: o.paymentDetails as string }
 }
 
-/** Build the snapshot to freeze at send: strict church details for a tax invoice, lenient otherwise. */
+/**
+ * Build the snapshot to freeze at send: strict church details for a tax invoice; otherwise
+ * fresh ones without the ABN requirement. Both throw on a DB error, so a send aborts instead
+ * of freezing placeholder details.
+ */
 export async function buildIssuerSnapshot(taxInvoice: boolean, settings: InvoiceSettings): Promise<IssuerSnapshot> {
-  const c = taxInvoice ? await getChurchSettingsStrict() : await getChurchSettings()
+  const c = taxInvoice ? await getChurchSettingsStrict() : await getChurchSettingsFresh()
   return { name: c.name, address: c.address, abn: c.abn, email: c.email, paymentDetails: settings.paymentDetails }
 }
 
