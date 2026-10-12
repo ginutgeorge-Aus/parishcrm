@@ -1007,6 +1007,14 @@ test("session callback passes only the signed JWT grant to trustDevice", async (
   expect(withoutProof.deviceTrustGrant).toBeUndefined()
 })
 
+test("session callback exposes the remember claim for the client idle timer", async () => {
+  const session = { user: { id: "1", role: "ADMIN" } }
+  const remembered = await nextAuthOptions.callbacks.session({ session, token: { id: "1", role: "ADMIN", remember: true } })
+  expect(remembered.remember).toBe(true)
+  const shortLived = await nextAuthOptions.callbacks.session({ session: { user: { id: "1", role: "ADMIN" } }, token: { id: "1", role: "ADMIN" } })
+  expect(shortLived.remember).toBe(false)
+})
+
 test("remembered trusted-cookie login cannot issue a new OTP grant", async () => {
   jest.clearAllMocks()
   const passwordHash = await hash("correctpassword", 10)
