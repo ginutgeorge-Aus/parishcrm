@@ -144,7 +144,13 @@ whose sessions were force-invalidated (by a password change, forced reset, or ex
 sign-out), has its session killed immediately even though the JWT itself hasn't expired.
 Non-"remembered" sessions get a 4-hour hard cap plus an idle timeout (default 60 minutes,
 configurable by an admin in Settings); "remembered" sessions instead get a 7-day sliding idle
-window with no separate hard cap.
+window with no separate hard cap. A minute before the idle timeout, a "Session expiring" notice
+appears; only its **Stay logged in** button keeps the session (moving the mouse or scrolling while
+it shows does not), so walking away from a screen still signs you out. This in-browser timer follows
+the same rule, so an idle open tab only signs a remembered session out after 7 days.
+When your browser allows the app to store data, the timer counts activity in every open tab: working
+in one tab keeps an idle tab from signing you out, and its notice disappears on its own. If browser
+storage is blocked (for example by privacy settings), each tab uses its own timer.
 
 ## Configuration
 
