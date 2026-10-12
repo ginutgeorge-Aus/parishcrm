@@ -49,20 +49,25 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
  * renewal stops.
  * @param opts the run's options (key, period, lease length, error sink)
  * @param initial the lease value this run acquired
- * @returns `current()` for the latest lease value, `held()` (false once lost) and `stop()`, which also waits for an in-flight renewal
+ * @returns `current()` for the latest lease value, `held()` (false once lost or expired unrenewed) and `stop()`, which also waits for an in-flight renewal
  */
 function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
   let current = initial
+  // Timestamp inside the last confirmed lease value (wall clock; the acquire
+  // just happened). A rival judges expiry from that timestamp, so we do too.
+  let confirmedAt = Date.now()
   let lost = false
   let inFlight: Promise<void> | null = null
   const timer = setInterval(() => {
     if (inFlight) return
-    const next = `${LEASE_PREFIX}${opts.periodKey}:${Date.now()}`
+    const nextAt = Date.now()
+    const next = `${LEASE_PREFIX}${opts.periodKey}:${nextAt}`
     inFlight = prisma.appSetting
       .updateMany({ where: { key: opts.settingKey, value: current }, data: { value: next } })
       .then(({ count }) => {
         if (count > 0) {
           current = next
+          confirmedAt = nextAt
           return
         }
         lost = true
@@ -79,6 +84,7 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
         if (!row) return
         if (row.value === next) {
           current = next
+          confirmedAt = nextAt
         } else if (row.value !== current) {
           lost = true
           clearInterval(timer)
@@ -90,7 +96,9 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
   timer.unref?.()
   return {
     current: () => current,
-    held: () => !lost,
+    // Also false once the last confirmed lease is older than leaseMs: after
+    // that long without a successful renewal another run may reclaim it.
+    held: () => !lost && Date.now() - confirmedAt < opts.leaseMs,
     async stop() {
       clearInterval(timer)
       await inFlight

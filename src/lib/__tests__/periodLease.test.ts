@@ -194,6 +194,22 @@ describe("runOncePerPeriodLocked lease loss", () => {
     await expect(run).resolves.toBe("locked")
   })
 
+  it("stops reporting the lease held once renewals fail for longer than leaseMs", async () => {
+    const work = deferred()
+    const seen: boolean[] = []
+    const run = runOncePerPeriodLocked(opts(), async (leaseHeld) => {
+      await work.promise
+      seen.push(leaseHeld())
+      return "ok"
+    })
+    mockUpdateMany.mockRejectedValue(new Error("db down"))
+    mockFindUnique.mockRejectedValue(new Error("db down"))
+    await jest.advanceTimersByTimeAsync(LEASE_MS)
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+    expect(seen).toEqual([false])
+  })
+
   it("returns 'locked' when loss is found after the work's last leaseHeld() check", async () => {
     const work = deferred()
     const run = runOncePerPeriodLocked(opts(), async () => {
