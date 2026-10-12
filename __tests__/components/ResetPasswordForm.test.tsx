@@ -62,6 +62,7 @@ describe("ResetPasswordForm", () => {
     expect(confirmInput.type).toBe("password")
     fireEvent.click(buttons[1])
     expect(confirmInput.type).toBe("text")
+    expect((screen.getByLabelText("New password") as HTMLInputElement).type).toBe("password")
   })
 
   it("disables submit button while pending", async () => {
