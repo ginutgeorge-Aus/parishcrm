@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 import { DeleteDraftButton } from "@/components/accounting/InvoiceRowActions"
 import { InvoiceSendActions } from "@/components/accounting/InvoiceSendActions"
-import { MarkPaidDialog, UnmarkPaidButton } from "@/components/accounting/MarkPaidDialog"
+import { InvoicePaymentActions } from "@/components/accounting/InvoicePaymentActions"
 import { VoidInvoiceDialog } from "@/components/accounting/VoidInvoiceDialog"
-import { prisma } from "@/lib/prisma"
+import { getPaymentAccounts } from "@/lib/paymentAccounts"
 
 const money = (cents: number) => fmtAUD(centsToNumber(cents))
 
@@ -37,8 +37,9 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
     ? computeInvoiceTotals(inv.lines, showGst)
     : { subtotalCents: toCents(inv.subtotal), gstCents: toCents(inv.gstTotal), totalCents: toCents(inv.total) }
   const day = (d: Date) => sydneyTodayYMD(d)
+  // Default bank first, so the dialog preselects it.
   const bankAccounts = canManage && inv.status === "SENT"
-    ? await prisma.paymentAccount.findMany({ where: { kind: "BANK", isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    ? (await getPaymentAccounts({ kind: "BANK", activeOnly: true })).map(({ id, name }) => ({ id, name }))
     : []
 
   return (
@@ -67,14 +68,12 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
         <InvoiceSendActions id={inv.id} status={inv.status} hasEmail={!!inv.recipientEmail} />
       )}
 
-      {canManage && inv.status === "SENT" && (
+      {canManage && (inv.status === "SENT" || inv.status === "PAID") && (
         <div className="flex flex-wrap items-start gap-2">
-          <MarkPaidDialog id={inv.id} bankAccounts={bankAccounts} hasEmail={!!inv.recipientEmail} />
-          <VoidInvoiceDialog id={inv.id} />
+          <InvoicePaymentActions id={inv.id} status={inv.status} bankAccounts={bankAccounts} hasEmail={!!inv.recipientEmail} />
+          {inv.status === "SENT" && <VoidInvoiceDialog id={inv.id} />}
         </div>
       )}
-
-      {canManage && inv.status === "PAID" && <UnmarkPaidButton id={inv.id} />}
 
       <dl className="grid gap-4 rounded-lg border border-border p-4 text-sm sm:grid-cols-2">
         <div>

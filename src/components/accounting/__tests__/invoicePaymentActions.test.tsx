@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
-import { MarkPaidDialog, UnmarkPaidButton } from "@/components/accounting/MarkPaidDialog"
+import { InvoicePaymentActions } from "@/components/accounting/InvoicePaymentActions"
 import { VoidInvoiceDialog } from "@/components/accounting/VoidInvoiceDialog"
 import { markInvoicePaid, unmarkInvoicePaid, listPaymentCandidates } from "@/lib/actions/invoicePayment"
 import { voidInvoice } from "@/lib/actions/invoiceVoid"
@@ -11,7 +11,7 @@ jest.mock("@/lib/actions/invoiceVoid", () => ({ voidInvoice: jest.fn() }))
 jest.mock("@/lib/dates", () => ({ sydneyTodayYMD: () => "2026-10-20" }))
 
 const banks = [{ id: 2, name: "Main" }, { id: 3, name: "Savings" }]
-const candidate = { id: 50, date: "2026-10-18", amount: "330.00", reference: "INV-0007", paymentAccountName: "Main" }
+const candidate = { id: 50, date: "2026-10-18", amount: "330.00", reference: "INV-0007", paymentAccountName: "Main", accountName: "Donations" }
 
 let confirmSpy: jest.SpyInstance
 beforeEach(() => {
@@ -26,7 +26,7 @@ const openDialog = () => fireEvent.click(screen.getByRole("button", { name: "Mar
 describe("MarkPaidDialog", () => {
   it("links a suggested transaction", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue([candidate])
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail={false} />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail={false} />)
     openDialog()
     fireEvent.click(await screen.findByLabelText(/2026-10-18/))
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
@@ -37,7 +37,7 @@ describe("MarkPaidDialog", () => {
 
   it("asks for a transaction before submitting in link mode", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue([candidate])
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail />)
     openDialog()
     await screen.findByLabelText(/2026-10-18/)
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
@@ -47,7 +47,7 @@ describe("MarkPaidDialog", () => {
 
   it("falls back to recording a new payment when nothing matches, with a receipt", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue([])
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail />)
     openDialog()
     const account = await screen.findByLabelText("Bank account")
     fireEvent.change(account, { target: { value: "3" } })
@@ -56,17 +56,42 @@ describe("MarkPaidDialog", () => {
     await waitFor(() => expect(markInvoicePaid).toHaveBeenCalledWith(11, { mode: "create", date: "2026-10-19", paymentAccountId: 3, sendReceipt: true }))
   })
 
-  it("treats a candidate lookup failure as no matches", async () => {
+  it("says when candidates fail to load and falls back to recording", async () => {
     ;(listPaymentCandidates as jest.Mock).mockRejectedValue(new Error("network"))
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail={false} />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail={false} />)
     openDialog()
     expect(await screen.findByLabelText("Bank account")).toBeTruthy()
+    expect(screen.getByText(/Couldn.t load matching transactions/)).toBeTruthy()
+  })
+
+  it("keeps the mode the user picked while candidates were loading", async () => {
+    let resolve!: (v: unknown) => void
+    ;(listPaymentCandidates as jest.Mock).mockReturnValue(new Promise((r) => { resolve = r }))
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail={false} />)
+    openDialog()
+    fireEvent.click(screen.getByLabelText("Record new payment"))
+    resolve([candidate])
+    await waitFor(() => expect(screen.getByLabelText("Bank account")).toBeTruthy())
+    expect((screen.getByLabelText("Record new payment") as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("keeps the result message after the invoice flips to PAID", async () => {
+    ;(listPaymentCandidates as jest.Mock).mockResolvedValue([])
+    ;(markInvoicePaid as jest.Mock).mockResolvedValue({ success: "INV-0007 marked paid", warning: "Receipt not sent: no recipient email" })
+    const { rerender } = render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail={false} />)
+    openDialog()
+    await screen.findByLabelText("Bank account")
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
+    await screen.findByText(/Receipt not sent/)
+    rerender(<InvoicePaymentActions id={11} status="PAID" bankAccounts={[]} hasEmail={false} />)
+    expect(screen.getByRole("button", { name: "Unmark paid" })).toBeTruthy()
+    expect(screen.getByText("INV-0007 marked paid. Receipt not sent: no recipient email")).toBeTruthy()
   })
 
   it("shows the server error and stays open", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue({ error: "Unauthorized" })
     ;(markInvoicePaid as jest.Mock).mockResolvedValue({ error: "Period locked" })
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail={false} />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail={false} />)
     openDialog()
     await screen.findByLabelText("Bank account")
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
@@ -77,7 +102,7 @@ describe("MarkPaidDialog", () => {
   it("surfaces a receipt warning after marking paid", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue([])
     ;(markInvoicePaid as jest.Mock).mockResolvedValue({ success: "INV-0007 marked paid", warning: "Receipt not sent: no consent" })
-    render(<MarkPaidDialog id={11} bankAccounts={banks} hasEmail />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={banks} hasEmail />)
     openDialog()
     await screen.findByLabelText("Bank account")
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
@@ -86,7 +111,7 @@ describe("MarkPaidDialog", () => {
 
   it("explains when there is no bank account to record against", async () => {
     ;(listPaymentCandidates as jest.Mock).mockResolvedValue([])
-    render(<MarkPaidDialog id={11} bankAccounts={[]} hasEmail={false} />)
+    render(<InvoicePaymentActions id={11} status="SENT" bankAccounts={[]} hasEmail={false} />)
     openDialog()
     expect(await screen.findByText(/No active bank account/)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }))
@@ -94,23 +119,23 @@ describe("MarkPaidDialog", () => {
   })
 })
 
-describe("UnmarkPaidButton", () => {
+describe("InvoicePaymentActions — unmark", () => {
   it("unmarks after confirming", async () => {
     ;(unmarkInvoicePaid as jest.Mock).mockResolvedValue({ success: "Payment unlinked — INV-0007 is unpaid again" })
-    render(<UnmarkPaidButton id={11} />)
+    render(<InvoicePaymentActions id={11} status="PAID" bankAccounts={banks} hasEmail />)
     fireEvent.click(screen.getByRole("button", { name: "Unmark paid" }))
     expect(await screen.findByText("Payment unlinked — INV-0007 is unpaid again")).toBeTruthy()
     expect(unmarkInvoicePaid).toHaveBeenCalledWith(11)
   })
   it("shows an error", async () => {
     ;(unmarkInvoicePaid as jest.Mock).mockResolvedValue({ error: "Period locked" })
-    render(<UnmarkPaidButton id={11} />)
+    render(<InvoicePaymentActions id={11} status="PAID" bankAccounts={banks} hasEmail />)
     fireEvent.click(screen.getByRole("button", { name: "Unmark paid" }))
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Period locked")
   })
   it("does nothing when not confirmed", () => {
     confirmSpy.mockReturnValue(false)
-    render(<UnmarkPaidButton id={11} />)
+    render(<InvoicePaymentActions id={11} status="PAID" bankAccounts={banks} hasEmail />)
     fireEvent.click(screen.getByRole("button", { name: "Unmark paid" }))
     expect(unmarkInvoicePaid).not.toHaveBeenCalled()
   })

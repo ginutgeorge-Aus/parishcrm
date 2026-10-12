@@ -185,6 +185,31 @@ test("updateTransaction rejects when the submitted (re-dated) date is in a locke
   expect(mockAssertUnlocked).toHaveBeenCalledTimes(2)
 })
 
+describe("updateTransaction on an invoice payment", () => {
+  const linked = {
+    id: 1, date: new Date("2026-07-05T00:00:00.000Z"), reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null,
+    pettyCashTransferId: null, invoiceId: 11, amount: { toString: () => "100.00" }, type: "INCOME", accountId: 2, fundId: null,
+  }
+  const LINKED = "This transaction is the payment for an invoice. Unmark the invoice as paid first, then change or delete it."
+  beforeEach(() => (prisma.transaction.findUnique as jest.Mock).mockResolvedValue(linked))
+  it.each([
+    ["amount", { amount: "90.00" }],
+    ["date", { date: "2026-07-06" }],
+    ["type", { type: "EXPENSE" }],
+    ["account", { accountId: "3" }],
+    ["fund", { fundId: "4" }],
+  ])("blocks changing the %s", async (_f, over) => {
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ type: "type" in over ? over.type : "INCOME", isActive: true, name: "X" })
+    ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 4, isActive: true })
+    expect(await updateTransaction(1, undefined, validForm(over))).toEqual({ error: LINKED })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
+  it("allows a description-only edit", async () => {
+    await expect(updateTransaction(1, undefined, validForm({ description: "Hall hire, Oct" }))).rejects.toThrow("REDIRECT")
+    expect(prisma.transaction.updateMany).toHaveBeenCalled()
+  })
+})
+
 test("updateTransaction returns a concurrency error when the optimistic update matches 0 rows", async () => {
   ;(prisma.transaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
   const r = await updateTransaction(1, undefined, validForm())

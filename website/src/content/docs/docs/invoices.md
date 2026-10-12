@@ -43,14 +43,14 @@ A sent invoice can be **re-sent** by email at any time. Sent invoices can't be e
 
 When the money arrives, open the sent invoice and choose **Mark paid**. Payment is recorded in full — part-payments aren't supported. You have two options:
 
-- **Link existing transaction** — if the payment is already in your transactions (for example from a bank-statement import), pick it from the list. The list only shows income transactions for exactly the invoice total, dated on or after the issue date, that aren't already linked to another invoice.
+- **Link existing transaction** — if the payment is already in your transactions (for example from a bank-statement import), pick it from the list. The list only shows income transactions for exactly the invoice total, dated on or after the issue date and outside any locked period, that aren't giving and aren't already linked to another invoice. Linking moves the transaction to the invoice's income account and fund, so invoice income is always reported the same way however it was recorded.
 - **Record new payment** — enter the payment date and the bank account it went into. This creates an income transaction for the invoice total, posted to the invoice's income account and fund, with the invoice number as its reference.
 
-Tick **Email a receipt to the recipient** to send the usual transaction receipt to the invoice's email address. If the receipt can't be sent (for example the member has opted out of emails), the invoice is still marked paid and the page tells you why the receipt didn't go.
+Tick **Email the recipient that payment was received** to send a short "payment received" note for the invoice to its email address. It is not a donation receipt — invoice payments are for goods or services, not gifts. If the email can't be sent, the invoice is still marked paid and the page tells you why.
 
 The payment can't be dated before the invoice was issued, or fall in a locked accounting period. A paid invoice links to its payment transaction.
 
-**Unmark paid** puts the invoice back to sent. The payment transaction stays in your books, just no longer linked to the invoice; delete or edit it from Transactions if it was recorded by mistake.
+**Unmark paid** puts the invoice back to sent. The payment transaction stays in your books, just no longer linked to the invoice (a linked transaction keeps the invoice's account and fund). While a transaction is an invoice's payment, its amount, date, type, account and fund can't be changed and it can't be deleted — unmark the invoice first, then edit or delete it from Transactions.
 
 ### Voiding
 
@@ -64,7 +64,7 @@ Above the invoice list:
 - **Paid** — invoices marked paid in the period.
 - **GST collected** — the GST on invoices paid in the period (shown only when the church is registered for GST). Use it as the invoice part of your BAS. It is **cash basis**: an invoice's GST counts in the period it was paid, not when it was issued. The ledger holds the GST-inclusive amount in the income account.
 
-The period is the **Issued from / to** filter dates when set, otherwise the current month.
+The period is the **Issued from / to** filter dates when both are set, otherwise the current month.
 
 ### Numbering
 

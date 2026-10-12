@@ -87,6 +87,17 @@ describe("InvoicesPage", () => {
     expect(html).not.toContain("GST collected")
   })
 
+  it("falls back to this month when only one date filter is set", async () => {
+    as("ADMIN")
+    jest.useFakeTimers({ now: new Date("2026-10-10T03:00:00Z"), doNotFake: ["nextTick", "setImmediate"] })
+    try {
+      await call({ from: "2026-11-01" })
+      expect(getInvoiceSummary).toHaveBeenCalledWith({ from: "2026-10-01", to: "2026-10-31" })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("redirects if the summary is unauthorized", async () => {
     as("ADMIN")
     ;(getInvoiceSummary as jest.Mock).mockResolvedValue({ error: "Unauthorized" })

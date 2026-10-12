@@ -9,6 +9,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
+import { toCents } from "@/lib/formatting"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
@@ -163,6 +164,18 @@ export async function createTransaction(
   redirect("/accounting/transactions")
 }
 
+const INVOICE_LINKED_ERROR = "This transaction is the payment for an invoice. Unmark the invoice as paid first, then change or delete it."
+
+/** True when an edit would change what a linked invoice payment records (amount, type, day, account or fund). */
+function invoicePaymentChanged(
+  existing: { amount: { toString(): string }; type: string; date: Date; accountId: number; fundId: number | null },
+  next: { amount: string; type: string; date: Date; accountId: number; fundId?: number | null },
+): boolean {
+  const day = (d: Date) => d.toISOString().slice(0, 10)
+  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || day(existing.date) !== day(next.date)
+    || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
+}
+
 export async function updateTransaction(
   id: number,
   _prev: ActionResult,
@@ -173,7 +186,10 @@ export async function updateTransaction(
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true },
+    select: {
+      id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true,
+      invoiceId: true, amount: true, type: true, accountId: true, fundId: true,
+    },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
@@ -195,6 +211,11 @@ export async function updateTransaction(
   // silently mutating already-closed books.
   const newDateLockError = await assertUnlocked(parsed.data.date)
   if (newDateLockError) return { error: newDateLockError }
+
+  // An invoice payment must keep matching its invoice (amount, date = paid date, account/fund it was posted to);
+  // description/notes/party edits are fine.
+  if (existing.invoiceId != null && invoicePaymentChanged(existing, parsed.data))
+    return { error: INVOICE_LINKED_ERROR }
 
   // allowInactive: this is an edit of a possibly-historical row — an account
   // deactivated after the fact must remain valid so the row stays editable and
@@ -264,11 +285,12 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true },
+    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
     return { error: "Petty cash transactions cannot be deleted here — delete via the petty cash session" }
+  if (existing.invoiceId != null) return { error: INVOICE_LINKED_ERROR }
   // Deleting a reconciled row silently un-balances a reconciled period —
   // require a deliberate un-reconcile on the Reconciliation page first.
   if (existing.reconciled)

@@ -565,6 +565,14 @@ describe("deleteTransaction", () => {
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/transactions")
   })
 
+  it("rejects deleting an invoice payment", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, invoiceId: 11 })
+    const result = await deleteTransaction(1)
+    expect(result).toEqual({ error: "This transaction is the payment for an invoice. Unmark the invoice as paid first, then change or delete it." })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
   it("rejects deleting a reconciled transaction", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: true })

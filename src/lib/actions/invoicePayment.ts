@@ -6,12 +6,15 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { prisma } from "@/lib/prisma"
+import { logger } from "@/lib/logger"
+import { sendEmail } from "@/lib/email"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, getAccountingLockDate } from "@/lib/accountingLock"
 import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
-import { toCents, fmtAUD, centsToNumber } from "@/lib/formatting"
+import { toCents, fmtAUD, centsToNumber, formatLongDate } from "@/lib/formatting"
+import { getChurchSettingsFresh } from "@/lib/churchSettings"
+import { buildInvoicePaidEmail } from "@/lib/invoiceEmail"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
-import { sendSingleReceipt } from "@/lib/actions/receipt"
 
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
 const BEFORE_ISSUE = { error: "The payment can't be dated before the invoice was issued" }
@@ -20,7 +23,10 @@ const REPORT_PATHS = ["/accounting", "/accounting/transactions", "/accounting/re
 export type MarkPaidInput =
   | { mode: "link"; transactionId: number; sendReceipt: boolean }
   | { mode: "create"; date: string; paymentAccountId: number; sendReceipt: boolean }
-export type PaymentCandidate = { id: number; date: string; amount: string; reference: string | null; paymentAccountName: string | null }
+export type PaymentCandidate = { id: number; date: string; amount: string; reference: string | null; paymentAccountName: string | null; accountName: string }
+
+/** Thrown inside a DB transaction to roll back when a guarded write matched no rows (a concurrent change). */
+class Conflict extends Error {}
 
 /** Revalidate invoice pages plus ledger/report pages touched by a payment link change. */
 function revalidate(id: number) {
@@ -29,31 +35,65 @@ function revalidate(id: number) {
   for (const p of REPORT_PATHS) revalidatePath(p)
 }
 
-type SentInvoice = { id: number; invoiceNo: string | null; recipientName: string; personId: number | null; total: { toString(): string }; issueDate: Date; accountId: number; fundId: number | null }
+type SentInvoice = {
+  id: number; invoiceNo: string | null; recipientName: string; recipientEmail: string | null; personId: number | null
+  total: { toString(): string }; issueDate: Date; accountId: number; fundId: number | null; issuer: unknown
+}
 
-/** Link an existing unlinked income transaction of the exact total; returns its id and date, or an error. */
-async function linkExisting(inv: SentInvoice, transactionId: number): Promise<{ txId: number; paidAt: Date } | { error: string }> {
+/** The payment is posted to the invoice's income account and fund, so both must still be usable. */
+async function postingTargetError(inv: SentInvoice): Promise<string | null> {
+  const acct = await prisma.account.findUnique({ where: { id: inv.accountId } })
+  if (acct?.type !== "INCOME" || !acct.isActive) return "The invoice's income account is inactive — reactivate it first"
+  if (inv.fundId !== null) {
+    const fund = await prisma.fund.findUnique({ where: { id: inv.fundId } })
+    if (!fund?.isActive) return "The invoice's fund is inactive — reactivate it first"
+  }
+  return null
+}
+
+/** Run a guarded write; a Conflict maps to CHANGED, anything else is logged and reported as a failure. */
+async function guarded<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
+  try {
+    return await fn()
+  } catch (e) {
+    if (e instanceof Conflict) return CHANGED
+    logger.error("[invoicePayment] write failed", { message: e instanceof Error ? e.message : "unknown" })
+    return { error: "Couldn't save the payment. Try again." }
+  }
+}
+
+/**
+ * Link an existing unlinked, non-giving income transaction of the exact total. Linking recategorises it to the
+ * invoice's income account and fund, so the income is reported the same way as a newly recorded payment.
+ */
+async function linkExisting(inv: SentInvoice, transactionId: number): Promise<{ txId: number; paidAt: Date; moved: { accountId: number; fundId: number | null } | null } | { error: string }> {
   if (!isValidPgId(transactionId)) return { error: "Invalid transaction" }
   const t = await prisma.transaction.findUnique({ where: { id: transactionId } })
-  if (t?.type !== "INCOME" || t.invoiceId !== null) return { error: "Pick an income transaction that is not linked to another invoice" }
+  if (t?.type !== "INCOME" || t.invoiceId !== null || t.isGiving) return { error: "Pick an income transaction that is not linked to another invoice" }
   const totalCents = toCents(inv.total.toString())
   if (toCents(t.amount.toString()) !== totalCents) return { error: `The transaction amount must equal the invoice total (${fmtAUD(centsToNumber(totalCents))})` }
   if (t.date < inv.issueDate) return BEFORE_ISSUE
   const lockErr = await assertUnlocked(t.date)
   if (lockErr) return { error: lockErr }
-  const ok = await prisma.$transaction(async (tx) => {
+  const targetErr = await postingTargetError(inv)
+  if (targetErr) return { error: targetErr }
+  const moved = t.accountId !== inv.accountId || t.fundId !== inv.fundId ? { accountId: t.accountId, fundId: t.fundId } : null
+  const res = await guarded(() => prisma.$transaction(async (tx) => {
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt: t.date } })
-    if (flip.count === 0) return false
-    const linked = await tx.transaction.updateMany({ where: { id: t.id, invoiceId: null }, data: { invoiceId: inv.id } })
+    if (flip.count === 0) throw new Conflict()
+    const linked = await tx.transaction.updateMany({
+      where: { id: t.id, invoiceId: null, isGiving: false },
+      data: { invoiceId: inv.id, accountId: inv.accountId, fundId: inv.fundId },
+    })
     // Throwing rolls back the status flip: someone linked this transaction elsewhere meanwhile.
-    if (linked.count === 0) throw new Error("transaction already linked")
+    if (linked.count === 0) throw new Conflict()
     return true
-  }).catch(() => false)
-  return ok ? { txId: t.id, paidAt: t.date } : CHANGED
+  }))
+  return typeof res === "object" ? res : { txId: t.id, paidAt: t.date, moved }
 }
 
 /** Record a new bank income transaction for the invoice total, posted to the invoice's account/fund. */
-async function createPayment(inv: SentInvoice, date: string, paymentAccountId: number): Promise<{ txId: number } | { error: string }> {
+async function createPayment(inv: SentInvoice, date: string, paymentAccountId: number): Promise<{ txId: number; paidAt: Date } | { error: string }> {
   if (!isRealCalendarDate(date)) return { error: "Invalid payment date" }
   const paidAt = new Date(date)
   if (paidAt < inv.issueDate) return BEFORE_ISSUE
@@ -61,15 +101,11 @@ async function createPayment(inv: SentInvoice, date: string, paymentAccountId: n
   if (lockErr) return { error: lockErr }
   const pa = isValidPgId(paymentAccountId) ? await prisma.paymentAccount.findUnique({ where: { id: paymentAccountId } }) : null
   if (pa?.kind !== "BANK" || !pa.isActive) return { error: "Choose an active bank account" }
-  const acct = await prisma.account.findUnique({ where: { id: inv.accountId } })
-  if (acct?.type !== "INCOME" || !acct.isActive) return { error: "The invoice's income account is inactive — reactivate it first" }
-  if (inv.fundId !== null) {
-    const fund = await prisma.fund.findUnique({ where: { id: inv.fundId } })
-    if (!fund?.isActive) return { error: "The invoice's fund is inactive — reactivate it first" }
-  }
-  const created = await prisma.$transaction(async (tx) => {
+  const targetErr = await postingTargetError(inv)
+  if (targetErr) return { error: targetErr }
+  const created = await guarded(() => prisma.$transaction(async (tx) => {
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt } })
-    if (flip.count === 0) return null
+    if (flip.count === 0) throw new Conflict()
     return tx.transaction.create({
       data: {
         date: paidAt, type: "INCOME", amount: inv.total.toString(), accountId: inv.accountId, paymentAccountId: pa.id, fundId: inv.fundId,
@@ -77,11 +113,30 @@ async function createPayment(inv: SentInvoice, date: string, paymentAccountId: n
         description: encrypt(`Invoice ${inv.invoiceNo} — ${inv.recipientName}`),
       },
     })
-  })
-  return created ? { txId: created.id } : CHANGED
+  }))
+  return "error" in created ? created : { txId: created.id, paidAt }
 }
 
-/** Mark a SENT invoice paid by linking an existing income transaction or creating one; optionally email a receipt. */
+/** Email the invoice recipient a payment-received note. Returns a warning string when it can't be sent. */
+async function sendPaidEmail(inv: SentInvoice, paidAt: Date): Promise<string | undefined> {
+  if (!inv.recipientEmail) return "Receipt not sent: no recipient email"
+  const frozen = (inv.issuer ?? {}) as { name?: unknown }
+  const churchName = typeof frozen.name === "string" && frozen.name ? frozen.name : (await getChurchSettingsFresh()).name
+  const mail = buildInvoicePaidEmail({
+    churchName, recipientName: inv.recipientName, invoiceNo: inv.invoiceNo ?? "",
+    total: fmtAUD(centsToNumber(toCents(inv.total.toString()))), paidDate: formatLongDate(paidAt),
+  })
+  try {
+    await sendEmail(safeDecrypt(inv.recipientEmail), mail.subject, mail.html, mail.text)
+    return undefined
+  } catch {
+    // Never log the raw error — SMTP messages embed the recipient address.
+    logger.error("[invoicePayment] receipt email failed", { invoiceId: inv.id })
+    return "Receipt not sent: the email could not be delivered"
+  }
+}
+
+/** Mark a SENT invoice paid by linking an existing income transaction or creating one; optionally email the recipient. */
 export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise<{ success: string; warning?: string } | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -94,14 +149,15 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
     : await createPayment(inv, input.date, input.paymentAccountId)
   if ("error" in res) return res
 
-  await logAudit(actorId(session), "INVOICE_PAID", "Invoice", id, { invoiceNo: inv.invoiceNo, transactionId: res.txId, mode: input.mode })
+  await logAudit(actorId(session), "INVOICE_PAID", "Invoice", id, {
+    invoiceNo: inv.invoiceNo, transactionId: res.txId, mode: input.mode,
+    ...("moved" in res && res.moved ? { recategorisedFrom: res.moved } : {}),
+  })
   revalidate(id)
 
   const success = `${inv.invoiceNo} marked paid`
-  if (!input.sendReceipt) return { success }
-  if (!inv.recipientEmail) return { success, warning: "Receipt not sent: no recipient email" }
-  const r = await sendSingleReceipt(res.txId, safeDecrypt(inv.recipientEmail))
-  return "error" in r ? { success, warning: `Receipt not sent: ${r.error}` } : { success }
+  const warning = input.sendReceipt ? await sendPaidEmail(inv, res.paidAt) : undefined
+  return warning ? { success, warning } : { success }
 }
 
 /** Undo a payment link: PAID → SENT. The transaction stays in the ledger, just unlinked. */
@@ -115,28 +171,39 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
     const lockErr = await assertUnlocked(inv.paidAt)
     if (lockErr) return { error: lockErr }
   }
-  const ok = await prisma.$transaction(async (tx) => {
+  const ok = await guarded(() => prisma.$transaction(async (tx) => {
     const flip = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.PAID }, data: { status: InvoiceStatus.SENT, paidAt: null } })
-    if (flip.count === 0) return false
+    if (flip.count === 0) throw new Conflict()
     await tx.transaction.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } })
     return true
-  })
-  if (!ok) return CHANGED
+  }))
+  if (typeof ok === "object") return ok
   await logAudit(actorId(session), "INVOICE_UNPAID", "Invoice", id, { invoiceNo: inv.invoiceNo })
   revalidate(id)
   return { success: `Payment unlinked — ${inv.invoiceNo} is unpaid again` }
 }
 
-/** Suggest unlinked income transactions matching the invoice total, dated on/after issue. No PII returned. */
+/**
+ * Suggest income transactions that could pay a SENT invoice: exact total, unlinked, not giving, dated on/after
+ * issue and outside the locked period. No PII returned.
+ */
 export async function listPaymentCandidates(id: number): Promise<PaymentCandidate[] | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
-  const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, select: { total: true, issueDate: true } }) : null
+  const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, select: { status: true, total: true, issueDate: true } }) : null
   if (!inv) return { error: "Invoice not found" }
+  if (inv.status !== InvoiceStatus.SENT) return []
+  const lock = await getAccountingLockDate()
+  // The lock is inclusive of its calendar day: only rows dated on the following day or later are editable.
+  const afterLock = lock ? new Date(lock.getTime() + 86_400_000) : null
+  const from = afterLock && afterLock > inv.issueDate ? afterLock : inv.issueDate
   const rows = await prisma.transaction.findMany({
-    where: { type: "INCOME", invoiceId: null, amount: inv.total.toString(), date: { gte: inv.issueDate } },
+    where: { type: "INCOME", invoiceId: null, isGiving: false, amount: inv.total.toString(), date: { gte: from } },
     orderBy: { date: "desc" }, take: 20,
-    select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } } },
+    select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } }, account: { select: { name: true } } },
   })
-  return rows.map((r) => ({ id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference, paymentAccountName: r.paymentAccountRel?.name ?? null }))
+  return rows.map((r) => ({
+    id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference,
+    paymentAccountName: r.paymentAccountRel?.name ?? null, accountName: r.account.name,
+  }))
 }

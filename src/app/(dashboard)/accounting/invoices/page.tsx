@@ -49,8 +49,8 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const from = sp.from && isRealCalendarDate(sp.from) ? sp.from : undefined
   const to = sp.to && isRealCalendarDate(sp.to) ? sp.to : undefined
   const month = currentMonthRange()
-  // Paid / GST figures use the date filters as the payment period, else this month.
-  const period = { from: from ?? month.from, to: to ?? month.to }
+  // Paid / GST figures use the date filters as the payment period when both are set, else this month.
+  const period = from && to && from <= to ? { from, to } : month
   const [result, summary, { gstRegistered }] = await Promise.all([listInvoices({ status, from, to }), getInvoiceSummary(period), getInvoiceSettings()])
   if ("error" in result || "error" in summary) redirect("/")
   const periodLabel = `${period.from} to ${period.to}`

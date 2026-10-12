@@ -16,3 +16,18 @@ export function buildInvoiceEmail(meta: {
   const html = lines.map((l) => (l === "" ? "<br>" : `<p style="margin:0">${esc(l).replace(/\n/g, "<br>")}</p>`)).join("\n")
   return { subject, html, text }
 }
+
+/** Subject, HTML and text for the payment-received note sent when an invoice is marked paid (not a donation receipt). */
+export function buildInvoicePaidEmail(meta: {
+  churchName: string; recipientName: string; invoiceNo: string; total: string; paidDate: string
+}): { subject: string; html: string; text: string } {
+  const subject = `Payment received — invoice ${meta.invoiceNo}`
+  const lines = [
+    `Dear ${meta.recipientName},`, "",
+    `We received your payment of ${meta.total} on ${meta.paidDate} for invoice ${meta.invoiceNo}. The invoice is now paid in full.`,
+    "", "Thank you,", meta.churchName,
+  ]
+  const text = lines.join("\n")
+  const html = lines.map((l) => (l === "" ? "<br>" : `<p style="margin:0">${esc(l)}</p>`)).join("\n")
+  return { subject, html, text }
+}
