@@ -57,6 +57,8 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   useEffect(() => { updateRef.current = update }, [update])
   const lastActivityRef = useRef(0)
   const lastPingRef = useRef(0)
+  // When touch() last shared activity, so a mousemove storm writes at most once a second.
+  const lastPublishRef = useRef(0)
   // Mirrors showWarning for the event handler, which must not re-subscribe.
   const warningRef = useRef(false)
   const [showWarning, setShowWarning] = useState(false)
@@ -83,8 +85,8 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
    * Records activity and refreshes the server session (throttled) so the
    * server-side idle clock tracks actual use; without this the server would
    * expire an actively-used session at the idle window.
-   * @param forcePing ping even inside the throttle window, and share the
-   * activity at once so no other tab can time out on the old value first
+   * @param forcePing ping even inside the throttle window and share the
+   * activity regardless of the once-a-second share throttle
    * (explicit "Stay logged in", a newly opened tab)
    */
   const touch = useCallback((forcePing = false) => {
@@ -94,7 +96,13 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
       lastPingRef.current = now
       void updateRef.current()
     }
-    if (forcePing) publish()
+    // Share now (at most once a second) rather than on the next check: a
+    // just-foregrounded tab's interval may still be throttled, and another tab
+    // must not time out on the old stamp first.
+    if (forcePing || now - lastPublishRef.current >= CHECK_MS) {
+      lastPublishRef.current = now
+      publish()
+    }
   }, [publish])
 
   useEffect(() => {
@@ -128,9 +136,7 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     // warning left from the old one so passive activity counts again (the
     // banner itself is cleared during render, below the state declarations).
     warningRef.current = false
-    // Share the new tab's activity at once, not on the first check.
-    touch()
-    publish()
+    touch() // also shares the new tab's activity at once
     const interval = setInterval(check, CHECK_MS)
     EVENTS.forEach((e) => window.addEventListener(e, onActivity, { passive: true }))
 

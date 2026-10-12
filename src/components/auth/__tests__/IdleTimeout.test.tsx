@@ -148,6 +148,13 @@ describe("across tabs", () => {
     expect(Number(window.localStorage.getItem(KEY))).toBe(clicked)
   })
 
+  it("shares ordinary activity at once, without waiting for a (possibly throttled) check", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    act(() => { jest.advanceTimersByTime(5 * MIN + 500) }) // mid-interval
+    fireEvent.keyDown(window)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(Date.now())
+  })
+
   it("repairs the shared value after another tab's late, older write", () => {
     render(<IdleTimeout idleMinutes={15} />)
     advance(5 * MIN)
