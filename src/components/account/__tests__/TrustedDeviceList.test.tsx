@@ -55,3 +55,21 @@ test("each Revoke button names its device for screen readers", () => {
   expect(screen.getByRole("button", { name: "Revoke Chrome on Mac" })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Revoke Unknown device" })).toBeInTheDocument()
 })
+
+test("marks the current device and keeps its Revoke label distinct", () => {
+  render(
+    <TrustedDeviceList
+      devices={[{ ...devices[0], isCurrent: true }, { id: "dev-2", label: "Phone", createdAt: new Date(), lastUsedAt: new Date(), isCurrent: false }]}
+    />,
+  )
+  expect(screen.getByText("This device")).toBeInTheDocument()
+  expect(screen.getAllByText("This device")).toHaveLength(1)
+  expect(screen.getByRole("button", { name: "Revoke Chrome on Mac (this device)" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Revoke Phone" })).toBeInTheDocument()
+})
+
+test("uses the themed divider token, not a hard-coded gray", () => {
+  const { container } = render(<TrustedDeviceList devices={devices} />)
+  expect(container.querySelector("ul")).toHaveClass("divide-border")
+  expect(container.querySelector("ul")).not.toHaveClass("divide-gray-200")
+})

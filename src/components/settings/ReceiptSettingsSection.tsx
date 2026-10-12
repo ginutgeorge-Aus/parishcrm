@@ -84,7 +84,7 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-muted-foreground mb-3">Tax Receipt</h3>
+      <h3 className="text-base font-semibold text-foreground mb-1">Tax Receipt</h3>
       <p className="text-sm text-muted-foreground mb-4">
         Wording used on tax-deductible donation receipts (PDF and email).
       </p>

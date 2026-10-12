@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useActionState, useState, useTransition } from "react"
+import { useActionState, useEffect, useRef, useState, useTransition } from "react"
 import {
   updateEmailTemplate,
   resetEmailTemplate,
@@ -17,14 +17,25 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 export function EmailTemplateForm({
   templateKey,
   initial,
+  active = true,
 }: Readonly<{
   templateKey: EmailTemplateKey
   initial: EmailTemplateFields
+  /** False while this form sits in a hidden (force-mounted) tab. */
+  active?: boolean
 }>) {
-  const [state, action, saving] = useActionState(updateEmailTemplate, undefined)
+  const [msg, setMsg] = useState<string>("")
+  const [state, action, saving] = useActionState(
+    /** Clears any lingering test-send/preview message, then saves. */
+    async (prev: Awaited<ReturnType<typeof updateEmailTemplate>> | undefined, fd: FormData) => {
+      setMsg("")
+      return updateEmailTemplate(prev, fd)
+    },
+    undefined
+  )
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
-  const [msg, setMsg] = useState<string>("")
+  const previewGeneration = useRef(0)
   const [pending, start] = useTransition()
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
@@ -37,7 +48,26 @@ export function EmailTemplateForm({
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setFields((f) => ({ ...f, [k]: e.target.value }))
 
+  // Render the preview the first time the form is shown so the pane isn't blank
+  // until Preview is pressed. Waiting for `active` keeps force-mounted hidden tabs
+  // from queueing a server render each on page load. Uses the initial fields;
+  // later edits re-render via the Preview button.
+  const initialPreviewed = useRef(false)
+  useEffect(() => {
+    if (!active || initialPreviewed.current) return
+    initialPreviewed.current = true
+    const generation = previewGeneration.current
+    Promise.resolve(previewEmailTemplate(templateKey, initial))
+      .then((r) => {
+        if (generation === previewGeneration.current && r && "html" in r) setPreview(r.html)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- first activation only
+  }, [active])
+
+  /** Re-renders the preview pane from the current (unsaved) field values. */
   function refreshPreview() {
+    previewGeneration.current += 1
     setMsg("")
     start(async () => {
       const r = await previewEmailTemplate(templateKey, fields)
@@ -46,6 +76,7 @@ export function EmailTemplateForm({
     })
   }
   function onReset() {
+    previewGeneration.current += 1
     start(async () => {
       const r = await resetEmailTemplate(templateKey)
       if (r && "success" in r) {
