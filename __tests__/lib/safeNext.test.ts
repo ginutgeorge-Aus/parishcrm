@@ -43,6 +43,8 @@ describe("safeNextPath", () => {
   it("never redirects back to the login page", () => {
     expect(safeNextPath("/login")).toBe("/")
     expect(safeNextPath("/login?next=/x")).toBe("/")
+    expect(safeNextPath("/private/../login")).toBe("/")
+    expect(safeNextPath("/a/%2e%2e/login/x")).toBe("/")
   })
 })
 

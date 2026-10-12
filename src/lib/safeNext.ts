@@ -21,13 +21,16 @@ export function safeNextPath(raw: unknown): string {
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/"
   if (raw.includes("\\") || CONTROL_CHARS.test(raw)) return "/"
   // Belt and braces: resolving against a dummy origin must stay on that origin.
+  let path: string
   try {
     const base = "https://x.invalid"
-    if (new URL(raw, base).origin !== base) return "/"
+    const url = new URL(raw, base)
+    if (url.origin !== base) return "/"
+    // Normalized (dot segments resolved), as the browser will navigate to it.
+    path = url.pathname
   } catch {
     return "/"
   }
-  const path = raw.split(/[?#]/, 1)[0]
   if (path === "/login" || path.startsWith("/login/")) return "/"
   return raw
 }
