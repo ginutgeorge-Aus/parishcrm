@@ -74,6 +74,10 @@ describe("parseInvoiceDraft", () => {
     expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "1", unitPrice: "1.005", gst: false }])))
       .toEqual({ error: "Unit price must be a dollar amount with up to 2 decimals" })
   })
+  it.each(["12.50abc", "12.50 ", " 12.50", "12.50\n", "$12.50", "1,250.00", "12.50.1"])("rejects unit price %j with stray characters", (unitPrice) => {
+    expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "1", unitPrice, gst: false }])))
+      .toEqual({ error: "Unit price must be a dollar amount with up to 2 decimals" })
+  })
   it("rejects no lines", () => expect(parseInvoiceDraft(fd({}, []))).toEqual({ error: "Add at least one line" }))
   it("rejects a non-integer quantity", () => {
     expect(parseInvoiceDraft(fd({}, [{ description: "x", qty: "1.5", unitPrice: "1", gst: false }])))
