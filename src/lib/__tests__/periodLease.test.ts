@@ -211,6 +211,22 @@ describe("runOncePerPeriodLocked lease loss", () => {
     expect(seen).toEqual([false])
   })
 
+  it("measures lease expiry from the acquired lease's timestamp, not the wall clock", async () => {
+    const work = deferred()
+    const seen: boolean[] = []
+    // The lease is stamped with `now`, which is already LEASE_MS - 500 old.
+    const run = runOncePerPeriodLocked({ ...opts(), now: new Date(START - LEASE_MS + 500) }, async (leaseHeld) => {
+      seen.push(leaseHeld())
+      await work.promise
+      seen.push(leaseHeld())
+      return "ok"
+    })
+    await jest.advanceTimersByTimeAsync(600) // before the first renewal tick
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
+    expect(seen).toEqual([true, false])
+  })
+
   it("marks the lease lost when a failed renewal's readback finds no row", async () => {
     const logError = jest.fn()
     const work = deferred()

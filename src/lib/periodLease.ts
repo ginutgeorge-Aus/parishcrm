@@ -53,9 +53,10 @@ function freshLease(value: string, now: Date, leaseMs: number): boolean {
  */
 function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
   let current = initial
-  // Timestamp inside the last confirmed lease value (wall clock; the acquire
-  // just happened). A rival judges expiry from that timestamp, so we do too.
-  let confirmedAt = Date.now()
+  // Timestamp inside the last confirmed lease value. A rival judges expiry
+  // from that timestamp, so we do too: start from `opts.now`, which the
+  // acquired lease was stamped with.
+  let confirmedAt = opts.now.getTime()
   let lost = false
   let inFlight: Promise<void> | null = null
   const timer = setInterval(() => {

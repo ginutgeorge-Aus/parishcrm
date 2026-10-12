@@ -87,6 +87,11 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
   const KEY = "errorDigestLastWeek"
   const lease = (week: string, at: Date) => `running:${week}:${at.getTime()}`
 
+  // The lease is stamped with the run's `now`; pin the clock to it so the
+  // heartbeat's expiry check (wall clock vs lease stamp) sees a fresh lease.
+  beforeEach(() => jest.useFakeTimers({ now: MON, doNotFake: ["setTimeout", "clearTimeout"] })) // withRetry backoff stays real
+  afterEach(() => jest.useRealTimers())
+
   beforeEach(() => {
     jest.clearAllMocks()
     groupBy.mockResolvedValue([])

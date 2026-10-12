@@ -56,6 +56,11 @@ const cleanRows = () => [
   }, new Date("2026-11-01T00:00:00Z")),
 ]
 
+// The lease is stamped with the run's `now`; pin the clock to it so the
+// heartbeat's expiry check (wall clock vs lease stamp) sees a fresh lease.
+beforeEach(() => jest.useFakeTimers({ now: FIRST, doNotFake: ["setTimeout", "clearTimeout"] })) // withRetry backoff stays real
+afterEach(() => jest.useRealTimers())
+
 beforeEach(() => {
   jest.clearAllMocks()
   setRows("2026-10")
