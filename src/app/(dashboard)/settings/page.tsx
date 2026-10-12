@@ -80,7 +80,7 @@ export default async function SettingsPage() {
       <DemoNotice />
       <SettingsNav />
       <div className="space-y-12">
-        <section id="general" aria-label="General" className="scroll-mt-16 space-y-10 max-w-lg">
+        <section id="general" aria-label="General" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
           <ChurchInfoForm
             churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
             churchAddress={get("churchAddress") || (process.env.CHURCH_ADDRESS ?? "")}
@@ -97,10 +97,10 @@ export default async function SettingsPage() {
             cardFeeFixed={get("cardFeeFixed") || "0.30"}
           />
         </section>
-        <section id="branding" aria-label="Branding" className="scroll-mt-16 max-w-lg">
+        <section id="branding" aria-label="Branding" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">
           <BrandingForm />
         </section>
-        <section id="email" aria-label="Email" className="scroll-mt-16 space-y-10">
+        <section id="email" aria-label="Email" className="scroll-mt-32 md:scroll-mt-16 space-y-10">
           <div className="space-y-10 max-w-lg">
             <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
             <hr className="border-border" />
@@ -110,15 +110,15 @@ export default async function SettingsPage() {
           </div>
           <EmailTemplatesSection templates={emailTemplates} />
         </section>
-        <section id="members" aria-label="Members" className="scroll-mt-16 space-y-10 max-w-lg">
+        <section id="members" aria-label="Members" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
           <LetterSettingsForm settings={letterSettings} />
           <hr className="border-border" />
           <MembershipSettingsForm settings={membershipSettings} />
         </section>
-        <section id="receipts" aria-label="Receipts" className="scroll-mt-16">
+        <section id="receipts" aria-label="Receipts" className="scroll-mt-32 md:scroll-mt-16">
           <ReceiptSettingsSection settings={receiptSettings} />
         </section>
-        <section id="security" aria-label="Security" className="scroll-mt-16 max-w-lg">
+        <section id="security" aria-label="Security" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">
           <ActivityFeed
             isAdmin
             auditEntries={auditEntries}
