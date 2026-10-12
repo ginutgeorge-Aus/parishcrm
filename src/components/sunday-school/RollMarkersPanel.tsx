@@ -15,10 +15,11 @@ type Marker = Login & { active: boolean }
 /**
  * Assign volunteer logins (EVENT_ORGANISER) that may take this class's roll
  * from /my-classes. Editor-only; rendered inside the class page's card.
+ * `readOnly` (a locked year) lists the assignments without add/remove.
  */
 export function RollMarkersPanel({
-  classId, markers, assignable,
-}: Readonly<{ classId: number; markers: Marker[]; assignable: Login[] }>) {
+  classId, markers, assignable, readOnly = false,
+}: Readonly<{ classId: number; markers: Marker[]; assignable: Login[]; readOnly?: boolean }>) {
   const [selected, setSelected] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -52,21 +53,23 @@ export function RollMarkersPanel({
                 {m.name} <span className="text-muted-foreground">({m.email})</span>
                 {!m.active && <span className="ml-2 text-xs text-destructive">inactive: no longer an Event organiser</span>}
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={pending}
-                onClick={() => run(() => removeRollMarker(classId, m.id), "Could not remove. Please try again.")}
-              >
-                Remove
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => run(() => removeRollMarker(classId, m.id), "Could not remove. Please try again.")}
+                >
+                  Remove
+                </Button>
+              )}
             </li>
           ))}
         </ul>
       ) : (
         <p className="text-sm text-muted-foreground">No roll markers assigned.</p>
       )}
-      {options.length > 0 ? (
+      {readOnly ? null : options.length > 0 ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select value={selected} onValueChange={setSelected}>
             <SelectTrigger className="w-full min-w-0 sm:w-64" aria-label="Add a roll marker">

@@ -16,6 +16,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { UserRole, type AttendanceStatus } from "@/lib/generated/prisma/enums"
 import { canEdit } from "@/lib/roleGuard"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
+import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
 import { isValidPgId } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -52,17 +53,17 @@ async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
 /**
  * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
  * concurrent archive waits until the marks commit, and `fn` is skipped if the
- * class was archived after the guard. Returns `{ live: false }` when it was.
+ * class was archived, or its year locked by a rollover, after the guard (see
+ * lockLiveClass). Returns `{ live: false, error }` when skipped.
  */
 async function withLiveClass<T>(
   classId: number,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
-): Promise<{ live: false } | { live: true; value: T }> {
+): Promise<{ live: false; error: string } | { live: true; value: T }> {
   return prisma.$transaction(async (tx) => {
-    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-    const rows = await tx.$queryRaw<{ id: number }[]>`
-      SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
-    if (rows.length === 0) return { live: false as const }
+    const state = await lockLiveClass(tx, classId)
+    if (state === "gone") return { live: false as const, error: CLASS_GONE }
+    if (state === "locked") return { live: false as const, error: YEAR_LOCKED }
     return { live: true as const, value: await fn(tx) }
     // May queue behind a rollover's enrolment writes (itself up to 60s).
   }, { timeout: 90_000 })
@@ -151,7 +152,7 @@ export async function setAttendance(
         update: { status: next, markedById: g.actor },
       })
     })
-    if (!r.live) return { error: CLASS_GONE }
+    if (!r.live) return { error: r.error }
   } catch (e) {
     if (e instanceof Error && (e.message === NOT_IN_CLASS || e.message === KEEP_HISTORY)) return { error: e.message }
     throw e
@@ -180,7 +181,7 @@ export async function markUnmarkedPresent(classId: number, ymd: string): Promise
     })
     return count
   })
-  if (!r.live) return { error: CLASS_GONE }
+  if (!r.live) return { error: r.error }
   await logAudit(g.actor, "SS_ATTENDANCE_BULK_PRESENT", ENTITY, classId, { date: g.ymd, count: r.value })
   revalidateRoll(classId)
   return { success: `Marked ${r.value} present` }
@@ -218,7 +219,7 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
     // that would abort the transaction.
     await tx.sundaySchoolRollMarker.createMany({ data: [{ classId, userId }], skipDuplicates: true })
   })
-  if (!r.live) return { error: CLASS_GONE }
+  if (!r.live) return { error: r.error }
   await logAudit(actorId(g.session), "SS_ROLL_MARKER_ADDED", ENTITY, classId, { targetUserId: userId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/my-classes")
@@ -229,7 +230,7 @@ export async function removeRollMarker(classId: number, userId: number): Promise
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
   const r = await withLiveClass(classId, (tx) => tx.sundaySchoolRollMarker.deleteMany({ where: { classId, userId } }))
-  if (!r.live) return { error: CLASS_GONE }
+  if (!r.live) return { error: r.error }
   await logAudit(actorId(g.session), "SS_ROLL_MARKER_REMOVED", ENTITY, classId, { targetUserId: userId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/my-classes")

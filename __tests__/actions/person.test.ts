@@ -29,6 +29,7 @@ jest.mock("@/lib/prisma", () => ({
     $transaction: jest.fn(),
   },
 }))
+jest.mock("@/lib/sundaySchoolYearLock", () => ({ lockedYearRefs: jest.fn(async () => 0) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/roleGuard", () => {
@@ -52,6 +53,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { createPerson, updatePerson, deletePerson } from "@/lib/actions/person"
+import { lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt } from "@/lib/crypto"
 
@@ -757,6 +759,19 @@ describe("invalid date rejection ()", () => {
 })
 
 describe("deletePerson", () => {
+  it("refuses when the person has Sunday School history in a locked year", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ familyId: 3 })
+    ;(lockedYearRefs as jest.Mock).mockResolvedValueOnce(2)
+
+    const r = await deletePerson(7, 3)
+
+    expect(r).toEqual({ error: expect.stringContaining("2 Sunday School record(s) in a locked school year") })
+    expect(lockedYearRefs).toHaveBeenCalledWith(prisma, 7)
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockAudit).not.toHaveBeenCalled()
+  })
+
   it("allows ADMIN to delete and redirects to family", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ familyId: 3 })

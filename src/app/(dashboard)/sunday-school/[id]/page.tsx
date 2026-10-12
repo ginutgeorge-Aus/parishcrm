@@ -14,6 +14,7 @@ import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
 import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { rollCounts } from "@/lib/sundaySchoolRollView"
+import { lockedYears } from "@/lib/sundaySchoolYearLock"
 
 const CANDIDATE_CAP = 2000
 const byName = [{ lastName: "asc" as const }, { firstName: "asc" as const }]
@@ -51,7 +52,11 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
   })
   if (!cls) notFound()
 
-  const editor = canEdit(session.user.role) && !cls.archivedAt
+  // A rolled-over year is closed: same read-only view as an archived class.
+  const locked = (await lockedYears([cls.year])).has(cls.year)
+  // Locked years stay viewable: editors still see roll-marker assignments, read-only.
+  const markerViewer = canEdit(session.user.role) && !cls.archivedAt
+  const editor = markerViewer && !locked
   // Children and everyone else are capped separately so a large adult roll can
   // never crowd children out of the picker (the usual "Children only" view).
   const enrolQuery = (role: { equals: "CHILD" } | { not: "CHILD" }) => prisma.person.findMany({
@@ -75,7 +80,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
     ])
     : [[], [], []]
   const [rollMarkers, assignableMarkers, sessions] = await Promise.all([
-    editor
+    markerViewer
       ? prisma.sundaySchoolRollMarker.findMany({
         where: { classId: id, user: { archivedAt: null } },
         select: { user: { select: { id: true, name: true, email: true, role: true } } },
@@ -115,6 +120,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
           <h2 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
             {cls.name}
             {cls.archivedAt && <Badge variant="secondary">Archived</Badge>}
+            {locked && <Badge variant="secondary">Locked</Badge>}
           </h2>
           <div className="flex flex-wrap gap-2">
             {!cls.archivedAt && (
@@ -175,11 +181,11 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         </CardContent>
       </Card>
 
-      {editor && (
+      {markerViewer && (
         <Card>
           <CardHeader><CardTitle>Roll markers</CardTitle></CardHeader>
           <CardContent>
-            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === "EVENT_ORGANISER" }))} assignable={assignableMarkers} />
+            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === "EVENT_ORGANISER" }))} assignable={assignableMarkers} readOnly={!editor} />
           </CardContent>
         </Card>
       )}

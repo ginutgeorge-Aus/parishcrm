@@ -6,6 +6,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     sundaySchoolClass: { findUnique: jest.fn() },
     sundaySchoolRollMarker: { findMany: jest.fn() },
+    sundaySchoolYearLock: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 jest.mock("@/lib/sundaySchoolAccess", () => ({ canMarkRoll: jest.fn() }))
