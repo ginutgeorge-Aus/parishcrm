@@ -46,5 +46,7 @@ CREATE UNIQUE INDEX "SundaySchoolClass_id_year_key" ON "SundaySchoolClass"("id",
 -- ON DELETE CASCADE / ON UPDATE CASCADE behaviour is unchanged.
 ALTER TABLE "SundaySchoolEnrolment" DROP CONSTRAINT "SundaySchoolEnrolment_classId_fkey";
 
--- AddForeignKey
-ALTER TABLE "SundaySchoolEnrolment" ADD CONSTRAINT "SundaySchoolEnrolment_classId_year_fkey" FOREIGN KEY ("classId", "year") REFERENCES "SundaySchoolClass"("id", "year") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey: added NOT VALID (brief lock; new writes are checked at once),
+-- then validated separately, which scans existing rows under a weaker lock.
+ALTER TABLE "SundaySchoolEnrolment" ADD CONSTRAINT "SundaySchoolEnrolment_classId_year_fkey" FOREIGN KEY ("classId", "year") REFERENCES "SundaySchoolClass"("id", "year") ON DELETE CASCADE ON UPDATE CASCADE NOT VALID;
+ALTER TABLE "SundaySchoolEnrolment" VALIDATE CONSTRAINT "SundaySchoolEnrolment_classId_year_fkey";
