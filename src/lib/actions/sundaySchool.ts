@@ -111,7 +111,7 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
   try {
     // Under the class + year-lock check: a class archived or locked since
     // editableClass() is left untouched.
-    const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data }))
+    const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data }), "update")
     if (state !== "ok") return { error: stateError(state) }
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
@@ -128,7 +128,7 @@ export async function archiveClass(id: number): Promise<ActionResult> {
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
   // Archived by someone else, or year locked, since editableClass(): no row changed, no audit.
-  const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } }))
+  const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } }), "update")
   if (state !== "ok") return { error: stateError(state) }
   await logAudit(actorId(g.session), "SS_CLASS_ARCHIVED", ENTITY, id)
   revalidatePath("/sunday-school")
@@ -147,9 +147,13 @@ function stateError(state: Exclude<ClassLockState, "ok">): string {
  * rollover — after the caller's check (see lockLiveClass). Returns "ok" when
  * `fn` ran, else "gone" / "locked".
  */
-async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<ClassLockState> {
+async function withLiveClass(
+  classId: number,
+  fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  mode: "share" | "update" = "share",
+): Promise<ClassLockState> {
   return prisma.$transaction(async (tx) => {
-    const state = await lockLiveClass(tx, classId)
+    const state = await lockLiveClass(tx, classId, mode)
     if (state !== "ok") return state
     await fn(tx)
     return "ok" as const
@@ -313,6 +317,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // toYear check and the source read below can't miss a concurrent write.
       // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+      // A manual lock that committed while we waited closes the source year too.
+      if (await isYearLockedTx(tx, fromYear)) throw new Error(YEAR_LOCKED)
       // Authoritative one-time guard.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
       const source = await tx.sundaySchoolClass.findMany({
@@ -358,7 +364,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // LOCK TABLE may wait out an in-flight enrol batch (30s timeout) first.
     }, { isolationLevel: "ReadCommitted", timeout: 60_000 })
   } catch (e) {
-    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE)) return { error: e.message }
+    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE || e.message === YEAR_LOCKED)) return { error: e.message }
     // Deadlock/serialization failure (P2034): a concurrent write collided with the lock.
     if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }

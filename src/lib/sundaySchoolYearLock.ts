@@ -36,15 +36,25 @@ export async function holdYear(tx: Prisma.TransactionClient, year: number, mode:
 }
 
 /**
- * Inside a transaction, take FOR SHARE on the live class row (a concurrent
- * archive waits), then the year's shared advisory lock (see holdYear), then
+ * Inside a transaction, take FOR SHARE (or FOR UPDATE, see `mode`) on the
+ * live class row (a concurrent archive waits), then the year's shared advisory lock (see holdYear), then
  * check the year's lock row. Returns "gone" for a missing/archived class,
  * "locked" when its year is closed.
  */
-export async function lockLiveClass(tx: Prisma.TransactionClient, classId: number): Promise<ClassLockState> {
-  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-  const rows = await tx.$queryRaw<{ id: number; year: number }[]>`
-    SELECT id, year FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
+export async function lockLiveClass(
+  tx: Prisma.TransactionClient,
+  classId: number,
+  mode: "share" | "update" = "share",
+): Promise<ClassLockState> {
+  // "update" for callers that then update the class row itself: two such
+  // callers holding FOR SHARE would each wait to upgrade it and deadlock.
+  const rows = mode === "update"
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    ? await tx.$queryRaw<{ id: number; year: number }[]>`
+      SELECT id, year FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR UPDATE`
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    : await tx.$queryRaw<{ id: number; year: number }[]>`
+      SELECT id, year FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
   if (rows.length === 0) return "gone"
   await holdYear(tx, rows[0].year, "shared")
   return (await isYearLockedTx(tx, rows[0].year)) ? "locked" : "ok"

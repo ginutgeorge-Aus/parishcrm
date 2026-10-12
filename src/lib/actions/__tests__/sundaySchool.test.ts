@@ -153,6 +153,22 @@ describe("year lock (rolled-over year)", () => {
     expect(prisma.sundaySchoolTeacher.deleteMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
   })
+  it("takes FOR UPDATE (not FOR SHARE) on the class row when updating the class itself", async () => {
+    as(UserRole.ADMIN); liveClass()
+    ;(prisma.sundaySchoolClass.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await archiveClass(1)
+    const first = ((prisma.$queryRaw as jest.Mock).mock.calls[0][0] as TemplateStringsArray).join("?")
+    expect(first).toContain('FROM "SundaySchoolClass"')
+    expect(first).toContain("FOR UPDATE")
+  })
+  it("refuses to roll over a source year locked while it waited", async () => {
+    as(UserRole.ADMIN)
+    raw.yearLocked = true
+    ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(0)
+    expect(await rolloverYear(2026)).toEqual({ error: LOCKED })
+    expect(prisma.sundaySchoolClass.createManyAndReturn).not.toHaveBeenCalled()
+    expect(prisma.sundaySchoolYearLock.upsert).not.toHaveBeenCalled()
+  })
   it("refuses a new class in a locked year", async () => {
     as(UserRole.ADMIN)
     expect(await createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).toEqual({ error: LOCKED })
