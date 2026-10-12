@@ -46,7 +46,10 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
   async function pick(o: RecipientOption | null) {
     const my = ++reqId.current
     setLookupError(null)
-    if (!o) { setRecipient({ kind: "none", id: null, name }); setLookupPending(false); return }
+    if (!o) {
+      // Drop the cleared recipient's contact so a manually typed name can't inherit it.
+      setRecipient({ kind: "none", id: null, name }); setEmail(""); setAddress(""); setLookupPending(false); return
+    }
     setRecipient({ kind: o.kind, id: o.id, name: o.name })
     setName(o.name)
     // Clear the previous recipient's contact at once and block saving until the lookup

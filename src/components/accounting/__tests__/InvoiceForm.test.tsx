@@ -3,6 +3,9 @@ import InvoiceForm from "@/components/accounting/InvoiceForm"
 
 jest.mock("@/lib/actions/invoice", () => ({ createInvoice: jest.fn(), updateInvoice: jest.fn(), getRecipientContact: jest.fn() }))
 jest.mock("@/lib/actions/customer", () => ({ createCustomerInline: jest.fn() }))
+jest.mock("@/components/accounting/RecipientPicker", () => ({
+  RecipientPicker: ({ onPick }: { onPick: (o: null) => void }) => <button type="button" onClick={() => onPick(null)}>Clear recipient</button>,
+}))
 
 const props = {
   recipients: [{ kind: "customer" as const, id: 3, name: "Example Scouts" }],
@@ -30,5 +33,17 @@ describe("InvoiceForm", () => {
     expect(screen.getByLabelText("Line 2 description")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Remove line 2" }))
     expect(screen.queryByLabelText("Line 2 description")).not.toBeInTheDocument()
+  })
+  it("clears the previous recipient's contact when switching to a manual recipient", () => {
+    const edit = {
+      id: 1, customerId: 3, personId: null, recipientName: "Example Scouts",
+      recipientEmail: "scouts@example.com", recipientAddress: "1 Example St",
+      issueDate: "2026-10-01", dueDate: "2026-10-15", accountId: 4, fundId: null, notes: "", lines: [],
+    } as unknown as React.ComponentProps<typeof InvoiceForm>["edit"]
+    render(<InvoiceForm {...props} edit={edit} />)
+    expect(screen.getByLabelText("Email")).toHaveValue("scouts@example.com")
+    fireEvent.click(screen.getByRole("button", { name: "Clear recipient" }))
+    expect(screen.getByLabelText("Email")).toHaveValue("")
+    expect(screen.getByLabelText("Address")).toHaveValue("")
   })
 })
