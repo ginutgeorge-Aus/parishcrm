@@ -1,12 +1,12 @@
 /** @jest-environment node */
 import assert from "node:assert/strict"
 import {
-  declinedAtHead,
   isReviewed,
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
   pickNext,
+  statusSaysReviewed,
   waitForReset,
   type Comment,
   type Pr,
@@ -176,10 +176,12 @@ test("waitForReset: no wait when nothing is pending or the reset is past the cap
   assert.equal(waitForReset(new Date("2026-10-09T21:30:00Z"), now, 65 * 60_000), null)
 })
 
-test("declinedAtHead: an 'already reviewed' refusal after the head commit counts; one before it does not", () => {
-  const refusal = comment({ user: BOT, body: RATE_LIMIT_BODY.replace(/<\/summary>[\s\S]*/, "</summary>\nAlready reviewed the last commit."), createdAt: "2026-10-12T11:05:07Z" })
-  assert.equal(declinedAtHead([refusal], "2026-10-12T11:03:58Z"), true)
-  assert.equal(declinedAtHead([refusal], "2026-10-12T11:30:00Z"), false)
-  assert.equal(declinedAtHead([{ ...refusal, user: "someone" }], "2026-10-12T11:03:58Z"), false)
-  assert.equal(declinedAtHead([comment({ user: BOT, body: "ok", createdAt: "2026-10-12T11:05:07Z" })], "2026-10-12T11:03:58Z"), false)
+test("statusSaysReviewed: latest CodeRabbit status decides; rate limited or other contexts don't count", () => {
+  const st = (description: string, createdAt: string, context = "CodeRabbit") => ({ context, description, createdAt })
+  // Skipped head (merge from main): completed with no review object.
+  assert.equal(statusSaysReviewed([st("Review in progress", "2026-10-12T11:04:09Z"), st("Review completed", "2026-10-12T11:04:45Z")]), true)
+  assert.equal(statusSaysReviewed([st("Review in progress", "2026-10-12T05:41:43Z"), st("Review rate limited", "2026-10-12T05:41:47Z")]), false)
+  assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z"), st("Review rate limited", "2026-10-12T05:41:47Z")]), false)
+  assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z", "license/cla")]), false)
+  assert.equal(statusSaysReviewed([]), false)
 })

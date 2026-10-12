@@ -94,20 +94,22 @@ export function pendingReset(comments: Comment[], now: Date): Date | null {
   return latest
 }
 
-/** CodeRabbit refusing a nudge because it already reviewed the head commit. */
-export const DECLINED = /Already reviewed the last commit/i
+export type Status = { context: string; description: string; createdAt: string }
 
 /**
- * True when CodeRabbit refused a nudge as "already reviewed" after the head commit
- * landed. Head commits CodeRabbit skips (e.g. a merge from main) never get a review
- * or `coveredCommitId` marker, so without this the PR looks unreviewed forever and
- * each refusal (a CodeRabbit comment) triggers another nudge.
- * @param comments - issue comments on one PR, any order
- * @param headCommittedAt - committer date of the PR's head commit
+ * True when CodeRabbit's latest commit status on the head says "Review completed".
+ * Heads CodeRabbit skips (e.g. a merge from main) get that status but no review or
+ * `coveredCommitId` marker, so without this the PR looks unreviewed forever and each
+ * "Already reviewed the last commit" refusal (a CodeRabbit comment) triggers another
+ * nudge. A rate-limited head ends on "Review rate limited" instead, so it still counts
+ * as unreviewed.
+ * @param statuses - commit statuses on the PR's head SHA, any order
  */
-export function declinedAtHead(comments: Comment[], headCommittedAt: string): boolean {
-  const head = Date.parse(headCommittedAt)
-  return comments.some((c) => c.user === BOT && DECLINED.test(c.body) && Date.parse(c.createdAt) >= head)
+export function statusSaysReviewed(statuses: Status[]): boolean {
+  const latest = statuses
+    .filter((s) => s.context === "CodeRabbit")
+    .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt))[0]
+  return latest?.description === "Review completed"
 }
 
 /**
@@ -241,11 +243,10 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       return null
     }
     if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
-    if (comments.some((c) => c.user === BOT && DECLINED.test(c.body))) {
-      const commits = await gh<{ sha: string; commit: { committer: { date: string } | null } }[]>(`/repos/${REPO}/pulls/${pr.number}/commits`)
-      const date = commits.find((c) => c.sha === pr.headSha)?.commit.committer?.date
-      if (date && declinedAtHead(comments, date)) continue
-    }
+    const statuses = await gh<{ context: string; description: string | null; created_at: string }[]>(
+      `/repos/${REPO}/commits/${pr.headSha}/statuses`,
+    )
+    if (statusSaysReviewed(statuses.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at })))) continue
     unreviewed.push(pr)
   }
 
