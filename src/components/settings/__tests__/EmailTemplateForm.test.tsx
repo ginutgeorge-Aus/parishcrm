@@ -37,7 +37,7 @@ describe("EmailTemplateForm", () => {
     })
     render(<EmailTemplateForm templateKey="welcome" initial={{ subject: "draft", intro: "", body: "", signoff: "" }} />)
     fireEvent.change(screen.getByDisplayValue("draft"), { target: { value: "edited" } })
-    fireEvent.click(screen.getByRole("button", { name: button, exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: button }))
 
     if (timing === "before") {
       await act(async () => { resolveMount({ html: "<p>Stale mount preview</p>" }) })

@@ -39,6 +39,20 @@ describe("EmailTemplatesSection", () => {
 
     expect(screen.getByDisplayValue("MY UNSAVED DRAFT")).toBeInTheDocument()
   })
+
+  it("previews only the visible tab, then each tab once when first opened", async () => {
+    const user = userEvent.setup()
+    render(<EmailTemplatesSection templates={templates} />)
+    const [first, second] = EMAIL_TEMPLATE_KEYS
+    await waitFor(() => expect(previewEmailTemplate).toHaveBeenCalledTimes(1))
+    expect(previewEmailTemplate).toHaveBeenCalledWith(first, templates[first])
+
+    await user.click(screen.getByRole("tab", { name: EMAIL_TEMPLATE_LABELS[second] }))
+    await user.click(screen.getByRole("tab", { name: EMAIL_TEMPLATE_LABELS[first] }))
+    await user.click(screen.getByRole("tab", { name: EMAIL_TEMPLATE_LABELS[second] }))
+    expect(previewEmailTemplate).toHaveBeenCalledTimes(2)
+    expect(previewEmailTemplate).toHaveBeenLastCalledWith(second, templates[second])
+  })
 })
 
 describe("EmailTemplateForm preview + messages", () => {

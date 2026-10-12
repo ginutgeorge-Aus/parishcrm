@@ -17,9 +17,12 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 export function EmailTemplateForm({
   templateKey,
   initial,
+  active = true,
 }: Readonly<{
   templateKey: EmailTemplateKey
   initial: EmailTemplateFields
+  /** False while this form sits in a hidden (force-mounted) tab. */
+  active?: boolean
 }>) {
   const [msg, setMsg] = useState<string>("")
   const [state, action, saving] = useActionState(
@@ -45,21 +48,22 @@ export function EmailTemplateForm({
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setFields((f) => ({ ...f, [k]: e.target.value }))
 
-  // Render the preview once on mount so the pane isn't blank until Preview is
-  // pressed. Uses the initial fields; later edits re-render via the Preview button.
+  // Render the preview the first time the form is shown so the pane isn't blank
+  // until Preview is pressed. Waiting for `active` keeps force-mounted hidden tabs
+  // from queueing a server render each on page load. Uses the initial fields;
+  // later edits re-render via the Preview button.
+  const initialPreviewed = useRef(false)
   useEffect(() => {
-    let cancelled = false
+    if (!active || initialPreviewed.current) return
+    initialPreviewed.current = true
     const generation = previewGeneration.current
     Promise.resolve(previewEmailTemplate(templateKey, initial))
       .then((r) => {
-        if (!cancelled && generation === previewGeneration.current && r && "html" in r) setPreview(r.html)
+        if (generation === previewGeneration.current && r && "html" in r) setPreview(r.html)
       })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- first activation only
+  }, [active])
 
   /** Re-renders the preview pane from the current (unsaved) field values. */
   function refreshPreview() {
