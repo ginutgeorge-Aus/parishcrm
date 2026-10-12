@@ -204,7 +204,7 @@ export async function loadWwccVerifyBatch(today: Date): Promise<{ rows: WwccBatc
     take: COMPLIANCE_CAP + 1,
     select: {
       id: true, number: true, expiresAt: true, updatedAt: true,
-      person: { select: { id: true, firstName: true, lastName: true, dateOfBirth: true } },
+      person: { select: { id: true, firstName: true, lastName: true, dateOfBirth: true, updatedAt: true } },
     },
   })
   const rows: WwccBatchRow[] = clearances.slice(0, COMPLIANCE_CAP).map((c) => {
@@ -223,6 +223,7 @@ export async function loadWwccVerifyBatch(today: Date): Promise<{ rows: WwccBatc
       status,
       expiresDmy: dmy(c.expiresAt),
       updatedAt: c.updatedAt.toISOString(),
+      personUpdatedAt: c.person.updatedAt.toISOString(),
     }
   })
   return { rows, truncated: clearances.length > COMPLIANCE_CAP }

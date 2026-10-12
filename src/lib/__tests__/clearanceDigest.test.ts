@@ -179,7 +179,9 @@ describe("runClearanceDigestLocked", () => {
     users.mockResolvedValue([{ email: "admin@example.com" }, { email: " Admin@Example.com " }])
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0][0]).toBe("Admin@Example.com") // trimmed, original case
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
+    expect(JSON.parse(upsert.mock.calls[0][0].update.value).emails).toEqual(["admin@example.com"])
   })
 
   it("does not report failures for retry when the delivered list could not be saved", async () => {
@@ -188,6 +190,23 @@ describe("runClearanceDigestLocked", () => {
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
     expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } }) // done, no repeat
+  })
+
+  it("marks the month done when the checkpoint fails and every recipient is sent", async () => {
+    upsert.mockRejectedValue(new Error("db down"))
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(r).toEqual({ flagged: 1, sent: 2, failed: 0 })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+  })
+
+  it("allows a retry when an early checkpoint failed but a later write saved the full set", async () => {
+    upsert.mockRejectedValueOnce(new Error("blip")).mockResolvedValue({})
+    send.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
+    users.mockResolvedValue([{ email: "admin@example.com" }, { email: "pastor@example.com" }, { email: "office@example.com" }])
+    const r = await runClearanceDigestLocked(FIRST)
+    expect(r).toEqual({ flagged: 1, sent: 2, failed: 1 })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } }) // open
   })
 
   it("ignores a delivered list from an earlier month", async () => {

@@ -408,7 +408,7 @@ Specific rules:
 - `addTeacher`: person must have `ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" }` → else `{ error: "Tag this person as a Sunday school teacher first" }`. Duplicate → P2002 swallowed (idempotent, like `addEventManager`). `removeTeacher` uses `deleteMany` (missing = success).
 - `enrolChildren`: load the class's `year`; `prisma.person.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true } })`; if any id missing → `{ error: "Person not found" }`. Then in one `$transaction`, per id: `sundaySchoolEnrolment.upsert({ where: { personId_year: { personId, year } }, create: { classId, personId, year }, update: { classId } })`. Count moves by reading existing rows first (`findMany where personId in ids, year`) — `moved = existing.filter(e => e.classId !== classId).length`. Return `{ success: "Enrolled 3 (1 moved from another class)" }`. Revalidate `/sunday-school/${classId}` and each old class path.
 - `unenrolChild`: `deleteMany({ where: { classId, personId } })`.
-- `rolloverYear(fromYear)`: refuse if `sundaySchoolClass.count({ where: { year: fromYear + 1, archivedAt: null } }) > 0` → `{ error: "<year+1> already has classes — roll over is one-time" }`. Load non-archived classes for `fromYear` with `teachers.personId` and `enrolments.personId` filtered to non-archived persons; `planRollover`; one interactive `$transaction` creates classes (map `sourceId → newId`), `sundaySchoolTeacher.createMany`, `sundaySchoolEnrolment.createMany({ skipDuplicates: true })` with `year: fromYear + 1`. Audit once (`SS_ROLLOVER`, entity id 0 not allowed → use the first new class id, meta `{ fromYear, classes, placed, unplaced }`). Return `{ success: "Created N classes for <y>; moved M children; K need placing by hand" }`.
+- `rolloverYear(fromYear)`: refuse if `sundaySchoolClass.count({ where: { year: fromYear + 1 } }) > 0` (archived classes count too) → `{ error: "<year+1> already has classes — roll over is one-time" }`. Load non-archived classes for `fromYear` with `teachers.personId` and `enrolments.personId` filtered to non-archived persons; `planRollover`; one interactive `$transaction` creates classes (map `sourceId → newId`), `sundaySchoolTeacher.createMany`, `sundaySchoolEnrolment.createMany({ skipDuplicates: true })` with `year: fromYear + 1`. Audit once (`SS_ROLLOVER`, entity id 0 not allowed → use the first new class id, meta `{ fromYear, classes, placed, unplaced }`). Return `{ success: "Created N classes for <y>; moved M children; K need placing by hand" }`.
 
 - [ ] **Step 1: Write the failing tests** (sketch — complete each `it` with the same mock style as `eventManager.action.test.ts`)
 
@@ -650,7 +650,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
     },
   })
   const nextYearHasClasses = editor
-    ? (await prisma.sundaySchoolClass.count({ where: { year: year + 1, archivedAt: null } })) > 0
+    ? (await prisma.sundaySchoolClass.count({ where: { year: year + 1 } })) > 0 // archived classes count too
     : true
   // Render: heading "Sunday School", year switcher (← 2025 | 2026 | 2027 →, plain Links ?year=),
   // editor: <Button asChild><Link href={`/sunday-school/new?year=${year}`}>New class</Link></Button>
