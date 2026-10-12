@@ -23,6 +23,7 @@ jest.mock("@/lib/prisma", () => ({
       create: jest.fn(),
     },
     $transaction: jest.fn((ops) => Promise.all(ops)),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   },
 }))
 jest.mock("@/lib/crypto", () => ({
