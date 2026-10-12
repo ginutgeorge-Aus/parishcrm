@@ -21,8 +21,11 @@ export function LoginForm({
 }: Readonly<{ churchName: string; demoLogins?: ReadonlyArray<{ label: string; email: string }> }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  // Validated same-origin deep link from middleware (?next=); "/" if absent/unsafe.
-  const nextPath = safeNextPath(searchParams.get("next"))
+  /** Goes to the validated same-origin deep link from middleware (?next=), or "/" if absent/unsafe. */
+  const goNext = () => {
+    router.push(safeNextPath(searchParams.get("next")))
+    router.refresh()
+  }
   const didReset = searchParams.get("reset") === "1"
   const didSetup = searchParams.get("setup") === "1"
   const [email, setEmail] = useState("")
@@ -115,8 +118,7 @@ export function LoginForm({
       } else if (result?.error) {
         setError("Invalid email or password")
       } else if (result?.ok) {
-        router.push(nextPath)
-        router.refresh()
+        goNext()
       }
     } catch {
       // A transport-level failure (network drop, DNS, 5xx from the proxy)
@@ -135,8 +137,7 @@ export function LoginForm({
     try {
       const result = await signIn("credentials", { email: demoEmail, mode: "demo", redirect: false })
       if (result?.ok && !result.error) {
-        router.push(nextPath)
-        router.refresh()
+        goNext()
       } else {
         setDemoError("Demo sign-in failed. Please try again.")
       }
@@ -197,8 +198,7 @@ export function LoginForm({
         if (remember) {
           await trustDevice().catch(() => {}) // best-effort; never block login on trust failure
         }
-        router.push(nextPath)
-        router.refresh()
+        goNext()
       }
     } catch {
       // Transport-level rejection — same class as handlePasswordSubmit.
@@ -227,8 +227,7 @@ export function LoginForm({
         if (remember) {
           await trustDevice().catch(() => {}) // best-effort; never block login on trust failure
         }
-        router.push(nextPath)
-        router.refresh()
+        goNext()
       }
     } catch {
       setError("Something went wrong. Please try again.")
