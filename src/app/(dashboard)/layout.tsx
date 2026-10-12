@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/layout/Sidebar"
 import { SiteFooter } from "@/components/SiteFooter"
 import { IdleTimeout } from "@/components/auth/IdleTimeout"
 import { getIdleTimeoutMinutes } from "@/lib/actions/settings"
+import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
@@ -51,7 +52,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
         <main id="main-content" className="min-w-0 flex-1 bg-muted p-4 pt-16 md:p-8 md:pt-8">{children}</main>
       </div>
       <SiteFooter churchName={churchName} className="border-t bg-card px-8 py-3" />
-      <IdleTimeout idleMinutes={idleMinutes} />
+      <IdleTimeout idleMinutes={session?.remember ? REMEMBERED_IDLE_MINUTES : idleMinutes} />
     </div>
   )
 }
