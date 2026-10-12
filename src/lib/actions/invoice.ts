@@ -12,6 +12,8 @@ import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, INVOICE_LIST_LIMIT, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { isValidPgId } from "@/lib/validation"
+import { toCents } from "@/lib/formatting"
+import { endOfDayUTC } from "@/lib/dates"
 import type { ActionResult } from "./types"
 
 const INVOICES_PATH = "/accounting/invoices"
@@ -175,6 +177,25 @@ export async function listInvoices(filter: { status?: InvoiceStatus; from?: stri
       gstTotal: t ? centsToDecimalString(t.gstCents) : r.gstTotal.toString(),
     }
   })
+}
+
+export type InvoiceSummary = { outstandingCents: number; outstandingCount: number; paidCents: number; paidCount: number; gstCollectedCents: number }
+
+/** Outstanding (all SENT) plus paid and GST collected for invoices paid within [from, to] (cash basis), in cents. */
+export async function getInvoiceSummary(period: { from: string; to: string }): Promise<InvoiceSummary | { error: string }> {
+  const session = await auth()
+  if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const [outstanding, paid] = await Promise.all([
+    prisma.invoice.aggregate({ where: { status: InvoiceStatus.SENT }, _sum: { total: true }, _count: { _all: true } }),
+    prisma.invoice.aggregate({
+      where: { status: InvoiceStatus.PAID, paidAt: { gte: new Date(period.from), lte: endOfDayUTC(new Date(period.to)) } },
+      _sum: { total: true, gstTotal: true }, _count: { _all: true },
+    }),
+  ])
+  return {
+    outstandingCents: toCents(outstanding._sum.total), outstandingCount: outstanding._count._all,
+    paidCents: toCents(paid._sum.total), paidCount: paid._count._all, gstCollectedCents: toCents(paid._sum.gstTotal),
+  }
 }
 
 /** Prefill contact for the picker: a member's email + their family address, or a customer's saved details. */

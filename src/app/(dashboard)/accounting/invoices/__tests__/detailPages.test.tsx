@@ -5,6 +5,7 @@ import EditInvoicePage from "../[id]/edit/page"
 import { auth } from "@/auth"
 import { getInvoice } from "@/lib/actions/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { prisma } from "@/lib/prisma"
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -16,6 +17,12 @@ jest.mock("@/lib/invoiceFormData", () => ({
 jest.mock("@/components/accounting/InvoiceForm", () => ({ __esModule: true, default: (p: { edit?: { id: number } }) => `FORM:${p.edit?.id ?? "new"}` }))
 jest.mock("@/components/accounting/InvoiceRowActions", () => ({ DeleteDraftButton: () => "DELETE" }))
 jest.mock("@/components/accounting/InvoiceSendActions", () => ({ InvoiceSendActions: (p: { status: string }) => `SEND:${p.status}` }))
+jest.mock("@/components/accounting/MarkPaidDialog", () => ({
+  MarkPaidDialog: (p: { bankAccounts: { name: string }[] }) => `MARKPAID:${p.bankAccounts.map((a) => a.name).join(",")}`,
+  UnmarkPaidButton: () => "UNMARK",
+}))
+jest.mock("@/components/accounting/VoidInvoiceDialog", () => ({ VoidInvoiceDialog: () => "VOID" }))
+jest.mock("@/lib/prisma", () => ({ prisma: { paymentAccount: { findMany: jest.fn(async () => [{ id: 2, name: "Main" }]) } } }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn((to: string) => { throw new Error(`REDIRECT:${to}`) }),
   notFound: jest.fn(() => { throw new Error("NOT_FOUND") }),
@@ -78,6 +85,29 @@ describe("InvoicePage", () => {
     expect(html).toContain("Example Scouts")
     expect(html).not.toContain("/pdf")
     expect(html).not.toContain("SEND:")
+  })
+  it("offers mark paid (with active bank accounts) and void on a SENT invoice", async () => {
+    as("PASTOR")
+    const html = renderToStaticMarkup(await InvoicePage(params("11")))
+    expect(html).toContain("MARKPAID:Main")
+    expect(html).toContain("VOID")
+    expect(html).not.toContain("UNMARK")
+    expect(prisma.paymentAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { kind: "BANK", isActive: true } }))
+  })
+  it("offers unmark and links the payment on a PAID invoice", async () => {
+    as("ADMIN")
+    ;(getInvoice as jest.Mock).mockResolvedValue({ ...inv, status: "PAID", paidAt: new Date("2026-10-20T00:00:00Z"), paymentTransactionId: 50 })
+    const html = renderToStaticMarkup(await InvoicePage(params("11")))
+    expect(html).toContain("UNMARK")
+    expect(html).toContain("/accounting/transactions/50")
+    expect(html).not.toContain("MARKPAID")
+    expect(prisma.paymentAccount.findMany).not.toHaveBeenCalled()
+  })
+  it("read-only roles get no payment or void actions", async () => {
+    as("OFFICE_ADMIN")
+    const html = renderToStaticMarkup(await InvoicePage(params("11")))
+    expect(html).not.toContain("MARKPAID")
+    expect(html).not.toContain("VOID")
   })
   it("shows void details", async () => {
     as("ADMIN")
