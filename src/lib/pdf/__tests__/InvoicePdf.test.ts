@@ -24,3 +24,23 @@ describe("renderInvoicePdf", () => {
     expect(pdf.length).toBeGreaterThan(1000)
   })
 })
+
+describe("renderInvoicePdf footer space", () => {
+  it("keeps long wrapping notes and payment details out of the footer band", async () => {
+    const PDFDocument = require("pdfkit") as { prototype: Record<string, (...a: unknown[]) => unknown> }
+    const orig = PDFDocument.prototype._fragment
+    const drawn: { text: string; y: number }[] = []
+    const spy = jest.spyOn(PDFDocument.prototype, "_fragment").mockImplementation(function (this: unknown, ...a: unknown[]) {
+      drawn.push({ text: String(a[0]), y: Number(a[2]) })
+      return orig.apply(this, a)
+    })
+    try {
+      const long = "Please quote the invoice number when paying and allow three business days. ".repeat(40)
+      await renderInvoicePdf({ ...model, lines: Array.from({ length: 20 }, () => model.lines[0]), notes: long, paymentDetails: long })
+    } finally { spy.mockRestore() }
+    // A4 height 841.89; body must end above MARGIN (48) + FOOTER_H (50); the footer itself sits at height - 60.
+    const footerY = 841.89 - 48 - 12
+    const intruders = drawn.filter((d) => Math.abs(d.y - footerY) > 0.5 && d.y + 10 > 841.89 - 98)
+    expect(intruders).toEqual([])
+  })
+})

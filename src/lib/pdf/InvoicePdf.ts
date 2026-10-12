@@ -137,7 +137,9 @@ function drawWatermark(doc: PDFKit.PDFDocument): void {
 export async function renderInvoicePdf(model: InvoicePdfModel): Promise<Buffer> {
   const letterhead = await getLetterheadAsset()
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: MARGIN, bufferPages: true })
+    // Bottom margin includes the footer band, so text PDFKit wraps onto new pages
+    // (long notes/payment details) stops above the footer drawn later.
+    const doc = new PDFDocument({ size: "A4", margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: MARGIN + FOOTER_H }, bufferPages: true })
     const chunks: Buffer[] = []
     doc.on("data", (c: Buffer) => chunks.push(c))
     doc.on("end", () => resolve(Buffer.concat(chunks)))
