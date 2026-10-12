@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
-import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
+import { ClassFormSchema, currentSchoolYear, planRollover } from "@/lib/sundaySchool"
 import { holdYear, isYearLockedTx, lockLiveClass, YEAR_LOCKED, type ClassLockState } from "@/lib/sundaySchoolYearLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
@@ -303,14 +303,17 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   const ALREADY_ROLLED = `${toYear} already has classes — roll over is one-time`
   if ((await prisma.sundaySchoolClass.count({ where: { year: toYear } })) > 0) return { error: ALREADY_ROLLED }
   const NO_SOURCE = `No classes in ${fromYear} to roll over`
+  const TARGET_LOCKED = `${toYear} is locked — unlock it before rolling over into it`
   let newIds: Map<number, number>
   let plan: ReturnType<typeof planRollover> = { classes: [], placements: [], unplaced: [] }
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
       // Waits for in-flight writes into fromYear; later ones queue and then
-      // see the lock row written below (see holdYear).
+      // see the lock row written below (see holdYear). toYear too, so a
+      // concurrent lock of the target year can't slip in. Ascending order.
       await holdYear(tx, fromYear, "exclusive")
+      await holdYear(tx, toYear, "exclusive")
       // SHARE ROW EXCLUSIVE blocks every insert/update/delete on these tables
       // (and other rollovers) but not plain reads. At READ COMMITTED each later
       // statement sees everything committed before the lock was granted, so the
@@ -319,6 +322,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
       // A manual lock that committed while we waited closes the source year too.
       if (await isYearLockedTx(tx, fromYear)) throw new Error(YEAR_LOCKED)
+      // createClass refuses a locked year; the copy must too.
+      if (await isYearLockedTx(tx, toYear)) throw new Error(TARGET_LOCKED)
       // Authoritative one-time guard.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
       const source = await tx.sundaySchoolClass.findMany({
@@ -364,7 +369,7 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // LOCK TABLE may wait out an in-flight enrol batch (30s timeout) first.
     }, { isolationLevel: "ReadCommitted", timeout: 60_000 })
   } catch (e) {
-    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE || e.message === YEAR_LOCKED)) return { error: e.message }
+    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE || e.message === YEAR_LOCKED || e.message === TARGET_LOCKED)) return { error: e.message }
     // Deadlock/serialization failure (P2034): a concurrent write collided with the lock.
     if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }
@@ -392,6 +397,8 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
  * ADMIN only. Takes the year's exclusive advisory lock (see holdYear) and the
  * same table lock as rolloverYear before writing the lock row, so in-flight
  * writes into the year finish first and later ones wait, then see the row.
+ * Only a past year with live classes can be locked (what the page offers),
+ * re-checked here so a direct call can't close the current or an empty year.
  * Already locked returns an error and audits nothing.
  */
 export async function lockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
@@ -400,15 +407,20 @@ export async function lockSundaySchoolYear(year: number): Promise<ActionResultWi
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
+  if (year >= currentSchoolYear()) return { error: "Only a past school year can be locked" }
 
+  const NO_CLASSES = `No classes in ${year} to lock`
   const count = await prisma.$transaction(async (tx) => {
     await holdYear(tx, year, "exclusive")
     // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
     await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+    // Under the table lock, so a concurrent archive can't empty the year after this check.
+    if ((await tx.sundaySchoolClass.count({ where: { year, archivedAt: null } })) === 0) return null
     // skipDuplicates = ON CONFLICT DO NOTHING; count 0 = it was already locked.
     return (await tx.sundaySchoolYearLock.createMany({ data: [{ year }], skipDuplicates: true })).count
     // LOCK TABLE may wait out an in-flight enrol batch, like rolloverYear.
   }, { timeout: 60_000 })
+  if (count === null) return { error: NO_CLASSES }
   if (count === 0) return { error: `${year} is already locked` }
   await logAudit(actorId(session), "SS_YEAR_LOCKED", ENTITY, undefined, { year })
   revalidatePath("/sunday-school")

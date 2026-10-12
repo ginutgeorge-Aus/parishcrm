@@ -4,8 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, canViewPeople, isAdmin } from "@/lib/roleGuard"
 import { LockedYearNotice, LockYearButton } from "@/components/sunday-school/LockedYearNotice"
-import { sydneyTodayYMD } from "@/lib/dates"
-import { parseSchoolYear } from "@/lib/sundaySchool"
+import { currentSchoolYear, parseSchoolYear } from "@/lib/sundaySchool"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
@@ -93,7 +92,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
           </Button>
           {canRollover && <RolloverButton fromYear={year} classCount={classes.length} />}
           {/* Admin re-lock of an open past year (editor is already false when locked). */}
-          {isAdmin(session.user.role) && classes.length > 0 && year < Number.parseInt(sydneyTodayYMD().slice(0, 4), 10) && (
+          {isAdmin(session.user.role) && classes.length > 0 && year < currentSchoolYear() && (
             <LockYearButton year={year} />
           )}
         </div>

@@ -24,7 +24,7 @@ look but not change anything.
   top class, or where two next-level classes exist at the same location, are left for you to place.
   Rolling over **locks the year you rolled from**: its classes, teachers, enrolments, roll markers and
   rolls become read-only (a *Locked* badge shows, and edit controls are hidden), so history can't drift
-  after children have moved on. An **admin** can reopen a locked year with **Unlock year** on the class list, and can lock an open past year again with **Lock year**; both ask to confirm. Locking blocks edits to that year's classes, enrolments and rolls until an admin unlocks it, and a person with Sunday School history in a locked year can't be permanently deleted (archive their family instead). Years rolled over before this feature arrived aren't locked automatically — use **Lock year** to close them.
+  after children have moved on. An **admin** can reopen a locked year with **Unlock year** on the class list, and can lock an open past year that has classes with **Lock year**; both ask to confirm. Roll over into a locked year is refused. Locking blocks edits to that year's classes, enrolments and rolls until an admin unlocks it, and a person with Sunday School history in a locked year can't be permanently deleted (archive their family instead). Years rolled over before this feature arrived aren't locked automatically — use **Lock year** to close them.
 
 ### Taking the roll
 
