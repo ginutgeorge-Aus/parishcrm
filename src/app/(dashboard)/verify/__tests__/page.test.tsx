@@ -55,3 +55,33 @@ it("working filter hides untested checkpoints", async () => {
   const text = await renderPage("ADMIN", "working")
   expect(text).toContain("Nothing here")
 })
+
+it("unknown filter defaults to pending", async () => {
+  // One tested checkpoint: pending hides it, so a fallback to `all` would show it.
+  mockFind.mockResolvedValue([
+    { checkpointId: TEST_CHECKPOINTS[0].id, status: "WORKING", issueNumber: null },
+  ])
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  const ui = await VerifyPage({ searchParams: Promise.resolve({ filter: "invalid-filter-name" }) })
+  const { container } = render(ui)
+  const text = container.textContent ?? ""
+  for (const c of TEST_CHECKPOINTS.slice(1)) expect(text).toContain(c.title)
+  expect(text).not.toContain(TEST_CHECKPOINTS[0].title)
+  expect(text).toContain(`${TEST_CHECKPOINTS.length - 1} pending`)
+  expect(container.querySelector('a[aria-current="page"]')?.getAttribute("href")).toBe("/verify")
+})
+
+it("groups visible checkpoints by version, preserving authoring order", async () => {
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  const ui = await VerifyPage({ searchParams: Promise.resolve({ filter: "all" }) })
+  const container = render(ui).container
+  const expected = [...new Set(TEST_CHECKPOINTS.map((c) => c.version))]
+  expect(expected.length).toBeGreaterThan(1) // fixture spans several versions
+  const sections = Array.from(container.querySelectorAll("section")).filter((s) => s.querySelector("h2"))
+  expect(sections.map((s) => s.querySelector("h2")?.textContent)).toEqual(expected)
+  // Each checkpoint renders inside its own version's section.
+  for (const c of TEST_CHECKPOINTS) {
+    const section = sections[expected.indexOf(c.version)]
+    expect(section.textContent).toContain(c.title)
+  }
+})

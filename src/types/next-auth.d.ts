@@ -4,6 +4,9 @@ import { DefaultSession } from "next-auth"
 declare module "next-auth" {
   interface Session {
     deviceTrustGrant?: string
+    // Mirrors the JWT `remember` claim so the client idle timer can use the
+    // remembered session's 7-day window instead of the short configured one.
+    remember?: boolean
     user: {
       id: string
       role: UserRole
