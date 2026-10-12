@@ -87,3 +87,113 @@ it("clears a showing warning when the idle window changes", () => {
   expect(screen.queryByRole("alert")).toBeNull()
   expect(logout).not.toHaveBeenCalled()
 })
+
+describe("across tabs", () => {
+  const KEY = "idleTimeout:lastActivity"
+  beforeEach(() => window.localStorage.clear())
+
+  it("activity in another tab keeps this tab from logging out", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(10 * MIN)
+    window.localStorage.setItem(KEY, String(Date.now()))
+    advance(10 * MIN)
+    expect(logout).not.toHaveBeenCalled()
+    advance(6 * MIN)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it("activity in another tab clears this tab's warning", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(14 * MIN + 1_000)
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    window.localStorage.setItem(KEY, String(Date.now()))
+    advance(1_000)
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("shares this tab's activity with other tabs", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const at = Date.now()
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(at)
+  })
+
+  it("does not overwrite a newer stored value with this tab's older activity", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const newer = Date.now() + 2_000
+    window.localStorage.setItem(KEY, String(newer))
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(newer)
+  })
+
+  it("ignores a shared timestamp far in the future", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    window.localStorage.setItem(KEY, String(Date.now() + 60 * MIN))
+    advance(15 * MIN + 1_000)
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it("shares a new tab's activity and Stay logged in at once, before the next check", () => {
+    const mounted = Date.now()
+    render(<IdleTimeout idleMinutes={15} />)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(mounted)
+    advance(14 * MIN + 1_000)
+    act(() => { jest.advanceTimersByTime(500) }) // mid-interval: no check runs before the click
+    const clicked = Date.now()
+    fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }))
+    expect(Number(window.localStorage.getItem(KEY))).toBe(clicked)
+  })
+
+  it("shares ordinary activity at once, without waiting for a (possibly throttled) check", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    act(() => { jest.advanceTimersByTime(5 * MIN + 500) }) // mid-interval
+    fireEvent.keyDown(window)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(Date.now())
+  })
+
+  it("repairs the shared value after another tab's late, older write", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const ours = Date.now()
+    advance(1_000)
+    window.localStorage.setItem(KEY, String(ours - 3 * MIN)) // racing tab wrote an older stamp
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(ours)
+  })
+
+  it("shares activity at once right after the wall clock moves back", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    act(() => { jest.advanceTimersByTime(5 * MIN) })
+    fireEvent.keyDown(window) // published just now
+    jest.setSystemTime(Date.now() - 10 * MIN)
+    window.localStorage.removeItem(KEY)
+    fireEvent.keyDown(window) // within the 1s throttle, but the clock went back
+    expect(Number(window.localStorage.getItem(KEY))).toBe(Date.now())
+  })
+
+  it("keeps sharing activity after the wall clock moves back", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(1_000) // this tab has shared its activity
+    jest.setSystemTime(Date.now() - 60 * MIN) // clock rolled back an hour
+    window.localStorage.removeItem(KEY)
+    fireEvent.mouseMove(window)
+    const at = Date.now()
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(at)
+  })
+
+  it("still times out when storage is unavailable", () => {
+    const get = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked") })
+    const set = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked") })
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(15 * MIN + 1_000)
+    expect(logout).toHaveBeenCalledTimes(1)
+    get.mockRestore()
+    set.mockRestore()
+  })
+})
