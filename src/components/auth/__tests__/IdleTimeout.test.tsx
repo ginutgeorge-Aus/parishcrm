@@ -148,6 +148,17 @@ describe("across tabs", () => {
     expect(Number(window.localStorage.getItem(KEY))).toBe(clicked)
   })
 
+  it("repairs the shared value after another tab's late, older write", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(5 * MIN)
+    fireEvent.mouseMove(window)
+    const ours = Date.now()
+    advance(1_000)
+    window.localStorage.setItem(KEY, String(ours - 3 * MIN)) // racing tab wrote an older stamp
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(ours)
+  })
+
   it("keeps sharing activity after the wall clock moves back", () => {
     render(<IdleTimeout idleMinutes={15} />)
     advance(1_000) // this tab has shared its activity

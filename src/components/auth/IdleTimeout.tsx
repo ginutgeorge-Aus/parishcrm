@@ -57,8 +57,6 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   useEffect(() => { updateRef.current = update }, [update])
   const lastActivityRef = useRef(0)
   const lastPingRef = useRef(0)
-  // Last activity this tab wrote to shared storage, so each check writes only news.
-  const lastSharedRef = useRef(0)
   // Mirrors showWarning for the event handler, which must not re-subscribe.
   const warningRef = useRef(false)
   const [showWarning, setShowWarning] = useState(false)
@@ -70,19 +68,15 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   }
 
   /**
-   * Shares this tab's latest activity if it's news: never writes an older value
-   * over a newer one from another tab (a throttled tab would otherwise regress
-   * the shared clock).
+   * Shares this tab's latest activity if it's newer than the stored value. Never
+   * writes an older value over a newer one from another tab (a throttled tab
+   * would otherwise regress the shared clock), and re-writes ours whenever the
+   * store holds something older — e.g. a racing tab's late write, or our own
+   * value hidden as "future" after a wall-clock rollback.
    * @param shared the latest shared activity, already read by the caller
    */
   const publish = useCallback((shared = readSharedActivity()) => {
-    // After a wall-clock rollback our own last write can look like the future;
-    // drop it as the high-water mark or fresh activity could never be shared.
-    if (lastSharedRef.current > Date.now() + MAX_SKEW_MS) lastSharedRef.current = 0
-    if (lastActivityRef.current > Math.max(lastSharedRef.current, shared)) {
-      lastSharedRef.current = lastActivityRef.current
-      writeSharedActivity(lastActivityRef.current)
-    }
+    if (lastActivityRef.current > shared) writeSharedActivity(lastActivityRef.current)
   }, [])
 
   /**
