@@ -33,7 +33,7 @@ export function LockYearButton({ year }: Readonly<{ year: number }>) {
 }
 
 /**
- * "Locked (rolled over)" badge for a closed school year. When `canUnlock`
+ * "Locked" badge for a closed school year. When `canUnlock`
  * (ADMIN, decided by the page; the action re-checks) it also shows an
  * "Unlock year" button behind a confirm dialog, then refreshes the list.
  */
@@ -41,7 +41,7 @@ export function LockedYearNotice({ year, canUnlock }: Readonly<{ year: number; c
   const router = useRouter()
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Badge variant="secondary">Locked (rolled over)</Badge>
+      <Badge variant="secondary">Locked</Badge>
       {canUnlock && (
         <DeleteConfirmButton
           onConfirm={async () => {

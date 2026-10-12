@@ -59,7 +59,7 @@ beforeEach(() => {
 })
 
 describe("year lock", () => {
-  const LOCKED = "This school year was rolled over and is locked — it can no longer be changed"
+  const LOCKED = "This school year is locked — it can no longer be changed"
   it("refuses every roll write for a rolled-over year, inside the transaction", async () => {
     locks([3], true, true, true)
     p.user.findFirst.mockResolvedValue({ role: UserRole.EVENT_ORGANISER })

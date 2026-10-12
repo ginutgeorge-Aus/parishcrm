@@ -80,7 +80,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
         <div className="space-y-2">
           <LockedYearNotice year={year} canUnlock={isAdmin(session.user.role)} />
           <p className="text-sm text-muted-foreground">
-            {year} was rolled over and is locked — its classes, teachers, enrolments and rolls can&apos;t be changed until an admin unlocks it.
+            {year} is locked — its classes, teachers, enrolments and rolls can&apos;t be changed until an admin unlocks it.
           </p>
         </div>
       )}

@@ -9,7 +9,7 @@ import { unlockSundaySchoolYear, lockSundaySchoolYear } from "@/lib/actions/sund
 describe("LockedYearNotice", () => {
   it("shows only the badge to non-admins", () => {
     render(<LockedYearNotice year={2026} canUnlock={false} />)
-    expect(screen.getByText("Locked (rolled over)")).toBeInTheDocument()
+    expect(screen.getByText("Locked")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Unlock year" })).toBeNull()
   })
   it("shows an Unlock year button to admins, behind a confirm dialog", async () => {

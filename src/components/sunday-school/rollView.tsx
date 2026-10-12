@@ -37,7 +37,7 @@ export async function renderRollView({
       <h1 className="mb-4 flex items-center gap-2 text-2xl font-bold text-foreground">
         Roll · {cls.name}
         {roll?.cls.archived && <Badge variant="secondary">Archived</Badge>}
-        {locked && <Badge variant="secondary">Locked (rolled over)</Badge>}
+        {locked && <Badge variant="secondary">Locked</Badge>}
       </h1>
       {parsed.ok && roll ? (
         <RollList

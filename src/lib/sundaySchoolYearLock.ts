@@ -7,7 +7,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
 
 /** Shown when a mutation targets a year closed by rollover. */
-export const YEAR_LOCKED = "This school year was rolled over and is locked — it can no longer be changed"
+export const YEAR_LOCKED = "This school year is locked — it can no longer be changed"
 
 /** Outcome of lockLiveClass(): ok, class missing/archived, or its year is locked. */
 export type ClassLockState = "ok" | "gone" | "locked"

@@ -42,7 +42,7 @@ const form = (o: Record<string, string>) => {
 
 /** Row-lock replies, SQL-routed. Reset per test: a live class in an open year, live people. */
 const raw: { cls: unknown[]; people?: unknown[]; person?: unknown[]; yearLocked: boolean } = { cls: [], yearLocked: false }
-const LOCKED = "This school year was rolled over and is locked — it can no longer be changed"
+const LOCKED = "This school year is locked — it can no longer be changed"
 
 beforeEach(() => {
   jest.clearAllMocks()
