@@ -35,7 +35,12 @@ showing its date and current registration count. From there:
   uses (see [Check In](/parishcrm/docs/check-in/)).
 
 An organiser cannot see, edit, or export data for any event they are not assigned to, cannot
-create or edit events, and has no access to people, families, or accounting anywhere in the app.
+create or edit events, and has no access to the People, Families or accounting areas of the app.
+
+The same login can also be assigned to Sunday School classes as a **roll marker**; they then see
+**Classes** (`/my-classes`) and can take those classes' rolls only. This is the one place an
+organiser sees member data: the children's **names and their Present/Late/Absent marks** (including
+earlier rolls) for those classes, with no contact details, dates of birth or notes. See [Sunday School](/parishcrm/docs/sunday-school/).
 
 ### Roles
 
@@ -43,7 +48,7 @@ create or edit events, and has no access to people, families, or accounting anyw
 |------|--------|
 | ADMIN / PASTOR / OFFICE_ADMIN | Can assign/unassign organisers on any event; can also open `/my-events` themselves (mainly useful for testing) since editors are always allowed through |
 | AUDITOR / VIEWER | No organiser-assignment access |
-| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in; redirected away from every other authenticated route |
+| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in, plus `/my-classes` rolls for classes they're assigned to; redirected away from every other authenticated route |
 
 ## How it works
 

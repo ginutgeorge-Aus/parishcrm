@@ -289,13 +289,11 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   if (!receipt) return { error: "Receipt not found" }
   if (receipt.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
   if (receipt.transaction?.reconciled) return { error: RECONCILED_DELETE_ERROR }
-  if (receipt.session.title) {
-    const receiptSessionDate = sessionDateFromTitle(receipt.session.title)
-    if (receiptSessionDate) {
-      const lockError = await assertUnlocked(receiptSessionDate)
-      if (lockError) return { error: lockError }
-    }
-  }
+  // Fail closed: an unparseable title must not skip the period-lock check.
+  const receiptSessionDate = sessionDateFromTitle(receipt.session.title)
+  if (!receiptSessionDate) return { error: "Invalid session date" }
+  const lockError = await assertUnlocked(receiptSessionDate)
+  if (lockError) return { error: lockError }
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (receipt.date >= retentionFloor()) return { error: retentionError(receipt.date) }
