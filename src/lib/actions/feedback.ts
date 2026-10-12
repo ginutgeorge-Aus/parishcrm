@@ -145,6 +145,29 @@ export async function submitFeedback(input: FeedbackInput): Promise<FeedbackResu
 // Any GitHub failure is swallowed so the list still renders from the mirror.
 const STALE_MS = 60_000
 const MAX_SYNCS_PER_LOAD = 20
+const SYNC_CONCURRENCY = 5
+const SYNC_BUDGET_MS = 3_000
+// Report ids with a GitHub poll in flight in this process. A run that outlives
+// the page's budget keeps going in the background with syncedAt unchanged, so
+// without this an overlapping load would poll the same rows again.
+const syncing = new Set<number>()
+// Process-wide GitHub poll slots: overlapping loads (and a run still going in
+// the background past its budget) share one SYNC_CONCURRENCY cap on the token.
+let activeSyncs = 0
+const syncWaiters: (() => void)[] = []
+
+/** Runs fn once a process-wide sync slot is free; hands the slot on when done. */
+async function withSyncSlot(fn: () => Promise<void>): Promise<void> {
+  if (activeSyncs < SYNC_CONCURRENCY) activeSyncs++
+  else await new Promise<void>((resolve) => syncWaiters.push(resolve))
+  try {
+    await fn()
+  } finally {
+    const next = syncWaiters.shift()
+    if (next) next() // slot passes straight to the next waiter
+    else activeSyncs--
+  }
+}
 
 export async function syncMyReports(): Promise<void> {
   // Derive the reporter from the session — never trust a caller-supplied id, or
@@ -162,15 +185,20 @@ export async function syncMyReports(): Promise<void> {
     orderBy: { createdAt: "desc" },
     take: MAX_LISTED_REPORTS,
   })
-  // Cap per-load GitHub calls — one sequential API call per row, shared
+  // Cap per-load GitHub calls — one API call per row, shared
   // GITHUB_TOKEN rate limit; oldest-synced first so every row is refreshed
   // across loads.
   const stale = listed
-    .filter((r) => r.status === "OPEN" && (r.syncedAt === null || r.syncedAt < cutoff))
+    .filter((r) => r.status === "OPEN" && (r.syncedAt === null || r.syncedAt < cutoff) && !syncing.has(r.id))
     .sort((a, b) => (a.syncedAt?.getTime() ?? -Infinity) - (b.syncedAt?.getTime() ?? -Infinity))
     .slice(0, MAX_SYNCS_PER_LOAD)
 
-  for (const report of stale) {
+  // Reserve every selected row now, not when its turn comes: a queued row must
+  // not be picked up again by an overlapping load while it waits for a slot.
+  for (const r of stale) syncing.add(r.id)
+
+  /** Refreshes one reserved row from GitHub; stale-tolerant, so a failure leaves it as-is. */
+  async function syncOne(report: { id: number; issueNumber: number }): Promise<void> {
     try {
       const { state, stateReason } = await getIssue(report.issueNumber)
       await prisma.report.update({
@@ -178,7 +206,18 @@ export async function syncMyReports(): Promise<void> {
         data: { status: issueStateToStatus(state, stateReason), syncedAt: new Date() },
       })
     } catch {
-      // Stale-tolerant: leave the row as-is and move on.
+      // Leave the row as-is; a later load retries it.
+    } finally {
+      syncing.delete(report.id)
     }
   }
+  // A few at a time across the process (GitHub discourages bursts of concurrent
+  // calls), and the page waits at most SYNC_BUDGET_MS: a slow or hung GitHub
+  // (each call may take up to its 5 s timeout) must not hold the list. Calls
+  // still queued or in flight finish in the background and show fresh next load.
+  const work = Promise.all(stale.map((r) => withSyncSlot(() => syncOne(r))))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const budget = new Promise<void>((resolve) => { timer = setTimeout(resolve, SYNC_BUDGET_MS) })
+  await Promise.race([work, budget])
+  clearTimeout(timer)
 }
