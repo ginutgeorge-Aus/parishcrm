@@ -19,7 +19,8 @@ import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email"
 import { logAudit } from "@/lib/audit"
 import { loadComplianceRows, toComplianceRow, COMPLIANCE_CAP } from "@/lib/clearanceCompliance"
-import { runClearanceDigest, runClearanceDigestLocked } from "@/lib/clearanceDigest"
+import { runClearanceDigest, runClearanceDigestLocked, sendClearanceDigest } from "@/lib/clearanceDigest"
+import { LeaseLostError } from "@/lib/periodLease"
 
 const findUnique = prisma.appSetting.findUnique as jest.Mock
 const create = prisma.appSetting.create as jest.Mock
@@ -54,6 +55,11 @@ const cleanRows = () => [
     ],
   }, new Date("2026-11-01T00:00:00Z")),
 ]
+
+// The lease is stamped with the run's `now`; pin the clock to it so the
+// heartbeat's expiry check (wall clock vs lease stamp) sees a fresh lease.
+beforeEach(() => jest.useFakeTimers({ now: FIRST, doNotFake: ["setTimeout", "clearTimeout"] })) // withRetry backoff stays real
+afterEach(() => jest.useRealTimers())
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -248,5 +254,14 @@ describe("runClearanceDigest (scheduler entry)", () => {
   it("throws when locked so the scheduler does not record success", async () => {
     setRows(lease(new Date(FIRST.getTime() - 60_000)))
     await expect(runClearanceDigest(FIRST)).rejects.toThrow(/in progress/)
+  })
+})
+
+describe("sendClearanceDigest lease loss", () => {
+  it("stops emailing once its lease is lost, audits what it sent, then aborts", async () => {
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(sendClearanceDigest(FIRST, { leaseHeld: held })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(logAudit).toHaveBeenCalledWith(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, expect.objectContaining({ sent: 1 }))
   })
 })
