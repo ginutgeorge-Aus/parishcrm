@@ -91,6 +91,7 @@ describe("runOncePerPeriodLocked lease heartbeat", () => {
     const work = deferred()
     const run = runOncePerPeriodLocked(opts(logError), () => work.promise.then(() => "ok"))
     mockUpdateMany.mockRejectedValueOnce(new Error("db down"))
+    mockFindUnique.mockRejectedValueOnce(new Error("db down")) // readback fails too: unknown, retry
     await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
     expect(logError).toHaveBeenCalledWith(expect.stringContaining("db down"))
     await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
@@ -208,6 +209,21 @@ describe("runOncePerPeriodLocked lease loss", () => {
     work.resolve()
     await expect(run).resolves.toBe("locked")
     expect(seen).toEqual([false])
+  })
+
+  it("marks the lease lost when a failed renewal's readback finds no row", async () => {
+    const logError = jest.fn()
+    const work = deferred()
+    const run = runOncePerPeriodLocked(opts(logError), async (leaseHeld) => {
+      await work.promise
+      return leaseHeld() ? "ok" : "lost"
+    })
+    mockUpdateMany.mockRejectedValueOnce(new Error("connection reset"))
+    mockFindUnique.mockResolvedValueOnce(null)
+    await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("lease row is gone"))
+    work.resolve()
+    await expect(run).resolves.toBe("locked")
   })
 
   it("returns 'locked' when loss is found after the work's last leaseHeld() check", async () => {

@@ -80,9 +80,15 @@ function startHeartbeat<T>(opts: OncePerPeriodOptions<T>, initial: string) {
         // `next` if the row holds it. A value that is neither `current` nor
         // `next` means another run took over: ownership is lost. If the
         // readback fails too, the next tick retries from `current`.
-        const row = await prisma.appSetting.findUnique({ where: { key: opts.settingKey } }).catch(() => null)
-        if (!row) return
-        if (row.value === next) {
+        // undefined = the read failed (retry next tick); null = the row is gone,
+        // so our lease is gone too (another run reclaimed and released it).
+        const row = await prisma.appSetting.findUnique({ where: { key: opts.settingKey } }).catch(() => undefined)
+        if (row === undefined) return
+        if (row === null) {
+          lost = true
+          clearInterval(timer)
+          opts.logError(`lease lost for ${opts.periodKey}: the lease row is gone`)
+        } else if (row.value === next) {
           current = next
           confirmedAt = nextAt
         } else if (row.value !== current) {
