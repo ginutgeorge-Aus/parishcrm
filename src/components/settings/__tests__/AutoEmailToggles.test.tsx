@@ -47,17 +47,17 @@ describe("AutoEmailToggles", () => {
     })
   })
 
-  it("keeps both flags in sync when only one is changed", async () => {
+  it("sends the untouched enabled flag along with the changed one", async () => {
     mockUpdate.mockResolvedValue({})
-    render(<AutoEmailToggles birthday={false} anniversary={false} />)
-    
-    const birthdayToggle = screen.getByLabelText("Send birthday blessings automatically")
-    fireEvent.click(birthdayToggle)
-    
+    render(<AutoEmailToggles birthday={false} anniversary={true} />)
+
+    fireEvent.click(screen.getByLabelText("Send birthday blessings automatically"))
+
     await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument())
-    
-    const anniversaryToggle = screen.getByLabelText("Send anniversary blessings automatically")
-    expect(anniversaryToggle).not.toBeChecked()
+    const fd = mockUpdate.mock.calls[0][1] as FormData
+    expect(fd.get("autoBirthdayEmail")).toBe("true")
+    expect(fd.get("autoAnniversaryEmail")).toBe("true") // omitted would mean "off"
+    expect(screen.getByLabelText("Send anniversary blessings automatically")).toBeChecked()
   })
 
   it("disables toggles while a request is pending", async () => {
