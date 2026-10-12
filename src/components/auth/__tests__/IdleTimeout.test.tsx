@@ -166,6 +166,16 @@ describe("across tabs", () => {
     expect(Number(window.localStorage.getItem(KEY))).toBe(ours)
   })
 
+  it("shares activity at once right after the wall clock moves back", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    act(() => { jest.advanceTimersByTime(5 * MIN) })
+    fireEvent.keyDown(window) // published just now
+    jest.setSystemTime(Date.now() - 10 * MIN)
+    window.localStorage.removeItem(KEY)
+    fireEvent.keyDown(window) // within the 1s throttle, but the clock went back
+    expect(Number(window.localStorage.getItem(KEY))).toBe(Date.now())
+  })
+
   it("keeps sharing activity after the wall clock moves back", () => {
     render(<IdleTimeout idleMinutes={15} />)
     advance(1_000) // this tab has shared its activity

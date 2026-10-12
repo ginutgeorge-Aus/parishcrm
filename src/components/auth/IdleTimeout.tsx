@@ -99,7 +99,8 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     // Share now (at most once a second) rather than on the next check: a
     // just-foregrounded tab's interval may still be throttled, and another tab
     // must not time out on the old stamp first.
-    if (forcePing || now - lastPublishRef.current >= CHECK_MS) {
+    // `now < last` = the wall clock moved back: don't let it block sharing.
+    if (forcePing || now - lastPublishRef.current >= CHECK_MS || now < lastPublishRef.current) {
       lastPublishRef.current = now
       publish()
     }
