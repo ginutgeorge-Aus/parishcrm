@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import assert from "node:assert/strict"
 import {
+  declinedAtHead,
   isReviewed,
   nudgeInFlight,
   parseRateLimitReset,
@@ -173,4 +174,12 @@ test("waitForReset: no wait when nothing is pending or the reset is past the cap
   const now = new Date("2026-10-09T20:00:00Z")
   assert.equal(waitForReset(null, now, 65 * 60_000), null)
   assert.equal(waitForReset(new Date("2026-10-09T21:30:00Z"), now, 65 * 60_000), null)
+})
+
+test("declinedAtHead: an 'already reviewed' refusal after the head commit counts; one before it does not", () => {
+  const refusal = comment({ user: BOT, body: RATE_LIMIT_BODY.replace(/<\/summary>[\s\S]*/, "</summary>\nAlready reviewed the last commit."), createdAt: "2026-10-12T11:05:07Z" })
+  assert.equal(declinedAtHead([refusal], "2026-10-12T11:03:58Z"), true)
+  assert.equal(declinedAtHead([refusal], "2026-10-12T11:30:00Z"), false)
+  assert.equal(declinedAtHead([{ ...refusal, user: "someone" }], "2026-10-12T11:03:58Z"), false)
+  assert.equal(declinedAtHead([comment({ user: BOT, body: "ok", createdAt: "2026-10-12T11:05:07Z" })], "2026-10-12T11:03:58Z"), false)
 })

@@ -94,6 +94,22 @@ export function pendingReset(comments: Comment[], now: Date): Date | null {
   return latest
 }
 
+/** CodeRabbit refusing a nudge because it already reviewed the head commit. */
+export const DECLINED = /Already reviewed the last commit/i
+
+/**
+ * True when CodeRabbit refused a nudge as "already reviewed" after the head commit
+ * landed. Head commits CodeRabbit skips (e.g. a merge from main) never get a review
+ * or `coveredCommitId` marker, so without this the PR looks unreviewed forever and
+ * each refusal (a CodeRabbit comment) triggers another nudge.
+ * @param comments - issue comments on one PR, any order
+ * @param headCommittedAt - committer date of the PR's head commit
+ */
+export function declinedAtHead(comments: Comment[], headCommittedAt: string): boolean {
+  const head = Date.parse(headCommittedAt)
+  return comments.some((c) => c.user === BOT && DECLINED.test(c.body) && Date.parse(c.createdAt) >= head)
+}
+
 /**
  * CodeRabbit comments that aren't a review result: the instant "Review triggered"
  * ack, and the summary while it's edited to a "review in progress" placeholder.
@@ -224,9 +240,13 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    if (!isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) {
-      unreviewed.push(pr)
+    if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
+    if (comments.some((c) => c.user === BOT && DECLINED.test(c.body))) {
+      const commits = await gh<{ sha: string; commit: { committer: { date: string } | null } }[]>(`/repos/${REPO}/pulls/${pr.number}/commits`)
+      const date = commits.find((c) => c.sha === pr.headSha)?.commit.committer?.date
+      if (date && declinedAtHead(comments, date)) continue
     }
+    unreviewed.push(pr)
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
