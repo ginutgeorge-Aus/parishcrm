@@ -24,7 +24,7 @@ look but not change anything.
   top class, or where two next-level classes exist at the same location, are left for you to place.
   Rolling over **locks the year you rolled from**: its classes, teachers, enrolments, roll markers and
   rolls become read-only (a *Locked* badge shows, and edit controls are hidden), so history can't drift
-  after children have moved on. An **admin** can reopen a locked year with **Unlock year** on the class list, and can lock an open past year again with **Lock year**; both ask to confirm. Locking blocks edits to that year's classes, enrolments and rolls until an admin unlocks it.
+  after children have moved on. An **admin** can reopen a locked year with **Unlock year** on the class list, and can lock an open past year again with **Lock year**; both ask to confirm. Locking blocks edits to that year's classes, enrolments and rolls until an admin unlocks it, and a person with Sunday School history in a locked year can't be permanently deleted (archive their family instead). Years rolled over before this feature arrived aren't locked automatically — use **Lock year** to close them.
 
 ### Taking the roll
 
@@ -49,6 +49,6 @@ One-class-per-child-per-year is enforced by the database. Every change made thro
 
 A roll (one per class and date) is created on the first mark; a child with no mark has no row.
 Each mark records who marked it and when. A child moved to another class keeps their earlier
-marks, and still shows on those past rolls tagged "not enrolled"; such a mark can be changed but not
-cleared, so it is never lost by a stray tap. Every mark, bulk action and
+marks, and still shows on those past rolls tagged "not enrolled"; while the year is unlocked such a
+mark can be changed but not cleared, so it is never lost by a stray tap. Every mark, bulk action and
 roll-marker change is in the audit log.

@@ -12,6 +12,7 @@ import { logAudit } from "@/lib/audit"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/sundaySchoolYearLock", () => ({ lockedYearRefs: jest.fn(async () => 0) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => {

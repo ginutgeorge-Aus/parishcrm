@@ -10,6 +10,7 @@ import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
+import { lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
 
@@ -255,7 +256,10 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   // with the read.
   const linkedMsg = (n: number) =>
     `Cannot delete — ${n} linked giving/receipt record(s) reference this person. Archive the family instead.`
+  const lockedSsMsg = (n: number) =>
+    `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0
+  let lockedSsCount = 0
   // PersonClearance cascades on person delete; capture ids/types first so the
   // removal can be audited (no decrypted values).
   let removedClearances: { id: string; type: string }[] = []
@@ -269,6 +273,10 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         ])
         const total = txCount + dgrCount + pettyCashCount
         if (total > 0) return total
+        // Cascading away teacher/enrolment/attendance rows would rewrite a
+        // locked Sunday School year.
+        lockedSsCount = await lockedYearRefs(tx, id)
+        if (lockedSsCount > 0) return 0
         removedClearances = await tx.personClearance.findMany({
           where: { personId: id },
           select: { id: true, type: true },
@@ -286,6 +294,7 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
     throw e
   }
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
+  if (lockedSsCount > 0) return { error: lockedSsMsg(lockedSsCount) }
 
   await logAudit(actorId(session), "PERSON_DELETED", "Person", id, { familyId })
   for (const c of removedClearances) {

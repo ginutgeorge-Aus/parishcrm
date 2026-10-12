@@ -158,13 +158,30 @@ describe("year lock (rolled-over year)", () => {
     expect(await createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).toEqual({ error: LOCKED })
     expect(prisma.sundaySchoolClass.create).not.toHaveBeenCalled()
   })
-  it("checks the lock after the class row lock, in the same transaction", async () => {
+  it("checks the lock after the class row lock and shared year lock, in the write's transaction", async () => {
     as(UserRole.ADMIN); liveClass()
+    // A distinct tx client: every lock query must go through it, not the root client.
+    const txRaw = jest.fn((sql: TemplateStringsArray, ...vals: unknown[]) =>
+      (prisma.$queryRaw as jest.Mock).getMockImplementation()!(sql, ...vals))
+    const tx = { ...prisma, $queryRaw: txRaw }
+    ;(prisma.$transaction as jest.Mock).mockImplementationOnce((fn: (t: typeof tx) => unknown) => fn(tx))
     await unenrolChild(1, 2)
-    const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"))
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
+    const calls = txRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"))
     expect(calls[0]).toContain('FROM "SundaySchoolClass"')
     expect(calls[0]).toContain("FOR SHARE")
-    expect(calls[1]).toContain('FROM "SundaySchoolYearLock"')
+    expect(calls[1]).toContain("pg_advisory_xact_lock_shared(")
+    expect(txRaw.mock.calls[1].slice(1)).toEqual([7177, 2026])
+    expect(calls[2]).toContain('FROM "SundaySchoolYearLock"')
+  })
+  it("closers take the exclusive year lock before their table lock", async () => {
+    as(UserRole.ADMIN)
+    ;(prisma.sundaySchoolYearLock.createMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await lockSundaySchoolYear(2026)
+    const raw = prisma.$queryRaw as jest.Mock
+    const i = raw.mock.calls.findIndex((c) => (c[0] as TemplateStringsArray).join("?").includes("pg_advisory_xact_lock("))
+    expect(raw.mock.calls[i].slice(1)).toEqual([7177, 2026])
+    expect(raw.mock.invocationCallOrder[i]).toBeLessThan((prisma.$executeRaw as jest.Mock).mock.invocationCallOrder[0])
   })
 })
 
