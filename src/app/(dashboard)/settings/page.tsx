@@ -28,30 +28,30 @@ export default async function SettingsPage() {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 
-  const settings = await prisma.appSetting.findMany({
-    where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
-  })
-  const get = (key: string) => settings.find((s) => s.key === key)?.value ?? ""
-  // churchWebsite: a saved row (even blank) must win over the env fallback, so an
-  // admin who cleared the field to hide the public links doesn't get the env URL
-  // re-populated into the form and written back on the next save. Mirrors
-  // getChurchSettings()'s website handling.
-  const websiteRow = settings.find((s) => s.key === "churchWebsite")
-  const churchWebsite = websiteRow ? websiteRow.value : (process.env.CHURCH_WEBSITE ?? "")
-
-  const birthdayTpl = await getBirthdayTemplate()
-  const anniversaryTpl = await getAnniversaryTemplate()
-  const autoEmailFlags = await getAutoEmailFlags()
-  const letterSettings = await getLetterSettings()
-  const membershipSettings = await getMembershipSettings()
-  const receiptSettings = await getReceiptSettings()
-
-  const tplEntries = await Promise.all(
-    EMAIL_TEMPLATE_KEYS.map(async (k) => [k, await getEmailTemplate(k)] as const),
-  )
-  const emailTemplates = Object.fromEntries(tplEntries) as Record<EmailTemplateKey, EmailTemplateFields>
-
-  const [auditEntries, recentRegistrations] = await Promise.all([
+  // Every read below is independent, so run them together instead of one
+  // round trip after another.
+  const [
+    settings,
+    birthdayTpl,
+    anniversaryTpl,
+    autoEmailFlags,
+    letterSettings,
+    membershipSettings,
+    receiptSettings,
+    tplEntries,
+    auditEntries,
+    recentRegistrations,
+  ] = await Promise.all([
+    prisma.appSetting.findMany({
+      where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
+    }),
+    getBirthdayTemplate(),
+    getAnniversaryTemplate(),
+    getAutoEmailFlags(),
+    getLetterSettings(),
+    getMembershipSettings(),
+    getReceiptSettings(),
+    Promise.all(EMAIL_TEMPLATE_KEYS.map(async (k) => [k, await getEmailTemplate(k)] as const)),
     prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -63,6 +63,15 @@ export default async function SettingsPage() {
       select: { id: true, firstName: true, lastName: true, createdAt: true, event: { select: { title: true } } },
     }),
   ])
+
+  const get = (key: string) => settings.find((s) => s.key === key)?.value ?? ""
+  // churchWebsite: a saved row (even blank) must win over the env fallback, so an
+  // admin who cleared the field to hide the public links doesn't get the env URL
+  // re-populated into the form and written back on the next save. Mirrors
+  // getChurchSettings()'s website handling.
+  const websiteRow = settings.find((s) => s.key === "churchWebsite")
+  const churchWebsite = websiteRow ? websiteRow.value : (process.env.CHURCH_WEBSITE ?? "")
+  const emailTemplates = Object.fromEntries(tplEntries) as Record<EmailTemplateKey, EmailTemplateFields>
 
   return (
     <div>

@@ -32,7 +32,7 @@ export function BirthdayEmailForm({
   return (
     <form action={formAction} className="max-w-lg space-y-4">
       <div>
-        <h3 className="text-lg font-semibold">Birthday email template</h3>
+        <h3 className="text-base font-semibold text-foreground mb-1">Birthday email template</h3>
         <p className="text-sm text-muted-foreground">
           Placeholders: <code>{"{firstName}"}</code>, <code>{"{they}"}</code>, <code>{"{them}"}</code>, <code>{"{their}"}</code> (from the member&apos;s gender)
         </p>

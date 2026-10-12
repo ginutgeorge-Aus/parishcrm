@@ -1,0 +1,17 @@
+# Gemini Code Assist (GitHub app) — repo review settings.
+# Schema: https://docs.cloud.google.com/gemini/docs/code-review/customize-repo-review
+have_fun: false
+code_review:
+  disable: false
+  comment_severity_threshold: MEDIUM
+  max_review_comments: -1
+  pull_request_opened:
+    help: false
+    summary: true
+    code_review: true
+    include_drafts: false
+ignore_patterns:
+  - "src/lib/generated/**"
+  - "package-lock.json"
+  - "CHANGELOG.md"
+  - "**/*.snap"
