@@ -70,10 +70,28 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   }
 
   /**
+   * Shares this tab's latest activity if it's news: never writes an older value
+   * over a newer one from another tab (a throttled tab would otherwise regress
+   * the shared clock).
+   * @param shared the latest shared activity, already read by the caller
+   */
+  const publish = useCallback((shared = readSharedActivity()) => {
+    // After a wall-clock rollback our own last write can look like the future;
+    // drop it as the high-water mark or fresh activity could never be shared.
+    if (lastSharedRef.current > Date.now() + MAX_SKEW_MS) lastSharedRef.current = 0
+    if (lastActivityRef.current > Math.max(lastSharedRef.current, shared)) {
+      lastSharedRef.current = lastActivityRef.current
+      writeSharedActivity(lastActivityRef.current)
+    }
+  }, [])
+
+  /**
    * Records activity and refreshes the server session (throttled) so the
    * server-side idle clock tracks actual use; without this the server would
    * expire an actively-used session at the idle window.
-   * @param forcePing ping even inside the throttle window (explicit "Stay logged in")
+   * @param forcePing ping even inside the throttle window, and share the
+   * activity at once so no other tab can time out on the old value first
+   * (explicit "Stay logged in", a newly opened tab)
    */
   const touch = useCallback((forcePing = false) => {
     const now = Date.now()
@@ -82,7 +100,8 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
       lastPingRef.current = now
       void updateRef.current()
     }
-  }, [])
+    if (forcePing) publish()
+  }, [publish])
 
   useEffect(() => {
     let loggedOut = false
@@ -94,12 +113,7 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     function check() {
       if (loggedOut) return
       const shared = readSharedActivity()
-      // Never knowingly write an older value over a newer one from another tab
-      // (a throttled tab would otherwise regress the shared clock).
-      if (lastActivityRef.current > Math.max(lastSharedRef.current, shared)) {
-        lastSharedRef.current = lastActivityRef.current
-        writeSharedActivity(lastActivityRef.current)
-      }
+      publish(shared)
       const idle = Date.now() - Math.max(lastActivityRef.current, shared)
       if (idle >= idleMs) {
         loggedOut = true
@@ -120,7 +134,9 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     // warning left from the old one so passive activity counts again (the
     // banner itself is cleared during render, below the state declarations).
     warningRef.current = false
+    // Share the new tab's activity at once, not on the first check.
     touch()
+    publish()
     const interval = setInterval(check, CHECK_MS)
     EVENTS.forEach((e) => window.addEventListener(e, onActivity, { passive: true }))
 
@@ -128,7 +144,7 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
       clearInterval(interval)
       EVENTS.forEach((e) => window.removeEventListener(e, onActivity, { passive: true } as EventListenerOptions))
     }
-  }, [idleMs, touch])
+  }, [idleMs, touch, publish])
 
   if (!showWarning) return null
 

@@ -137,6 +137,28 @@ describe("across tabs", () => {
     expect(logout).toHaveBeenCalledTimes(1)
   })
 
+  it("shares a new tab's activity and Stay logged in at once, before the next check", () => {
+    const mounted = Date.now()
+    render(<IdleTimeout idleMinutes={15} />)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(mounted)
+    advance(14 * MIN + 1_000)
+    act(() => { jest.advanceTimersByTime(500) }) // mid-interval: no check runs before the click
+    const clicked = Date.now()
+    fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }))
+    expect(Number(window.localStorage.getItem(KEY))).toBe(clicked)
+  })
+
+  it("keeps sharing activity after the wall clock moves back", () => {
+    render(<IdleTimeout idleMinutes={15} />)
+    advance(1_000) // this tab has shared its activity
+    jest.setSystemTime(Date.now() - 60 * MIN) // clock rolled back an hour
+    window.localStorage.removeItem(KEY)
+    fireEvent.mouseMove(window)
+    const at = Date.now()
+    advance(1_000)
+    expect(Number(window.localStorage.getItem(KEY))).toBe(at)
+  })
+
   it("still times out when storage is unavailable", () => {
     const get = jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked") })
     const set = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked") })
