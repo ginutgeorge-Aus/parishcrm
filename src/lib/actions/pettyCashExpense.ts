@@ -276,13 +276,11 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   if (!expense) return { error: "Expense not found" }
   if (expense.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
   if (expense.transaction?.reconciled) return { error: RECONCILED_DELETE_ERROR }
-  if (expense.session.title) {
-    const expenseSessionDate = sessionDateFromTitle(expense.session.title)
-    if (expenseSessionDate) {
-      const lockError = await assertUnlocked(expenseSessionDate)
-      if (lockError) return { error: lockError }
-    }
-  }
+  // Fail closed: an unparseable title must not skip the period-lock check.
+  const expenseSessionDate = sessionDateFromTitle(expense.session.title)
+  if (!expenseSessionDate) return { error: "Invalid session date" }
+  const lockError = await assertUnlocked(expenseSessionDate)
+  if (lockError) return { error: lockError }
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (expense.date >= retentionFloor()) return { error: retentionError(expense.date) }
