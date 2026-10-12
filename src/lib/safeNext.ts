@@ -18,11 +18,11 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/
  */
 export function safeNextPath(raw: unknown): string {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_LEN) return "/"
-  if (raw[0] !== "/" || raw[1] === "/") return "/"
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/"
   if (raw.includes("\\") || CONTROL_CHARS.test(raw)) return "/"
   // Belt and braces: resolving against a dummy origin must stay on that origin.
   try {
-    const base = "http://x.invalid"
+    const base = "https://x.invalid"
     if (new URL(raw, base).origin !== base) return "/"
   } catch {
     return "/"
