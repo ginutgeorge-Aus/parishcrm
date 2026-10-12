@@ -138,7 +138,7 @@ describe("device trust requires a single-use OTP grant", () => {
     const r = await listTrustedDevices()
     expect(cookieGet).toHaveBeenCalledWith("trusted_device")
     expect(r.map((x) => [x.id, x.isCurrent])).toEqual([["a", false], ["b", true]])
-    expect(r[0]).not.toHaveProperty("tokenHash")
+    for (const row of r) expect(row).not.toHaveProperty("tokenHash")
   })
 
   it("marks nothing current when there is no device cookie", async () => {

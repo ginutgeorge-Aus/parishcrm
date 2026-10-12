@@ -42,10 +42,10 @@ export function TrustedDeviceList({ devices }: Readonly<{ devices: Device[] }>) 
       {list.map((d) => (
         <li key={d.id} className="flex items-center justify-between gap-4 p-3">
           <div className="min-w-0">
-            <p className="truncate text-sm text-foreground">
-              {d.label ?? "Unknown device"}
+            <p className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+              <span className="truncate">{d.label ?? "Unknown device"}</span>
               {d.isCurrent && (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">This device</span>
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">This device</span>
               )}
             </p>
             <p className="text-xs text-muted-foreground">
