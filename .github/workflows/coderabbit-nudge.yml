@@ -1,7 +1,7 @@
 name: CodeRabbit Nudge
 
 # CodeRabbit's free OSS plan reviews ~1 PR/hour. Pushes past the limit get
-# "Review rate limited" while the CodeRabbit check still passes. Each hour this
+# "Review rate limited" while the CodeRabbit check still passes. Each run this
 # posts `@coderabbitai review` on ONE open PR whose head commit CodeRabbit hasn't
 # reviewed (skips while rate limited or a review is in flight). PR labels:
 # `review-next` = go first, `no-coderabbit` = never nudge.
@@ -13,7 +13,7 @@ name: CodeRabbit Nudge
 # fail (401), which emails the owner. Forks: the job is skipped (repo guard).
 
 # Triggers: any CodeRabbit comment on a PR (a finished review or a rate-limit
-# notice — the moment the next slot becomes knowable), plus an hourly cron as a
+# notice — the moment the next slot becomes knowable), plus a 90-minute cron as a
 # backstop (GitHub's scheduler often runs hours late). A rate-limited run waits
 # for the reset (--wait) and decides again; a newer event cancels the waiting
 # run, so only one ever sleeps.
@@ -21,7 +21,10 @@ on:
   issue_comment:
     types: [created, edited]
   schedule:
-    - cron: '23 * * * *'     # hourly at :23 (backstop)
+    # Every 90 min (backstop): cron has no 90-min step, so two 3-hourly
+    # schedules offset by 90 min — 00:23, 01:53, 03:23, 04:53 … UTC.
+    - cron: '23 0-23/3 * * *'
+    - cron: '53 1-23/3 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
