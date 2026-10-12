@@ -190,6 +190,8 @@ describe("createSession", () => {
     ["blocks VIEWER", "VIEWER", "2026-05-22", "Unauthorized"],
     ["blocks AUDITOR", "AUDITOR", "2026-05-22", "Unauthorized"],
     ["returns error for invalid date", "PASTOR", "not-a-date", "Invalid date"],
+    ["rejects an impossible day instead of titling it 31-FEB", "PASTOR", "2025-02-31", "Invalid date"],
+    ["rejects an impossible month", "PASTOR", "2025-13-01", "Invalid date"],
   ])("%s", async (_name, role, sessionDate, error) => {
     mockSession.mockResolvedValue({ user: { id: "999", role } })
     const result = await createSession(undefined, fd({ sessionDate, custodianId: "1" }))
@@ -572,7 +574,7 @@ describe("createReceipt duplicate detection", () => {
 describe("deleteReceipt", () => {
   it("deletes receipt for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     await deleteReceipt(1)
     expect(mockDeleteReceipt).toHaveBeenCalledWith({ where: { id: 1 } })
   })
@@ -585,7 +587,7 @@ describe("deleteReceipt", () => {
 
   it("blocks delete from closed session", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "CLOSED" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "CLOSED", title: "15-JUN-2026" } })
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: "Cannot delete from closed session" })
   })
@@ -597,7 +599,7 @@ describe("deleteReceipt", () => {
       sessionId: 5,
       amount: { toString: () => "250" }, // Prisma Decimal mock
       accountId: 2,
-      session: { id: 5, status: "OPEN" },
+      session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteReceipt(1)
     expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", 1, {
@@ -611,7 +613,7 @@ describe("deleteReceipt", () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindReceipt.mockResolvedValue({
       id: 1, sessionId: 5, amount: { toString: () => "250" }, accountId: 2,
-      session: { id: 5, status: "OPEN" }, transaction: { id: 99 },
+      session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99 },
     })
     await deleteReceipt(1)
     expect(mockLogAudit).toHaveBeenCalledWith(
@@ -622,7 +624,7 @@ describe("deleteReceipt", () => {
   it("blocks delete when the mirror transaction is reconciled", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindReceipt.mockResolvedValue({
-      id: 1, sessionId: 5, session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: true },
+      id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: true },
     })
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
@@ -632,7 +634,7 @@ describe("deleteReceipt", () => {
   it("blocks the delete when a concurrent close flips the session CLOSED inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     // Outer read still sees OPEN — the close lands after this fetch...
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     // ...but the in-tx re-check (assertSessionOpenTx, lock pattern) sees
     // the now-CLOSED row: its conditional updateMany matches no row.
     mockUpdateManySession.mockResolvedValue({ count: 0 })
@@ -644,7 +646,7 @@ describe("deleteReceipt", () => {
   it("blocks the delete when a concurrent reconcile lands inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     // Outer read saw the mirror un-reconciled; the reconcile lands after it.
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: false } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
     mockFindTransaction.mockResolvedValue({ reconciled: true })
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
@@ -657,7 +659,7 @@ describe("deleteReceipt", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const recentDate = new Date()
     recentDate.setFullYear(recentDate.getFullYear() - 1) // 1 year ago
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, date: recentDate, session: { id: 5, status: "OPEN" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, date: recentDate, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringMatching(/retention/i) })
     expect(mockDeleteReceipt).not.toHaveBeenCalled()
@@ -667,7 +669,7 @@ describe("deleteReceipt", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const oldDate = new Date()
     oldDate.setFullYear(oldDate.getFullYear() - 8) // 8 years ago, past the floor
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, date: oldDate, session: { id: 5, status: "OPEN" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, date: oldDate, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     await deleteReceipt(1)
     expect(mockDeleteReceipt).toHaveBeenCalledWith({ where: { id: 1 } })
   })
@@ -1085,14 +1087,14 @@ describe("createExpense duplicate detection", () => {
 describe("deleteExpense", () => {
   it("deletes expense for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     await deleteExpense(1)
     expect(mockDeleteExpense).toHaveBeenCalledWith({ where: { id: 1 } })
   })
 
   it("blocks the delete when a concurrent close flips the session CLOSED inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     // in-tx re-check (assertSessionOpenTx, lock pattern) sees CLOSED.
     mockUpdateManySession.mockResolvedValue({ count: 0 })
     const result = await deleteExpense(1)
@@ -1108,7 +1110,7 @@ describe("deleteExpense", () => {
 
   it("blocks delete from closed session", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "CLOSED" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "CLOSED", title: "15-JUN-2026" } })
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: "Cannot delete from closed session" })
   })
@@ -1120,7 +1122,7 @@ describe("deleteExpense", () => {
       sessionId: 5,
       amount: { toString: () => "45" }, // Prisma Decimal mock
       accountId: 4,
-      session: { id: 5, status: "OPEN" },
+      session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteExpense(1)
     expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", 1, {
@@ -1134,7 +1136,7 @@ describe("deleteExpense", () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindExpense.mockResolvedValue({
       id: 1, sessionId: 5, amount: { toString: () => "45" }, accountId: 4,
-      session: { id: 5, status: "OPEN" }, transaction: { id: 88 },
+      session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88 },
     })
     await deleteExpense(1)
     expect(mockLogAudit).toHaveBeenCalledWith(
@@ -1145,7 +1147,7 @@ describe("deleteExpense", () => {
   it("blocks delete when the mirror transaction is reconciled", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindExpense.mockResolvedValue({
-      id: 1, sessionId: 5, session: { id: 5, status: "OPEN" }, transaction: { id: 88, reconciled: true },
+      id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88, reconciled: true },
     })
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
@@ -1158,7 +1160,7 @@ describe("deleteExpense", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const recentDate = new Date()
     recentDate.setFullYear(recentDate.getFullYear() - 1) // 1 year ago
-    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, date: recentDate, session: { id: 5, status: "OPEN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, date: recentDate, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: expect.stringMatching(/retention/i) })
     expect(mockDeleteExpense).not.toHaveBeenCalled()
@@ -1168,7 +1170,7 @@ describe("deleteExpense", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const oldDate = new Date()
     oldDate.setFullYear(oldDate.getFullYear() - 8) // 8 years ago, past the floor
-    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, date: oldDate, session: { id: 5, status: "OPEN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, date: oldDate, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     await deleteExpense(1)
     expect(mockDeleteExpense).toHaveBeenCalledWith({ where: { id: 1 } })
   })
@@ -1726,6 +1728,32 @@ describe("period lock", () => {
     mockAssertUnlocked.mockResolvedValueOnce(LOCK_ERR)
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: LOCK_ERR })
+    expect(mockDeleteExpense).not.toHaveBeenCalled()
+  })
+
+  // Fail closed: a legacy impossible title (e.g. 31-FEB, accepted before the
+  // create-time check) must not skip the period-lock check on delete.
+  it("deleteReceipt rejects a session whose title is not a real date", async () => {
+    mockSession.mockResolvedValue({ user: { id: "7", role: "ADMIN" } })
+    mockFindReceipt.mockResolvedValue({
+      id: 1, sessionId: 5, amount: { toString: () => "50" }, accountId: 1,
+      session: { id: 5, status: "OPEN", title: "31-FEB-2019" },
+    })
+    jest.spyOn(console, "error").mockImplementationOnce(() => {})
+    const result = await deleteReceipt(1)
+    expect(result).toEqual({ error: "Invalid session date" })
+    expect(mockDeleteReceipt).not.toHaveBeenCalled()
+  })
+
+  it("deleteExpense rejects a session whose title is not a real date", async () => {
+    mockSession.mockResolvedValue({ user: { id: "7", role: "ADMIN" } })
+    mockFindExpense.mockResolvedValue({
+      id: 1, sessionId: 5, amount: { toString: () => "20" }, accountId: 4,
+      session: { id: 5, status: "OPEN", title: "31-FEB-2019" },
+    })
+    jest.spyOn(console, "error").mockImplementationOnce(() => {})
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: "Invalid session date" })
     expect(mockDeleteExpense).not.toHaveBeenCalled()
   })
 

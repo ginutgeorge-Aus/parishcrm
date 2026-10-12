@@ -144,3 +144,33 @@ it("a late bulk success doesn't mark rows on a newly shown date", async () => {
   await act(async () => { resolve({ success: "Marked 1 present" }) })
   expect(btn("Amy Adams", "Present")).toHaveAttribute("aria-pressed", "false")
 })
+
+it("a late bulk result shows no feedback on a newly shown date", async () => {
+  let resolve!: (v: { success: string }) => void
+  ;(markUnmarkedPresent as jest.Mock).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+  const { rerender } = render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Mark unmarked present" })) })
+  rerender(<RollList {...props} date="2026-10-04" rows={[{ ...rows[0] }, rows[1]]} />)
+  await act(async () => { resolve({ success: "Marked 1 present" }) })
+  expect(screen.queryByText("Marked 1 present")).not.toBeInTheDocument()
+})
+
+it("a late bulk error shows no feedback on a newly shown date", async () => {
+  let reject!: (e: Error) => void
+  ;(markUnmarkedPresent as jest.Mock).mockReturnValueOnce(new Promise((_, r) => { reject = r }))
+  const { rerender } = render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Mark unmarked present" })) })
+  rerender(<RollList {...props} date="2026-10-04" rows={[{ ...rows[0] }, rows[1]]} />)
+  await act(async () => { reject(new Error("network")) })
+  expect(screen.queryByText(/Couldn't mark the class present/)).not.toBeInTheDocument()
+})
+
+it("a late mark failure shows no error on a newly shown date", async () => {
+  let resolve!: (v: { error: string }) => void
+  ;(setAttendance as jest.Mock).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+  const { rerender } = render(<RollList {...props} />)
+  await act(async () => { fireEvent.click(btn("Ben Brown", "Late")) })
+  rerender(<RollList {...props} date="2026-10-04" rows={[rows[0], { ...rows[1], status: "PRESENT" }]} />)
+  await act(async () => { resolve({ error: "Unauthorized" }) })
+  expect(screen.queryByText("Unauthorized")).not.toBeInTheDocument()
+})
