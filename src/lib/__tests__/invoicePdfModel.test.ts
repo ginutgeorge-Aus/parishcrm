@@ -6,7 +6,10 @@ import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { logger } from "@/lib/logger"
 import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
 
-jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn(), updateMany: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({
+  prisma: { invoice: { findUnique: jest.fn(), updateMany: jest.fn((a: unknown) => a) }, $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops)) },
+  Prisma: { DbNull: "DbNull" },
+}))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("@/lib/crypto", () => ({
   safeDecrypt: jest.fn((v: string) => v),
@@ -119,7 +122,8 @@ describe("frozen PDF", () => {
   const stored = Buffer.from(`enc:${Buffer.from("%PDF-frozen").toString("base64")}`)
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    ;(prisma.invoice.updateMany as jest.Mock).mockImplementation((a: unknown) => a)
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (ops: unknown[]) => Promise.all(ops))
     ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })
   })
 
@@ -144,21 +148,45 @@ describe("frozen PDF", () => {
       data: { frozenPdf: expect.any(Buffer) },
     })
   })
+  it("legacy row (no issuer, no blob): freezes blob + issuer once, then the second load serves the blob", async () => {
+    const legacy = { ...sent, issuer: null, frozenPdf: null }
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValueOnce(legacy)
+    const first = await loadInvoicePdf(11)
+    expect(first?.pdf.toString()).toBe("%PDF")
+    const notDraft = { id: 11, frozenPdf: null, status: { not: "DRAFT" } }
+    expect(prisma.invoice.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { ...notDraft, issuer: { equals: "DbNull" } },
+      data: { issuer: expect.objectContaining({ name: "Example Church" }) },
+    })
+    expect(prisma.invoice.updateMany).toHaveBeenNthCalledWith(2, { where: notDraft, data: { frozenPdf: expect.any(Buffer) } })
+    const { issuer } = (prisma.invoice.updateMany as jest.Mock).mock.calls[0][0].data
+    const { frozenPdf } = (prisma.invoice.updateMany as jest.Mock).mock.calls[1][0].data
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValueOnce({ ...legacy, issuer, frozenPdf })
+    ;(renderInvoicePdf as jest.Mock).mockClear()
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+    expect(renderInvoicePdf).not.toHaveBeenCalled()
+  })
+  it("a row that already has an issuer only gets the blob written (issuer never overwritten)", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
+    await loadInvoicePdf(11)
+    expect(prisma.invoice.updateMany).toHaveBeenCalledTimes(1)
+    expect((prisma.invoice.updateMany as jest.Mock).mock.calls[0][0].data).not.toHaveProperty("issuer")
+  })
   it("ignores a 0-row conditional update (someone else froze first)", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
-    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    ;(prisma.$transaction as jest.Mock).mockResolvedValue([{ count: 0 }])
     await expect(loadInvoicePdf(11)).resolves.toMatchObject({ filename: "INV-0001.pdf" })
     expect(logger.error).not.toHaveBeenCalled()
   })
   it("logs but still serves the PDF when the freeze write fails", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
-    ;(prisma.invoice.updateMany as jest.Mock).mockRejectedValue(new Error("db down"))
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue(new Error("db down"))
     await expect(loadInvoicePdf(11)).resolves.toMatchObject({ filename: "INV-0001.pdf" })
     expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf store failed", expect.objectContaining({ invoiceId: 11 }))
   })
   it("logs a non-Error freeze failure too", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
-    ;(prisma.invoice.updateMany as jest.Mock).mockRejectedValue("boom")
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue("boom")
     await loadInvoicePdf(11)
     expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf store failed", { invoiceId: 11, message: "unknown" })
   })
