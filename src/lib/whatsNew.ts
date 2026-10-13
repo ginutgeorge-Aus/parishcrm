@@ -16,6 +16,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.6.0",
+    date: "2026-10-13",
+    highlights: [
+      "Profit & Loss: click a category to open its transactions for the year, or click a month in the monthly view to see just that month.",
+      "Transactions: your filters stay in place after you edit a transaction, and you can now filter by month.",
+      "Bank import: the PDF picker is now a clear button.",
+      "Reports show the right financial-year label and dates when your financial year doesn't start in July.",
+    ],
+  },
+  {
     version: "v1.5.0",
     date: "2026-10-13",
     highlights: [
