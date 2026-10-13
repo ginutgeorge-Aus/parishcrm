@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useActionState } from "react"
 import Link from "next/link"
+import { transactionListHref } from "@/lib/transactionFilters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -71,6 +72,7 @@ export function TransactionForm({
   families,
   funds,
   paymentAccounts,
+  backQuery = "",
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   transaction?: Transaction
@@ -78,6 +80,8 @@ export function TransactionForm({
   families: Family[]
   funds: { id: number; name: string }[]
   paymentAccounts: PaymentAccountLite[]
+  /** Sanitised list filter query to return to after save/cancel (edit only). */
+  backQuery?: string
 }>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
 
@@ -338,10 +342,12 @@ export function TransactionForm({
         <Textarea id="notes" name="notes" defaultValue={transaction?.notes ?? ""} rows={2} />
       </div>
 
+      {backQuery && <input type="hidden" name="back" value={backQuery} />}
+
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isPending}>{submitLabel(isPending, !!transaction)}</Button>
         <Button type="button" variant="outline" asChild>
-          <Link href="/accounting/transactions">Cancel</Link>
+          <Link href={transactionListHref(backQuery)}>Cancel</Link>
         </Button>
       </div>
     </form>

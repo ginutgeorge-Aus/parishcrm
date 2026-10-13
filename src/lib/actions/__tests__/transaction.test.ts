@@ -210,6 +210,19 @@ describe("updateTransaction on an invoice payment", () => {
   })
 })
 
+test("updateTransaction redirects back to the filtered list it was opened from (sanitised)", async () => {
+  const { redirect } = jest.requireMock("next/navigation") as { redirect: jest.Mock }
+  ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({
+    id: 1, date: new Date("2026-07-05T00:00:00.000Z"), reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null,
+    pettyCashTransferId: null, invoiceId: null, amount: { toString: () => "100.00" }, type: "INCOME", accountId: 2, fundId: null,
+  })
+  ;(prisma.transaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+  await expect(
+    updateTransaction(1, undefined, validForm({ back: "from=2026-07-01&to=2026-07-31&next=//evil.example" }))
+  ).rejects.toThrow("REDIRECT")
+  expect(redirect).toHaveBeenCalledWith("/accounting/transactions?from=2026-07-01&to=2026-07-31")
+})
+
 test("updateTransaction returns a concurrency error when the optimistic update matches 0 rows", async () => {
   ;(prisma.transaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
   const r = await updateTransaction(1, undefined, validForm())

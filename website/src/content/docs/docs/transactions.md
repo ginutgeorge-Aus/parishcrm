@@ -7,7 +7,7 @@ The transaction ledger (`/accounting/transactions`) is the single source of trut
 
 ## Using it
 
-**List (`/accounting/transactions`)** — visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN). Filterable by date range, category (account), family, payment account, fund, reconciled status, and free-text search; paginated with income/expense/net totals for the current filter. "Export CSV" downloads the filtered list. Viewing the list, and exporting it, are both written to the audit trail.
+**List (`/accounting/transactions`)** — visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN). Filterable by date range (quick presets, a **Month** picker listing every month that has transactions, or custom from/to dates), category (account), family, payment account, fund, reconciled status, and free-text search; paginated with income/expense/net totals for the current filter. "Export CSV" downloads the filtered list. Viewing the list, and exporting it, are both written to the audit trail. Editing a transaction from the list keeps your filters — Save or Cancel returns you to the same filtered page.
 
 **New transaction (`/accounting/transactions/new`)** — ADMIN/PASTOR only (`canAccessAccounting`). Fields:
 - Date, amount, type (income/expense), category (account — filtered to the matching type)

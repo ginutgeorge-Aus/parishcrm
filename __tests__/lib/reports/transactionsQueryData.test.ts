@@ -11,7 +11,7 @@ jest.mock("@/lib/prisma", () => ({
     transaction: {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
-      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null }, _min: { date: null }, _max: { date: null } }),
     },
     account: { findMany: jest.fn().mockResolvedValue([]) },
     family: { findMany: jest.fn().mockResolvedValue([]) },

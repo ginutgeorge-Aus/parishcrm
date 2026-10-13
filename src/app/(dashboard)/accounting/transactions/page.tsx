@@ -10,6 +10,7 @@ import { TransactionFilters } from "@/components/accounting/TransactionFilters"
 import { TransactionMobileList } from "@/components/accounting/TransactionMobileList"
 import { TransactionTable } from "@/components/accounting/TransactionTable"
 import { TransactionPagination } from "@/components/accounting/TransactionPagination"
+import { transactionListQuery } from "@/lib/transactionFilters"
 import { getTransactionsData, TX_CAP, SEARCH_SCAN_CAP, type TransactionsSearchParams } from "@/lib/reports/transactionsQuery"
 
 export default async function TransactionsPage(
@@ -26,6 +27,7 @@ export default async function TransactionsPage(
     accounts,
     families,
     paymentAccounts,
+    months,
     lockDate,
     total,
     totalPages,
@@ -61,6 +63,7 @@ export default async function TransactionsPage(
   if (searchParams.reconciled) exportParams.set("reconciled", searchParams.reconciled)
   if (searchParams.fund) exportParams.set("fund", searchParams.fund)
   if (searchParams.q) exportParams.set("q", searchParams.q)
+  const listQuery = transactionListQuery(searchParams)
   const exportHref = `/api/accounting/transactions/export-csv?${exportParams.toString()}`
 
   return (
@@ -80,7 +83,7 @@ export default async function TransactionsPage(
       </div>
 
       <Suspense fallback={<div className="h-10 rounded bg-muted animate-pulse" />}>
-        <TransactionFilters accounts={accounts} families={families} paymentAccounts={paymentAccounts} />
+        <TransactionFilters accounts={accounts} families={families} paymentAccounts={paymentAccounts} months={months} />
       </Suspense>
 
       {searchTruncated && (
@@ -106,6 +109,7 @@ export default async function TransactionsPage(
         income={income}
         expense={expense}
         net={net}
+        listQuery={listQuery}
       />
 
       <TransactionTable
@@ -117,6 +121,7 @@ export default async function TransactionsPage(
         income={income}
         expense={expense}
         net={net}
+        listQuery={listQuery}
       />
 
       <TransactionPagination searchParams={searchParams} page={page} totalPages={totalPages} />
