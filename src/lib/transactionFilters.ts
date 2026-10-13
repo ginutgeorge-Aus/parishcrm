@@ -10,16 +10,46 @@ const FILTER_KEYS = ["q", "from", "to", "account", "type", "family", "paymentAcc
 
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/
 
-/** Sanitised list query string (no leading "?") from a raw query string or a searchParams object. */
-export function transactionListQuery(input: string | Record<string, unknown> | undefined | null): string {
-  if (input == null) return ""
-  const src = typeof input === "string" ? Object.fromEntries(new URLSearchParams(input)) : input
+type FilterKey = (typeof FILTER_KEYS)[number]
+
+/**
+ * Apply the filter allow-list to a raw query string or searchParams object.
+ * Only `FILTER_KEYS` with non-empty string values survive. `omit` drops keys;
+ * `overrides` replaces a key's raw value (an `undefined` override drops it) -
+ * used to forward validated values instead of the raw strings.
+ */
+function allowListedParams(
+  input: string | Record<string, unknown> | undefined | null,
+  omit: readonly FilterKey[] = [],
+  overrides: Partial<Record<FilterKey, string | undefined>> = {}
+): URLSearchParams {
   const out = new URLSearchParams()
+  if (input == null) return out
+  const src = typeof input === "string" ? Object.fromEntries(new URLSearchParams(input)) : input
   for (const key of FILTER_KEYS) {
-    const v = src[key]
+    if (omit.includes(key)) continue
+    const v = key in overrides ? overrides[key] : src[key]
     if (typeof v === "string" && v !== "") out.set(key, v)
   }
-  return out.toString()
+  return out
+}
+
+/** Sanitised list query string (no leading "?") from a raw query string or a searchParams object. */
+export function transactionListQuery(input: string | Record<string, unknown> | undefined | null): string {
+  return allowListedParams(input).toString()
+}
+
+/**
+ * Query string (no leading "?") for the CSV export link: the same allow-list
+ * as the list, minus `page` (the export is unpaginated). `validated` carries
+ * the already-validated account/type/paymentAccount values, which replace the
+ * raw strings so an invalid one can't reach the export route.
+ */
+export function transactionExportQuery(
+  input: Record<string, unknown>,
+  validated: { account: string | undefined; type: string | undefined; paymentAccount: string | undefined }
+): string {
+  return allowListedParams(input, ["page"], validated).toString()
 }
 
 /** Transactions list URL carrying the (sanitised) filters — always a same-origin path. */
