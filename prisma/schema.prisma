@@ -88,6 +88,8 @@ model Person {
   sundaySchoolAttendance SundaySchoolAttendance[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
+  invoices                Invoice[]
+
   @@index([archivedAt])
   @@index([familyId])
   @@index([classification])
@@ -152,6 +154,8 @@ model User {
   transactionAttachments       TransactionAttachment[]  @relation("TransactionAttachmentUploadedBy")
   managedEvents                EventManager[]
   clearancesVerified           PersonClearance[]        @relation("ClearanceVerifiedBy")
+  invoicesCreated              Invoice[]                @relation("InvoiceCreatedBy")
+  invoicesSent                 Invoice[]                @relation("InvoiceSentBy")
 }
 
 model TrustedDevice {
@@ -266,6 +270,7 @@ model Fund {
   transactions      Transaction[]
   pettyCashReceipts PettyCashReceipt[]
   pettyCashExpenses PettyCashExpense[]
+  invoices          Invoice[]
 }
 
 model Account {
@@ -282,6 +287,7 @@ model Account {
   budgets           Budget[]
   pettyCashReceipts PettyCashReceipt[]
   pettyCashExpenses PettyCashExpense[]
+  invoices          Invoice[]
 }
 
 model Transaction {
@@ -315,6 +321,9 @@ model Transaction {
   pettyCashTransfer   PettyCashTransfer?      @relation(fields: [pettyCashTransferId], references: [id], onDelete: Cascade)
   fundId              Int?
   fund                Fund?                   @relation(fields: [fundId], references: [id])
+  // Invoice this income transaction pays (OSS-20). @unique = one payment per invoice.
+  invoiceId           Int?                    @unique
+  invoice             Invoice?                @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@index([date])
   @@index([accountId])
@@ -1032,6 +1041,79 @@ model DgrReceipt {
   @@index([personId])
   @@index([fyEndYear])
   @@index([createdAt])
+}
+
+/// Saved outside party that can be invoiced (not a church member). Contact
+/// fields are AES-256-GCM encrypted (see scripts/rotate-encryption-key.ts).
+model Customer {
+  id        Int       @id @default(autoincrement())
+  name      String
+  abn       String?
+  email     String?
+  phone     String?
+  address   String?
+  notes     String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  invoices  Invoice[]
+
+  @@index([isActive, name])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  VOID
+}
+
+/// Invoice to a member (personId) or saved customer (customerId), or a typed-in
+/// recipient. recipient* is a snapshot taken at draft time; recipientEmail,
+/// recipientAddress and notes are encrypted. invoiceNo/seq are allocated on
+/// first send so deleted drafts never leave gaps.
+model Invoice {
+  id               Int           @id @default(autoincrement())
+  invoiceNo        String?       @unique
+  seq              Int?          @unique
+  status           InvoiceStatus @default(DRAFT)
+  personId         Int?
+  person           Person?       @relation(fields: [personId], references: [id], onDelete: SetNull)
+  customerId       Int?
+  customer         Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  recipientName    String
+  recipientEmail   String?
+  recipientAddress String?
+  issueDate        DateTime
+  dueDate          DateTime
+  lines            Json
+  subtotal         Decimal       @db.Decimal(10, 2)
+  gstTotal         Decimal       @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
+  taxInvoice       Boolean       @default(false)
+  /// Church identity + payment details frozen at send ({ name, address, abn, email, paymentDetails }),
+  /// so re-sends and downloads of a sent invoice always render the same document.
+  issuer           Json?
+  accountId        Int
+  account          Account       @relation(fields: [accountId], references: [id])
+  fundId           Int?
+  fund             Fund?         @relation(fields: [fundId], references: [id])
+  notes            String?
+  sentAt           DateTime?
+  paidAt           DateTime?
+  voidedAt         DateTime?
+  voidReason       String?
+  createdById      Int
+  createdBy        User          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  sentById         Int?
+  sentBy           User?         @relation("InvoiceSentBy", fields: [sentById], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  payment          Transaction?
+
+  @@index([status, issueDate])
+  @@index([personId])
+  @@index([customerId])
 }
 
 enum MembershipStatus {

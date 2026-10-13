@@ -14,6 +14,7 @@ jest.mock("@/lib/prisma", () => {
   const budget = { count: jest.fn() }
   const pettyCashReceipt = { count: jest.fn() }
   const pettyCashExpense = { count: jest.fn() }
+  const invoice = { count: jest.fn().mockResolvedValue(0) }
   const accountGroup = { findUnique: jest.fn() }
   return {
     prisma: {
@@ -23,9 +24,10 @@ jest.mock("@/lib/prisma", () => {
       budget,
       pettyCashReceipt,
       pettyCashExpense,
+      invoice,
       // updateAccount wraps the type-change guard + update in an interactive
       // transaction ( TOCTOU) — run the callback against the same mocks.
-      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ account, transaction })),
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ account, transaction, invoice })),
     },
   }
 })
@@ -224,6 +226,18 @@ describe("updateAccount", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  it("blocks type change while invoices use the account", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
+    mockFindFirst.mockResolvedValue(null)
+    mockGroupFind.mockResolvedValue({ id: 1, type: "EXPENSE" })
+    mockTxCount.mockResolvedValue(0)
+    ;(prisma.invoice.count as jest.Mock).mockResolvedValueOnce(1)
+    const result = await updateAccount(1, undefined, fd({ ...validAccount, type: "EXPENSE" }))
+    expect(result).toEqual({ error: "Cannot change account type while invoices use it" })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
   it("allows type change when no transactions exist", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
@@ -313,6 +327,18 @@ describe("deleteAccount", () => {
     mockTxCount.mockResolvedValue(3)
     const result = await deleteAccount(1)
     expect(result?.error).toMatch(/3 transaction/)
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it("returns error when invoices are linked", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockTxCount.mockResolvedValue(0)
+    mockBudgetCount.mockResolvedValue(0)
+    mockPcReceiptCount.mockResolvedValue(0)
+    mockPcExpenseCount.mockResolvedValue(0)
+    ;(prisma.invoice.count as jest.Mock).mockResolvedValueOnce(2)
+    const result = await deleteAccount(1)
+    expect(result?.error).toMatch(/2 invoice/)
     expect(mockDelete).not.toHaveBeenCalled()
   })
 

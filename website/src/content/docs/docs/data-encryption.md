@@ -39,7 +39,8 @@ financial content is stored, including but not limited to: family and person con
 transaction descriptions and notes, receipt/reminder recipient addresses, event-registration
 contact details and custom-answer text (dietary, medical, accessibility, emergency-contact
 free text — encrypted as a single JSON blob), petty-cash payee/notes, membership-application
-payload/signature/contact details, DGR (tax-deductible) receipt donor email, transaction
+payload/signature/contact details, DGR (tax-deductible) receipt donor email, invoice recipient
+email/address and notes, customer contact details and notes, transaction
 attachment filenames and file contents, and child-safety clearance (WWCC / Safe Ministry)
 numbers, document files, filenames and verification notes. A dedicated CI-run test greps every encryption write
 site in the codebase against a maintained list, so a newly-added sensitive field that's

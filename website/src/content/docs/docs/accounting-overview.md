@@ -30,6 +30,7 @@ Sub-areas, each documented on its own page:
 - [Budgets](/parishcrm/docs/budgets/) — annual budgets per account and the Budget vs Actual report.
 - [Financial Reports](/parishcrm/docs/financial-reports/) — P&L, Balance Sheet, Cash Flow, Trial Balance, General Ledger, Giving Summary, Dues, Funds.
 - [Receipts](/parishcrm/docs/receipts/) — emailed transaction receipts, annual DGR (tax-deductible) donation receipts, and the receipt audit trail.
+- [Invoices](/parishcrm/docs/invoices/) — invoices to members or saved outside customers, optional GST tax invoices, PDF and email.
 - [Petty Cash](/parishcrm/docs/petty-cash/) — weekly cash sessions, receipts/expenses/transfers, closing with a physical cash count.
 
 ## How it works

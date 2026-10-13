@@ -1,4 +1,4 @@
-import { getChurchSettings, getChurchSettingsStrict } from "@/lib/churchSettings"
+import { getChurchSettings, getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 
 jest.mock("next/cache", () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
@@ -50,6 +50,18 @@ test("getChurchSettings swallows a DB error and returns env/default fallbacks", 
 test("getChurchSettingsStrict propagates a DB error (no silent placeholder receipt)", async () => {
   findMany.mockRejectedValue(new Error("DB down"))
   await expect(getChurchSettingsStrict()).rejects.toThrow("DB down")
+})
+
+test("getChurchSettingsFresh propagates a DB error (a send must not freeze placeholders)", async () => {
+  findMany.mockRejectedValue(new Error("DB down"))
+  await expect(getChurchSettingsFresh()).rejects.toThrow("DB down")
+})
+
+test("getChurchSettingsFresh returns unconfigured identity without throwing (no ABN needed)", async () => {
+  findMany.mockResolvedValue([{ key: "churchName", value: "Real Church" }])
+  const s = await getChurchSettingsFresh()
+  expect(s.name).toBe("Real Church")
+  expect(s.abn).toBe("")
 })
 
 test("getChurchSettingsStrict returns fully-configured rows when the DB is healthy", async () => {
