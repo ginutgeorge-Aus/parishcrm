@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit"
 import { auditIpFromHeaders } from "@/lib/clientIp"
 import { monthlyAmounts, MONTH_LABELS } from "@/lib/reports/plHelpers"
 import { toCents, centsToNumber, fmtAUDAccounting, MONTH_ABBR } from "@/lib/formatting"
-import { fyDateRange } from "@/lib/fiscalYear"
+import { fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
 import { resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
@@ -148,7 +148,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
         @media print { body { margin: 0; } ${isMonthly ? "@page { size: landscape; }" : ""} }
       `}</style>
 
-      <h1>P&amp;L Report — FY {year}–{year + 1}{isMonthly ? " (Monthly)" : ""}</h1>
+      <h1>P&amp;L Report — FY {fyRangeLabel(year)}{isMonthly ? " (Monthly)" : ""}</h1>
       <p className="meta">
         {churchName} · Generated: {generated.day} {MONTH_ABBR[generated.month - 1]} {generated.year}
       </p>

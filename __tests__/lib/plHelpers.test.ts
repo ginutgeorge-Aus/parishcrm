@@ -24,6 +24,36 @@ describe("MONTH_LABELS", () => {
   })
 })
 
+// Column index must agree with plTransactionsHref, which counts from FY_START_MONTH.
+describe("non-July FY start (APP_FY_START_MONTH=4)", () => {
+  it("orders months, labels and buckets from April", () => {
+    const previous = process.env.APP_FY_START_MONTH
+    process.env.APP_FY_START_MONTH = "4"
+    jest.resetModules()
+
+    try {
+      const helpers = require("@/lib/reports/plHelpers") as typeof import("@/lib/reports/plHelpers")
+      const { plTransactionsHref } = require("@/components/accounting/plFormat") as typeof import("@/components/accounting/plFormat")
+
+      expect(helpers.FY_MONTHS[0]).toBe(3)
+      expect(helpers.FY_MONTHS[11]).toBe(2)
+      expect(helpers.MONTH_LABELS[0]).toBe("APR")
+      expect(helpers.MONTH_LABELS[11]).toBe("MAR")
+
+      const julyIndex = helpers.monthlyAmounts([makeTx("100", 6)]).findIndex((c) => c !== 0)
+      expect(helpers.MONTH_LABELS[julyIndex]).toBe("JUL")
+      const params = new URL(plTransactionsHref(1, 2025, julyIndex), "http://x").searchParams
+      expect(params.get("account")).toBe("1")
+      expect(params.get("from")).toBe("2025-07-01")
+      expect(params.get("to")).toBe("2025-07-31")
+    } finally {
+      if (previous === undefined) delete process.env.APP_FY_START_MONTH
+      else process.env.APP_FY_START_MONTH = previous
+      jest.resetModules()
+    }
+  })
+})
+
 // monthly* helpers return integer CENTS — sums stay exact across many Decimals.
 describe("monthlyAmounts", () => {
   it("returns 12 zeros for empty transaction list", () => {
@@ -155,6 +185,15 @@ describe("monthlyAmountsByAccount", () => {
 // streaming the FY in batches must produce the exact same map as
 // loading every row at once. These tests pin that equivalence.
 describe("accumulateMonthlyByAccount (streaming fold)", () => {
+  it("tallies per-month counts, including months that net to zero", () => {
+    const map = new Map<number, number[]>()
+    const counts = new Map<number, number[]>()
+    accumulateMonthlyByAccount(map, [makeTxFor(1, "100", 6), makeTxFor(1, "-100", 6)], counts)
+    expect(map.get(1)?.[0]).toBe(0)
+    expect(counts.get(1)?.[0]).toBe(2)
+    expect(counts.get(1)?.[1]).toBe(0)
+  })
+
   it("accumulates a single batch into an empty map like monthlyAmountsByAccount", () => {
     const txs = [makeTxFor(1, "100", 6), makeTxFor(1, "50", 7), makeTxFor(2, "300", 5)]
     const map = new Map<number, number[]>()

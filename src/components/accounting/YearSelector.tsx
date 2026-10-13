@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyRangeLabel } from "@/lib/fiscalYear"
 
 type Props = {
   currentYear: number
@@ -37,7 +37,7 @@ export function YearSelector({ currentYear }: Readonly<Props>) {
       <SelectContent>
         {years.map((y) => (
           <SelectItem key={y} value={String(y)}>
-            {y}–{y + 1}
+            {fyRangeLabel(y)}
           </SelectItem>
         ))}
       </SelectContent>

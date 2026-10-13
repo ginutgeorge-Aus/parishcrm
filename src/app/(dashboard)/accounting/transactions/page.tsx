@@ -41,6 +41,7 @@ export default async function TransactionsPage(
     searchTruncated,
     type,
     paymentAccountId,
+    accountId,
   } = await getTransactionsData(searchParams)
 
   const userIsAdmin = isAdmin(session?.user?.role)
@@ -54,9 +55,9 @@ export default async function TransactionsPage(
   const exportParams = new URLSearchParams()
   if (searchParams.from) exportParams.set("from", searchParams.from)
   if (searchParams.to) exportParams.set("to", searchParams.to)
-  if (searchParams.account) exportParams.set("account", searchParams.account)
+  if (accountId !== undefined) exportParams.set("account", String(accountId))
   // Forward the validated values, not the raw searchParams strings, so an
-  // invalid type/paymentAccount can't be passed through to the export route.
+  // invalid account/type/paymentAccount can't be passed through to the export route.
   if (type) exportParams.set("type", type)
   if (searchParams.family) exportParams.set("family", searchParams.family)
   if (paymentAccountId !== undefined) exportParams.set("paymentAccount", String(paymentAccountId))

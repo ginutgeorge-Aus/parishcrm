@@ -36,6 +36,13 @@ describe("fiscalYear", () => {
     })
   })
 
+  describe("fyRangeLabel", () => {
+    it("spans two years for a split FY, one for a calendar-year FY", () => {
+      expect(load("7").fyRangeLabel(2025)).toBe("2025–2026")
+      expect(load("1").fyRangeLabel(2025)).toBe("2025")
+    })
+  })
+
   describe("FY_START_MONTH=4 (April–March)", () => {
     it("Apr–Dec → current year, Jan–Mar → prior year", () => {
       const { currentFYYear, fyDateRange } = load("4")
