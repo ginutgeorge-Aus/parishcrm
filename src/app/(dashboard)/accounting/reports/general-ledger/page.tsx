@@ -11,7 +11,7 @@ import { PrintButton } from "@/components/ui/PrintButton"
 import { Button } from "@/components/ui/button"
 import { fmtAUD as fmt, formatDMY, centsToNumber } from "@/lib/formatting"
 import { withRunningBalance, signedCents } from "@/lib/generalLedgerExport"
-import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam, fyRangeLabel } from "@/lib/fiscalYear"
 import { parseRouteId } from "@/lib/validation"
 
 type Props = { searchParams: Promise<{ account?: string; year?: string }> }
@@ -70,7 +70,7 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
   return (
     <div className="max-w-4xl">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">General Ledger — FY {year}–{year + 1}</h2>
+        <h2 className="text-2xl font-semibold text-foreground">General Ledger — FY {fyRangeLabel(year)}</h2>
         <div className="flex items-center gap-3">
           <GeneralLedgerControls accounts={accounts} accountId={validAccountId} year={year} />
           {selectedAccount && (
@@ -84,21 +84,21 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
         </div>
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        General Ledger{selectedAccount ? ` — ${selectedAccount.code} ${selectedAccount.name}` : ""} — FY {year}–{year + 1}
+        General Ledger{selectedAccount ? ` — ${selectedAccount.code} ${selectedAccount.name}` : ""} — FY {fyRangeLabel(year)}
       </h2>
 
       {!selectedAccount ? (
         <p className="text-sm text-muted-foreground">Select an account to view its ledger.</p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No transactions for {selectedAccount.code} {selectedAccount.name} in FY {year}–{year + 1}.
+          No transactions for {selectedAccount.code} {selectedAccount.name} in FY {fyRangeLabel(year)}.
         </p>
       ) : (
         <>
           {truncated && (
             <p className="mb-2 text-sm text-warning bg-warning/10 border border-warning/40 rounded px-3 py-2">
               Showing the earliest {MAX_LEDGER_ROWS.toLocaleString()} transactions for this
-              account in FY {year}–{year + 1}. Later transactions are not shown — export the
+              account in FY {fyRangeLabel(year)}. Later transactions are not shown — export the
               CSV or narrow the year to see the full ledger.
             </p>
           )}

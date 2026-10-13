@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { YearSelector } from "@/components/accounting/YearSelector"
 import { getGivingSummary } from "@/lib/givingSummary"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyRangeLabel } from "@/lib/fiscalYear"
 import { fmtAUDAccounting, formatDMY, centsToNumber } from "@/lib/formatting"
 
 type Props = {
@@ -42,7 +42,7 @@ export default async function GivingSummaryPage(props: Readonly<Props>) {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
-          Giving Summary — FY {year}–{year + 1}
+          Giving Summary — FY {fyRangeLabel(year)}
         </h2>
         <div className="flex items-center gap-3">
           <YearSelector currentYear={year} />
@@ -55,12 +55,12 @@ export default async function GivingSummaryPage(props: Readonly<Props>) {
         </div>
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        Giving Summary — FY {year}–{year + 1}
+        Giving Summary — FY {fyRangeLabel(year)}
       </h2>
 
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No giving recorded for FY {year}–{year + 1}. Try selecting another year.
+          No giving recorded for FY {fyRangeLabel(year)}. Try selecting another year.
         </p>
       ) : (
         <div className="overflow-x-auto">

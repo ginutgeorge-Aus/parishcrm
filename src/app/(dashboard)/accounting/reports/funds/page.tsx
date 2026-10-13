@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { YearSelector } from "@/components/accounting/YearSelector"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
 import { centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
 import { aggregateByFund } from "@/lib/reports/fundHelpers"
 
@@ -57,17 +57,17 @@ export default async function FundReportPage(props: Readonly<Props>) {
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
-          Fund Report — FY {year}–{year + 1}
+          Fund Report — FY {fyRangeLabel(year)}
         </h2>
         <YearSelector currentYear={year} />
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        Fund Report — FY {year}–{year + 1}
+        Fund Report — FY {fyRangeLabel(year)}
       </h2>
 
       {fundRows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No transactions recorded for FY {year}–{year + 1}. Try selecting another year.
+          No transactions recorded for FY {fyRangeLabel(year)}. Try selecting another year.
         </p>
       ) : (
         <div className="overflow-x-auto">
