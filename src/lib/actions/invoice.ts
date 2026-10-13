@@ -185,7 +185,7 @@ export type InvoiceSummary = { outstandingCents: number; outstandingCount: numbe
 export async function getInvoiceSummary(period: { from: string; to: string }): Promise<InvoiceSummary | { error: string }> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
-  if (!isRealCalendarDate(period?.from) || !isRealCalendarDate(period?.to)) return { error: "Invalid period" }
+  if (!isRealCalendarDate(period?.from) || !isRealCalendarDate(period?.to) || period.from > period.to) return { error: "Invalid period" }
   const [outstanding, paid] = await Promise.all([
     prisma.invoice.aggregate({ where: { status: InvoiceStatus.SENT }, _sum: { total: true }, _count: { _all: true } }),
     prisma.invoice.aggregate({
