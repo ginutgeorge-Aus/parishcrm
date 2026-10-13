@@ -16,6 +16,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.5.0",
+    date: "2026-10-13",
+    highlights: [
+      "Invoices: bill hall hirers, groups and other customers. Create a draft, email it as a PDF or mark it sent, then record the payment or void it. The Invoices page shows what is still owed and what has been paid.",
+      "Sunday School: set up classes, teachers and enrolments, take the class roll each week, and lock last year's classes after rollover.",
+      "People now carry ministry roles and Working With Children Check and Safe Ministry clearances, with a compliance list and a monthly digest of what is expiring.",
+      "Settings has a sticky section menu, so long settings pages are easier to move around.",
+    ],
+  },
+  {
     version: "v1.4.0",
     date: "2026-10-03",
     highlights: [
