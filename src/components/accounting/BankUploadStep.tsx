@@ -102,7 +102,12 @@ export function BankUploadStep({ paymentAccounts, onUploadComplete }: Readonly<B
         </div>
         <div className="space-y-1">
           <label htmlFor="bank-pdf" className="text-sm font-medium">Statement PDF *</label>
-          <input ref={fileRef} id="bank-pdf" type="file" accept="application/pdf" className="text-sm" />
+          {/* Tailwind preflight strips the native "Choose File" button's border and background, leaving
+              plain text — restyle it as a button so the picker is discoverable. */}
+          <input
+            ref={fileRef} id="bank-pdf" type="file" accept="application/pdf"
+            className="block text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-primary-foreground"
+          />
         </div>
         <Button onClick={handleParse} disabled={uploading || !paymentAccountId}>
           {uploading ? "Parsing…" : "Parse Statement"}
