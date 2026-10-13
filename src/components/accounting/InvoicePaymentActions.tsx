@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { markInvoicePaid, unmarkInvoicePaid, listPaymentCandidates, type PaymentCandidate } from "@/lib/actions/invoicePayment"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 
 type Msg = { ok: boolean; text: string } | null
 
@@ -92,7 +93,7 @@ function MarkPaidDialog({ id, bankAccounts, hasEmail, onDone }: Readonly<{
                 <li key={c.id}>
                   <label className="flex items-center gap-2">
                     <input type="radio" name="tx" checked={txId === c.id} onChange={() => setTxId(c.id)} />
-                    {c.date} · ${c.amount} · {c.paymentAccountName ?? "—"} · {c.accountName}{c.reference ? ` · ${c.reference}` : ""}
+                    {c.date} · {fmtAUD(centsToNumber(toCents(c.amount)))} · {c.paymentAccountName ?? "—"} · {c.accountName}{c.reference ? ` · ${c.reference}` : ""}
                   </label>
                 </li>
               ))}
