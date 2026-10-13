@@ -20,6 +20,15 @@ function advance(ms: number) {
   act(() => { jest.advanceTimersByTime(ms) })
 }
 
+const SESSION = { user: { id: "u1" }, expires: "2099-01-01T00:00:00.000Z" }
+
+/** Clicks "Stay logged in" and lets the awaited session renewal settle. */
+async function clickStay() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }))
+  })
+}
+
 it("warns a minute before the idle window and logs out at it", () => {
   render(<IdleTimeout idleMinutes={15} />)
   advance(13 * MIN)
@@ -52,18 +61,57 @@ it("pings the server session at most once a minute on activity", () => {
   expect(update).toHaveBeenCalledTimes(2)
 })
 
-it("a stray mouse move does not dismiss the warning; Stay logged in does", () => {
+it("a stray mouse move does not dismiss the warning; Stay logged in does", async () => {
   render(<IdleTimeout idleMinutes={15} />)
   advance(14 * MIN + 1_000)
   fireEvent.mouseMove(window)
   fireEvent.scroll(window)
   expect(screen.getByRole("alert")).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }))
+  update.mockResolvedValueOnce(SESSION)
+  await clickStay()
   expect(screen.queryByRole("alert")).toBeNull()
   expect(update).toHaveBeenCalledTimes(2) // mount + stay
   advance(5 * MIN)
   expect(logout).not.toHaveBeenCalled()
+})
+
+it("keeps the warning and the deadline when renewal returns no session", async () => {
+  render(<IdleTimeout idleMinutes={15} />)
+  advance(14 * MIN + 1_000)
+  await clickStay() // update() resolves null
+  expect(screen.getByRole("alert")).toBeInTheDocument()
+  advance(MIN)
+  expect(logout).toHaveBeenCalledTimes(1)
+})
+
+it("keeps the warning and the deadline when renewal fails", async () => {
+  render(<IdleTimeout idleMinutes={15} />)
+  advance(14 * MIN + 1_000)
+  update.mockRejectedValueOnce(new Error("offline"))
+  await clickStay()
+  expect(screen.getByRole("alert")).toBeInTheDocument()
+  advance(MIN)
+  expect(logout).toHaveBeenCalledTimes(1)
+})
+
+it("does not log out when the wall clock jumps forward", () => {
+  render(<IdleTimeout idleMinutes={15} />)
+  advance(MIN)
+  jest.setSystemTime(Date.now() + 60 * MIN) // NTP step / manual change
+  advance(1_000)
+  expect(screen.queryByRole("alert")).toBeNull()
+  expect(logout).not.toHaveBeenCalled()
+  advance(14 * MIN)
+  expect(logout).toHaveBeenCalledTimes(1)
+})
+
+it("does not delay logout when the wall clock jumps back", () => {
+  render(<IdleTimeout idleMinutes={15} />)
+  advance(MIN)
+  jest.setSystemTime(Date.now() - 60 * MIN)
+  advance(14 * MIN)
+  expect(logout).toHaveBeenCalledTimes(1)
 })
 
 it("ignores activity while the warning shows, so logout still happens on time", () => {
@@ -137,14 +185,15 @@ describe("across tabs", () => {
     expect(logout).toHaveBeenCalledTimes(1)
   })
 
-  it("shares a new tab's activity and Stay logged in at once, before the next check", () => {
+  it("shares a new tab's activity and Stay logged in at once, before the next check", async () => {
     const mounted = Date.now()
     render(<IdleTimeout idleMinutes={15} />)
     expect(Number(window.localStorage.getItem(KEY))).toBe(mounted)
     advance(14 * MIN + 1_000)
     act(() => { jest.advanceTimersByTime(500) }) // mid-interval: no check runs before the click
     const clicked = Date.now()
-    fireEvent.click(screen.getByRole("button", { name: "Stay logged in" }))
+    update.mockResolvedValueOnce(SESSION)
+    await clickStay()
     expect(Number(window.localStorage.getItem(KEY))).toBe(clicked)
   })
 
@@ -164,16 +213,6 @@ describe("across tabs", () => {
     window.localStorage.setItem(KEY, String(ours - 3 * MIN)) // racing tab wrote an older stamp
     advance(1_000)
     expect(Number(window.localStorage.getItem(KEY))).toBe(ours)
-  })
-
-  it("shares activity at once right after the wall clock moves back", () => {
-    render(<IdleTimeout idleMinutes={15} />)
-    act(() => { jest.advanceTimersByTime(5 * MIN) })
-    fireEvent.keyDown(window) // published just now
-    jest.setSystemTime(Date.now() - 10 * MIN)
-    window.localStorage.removeItem(KEY)
-    fireEvent.keyDown(window) // within the 1s throttle, but the clock went back
-    expect(Number(window.localStorage.getItem(KEY))).toBe(Date.now())
   })
 
   it("keeps sharing activity after the wall clock moves back", () => {
