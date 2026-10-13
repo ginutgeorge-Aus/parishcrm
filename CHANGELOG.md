@@ -10,6 +10,20 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.6.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.5.0...v1.6.0) (2026-10-13)
+
+
+### Added
+
+* **accounting:** drill from P&L category to transactions ([#244](https://github.com/ginutgeorge-Aus/parishcrm/issues/244)) ([352390f](https://github.com/ginutgeorge-Aus/parishcrm/commit/352390f0378bdb497035a14de5fc0755a78f1bef))
+* **accounting:** keep tx filters on edit, add month filter ([#245](https://github.com/ginutgeorge-Aus/parishcrm/issues/245)) ([d098c49](https://github.com/ginutgeorge-Aus/parishcrm/commit/d098c496a4187ec430e0dad9105e27da8e7bf80f))
+
+
+### Fixed
+
+* **accounting:** FY labels and ranges follow FY start month ([#249](https://github.com/ginutgeorge-Aus/parishcrm/issues/249)) ([9f90a97](https://github.com/ginutgeorge-Aus/parishcrm/commit/9f90a97b857381bb03997f92c941657cc7ba7918)), closes [#247](https://github.com/ginutgeorge-Aus/parishcrm/issues/247)
+* **bank-import:** show the PDF picker as a button ([#243](https://github.com/ginutgeorge-Aus/parishcrm/issues/243)) ([47e87f1](https://github.com/ginutgeorge-Aus/parishcrm/commit/47e87f1f92334781bab34920e746d6c5b337053d))
+
 ## [1.5.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.4.0...v1.5.0) (2026-10-13)
 
 
