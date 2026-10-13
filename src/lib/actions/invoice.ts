@@ -11,7 +11,7 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, INVOICE_LIST_LIMIT, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
-import { isValidPgId } from "@/lib/validation"
+import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
 import { endOfDayUTC } from "@/lib/dates"
 import type { ActionResult } from "./types"
@@ -185,6 +185,7 @@ export type InvoiceSummary = { outstandingCents: number; outstandingCount: numbe
 export async function getInvoiceSummary(period: { from: string; to: string }): Promise<InvoiceSummary | { error: string }> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isRealCalendarDate(period?.from) || !isRealCalendarDate(period?.to)) return { error: "Invalid period" }
   const [outstanding, paid] = await Promise.all([
     prisma.invoice.aggregate({ where: { status: InvoiceStatus.SENT }, _sum: { total: true }, _count: { _all: true } }),
     prisma.invoice.aggregate({

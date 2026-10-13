@@ -25,6 +25,9 @@ export type MarkPaidInput =
   | { mode: "create"; date: string; paymentAccountId: number; sendReceipt: boolean }
 export type PaymentCandidate = { id: number; date: string; amount: string; reference: string | null; paymentAccountName: string | null; accountName: string }
 
+/** Rows a payment link may claim: unlinked, non-giving, unreconciled, and not a petty-cash mirror (edited via its session). */
+const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
+
 /** Thrown inside a DB transaction to roll back when a guarded write matched no rows (a concurrent change). */
 class Conflict extends Error {}
 
@@ -70,6 +73,9 @@ async function linkExisting(inv: SentInvoice, transactionId: number): Promise<{ 
   if (!isValidPgId(transactionId)) return { error: "Invalid transaction" }
   const t = await prisma.transaction.findUnique({ where: { id: transactionId } })
   if (t?.type !== "INCOME" || t.invoiceId !== null || t.isGiving) return { error: "Pick an income transaction that is not linked to another invoice" }
+  if (t.pettyCashReceiptId !== null || t.pettyCashExpenseId !== null || t.pettyCashTransferId !== null)
+    return { error: "Petty cash transactions can't be linked to an invoice" }
+  if (t.reconciled) return { error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before linking." }
   const totalCents = toCents(inv.total.toString())
   if (toCents(t.amount.toString()) !== totalCents) return { error: `The transaction amount must equal the invoice total (${fmtAUD(centsToNumber(totalCents))})` }
   if (t.date < inv.issueDate) return BEFORE_ISSUE
@@ -82,10 +88,11 @@ async function linkExisting(inv: SentInvoice, transactionId: number): Promise<{ 
     const flip = await tx.invoice.updateMany({ where: { id: inv.id, status: InvoiceStatus.SENT }, data: { status: InvoiceStatus.PAID, paidAt: t.date } })
     if (flip.count === 0) throw new Conflict()
     const linked = await tx.transaction.updateMany({
-      where: { id: t.id, invoiceId: null, isGiving: false },
+      // updatedAt: an edit committed since the read above (amount, date, type) rolls the link back.
+      where: { id: t.id, ...LINKABLE, updatedAt: t.updatedAt },
       data: { invoiceId: inv.id, accountId: inv.accountId, fundId: inv.fundId },
     })
-    // Throwing rolls back the status flip: someone linked this transaction elsewhere meanwhile.
+    // Throwing rolls back the status flip: the transaction was linked, reconciled or edited meanwhile.
     if (linked.count === 0) throw new Conflict()
     return true
   }))
@@ -198,7 +205,7 @@ export async function listPaymentCandidates(id: number): Promise<PaymentCandidat
   const afterLock = lock ? new Date(lock.getTime() + 86_400_000) : null
   const from = afterLock && afterLock > inv.issueDate ? afterLock : inv.issueDate
   const rows = await prisma.transaction.findMany({
-    where: { type: "INCOME", invoiceId: null, isGiving: false, amount: inv.total.toString(), date: { gte: from } },
+    where: { type: "INCOME", ...LINKABLE, amount: inv.total.toString(), date: { gte: from } },
     orderBy: { date: "desc" }, take: 20,
     select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } }, account: { select: { name: true } } },
   })

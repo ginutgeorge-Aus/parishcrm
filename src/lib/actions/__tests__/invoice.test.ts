@@ -196,6 +196,10 @@ describe("getInvoiceSummary", () => {
       where: { status: "PAID", paidAt: { gte: new Date("2026-10-01"), lte: new Date("2026-10-31T23:59:59.999Z") } },
     }))
   })
+  it.each([[{ from: "not-a-date", to: "2026-10-31" }], [{ from: "2026-10-01", to: "2026-02-30" }]])("rejects an invalid period %j", async (bad) => {
+    expect(await getInvoiceSummary(bad)).toEqual({ error: "Invalid period" })
+    expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
+  })
   it("treats empty sums as zero", async () => {
     ;(prisma.invoice.aggregate as jest.Mock).mockResolvedValue({ _sum: { total: null, gstTotal: null }, _count: { _all: 0 } })
     expect(await getInvoiceSummary(period)).toEqual({ outstandingCents: 0, outstandingCount: 0, paidCents: 0, paidCount: 0, gstCollectedCents: 0 })

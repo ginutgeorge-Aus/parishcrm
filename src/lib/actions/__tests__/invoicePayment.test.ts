@@ -30,7 +30,9 @@ const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role 
 const dec = (s: string) => ({ toString: () => s })
 const inv = { id: 11, status: "SENT", invoiceNo: "INV-0007", recipientName: "Example Scouts", recipientEmail: "enc:scouts@example.com",
   personId: null, total: dec("330.00"), issueDate: new Date("2026-10-11"), accountId: 4, fundId: null, issuer: { name: "Example Church" } }
-const income = { id: 50, type: "INCOME", invoiceId: null, isGiving: false, accountId: 4, fundId: null, amount: dec("330.00"), date: new Date("2026-10-20") }
+const income = { id: 50, type: "INCOME", invoiceId: null, isGiving: false, accountId: 4, fundId: null, amount: dec("330.00"), date: new Date("2026-10-20"),
+  reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null, updatedAt: new Date("2026-10-20T01:00:00Z") }
+const LINKABLE = { invoiceId: null, isGiving: false, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
 beforeEach(() => {
   jest.clearAllMocks(); as("ADMIN")
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
@@ -53,7 +55,7 @@ describe("markInvoicePaid — link", () => {
   })
   it("links and flips to PAID", async () => {
     expect(await markInvoicePaid(11, link)).toEqual({ success: "INV-0007 marked paid" })
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, invoiceId: null, isGiving: false }, data: { invoiceId: 11, accountId: 4, fundId: null } })
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, ...LINKABLE, updatedAt: income.updatedAt }, data: { invoiceId: 11, accountId: 4, fundId: null } })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "SENT" }, data: { status: "PAID", paidAt: new Date("2026-10-20") } })
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_PAID", "Invoice", 11, { invoiceNo: "INV-0007", transactionId: 50, mode: "link" })
     expect(sendEmail).not.toHaveBeenCalled()
@@ -84,6 +86,16 @@ describe("markInvoicePaid — link", () => {
     expect(await markInvoicePaid(11, link)).toEqual({ error: "Pick an income transaction that is not linked to another invoice" })
     ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({ ...income, isGiving: true })
     expect(await markInvoicePaid(11, link)).toEqual({ error: "Pick an income transaction that is not linked to another invoice" })
+  })
+  it.each([["pettyCashReceiptId"], ["pettyCashExpenseId"], ["pettyCashTransferId"]])("rejects a petty-cash mirror (%s)", async (k) => {
+    ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({ ...income, [k]: 7 })
+    expect(await markInvoicePaid(11, link)).toEqual({ error: "Petty cash transactions can't be linked to an invoice" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
+  it("rejects a reconciled transaction", async () => {
+    ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({ ...income, reconciled: true })
+    expect(await markInvoicePaid(11, link)).toEqual({ error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before linking." })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
   it("rejects a payment dated before the invoice was issued", async () => {
     ;(prisma.transaction.findUnique as jest.Mock).mockResolvedValue({ ...income, date: new Date("2026-10-01") })
@@ -209,7 +221,7 @@ describe("listPaymentCandidates", () => {
     ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([{ id: 50, date: new Date("2026-10-20"), amount: dec("330.00"), reference: "INV-0007", paymentAccountRel: { name: "Main" }, account: { name: "Donations" } }])
     expect(await listPaymentCandidates(11)).toEqual([{ id: 50, date: "2026-10-20", amount: "330.00", reference: "INV-0007", paymentAccountName: "Main", accountName: "Donations" }])
     expect(prisma.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { type: "INCOME", invoiceId: null, isGiving: false, amount: "330.00", date: { gte: inv.issueDate } }, take: 20,
+      where: { type: "INCOME", ...LINKABLE, amount: "330.00", date: { gte: inv.issueDate } }, take: 20,
     }))
   })
   it("starts after the lock date when it is later than the issue date", async () => {
