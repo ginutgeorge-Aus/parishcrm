@@ -1,6 +1,7 @@
 import {
   transactionListHref,
   transactionListQuery,
+  transactionExportQuery,
   monthOptions,
   monthRange,
   monthFromRange,
@@ -20,6 +21,32 @@ describe("transactionListQuery", () => {
   it("returns empty for undefined / non-string input", () => {
     expect(transactionListQuery(undefined)).toBe("")
     expect(transactionListQuery({ from: ["a", "b"] as unknown as string })).toBe("")
+  })
+})
+
+describe("transactionExportQuery", () => {
+  it("applies the list allow-list but drops page", () => {
+    const sp = { from: "2026-01-01", family: "7", reconciled: "yes", fund: "2", q: "rent", page: "3", evil: "x" }
+    expect(transactionExportQuery(sp, { account: undefined, type: undefined, paymentAccount: undefined })).toBe("q=rent&from=2026-01-01&family=7&reconciled=yes&fund=2")
+    expect(transactionListQuery(sp)).toContain("page=3")
+  })
+
+  it("forwards validated values instead of the raw strings", () => {
+    const sp = { account: "abc", type: "BOGUS", paymentAccount: "x" }
+    expect(transactionExportQuery(sp, { account: undefined, type: undefined, paymentAccount: undefined })).toBe("")
+    expect(transactionExportQuery(sp, { account: "4", type: "INCOME", paymentAccount: "9" })).toBe(
+      "account=4&type=INCOME&paymentAccount=9"
+    )
+  })
+
+  it("covers exactly the list keys except page (no drift)", () => {
+    const all = Object.fromEntries(
+      ["q", "from", "to", "account", "type", "family", "paymentAccount", "reconciled", "fund", "page"].map((k) => [k, "1"])
+    )
+    const list = new URLSearchParams(transactionListQuery(all))
+    const exp = new URLSearchParams(transactionExportQuery(all, { account: "1", type: "1", paymentAccount: "1" }))
+    list.delete("page")
+    expect([...exp.keys()].sort()).toEqual([...list.keys()].sort())
   })
 })
 
