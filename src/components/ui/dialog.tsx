@@ -47,6 +47,11 @@ function DialogOverlay({
   )
 }
 
+/**
+ * Modal content panel. Padding comes from the `--dialog-pad` custom property
+ * (default 1rem); override it together with `p-*` (e.g. `p-0 [--dialog-pad:0px]`)
+ * so the sticky close button stays inside the panel.
+ */
 function DialogContent({
   className,
   children,
@@ -61,7 +66,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-hidden sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-(--dialog-pad) [--dialog-pad:--spacing(4)] text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-hidden sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           showCloseButton && "[&>:first-child]:-mt-4",
           className
         )}
@@ -75,14 +80,17 @@ function DialogContent({
           // Radix's initial focus still lands on the first real control, not
           // Close. Content's `[&>:first-child]:-mt-4` cancels the row-gap the
           // extra row would add, leaving consumers' layout unchanged.
+          // Offsets derive from `--dialog-pad` (default 1rem = p-4) so the
+          // button stays 0.5rem inside the dialog edge; a zero-padding dialog
+          // must override both `p-0` and `[--dialog-pad:0px]` (#236).
           <div
             data-slot="dialog-close-sticky"
-            className="sticky top-4 z-10 order-first h-0"
+            className="sticky top-(--dialog-pad) z-10 order-first h-0"
           >
             <DialogPrimitive.Close data-slot="dialog-close" asChild>
               <Button
                 variant="ghost"
-                className="absolute -top-2 -right-2"
+                className="absolute top-[calc(0.5rem-var(--dialog-pad))] right-[calc(0.5rem-var(--dialog-pad))]"
                 size="icon-sm"
               >
                 <XIcon />
