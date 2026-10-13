@@ -41,6 +41,10 @@ describe("fiscalYear", () => {
       expect(load("7").fyRangeLabel(2025)).toBe("2025–2026")
       expect(load("1").fyRangeLabel(2025)).toBe("2025")
     })
+    it("short form abbreviates the end year, calendar-year FY unchanged", () => {
+      expect(load("7").fyRangeLabel(2025, { short: true })).toBe("2025–26")
+      expect(load("1").fyRangeLabel(2025, { short: true })).toBe("2025")
+    })
   })
 
   describe("FY_START_MONTH=4 (April–March)", () => {

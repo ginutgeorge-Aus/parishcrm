@@ -34,11 +34,13 @@ export function fyDateRange(year: number): { start: Date; end: Date } {
 }
 
 /**
- * Display label for FY `year` (its start year): "2025–2026" for a split FY,
- * just "2025" when the FY is the calendar year (APP_FY_START_MONTH=1).
+ * Display label for FY `year` (its start year): "2025–2026" for a split FY
+ * ("2025–26" with `short`), just "2025" when the FY is the calendar year
+ * (APP_FY_START_MONTH=1).
  */
-export function fyRangeLabel(year: number): string {
-  return FY_START_MONTH === 1 ? String(year) : `${year}–${year + 1}`
+export function fyRangeLabel(year: number, { short = false }: { short?: boolean } = {}): string {
+  if (FY_START_MONTH === 1) return String(year)
+  return `${year}–${short ? String(year + 1).slice(-2) : year + 1}`
 }
 
 /**

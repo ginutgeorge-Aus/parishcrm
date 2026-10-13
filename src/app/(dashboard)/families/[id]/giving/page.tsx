@@ -16,13 +16,10 @@ import {
 import { YearSelector } from "@/components/accounting/YearSelector"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GivingTrendChartLazy } from "@/components/accounting/GivingTrendChartLazy"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
+import { FY_MONTHS } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR, toCents, centsToNumber, sumCents, fmtAUD } from "@/lib/formatting"
 import { parseRouteId } from "@/lib/validation"
-
-// FY month order: Jul–Jun (calendar month indexes). Module-level so it isn't
-// rebuilt per request.
-const FY_MONTH_ORDER = [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5] as const
 
 type Props = {
   params: Promise<{ id: string }>
@@ -51,8 +48,7 @@ export default async function FamilyGivingPage(props: Readonly<Props>) {
   const parsedYear = Number.parseInt(searchParams.year ?? String(fyNow), 10)
   const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : fyNow
 
-  const fyStart = new Date(`${year}-07-01`)
-  const fyEnd = new Date(`${year + 1}-07-01`)
+  const { start: fyStart, end: fyEnd } = fyDateRange(year)
 
   const transactions = await prisma.transaction.findMany({
     where: {
@@ -84,7 +80,7 @@ export default async function FamilyGivingPage(props: Readonly<Props>) {
     const m = t.date.getUTCMonth()
     monthlyCents[m] = (monthlyCents[m] ?? 0) + toCents(t.amount)
   }
-  const chartData = FY_MONTH_ORDER.map((m) => ({
+  const chartData = FY_MONTHS.map((m) => ({
     month: MONTH_ABBR[m],
     amount: centsToNumber(monthlyCents[m] ?? 0),
   }))
@@ -111,14 +107,14 @@ export default async function FamilyGivingPage(props: Readonly<Props>) {
 
       {decrypted.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No giving recorded for FY {year}–{String(year + 1).slice(2)}. Try selecting another year.
+          No giving recorded for FY {fyRangeLabel(year, { short: true })}. Try selecting another year.
         </p>
       ) : (
         <div>
           <Card className="mb-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Monthly giving — FY {year}–{String(year + 1).slice(2)}
+                Monthly giving — FY {fyRangeLabel(year, { short: true })}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">

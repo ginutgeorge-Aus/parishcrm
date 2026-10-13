@@ -11,7 +11,7 @@ import { ReconReportControls } from "@/components/accounting/ReconReportControls
 import { toFloat } from "@/lib/utils"
 import { fmtAUD as fmt, parseISODate as parseDate, MONTH_ABBR_TITLE, sumCents, centsToNumber, toCents } from "@/lib/formatting"
 import { sydneyToday } from "@/lib/dates"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyRangeLabel } from "@/lib/fiscalYear"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { fetchIf } from "@/lib/asyncOr"
@@ -48,7 +48,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
   const statementEndOfDay = new Date(statementDateStr + "T23:59:59.999Z")
 
   const fyYear = currentFYYear(statementDate)
-  const fyLabel = `FY ${fyYear}–${String(fyYear + 1).slice(2)}`
+  const fyLabel = `FY ${fyRangeLabel(fyYear, { short: true })}`
 
   if (!selectedAccount) {
     return (

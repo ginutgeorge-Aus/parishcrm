@@ -9,7 +9,7 @@ import { YearSelector } from "@/components/accounting/YearSelector"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { Button } from "@/components/ui/button"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
-import { currentFYYear, fyDateRange, parseFyYearParam } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, parseFyYearParam, fyRangeLabel } from "@/lib/fiscalYear"
 import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { toCents, centsToNumber, fmtAUD as fmt } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
@@ -106,7 +106,7 @@ export default async function CashFlowPage(props: Readonly<Props>) {
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6 print:hidden">
-        <h2 className="text-2xl font-semibold text-foreground">Cash Flow — FY {year}–{year + 1}</h2>
+        <h2 className="text-2xl font-semibold text-foreground">Cash Flow — FY {fyRangeLabel(year)}</h2>
         <div className="flex items-center gap-3">
           <YearSelector currentYear={year} />
           <Button asChild variant="outline" size="sm">
@@ -115,7 +115,7 @@ export default async function CashFlowPage(props: Readonly<Props>) {
           <PrintButton />
         </div>
       </div>
-      <h2 className="hidden print:block text-xl font-semibold mb-4">Cash Flow — FY {year}–{year + 1}</h2>
+      <h2 className="hidden print:block text-xl font-semibold mb-4">Cash Flow — FY {fyRangeLabel(year)}</h2>
 
       {/* Section 1: Operating activities */}
       <div className="overflow-x-auto">

@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatSydneyDateTime, sydneyToday, endOfDayUTC } from "@/lib/dates"
-import { currentFYYear } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { fmtAUD } from "@/lib/formatting"
 
 const PAGE_SIZE = 50
@@ -40,7 +40,7 @@ export default async function ReceiptAuditPage(props: Readonly<Props>) {
 
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
   const fyYear = currentFYYear()
-  const defaultFrom = new Date(`${fyYear}-07-01`)
+  const defaultFrom = fyDateRange(fyYear).start
 
   // ISO_DATE only checks shape — `2025-13-01`/`2025-00-10` pass the regex but
   // `new Date` yields Invalid Date, which crashes `format` (RangeError) and the

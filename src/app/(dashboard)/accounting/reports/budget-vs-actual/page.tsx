@@ -11,6 +11,7 @@ import { parseVarianceThreshold } from "@/lib/reports/budgetVarianceHelpers"
 import { getBudgetVsActualData, resolveBudgetYear } from "@/lib/reports/budgetVsActualQuery"
 import { BudgetVsActualTable } from "@/components/accounting/BudgetVsActualTable"
 import { BudgetVsActualMobileCards } from "@/components/accounting/BudgetVsActualMobileCards"
+import { fyRangeLabel } from "@/lib/fiscalYear"
 
 type Props = {
   searchParams: Promise<{ year?: string; threshold?: string }>
@@ -37,7 +38,7 @@ export default async function BudgetVsActualPage(props: Readonly<Props>) {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
-          Budget vs Actual — FY {year}–{year + 1}
+          Budget vs Actual — FY {fyRangeLabel(year)}
         </h2>
         <div className="flex items-center gap-3">
           <YearSelector currentYear={year} />
@@ -48,7 +49,7 @@ export default async function BudgetVsActualPage(props: Readonly<Props>) {
         </div>
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        Budget vs Actual — FY {year}–{year + 1}
+        Budget vs Actual — FY {fyRangeLabel(year)}
       </h2>
 
       <p className="mb-3 text-xs text-muted-foreground">

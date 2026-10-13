@@ -9,7 +9,7 @@ import { toFloat } from "@/lib/utils"
 import { fmtAUD as fmt, centsToNumber, toCents } from "@/lib/formatting"
 import { YearSelector } from "@/components/accounting/YearSelector"
 import { PrintButton } from "@/components/ui/PrintButton"
-import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
+import { currentFYYear, fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { computeFamilyDues } from "@/lib/reports/duesHelpers"
 
@@ -108,7 +108,7 @@ export default async function DuesReportPage(props: Readonly<Props>) {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
-          Subscription Dues: FY {year}–{year + 1}
+          Subscription Dues: FY {fyRangeLabel(year)}
         </h2>
         <div className="flex items-center gap-3">
           <Link
@@ -122,7 +122,7 @@ export default async function DuesReportPage(props: Readonly<Props>) {
         </div>
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        Subscription Dues: FY {year}–{year + 1}
+        Subscription Dues: FY {fyRangeLabel(year)}
       </h2>
 
       {!subAccount && (
