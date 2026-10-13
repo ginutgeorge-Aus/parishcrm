@@ -76,6 +76,22 @@ describe("InvoicesPage", () => {
     expect(html).not.toContain("after=")
   })
 
+  it("offers a way back when a cursor page is empty, keeping filters", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
+    const html = renderToStaticMarkup(await call({ status: "PAID", from: "2026-10-01", after: "2026-10-11_11" }))
+    expect(html).toContain("No invoices found.")
+    expect(html).toContain('href="/accounting/invoices?status=PAID&amp;from=2026-10-01"')
+    const plain = renderToStaticMarkup(await call({ before: "2026-10-11_11" }))
+    expect(plain).toContain('href="/accounting/invoices"')
+  })
+
+  it("shows no back link on an empty first page", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
+    expect(renderToStaticMarkup(await call())).not.toContain("Back to the first page")
+  })
+
   it("passes a valid cursor through and drops a malformed one", async () => {
     as("ADMIN")
     await call({ after: "2026-10-11_11" })

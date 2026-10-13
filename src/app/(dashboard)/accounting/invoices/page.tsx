@@ -83,6 +83,11 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const [result, summary, { gstRegistered }] = await Promise.all([listInvoices({ status, from, to, after, before }), getInvoiceSummary(period), getInvoiceSettings()])
   if ("error" in result || "error" in summary) redirect("/")
   const { rows, nextCursor, prevCursor } = result
+  // Dead-end escape: a cursor page can be empty if rows were deleted or changed status since the link was made.
+  const firstPageParams = new URLSearchParams()
+  for (const [k, v] of Object.entries({ status, from, to })) if (v) firstPageParams.set(k, v)
+  const firstPageQs = firstPageParams.toString()
+  const firstPageHref = firstPageQs ? `/accounting/invoices?${firstPageQs}` : "/accounting/invoices"
   const periodLabel = `${period.from} to ${period.to}`
   const canManage = canAccessAccounting(session?.user?.role)
   const today = sydneyTodayYMD()
@@ -123,7 +128,12 @@ export default async function InvoicesPage(props: Readonly<Props>) {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No invoices found.</p>
+        <p className="text-sm text-muted-foreground">
+          No invoices found.
+          {(after || before) && (
+            <> <Link className="underline" href={firstPageHref}>Back to the first page</Link></>
+          )}
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

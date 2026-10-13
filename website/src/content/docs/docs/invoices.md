@@ -68,7 +68,7 @@ The period is the **Issued from / to** filter dates when both are set, otherwise
 
 ### Finding older invoices
 
-The invoice list shows 50 invoices per page, newest issue date first. Use **Previous** and **Next** under the table to move between pages; the **Status** and **Issued from / to** filters stay applied as you page. The totals above the list always cover all invoices, not just the page shown.
+The invoice list shows 50 invoices per page, newest issue date first. Use **Previous** and **Next** under the table to move between pages; the **Status** and **Issued from / to** filters stay applied as you page. The totals above the list do not depend on which page you are viewing.
 
 ### Numbering
 
