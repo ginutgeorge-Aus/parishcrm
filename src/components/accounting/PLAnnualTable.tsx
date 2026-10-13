@@ -24,6 +24,10 @@ export function PLAnnualTable({
   net,
   year,
 }: Readonly<Props>) {
+  const sections = [
+    { key: "ig", label: "Income", groups: incomeGroups, total: totalIncome },
+    { key: "eg", label: "Expenses", groups: expenseGroups, total: totalExpenses },
+  ]
   return (
     // Desktop: full table
     <div className="hidden overflow-x-auto md:block">
@@ -36,79 +40,46 @@ export function PLAnnualTable({
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td colSpan={3} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
-              Income
-            </td>
-          </tr>
-          {incomeGroups.map((group) => {
-            const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-            return (
-              <React.Fragment key={`ig-${group.groupName}`}>
-                <tr>
-                  <td colSpan={3} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {group.groupName}
-                  </td>
-                </tr>
-                {group.accounts.map((a) => (
-                  <tr key={a.id} className="border-b border-border">
-                    <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
-                    <td className="py-1.5 pr-3 pl-4">
-                      <PLAccountName account={a} year={year} />
-                    </td>
-                    <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
-                  </tr>
-                ))}
-                <tr className="border-b border-border bg-muted">
-                  <td colSpan={2} className="py-1 pr-3 pl-4 text-xs text-muted-foreground italic">
-                    {group.groupName} subtotal
-                  </td>
-                  <td className="py-1 text-right tabular text-xs font-medium">{fmt(groupTotal)}</td>
-                </tr>
-              </React.Fragment>
-            )
-          })}
-          <tr className="border-t-2 border-border font-semibold">
-            <td colSpan={2} className="py-2 pr-3">Total Income</td>
-            <td className="py-2 text-right tabular">{fmt(totalIncome)}</td>
-          </tr>
-
-          <tr>
-            <td colSpan={3} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
-              Expenses
-            </td>
-          </tr>
-          {expenseGroups.map((group) => {
-            const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-            return (
-              <React.Fragment key={`eg-${group.groupName}`}>
-                <tr>
-                  <td colSpan={3} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {group.groupName}
-                  </td>
-                </tr>
-                {group.accounts.map((a) => (
-                  <tr key={a.id} className="border-b border-border">
-                    <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
-                    <td className="py-1.5 pr-3 pl-4">
-                      <PLAccountName account={a} year={year} />
-                    </td>
-                    <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
-                  </tr>
-                ))}
-                <tr className="border-b border-border bg-muted">
-                  <td colSpan={2} className="py-1 pr-3 pl-4 text-xs text-muted-foreground italic">
-                    {group.groupName} subtotal
-                  </td>
-                  <td className="py-1 text-right tabular text-xs font-medium">{fmt(groupTotal)}</td>
-                </tr>
-              </React.Fragment>
-            )
-          })}
-          <tr className="border-t-2 border-border font-semibold">
-            <td colSpan={2} className="py-2 pr-3">Total Expenses</td>
-            <td className="py-2 text-right tabular">{fmt(totalExpenses)}</td>
-          </tr>
+          {sections.map((section) => (
+            <React.Fragment key={section.key}>
+              <tr>
+                <td colSpan={3} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
+                  {section.label}
+                </td>
+              </tr>
+              {section.groups.map((group) => {
+                const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+                return (
+                  <React.Fragment key={`${section.key}-${group.groupName}`}>
+                    <tr>
+                      <td colSpan={3} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        {group.groupName}
+                      </td>
+                    </tr>
+                    {group.accounts.map((a) => (
+                      <tr key={a.id} className="border-b border-border">
+                        <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
+                        <td className="py-1.5 pr-3 pl-4">
+                          <PLAccountName account={a} year={year} />
+                        </td>
+                        <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-b border-border bg-muted">
+                      <td colSpan={2} className="py-1 pr-3 pl-4 text-xs text-muted-foreground italic">
+                        {group.groupName} subtotal
+                      </td>
+                      <td className="py-1 text-right tabular text-xs font-medium">{fmt(groupTotal)}</td>
+                    </tr>
+                  </React.Fragment>
+                )
+              })}
+              <tr className="border-t-2 border-border font-semibold">
+                <td colSpan={2} className="py-2 pr-3">Total {section.label}</td>
+                <td className="py-2 text-right tabular">{fmt(section.total)}</td>
+              </tr>
+            </React.Fragment>
+          ))}
         </tbody>
         <tfoot>
           <tr className="border-t-4 border-foreground font-bold text-base">
