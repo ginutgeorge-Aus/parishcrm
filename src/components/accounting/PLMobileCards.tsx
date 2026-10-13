@@ -1,7 +1,7 @@
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
-import Link from "next/link"
-import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
+import { PLAccountName } from "@/components/accounting/PLAccountName"
+import { fmt, accountTotal } from "@/components/accounting/plFormat"
 
 type Props = {
   incomeGroups: AccountGroup<PLAccountRow>[]
@@ -39,8 +39,7 @@ export function PLMobileCards({
                     <li key={a.id} className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate">
                         <span className="mr-1 font-mono text-xs text-muted-foreground">{a.code}</span>
-                        <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
-                        {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                        <PLAccountName account={a} year={year} />
                       </span>
                       <span className="shrink-0 tabular">{fmt(accountTotal(a, totalMap))}</span>
                     </li>
@@ -73,8 +72,7 @@ export function PLMobileCards({
                     <li key={a.id} className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate">
                         <span className="mr-1 font-mono text-xs text-muted-foreground">{a.code}</span>
-                        <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
-                        {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                        <PLAccountName account={a} year={year} />
                       </span>
                       <span className="shrink-0 tabular">{fmt(accountTotal(a, totalMap))}</span>
                     </li>

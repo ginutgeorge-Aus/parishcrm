@@ -3,10 +3,18 @@ import { MONTH_LABELS } from "@/lib/reports/plHelpers"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 import Link from "next/link"
+import { PLAccountName } from "@/components/accounting/PLAccountName"
 import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
 
 // Code + Category cols + 12 month cols + Total col
 const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
+
+/** Per-report lookups shared by both sections of the monthly table. */
+type MonthlyCtx = {
+  acctMonthlyMap: Map<number, number[]>
+  totalMap: Map<number, number>
+  year: number
+}
 
 /**
  * Renders account group rows + section total row for the monthly table.
@@ -17,10 +25,8 @@ function renderMonthlyGroups(
   sectionMonthly: number[],
   sectionTotal: number,
   totalLabel: string,
-  acctMonthlyMap: Map<number, number[]>,
-  totalMap: Map<number, number>,
   keyPrefix: string,
-  year: number,
+  { acctMonthlyMap, totalMap, year }: MonthlyCtx,
 ): React.ReactNode {
   return (
     <>
@@ -43,8 +49,7 @@ function renderMonthlyGroups(
                 <tr key={a.id} className="border-b border-border">
                   <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground whitespace-nowrap">{a.code}</td>
                   <td className="py-1.5 pr-3 pl-4 whitespace-nowrap">
-                    <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
-                    {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                    <PLAccountName account={a} year={year} />
                   </td>
                   {acctMonthly.map((v, i) => (
                     <td key={i} className="py-1.5 px-1 text-right tabular whitespace-nowrap">
@@ -124,6 +129,7 @@ export function PLMonthlyTable({
   // default view is the stacked per-month summary below, but this full grid
   // stays reachable on demand inside a collapsible so per-account/group detail
   // is never lost below the lg breakpoint.
+  const ctx: MonthlyCtx = { acctMonthlyMap, totalMap, year }
   const detailTable = (
       <table className="w-full min-w-table-wide text-sm">
         <thead>
@@ -145,7 +151,7 @@ export function PLMonthlyTable({
               Income
             </td>
           </tr>
-          {renderMonthlyGroups(incomeGroups, incomeMonthly, totalIncome, "Total Income", acctMonthlyMap, totalMap, "ig", year)}
+          {renderMonthlyGroups(incomeGroups, incomeMonthly, totalIncome, "Total Income", "ig", ctx)}
 
           {/* ── Expenses ── */}
           <tr>
@@ -153,7 +159,7 @@ export function PLMonthlyTable({
               Expenses
             </td>
           </tr>
-          {renderMonthlyGroups(expenseGroups, expenseMonthly, totalExpenses, "Total Expenses", acctMonthlyMap, totalMap, "eg", year)}
+          {renderMonthlyGroups(expenseGroups, expenseMonthly, totalExpenses, "Total Expenses", "eg", ctx)}
         </tbody>
         <tfoot>
           <tr className="border-t-4 border-foreground font-bold text-base">

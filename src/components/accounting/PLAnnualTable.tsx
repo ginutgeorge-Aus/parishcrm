@@ -1,8 +1,8 @@
 import React from "react"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
-import Link from "next/link"
-import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
+import { PLAccountName } from "@/components/accounting/PLAccountName"
+import { fmt, accountTotal } from "@/components/accounting/plFormat"
 
 type Props = {
   incomeGroups: AccountGroup<PLAccountRow>[]
@@ -54,8 +54,7 @@ export function PLAnnualTable({
                   <tr key={a.id} className="border-b border-border">
                     <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
                     <td className="py-1.5 pr-3 pl-4">
-                      <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
-                      {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                      <PLAccountName account={a} year={year} />
                     </td>
                     <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
                   </tr>
@@ -92,8 +91,7 @@ export function PLAnnualTable({
                   <tr key={a.id} className="border-b border-border">
                     <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
                     <td className="py-1.5 pr-3 pl-4">
-                      <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
-                      {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                      <PLAccountName account={a} year={year} />
                     </td>
                     <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
                   </tr>
