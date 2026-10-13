@@ -18,6 +18,10 @@ export function AuditLogFilters() {
   const [fromVal, setFromVal] = useState(sp.get("from") ?? "")
   const [toVal, setToVal] = useState(sp.get("to") ?? "")
 
+  /**
+   * Navigate to the audit log with one filter key set/cleared. Non-action pushes also
+   * carry the current action input so a still-debouncing action isn't dropped.
+   */
   const push = useCallback(
     (key: string, value: string) => {
       // An immediate nav (date change, or the debounced action firing) supersedes any
@@ -27,10 +31,16 @@ export function AuditLogFilters() {
       const params = new URLSearchParams(sp.toString())
       if (value) params.set(key, value)
       else params.delete(key)
+      // A date push cancelled a possibly-pending debounced action push, and `sp` does
+      // not have the typed action yet — carry the input's current value so it isn't lost.
+      if (key !== "action") {
+        if (actionVal) params.set("action", actionVal)
+        else params.delete("action")
+      }
       params.delete("page")
       router.push(`/settings/audit-log?${params.toString()}`)
     },
-    [router, sp]
+    [router, sp, actionVal]
   )
 
   // Debounce so typing an action filter doesn't fire a navigation per keystroke.

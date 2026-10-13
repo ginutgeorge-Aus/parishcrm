@@ -100,8 +100,11 @@ describe("AuditLogFilters", () => {
     // Date change should cancel the pending debounce
     fireEvent.change(fromInput, { target: { value: "2026-01-01" } })
     expect(mockPush).toHaveBeenCalledTimes(1)
-    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("from=2026-01-01"))
-    
+    // Immediate push carries BOTH the still-debouncing action and the date (#231)
+    const url = mockPush.mock.calls[0][0] as string
+    expect(url).toContain("from=2026-01-01")
+    expect(url).toContain("action=PENDING_ACTION")
+
     // The debounced action should not fire after the date change
     jest.runAllTimers()
     expect(mockPush).toHaveBeenCalledTimes(1)
