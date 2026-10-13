@@ -109,7 +109,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               )
               const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
               return (
-                <React.Fragment key={`ig-`}>
+                <React.Fragment key={`ig-${gi}`}>
                   <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
                   {group.accounts.map((a) => (
                     <tr key={a.id} className="account">
@@ -141,7 +141,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               )
               const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
               return (
-                <React.Fragment key={`eg-`}>
+                <React.Fragment key={`eg-${gi}`}>
                   <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
                   {group.accounts.map((a) => (
                     <tr key={a.id} className="account">
@@ -187,7 +187,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             {incomeGroups.map((group, gi) => {
               const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
               return (
-                <React.Fragment key={`ig-`}>
+                <React.Fragment key={`ig-${gi}`}>
                   <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
                   {group.accounts.map((a) => (
                     <tr key={a.id} className="account">
@@ -212,7 +212,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             {expenseGroups.map((group, gi) => {
               const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
               return (
-                <React.Fragment key={`eg-`}>
+                <React.Fragment key={`eg-${gi}`}>
                   <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
                   {group.accounts.map((a) => (
                     <tr key={a.id} className="account">
