@@ -59,6 +59,62 @@ export default async function PLPrintPage(props: Readonly<Props>) {
 
   const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
 
+  type Group = (typeof incomeGroups)[number]
+
+  /**
+   * Monthly-view rows for one section's groups: a header, one row per account
+   * with 12 month columns + total, and a subtotal. Keyed by the group's first
+   * account id (stable and unique — an account belongs to one group).
+   */
+  const renderMonthlyGroups = (groups: Group[], prefix: string) =>
+    groups.map((group) => {
+      const gMonthly = group.accounts.reduce(
+        (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0))[i]),
+        new Array<number>(12).fill(0),
+      )
+      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
+      return (
+        <React.Fragment key={`${prefix}-${group.accounts[0].id}`}>
+          <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
+          {group.accounts.map((a) => (
+            <tr key={a.id} className="account">
+              <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
+              <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
+              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+              <td className="r" style={{ fontWeight: 600 }}>{fmt(accountTotal(a))}</td>
+            </tr>
+          ))}
+          <tr className="group-total">
+            <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
+            {gMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+            <td className="r" style={{ fontWeight: 600 }}>{fmt(gTotal)}</td>
+          </tr>
+        </React.Fragment>
+      )
+    })
+
+  /** Annual-view rows for one section's groups (same shape, one Actual column). */
+  const renderAnnualGroups = (groups: Group[], prefix: string) =>
+    groups.map((group) => {
+      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
+      return (
+        <React.Fragment key={`${prefix}-${group.accounts[0].id}`}>
+          <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
+          {group.accounts.map((a) => (
+            <tr key={a.id} className="account">
+              <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
+              <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
+              <td className="r">{fmt(accountTotal(a))}</td>
+            </tr>
+          ))}
+          <tr className="group-total">
+            <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
+            <td className="r">{fmt(gTotal)}</td>
+          </tr>
+        </React.Fragment>
+      )
+    })
+
   return (
     <>
       <div className="print:hidden">
@@ -102,31 +158,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
           </thead>
           <tbody>
             <tr className="section-header"><td colSpan={MONTHLY_COLS}>Income</td></tr>
-            {incomeGroups.map((group, gi) => {
-              const gMonthly = group.accounts.reduce(
-                (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0))[i]),
-                new Array<number>(12).fill(0),
-              )
-              const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
-              return (
-                <React.Fragment key={`ig-${gi}`}>
-                  <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
-                  {group.accounts.map((a) => (
-                    <tr key={a.id} className="account">
-                      <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
-                      <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-                      {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-                      <td className="r" style={{ fontWeight: 600 }}>{fmt(accountTotal(a))}</td>
-                    </tr>
-                  ))}
-                  <tr className="group-total">
-                    <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-                    {gMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-                    <td className="r" style={{ fontWeight: 600 }}>{fmt(gTotal)}</td>
-                  </tr>
-                </React.Fragment>
-              )
-            })}
+            {renderMonthlyGroups(incomeGroups, "ig")}
             <tr className="section-total">
               <td colSpan={2}>Total Income</td>
               {incomeMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
@@ -134,31 +166,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             </tr>
 
             <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
-            {expenseGroups.map((group, gi) => {
-              const gMonthly = group.accounts.reduce(
-                (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0))[i]),
-                new Array<number>(12).fill(0),
-              )
-              const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
-              return (
-                <React.Fragment key={`eg-${gi}`}>
-                  <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
-                  {group.accounts.map((a) => (
-                    <tr key={a.id} className="account">
-                      <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
-                      <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-                      {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-                      <td className="r" style={{ fontWeight: 600 }}>{fmt(accountTotal(a))}</td>
-                    </tr>
-                  ))}
-                  <tr className="group-total">
-                    <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-                    {gMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-                    <td className="r" style={{ fontWeight: 600 }}>{fmt(gTotal)}</td>
-                  </tr>
-                </React.Fragment>
-              )
-            })}
+            {renderMonthlyGroups(expenseGroups, "eg")}
             <tr className="section-total">
               <td colSpan={2}>Total Expenses</td>
               {expenseMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
@@ -184,50 +192,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
           </thead>
           <tbody>
             <tr className="section-header"><td colSpan={3}>Income</td></tr>
-            {incomeGroups.map((group, gi) => {
-              const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
-              return (
-                <React.Fragment key={`ig-${gi}`}>
-                  <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
-                  {group.accounts.map((a) => (
-                    <tr key={a.id} className="account">
-                      <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
-                      <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-                      <td className="r">{fmt(accountTotal(a))}</td>
-                    </tr>
-                  ))}
-                  <tr className="group-total">
-                    <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-                    <td className="r">{fmt(gTotal)}</td>
-                  </tr>
-                </React.Fragment>
-              )
-            })}
+            {renderAnnualGroups(incomeGroups, "ig")}
             <tr className="section-total">
               <td colSpan={2}>Total Income</td>
               <td className="r">{fmt(totalIncome)}</td>
             </tr>
 
             <tr className="section-header"><td colSpan={3}>Expenses</td></tr>
-            {expenseGroups.map((group, gi) => {
-              const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
-              return (
-                <React.Fragment key={`eg-${gi}`}>
-                  <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
-                  {group.accounts.map((a) => (
-                    <tr key={a.id} className="account">
-                      <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
-                      <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-                      <td className="r">{fmt(accountTotal(a))}</td>
-                    </tr>
-                  ))}
-                  <tr className="group-total">
-                    <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-                    <td className="r">{fmt(gTotal)}</td>
-                  </tr>
-                </React.Fragment>
-              )
-            })}
+            {renderAnnualGroups(expenseGroups, "eg")}
             <tr className="section-total">
               <td colSpan={2}>Total Expenses</td>
               <td className="r">{fmt(totalExpenses)}</td>
