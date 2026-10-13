@@ -109,4 +109,31 @@ describe("AuditLogFilters", () => {
     jest.runAllTimers()
     expect(mockPush).toHaveBeenCalledTimes(1)
   })
+
+  it("re-reads the inputs when back/forward changes the URL", () => {
+    mockParams = new URLSearchParams("action=FOO&from=2026-01-01")
+    const { rerender } = render(<AuditLogFilters />)
+    expect(screen.getByLabelText("Filter audit log by action")).toHaveValue("FOO")
+
+    // Back to a URL without the action filter
+    mockParams = new URLSearchParams("to=2026-03-01")
+    rerender(<AuditLogFilters />)
+    expect(screen.getByLabelText("Filter audit log by action")).toHaveValue("")
+    expect(screen.getByLabelText("From date")).toHaveValue("")
+    expect(screen.getByLabelText("To date")).toHaveValue("2026-03-01")
+
+    // A later date push must not re-apply the stale action
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-02-01" } })
+    expect(mockPush.mock.calls[0][0] as string).not.toContain("action=")
+  })
+
+  it("keeps a still-debouncing action when the URL changes", () => {
+    const { rerender } = render(<AuditLogFilters />)
+    fireEvent.change(screen.getByLabelText("Filter audit log by action"), { target: { value: "TYPING" } })
+
+    mockParams = new URLSearchParams("from=2026-01-01")
+    rerender(<AuditLogFilters />)
+    expect(screen.getByLabelText("Filter audit log by action")).toHaveValue("TYPING")
+    expect(screen.getByLabelText("From date")).toHaveValue("2026-01-01")
+  })
 })

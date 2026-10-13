@@ -17,6 +17,8 @@ export function AuditLogFilters() {
   const [actionVal, setActionVal] = useState(sp.get("action") ?? "")
   const [fromVal, setFromVal] = useState(sp.get("from") ?? "")
   const [toVal, setToVal] = useState(sp.get("to") ?? "")
+  // True while a typed action is waiting on its debounce (not yet in the URL).
+  const [actionPending, setActionPending] = useState(false)
 
   /**
    * Navigate to the audit log with one filter key set/cleared. Non-action pushes also
@@ -28,6 +30,8 @@ export function AuditLogFilters() {
       // still-pending debounced push — otherwise a queued action push with a stale URL
       // closure fires after and drops the just-applied date filter.
       if (timer.current) clearTimeout(timer.current)
+      timer.current = null
+      setActionPending(false)
       const params = new URLSearchParams(sp.toString())
       if (value) params.set(key, value)
       else params.delete(key)
@@ -47,12 +51,26 @@ export function AuditLogFilters() {
   const debouncedPush = useCallback(
     (key: string, value: string) => {
       if (timer.current) clearTimeout(timer.current)
+      setActionPending(true)
       timer.current = setTimeout(() => push(key, value), 350)
     },
     [push]
   )
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  // Back/forward reuses this instance with a new URL: re-read the inputs from it, or a
+  // stale action would show and be re-applied by the next date push. Adjusting state
+  // during render (not in an effect) is React's pattern for deriving from a changed
+  // input. Skip the action while its debounce is pending so an in-progress edit stays.
+  const urlKey = sp.toString()
+  const [seenUrl, setSeenUrl] = useState(urlKey)
+  if (urlKey !== seenUrl) {
+    setSeenUrl(urlKey)
+    if (!actionPending) setActionVal(sp.get("action") ?? "")
+    setFromVal(sp.get("from") ?? "")
+    setToVal(sp.get("to") ?? "")
+  }
 
   return (
     <div className="flex flex-wrap gap-3 mb-4">
@@ -91,6 +109,8 @@ export function AuditLogFilters() {
         size="sm"
         onClick={() => {
           if (timer.current) clearTimeout(timer.current)
+          timer.current = null
+          setActionPending(false)
           setActionVal("")
           setFromVal("")
           setToVal("")
