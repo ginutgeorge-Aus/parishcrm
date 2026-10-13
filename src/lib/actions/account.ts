@@ -9,6 +9,8 @@ import { isAdmin } from "@/lib/roleGuard"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isValidPgId, isP2002, isP2034 } from "@/lib/validation"
 
+const CONFLICT_ERROR = "This account was changed at the same time by someone else — try again."
+
 const AccountSchema = z.object({
   // Optional on create — blank auto-generates the next code for the type.
   code: z.string().max(20).optional().transform((v) => v?.trim() || undefined),
@@ -129,8 +131,12 @@ export async function updateAccount(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (isP2002(e)) return { error: "Account code already exists" }
-    // Lost to a concurrent invoice write on this account: a referencing row now exists, so the safe outcome is refusal.
-    if (isP2034(e)) return { error: "Cannot change account type while invoices use it" }
+    // Serializable conflict. Only a type change reads invoices, so only then is "invoices use it" the likely cause
+    // (a concurrent invoice write won); a rename or other edit gets a generic retry message. The edit is rolled back
+    // either way, which is the safe outcome.
+    if (isP2034(e)) {
+      return { error: parsed.data.type !== target.type ? "Cannot change account type while invoices use it" : CONFLICT_ERROR }
+    }
     throw e
   }
   if (guardError) return { error: guardError }
@@ -171,8 +177,9 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
       return undefined
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
-    // Lost to a concurrent write that now references the account: refuse, the safe outcome.
-    if (isP2034(e)) return { error: "Cannot delete — an invoice or entry was just linked to this account" }
+    // Serializable conflict: the cause (a concurrent reference, or a false positive) can't be told apart, so the
+    // message is generic. The delete is rolled back, the safe outcome.
+    if (isP2034(e)) return { error: CONFLICT_ERROR }
     throw e
   }
   if (blocked) return blocked

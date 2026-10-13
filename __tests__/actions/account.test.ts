@@ -307,7 +307,7 @@ describe("updateAccount", () => {
 
   it("runs the retype guard + update Serializable and maps P2034 to the invoices-use-it error", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
+    mockFindUnique.mockResolvedValue({ id: 1, type: "EXPENSE" }) // INCOME submitted: a type change
     mockFindFirst.mockResolvedValue(null)
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
     const result = await updateAccount(1, undefined, fd(validAccount))
@@ -316,6 +316,16 @@ describe("updateAccount", () => {
     mockUpdate.mockResolvedValue({})
     await updateAccount(1, undefined, fd(validAccount))
     expect(prisma.$transaction).toHaveBeenLastCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("gives a generic retry message for a P2034 on an edit that does not change the type", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
+    mockFindFirst.mockResolvedValue(null)
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const result = await updateAccount(1, undefined, fd(validAccount))
+    expect(result).toEqual({ error: "This account was changed at the same time by someone else — try again." })
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it("rethrows an unexpected transaction error", async () => {
@@ -397,11 +407,11 @@ describe("deleteAccount", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
   })
 
-  it("maps a Serializable conflict with a concurrent invoice write to a message, not a 500", async () => {
+  it("maps a Serializable conflict to a generic retry message, not a 500", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
     const result = await deleteAccount(1)
-    expect(result).toEqual({ error: "Cannot delete — an invoice or entry was just linked to this account" })
+    expect(result).toEqual({ error: "This account was changed at the same time by someone else — try again." })
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
