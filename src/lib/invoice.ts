@@ -6,8 +6,8 @@ import { MONEY_DECIMAL_RE, isRealCalendarDate, isValidEmail, isValidPgId } from 
 import { toCents } from "@/lib/formatting"
 
 export const INVOICE_MAX_LINES = 50
-/** Max rows the invoice list returns; the page says so when the cap is hit. */
-export const INVOICE_LIST_LIMIT = 500
+/** Invoices per page on the invoice list (cursor-paginated). */
+export const INVOICE_PAGE_SIZE = 50
 const GST_RATE_DIVISOR = 10 // 10% GST
 /** Largest total a Decimal(10,2) column holds: 99,999,999.99. */
 const MAX_INVOICE_TOTAL_CENTS = 9_999_999_999
@@ -131,4 +131,21 @@ export function parseInvoiceDraft(formData: FormData): { data: InvoiceDraftInput
       lines,
     },
   }
+}
+
+/** Keyset position in the invoice list (`issueDate desc, id desc`). */
+export type InvoiceCursor = { issueDate: string; id: number }
+
+/** Encode a list position as `YYYY-MM-DD_id` for the `after`/`before` URL params. */
+export function formatInvoiceCursor(c: InvoiceCursor): string {
+  return `${c.issueDate}_${c.id}`
+}
+
+/** Strictly parse a `YYYY-MM-DD_id` cursor; anything malformed or out of range yields null (caller falls back to page 1). */
+export function parseInvoiceCursor(raw: unknown): InvoiceCursor | null {
+  if (typeof raw !== "string") return null
+  const m = /^(\d{4}-\d{2}-\d{2})_(\d{1,10})$/.exec(raw)
+  if (!m || !isRealCalendarDate(m[1])) return null
+  const id = Number(m[2])
+  return isValidPgId(id) ? { issueDate: m[1], id } : null
 }

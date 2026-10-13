@@ -27,7 +27,7 @@ const call = (sp: Record<string, string> = {}) => InvoicesPage({ searchParams: P
 describe("InvoicesPage", () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockList.mockResolvedValue([row])
+    mockList.mockResolvedValue({ rows: [row], nextCursor: null, prevCursor: null })
     ;(getInvoiceSummary as jest.Mock).mockResolvedValue({ outstandingCents: 16000, outstandingCount: 2, paidCents: 33000, paidCount: 1, gstCollectedCents: 3000 })
     ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: true, paymentDetails: "" })
   })
@@ -51,16 +51,45 @@ describe("InvoicesPage", () => {
     expect(renderToStaticMarkup(await call())).toContain("/accounting/invoices/new")
   })
 
-  it("says when the list hits its row cap", async () => {
+  it("shows no pager when everything fits on one page", async () => {
     as("ADMIN")
-    mockList.mockResolvedValue(Array.from({ length: 500 }, (_, i) => ({ ...row, id: i + 1 })))
-    expect(renderToStaticMarkup(await call())).toContain("Showing the newest 500 invoices")
+    expect(renderToStaticMarkup(await call())).not.toContain("Invoice pages")
+  })
+
+  it("links Next/Previous with the filters preserved", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue({ rows: [row], nextCursor: "2026-10-01_5", prevCursor: "2026-10-11_11" })
+    const html = renderToStaticMarkup(await call({ status: "SENT", from: "2026-10-01", to: "2026-10-31", after: "2026-10-12_20" }))
+    expect(html).toContain('href="/accounting/invoices?status=SENT&amp;from=2026-10-01&amp;to=2026-10-31&amp;after=2026-10-01_5"')
+    expect(html).toContain('href="/accounting/invoices?status=SENT&amp;from=2026-10-01&amp;to=2026-10-31&amp;before=2026-10-11_11"')
+  })
+
+  it("disables Previous on the first page and Next on the last", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue({ rows: [row], nextCursor: "2026-10-11_11", prevCursor: null })
+    let html = renderToStaticMarkup(await call())
+    expect(html).toContain("after=2026-10-11_11")
+    expect(html).not.toContain("before=")
+    mockList.mockResolvedValue({ rows: [row], nextCursor: null, prevCursor: "2026-10-11_11" })
+    html = renderToStaticMarkup(await call({ after: "2026-10-12_20" }))
+    expect(html).toContain("before=2026-10-11_11")
+    expect(html).not.toContain("after=")
+  })
+
+  it("passes a valid cursor through and drops a malformed one", async () => {
+    as("ADMIN")
+    await call({ after: "2026-10-11_11" })
+    expect(mockList).toHaveBeenLastCalledWith({ status: undefined, from: undefined, to: undefined, after: "2026-10-11_11", before: undefined })
+    await call({ before: "2026-10-11_11" })
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, before: "2026-10-11_11" }))
+    await call({ after: "x'; DROP TABLE--", before: "2026-13-01_1" })
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, before: undefined }))
   })
 
   it("passes only valid filters through", async () => {
     as("ADMIN")
     await call({ status: "PAID", from: "2026-02-30", to: "2026-10-31" })
-    expect(mockList).toHaveBeenCalledWith({ status: "PAID", from: undefined, to: "2026-10-31" })
+    expect(mockList).toHaveBeenCalledWith({ status: "PAID", from: undefined, to: "2026-10-31", after: undefined, before: undefined })
   })
 
   it("shows outstanding, paid and GST collected tiles for this month by default", async () => {

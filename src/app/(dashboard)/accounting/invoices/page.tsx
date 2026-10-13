@@ -9,12 +9,12 @@ import { isRealCalendarDate } from "@/lib/validation"
 import { sydneyMonthKey, sydneyTodayYMD } from "@/lib/dates"
 import { getInvoiceSummary, listInvoices } from "@/lib/actions/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
-import { INVOICE_LIST_LIMIT } from "@/lib/invoice"
+import { parseInvoiceCursor } from "@/lib/invoice"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 
-type Props = { searchParams: Promise<{ status?: string; from?: string; to?: string }> }
+type Props = { searchParams: Promise<{ status?: string; from?: string; to?: string; after?: string; before?: string }> }
 
 const STATUSES = Object.values(InvoiceStatus)
 const money = (cents: number) => fmtAUD(centsToNumber(cents))
@@ -38,7 +38,33 @@ function Stat({ label, value, note }: Readonly<{ label: string; value: string; n
   )
 }
 
-/** Invoice list with status/date filters. */
+/** Previous/Next links for the cursor-paginated list; the validated filters ride along on every link. */
+function Pager({ filters, prevCursor, nextCursor }: Readonly<{ filters: Record<string, string | undefined>; prevCursor: string | null; nextCursor: string | null }>) {
+  if (!prevCursor && !nextCursor) return null
+  /** Link to the page reached by `dir` from `cursor`, keeping the active filters. */
+  const href = (dir: "after" | "before", cursor: string) => {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v)
+    params.set(dir, cursor)
+    return `/accounting/invoices?${params.toString()}`
+  }
+  return (
+    <nav aria-label="Invoice pages" className="flex items-center justify-end gap-1 print:hidden">
+      {prevCursor ? (
+        <Button variant="outline" size="sm" asChild><Link href={href("before", prevCursor)} rel="prev">Previous</Link></Button>
+      ) : (
+        <Button variant="outline" size="sm" disabled>Previous</Button>
+      )}
+      {nextCursor ? (
+        <Button variant="outline" size="sm" asChild><Link href={href("after", nextCursor)} rel="next">Next</Link></Button>
+      ) : (
+        <Button variant="outline" size="sm" disabled>Next</Button>
+      )}
+    </nav>
+  )
+}
+
+/** Invoice list with status/date filters, 50 per page via keyset cursors. */
 export default async function InvoicesPage(props: Readonly<Props>) {
   const sp = await props.searchParams
   const session = await auth()
@@ -48,11 +74,15 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const status = STATUSES.find((s) => s === sp.status)
   const from = sp.from && isRealCalendarDate(sp.from) ? sp.from : undefined
   const to = sp.to && isRealCalendarDate(sp.to) ? sp.to : undefined
+  // Strictly validated; a malformed cursor is dropped so the list falls back to the first page.
+  const after = parseInvoiceCursor(sp.after) ? sp.after : undefined
+  const before = after ? undefined : parseInvoiceCursor(sp.before) ? sp.before : undefined
   const month = currentMonthRange()
   // Paid / GST figures use the date filters as the payment period when both are set, else this month.
   const period = from && to && from <= to ? { from, to } : month
-  const [result, summary, { gstRegistered }] = await Promise.all([listInvoices({ status, from, to }), getInvoiceSummary(period), getInvoiceSettings()])
+  const [result, summary, { gstRegistered }] = await Promise.all([listInvoices({ status, from, to, after, before }), getInvoiceSummary(period), getInvoiceSettings()])
   if ("error" in result || "error" in summary) redirect("/")
+  const { rows, nextCursor, prevCursor } = result
   const periodLabel = `${period.from} to ${period.to}`
   const canManage = canAccessAccounting(session?.user?.role)
   const today = sydneyTodayYMD()
@@ -92,13 +122,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
         {gstRegistered && <Stat label="GST collected" value={money(summary.gstCollectedCents)} note={`On invoices paid ${periodLabel}`} />}
       </div>
 
-      {result.length >= INVOICE_LIST_LIMIT && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Showing the newest {INVOICE_LIST_LIMIT} invoices. Narrow the status or date filters to see older ones.
-        </p>
-      )}
-
-      {result.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No invoices found.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -114,7 +138,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
               </tr>
             </thead>
             <tbody>
-              {result.map((r) => {
+              {rows.map((r) => {
                 const overdue = r.status === "SENT" && r.dueDate < today
                 return (
                   <tr key={r.id} className="border-t border-border">
@@ -135,6 +159,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
           </table>
         </div>
       )}
+      <Pager filters={{ status, from, to }} prevCursor={prevCursor} nextCursor={nextCursor} />
     </div>
   )
 }
