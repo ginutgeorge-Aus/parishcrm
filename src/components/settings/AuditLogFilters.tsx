@@ -9,6 +9,11 @@ export function AuditLogFilters() {
   const router = useRouter()
   const sp = useSearchParams()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Latest URL params. A debounced push runs from an older render's closure; reading
+  // through this ref means it builds on the current URL (e.g. after back/forward) instead
+  // of restoring the filters it captured.
+  const spRef = useRef(sp)
+  useEffect(() => { spRef.current = sp }, [sp])
 
   // Controlled inputs. A same-segment soft nav (e.g. Clear) reuses this Client
   // Component instance, so defaultValue would never re-read — the inputs would
@@ -32,7 +37,7 @@ export function AuditLogFilters() {
       if (timer.current) clearTimeout(timer.current)
       timer.current = null
       setActionPending(false)
-      const params = new URLSearchParams(sp.toString())
+      const params = new URLSearchParams(spRef.current.toString())
       if (value) params.set(key, value)
       else params.delete(key)
       // A date push cancelled a possibly-pending debounced action push, and `sp` does
@@ -44,7 +49,7 @@ export function AuditLogFilters() {
       params.delete("page")
       router.push(`/settings/audit-log?${params.toString()}`)
     },
-    [router, sp, actionVal]
+    [router, actionVal]
   )
 
   // Debounce so typing an action filter doesn't fire a navigation per keystroke.

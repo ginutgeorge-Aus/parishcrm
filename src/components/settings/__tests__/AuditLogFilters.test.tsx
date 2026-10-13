@@ -135,5 +135,12 @@ describe("AuditLogFilters", () => {
     rerender(<AuditLogFilters />)
     expect(screen.getByLabelText("Filter audit log by action")).toHaveValue("TYPING")
     expect(screen.getByLabelText("From date")).toHaveValue("2026-01-01")
+
+    // When the debounce fires it builds on the new URL, not the one it was typed against
+    jest.advanceTimersByTime(350)
+    expect(mockPush).toHaveBeenCalledTimes(1)
+    const url = mockPush.mock.calls[0][0] as string
+    expect(url).toContain("action=TYPING")
+    expect(url).toContain("from=2026-01-01")
   })
 })
