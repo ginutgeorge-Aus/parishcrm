@@ -7,10 +7,10 @@ import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromHeaders } from "@/lib/clientIp"
-import { monthlyAmounts, MONTH_LABELS } from "@/lib/reports/plHelpers"
-import { toCents, centsToNumber, fmtAUDAccounting, MONTH_ABBR } from "@/lib/formatting"
-import { fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
-import { resolvePLYear } from "@/lib/reports/plQuery"
+import { MONTH_LABELS } from "@/lib/reports/plHelpers"
+import { centsToNumber, fmtAUDAccounting, MONTH_ABBR } from "@/lib/formatting"
+import { fyRangeLabel } from "@/lib/fiscalYear"
+import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
@@ -23,34 +23,6 @@ type Props = {
 // so print and screen totals are identical to the cent.
 function fmt(cents: number): string {
   return fmtAUDAccounting(centsToNumber(cents))
-}
-
-type AccountRow = {
-  id: number
-  code: string
-  name: string
-  isActive: boolean
-  group: { id: number; name: string; sortOrder: number } | null
-  transactions: { amount: { toString(): string }; date: Date }[]
-}
-
-type AccountGroup = { groupName: string; sortOrder: number; accounts: AccountRow[] }
-
-function groupByAccountGroup(accounts: AccountRow[]): AccountGroup[] {
-  const map = new Map<string, AccountGroup>()
-  for (const a of accounts) {
-    // Key by group id, not name: AccountGroup's unique key is (name,
-    // type), so two distinct groups can share a display name and must not merge.
-    const key = a.group ? `id:${a.group.id}` : "__ungrouped__"
-    const sortOrder = a.group?.sortOrder ?? 999
-    if (!map.has(key)) map.set(key, { groupName: a.group?.name ?? "Other", sortOrder, accounts: [] })
-    map.get(key)!.accounts.push(a)
-  }
-  return Array.from(map.values()).sort((a, b) => a.sortOrder - b.sortOrder)
-}
-
-function accountTotal(a: AccountRow): number {
-  return a.transactions.reduce((s, t) => s + toCents(t.amount), 0)
 }
 
 export default async function PLPrintPage(props: Readonly<Props>) {
@@ -75,50 +47,15 @@ export default async function PLPrintPage(props: Readonly<Props>) {
   const churchSetting = await prisma.appSetting.findUnique({ where: { key: "churchName" } })
   const churchName = churchSetting?.value ?? process.env.CHURCH_NAME ?? DEFAULT_CHURCH_NAME
 
-  const { start: fyStart, end: fyEnd } = fyDateRange(year)
+  // Same query + aggregation as the on-screen report, so print and screen
+  // totals cannot drift (XFER exclusion, FY range, monthly sums).
+  const {
+    incomeGroups, expenseGroups, totalMap, totalIncome, totalExpenses, net,
+    acctMonthlyMap, incomeMonthly, expenseMonthly, netMonthly,
+  } = await getPLReportData(year, isMonthly)
 
-  const accounts = await prisma.account.findMany({
-    where: {
-      // Exclude the internal-transfer clearing account — mirrors the
-      // on-screen P&L; XFER's transfer legs are not real income/expense.
-      code: { not: "XFER" },
-      OR: [
-        { isActive: true },
-        { transactions: { some: { date: { gte: fyStart, lt: fyEnd } } } },
-      ],
-    },
-    orderBy: [{ group: { sortOrder: "asc" } }, { code: "asc" }],
-    include: {
-      group: { select: { id: true, name: true, sortOrder: true } },
-      transactions: {
-        where: { date: { gte: fyStart, lt: fyEnd } },
-        select: { amount: true, date: true },
-      },
-    },
-  })
-
-  const incomeAccounts = accounts.filter((a) => a.type === "INCOME")
-  const expenseAccounts = accounts.filter((a) => a.type === "EXPENSE")
-  const incomeGroups = groupByAccountGroup(incomeAccounts)
-  const expenseGroups = groupByAccountGroup(expenseAccounts)
-
-  const totalIncome = incomeAccounts.reduce((s, a) => s + accountTotal(a), 0)
-  const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a), 0)
-  const net = totalIncome - totalExpenses
-
-  const acctMonthlyMap: Map<number, number[]> = isMonthly
-    ? new Map(accounts.map((a) => [a.id, monthlyAmounts(a.transactions)]))
-    : new Map()
-
-  const sumMonthly = (accs: AccountRow[]): number[] =>
-    accs.reduce(
-      (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id)?.[i] ?? 0)),
-      new Array<number>(12).fill(0),
-    )
-
-  const incomeMonthly = isMonthly ? sumMonthly(incomeAccounts) : []
-  const expenseMonthly = isMonthly ? sumMonthly(expenseAccounts) : []
-  const netMonthly = isMonthly ? incomeMonthly.map((v, i) => v - expenseMonthly[i]) : []
+  /** Annual total (integer cents) for one account; 0 when it has no transactions. */
+  const accountTotal = (a: { id: number }): number => totalMap.get(a.id) ?? 0
 
   const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
 

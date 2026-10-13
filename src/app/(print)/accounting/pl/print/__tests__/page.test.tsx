@@ -33,21 +33,17 @@ const mockRedirect = redirect as unknown as jest.Mock
 
 const dec = (v: string) => ({ toString: () => v })
 
-// Same conceptual fixture rendered two different ways: the print route embeds
-// each account's transactions directly, the dashboard page sums them via a
-// separate groupBy query. Both must land on the same dollar totals.
-const printAccounts = [
-  { id: 1, code: "100", name: "Tithes", isActive: true, type: "INCOME", group: { id: 10, name: "Giving", sortOrder: 0 }, transactions: [{ amount: dec("3000.00"), date: new Date("2025-08-01") }] },
-  { id: 3, code: "150", name: "Fundraising", isActive: true, type: "INCOME", group: { id: 11, name: "Outreach", sortOrder: 1 }, transactions: [{ amount: dec("500.00"), date: new Date("2025-09-01") }] },
-  { id: 2, code: "400", name: "Rent", isActive: true, type: "EXPENSE", group: { id: 12, name: "Property", sortOrder: 2 }, transactions: [{ amount: dec("1000.00"), date: new Date("2025-08-15") }] },
-  { id: 4, code: "410", name: "Electricity", isActive: true, type: "EXPENSE", group: { id: 13, name: "Utilities", sortOrder: 3 }, transactions: [{ amount: dec("300.00"), date: new Date("2025-09-15") }] },
+// Print and dashboard both go through getPLReportData: accounts from
+// account.findMany, annual sums from transaction.groupBy. The same mocks must
+// give the same dollar totals on both routes.
+const accounts = [
+  { id: 1, code: "100", name: "Tithes", isActive: true, type: "INCOME", group: { id: 10, name: "Giving", sortOrder: 0 } },
+  { id: 3, code: "150", name: "Fundraising", isActive: true, type: "INCOME", group: { id: 11, name: "Outreach", sortOrder: 1 } },
+  { id: 2, code: "400", name: "Rent", isActive: true, type: "EXPENSE", group: { id: 12, name: "Property", sortOrder: 2 } },
+  { id: 4, code: "410", name: "Electricity", isActive: true, type: "EXPENSE", group: { id: 13, name: "Utilities", sortOrder: 3 } },
 ]
 
-const dashboardAccounts = printAccounts.map(({ id, code, name, isActive, type, group }) => ({
-  id, code, name, isActive, type, group,
-}))
-
-const dashboardGroupBy = [
+const groupByTotals = [
   { accountId: 1, _sum: { amount: dec("3000.00") } },
   { accountId: 3, _sum: { amount: dec("500.00") } },
   { accountId: 2, _sum: { amount: dec("1000.00") } },
@@ -78,7 +74,8 @@ describe("PLPrintPage — auth guards", () => {
 describe("PLPrintPage — rendered dollar totals", () => {
   it("renders Total Income, Total Expenses, and Net Surplus/(Deficit) for fixture transactions", async () => {
     mockAuth.mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
-    mAccounts.mockResolvedValue(printAccounts)
+    mAccounts.mockResolvedValue(accounts)
+    mGroupBy.mockResolvedValue(groupByTotals)
     const ui = await PLPrintPage(makeProps())
     render(ui)
     expect(screen.getByText("$3,500.00")).toBeInTheDocument() // Total Income (3000 + 500)
@@ -92,9 +89,10 @@ describe("PLPrintPage — distinct same-name groups", () => {
     mockAuth.mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
     // Two distinct INCOME groups (different ids) with the SAME name "Ministry".
     // Keyed by name they would merge into one block; keyed by id they render two.
+    mGroupBy.mockResolvedValue([])
     mAccounts.mockResolvedValue([
-      { id: 1, code: "100", name: "Sunday School", isActive: true, type: "INCOME", group: { id: 20, name: "Ministry", sortOrder: 0 }, transactions: [{ amount: dec("100.00"), date: new Date("2025-08-01") }] },
-      { id: 2, code: "110", name: "Youth", isActive: true, type: "INCOME", group: { id: 21, name: "Ministry", sortOrder: 1 }, transactions: [{ amount: dec("200.00"), date: new Date("2025-08-02") }] },
+      { id: 1, code: "100", name: "Sunday School", isActive: true, type: "INCOME", group: { id: 20, name: "Ministry", sortOrder: 0 } },
+      { id: 2, code: "110", name: "Youth", isActive: true, type: "INCOME", group: { id: 21, name: "Ministry", sortOrder: 1 } },
     ])
     const ui = await PLPrintPage(makeProps())
     render(ui)
@@ -107,8 +105,8 @@ describe("Screen vs print consistency", () => {
   it("renders identical Total Income / Total Expenses / Net Surplus figures on the dashboard page and the print route", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
 
-    mAccounts.mockResolvedValue(dashboardAccounts)
-    mGroupBy.mockResolvedValue(dashboardGroupBy)
+    mAccounts.mockResolvedValue(accounts)
+    mGroupBy.mockResolvedValue(groupByTotals)
     const dashboardUi = await PLReportPage(makeProps())
     render(dashboardUi)
     // Dashboard annual view renders both a mobile card layout and a desktop
@@ -118,11 +116,25 @@ describe("Screen vs print consistency", () => {
     expect(screen.getAllByText("$2,200.00").length).toBeGreaterThan(0)
     cleanup()
 
-    mAccounts.mockResolvedValue(printAccounts)
     const printUi = await PLPrintPage(makeProps())
     render(printUi)
     expect(screen.getByText("$3,500.00")).toBeInTheDocument()
     expect(screen.getByText("$1,300.00")).toBeInTheDocument()
     expect(screen.getByText("$2,200.00")).toBeInTheDocument()
+  })
+})
+
+describe("PLPrintPage — shared query", () => {
+  it("excludes the XFER clearing account via getPLReportData and fetches monthly rows in batches", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
+    mAccounts.mockResolvedValue(accounts)
+    mGroupBy.mockResolvedValue(groupByTotals)
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, accountId: 1, amount: dec("3000.00"), date: new Date("2025-08-01") },
+    ])
+    render(await PLPrintPage(makeProps({ view: "monthly" })))
+    expect(mAccounts.mock.calls[0][0].where.code).toEqual({ not: "XFER" })
+    expect(prisma.transaction.findMany).toHaveBeenCalled()
+    expect(screen.getByText(/\(Monthly\)/)).toBeInTheDocument()
   })
 })
