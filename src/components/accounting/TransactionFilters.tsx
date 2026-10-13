@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
+import { monthFromRange, monthRange, type MonthOption } from "@/lib/transactionFilters"
 
 type Account = { id: number; code: string; name: string }
 type Family = { id: number; name: string }
@@ -101,10 +102,13 @@ export function TransactionFilters({
   accounts,
   families,
   paymentAccounts,
+  months = [],
 }: Readonly<{
   accounts: Account[]
   families: Family[]
   paymentAccounts: PaymentAccountLite[]
+  /** Every month with transactions (newest first) for the Month filter. */
+  months?: MonthOption[]
 }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -174,11 +178,9 @@ export function TransactionFilters({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey])
 
-  const setRange = useCallback(
-    (preset: string) => {
-      const r = presetRange(preset)
-      if (!r) return
-      setRangeLocal(preset)
+  /** Navigate to the list with a new from/to range, keeping other filters (page reset). */
+  const pushRange = useCallback(
+    (r: { from: string; to: string }) => {
       const params = new URLSearchParams(searchParams.toString())
       params.set("from", r.from)
       params.set("to", r.to)
@@ -187,6 +189,23 @@ export function TransactionFilters({
     },
     [router, searchParams]
   )
+
+  /** Apply a quick-range preset. */
+  const setRange = (preset: string) => {
+    const r = presetRange(preset)
+    if (!r) return
+    setRangeLocal(preset)
+    pushRange(r)
+  }
+
+  // Month picker: a whole calendar month. Derived from the URL (no clock
+  // read), so it is safe to compute during render.
+  const monthValue = monthFromRange(urlFrom, urlTo)
+  /** Apply a whole `YYYY-MM` month as the from/to range. */
+  const setMonth = (month: string) => {
+    const r = monthRange(month)
+    if (r) pushRange(r)
+  }
 
   const clear = () => {
     if (qTimer.current) {
@@ -222,6 +241,18 @@ export function TransactionFilters({
           ))}
         </SelectContent>
       </Select>
+      {months.length > 0 && (
+        <Select value={monthValue} onValueChange={setMonth}>
+          <SelectTrigger className="w-40" aria-label="Month">
+            <SelectValue placeholder="Month" />
+          </SelectTrigger>
+          <SelectContent>
+            {months.map((m) => (
+              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       <Input
         type="date"
         className="w-40"

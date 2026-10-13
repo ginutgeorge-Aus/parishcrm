@@ -8,6 +8,7 @@ import { RiskFlagBadges } from "@/components/accounting/RiskFlagBadges"
 import { fmtAUD } from "@/lib/formatting"
 import type { TransactionRow, TransactionsData } from "@/lib/reports/transactionsQuery"
 import { APP_LOCALE } from "@/lib/appConfig"
+import { transactionEditHref } from "@/lib/transactionFilters"
 
 type Props = {
   transactions: TransactionRow[]
@@ -18,6 +19,8 @@ type Props = {
   income: number
   expense: number
   net: number
+  /** Current list filter query, carried into Edit links so save/cancel returns here. */
+  listQuery?: string
 }
 
 export function TransactionTable({
@@ -29,6 +32,7 @@ export function TransactionTable({
   income,
   expense,
   net,
+  listQuery = "",
 }: Readonly<Props>) {
   return (
     // Desktop: full table
@@ -109,7 +113,7 @@ export function TransactionTable({
                           <Button variant="ghost" size="sm" disabled aria-label="Edit — period locked">Edit</Button>
                         ) : (
                           <Button variant="ghost" size="sm" asChild>
-                            <Link href={`/accounting/transactions/${tx.id}/edit`}>Edit</Link>
+                            <Link href={transactionEditHref(tx.id, listQuery)}>Edit</Link>
                           </Button>
                         )
                       )}

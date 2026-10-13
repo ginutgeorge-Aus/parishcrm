@@ -22,7 +22,7 @@ jest.mock("next/navigation", () => ({
 }))
 
 // Capture the props the page hands to the form.
-let capturedProps: { transaction?: { description?: string } } = {}
+let capturedProps: { transaction?: { description?: string }; backQuery?: string } = {}
 jest.mock("@/components/accounting/TransactionForm", () => ({
   TransactionForm: (props: { transaction?: { description?: string } }) => {
     capturedProps = props
@@ -49,7 +49,7 @@ const baseTx = {
   pettyCashReceipt: null, pettyCashExpense: null, pettyCashTransfer: null,
 }
 
-const props = { params: Promise.resolve({ id: "5" }) }
+const props = { params: Promise.resolve({ id: "5" }), searchParams: Promise.resolve({}) }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -63,6 +63,14 @@ test("decrypts the transaction description before passing it to the form", async
   mockFindUnique.mockResolvedValue(baseTx)
   renderToStaticMarkup(await EditTransactionPage(props))
   expect(capturedProps.transaction?.description).toBe("Tithe July")
+})
+
+test("forwards the sanitised list filters (back) to the form", async () => {
+  mockFindUnique.mockResolvedValue(baseTx)
+  renderToStaticMarkup(
+    await EditTransactionPage({ ...props, searchParams: Promise.resolve({ back: "type=EXPENSE&evil=1" }) })
+  )
+  expect(capturedProps.backQuery).toBe("type=EXPENSE")
 })
 
 test("redirects locked-period transactions to the read-only detail page", async () => {

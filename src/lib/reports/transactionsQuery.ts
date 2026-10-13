@@ -6,6 +6,8 @@ import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { toCents, centsToNumber, sumCents } from "@/lib/formatting"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
+import { sydneyParts } from "@/lib/dates"
+import { monthOptions } from "@/lib/transactionFilters"
 
 export type TransactionsSearchParams = {
   from?: string
@@ -148,7 +150,7 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
   // When q is present we must fetch ALL records matching the other filters then
   // decrypt+filter in memory — descriptions are AES-encrypted so DB-level LIKE
   // is not possible. Without this, matches beyond the first TX_CAP rows are silently missed.
-  const [rawTransactions, totalCount, incomeAgg, expenseAgg, accounts, families, lockDate] = await Promise.all([
+  const [rawTransactions, totalCount, incomeAgg, expenseAgg, accounts, families, lockDate, dateSpan] = await Promise.all([
     prisma.transaction.findMany({
       where,
       orderBy: { date: "desc" },
@@ -178,7 +180,11 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     prisma.account.findMany({ where: { isActive: true }, orderBy: { code: "asc" } }),
     prisma.family.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     getAccountingLockDate(),
+    // Unfiltered date span — drives the Month filter's option list (every month
+    // that has, or could have, transactions — not just the filtered ones).
+    prisma.transaction.aggregate({ _min: { date: true }, _max: { date: true } }),
   ])
+  const months = monthOptions(dateSpan._min.date, dateSpan._max.date, sydneyParts())
 
   // Search scanned only the most-recent SEARCH_SCAN_CAP rows; if it filled the
   // cap, older matches may exist beyond it — tell the user to narrow filters.
@@ -221,6 +227,7 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     accounts,
     families,
     paymentAccounts,
+    months,
     lockDate,
     total,
     totalPages,
