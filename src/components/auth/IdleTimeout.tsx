@@ -37,6 +37,33 @@ function readSharedActivity(): number {
   }
 }
 
+/**
+ * Monotonic now in ms. Local idle time is measured on this clock so a
+ * wall-clock step (NTP correction, manual change) can't force an instant
+ * logout (forward) or postpone one (back).
+ */
+function monoNow(): number {
+  return performance.now()
+}
+
+/**
+ * Converts a monotonic stamp to wall-clock ms at the current offset, for the
+ * cross-tab share (tabs don't share a monotonic origin). Floored so a value
+ * adopted from the share doesn't read back as newer than the stored one.
+ * @param at a monoNow() stamp
+ */
+function toWall(at: number): number {
+  return Math.floor(Date.now() - (monoNow() - at))
+}
+
+/**
+ * Converts a wall-clock ms value (from the cross-tab share) to a monoNow() stamp.
+ * @param at wall-clock ms
+ */
+function fromWall(at: number): number {
+  return monoNow() - (Date.now() - at)
+}
+
 /** Shares this tab's activity with the other tabs (best effort). */
 function writeSharedActivity(at: number) {
   try {
@@ -55,10 +82,14 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
   // Hold it in a ref so the effect depends only on `idleMs`.
   const updateRef = useRef(update)
   useEffect(() => { updateRef.current = update }, [update])
-  const lastActivityRef = useRef(0)
-  const lastPingRef = useRef(0)
+  // monoNow() stamps. -Infinity so the first touch() always pings and shares
+  // (the monotonic clock starts near 0 at page load).
+  const lastActivityRef = useRef(Number.NEGATIVE_INFINITY)
+  const lastPingRef = useRef(Number.NEGATIVE_INFINITY)
   // When touch() last shared activity, so a mousemove storm writes at most once a second.
-  const lastPublishRef = useRef(0)
+  const lastPublishRef = useRef(Number.NEGATIVE_INFINITY)
+  // A "Stay logged in" renewal is in flight; the button is disabled meanwhile.
+  const [renewing, setRenewing] = useState(false)
   // Mirrors showWarning for the event handler, which must not re-subscribe.
   const warningRef = useRef(false)
   const [showWarning, setShowWarning] = useState(false)
@@ -78,29 +109,28 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
    * @param shared the latest shared activity, already read by the caller
    */
   const publish = useCallback((shared = readSharedActivity()) => {
-    if (lastActivityRef.current > shared) writeSharedActivity(lastActivityRef.current)
+    const ours = toWall(lastActivityRef.current)
+    if (ours > shared) writeSharedActivity(ours)
   }, [])
 
   /**
    * Records activity and refreshes the server session (throttled) so the
    * server-side idle clock tracks actual use; without this the server would
    * expire an actively-used session at the idle window.
-   * @param forcePing ping even inside the throttle window and share the
-   * activity regardless of the once-a-second share throttle
-   * (explicit "Stay logged in", a newly opened tab)
+   * @param forceShare share the activity regardless of the once-a-second
+   * share throttle (explicit "Stay logged in")
    */
-  const touch = useCallback((forcePing = false) => {
-    const now = Date.now()
+  const touch = useCallback((forceShare = false) => {
+    const now = monoNow()
     lastActivityRef.current = now
-    if (forcePing || now - lastPingRef.current > ACTIVITY_PING_MS) {
+    if (now - lastPingRef.current > ACTIVITY_PING_MS) {
       lastPingRef.current = now
       void updateRef.current()
     }
     // Share now (at most once a second) rather than on the next check: a
     // just-foregrounded tab's interval may still be throttled, and another tab
     // must not time out on the old stamp first.
-    // `now < last` = the wall clock moved back: don't let it block sharing.
-    if (forcePing || now - lastPublishRef.current >= CHECK_MS || now < lastPublishRef.current) {
+    if (forceShare || now - lastPublishRef.current >= CHECK_MS) {
       lastPublishRef.current = now
       publish()
     }
@@ -116,8 +146,11 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     function check() {
       if (loggedOut) return
       const shared = readSharedActivity()
-      publish(shared)
-      const idle = Date.now() - Math.max(lastActivityRef.current, shared)
+      // Adopt newer activity from another tab onto our monotonic clock, so a
+      // later wall-clock step can't age or rejuvenate it; else share ours.
+      if (shared > toWall(lastActivityRef.current)) lastActivityRef.current = fromWall(shared)
+      else publish(shared)
+      const idle = monoNow() - lastActivityRef.current
       if (idle >= idleMs) {
         loggedOut = true
         void logout()
@@ -147,18 +180,37 @@ export function IdleTimeout({ idleMinutes = 60 }: Readonly<{ idleMinutes?: numbe
     }
   }, [idleMs, touch, publish])
 
+  /**
+   * Renews the server session, and only on success dismisses the warning and
+   * restarts the idle window. A null or failed renewal keeps the warning and
+   * the old deadline: the server session was not extended.
+   */
+  async function stayLoggedIn() {
+    setRenewing(true)
+    let session = null
+    try {
+      session = await updateRef.current()
+    } catch {
+      // Treated like a null session below.
+    } finally {
+      setRenewing(false)
+    }
+    if (!session) return
+    warningRef.current = false
+    setShowWarning(false)
+    lastPingRef.current = monoNow() // just renewed: touch() needn't ping again
+    touch(true)
+  }
+
   if (!showWarning) return null
 
   return (
     <div role="alert" aria-live="assertive" className="fixed bottom-4 right-4 z-50 rounded-lg border border-gold bg-gold/10 px-4 py-3 text-sm text-foreground shadow-lg">
       Session expiring in {WARN_MS / 60000} minute{WARN_MS / 60000 !== 1 ? "s" : ""} due to inactivity.{" "}
       <button
-        className="font-semibold underline"
-        onClick={() => {
-          warningRef.current = false
-          setShowWarning(false)
-          touch(true)
-        }}
+        className="font-semibold underline disabled:opacity-60"
+        disabled={renewing}
+        onClick={() => { void stayLoggedIn() }}
       >
         Stay logged in
       </button>
