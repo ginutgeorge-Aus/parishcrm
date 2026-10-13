@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 import { DeleteDraftButton } from "@/components/accounting/InvoiceRowActions"
 import { InvoiceSendActions } from "@/components/accounting/InvoiceSendActions"
+import { InvoicePaymentActions } from "@/components/accounting/InvoicePaymentActions"
+import { VoidInvoiceDialog } from "@/components/accounting/VoidInvoiceDialog"
+import { getPaymentAccounts } from "@/lib/paymentAccounts"
 
 const money = (cents: number) => fmtAUD(centsToNumber(cents))
 
@@ -34,6 +37,10 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
     ? computeInvoiceTotals(inv.lines, showGst)
     : { subtotalCents: toCents(inv.subtotal), gstCents: toCents(inv.gstTotal), totalCents: toCents(inv.total) }
   const day = (d: Date) => sydneyTodayYMD(d)
+  // Default bank first, so the dialog preselects it.
+  const bankAccounts = canManage && inv.status === "SENT"
+    ? (await getPaymentAccounts({ kind: "BANK", activeOnly: true })).map(({ id, name }) => ({ id, name }))
+    : []
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -59,6 +66,13 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
 
       {canManage && (inv.status === "DRAFT" || inv.status === "SENT") && (
         <InvoiceSendActions id={inv.id} status={inv.status} hasEmail={!!inv.recipientEmail} />
+      )}
+
+      {canManage && (inv.status === "SENT" || inv.status === "PAID") && (
+        <div className="flex flex-wrap items-start gap-2">
+          <InvoicePaymentActions id={inv.id} status={inv.status} bankAccounts={bankAccounts} hasEmail={!!inv.recipientEmail} />
+          {inv.status === "SENT" && <VoidInvoiceDialog id={inv.id} />}
+        </div>
       )}
 
       <dl className="grid gap-4 rounded-lg border border-border p-4 text-sm sm:grid-cols-2">
@@ -115,7 +129,14 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
 
       <ul className="space-y-1 text-sm text-muted-foreground">
         {inv.sentAt && <li>Sent {day(inv.sentAt)}</li>}
-        {inv.paidAt && <li>Paid {day(inv.paidAt)}</li>}
+        {inv.paidAt && (
+          <li>
+            Paid {day(inv.paidAt)}
+            {inv.paymentTransactionId !== null && (
+              <> — <Link className="underline" href={`/accounting/transactions/${inv.paymentTransactionId}`}>view payment</Link></>
+            )}
+          </li>
+        )}
         {inv.voidedAt && <li>Voided {day(inv.voidedAt)}{inv.voidReason ? ` — ${inv.voidReason}` : ""}</li>}
       </ul>
     </div>

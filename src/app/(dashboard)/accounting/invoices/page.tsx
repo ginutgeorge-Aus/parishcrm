@@ -6,8 +6,9 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { fmtAUD, centsToNumber, toCents } from "@/lib/formatting"
 import { isRealCalendarDate } from "@/lib/validation"
-import { sydneyTodayYMD } from "@/lib/dates"
-import { listInvoices } from "@/lib/actions/invoice"
+import { sydneyMonthKey, sydneyTodayYMD } from "@/lib/dates"
+import { getInvoiceSummary, listInvoices } from "@/lib/actions/invoice"
+import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { INVOICE_LIST_LIMIT } from "@/lib/invoice"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,26 @@ import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
 type Props = { searchParams: Promise<{ status?: string; from?: string; to?: string }> }
 
 const STATUSES = Object.values(InvoiceStatus)
+const money = (cents: number) => fmtAUD(centsToNumber(cents))
+
+/** First and last day (YYYY-MM-DD) of the current Sydney month. */
+function currentMonthRange(): { from: string; to: string } {
+  const key = sydneyMonthKey()
+  const [y, m] = key.split("-").map(Number)
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return { from: `${key}-01`, to: `${key}-${String(lastDay).padStart(2, "0")}` }
+}
+
+/** One stat tile above the invoice table. */
+function Stat({ label, value, note }: Readonly<{ label: string; value: string; note?: string }>) {
+  return (
+    <div className="rounded-lg border border-border p-4">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-xl font-semibold">{value}</p>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
+  )
+}
 
 /** Invoice list with status/date filters. */
 export default async function InvoicesPage(props: Readonly<Props>) {
@@ -27,8 +48,12 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const status = STATUSES.find((s) => s === sp.status)
   const from = sp.from && isRealCalendarDate(sp.from) ? sp.from : undefined
   const to = sp.to && isRealCalendarDate(sp.to) ? sp.to : undefined
-  const result = await listInvoices({ status, from, to })
-  if ("error" in result) redirect("/")
+  const month = currentMonthRange()
+  // Paid / GST figures use the date filters as the payment period when both are set, else this month.
+  const period = from && to && from <= to ? { from, to } : month
+  const [result, summary, { gstRegistered }] = await Promise.all([listInvoices({ status, from, to }), getInvoiceSummary(period), getInvoiceSettings()])
+  if ("error" in result || "error" in summary) redirect("/")
+  const periodLabel = `${period.from} to ${period.to}`
   const canManage = canAccessAccounting(session?.user?.role)
   const today = sydneyTodayYMD()
 
@@ -60,6 +85,12 @@ export default async function InvoicesPage(props: Readonly<Props>) {
         </label>
         <Button type="submit" variant="outline">Filter</Button>
       </form>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Outstanding" value={money(summary.outstandingCents)} note={`${summary.outstandingCount} sent, unpaid`} />
+        <Stat label="Paid" value={money(summary.paidCents)} note={`${summary.paidCount} paid ${periodLabel}`} />
+        {gstRegistered && <Stat label="GST collected" value={money(summary.gstCollectedCents)} note={`On invoices paid ${periodLabel}`} />}
+      </div>
 
       {result.length >= INVOICE_LIST_LIMIT && (
         <p role="status" className="text-sm text-muted-foreground">

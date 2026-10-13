@@ -1,4 +1,4 @@
-import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices } from "@/lib/actions/invoice"
+import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices, getInvoiceSummary } from "@/lib/actions/invoice"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
@@ -15,7 +15,7 @@ jest.mock("@/lib/crypto", () => ({
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn(async () => ({ gstRegistered: true, paymentDetails: "" })) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    invoice: { create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+    invoice: { create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     account: { findUnique: jest.fn() },
     fund: { findUnique: jest.fn() },
     person: { findUnique: jest.fn() },
@@ -176,4 +176,32 @@ describe("listInvoices", () => {
     }))
   })
   it("rejects VIEWER", async () => { as("VIEWER"); expect(await listInvoices()).toEqual({ error: "Unauthorized" }) })
+})
+
+describe("getInvoiceSummary", () => {
+  const period = { from: "2026-10-01", to: "2026-10-31" }
+  it("rejects VIEWER", async () => {
+    as("VIEWER")
+    expect(await getInvoiceSummary(period)).toEqual({ error: "Unauthorized" })
+    expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
+  })
+  it("sums outstanding SENT and PAID-in-period totals in cents (AUDITOR may read)", async () => {
+    as("AUDITOR")
+    ;(prisma.invoice.aggregate as jest.Mock)
+      .mockResolvedValueOnce({ _sum: { total: { toString: () => "160.00" } }, _count: { _all: 2 } })
+      .mockResolvedValueOnce({ _sum: { total: { toString: () => "330.00" }, gstTotal: { toString: () => "30.00" } }, _count: { _all: 1 } })
+    expect(await getInvoiceSummary(period)).toEqual({ outstandingCents: 16000, outstandingCount: 2, paidCents: 33000, paidCount: 1, gstCollectedCents: 3000 })
+    expect(prisma.invoice.aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "SENT" } }))
+    expect(prisma.invoice.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: "PAID", paidAt: { gte: new Date("2026-10-01"), lte: new Date("2026-10-31T23:59:59.999Z") } },
+    }))
+  })
+  it.each([[{ from: "not-a-date", to: "2026-10-31" }], [{ from: "2026-10-01", to: "2026-02-30" }], [{ from: "2026-10-31", to: "2026-10-01" }]])("rejects an invalid period %j", async (bad) => {
+    expect(await getInvoiceSummary(bad)).toEqual({ error: "Invalid period" })
+    expect(prisma.invoice.aggregate).not.toHaveBeenCalled()
+  })
+  it("treats empty sums as zero", async () => {
+    ;(prisma.invoice.aggregate as jest.Mock).mockResolvedValue({ _sum: { total: null, gstTotal: null }, _count: { _all: 0 } })
+    expect(await getInvoiceSummary(period)).toEqual({ outstandingCents: 0, outstandingCount: 0, paidCents: 0, paidCount: 0, gstCollectedCents: 0 })
+  })
 })
