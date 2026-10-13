@@ -1,11 +1,16 @@
 /** @jest-environment node */
-import { buildInvoicePdfModel, loadInvoicePdf, churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
+import { buildInvoicePdfModel, loadInvoicePdf, encodeFrozenPdf, decodeFrozenPdf, churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
 import { prisma } from "@/lib/prisma"
 import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn() } } }))
-jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v) }))
+jest.mock("@/lib/crypto", () => ({
+  safeDecrypt: jest.fn((v: string) => v),
+  encrypt: jest.fn((v: string) => `enc:${v}`),
+  decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+}))
 jest.mock("@/lib/pdf/InvoicePdf", () => ({ renderInvoicePdf: jest.fn(async () => Buffer.from("%PDF")) }))
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({
@@ -94,6 +99,48 @@ describe("loadInvoicePdf", () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, status: "DRAFT", invoiceNo: null })
     expect(await loadInvoicePdf(11)).toMatchObject({ filename: "DRAFT-11.pdf" })
     expect(getChurchSettingsStrict).toHaveBeenCalled()
+  })
+})
+
+describe("frozen PDF", () => {
+  const issuer = { name: "Old Church Name", address: "Old St", abn: "11111111111", email: "old@example.com", paymentDetails: "Old BSB" }
+  const sent = {
+    id: 11, invoiceNo: "INV-0001", status: "SENT", taxInvoice: true, issueDate: new Date("2026-10-11"), dueDate: new Date("2026-10-25"),
+    recipientName: "Example Scouts", recipientEmail: "scouts@example.com", recipientAddress: null, issuer,
+    lines: [{ description: "Hall hire", qty: 1, unitPriceCents: 10000, gst: false }],
+    subtotal: { toString: () => "100.00" }, gstTotal: { toString: () => "0.00" }, total: { toString: () => "100.00" }, notes: null,
+  }
+  const stored = encodeFrozenPdf(Buffer.from("%PDF-frozen"))
+  beforeEach(() => jest.clearAllMocks())
+
+  it("round-trips bytes through the encrypted BYTEA encoding", () => {
+    expect(stored.toString("utf8")).toMatch(/^enc:/)
+    expect(decodeFrozenPdf(stored).toString()).toBe("%PDF-frozen")
+  })
+  it.each(["SENT", "PAID", "VOID"])("%s invoice serves the stored bytes without re-rendering", async (status) => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, status, frozenPdf: stored })
+    const out = await loadInvoicePdf(11)
+    expect(out?.pdf.toString()).toBe("%PDF-frozen")
+    expect(out).toMatchObject({ churchName: "Old Church Name", total: "$100.00" })
+    expect(renderInvoicePdf).not.toHaveBeenCalled()
+  })
+  it("draft always renders live, ignoring any stored bytes", async () => {
+    ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, status: "DRAFT", invoiceNo: null, frozenPdf: stored })
+    const out = await loadInvoicePdf(11)
+    expect(out?.pdf.toString()).toBe("%PDF")
+    expect(renderInvoicePdf).toHaveBeenCalledTimes(1)
+  })
+  it("legacy sent invoice (no stored PDF) falls back to a live render", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+    expect(renderInvoicePdf).toHaveBeenCalledTimes(1)
+  })
+  it("reads through a supplied transaction client", async () => {
+    const tx = { invoice: { findUnique: jest.fn().mockResolvedValue({ ...sent, frozenPdf: null }) } }
+    await loadInvoicePdf(11, undefined, tx as never)
+    expect(tx.invoice.findUnique).toHaveBeenCalledWith({ where: { id: 11 } })
+    expect(prisma.invoice.findUnique).not.toHaveBeenCalled()
   })
 })
 
