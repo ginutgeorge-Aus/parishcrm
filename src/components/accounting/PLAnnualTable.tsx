@@ -1,7 +1,8 @@
 import React from "react"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
-import { fmt, accountTotal } from "@/components/accounting/plFormat"
+import Link from "next/link"
+import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
 
 type Props = {
   incomeGroups: AccountGroup<PLAccountRow>[]
@@ -10,6 +11,8 @@ type Props = {
   totalIncome: number
   totalExpenses: number
   net: number
+  /** FY start year — scopes the account drill-down links. */
+  year: number
 }
 
 export function PLAnnualTable({
@@ -19,6 +22,7 @@ export function PLAnnualTable({
   totalIncome,
   totalExpenses,
   net,
+  year,
 }: Readonly<Props>) {
   return (
     // Desktop: full table
@@ -50,7 +54,7 @@ export function PLAnnualTable({
                   <tr key={a.id} className="border-b border-border">
                     <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
                     <td className="py-1.5 pr-3 pl-4">
-                      {a.name}
+                      <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
                       {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
                     </td>
                     <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>
@@ -88,7 +92,7 @@ export function PLAnnualTable({
                   <tr key={a.id} className="border-b border-border">
                     <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground">{a.code}</td>
                     <td className="py-1.5 pr-3 pl-4">
-                      {a.name}
+                      <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
                       {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
                     </td>
                     <td className="py-1.5 text-right tabular">{fmt(accountTotal(a, totalMap))}</td>

@@ -69,6 +69,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
           totalIncome={data.totalIncome}
           totalExpenses={data.totalExpenses}
           net={data.net}
+          year={year}
           acctMonthlyMap={data.acctMonthlyMap}
           incomeMonthly={data.incomeMonthly}
           expenseMonthly={data.expenseMonthly}
@@ -83,6 +84,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
             totalIncome={data.totalIncome}
             totalExpenses={data.totalExpenses}
             net={data.net}
+            year={year}
           />
           <PLAnnualTable
             incomeGroups={data.incomeGroups}
@@ -91,6 +93,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
             totalIncome={data.totalIncome}
             totalExpenses={data.totalExpenses}
             net={data.net}
+            year={year}
           />
         </>
       )}

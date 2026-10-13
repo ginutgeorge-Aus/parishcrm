@@ -2,7 +2,8 @@ import React from "react"
 import { MONTH_LABELS } from "@/lib/reports/plHelpers"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
-import { fmt, accountTotal } from "@/components/accounting/plFormat"
+import Link from "next/link"
+import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
 
 // Code + Category cols + 12 month cols + Total col
 const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
@@ -19,6 +20,7 @@ function renderMonthlyGroups(
   acctMonthlyMap: Map<number, number[]>,
   totalMap: Map<number, number>,
   keyPrefix: string,
+  year: number,
 ): React.ReactNode {
   return (
     <>
@@ -41,12 +43,18 @@ function renderMonthlyGroups(
                 <tr key={a.id} className="border-b border-border">
                   <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground whitespace-nowrap">{a.code}</td>
                   <td className="py-1.5 pr-3 pl-4 whitespace-nowrap">
-                    {a.name}
+                    <Link href={plTransactionsHref(a.id, year)} className="hover:underline">{a.name}</Link>
                     {!a.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
                   </td>
                   {acctMonthly.map((v, i) => (
                     <td key={i} className="py-1.5 px-1 text-right tabular whitespace-nowrap">
-                      {fmt(v)}
+                      {v === 0 ? (
+                        fmt(v)
+                      ) : (
+                        <Link href={plTransactionsHref(a.id, year, i)} className="hover:underline">
+                          {fmt(v)}
+                        </Link>
+                      )}
                     </td>
                   ))}
                   <td className="py-1.5 pl-3 text-right tabular font-medium whitespace-nowrap">
@@ -91,6 +99,8 @@ type Props = {
   totalIncome: number
   totalExpenses: number
   net: number
+  /** FY start year — scopes the account drill-down links. */
+  year: number
   acctMonthlyMap: Map<number, number[]>
   incomeMonthly: number[]
   expenseMonthly: number[]
@@ -104,6 +114,7 @@ export function PLMonthlyTable({
   totalIncome,
   totalExpenses,
   net,
+  year,
   acctMonthlyMap,
   incomeMonthly,
   expenseMonthly,
@@ -134,7 +145,7 @@ export function PLMonthlyTable({
               Income
             </td>
           </tr>
-          {renderMonthlyGroups(incomeGroups, incomeMonthly, totalIncome, "Total Income", acctMonthlyMap, totalMap, "ig")}
+          {renderMonthlyGroups(incomeGroups, incomeMonthly, totalIncome, "Total Income", acctMonthlyMap, totalMap, "ig", year)}
 
           {/* ── Expenses ── */}
           <tr>
@@ -142,7 +153,7 @@ export function PLMonthlyTable({
               Expenses
             </td>
           </tr>
-          {renderMonthlyGroups(expenseGroups, expenseMonthly, totalExpenses, "Total Expenses", acctMonthlyMap, totalMap, "eg")}
+          {renderMonthlyGroups(expenseGroups, expenseMonthly, totalExpenses, "Total Expenses", acctMonthlyMap, totalMap, "eg", year)}
         </tbody>
         <tfoot>
           <tr className="border-t-4 border-foreground font-bold text-base">
