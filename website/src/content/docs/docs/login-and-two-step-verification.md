@@ -19,8 +19,10 @@ signed in, see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); 
 3. **Remember this device** is on the password screen and ticked by default. If it stays
    ticked, this browser skips the code step for 14 days after you finish sign-in. Untick it
    on shared computers.
-4. On success you're signed in and redirected to the dashboard (or, for an Event Organiser,
-   straight to `/my-events`).
+4. On success you're signed in and redirected to the page you originally asked for, if your
+   role can open it (the sign-in page remembers it as `?next=`, same-site paths only), or the
+   dashboard if none. Event Organisers land on `/my-events` unless they asked for one of their
+   own event pages.
 
 **Signing in with an authenticator app:** once you've turned one on (see below), step 2
 changes. No email is sent; instead you enter the 6-digit code from your app. Choose **Use a
@@ -144,7 +146,13 @@ whose sessions were force-invalidated (by a password change, forced reset, or ex
 sign-out), has its session killed immediately even though the JWT itself hasn't expired.
 Non-"remembered" sessions get a 4-hour hard cap plus an idle timeout (default 60 minutes,
 configurable by an admin in Settings); "remembered" sessions instead get a 7-day sliding idle
-window with no separate hard cap.
+window with no separate hard cap. A minute before the idle timeout, a "Session expiring" notice
+appears; only its **Stay logged in** button keeps the session (moving the mouse or scrolling while
+it shows does not), so walking away from a screen still signs you out. This in-browser timer follows
+the same rule, so an idle open tab only signs a remembered session out after 7 days.
+When your browser allows the app to store data, the timer counts activity in every open tab: working
+in one tab keeps an idle tab from signing you out, and its notice disappears on its own. If browser
+storage is blocked (for example by privacy settings), each tab uses its own timer.
 
 ## Configuration
 

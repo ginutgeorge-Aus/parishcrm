@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { sydneyWeekStartYMD } from "@/lib/dates"
-import { isP2002 } from "@/lib/validation"
-import { withRetry } from "@/lib/retry"
+import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
 
 export async function runErrorDigest(
-  now: Date = new Date()
+  now: Date = new Date(),
+  leaseHeld: () => boolean = () => true,
 ): Promise<{ filed: number; skipped: number; purged: number }> {
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
 
@@ -49,16 +49,21 @@ export async function runErrorDigest(
       "",
       "_Auto-filed from ErrorLog. No PII / no stacktrace._",
     ].join("\n")
+    // Another run took the lease over: stop before filing a duplicate.
+    if (!leaseHeld()) throw new LeaseLostError()
     await createIssue({ title, body, labels: [PROD_ERROR_LABEL] })
     filed++
   }
 
+  // Purges are side effects too: don't run them on a lease another run now owns.
+  if (!leaseHeld()) throw new LeaseLostError()
   const { count: purged } = await prisma.errorLog.deleteMany({
     where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
 
   // Reuse this weekly run to purge the aggregate route-view counter too
   // ( Phase 3) — no separate scheduler for a bare counter table.
+  if (!leaseHeld()) throw new LeaseLostError()
   await prisma.routeViewDaily.deleteMany({
     where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
@@ -72,94 +77,34 @@ const LAST_WEEK_KEY = "errorDigestLastWeek"
 // long digest (many fingerprints filed one by one) is never treated as abandoned
 // and overlapped; a weekly job can afford a 2 h recovery delay.
 const LEASE_MS = 2 * 60 * 60_000
-const LEASE_PREFIX = "running:"
 
 type DigestResult = { filed: number; skipped: number; purged: number }
-
-function freshLease(value: string, now: Date): boolean {
-  if (!value.startsWith(LEASE_PREFIX)) return false
-  const startedAt = Number(value.slice(value.lastIndexOf(":") + 1))
-  return Number.isFinite(startedAt) && now.getTime() - startedAt < LEASE_MS
-}
 
 /**
  * The digest skips only fingerprints with an OPEN issue, so two overlapping runs
  * (scheduler + manual trigger, a rolling deploy, a second replica) or a second
- * run in the same week would file duplicate / re-file closed issues. Guarded by
- * one AppSetting row: `<week>` = done that Sydney week, `running:<week>:<ms>` =
- * a lease held by an in-flight run. The lease is taken by compare-and-set and
- * only becomes "done" after the digest succeeds; on failure the previous value is
- * restored (best effort — if that also fails the lease just goes stale).
- *
- * Returns "locked" when another run holds a fresh lease (or won the race), and
- * "done" when this week already ran (never with `force`). The two must stay
- * distinct: a scheduler that treated "locked" as done would never retry if the
- * lease owner then failed.
+ * run in the same week would file duplicate / re-file closed issues. Runs at
+ * most once per Sydney week via runOncePerPeriodLocked (see there for the lease
+ * and the "done" vs "locked" contract).
+ * @param now run time; picks the Sydney week
+ * @param opts `force` re-runs a week already done
  */
 export async function runErrorDigestLocked(
   now: Date = new Date(),
   opts: { force?: boolean } = {}
 ): Promise<DigestResult | "done" | "locked"> {
-  const week = sydneyWeekStartYMD(now)
-  const prev = await prisma.appSetting.findUnique({ where: { key: LAST_WEEK_KEY } })
-  if (prev && freshLease(prev.value, now)) return "locked"
-  if (prev?.value === week && !opts.force) return "done"
-
-  const lease = `${LEASE_PREFIX}${week}:${now.getTime()}`
-  if (prev) {
-    const { count } = await prisma.appSetting.updateMany({
-      where: { key: LAST_WEEK_KEY, value: prev.value },
-      data: { value: lease },
-    })
-    if (count === 0) return "locked"
-  } else {
-    try {
-      await prisma.appSetting.create({ data: { key: LAST_WEEK_KEY, value: lease } })
-    } catch (e) {
-      if (isP2002(e)) return "locked"
-      throw e
-    }
-  }
-
-  let result: DigestResult
-  try {
-    result = await runErrorDigest(now)
-  } catch (e) {
-    // Restore what was there so a later attempt retries this week. Never let a
-    // failed release mask the original error.
-    const restoreTo = prev && !prev.value.startsWith(LEASE_PREFIX) ? prev.value : null
-    try {
-      if (restoreTo) {
-        await prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: restoreTo } })
-      } else {
-        await prisma.appSetting.deleteMany({ where: { key: LAST_WEEK_KEY, value: lease } })
-      }
-    } catch (releaseErr) {
-      console.error(JSON.stringify({
-        level: "error",
-        source: "errorDigest",
-        message: `lease release failed (expires in ${LEASE_MS / 60_000} min): ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
-      }))
-    }
-    throw e
-  }
-
-  // Issues are already filed: never rethrow from here, or the scheduler would
-  // re-run the digest and re-file issues closed since. Retry the write; if it
-  // still fails the lease expires and a later run may repeat — log it loudly.
-  try {
-    await withRetry(
-      () => prisma.appSetting.updateMany({ where: { key: LAST_WEEK_KEY, value: lease }, data: { value: week } }),
-      { attempts: 3, baseDelayMs: 200 }
-    )
-  } catch (finalizeErr) {
-    console.error(JSON.stringify({
-      level: "error",
-      source: "errorDigest",
-      message: `digest filed ${result.filed} issue(s) but failed to mark week done: ${finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr)}`,
-    }))
-  }
-  return result
+  return runOncePerPeriodLocked(
+    {
+      settingKey: LAST_WEEK_KEY,
+      periodKey: sydneyWeekStartYMD(now),
+      leaseMs: LEASE_MS,
+      now,
+      force: opts.force,
+      // console.error, not logger.error: logger persists to ErrorLog, which this digest reads.
+      logError: (message) => console.error(JSON.stringify({ level: "error", source: "errorDigest", message })),
+    },
+    (leaseHeld) => runErrorDigest(now, leaseHeld),
+  )
 }
 
 /** In-app scheduler entry: at most once per Sydney week, never overlapping another run. */

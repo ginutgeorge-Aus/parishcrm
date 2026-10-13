@@ -13,6 +13,7 @@ jest.mock("@/lib/github", () => ({
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
 import { runErrorDigest, runErrorDigestLocked, runErrorDigestOncePerWeek } from "@/lib/errorDigest"
+import { LeaseLostError } from "@/lib/periodLease"
 
 const groupBy = prisma.errorLog.groupBy as jest.Mock
 const findFirst = prisma.errorLog.findFirst as jest.Mock
@@ -38,6 +39,37 @@ describe("runErrorDigest", () => {
     expect(r.purged).toBe(3)
   })
 
+  it("stops filing once its lease is lost", async () => {
+    groupBy.mockResolvedValue([
+      { fingerprint: "a1", _count: { _all: 1 }, _min: { createdAt: new Date() }, _max: { createdAt: new Date() } },
+      { fingerprint: "b2", _count: { _all: 1 }, _min: { createdAt: new Date() }, _max: { createdAt: new Date() } },
+    ])
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(createIssue).toHaveBeenCalledTimes(1)
+    expect(deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("does not purge when the lease is lost after the last issue", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(deleteMany).not.toHaveBeenCalled()
+    expect(prisma.routeViewDaily.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("does not purge routeViewDaily when the lease is lost between the purges", async () => {
+    groupBy.mockResolvedValue([])
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(runErrorDigest(new Date(), held)).rejects.toBeInstanceOf(LeaseLostError)
+    expect(deleteMany).toHaveBeenCalledTimes(1)
+    expect(prisma.routeViewDaily.deleteMany).not.toHaveBeenCalled()
+  })
+
   it("skips when an open issue already carries the fingerprint marker", async () => {
     ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([{ number: 5, body: "x <!-- fingerprint:abc123 --> y" }])
     const r = await runErrorDigest(new Date())
@@ -54,6 +86,11 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
   const MON = new Date("2026-07-06T00:00:00Z") // Mon 2026-07-06 10:00 AEST
   const KEY = "errorDigestLastWeek"
   const lease = (week: string, at: Date) => `running:${week}:${at.getTime()}`
+
+  // The lease is stamped with the run's `now`; pin the clock to it so the
+  // heartbeat's expiry check (wall clock vs lease stamp) sees a fresh lease.
+  beforeEach(() => jest.useFakeTimers({ now: MON, doNotFake: ["setTimeout", "clearTimeout"] })) // withRetry backoff stays real
+  afterEach(() => jest.useRealTimers())
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -161,7 +198,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     const err = jest.spyOn(console, "error").mockImplementation(() => {})
     await expect(runErrorDigestLocked(MON)).resolves.toEqual({ filed: 0, skipped: 0, purged: 0 })
     expect(updateMany).toHaveBeenCalledTimes(4) // lease + 3 finalize attempts
-    expect(err).toHaveBeenCalledWith(expect.stringContaining("mark week done"))
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("failed to mark 2026-07-06 done"))
     err.mockRestore()
   })
 

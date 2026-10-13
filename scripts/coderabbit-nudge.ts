@@ -94,6 +94,24 @@ export function pendingReset(comments: Comment[], now: Date): Date | null {
   return latest
 }
 
+export type Status = { context: string; description: string; createdAt: string }
+
+/**
+ * True when CodeRabbit's latest commit status on the head says "Review completed".
+ * Heads CodeRabbit skips (e.g. a merge from main) get that status but no review or
+ * `coveredCommitId` marker, so without this the PR looks unreviewed forever and each
+ * "Already reviewed the last commit" refusal (a CodeRabbit comment) triggers another
+ * nudge. A rate-limited head ends on "Review rate limited" instead, so it still counts
+ * as unreviewed.
+ * @param statuses - commit statuses on the PR's head SHA, any order
+ */
+export function statusSaysReviewed(statuses: Status[]): boolean {
+  const latest = statuses
+    .filter((s) => s.context === "CodeRabbit")
+    .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt))[0]
+  return latest?.description === "Review completed"
+}
+
 /**
  * CodeRabbit comments that aren't a review result: the instant "Review triggered"
  * ack, and the summary while it's edited to a "review in progress" placeholder.
@@ -224,9 +242,12 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    if (!isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) {
-      unreviewed.push(pr)
-    }
+    if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
+    const statuses = await gh<{ context: string; description: string | null; created_at: string }[]>(
+      `/repos/${REPO}/commits/${pr.headSha}/statuses`,
+    )
+    if (statusSaysReviewed(statuses.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at })))) continue
+    unreviewed.push(pr)
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)

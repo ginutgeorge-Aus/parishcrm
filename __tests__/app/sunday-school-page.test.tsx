@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => ({
     person: { findMany: jest.fn() },
     sundaySchoolRollMarker: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolSession: { findMany: jest.fn().mockResolvedValue([]) },
+    sundaySchoolYearLock: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 jest.mock("next/navigation", () => ({

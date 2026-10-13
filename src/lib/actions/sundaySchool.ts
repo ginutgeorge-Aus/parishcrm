@@ -13,9 +13,10 @@ import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { canEdit } from "@/lib/roleGuard"
+import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
-import { ClassFormSchema, planRollover } from "@/lib/sundaySchool"
+import { ClassFormSchema, currentSchoolYear, planRollover } from "@/lib/sundaySchool"
+import { holdYear, isYearLockedTx, lockLiveClass, YEAR_LOCKED, type ClassLockState } from "@/lib/sundaySchoolYearLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 
 const MAX_BATCH = 200
@@ -81,12 +82,17 @@ export async function createClass(year: number, _prev: ActionResult, formData: F
     // Same table lock as rolloverYear, so a create and a rollover run one after
     // the other instead of interleaving.
     id = await prisma.$transaction(async (tx) => {
+      // Year lock before the table lock — the order closers use (see holdYear).
+      await holdYear(tx, year, "shared")
       // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass" IN SHARE ROW EXCLUSIVE MODE`
+      // A rollover that committed first has locked the year; refuse the add.
+      if (await isYearLockedTx(tx, year)) throw new Error(YEAR_LOCKED)
       return (await tx.sundaySchoolClass.create({ data: { year, ...form.data }, select: { id: true } })).id
       // May queue behind a rollover (itself up to 60s), so outlast it.
     }, { timeout: 90_000 })
   } catch (e) {
+    if (e instanceof Error && e.message === YEAR_LOCKED) return { error: YEAR_LOCKED }
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
     throw e
   }
@@ -103,9 +109,10 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
   if ("error" in form) return { error: form.error }
 
   try {
-    // Conditional write: a class archived since editableClass() is left untouched.
-    const { count } = await prisma.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data })
-    if (count === 0) return { error: "Class not found" }
+    // Under the class + year-lock check: a class archived or locked since
+    // editableClass() is left untouched.
+    const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data }), "update")
+    if (state !== "ok") return { error: stateError(state) }
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
     throw e
@@ -120,28 +127,36 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
 export async function archiveClass(id: number): Promise<ActionResult> {
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
-  const { count } = await prisma.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } })
-  // Archived by someone else since editableClass(): no row changed, no audit.
-  if (count === 0) return { error: "Class not found" }
+  // Archived by someone else, or year locked, since editableClass(): no row changed, no audit.
+  const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } }), "update")
+  if (state !== "ok") return { error: stateError(state) }
   await logAudit(actorId(g.session), "SS_CLASS_ARCHIVED", ENTITY, id)
   revalidatePath("/sunday-school")
   revalidatePath(`/sunday-school/${id}`)
 }
 
+/** User-facing message for a non-"ok" lock state. */
+function stateError(state: Exclude<ClassLockState, "ok">): string {
+  return state === "locked" ? YEAR_LOCKED : "Class not found"
+}
+
 /**
  * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
  * concurrent archive (an UPDATE needing the row lock) waits until `fn` commits,
- * and `fn` is skipped if the class was archived after the caller's check.
- * Returns false when the class is no longer live.
+ * and `fn` is skipped if the class was archived — or its year locked by a
+ * rollover — after the caller's check (see lockLiveClass). Returns "ok" when
+ * `fn` ran, else "gone" / "locked".
  */
-async function withLiveClass(classId: number, fn: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<boolean> {
+async function withLiveClass(
+  classId: number,
+  fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  mode: "share" | "update" = "share",
+): Promise<ClassLockState> {
   return prisma.$transaction(async (tx) => {
-    // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
-    const rows = await tx.$queryRaw<{ id: number }[]>`
-      SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
-    if (rows.length === 0) return false
+    const state = await lockLiveClass(tx, classId, mode)
+    if (state !== "ok") return state
     await fn(tx)
-    return true
+    return "ok" as const
     // The teacher/enrolment write may queue behind a rollover's table lock
     // (itself up to 60s), so outlast it like createClass does.
   }, { timeout: 90_000 })
@@ -162,7 +177,7 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
   if (!person) return { error: NOT_TEACHER }
 
   try {
-    const live = await withLiveClass(classId, async (tx) => {
+    const state = await withLiveClass(classId, async (tx) => {
       // Re-check the tag under FOR SHARE: an untag (UPDATE on Person) waits for
       // this insert, or the insert is refused if the untag committed first.
       // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
@@ -172,7 +187,7 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
       if (ok.length === 0) throw new Error(NOT_TEACHER)
       await tx.sundaySchoolTeacher.create({ data: { classId, personId } })
     })
-    if (!live) return { error: "Class not found" }
+    if (state !== "ok") return { error: stateError(state) }
   } catch (e) {
     if (e instanceof Error && e.message === NOT_TEACHER) return { error: NOT_TEACHER }
     // Already assigned (unique classId_personId) — idempotent.
@@ -188,9 +203,8 @@ export async function removeTeacher(classId: number, personId: number): Promise<
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  if (!(await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } })))) {
-    return { error: "Class not found" }
-  }
+  const state = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } }))
+  if (state !== "ok") return { error: stateError(state) }
   await logAudit(actorId(g.session), "SS_TEACHER_REMOVED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
@@ -224,11 +238,9 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   try {
     // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs
     // the row lock) until the enrolments commit, and fails if it already has.
-    const live = await prisma.$transaction(async (tx) => {
-      // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
-      const rows = await tx.$queryRaw<{ id: number }[]>`
-        SELECT id FROM "SundaySchoolClass" WHERE id = ${classId} AND "archivedAt" IS NULL FOR SHARE`
-      if (rows.length === 0) return false
+    const state = await prisma.$transaction(async (tx) => {
+      const lock = await lockLiveClass(tx, classId)
+      if (lock !== "ok") return lock
       // Same for the people: an archive (UPDATE on Person) waits for these
       // enrolments, or they're refused if it already committed.
       // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
@@ -242,10 +254,10 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
           update: { classId },
         })
       }
-      return true
+      return "ok" as const
       // Up to MAX_BATCH sequential upserts — Prisma's 5s default is too tight.
     }, { timeout: 30_000 })
-    if (!live) return { error: "Class not found" }
+    if (state !== "ok") return { error: stateError(state) }
   } catch (e) {
     if (e instanceof Error && e.message === PERSON_GONE) return { error: PERSON_GONE }
     // Two editors enrolling the same child at once: both upserts take the insert path.
@@ -265,9 +277,8 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  if (!(await withLiveClass(classId, (tx) => tx.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } })))) {
-    return { error: "Class not found" }
-  }
+  const state = await withLiveClass(classId, (tx) => tx.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } }))
+  if (state !== "ok") return { error: stateError(state) }
   await logAudit(actorId(g.session), "SS_UNENROLLED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
@@ -277,7 +288,8 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
  * Roll `fromYear` over to the next year in one transaction: copy every live
  * class and its teachers, then move each child up one level at the same
  * location (see planRollover). One-time: refused once next year has any class,
- * archived or not (archived classes still occupy the year). Inside the
+ * archived or not (archived classes still occupy the year). The source year is
+ * then locked (SundaySchoolYearLock) against further edits. Inside the
  * transaction the class, teacher and enrolment tables are locked first, so
  * in-flight class/teacher/enrolment writes finish before the source is read
  * and new ones wait until the copy commits.
@@ -291,17 +303,27 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   const ALREADY_ROLLED = `${toYear} already has classes — roll over is one-time`
   if ((await prisma.sundaySchoolClass.count({ where: { year: toYear } })) > 0) return { error: ALREADY_ROLLED }
   const NO_SOURCE = `No classes in ${fromYear} to roll over`
+  const TARGET_LOCKED = `${toYear} is locked — unlock it before rolling over into it`
   let newIds: Map<number, number>
   let plan: ReturnType<typeof planRollover> = { classes: [], placements: [], unplaced: [] }
   let placed = 0
   try {
     newIds = await prisma.$transaction(async (tx) => {
+      // Waits for in-flight writes into fromYear; later ones queue and then
+      // see the lock row written below (see holdYear). toYear too, so a
+      // concurrent lock of the target year can't slip in. Ascending order.
+      await holdYear(tx, fromYear, "exclusive")
+      await holdYear(tx, toYear, "exclusive")
       // SHARE ROW EXCLUSIVE blocks every insert/update/delete on these tables
       // (and other rollovers) but not plain reads. At READ COMMITTED each later
       // statement sees everything committed before the lock was granted, so the
       // toYear check and the source read below can't miss a concurrent write.
       // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
       await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+      // A manual lock that committed while we waited closes the source year too.
+      if (await isYearLockedTx(tx, fromYear)) throw new Error(YEAR_LOCKED)
+      // createClass refuses a locked year; the copy must too.
+      if (await isYearLockedTx(tx, toYear)) throw new Error(TARGET_LOCKED)
       // Authoritative one-time guard.
       if ((await tx.sundaySchoolClass.count({ where: { year: toYear } })) > 0) throw new Error(ALREADY_ROLLED)
       const source = await tx.sundaySchoolClass.findMany({
@@ -340,11 +362,14 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
       // skipDuplicates: a child already enrolled in toYear keeps that place, so
       // report the rows actually written, not the plan.
       if (enrolments.length) placed = (await tx.sundaySchoolEnrolment.createMany({ data: enrolments, skipDuplicates: true })).count
+      // Close the source year in the same transaction: edits that were waiting
+      // on the table lock then see the lock row and are refused. Idempotent.
+      await tx.sundaySchoolYearLock.upsert({ where: { year: fromYear }, create: { year: fromYear }, update: {} })
       return map
       // LOCK TABLE may wait out an in-flight enrol batch (30s timeout) first.
     }, { isolationLevel: "ReadCommitted", timeout: 60_000 })
   } catch (e) {
-    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE)) return { error: e.message }
+    if (e instanceof Error && (e.message === ALREADY_ROLLED || e.message === NO_SOURCE || e.message === YEAR_LOCKED || e.message === TARGET_LOCKED)) return { error: e.message }
     // Deadlock/serialization failure (P2034): a concurrent write collided with the lock.
     if (isP2034(e)) {
       return { error: `${toYear} was changed by someone else during roll over — try again` }
@@ -365,4 +390,58 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
   return {
     success: `Created ${plan.classes.length} classes for ${toYear}; moved ${children(placed)}; ${needPlacing} need placing by hand`,
   }
+}
+
+/**
+ * Manually lock a school year (an admin re-closing a year after an unlock).
+ * ADMIN only. Takes the year's exclusive advisory lock (see holdYear) and the
+ * same table lock as rolloverYear before writing the lock row, so in-flight
+ * writes into the year finish first and later ones wait, then see the row.
+ * Only a past year with live classes can be locked (what the page offers),
+ * re-checked here so a direct call can't close the current or an empty year.
+ * Already locked returns an error and audits nothing.
+ */
+export async function lockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
+  if (year >= currentSchoolYear()) return { error: "Only a past school year can be locked" }
+
+  const NO_CLASSES = `No classes in ${year} to lock`
+  const count = await prisma.$transaction(async (tx) => {
+    await holdYear(tx, year, "exclusive")
+    // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
+    await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN SHARE ROW EXCLUSIVE MODE`
+    // Under the table lock, so a concurrent archive can't empty the year after this check.
+    if ((await tx.sundaySchoolClass.count({ where: { year, archivedAt: null } })) === 0) return null
+    // skipDuplicates = ON CONFLICT DO NOTHING; count 0 = it was already locked.
+    return (await tx.sundaySchoolYearLock.createMany({ data: [{ year }], skipDuplicates: true })).count
+    // LOCK TABLE may wait out an in-flight enrol batch, like rolloverYear.
+  }, { timeout: 60_000 })
+  if (count === null) return { error: NO_CLASSES }
+  if (count === 0) return { error: `${year} is already locked` }
+  await logAudit(actorId(session), "SS_YEAR_LOCKED", ENTITY, undefined, { year })
+  revalidatePath("/sunday-school")
+  return { success: `Locked ${year}` }
+}
+
+/**
+ * Re-open a school year closed by rollover (deletes its SundaySchoolYearLock
+ * row). ADMIN only. Idempotent: an already-open year returns an error and
+ * audits nothing. Rolling the year over again re-locks it.
+ */
+export async function unlockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
+
+  const { count } = await prisma.sundaySchoolYearLock.deleteMany({ where: { year } })
+  if (count === 0) return { error: `${year} is not locked` }
+  await logAudit(actorId(session), "SS_YEAR_UNLOCKED", ENTITY, undefined, { year })
+  revalidatePath("/sunday-school")
+  return { success: `Unlocked ${year}` }
 }
