@@ -4,7 +4,7 @@ import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 import Link from "next/link"
 import { PLAccountName } from "@/components/accounting/PLAccountName"
-import { fmt, accountTotal, plTransactionsHref } from "@/components/accounting/plFormat"
+import { fmt, accountTotal, plSections, plTransactionsHref } from "@/components/accounting/plFormat"
 
 // Code + Category cols + 12 month cols + Total col
 const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
@@ -12,6 +12,7 @@ const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
 /** Per-report lookups shared by both sections of the monthly table. */
 type MonthlyCtx = {
   acctMonthlyMap: Map<number, number[]>
+  acctMonthlyCountMap: Map<number, number[]>
   totalMap: Map<number, number>
   year: number
 }
@@ -26,7 +27,7 @@ function renderMonthlyGroups(
   sectionTotal: number,
   totalLabel: string,
   keyPrefix: string,
-  { acctMonthlyMap, totalMap, year }: MonthlyCtx,
+  { acctMonthlyMap, acctMonthlyCountMap, totalMap, year }: MonthlyCtx,
 ): React.ReactNode {
   return (
     <>
@@ -45,6 +46,7 @@ function renderMonthlyGroups(
             </tr>
             {group.accounts.map((a) => {
               const acctMonthly = acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)
+              const acctCounts = acctMonthlyCountMap.get(a.id)
               return (
                 <tr key={a.id} className="border-b border-border">
                   <td className="py-1.5 pr-3 pl-4 font-mono text-muted-foreground whitespace-nowrap">{a.code}</td>
@@ -53,10 +55,11 @@ function renderMonthlyGroups(
                   </td>
                   {acctMonthly.map((v, i) => (
                     <td key={i} className="py-1.5 px-1 text-right tabular whitespace-nowrap">
-                      {v === 0 ? (
+                      {/* Link any month with rows — offsetting entries can net to 0. */}
+                      {!acctCounts?.[i] ? (
                         fmt(v)
                       ) : (
-                        <Link href={plTransactionsHref(a.id, year, i)} className="hover:underline">
+                        <Link href={plTransactionsHref(a.id, year, i)} prefetch={false} className="hover:underline">
                           {fmt(v)}
                         </Link>
                       )}
@@ -107,6 +110,7 @@ type Props = {
   /** FY start year — scopes the account drill-down links. */
   year: number
   acctMonthlyMap: Map<number, number[]>
+  acctMonthlyCountMap: Map<number, number[]>
   incomeMonthly: number[]
   expenseMonthly: number[]
   netMonthly: number[]
@@ -121,6 +125,7 @@ export function PLMonthlyTable({
   net,
   year,
   acctMonthlyMap,
+  acctMonthlyCountMap,
   incomeMonthly,
   expenseMonthly,
   netMonthly,
@@ -129,7 +134,9 @@ export function PLMonthlyTable({
   // default view is the stacked per-month summary below, but this full grid
   // stays reachable on demand inside a collapsible so per-account/group detail
   // is never lost below the lg breakpoint.
-  const ctx: MonthlyCtx = { acctMonthlyMap, totalMap, year }
+  const ctx: MonthlyCtx = { acctMonthlyMap, acctMonthlyCountMap, totalMap, year }
+  const sections = plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses })
+  const sectionMonthly = { ig: incomeMonthly, eg: expenseMonthly }
   const detailTable = (
       <table className="w-full min-w-table-wide text-sm">
         <thead>
@@ -145,21 +152,23 @@ export function PLMonthlyTable({
           </tr>
         </thead>
         <tbody>
-          {/* ── Income ── */}
-          <tr>
-            <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
-              Income
-            </td>
-          </tr>
-          {renderMonthlyGroups(incomeGroups, incomeMonthly, totalIncome, "Total Income", "ig", ctx)}
-
-          {/* ── Expenses ── */}
-          <tr>
-            <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
-              Expenses
-            </td>
-          </tr>
-          {renderMonthlyGroups(expenseGroups, expenseMonthly, totalExpenses, "Total Expenses", "eg", ctx)}
+          {sections.map((section) => (
+            <React.Fragment key={section.key}>
+              <tr>
+                <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
+                  {section.label}
+                </td>
+              </tr>
+              {renderMonthlyGroups(
+                section.groups,
+                sectionMonthly[section.key],
+                section.total,
+                `Total ${section.label}`,
+                section.key,
+                ctx,
+              )}
+            </React.Fragment>
+          ))}
         </tbody>
         <tfoot>
           <tr className="border-t-4 border-foreground font-bold text-base">

@@ -24,6 +24,8 @@ export type PLReportData = {
   net: number
   /** Per-account 12-month cent arrays — populated only in the monthly view. */
   acctMonthlyMap: Map<number, number[]>
+  /** Per-account 12-month transaction counts — monthly view only. */
+  acctMonthlyCountMap: Map<number, number[]>
   incomeMonthly: number[]
   expenseMonthly: number[]
   netMonthly: number[]
@@ -103,6 +105,7 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
   const net = totalIncome - totalExpenses
 
   const acctMonthlyMap = new Map<number, number[]>()
+  const acctMonthlyCountMap = new Map<number, number[]>()
   if (isMonthly) {
     await forEachTransactionBatch(
       (page) =>
@@ -112,7 +115,7 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
           orderBy: { id: "asc" },
           ...page,
         }),
-      (batch) => accumulateMonthlyByAccount(acctMonthlyMap, batch),
+      (batch) => accumulateMonthlyByAccount(acctMonthlyMap, batch, acctMonthlyCountMap),
     )
   }
 
@@ -134,6 +137,7 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
     totalExpenses,
     net,
     acctMonthlyMap,
+    acctMonthlyCountMap,
     incomeMonthly,
     expenseMonthly,
     netMonthly,

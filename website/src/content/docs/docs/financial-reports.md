@@ -9,7 +9,7 @@ Accounting reports live under `/accounting/reports/*` (the Dues report is at `/a
 
 | Report | What it shows | Notes |
 |--------|----------------|-------|
-| **Profit & Loss** (`/accounting/reports/pl`) | Income and expense by category (grouped like the chart of accounts) for a financial year, with an optional monthly breakdown. Click a category name to open its transactions for that year; in the monthly view, click a non-zero amount to open just that month | Has a dedicated print layout at `/accounting/pl/print` |
+| **Profit & Loss** (`/accounting/reports/pl`) | Income and expense by category (grouped like the chart of accounts) for a financial year, with an optional monthly breakdown. Click a category name to open its transactions for that year; in the monthly view, click any month with transactions to open just that month | Has a dedicated print layout at `/accounting/pl/print` |
 | **Balance Sheet** (`/accounting/reports/balance-sheet`) | Each payment account's book balance "as at" a chosen date (opening balance + all income − all expenses since) | Date-pickable; "book balance" — see the note in [Reconciliation](/parishcrm/docs/reconciliation/) about why this can differ from the reconciliation page's figure for the same account |
 | **Cash Flow** (`/accounting/reports/cash-flow`) | Operating cash in/out by account group for a financial year | Same account-grouping structure as the P&L |
 | **Trial Balance** (`/accounting/reports/trial-balance`) | Every account's FY total, for a basic debit/credit sanity check | |

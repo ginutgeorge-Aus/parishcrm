@@ -1,7 +1,7 @@
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 import { PLAccountName } from "@/components/accounting/PLAccountName"
-import { fmt, accountTotal } from "@/components/accounting/plFormat"
+import { fmt, accountTotal, plSections } from "@/components/accounting/plFormat"
 
 type Props = {
   incomeGroups: AccountGroup<PLAccountRow>[]
@@ -23,10 +23,7 @@ export function PLMobileCards({
   net,
   year,
 }: Readonly<Props>) {
-  const sections = [
-    { key: "ig", label: "Income", groups: incomeGroups, total: totalIncome },
-    { key: "eg", label: "Expenses", groups: expenseGroups, total: totalExpenses },
-  ]
+  const sections = plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses })
   return (
     // Mobile: card per account group (avoids sideways table scroll)
     <div className="space-y-4 md:hidden">

@@ -13,6 +13,7 @@ import { PLMonthlyTable } from "@/components/accounting/PLMonthlyTable"
 import { PLAnnualTable } from "@/components/accounting/PLAnnualTable"
 import { PLMobileCards } from "@/components/accounting/PLMobileCards"
 import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
+import { fyRangeLabel } from "@/lib/fiscalYear"
 
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
@@ -44,7 +45,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
 
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
-          P&amp;L Report — FY {year}–{year + 1}
+          P&amp;L Report — FY {fyRangeLabel(year)}
         </h2>
         <div className="flex items-center gap-3">
           <ViewToggle currentView={isMonthly ? "monthly" : "annual"} year={year} />
@@ -58,7 +59,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
         </div>
       </div>
       <h2 className="hidden print:block text-xl font-semibold mb-4">
-        P&amp;L Report — FY {year}–{year + 1}{isMonthly ? " (Monthly)" : ""}
+        P&amp;L Report — FY {fyRangeLabel(year)}{isMonthly ? " (Monthly)" : ""}
       </h2>
 
       {isMonthly ? (
@@ -71,6 +72,7 @@ export default async function PLReportPage(props: Readonly<Props>) {
           net={data.net}
           year={year}
           acctMonthlyMap={data.acctMonthlyMap}
+          acctMonthlyCountMap={data.acctMonthlyCountMap}
           incomeMonthly={data.incomeMonthly}
           expenseMonthly={data.expenseMonthly}
           netMonthly={data.netMonthly}

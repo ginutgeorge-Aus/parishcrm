@@ -1,5 +1,6 @@
 import { centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
-import { FY_START_MONTH } from "@/lib/appConfig"
+import { fyDateRange } from "@/lib/fiscalYear"
+import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 
 // Takes integer cents — every figure on the P&L is accumulated in cents
@@ -24,13 +25,35 @@ function isoDay(year: number, month: number, day: number): string {
  * `lte endOfDay` filter, so the rows sum to the P&L figure.
  */
 export function plTransactionsHref(accountId: number, year: number, monthIndex?: number): string {
-  const startMonth = FY_START_MONTH - 1 + (monthIndex ?? 0)
+  if (monthIndex !== undefined && !(Number.isInteger(monthIndex) && monthIndex >= 0 && monthIndex < 12)) {
+    throw new RangeError(`monthIndex must be an integer 0–11, got ${monthIndex}`)
+  }
+  // Anchor on fyDateRange — the same range plQuery buckets — so link dates
+  // can't drift from the columns.
+  const { start } = fyDateRange(year)
+  const startYear = start.getUTCFullYear()
+  const startMonth = start.getUTCMonth() + (monthIndex ?? 0)
   const months = monthIndex === undefined ? 12 : 1
   const params = new URLSearchParams({
     account: String(accountId),
-    from: isoDay(year, startMonth, 1),
+    from: isoDay(startYear, startMonth, 1),
     // Day 0 of the following month = last day of the range.
-    to: isoDay(year, startMonth + months, 0),
+    to: isoDay(startYear, startMonth + months, 0),
   })
   return `/accounting/transactions?${params.toString()}`
+}
+
+type PLSectionInput = {
+  incomeGroups: AccountGroup<PLAccountRow>[]
+  expenseGroups: AccountGroup<PLAccountRow>[]
+  totalIncome: number
+  totalExpenses: number
+}
+
+/** Income then Expenses, in render order — shared by every P&L layout. */
+export function plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses }: PLSectionInput) {
+  return [
+    { key: "ig", label: "Income", groups: incomeGroups, total: totalIncome },
+    { key: "eg", label: "Expenses", groups: expenseGroups, total: totalExpenses },
+  ] as const
 }

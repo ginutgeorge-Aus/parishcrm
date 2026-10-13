@@ -6,7 +6,7 @@ import { plTransactionsHref } from "@/components/accounting/plFormat"
 export function PLAccountName({ account, year }: Readonly<{ account: PLAccountRow; year: number }>) {
   return (
     <>
-      <Link href={plTransactionsHref(account.id, year)} className="hover:underline">
+      <Link href={plTransactionsHref(account.id, year)} prefetch={false} className="hover:underline">
         {account.name}
       </Link>
       {!account.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}

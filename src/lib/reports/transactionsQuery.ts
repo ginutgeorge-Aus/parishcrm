@@ -175,7 +175,12 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     // filtered to EXPENSE, and vice versa.
     prisma.transaction.aggregate({ where: { AND: [where, { type: "INCOME" }] }, _sum: { amount: true } }),
     prisma.transaction.aggregate({ where: { AND: [where, { type: "EXPENSE" }] }, _sum: { amount: true } }),
-    prisma.account.findMany({ where: { isActive: true }, orderBy: { code: "asc" } }),
+    // Active accounts plus the filtered one even if deactivated — a P&L
+    // drill-down can link an inactive category, and the dropdown must show it.
+    prisma.account.findMany({
+      where: { OR: [{ isActive: true }, ...(where.accountId ? [{ id: where.accountId }] : [])] },
+      orderBy: { code: "asc" },
+    }),
     prisma.family.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     getAccountingLockDate(),
   ])

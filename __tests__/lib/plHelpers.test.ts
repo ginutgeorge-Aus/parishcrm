@@ -42,7 +42,10 @@ describe("non-July FY start (APP_FY_START_MONTH=4)", () => {
 
       const julyIndex = helpers.monthlyAmounts([makeTx("100", 6)]).findIndex((c) => c !== 0)
       expect(helpers.MONTH_LABELS[julyIndex]).toBe("JUL")
-      expect(plTransactionsHref(1, 2025, julyIndex)).toContain("from=2025-07-01")
+      const params = new URL(plTransactionsHref(1, 2025, julyIndex), "http://x").searchParams
+      expect(params.get("account")).toBe("1")
+      expect(params.get("from")).toBe("2025-07-01")
+      expect(params.get("to")).toBe("2025-07-31")
     } finally {
       if (previous === undefined) delete process.env.APP_FY_START_MONTH
       else process.env.APP_FY_START_MONTH = previous
@@ -182,6 +185,15 @@ describe("monthlyAmountsByAccount", () => {
 // streaming the FY in batches must produce the exact same map as
 // loading every row at once. These tests pin that equivalence.
 describe("accumulateMonthlyByAccount (streaming fold)", () => {
+  it("tallies per-month counts, including months that net to zero", () => {
+    const map = new Map<number, number[]>()
+    const counts = new Map<number, number[]>()
+    accumulateMonthlyByAccount(map, [makeTxFor(1, "100", 6), makeTxFor(1, "-100", 6)], counts)
+    expect(map.get(1)?.[0]).toBe(0)
+    expect(counts.get(1)?.[0]).toBe(2)
+    expect(counts.get(1)?.[1]).toBe(0)
+  })
+
   it("accumulates a single batch into an empty map like monthlyAmountsByAccount", () => {
     const txs = [makeTxFor(1, "100", 6), makeTxFor(1, "50", 7), makeTxFor(2, "300", 5)]
     const map = new Map<number, number[]>()

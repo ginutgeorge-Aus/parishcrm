@@ -48,3 +48,17 @@ describe("getTransactionsData — nonexistent paymentAccount filter", () => {
     expect(mockTxFindMany.mock.calls[0][0].where).toHaveProperty("paymentAccountId", 1)
   })
 })
+
+describe("getTransactionsData — account dropdown", () => {
+  const mockAccountFindMany = prisma.account.findMany as jest.Mock
+
+  it("loads active accounts only when no account filter is set", async () => {
+    await getTransactionsData({})
+    expect(mockAccountFindMany.mock.calls[0][0].where).toEqual({ OR: [{ isActive: true }] })
+  })
+
+  it("also loads the filtered account so an inactive one stays selectable", async () => {
+    await getTransactionsData({ account: "42" })
+    expect(mockAccountFindMany.mock.calls[0][0].where).toEqual({ OR: [{ isActive: true }, { id: 42 }] })
+  })
+})

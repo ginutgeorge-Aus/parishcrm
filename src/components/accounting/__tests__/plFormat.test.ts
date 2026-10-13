@@ -28,4 +28,10 @@ describe("plTransactionsHref", () => {
       "/accounting/transactions?account=3&from=2024-02-01&to=2024-02-29",
     )
   })
+
+  it("rejects a month index outside 0–11", () => {
+    expect(() => plTransactionsHref(3, 2025, 12)).toThrow(RangeError)
+    expect(() => plTransactionsHref(3, 2025, -1)).toThrow(RangeError)
+    expect(() => plTransactionsHref(3, 2025, 1.5)).toThrow(RangeError)
+  })
 })

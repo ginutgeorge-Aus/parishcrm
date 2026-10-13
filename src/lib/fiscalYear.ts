@@ -34,6 +34,14 @@ export function fyDateRange(year: number): { start: Date; end: Date } {
 }
 
 /**
+ * Display label for FY `year` (its start year): "2025–2026" for a split FY,
+ * just "2025" when the FY is the calendar year (APP_FY_START_MONTH=1).
+ */
+export function fyRangeLabel(year: number): string {
+  return FY_START_MONTH === 1 ? String(year) : `${year}–${year + 1}`
+}
+
+/**
  * Parse a `?year=` FY param. Absent → current FY. Digits only, within
  * 2000..fyNow+10; anything else → null so the caller picks 400 vs fallback.
  */

@@ -1,10 +1,5 @@
 import { FY_START_MONTH } from "@/lib/appConfig"
-import { type Money, toCents } from "@/lib/formatting"
-
-const CALENDAR_MONTH_LABELS = [
-  "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
-] as const
+import { MONTH_ABBR, type Money, toCents } from "@/lib/formatting"
 
 /**
  * FY month order as 0-based calendar months, starting at FY_START_MONTH
@@ -16,7 +11,7 @@ export const FY_MONTHS: readonly number[] = Array.from(
   (_, i) => (FY_START_MONTH - 1 + i) % 12,
 )
 
-export const MONTH_LABELS: readonly string[] = FY_MONTHS.map((m) => CALENDAR_MONTH_LABELS[m])
+export const MONTH_LABELS: readonly string[] = FY_MONTHS.map((m) => MONTH_ABBR[m])
 
 
 export type MonthlyTx = {
@@ -77,11 +72,13 @@ export function monthlySum(groups: MonthlyTx[][]): number[] {
  * existing accountId -> 12-element integer-cent map, using the SAME FY
  * month-index logic as monthlyAmounts (index 0 = first FY month). Caller must pre-filter
  * to the FY. Accumulates in place so a caller can stream many batches into one
- * map without materialising every row at once.
+ * map without materialising every row at once. With `counts`, also tallies
+ * transactions per account-month — a month can net to 0 yet still have rows.
  */
 export function accumulateMonthlyByAccount(
   map: Map<number, number[]>,
   transactions: (MonthlyTx & { accountId: number })[],
+  counts?: Map<number, number[]>,
 ): void {
   for (const t of transactions) {
     const idx = fyMonthIndex(t.date)
@@ -92,6 +89,14 @@ export function accumulateMonthlyByAccount(
       map.set(t.accountId, arr)
     }
     arr[idx] += toCents(t.amount)
+    if (counts) {
+      let c = counts.get(t.accountId)
+      if (!c) {
+        c = new Array<number>(12).fill(0)
+        counts.set(t.accountId, c)
+      }
+      c[idx]++
+    }
   }
 }
 
