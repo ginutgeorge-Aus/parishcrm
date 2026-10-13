@@ -8,7 +8,7 @@ jest.mock("@/lib/prisma", () => ({
       count: jest.fn(),
       aggregate: jest.fn(),
     },
-    account: { findMany: jest.fn() },
+    account: { findMany: jest.fn(), findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve({ id: where.id })) },
     family: { findMany: jest.fn() },
     appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
   },
@@ -308,7 +308,7 @@ describe("TransactionsPage", () => {
     primeEmpty()
     await TransactionsPage(makeProps())
     expect(mockAccountFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { isActive: true } })
+      expect.objectContaining({ where: { OR: [{ isActive: true }] } })
     )
     expect(mockFamilyFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { archivedAt: null } })

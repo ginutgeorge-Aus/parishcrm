@@ -13,7 +13,7 @@ jest.mock("@/lib/prisma", () => ({
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
     },
-    account: { findMany: jest.fn().mockResolvedValue([]) },
+    account: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() },
     family: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
@@ -58,7 +58,18 @@ describe("getTransactionsData — account dropdown", () => {
   })
 
   it("also loads the filtered account so an inactive one stays selectable", async () => {
-    await getTransactionsData({ account: "42" })
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 42 })
+    const result = await getTransactionsData({ account: "42" })
     expect(mockAccountFindMany.mock.calls[0][0].where).toEqual({ OR: [{ isActive: true }, { id: 42 }] })
+    expect(result.accountId).toBe(42)
+    expect(mockTxFindMany.mock.calls[0][0].where).toHaveProperty("accountId", 42)
+  })
+
+  it("strips a nonexistent account id from the where and the returned value", async () => {
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue(null)
+    const result = await getTransactionsData({ account: "999" })
+    expect(result.accountId).toBeUndefined()
+    expect(mockTxFindMany.mock.calls[0][0].where).not.toHaveProperty("accountId")
+    expect(mockAccountFindMany.mock.calls[0][0].where).toEqual({ OR: [{ isActive: true }] })
   })
 })

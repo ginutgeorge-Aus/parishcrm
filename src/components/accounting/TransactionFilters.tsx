@@ -2,6 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation"
 import { sydneyParts } from "@/lib/dates"
+import { FY_START_MONTH } from "@/lib/appConfig"
+import { currentFYYear } from "@/lib/fiscalYear"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import {
@@ -79,8 +81,9 @@ function presetRange(preset: string): { from: string; to: string } | null {
     case "last-6-months":
       return { from: fmtDate(monthsAgo(today, 6)), to: fmtDate(today) }
     case "this-fy": {
-      const fyYear = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1
-      return { from: `${fyYear}-07-01`, to: fmtDate(today) }
+      // Configured FY start, matching the P&L drill-down links.
+      const fyYear = currentFYYear(today)
+      return { from: `${fyYear}-${String(FY_START_MONTH).padStart(2, "0")}-01`, to: fmtDate(today) }
     }
     default:
       return null

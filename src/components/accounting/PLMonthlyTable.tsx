@@ -135,8 +135,7 @@ export function PLMonthlyTable({
   // stays reachable on demand inside a collapsible so per-account/group detail
   // is never lost below the lg breakpoint.
   const ctx: MonthlyCtx = { acctMonthlyMap, acctMonthlyCountMap, totalMap, year }
-  const sections = plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses })
-  const sectionMonthly = { ig: incomeMonthly, eg: expenseMonthly }
+  const sections = plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses, incomeMonthly, expenseMonthly })
   const detailTable = (
       <table className="w-full min-w-table-wide text-sm">
         <thead>
@@ -161,7 +160,7 @@ export function PLMonthlyTable({
               </tr>
               {renderMonthlyGroups(
                 section.groups,
-                sectionMonthly[section.key],
+                section.monthly,
                 section.total,
                 `Total ${section.label}`,
                 section.key,

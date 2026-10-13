@@ -48,12 +48,22 @@ type PLSectionInput = {
   expenseGroups: AccountGroup<PLAccountRow>[]
   totalIncome: number
   totalExpenses: number
+  /** Per-section 12-month cents — monthly view only. */
+  incomeMonthly?: number[]
+  expenseMonthly?: number[]
 }
 
 /** Income then Expenses, in render order — shared by every P&L layout. */
-export function plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses }: PLSectionInput) {
+export function plSections({
+  incomeGroups,
+  expenseGroups,
+  totalIncome,
+  totalExpenses,
+  incomeMonthly = [],
+  expenseMonthly = [],
+}: PLSectionInput) {
   return [
-    { key: "ig", label: "Income", groups: incomeGroups, total: totalIncome },
-    { key: "eg", label: "Expenses", groups: expenseGroups, total: totalExpenses },
+    { key: "ig", label: "Income", groups: incomeGroups, total: totalIncome, monthly: incomeMonthly },
+    { key: "eg", label: "Expenses", groups: expenseGroups, total: totalExpenses, monthly: expenseMonthly },
   ] as const
 }

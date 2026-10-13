@@ -145,6 +145,18 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     delete (where as { paymentAccountId?: number }).paymentAccountId
   }
 
+  // Same for a stale account id (e.g. a bookmarked P&L drill-down to a deleted
+  // account): keep it only if the account exists, inactive ones included.
+  const rawAccountId = where.accountId
+  const accountId =
+    rawAccountId !== undefined &&
+    (await prisma.account.findUnique({ where: { id: rawAccountId }, select: { id: true } }))
+      ? rawAccountId
+      : undefined
+  if (accountId === undefined) {
+    delete (where as { accountId?: number }).accountId
+  }
+
   // When q is present we must fetch ALL records matching the other filters then
   // decrypt+filter in memory — descriptions are AES-encrypted so DB-level LIKE
   // is not possible. Without this, matches beyond the first TX_CAP rows are silently missed.
@@ -178,7 +190,7 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     // Active accounts plus the filtered one even if deactivated — a P&L
     // drill-down can link an inactive category, and the dropdown must show it.
     prisma.account.findMany({
-      where: { OR: [{ isActive: true }, ...(where.accountId ? [{ id: where.accountId }] : [])] },
+      where: { OR: [{ isActive: true }, ...(accountId === undefined ? [] : [{ id: accountId }])] },
       orderBy: { code: "asc" },
     }),
     prisma.family.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -239,6 +251,7 @@ export async function getTransactionsData(sp: TransactionsSearchParams) {
     searchTruncated,
     type,
     paymentAccountId,
+    accountId,
   }
 }
 
