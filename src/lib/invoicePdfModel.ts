@@ -101,11 +101,13 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
   const r = await prisma.invoice.findUnique({ where: { id } })
   if (!r) return null
   const recipientEmail = r.recipientEmail ? safeDecrypt(r.recipientEmail) : ""
-  const live = settingsIn ?? (await getInvoiceSettings())
   // Sent invoices render from the issuer snapshot frozen at send, so a re-send or download
-  // is always the same document. Drafts (and legacy rows without a snapshot) use live
-  // settings: a tax invoice needs the ABN (strict loader throws when unset).
+  // is always the same document — and needs no live settings read. Drafts (and legacy rows
+  // without a snapshot) use live settings: a tax invoice needs the ABN (strict loader throws when unset).
   const frozen = r.status === "DRAFT" ? null : parseIssuer(r.issuer)
+  const live = settingsIn ?? (frozen
+    ? { gstRegistered: r.taxInvoice, paymentDetails: frozen.paymentDetails }
+    : await getInvoiceSettings())
   const taxInvoice = r.status === "DRAFT" ? live.gstRegistered : r.taxInvoice
   const issuer = frozen ?? (await buildIssuerSnapshot(taxInvoice, live))
   const church = { name: issuer.name, address: issuer.address, abn: issuer.abn, email: issuer.email }

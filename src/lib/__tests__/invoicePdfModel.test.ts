@@ -72,6 +72,13 @@ describe("loadInvoicePdf", () => {
     expect(getChurchSettingsFresh).not.toHaveBeenCalled()
     expect(getChurchSettingsStrict).not.toHaveBeenCalled()
   })
+  it("sent invoice with a snapshot renders even when the live settings read fails", async () => {
+    const issuer = { name: "Old Church Name", address: "Old St", abn: "11111111111", email: "old@example.com", paymentDetails: "Old BSB" }
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, taxInvoice: true, issuer })
+    ;(getInvoiceSettings as jest.Mock).mockRejectedValue(new Error("db down"))
+    await expect(loadInvoicePdf(11)).resolves.toMatchObject({ paymentDetails: "Old BSB" })
+    expect(getInvoiceSettings).not.toHaveBeenCalled()
+  })
   it("ignores a malformed snapshot and falls back to live settings", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...row, issuer: { name: 5 } })
     expect(await loadInvoicePdf(11)).toMatchObject({ churchName: "Example Church" })
