@@ -9,9 +9,15 @@ import { safeDecrypt } from "@/lib/crypto"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { TransactionForm } from "@/components/accounting/TransactionForm"
 import { parseRouteId } from "@/lib/validation"
+import { transactionListQuery } from "@/lib/transactionFilters"
 
-export default async function EditTransactionPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
+export default async function EditTransactionPage(
+  props: Readonly<{ params: Promise<{ id: string }>; searchParams: Promise<{ back?: string | string[] }> }>
+) {
   const params = await props.params;
+  const { back } = await props.searchParams
+  // Filters of the list this edit was opened from — restored on save/cancel.
+  const backQuery = transactionListQuery(typeof back === "string" ? back : undefined)
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) redirect("/")
 
@@ -88,6 +94,7 @@ export default async function EditTransactionPage(props: Readonly<{ params: Prom
         families={families}
         funds={funds}
         paymentAccounts={paymentAccounts}
+        backQuery={backQuery}
       />
     </div>
   )

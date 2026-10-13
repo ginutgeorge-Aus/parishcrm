@@ -14,6 +14,7 @@ import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validati
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
 import { TransactionSchema, validateParties } from "./transactionValidation"
+import { transactionListHref } from "@/lib/transactionFilters"
 import type { ActionResult } from "./types"
 
 // Report pages cache transaction-derived figures, so every transaction
@@ -276,7 +277,11 @@ export async function updateTransaction(
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
   revalidateReports()
-  redirect("/accounting/transactions")
+  // Return to the filtered list the edit was opened from. `back` is
+  // client-supplied, so it is re-sanitised to an allow-listed query on the
+  // fixed list path (never an open redirect).
+  const back = formData.get("back")
+  redirect(transactionListHref(typeof back === "string" ? back : null))
 }
 
 export async function deleteTransaction(id: number): Promise<ActionResult> {

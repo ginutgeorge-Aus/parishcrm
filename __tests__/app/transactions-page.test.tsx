@@ -92,7 +92,7 @@ const makeTx = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 })
 
-const emptyAgg = { _sum: { amount: null } }
+const emptyAgg = { _sum: { amount: null }, _min: { date: null }, _max: { date: null } }
 
 function primeEmpty() {
   mockTxFindMany.mockResolvedValue([])
