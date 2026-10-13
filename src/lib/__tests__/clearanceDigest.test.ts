@@ -1,7 +1,8 @@
 /** @jest-environment node */
+jest.mock("node:crypto", () => ({ ...jest.requireActual("node:crypto"), randomUUID: () => "tok" }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    appSetting: { findUnique: jest.fn(), create: jest.fn(), upsert: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
+    appSetting: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
     user: { findMany: jest.fn() },
   },
 }))
@@ -24,12 +25,28 @@ import { LeaseLostError } from "@/lib/periodLease"
 
 const findUnique = prisma.appSetting.findUnique as jest.Mock
 const create = prisma.appSetting.create as jest.Mock
-const upsert = prisma.appSetting.upsert as jest.Mock
 const DKEY = "clearanceDigestDelivered"
-/** findUnique mock: lease row (`last`) plus the delivered row (`delivered`, or none). */
-const setRows = (last: string, delivered?: { month: string; emails: string[] }) =>
+/** The delivered row as a tiny fake table: its value, every committed write, and writes still set to fail. */
+const dRow = { value: null as string | null, writes: [] as string[], failing: 0 }
+/** Makes the next `n` delivered-list writes throw (Infinity = all). */
+const failDeliveredWrites = (n: number) => { dRow.failing = n }
+/** Commits a delivered-list write unless one is set to fail. */
+function writeDelivered(value: string) {
+  if (dRow.failing > 0) {
+    dRow.failing--
+    throw new Error("db down")
+  }
+  dRow.value = value
+  dRow.writes.push(value)
+}
+/** Emails in the delivered list's last committed write. */
+const lastDelivered = () => JSON.parse(dRow.writes.at(-1)!) as { month: string; emails: string[] }
+/** findUnique mock: lease row (`last`) plus the delivered row (`delivered`, or none), which writes then update. */
+const setRows = (last: string, delivered?: { month: string; emails: string[] }) => {
+  dRow.value = delivered ? JSON.stringify(delivered) : null
   findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
-    where.key === KEY ? { key: KEY, value: last } : delivered ? { key: DKEY, value: JSON.stringify(delivered) } : null)
+    where.key === KEY ? { key: KEY, value: last } : dRow.value === null ? null : { key: DKEY, value: dRow.value })
+}
 const updateMany = prisma.appSetting.updateMany as jest.Mock
 const settingDeleteMany = prisma.appSetting.deleteMany as jest.Mock
 const users = prisma.user.findMany as jest.Mock
@@ -38,7 +55,9 @@ const send = sendEmail as jest.Mock
 const KEY = "clearanceDigestLastMonth"
 const FIRST = new Date("2026-10-31T20:00:00Z") // Sun 2026-11-01 07:00 AEDT
 const MONTH = "2026-11"
-const lease = (at: Date) => `running:${MONTH}:${at.getTime()}`
+const lease = (at: Date) => `running:${MONTH}:tok:${at.getTime()}`
+/** Matches any value of this run's lease (the heartbeat restamps it). */
+const mine = (at: Date) => ({ startsWith: lease(at).replace(/\d+$/, "") })
 
 const flaggedRows = () => [
   toComplianceRow({
@@ -64,10 +83,21 @@ afterEach(() => jest.useRealTimers())
 beforeEach(() => {
   jest.clearAllMocks()
   setRows("2026-10")
-  upsert.mockResolvedValue({})
-  updateMany.mockResolvedValue({ count: 1 })
+  dRow.writes = []
+  dRow.failing = 0
+  updateMany.mockImplementation(async ({ where, data }: { where: { key: string; value: string }; data: { value: string } }) => {
+    if (where.key !== DKEY) return { count: 1 }
+    if (dRow.value !== where.value) return { count: 0 }
+    writeDelivered(data.value)
+    return { count: 1 }
+  })
   settingDeleteMany.mockResolvedValue({ count: 1 })
-  create.mockResolvedValue({})
+  create.mockImplementation(async ({ data }: { data: { key: string; value: string } }) => {
+    if (data.key !== DKEY) return {}
+    if (dRow.value !== null) throw Object.assign(new Error("unique"), { code: "P2002" })
+    writeDelivered(data.value)
+    return {}
+  })
   users.mockResolvedValue([{ email: "admin@example.com" }, { email: "pastor@example.com" }])
   send.mockResolvedValue(undefined)
   ;(loadComplianceRows as jest.Mock).mockResolvedValue({ rows: flaggedRows() })
@@ -85,7 +115,7 @@ describe("runClearanceDigestLocked", () => {
     expect(html + text).not.toContain("WWC0000000E")
     expect(r).toEqual({ flagged: 1, sent: 2, failed: 0 })
     expect(updateMany).toHaveBeenNthCalledWith(1, { where: { key: KEY, value: "2026-10" }, data: { value: lease(FIRST) } })
-    expect(updateMany).toHaveBeenNthCalledWith(2, { where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } })
     expect(logAudit).toHaveBeenCalledWith(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, expect.objectContaining({ sent: 2, failed: 0, flagged: 1 }))
   })
 
@@ -109,7 +139,7 @@ describe("runClearanceDigestLocked", () => {
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).not.toHaveBeenCalled()
     expect(r).toEqual({ flagged: 0, sent: 0, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } })
   })
 
   it("is 'done' (no work) when this month already ran, unless forced", async () => {
@@ -140,19 +170,15 @@ describe("runClearanceDigestLocked", () => {
     send.mockRejectedValue(new Error("smtp down"))
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 0, failed: 2 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: "2026-10" } })
   })
 
   it("after a partial failure records who got it, keeps the month open, and a retry emails only the failed one", async () => {
     send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 1 })
-    expect(upsert).toHaveBeenLastCalledWith({
-      where: { key: DKEY },
-      create: { key: DKEY, value: JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }) },
-      update: { value: JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }) },
-    })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } }) // open
+    expect(lastDelivered()).toEqual({ month: MONTH, emails: ["admin@example.com"] })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: "2026-10" } }) // open
 
     jest.clearAllMocks()
     send.mockResolvedValue(undefined)
@@ -161,7 +187,7 @@ describe("runClearanceDigestLocked", () => {
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0]).toBe("pastor@example.com")
     expect(retry).toEqual({ flagged: 1, sent: 1, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: expect.stringContaining("running:") }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: { startsWith: expect.stringContaining("running:") } }, data: { value: MONTH } })
   })
 
   it("marks the month done without sending when everyone already has it (case-insensitive)", async () => {
@@ -169,16 +195,32 @@ describe("runClearanceDigestLocked", () => {
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).not.toHaveBeenCalled()
     expect(r).toEqual({ flagged: 1, sent: 0, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } })
   })
 
-  it("force resends to everyone and replaces the delivered list with this run's deliveries", async () => {
+  it("force resends to everyone and keeps the delivered list whole", async () => {
     setRows(MONTH, { month: MONTH, emails: ["admin@example.com", "pastor@example.com"] })
     const r = await runClearanceDigestLocked(FIRST, { force: true })
     expect(send).toHaveBeenCalledTimes(2)
     expect(r).toMatchObject({ sent: 2, failed: 0 })
-    // No eager reset: the first write already holds a real delivery.
-    expect(upsert.mock.calls[0][0].update.value).toBe(JSON.stringify({ month: MONTH, emails: ["admin@example.com"] }))
+    expect(dRow.writes).toEqual([]) // merging changed nothing: no write
+    expect(JSON.parse(dRow.value!)).toEqual({ month: MONTH, emails: ["admin@example.com", "pastor@example.com"] })
+  })
+
+  it("merges into recipients another run saved meanwhile instead of overwriting them (#232)", async () => {
+    users.mockResolvedValue([{ email: "admin@example.com" }, { email: "pastor@example.com" }, { email: "office@example.com" }])
+    // While our first send is in flight, a run that took the lease over saves office@.
+    send.mockImplementationOnce(async () => { dRow.value = JSON.stringify({ month: MONTH, emails: ["office@example.com"] }) })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(sendClearanceDigest(FIRST, { leaseHeld: held })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(lastDelivered().emails.sort()).toEqual(["admin@example.com", "office@example.com"])
+  })
+
+  it("retries the delivered-list save before giving up the lease (#232)", async () => {
+    failDeliveredWrites(3) // every attempt of the per-send save fails
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(sendClearanceDigest(FIRST, { leaseHeld: held })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(lastDelivered()).toEqual({ month: MONTH, emails: ["admin@example.com"] })
   })
 
   it("emails an address once when two accounts differ only by case or spaces", async () => {
@@ -187,32 +229,32 @@ describe("runClearanceDigestLocked", () => {
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0]).toBe("Admin@Example.com") // trimmed, original case
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
-    expect(JSON.parse(upsert.mock.calls[0][0].update.value).emails).toEqual(["admin@example.com"])
+    expect(lastDelivered().emails).toEqual(["admin@example.com"])
   })
 
   it("does not report failures for retry when the delivered list could not be saved", async () => {
     send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
-    upsert.mockRejectedValue(new Error("db down"))
+    failDeliveredWrites(Infinity)
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 1, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } }) // done, no repeat
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } }) // done, no repeat
   })
 
   it("marks the month done when the checkpoint fails and every recipient is sent", async () => {
-    upsert.mockRejectedValue(new Error("db down"))
+    failDeliveredWrites(Infinity)
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).toHaveBeenCalledTimes(2)
     expect(r).toEqual({ flagged: 1, sent: 2, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } })
   })
 
   it("allows a retry when an early checkpoint failed but a later write saved the full set", async () => {
-    upsert.mockRejectedValueOnce(new Error("blip")).mockResolvedValue({})
+    failDeliveredWrites(3) // the first save's retries all fail; later saves succeed
     send.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("bad address"))
     users.mockResolvedValue([{ email: "admin@example.com" }, { email: "pastor@example.com" }, { email: "office@example.com" }])
     const r = await runClearanceDigestLocked(FIRST)
     expect(r).toEqual({ flagged: 1, sent: 2, failed: 1 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } }) // open
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: "2026-10" } }) // open
   })
 
   it("ignores a delivered list from an earlier month", async () => {
@@ -220,12 +262,13 @@ describe("runClearanceDigestLocked", () => {
     const r = await runClearanceDigestLocked(FIRST)
     expect(send).toHaveBeenCalledTimes(2)
     expect(r).toMatchObject({ sent: 2 })
-    expect(upsert.mock.calls.at(-1)![0].update.value).toBe(JSON.stringify({ month: MONTH, emails: ["admin@example.com", "pastor@example.com"] }))
+    expect(lastDelivered()).toEqual({ month: MONTH, emails: ["admin@example.com", "pastor@example.com"] })
   })
 
   it("stores only email addresses in the delivered list", async () => {
     await runClearanceDigestLocked(FIRST)
-    for (const [arg] of upsert.mock.calls) expect(Object.keys(JSON.parse(arg.create.value)).sort()).toEqual(["emails", "month"])
+    expect(dRow.writes.length).toBeGreaterThan(0)
+    for (const w of dRow.writes) expect(Object.keys(JSON.parse(w)).sort()).toEqual(["emails", "month"])
   })
 
   it("treats an ambiguous delivery error as sent (never resend on a maybe)", async () => {
@@ -236,13 +279,13 @@ describe("runClearanceDigestLocked", () => {
   it("records the month with no send when there is nobody to email", async () => {
     users.mockResolvedValue([])
     expect(await runClearanceDigestLocked(FIRST)).toEqual({ flagged: 1, sent: 0, failed: 0 })
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: MONTH } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: MONTH } })
   })
 
   it("releases the lease and rethrows when the query throws", async () => {
     ;(loadComplianceRows as jest.Mock).mockRejectedValue(new Error("db down"))
     await expect(runClearanceDigestLocked(FIRST)).rejects.toThrow("db down")
-    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: lease(FIRST) }, data: { value: "2026-10" } })
+    expect(updateMany).toHaveBeenLastCalledWith({ where: { key: KEY, value: mine(FIRST) }, data: { value: "2026-10" } })
   })
 })
 
