@@ -11,13 +11,16 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, INVOICE_LIST_LIMIT, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
-import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
+import { Prisma } from "@/lib/generated/prisma/client"
+import { isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
 import { endOfDayUTC } from "@/lib/dates"
 import type { ActionResult } from "./types"
 
 const INVOICES_PATH = "/accounting/invoices"
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
+const BUSY = { error: "Couldn't save the invoice. Try again." }
+const MAX_TX_ATTEMPTS = 3
 
 export type InvoiceView = {
   id: number; invoiceNo: string | null; status: InvoiceStatus; personId: number | null; customerId: number | null
@@ -26,6 +29,8 @@ export type InvoiceView = {
   taxInvoice: boolean; accountId: number; accountName: string; fundId: number | null; fundName: string | null
   notes: string | null; sentAt: Date | null; paidAt: Date | null; voidedAt: Date | null; voidReason: string | null
   paymentTransactionId: number | null
+  /** Optimistic-concurrency token: the edit form round-trips it so a stale draft save is rejected. */
+  updatedAt: Date
 }
 export type InvoiceListRow = {
   id: number; invoiceNo: string | null; status: InvoiceStatus; recipientName: string
@@ -34,23 +39,52 @@ export type InvoiceListRow = {
 
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
 
+/** True for a Postgres foreign-key violation (P2003): the referenced account was deleted mid-write. */
+function isFkViolation(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false
+  const err = e as { code?: string; cause?: { kind?: string } }
+  return err.code === "P2003" || err.cause?.kind === "ForeignKeyConstraintViolation"
+}
+
+/**
+ * Run an invoice write that validates its account and inserts/updates in one Serializable transaction.
+ *
+ * Ordering vs `updateAccount` (retype) and `deleteAccount`: those run Serializable too, and read the invoices
+ * that point at the account. This write reads the account (type/active) then writes an invoice. Each side reads
+ * what the other writes, so Postgres sees a dependency cycle and aborts one of them (P2034) instead of letting
+ * both commit — an invoice can never land on an account that was retyped or deleted in the same instant. The
+ * loser (P2034, or an FK violation when the account vanished first) is retried: the re-run re-validates against
+ * the committed state and returns the normal "Choose an active income account" message, or succeeds.
+ */
+async function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T | { error: string }> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (e) {
+      if (!isP2034(e) && !isFkViolation(e)) throw e
+      if (attempt >= MAX_TX_ATTEMPTS) return BUSY
+    }
+  }
+}
+
 /**
  * Check the referenced account/fund/recipient exist and are usable. Returns an error message or null.
  * `keepCustomerId` lets a draft keep a customer that was deactivated after it was addressed.
+ * `db` is the transaction client when called inside {@link serializableWrite}.
  */
-async function validateRefs(d: InvoiceDraftInput, keepCustomerId: number | null = null): Promise<string | null> {
-  const account = await prisma.account.findUnique({ where: { id: d.accountId } })
+async function validateRefs(d: InvoiceDraftInput, keepCustomerId: number | null, db: Prisma.TransactionClient): Promise<string | null> {
+  const account = await db.account.findUnique({ where: { id: d.accountId } })
   if (!account || account.type !== "INCOME" || !account.isActive) return "Choose an active income account"
   if (d.fundId !== null) {
-    const fund = await prisma.fund.findUnique({ where: { id: d.fundId } })
+    const fund = await db.fund.findUnique({ where: { id: d.fundId } })
     if (!fund || !fund.isActive) return "Choose an active fund"
   }
   if (d.recipientKind === "person" && d.recipientId !== null) {
-    const p = await prisma.person.findUnique({ where: { id: d.recipientId }, select: { id: true } })
+    const p = await db.person.findUnique({ where: { id: d.recipientId }, select: { id: true } })
     if (!p) return "Recipient not found"
   }
   if (d.recipientKind === "customer" && d.recipientId !== null) {
-    const c = await prisma.customer.findUnique({ where: { id: d.recipientId } })
+    const c = await db.customer.findUnique({ where: { id: d.recipientId } })
     if (!c || (!c.isActive && c.id !== keepCustomerId)) return "Recipient not found"
   }
   return null
@@ -83,12 +117,17 @@ export async function createInvoice(_prev: ActionResult, formData: FormData): Pr
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = parseInvoiceDraft(formData)
   if ("error" in parsed) return parsed
-  const refErr = await validateRefs(parsed.data)
-  if (refErr) return { error: refErr }
   const { gstRegistered } = await getInvoiceSettings()
   const data = toDraftData(parsed.data, gstRegistered)
   const uid = actorId(session)
-  const row = await prisma.invoice.create({ data: { ...data, status: InvoiceStatus.DRAFT, createdById: uid } })
+  // Validate the account and insert in one Serializable transaction so a concurrent retype/delete of it can't slip between.
+  const created = await serializableWrite<{ error: string } | { row: { id: number } }>(async (tx) => {
+    const refErr = await validateRefs(parsed.data, null, tx)
+    if (refErr) return { error: refErr }
+    return { row: await tx.invoice.create({ data: { ...data, status: InvoiceStatus.DRAFT, createdById: uid } }) }
+  })
+  if (!("row" in created)) return created
+  const { row } = created
   await logAudit(uid, "INVOICE_CREATED", "Invoice", row.id, { total: data.total })
   revalidatePath(INVOICES_PATH)
   redirect(`${INVOICES_PATH}/${row.id}`)
@@ -101,15 +140,26 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
   if (!isValidPgId(id)) return { error: "Invoice not found" }
   const parsed = parseInvoiceDraft(formData)
   if ("error" in parsed) return parsed
-  const current = await prisma.invoice.findUnique({ where: { id }, select: { customerId: true } })
-  if (!current) return { error: "Invoice not found" }
-  const refErr = await validateRefs(parsed.data, current.customerId)
-  if (refErr) return { error: refErr }
   const { gstRegistered } = await getInvoiceSettings()
   const data = toDraftData(parsed.data, gstRegistered)
-  // Explicit updatedAt: it is the version the send path checks, so never rely on implicit bumps.
-  const res = await prisma.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: { ...data, updatedAt: new Date() } })
-  if (res.count === 0) return CHANGED
+  // Optimistic concurrency: the edit form submits the draft's last-seen updatedAt and the write matches on it, so
+  // two people editing the same draft can't silently overwrite each other (the later save matches 0 rows -> CHANGED).
+  // A missing token (older cached form) falls back to the status-only guard. Account validation and the write share
+  // one Serializable transaction (see serializableWrite) so a concurrent account retype can't slip between them.
+  const seenAt = parseOptimisticUpdatedAt(formData)
+  const result = await serializableWrite(async (tx) => {
+    const current = await tx.invoice.findUnique({ where: { id }, select: { customerId: true } })
+    if (!current) return { error: "Invoice not found" }
+    const refErr = await validateRefs(parsed.data, current.customerId, tx)
+    if (refErr) return { error: refErr }
+    // Explicit updatedAt: it is the version the send path checks, so never rely on implicit bumps.
+    const res = await tx.invoice.updateMany({
+      where: { id, status: InvoiceStatus.DRAFT, ...(seenAt ? { updatedAt: seenAt } : {}) },
+      data: { ...data, updatedAt: new Date() },
+    })
+    return res.count === 0 ? CHANGED : null
+  })
+  if (result) return result
   await logAudit(actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
   revalidatePath(INVOICES_PATH)
   redirect(`${INVOICES_PATH}/${id}`)
@@ -151,6 +201,7 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
     notes: masked ? null : decryptOrNull(r.notes),
     sentAt: r.sentAt, paidAt: r.paidAt, voidedAt: r.voidedAt, voidReason: r.voidReason,
     paymentTransactionId: r.payment?.id ?? null,
+    updatedAt: r.updatedAt,
   }
 }
 

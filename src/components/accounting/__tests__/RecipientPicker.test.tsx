@@ -110,7 +110,7 @@ describe("recipient picker in InvoiceForm", () => {
       recipientEmail: "scouts@example.com", recipientAddress: "1 Example St", issueDate: "2026-10-11", dueDate: "2026-10-25",
       lines: [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }], subtotal: "300.00", gstTotal: "30.00", total: "330.00",
       taxInvoice: false, accountId: 4, accountName: "Hall hire", fundId: 2, fundName: "General", notes: "Thanks",
-      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null,
+      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null, updatedAt: new Date("2026-10-01T00:00:00.000Z"),
     }} />)
     expect(screen.getByLabelText("Line 1 unit price")).toHaveValue("150.00")
     expect(screen.getByTestId("invoice-total")).toHaveTextContent("$330.00")
@@ -126,7 +126,7 @@ describe("recipient picker in InvoiceForm", () => {
       recipientEmail: null, recipientAddress: null, issueDate: "2026-10-11", dueDate: "2026-10-25",
       lines: [{ description: "Hall hire", qty: 1, unitPriceCents: 10000, gst: true }], subtotal: "100.00", gstTotal: "0.00", total: "100.00",
       taxInvoice: false, accountId: 4, accountName: "Hall hire", fundId: null, fundName: null, notes: null,
-      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null,
+      sentAt: null, paidAt: null, voidedAt: null, voidReason: null, paymentTransactionId: null, updatedAt: new Date("2026-10-01T00:00:00.000Z"),
     }} />)
     const lines = JSON.parse((container.querySelector('input[name="lines"]') as HTMLInputElement).value)
     expect(lines[0].gst).toBe(true)

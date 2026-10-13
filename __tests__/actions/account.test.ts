@@ -27,7 +27,7 @@ jest.mock("@/lib/prisma", () => {
       invoice,
       // updateAccount wraps the type-change guard + update in an interactive
       // transaction ( TOCTOU) — run the callback against the same mocks.
-      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ account, transaction, invoice })),
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ account, transaction, invoice, budget, pettyCashReceipt, pettyCashExpense })),
     },
   }
 })
@@ -304,6 +304,27 @@ describe("updateAccount", () => {
     expect(result).toEqual({ error: "Account code already exists" })
     expect(mockRedirect).not.toHaveBeenCalled()
   })
+
+  it("runs the retype guard + update Serializable and maps P2034 to the invoices-use-it error", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
+    mockFindFirst.mockResolvedValue(null)
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const result = await updateAccount(1, undefined, fd(validAccount))
+    expect(result).toEqual({ error: "Cannot change account type while invoices use it" })
+    expect(mockRedirect).not.toHaveBeenCalled()
+    mockUpdate.mockResolvedValue({})
+    await updateAccount(1, undefined, fd(validAccount))
+    expect(prisma.$transaction).toHaveBeenLastCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("rethrows an unexpected transaction error", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
+    mockFindFirst.mockResolvedValue(null)
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(new Error("boom"))
+    await expect(updateAccount(1, undefined, fd(validAccount))).rejects.toThrow("boom")
+  })
 })
 
 // --- deleteAccount ---
@@ -373,6 +394,21 @@ describe("deleteAccount", () => {
     await deleteAccount(1)
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1 } })
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/accounts")
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("maps a Serializable conflict with a concurrent invoice write to a message, not a 500", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const result = await deleteAccount(1)
+    expect(result).toEqual({ error: "Cannot delete — an invoice or entry was just linked to this account" })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("rethrows an unexpected transaction error", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(new Error("boom"))
+    await expect(deleteAccount(1)).rejects.toThrow("boom")
   })
 })
 

@@ -6,7 +6,8 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
-import { isValidPgId, isP2002 } from "@/lib/validation"
+import { Prisma } from "@/lib/generated/prisma/client"
+import { isValidPgId, isP2002, isP2034 } from "@/lib/validation"
 
 const AccountSchema = z.object({
   // Optional on create — blank auto-generates the next code for the type.
@@ -107,6 +108,12 @@ export async function updateAccount(
   // The findFirst pre-check above is a TOCTOU: two concurrent edits to the same
   // code both pass it, so catch the P2002 and surface the same friendly error
   // instead of a raw 500 — mirrors createAccount.
+  //
+  // Serializable (not just a transaction): createInvoice/updateInvoice validate the account's type and insert an
+  // invoice in their own Serializable transaction. READ COMMITTED would let both commit — this count sees zero
+  // invoices while the insert sees INCOME — leaving an invoice on a retyped account. Under Serializable each side
+  // reads what the other writes (this one reads invoices and writes the account; the invoice write reads the account
+  // and inserts an invoice), so Postgres aborts one with P2034. The retype loses safely ("invoices use it").
   let guardError: string | null
   try {
     guardError = await prisma.$transaction(async (tx) => {
@@ -119,9 +126,11 @@ export async function updateAccount(
       }
       await tx.account.update({ where: { id }, data: parsed.data })
       return null
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (isP2002(e)) return { error: "Account code already exists" }
+    // Lost to a concurrent invoice write on this account: a referencing row now exists, so the safe outcome is refusal.
+    if (isP2034(e)) return { error: "Cannot change account type while invoices use it" }
     throw e
   }
   if (guardError) return { error: guardError }
@@ -130,29 +139,42 @@ export async function updateAccount(
   redirect("/accounting/accounts")
 }
 
+/** Delete an unused account (ADMIN). The reference checks and the delete share one Serializable transaction. */
 export async function deleteAccount(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
 
-  const txCount = await prisma.transaction.count({ where: { accountId: id } })
-  if (txCount > 0) return { error: `Cannot delete — ${txCount} transaction(s) linked to this account` }
-
-  // Transaction is not the only FK to Account — Budget, PettyCashReceipt and
-  // PettyCashExpense also reference accountId. Without these checks a delete
-  // throws an unhandled P2003 constraint error → 500.
-  const [budgetCount, pcReceiptCount, pcExpenseCount, invoiceCount] = await Promise.all([
-    prisma.budget.count({ where: { accountId: id } }),
-    prisma.pettyCashReceipt.count({ where: { accountId: id } }),
-    prisma.pettyCashExpense.count({ where: { accountId: id } }),
-    prisma.invoice.count({ where: { accountId: id } }),
-  ])
-  if (invoiceCount > 0) return { error: `Cannot delete — ${invoiceCount} invoice(s) linked to this account` }
-  if (budgetCount > 0) return { error: `Cannot delete — ${budgetCount} budget(s) linked to this account` }
-  if (pcReceiptCount + pcExpenseCount > 0) {
-    return { error: `Cannot delete — ${pcReceiptCount + pcExpenseCount} petty-cash entr(ies) linked to this account` }
+  // Counts + delete in one Serializable transaction, mirroring deleteFund. Without it an invoice saved against this
+  // account between the invoice count and the delete would hit an uncaught FK error (Invoice_accountId) instead of
+  // a message. Serializable aborts one side with P2034 when a concurrent write references the account (the invoice
+  // write reads the account row this delete removes; this delete reads the invoices that write inserts).
+  // Transaction is not the only FK to Account — Budget, PettyCashReceipt and PettyCashExpense also reference
+  // accountId; without these checks a delete throws an unhandled P2003 constraint error -> 500.
+  let blocked: ActionResult
+  try {
+    blocked = await prisma.$transaction(async (tx) => {
+      const [txCount, budgetCount, pcReceiptCount, pcExpenseCount, invoiceCount] = await Promise.all([
+        tx.transaction.count({ where: { accountId: id } }),
+        tx.budget.count({ where: { accountId: id } }),
+        tx.pettyCashReceipt.count({ where: { accountId: id } }),
+        tx.pettyCashExpense.count({ where: { accountId: id } }),
+        tx.invoice.count({ where: { accountId: id } }),
+      ])
+      if (txCount > 0) return { error: `Cannot delete — ${txCount} transaction(s) linked to this account` }
+      if (invoiceCount > 0) return { error: `Cannot delete — ${invoiceCount} invoice(s) linked to this account` }
+      if (budgetCount > 0) return { error: `Cannot delete — ${budgetCount} budget(s) linked to this account` }
+      if (pcReceiptCount + pcExpenseCount > 0) {
+        return { error: `Cannot delete — ${pcReceiptCount + pcExpenseCount} petty-cash entr(ies) linked to this account` }
+      }
+      await tx.account.delete({ where: { id } })
+      return undefined
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  } catch (e) {
+    // Lost to a concurrent write that now references the account: refuse, the safe outcome.
+    if (isP2034(e)) return { error: "Cannot delete — an invoice or entry was just linked to this account" }
+    throw e
   }
-
-  await prisma.account.delete({ where: { id } })
+  if (blocked) return blocked
   revalidatePath("/accounting/accounts")
 }
