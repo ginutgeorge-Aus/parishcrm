@@ -164,6 +164,19 @@ export function decrypt(value: string): string {
 // ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
 // single bad row degrades to a visible marker instead of 500-ing the whole
 // export. Use only on read paths that iterate many rows.
+/**
+ * Encrypt raw bytes for a BYTEA column: UTF-8 bytes of `encrypt(base64)` (the convention
+ * shared by TransactionAttachment.data and PersonClearance.document; rotated via BLOB_FIELDS).
+ */
+export function encryptBytes(bytes: Uint8Array): Buffer<ArrayBuffer> {
+  return Buffer.from(encrypt(Buffer.from(bytes).toString("base64")), "utf8")
+}
+
+/** Inverse of `encryptBytes`; throws like `decrypt` on a bad or foreign-key blob. */
+export function decryptBytes(blob: Uint8Array): Buffer<ArrayBuffer> {
+  return Buffer.from(decrypt(Buffer.from(blob).toString("utf8")), "base64")
+}
+
 export const DECRYPTION_ERROR_PLACEHOLDER = "[decryption error]"
 
 export function safeDecrypt(value: string): string {

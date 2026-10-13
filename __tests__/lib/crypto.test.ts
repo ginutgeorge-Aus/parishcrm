@@ -18,6 +18,14 @@ describe("encrypt / decrypt", () => {
     expect(decrypt(encrypt(plaintext))).toBe(plaintext)
   })
 
+  it("round-trips raw bytes through the BYTEA helpers as UTF-8 bytes of an enc: string", async () => {
+    const { encryptBytes, decryptBytes } = await import("@/lib/crypto")
+    const bytes = Buffer.from([0, 1, 2, 250, 255])
+    const blob = encryptBytes(bytes)
+    expect(blob.toString("utf8")).toMatch(/^enc:v1:/)
+    expect(decryptBytes(new Uint8Array(blob))).toEqual(bytes)
+  })
+
   it("produces different ciphertext each call (random IV)", async () => {
     const { encrypt } = await import("@/lib/crypto")
     const a = encrypt("same text")

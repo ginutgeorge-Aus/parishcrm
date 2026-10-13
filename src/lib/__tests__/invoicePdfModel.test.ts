@@ -1,15 +1,21 @@
 /** @jest-environment node */
-import { buildInvoicePdfModel, loadInvoicePdf, encodeFrozenPdf, decodeFrozenPdf, churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
+import { buildInvoicePdfModel, loadInvoicePdf,  churchReadyError, buildIssuerSnapshot } from "@/lib/invoicePdfModel"
 import { prisma } from "@/lib/prisma"
 import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { logger } from "@/lib/logger"
 import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
 
-jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn(), updateMany: jest.fn() } } }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("@/lib/crypto", () => ({
   safeDecrypt: jest.fn((v: string) => v),
-  encrypt: jest.fn((v: string) => `enc:${v}`),
-  decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  encryptBytes: jest.fn((b: Buffer) => Buffer.from(`enc:${b.toString("base64")}`)),
+  decryptBytes: jest.fn((b: Buffer) => {
+    const t = b.toString("utf8")
+    if (!t.startsWith("enc:")) throw new Error("bad blob")
+    return Buffer.from(t.slice(4), "base64")
+  }),
 }))
 jest.mock("@/lib/pdf/InvoicePdf", () => ({ renderInvoicePdf: jest.fn(async () => Buffer.from("%PDF")) }))
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn() }))
@@ -110,37 +116,57 @@ describe("frozen PDF", () => {
     lines: [{ description: "Hall hire", qty: 1, unitPriceCents: 10000, gst: false }],
     subtotal: { toString: () => "100.00" }, gstTotal: { toString: () => "0.00" }, total: { toString: () => "100.00" }, notes: null,
   }
-  const stored = encodeFrozenPdf(Buffer.from("%PDF-frozen"))
-  beforeEach(() => jest.clearAllMocks())
-
-  it("round-trips bytes through the encrypted BYTEA encoding", () => {
-    expect(stored.toString("utf8")).toMatch(/^enc:/)
-    expect(decodeFrozenPdf(stored).toString()).toBe("%PDF-frozen")
+  const stored = Buffer.from(`enc:${Buffer.from("%PDF-frozen").toString("base64")}`)
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })
   })
-  it.each(["SENT", "PAID", "VOID"])("%s invoice serves the stored bytes without re-rendering", async (status) => {
+
+  it.each(["SENT", "PAID", "VOID"])("%s invoice serves the stored bytes: no render, no write, only metadata", async (status) => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, status, frozenPdf: stored })
     const out = await loadInvoicePdf(11)
     expect(out?.pdf.toString()).toBe("%PDF-frozen")
-    expect(out).toMatchObject({ churchName: "Old Church Name", total: "$100.00" })
+    expect(out).toMatchObject({ filename: "INV-0001.pdf", churchName: "Old Church Name", paymentDetails: "Old BSB", total: "$100.00", recipientEmail: "scouts@example.com" })
     expect(renderInvoicePdf).not.toHaveBeenCalled()
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
-  it("draft always renders live, ignoring any stored bytes", async () => {
-    ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })
+  it("draft always renders live and never stores", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, status: "DRAFT", invoiceNo: null, frozenPdf: stored })
-    const out = await loadInvoicePdf(11)
-    expect(out?.pdf.toString()).toBe("%PDF")
-    expect(renderInvoicePdf).toHaveBeenCalledTimes(1)
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
-  it("legacy sent invoice (no stored PDF) falls back to a live render", async () => {
+  it("sent invoice without a stored PDF renders live, then freezes it with a conditional write", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
     expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
-    expect(renderInvoicePdf).toHaveBeenCalledTimes(1)
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith({
+      where: { id: 11, frozenPdf: null, status: { not: "DRAFT" } },
+      data: { frozenPdf: expect.any(Buffer) },
+    })
   })
-  it("reads through a supplied transaction client", async () => {
-    const tx = { invoice: { findUnique: jest.fn().mockResolvedValue({ ...sent, frozenPdf: null }) } }
-    await loadInvoicePdf(11, undefined, tx as never)
-    expect(tx.invoice.findUnique).toHaveBeenCalledWith({ where: { id: 11 } })
-    expect(prisma.invoice.findUnique).not.toHaveBeenCalled()
+  it("ignores a 0-row conditional update (someone else froze first)", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
+    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    await expect(loadInvoicePdf(11)).resolves.toMatchObject({ filename: "INV-0001.pdf" })
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+  it("logs but still serves the PDF when the freeze write fails", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
+    ;(prisma.invoice.updateMany as jest.Mock).mockRejectedValue(new Error("db down"))
+    await expect(loadInvoicePdf(11)).resolves.toMatchObject({ filename: "INV-0001.pdf" })
+    expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf store failed", expect.objectContaining({ invoiceId: 11 }))
+  })
+  it("logs a non-Error freeze failure too", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
+    ;(prisma.invoice.updateMany as jest.Mock).mockRejectedValue("boom")
+    await loadInvoicePdf(11)
+    expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf store failed", { invoiceId: 11, message: "unknown" })
+  })
+  it("undecryptable stored blob: logs the id, renders live, never overwrites the blob", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: Buffer.from("garbage") })
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+    expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf unreadable, rendering live", expect.objectContaining({ invoiceId: 11 }))
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
 })
 

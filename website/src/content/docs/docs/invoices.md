@@ -39,7 +39,7 @@ From an invoice's page, a draft can be:
 
 A sent invoice can be **re-sent** by email at any time. Sent invoices can't be edited.
 
-The PDF is saved, encrypted, at the moment an invoice is sent. Downloads and re-sends of a sent, paid or voided invoice give you that exact file, so uploading or resetting the letterhead later never changes an invoice already issued. Drafts always show the current letterhead. Invoices sent before this was added have no saved copy, so they are still drawn fresh each time, using the current letterhead.
+The PDF is saved, encrypted, when an invoice is sent. Downloads and re-sends of a sent, paid or voided invoice give you that exact file, so uploading or resetting the letterhead later never changes an invoice already issued. For invoices sent before this was added, the copy is saved the first time the invoice is downloaded or re-sent, so those use the letterhead at that moment. Drafts always show the current letterhead.
 
 ### Marking an invoice paid
 

@@ -132,6 +132,11 @@ describe("getInvoice", () => {
     sentAt: null, paidAt: null, voidedAt: null, voidReason: null, payment: null,
   }
   beforeEach(() => (prisma.invoice.findUnique as jest.Mock).mockResolvedValue(row))
+  it("never loads the frozen PDF blob", async () => {
+    as("OFFICE_ADMIN")
+    await getInvoice(11)
+    expect(prisma.invoice.findUnique).toHaveBeenCalledWith(expect.objectContaining({ omit: { frozenPdf: true } }))
+  })
   it("decrypts for OFFICE_ADMIN", async () => {
     as("OFFICE_ADMIN")
     expect(await getInvoice(11)).toEqual(expect.objectContaining({ recipientEmail: "scouts@example.com", notes: "n", issueDate: "2026-10-11", total: "330.00" }))

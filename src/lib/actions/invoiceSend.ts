@@ -11,7 +11,7 @@ import { isP2002, isValidPgId } from "@/lib/validation"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, formatInvoiceNo, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
-import { buildIssuerSnapshot, churchReadyError, encodeFrozenPdf, loadInvoicePdf, type IssuerSnapshot } from "@/lib/invoicePdfModel"
+import { buildIssuerSnapshot, churchReadyError, loadInvoicePdf, type IssuerSnapshot } from "@/lib/invoicePdfModel"
 import { buildInvoiceEmail } from "@/lib/invoiceEmail"
 import { sendEmail } from "@/lib/email"
 
@@ -29,10 +29,7 @@ function revalidate(id: number) {
  * In ONE transaction: allocate the INV number if missing (MAX+1, one P2002 retry), freeze
  * taxInvoice + issuer, recompute the stored totals from the lines with that same GST flag,
  * and flip DRAFT → SENT. Doing the flip in the same write means a concurrent draft edit can
- * never land between freezing and sending (edited lines with stale totals). The PDF is
- * rendered from the just-frozen row and stored encrypted (`frozenPdf`) in the same
- * transaction, so the letterhead image is frozen too; a render failure rolls everything back
- * and the invoice stays a DRAFT.
+ * never land between freezing and sending (edited lines with stale totals).
  */
 async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceSettings, issuer: IssuerSnapshot): Promise<{ invoiceNo: string } | { error: string }> {
   const taxInvoice = settings.gstRegistered
@@ -52,18 +49,11 @@ async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceS
           gstTotal: centsToDecimalString(t.gstCents),
           total: centsToDecimalString(t.totalCents),
         }
-        /** Render the now-SENT row and store its encrypted PDF (same tx as the status flip). */
-        const storePdf = async (invoiceNo: string) => {
-          const out = await loadInvoicePdf(id, undefined, tx)
-          if (!out) throw new Error("invoice vanished during send")
-          await tx.invoice.update({ where: { id }, data: { frozenPdf: encodeFrozenPdf(out.pdf) } })
-          return { invoiceNo }
-        }
         if (row.invoiceNo) {
           // updatedAt predicate = optimistic version check: a draft edit committed after the
           // read above bumps updatedAt, so this write matches 0 rows instead of freezing stale totals.
           const res = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT, updatedAt: row.updatedAt }, data: frozen })
-          return res.count === 0 ? CHANGED : await storePdf(row.invoiceNo)
+          return res.count === 0 ? CHANGED : { invoiceNo: row.invoiceNo }
         }
         const agg = await tx.invoice.aggregate({ _max: { seq: true } })
         const seq = (agg._max.seq ?? 0) + 1
@@ -73,8 +63,8 @@ async function allocateFreezeAndSend(id: number, uid: number, settings: InvoiceS
           data: { seq, invoiceNo, ...frozen },
         })
         if (res.count === 0) return CHANGED
-        return await storePdf(invoiceNo)
-      }, { timeout: 20_000 })
+        return { invoiceNo }
+      })
     } catch (e) {
       if (isP2002(e) && attempt === 0) continue
       logger.error("allocateInvoiceNo failed", { message: e instanceof Error ? e.message : "unknown" })
@@ -97,7 +87,7 @@ async function emailInvoice(id: number, settings?: InvoiceSettings): Promise<voi
   ])
 }
 
-/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. */
+/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. The PDF freeze happens after the commit and never fails the send. */
 async function send(id: number, email: boolean): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -123,6 +113,12 @@ async function send(id: number, email: boolean): Promise<Result> {
   const { invoiceNo } = alloc
 
   if (!email) {
+    // Freeze the PDF (letterhead) now, best effort: a failure leaves it to the lazy freeze on first download.
+    try {
+      await loadInvoicePdf(id, settings)
+    } catch (e) {
+      logger.error("markInvoiceSent freeze failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+    }
     await logAudit(uid, "INVOICE_MARKED_SENT", "Invoice", id, { invoiceNo })
     revalidate(id)
     return { success: `Invoice ${invoiceNo} marked as sent` }

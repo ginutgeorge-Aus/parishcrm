@@ -1,5 +1,6 @@
-import { prisma, type Prisma } from "@/lib/prisma"
-import { decrypt, encrypt, safeDecrypt } from "@/lib/crypto"
+import { prisma } from "@/lib/prisma"
+import { logger } from "@/lib/logger"
+import { decryptBytes, encryptBytes, safeDecrypt } from "@/lib/crypto"
 import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
 import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
@@ -96,30 +97,54 @@ export function buildInvoicePdfModel(inv: {
   }
 }
 
-/** Encrypt PDF bytes for the `Invoice.frozenPdf` BYTEA column (UTF-8 bytes of `encrypt(base64)`, like TransactionAttachment.data). */
-export function encodeFrozenPdf(pdf: Uint8Array) {
-  return Buffer.from(encrypt(Buffer.from(pdf).toString("base64")), "utf8")
-}
-
-/** Inverse of `encodeFrozenPdf`: decrypt a stored `Invoice.frozenPdf` blob back to PDF bytes. */
-export function decodeFrozenPdf(blob: Uint8Array) {
-  return Buffer.from(decrypt(Buffer.from(blob).toString("utf8")), "base64")
+/**
+ * Best-effort freeze: store the encrypted PDF on a non-draft invoice that has none yet. The
+ * conditional write never overwrites an existing blob or a draft; 0 rows matched is fine and a
+ * DB error is logged, never thrown (the caller still has the PDF to serve).
+ */
+async function storeFrozenPdf(id: number, pdf: Uint8Array): Promise<void> {
+  try {
+    await prisma.invoice.updateMany({
+      where: { id, frozenPdf: null, status: { not: "DRAFT" } },
+      data: { frozenPdf: encryptBytes(pdf) },
+    })
+  } catch (e) {
+    logger.error("invoice frozenPdf store failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+  }
 }
 
 /**
  * Load an invoice and return its PDF plus the email metadata. A non-draft invoice with a
- * stored `frozenPdf` serves those exact bytes (letterhead included); drafts and invoices sent
- * before the column existed render live. Callers must have checked authorisation.
- * `db` lets the send flow read inside its own transaction.
+ * stored `frozenPdf` serves those exact bytes (letterhead included) with no re-render. A
+ * non-draft invoice without one (sent before this existed, or its post-send freeze failed)
+ * renders live and is frozen on the spot. A blob that fails to decrypt is logged and rendered
+ * live without being overwritten. Drafts always render live. Callers must have checked
+ * authorisation.
  */
-export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings, db: Prisma.TransactionClient = prisma) {
-  const r = await db.invoice.findUnique({ where: { id } })
+export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
+  const r = await prisma.invoice.findUnique({ where: { id } })
   if (!r) return null
+  const sent = r.status !== "DRAFT"
+  const frozen = sent ? parseIssuer(r.issuer) : null
+  let storedBlobUnreadable = false
+  if (sent && r.frozenPdf && frozen) {
+    try {
+      const pdf = decryptBytes(r.frozenPdf)
+      return {
+        pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`,
+        recipientEmail: r.recipientEmail ? safeDecrypt(r.recipientEmail) : "",
+        invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: money(toCents(r.total.toString())),
+        dueDate: formatLongDate(r.dueDate), churchName: frozen.name, paymentDetails: frozen.paymentDetails,
+      }
+    } catch (e) {
+      storedBlobUnreadable = true
+      logger.error("invoice frozenPdf unreadable, rendering live", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+    }
+  }
   const recipientEmail = r.recipientEmail ? safeDecrypt(r.recipientEmail) : ""
   // Sent invoices render from the issuer snapshot frozen at send, so a re-send or download
   // is always the same document — and needs no live settings read. Drafts (and legacy rows
   // without a snapshot) use live settings: a tax invoice needs the ABN (strict loader throws when unset).
-  const frozen = r.status === "DRAFT" ? null : parseIssuer(r.issuer)
   const live = settingsIn ?? (frozen
     ? { gstRegistered: r.taxInvoice, paymentDetails: frozen.paymentDetails }
     : await getInvoiceSettings())
@@ -133,7 +158,8 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings, d
     lines: r.lines as InvoiceLine[], subtotal: r.subtotal.toString(), gstTotal: r.gstTotal.toString(), total: r.total.toString(),
     notes: r.notes ? safeDecrypt(r.notes) : "",
   }, church, settings)
-  const pdf = r.status !== "DRAFT" && r.frozenPdf ? decodeFrozenPdf(r.frozenPdf) : await renderInvoicePdf(model)
+  const pdf = await renderInvoicePdf(model)
+  if (sent && !r.frozenPdf && !storedBlobUnreadable) await storeFrozenPdf(id, pdf)
   return {
     pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,
