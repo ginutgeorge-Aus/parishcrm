@@ -24,6 +24,33 @@ describe("MONTH_LABELS", () => {
   })
 })
 
+// Column index must agree with plTransactionsHref, which counts from FY_START_MONTH.
+describe("non-July FY start (APP_FY_START_MONTH=4)", () => {
+  it("orders months, labels and buckets from April", () => {
+    const previous = process.env.APP_FY_START_MONTH
+    process.env.APP_FY_START_MONTH = "4"
+    jest.resetModules()
+
+    try {
+      const helpers = require("@/lib/reports/plHelpers") as typeof import("@/lib/reports/plHelpers")
+      const { plTransactionsHref } = require("@/components/accounting/plFormat") as typeof import("@/components/accounting/plFormat")
+
+      expect(helpers.FY_MONTHS[0]).toBe(3)
+      expect(helpers.FY_MONTHS[11]).toBe(2)
+      expect(helpers.MONTH_LABELS[0]).toBe("APR")
+      expect(helpers.MONTH_LABELS[11]).toBe("MAR")
+
+      const julyIndex = helpers.monthlyAmounts([makeTx("100", 6)]).findIndex((c) => c !== 0)
+      expect(helpers.MONTH_LABELS[julyIndex]).toBe("JUL")
+      expect(plTransactionsHref(1, 2025, julyIndex)).toContain("from=2025-07-01")
+    } finally {
+      if (previous === undefined) delete process.env.APP_FY_START_MONTH
+      else process.env.APP_FY_START_MONTH = previous
+      jest.resetModules()
+    }
+  })
+})
+
 // monthly* helpers return integer CENTS — sums stay exact across many Decimals.
 describe("monthlyAmounts", () => {
   it("returns 12 zeros for empty transaction list", () => {
