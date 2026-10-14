@@ -12,7 +12,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     event: { findUnique: jest.fn() },
     eventManager: { findMany: jest.fn() },
-    registration: { groupBy: jest.fn() },
+    registration: { groupBy: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }) },
     paymentReminderSend: { groupBy: jest.fn() },
   },
 }))
