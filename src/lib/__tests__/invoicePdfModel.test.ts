@@ -8,7 +8,7 @@ import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
 
 jest.mock("@/lib/prisma", () => ({
   prisma: { invoice: { findUnique: jest.fn(), updateMany: jest.fn((a: unknown) => a) }, $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops)) },
-  Prisma: { DbNull: "DbNull" },
+  Prisma: { DbNull: "DbNull", AnyNull: "AnyNull" },
 }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("@/lib/crypto", () => ({
@@ -154,8 +154,10 @@ describe("frozen PDF", () => {
     const first = await loadInvoicePdf(11)
     expect(first?.pdf.toString()).toBe("%PDF")
     const notDraft = { id: 11, frozenPdf: null, status: { not: "DRAFT" } }
+    // AnyNull: Prisma reads SQL NULL and JSON null alike as `null`, so the guard must match both
+    // or a JSON-null row stores the blob with no issuer snapshot and can never be re-frozen.
     expect(prisma.invoice.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { ...notDraft, issuer: { equals: "DbNull" } },
+      where: { ...notDraft, issuer: { equals: "AnyNull" } },
       data: { issuer: expect.objectContaining({ name: "Example Church" }) },
     })
     expect(prisma.invoice.updateMany).toHaveBeenNthCalledWith(2, { where: notDraft, data: { frozenPdf: expect.any(Buffer) } })

@@ -109,7 +109,7 @@ async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: Issu
   try {
     await prisma.$transaction([
       ...(issuerIfMissing
-        ? [prisma.invoice.updateMany({ where: { ...notDraft, issuer: { equals: Prisma.DbNull } }, data: { issuer: issuerIfMissing } })]
+        ? [prisma.invoice.updateMany({ where: { ...notDraft, issuer: { equals: Prisma.AnyNull } }, data: { issuer: issuerIfMissing } })]
         : []),
       prisma.invoice.updateMany({ where: notDraft, data: { frozenPdf: encryptBytes(pdf) } }),
     ])
