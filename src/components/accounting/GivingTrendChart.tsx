@@ -39,13 +39,13 @@ export function GivingTrendChart({ data }: Readonly<{ data: DataPoint[] }>) {
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="month"
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: "0.6875rem" }}
           tickLine={false}
           axisLine={false}
         />
         <YAxis
           tickFormatter={(v: number) => axisTick.format(v)}
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: "0.6875rem" }}
           tickLine={false}
           axisLine={false}
           width={48}

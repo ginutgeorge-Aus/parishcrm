@@ -185,12 +185,12 @@
 
 @media (min-width: 1920px) {
   html {
-    font-size: 17px;
+    font-size: 106.25%; /* 17px at the 16px default; % keeps a user's browser font size */
   }
 }
 
 @media (min-width: 2400px) {
   html {
-    font-size: 18px;
+    font-size: 112.5%; /* 18px */
   }
 }
