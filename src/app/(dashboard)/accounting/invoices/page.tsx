@@ -76,7 +76,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const to = sp.to && isRealCalendarDate(sp.to) ? sp.to : undefined
   // Strictly validated; a malformed cursor is dropped so the list falls back to the first page.
   const after = parseInvoiceCursor(sp.after) ? sp.after : undefined
-  const before = after ? undefined : parseInvoiceCursor(sp.before) ? sp.before : undefined
+  const before = sp.after ? undefined : parseInvoiceCursor(sp.before) ? sp.before : undefined
   const month = currentMonthRange()
   // Paid / GST figures use the date filters as the payment period when both are set, else this month.
   const period = from && to && from <= to ? { from, to } : month

@@ -230,12 +230,16 @@ describe("listInvoices", () => {
     ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(mk(51).reverse())
     const r = (await listInvoices({ before: "2026-10-11_1" })) as { rows: unknown[]; prevCursor: string | null }
     expect(r.rows).toHaveLength(50)
-    expect(r.prevCursor).toEqual(expect.stringMatching(/^2026-10-11_\d+$/))
+    expect(r.prevCursor).toBe("2026-10-11_99")
   })
   it("ignores a malformed cursor (first page) and prefers after over before", async () => {
     ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([])
     await listInvoices({ after: "garbage", before: "2026-10-11_0" })
     expect(lastWhere().where).toEqual({})
+    // A present-but-malformed `after` still wins: first page, not a `before` walk.
+    await listInvoices({ after: "garbage", before: "2026-10-11_9" })
+    expect(lastWhere().where).toEqual({})
+    expect(lastWhere().orderBy).toEqual([{ issueDate: "desc" }, { id: "desc" }])
     await listInvoices({ after: "2026-10-11_5", before: "2026-10-11_9" })
     expect(lastWhere().orderBy).toEqual([{ issueDate: "desc" }, { id: "desc" }])
   })

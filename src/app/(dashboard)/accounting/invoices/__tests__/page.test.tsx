@@ -100,6 +100,8 @@ describe("InvoicesPage", () => {
     expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, before: "2026-10-11_11" }))
     await call({ after: "x'; DROP TABLE--", before: "2026-13-01_1" })
     expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, before: undefined }))
+    await call({ after: "garbage", before: "2026-10-11_11" })
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ after: undefined, before: undefined }))
   })
 
   it("passes only valid filters through", async () => {

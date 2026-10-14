@@ -95,7 +95,7 @@ Invoices are numbered `INV-0001`, `INV-0002`, … in the order they are sent. Nu
 - Money is held in integer cents while calculating; each GST line's GST is 10% of its line total, rounded to the cent. Totals are always computed on the server.
 - Status moves `DRAFT → SENT → PAID` (or `SENT → VOID`); `PAID → SENT` when unmarked. Each change is checked against the expected current status, so two people acting on the same invoice at once can't both succeed.
 - A payment is the income `Transaction` whose `invoiceId` points at the invoice (at most one per invoice). Marking paid flips the status and links or creates the transaction in one database transaction.
-- The list pages with keyset cursors (`?after=` / `?before=`, each `YYYY-MM-DD_id`) over `issueDate desc, id desc`, so paging stays fast and stable as invoices are added. A malformed cursor is ignored and shows the first page.
+- The list pages with keyset cursors (`?after=` / `?before=`, each `YYYY-MM-DD_id`, or `<ISO timestamp>_id` when an issue date carries a time) over `issueDate desc, id desc`, so paging stays fast and stable as invoices are added. A malformed cursor is ignored and shows the first page; `after` takes precedence over `before` even when malformed.
 - Every create, update, send, payment, unmark, void, delete and PDF download is written to the audit log.
 
 ## Related pages

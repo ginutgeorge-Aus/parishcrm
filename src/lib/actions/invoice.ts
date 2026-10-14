@@ -176,7 +176,8 @@ export async function listInvoices(filter: InvoiceListFilter = {}): Promise<Invo
   if (filter.from && isRealCalendarDate(filter.from)) issueDate.gte = new Date(filter.from)
   if (filter.to && isRealCalendarDate(filter.to)) issueDate.lte = new Date(filter.to)
   const after = parseInvoiceCursor(filter.after)
-  const before = after ? null : parseInvoiceCursor(filter.before)
+  // `after` wins by presence: a malformed one means first page, never a fallback `before` walk.
+  const before = filter.after ? null : parseInvoiceCursor(filter.before)
   const keyset = after ? keysetWhere(after, "lt") : before ? keysetWhere(before, "gt") : {}
   const found = await prisma.invoice.findMany({
     where: { ...(filter.status ? { status: filter.status } : {}), ...(issueDate.gte || issueDate.lte ? { issueDate } : {}), ...keyset },
