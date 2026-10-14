@@ -53,6 +53,16 @@ function parseDelivered(value: string, month: string): Set<string> {
   }
 }
 
+/** The month key of a stored delivered list, or null for bad JSON or a missing month. */
+function storedMonth(value: string): string | null {
+  try {
+    const m = (JSON.parse(value) as { month?: unknown }).month
+    return typeof m === "string" ? m : null
+  } catch {
+    return null
+  }
+}
+
 /** Emails already sent this Sydney `month` (empty for another month, a missing row or bad JSON). */
 async function loadDelivered(month: string): Promise<Set<string>> {
   const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
@@ -63,7 +73,9 @@ async function loadDelivered(month: string): Promise<Set<string>> {
  * Merges `emails` into the stored delivered list for `month` by
  * compare-and-set, so within a month the list only grows: a run that lost its
  * lease mid-send can't overwrite recipients the new owner saved, which would
- * let a later retry email them again.
+ * let a later retry email them again. A save for a month older than the
+ * stored one is dropped: a run from a past month that resumes late must not
+ * replace a newer month's list (`YYYY-MM` keys compare as strings).
  * @param month the Sydney month key
  * @param emails normalised addresses this run delivered to
  * @throws on a database error, or when the row keeps changing under us
@@ -71,6 +83,8 @@ async function loadDelivered(month: string): Promise<Set<string>> {
 async function mergeDelivered(month: string, emails: Set<string>): Promise<void> {
   for (let i = 0; i < MERGE_ATTEMPTS; i++) {
     const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
+    const stored = row ? storedMonth(row.value) : null
+    if (stored !== null && stored > month) return // a newer month owns the list now
     const merged = row ? parseDelivered(row.value, month) : new Set<string>()
     for (const e of emails) merged.add(e)
     const value = JSON.stringify({ month, emails: [...merged] })

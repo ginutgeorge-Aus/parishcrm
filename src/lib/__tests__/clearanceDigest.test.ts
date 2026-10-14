@@ -216,6 +216,15 @@ describe("runClearanceDigestLocked", () => {
     expect(lastDelivered().emails.sort()).toEqual(["admin@example.com", "office@example.com"])
   })
 
+  it("does not let a late run from an earlier month replace a newer month's list", async () => {
+    // While our November send is in flight, a December run takes over and saves its list.
+    const dec = JSON.stringify({ month: "2026-12", emails: ["office@example.com"] })
+    send.mockImplementationOnce(async () => { dRow.value = dec })
+    const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    await expect(sendClearanceDigest(FIRST, { leaseHeld: held })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(dRow.value).toBe(dec)
+  })
+
   it("retries the delivered-list save before giving up the lease (#232)", async () => {
     failDeliveredWrites(3) // every attempt of the per-send save fails
     const held = jest.fn().mockReturnValueOnce(true).mockReturnValue(false)
