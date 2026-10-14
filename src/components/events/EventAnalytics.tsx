@@ -85,7 +85,7 @@ export function EventAnalytics({ fillRates, revenueByType, regsOverTime }: Reado
             <AreaChart data={regsOverTime} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: "0.6875rem" }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: "0.6875rem" }} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
+              <YAxis tick={{ fontSize: "0.6875rem" }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
               <Tooltip formatter={(v) => [String(v), "Registrations"]} />
               <Area type="monotone" dataKey="cumulative" stroke="var(--color-cumulative)" fill="var(--color-cumulative)" fillOpacity={0.15} />
             </AreaChart>
