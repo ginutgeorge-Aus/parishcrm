@@ -175,6 +175,11 @@ describe("listInvoices", () => {
       where: { status: "SENT", issueDate: { gte: new Date("2026-10-01"), lte: new Date("2026-10-31") } },
     }))
   })
+  it("ignores a malformed or impossible date filter instead of passing Invalid Date to Prisma", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([])
+    await listInvoices({ from: "garbage", to: "2026-02-30" })
+    expect((prisma.invoice.findMany as jest.Mock).mock.calls.at(-1)[0].where).toEqual({})
+  })
   const mk = (n: number, day = "2026-10-11") => Array.from({ length: n }, (_, i) => ({ ...base, id: 100 - i, issueDate: new Date(day), status: "SENT", total: { toString: () => "1.00" }, gstTotal: { toString: () => "0.00" } }))
   const lastWhere = () => (prisma.invoice.findMany as jest.Mock).mock.calls.at(-1)[0]
   it("first page: fetches page size + 1, no where cursor, next but no prev when more exist", async () => {

@@ -160,14 +160,15 @@ export type InvoicePage = { rows: InvoiceListRow[]; nextCursor: string | null; p
 /**
  * One page of invoices (no PII beyond recipient name), newest first (`issueDate desc, id desc`),
  * filtered by status and issue-date range. `after` / `before` are keyset cursors from a previous
- * page's `nextCursor` / `prevCursor`; a malformed cursor is ignored (first page).
+ * page's `nextCursor` / `prevCursor`; a malformed cursor is ignored (first page), and so is a
+ * `from` / `to` that isn't a real YYYY-MM-DD date (an Invalid Date would make Prisma throw).
  */
 export async function listInvoices(filter: InvoiceListFilter = {}): Promise<InvoicePage | { error: string }> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const issueDate: { gte?: Date; lte?: Date } = {}
-  if (filter.from) issueDate.gte = new Date(filter.from)
-  if (filter.to) issueDate.lte = new Date(filter.to)
+  if (filter.from && isRealCalendarDate(filter.from)) issueDate.gte = new Date(filter.from)
+  if (filter.to && isRealCalendarDate(filter.to)) issueDate.lte = new Date(filter.to)
   const after = parseInvoiceCursor(filter.after)
   const before = after ? null : parseInvoiceCursor(filter.before)
   const cursor = after ?? before
@@ -176,7 +177,7 @@ export async function listInvoices(filter: InvoiceListFilter = {}): Promise<Invo
     : after ? { AND: [{ OR: [{ issueDate: { lt: day } }, { issueDate: day, id: { lt: cursor.id } }] }] }
     : { AND: [{ OR: [{ issueDate: { gt: day } }, { issueDate: day, id: { gt: cursor.id } }] }] }
   const found = await prisma.invoice.findMany({
-    where: { ...(filter.status ? { status: filter.status } : {}), ...(filter.from || filter.to ? { issueDate } : {}), ...keyset },
+    where: { ...(filter.status ? { status: filter.status } : {}), ...(issueDate.gte || issueDate.lte ? { issueDate } : {}), ...keyset },
     orderBy: before ? [{ issueDate: "asc" }, { id: "asc" }] : [{ issueDate: "desc" }, { id: "desc" }],
     take: INVOICE_PAGE_SIZE + 1, // one extra row tells us whether another page exists
     select: { id: true, invoiceNo: true, status: true, recipientName: true, issueDate: true, dueDate: true, total: true, gstTotal: true, paidAt: true, lines: true },
