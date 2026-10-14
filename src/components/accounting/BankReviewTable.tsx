@@ -580,7 +580,7 @@ export function BankReviewTable({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">{row.date}</p>
+                  <p className="text-xs font-medium text-muted-foreground">{row.date}</p>
                   <p className="font-semibold text-sm">{row.description}</p>
                   {(() => {
                     const extra = row.details.startsWith(row.description + " | ")
