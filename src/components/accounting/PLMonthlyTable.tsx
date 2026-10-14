@@ -99,7 +99,7 @@ function renderMonthlyGroups(
                     {fmtGrid(v)}
                   </td>
                 ))}
-                <td className="py-1 pl-3 pr-2 border-l border-border text-right tabular text-xs font-medium whitespace-nowrap">
+                <td className={`py-1 pl-3 pr-2 border-l border-border text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(groupTotal)}`}>
                   {fmtGrid(groupTotal)}
                 </td>
               </tr>
@@ -114,7 +114,7 @@ function renderMonthlyGroups(
             {fmtGrid(v)}
           </td>
         ))}
-        <td className="py-2 pl-3 pr-2 border-l border-border text-right tabular whitespace-nowrap">{fmtGrid(sectionTotal)}</td>
+        <td className={`py-2 pl-3 pr-2 border-l border-border text-right tabular whitespace-nowrap ${zeroTone(sectionTotal)}`}>{fmtGrid(sectionTotal)}</td>
       </tr>
     </>
   )

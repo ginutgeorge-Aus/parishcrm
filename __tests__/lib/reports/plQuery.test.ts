@@ -154,6 +154,25 @@ describe("getPLReportData", () => {
     expect(ids(annual.incomeGroups)).toEqual([1, 4, 3])
   })
 
+  it("keeps an account whose only FY row lands after the totals groupBy", async () => {
+    const withLate = [
+      ...accounts,
+      { id: 3, code: "110", name: "Late", isActive: true, type: "INCOME", group: { id: 1, name: "Giving", sortOrder: 1 } },
+    ]
+    mockAccountFindMany.mockResolvedValue(withLate)
+    // groupBy ran before account 3's first transaction committed…
+    mockTxGroupBy.mockResolvedValue([{ accountId: 1, _sum: { amount: dec("3000") } }])
+    // …but the monthly scan sees it, so its activity must not vanish.
+    mockTxFindMany.mockResolvedValue([
+      { id: 1, accountId: 1, amount: dec("3000"), date: new Date("2025-08-15") },
+      { id: 2, accountId: 3, amount: dec("50"), date: new Date("2025-08-20") },
+    ])
+
+    const data = await getPLReportData(2025, true)
+    expect(data.incomeGroups.flatMap((g) => g.accounts.map((a) => a.id))).toEqual([1, 3])
+    expect(data.incomeMonthly[1]).toBe(305000)
+  })
+
   it("excludes the XFER clearing account from the account query", async () => {
     mockAccountFindMany.mockResolvedValue(accounts)
     mockTxGroupBy.mockResolvedValue([])

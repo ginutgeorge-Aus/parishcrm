@@ -95,21 +95,6 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
     totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)]),
   )
 
-  // Monthly grid hides categories with no FY transactions — 15 columns of
-  // $0.00 bury the real figures. `totalMap` keys = accounts with ≥1 row, so
-  // an account whose entries net to zero stays visible. Totals are unaffected.
-  const shown = isMonthly ? accounts.filter((a) => totalMap.has(a.id)) : accounts
-
-  const incomeAccounts = shown.filter((a) => a.type === "INCOME")
-  const expenseAccounts = shown.filter((a) => a.type === "EXPENSE")
-
-  const incomeGroups = groupByAccountGroup(incomeAccounts)
-  const expenseGroups = groupByAccountGroup(expenseAccounts)
-
-  const totalIncome = incomeAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-  const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-  const net = totalIncome - totalExpenses
-
   const acctMonthlyMap = new Map<number, number[]>()
   const acctMonthlyCountMap = new Map<number, number[]>()
   if (isMonthly) {
@@ -124,6 +109,25 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
       (batch) => accumulateMonthlyByAccount(acctMonthlyMap, batch, acctMonthlyCountMap),
     )
   }
+
+  // Monthly grid hides categories with no FY transactions — 15 columns of
+  // $0.00 bury the real figures. `totalMap` keys = accounts with ≥1 row, so
+  // an account whose entries net to zero stays visible. Totals are unaffected.
+  // Also keep accounts seen by the monthly scan: a row inserted after the
+  // groupBy would otherwise be summed into no visible account and vanish.
+  const shown = isMonthly
+    ? accounts.filter((a) => totalMap.has(a.id) || acctMonthlyMap.has(a.id))
+    : accounts
+
+  const incomeAccounts = shown.filter((a) => a.type === "INCOME")
+  const expenseAccounts = shown.filter((a) => a.type === "EXPENSE")
+
+  const incomeGroups = groupByAccountGroup(incomeAccounts)
+  const expenseGroups = groupByAccountGroup(expenseAccounts)
+
+  const totalIncome = incomeAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+  const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+  const net = totalIncome - totalExpenses
 
   const sumAccounts = (accs: PLAccountRow[]): number[] =>
     accs.reduce(

@@ -1,6 +1,11 @@
 import { render, screen, within } from "@testing-library/react"
 import { PLMonthlyTable } from "@/components/accounting/PLMonthlyTable"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
+import { APP_LOCALE } from "@/lib/appConfig"
+
+// Expected strings follow APP_LOCALE so the suite passes under any configured locale.
+const num = (n: number) =>
+  new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
 const account: PLAccountRow = { id: 7, code: "4000", name: "Offerings", isActive: true, group: null }
 const zeros = () => new Array<number>(12).fill(0)
@@ -67,7 +72,7 @@ describe("PLMonthlyTable grid formatting", () => {
     )
     // Mobile summary cards keep full currency; only the grid is compacted.
     const grid = within(screen.getAllByRole("table")[0])
-    expect(grid.getAllByText("1,234.56").length).toBeGreaterThan(0)
+    expect(grid.getAllByText(num(1234.56)).length).toBeGreaterThan(0)
     expect(grid.getAllByText("–").length).toBeGreaterThan(0)
     expect(grid.queryByText("$0.00")).toBeNull()
     expect(grid.getByText(/no transactions this financial year are hidden/)).toBeInTheDocument()

@@ -15,6 +15,16 @@ import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { fmtGrid } from "@/components/accounting/plFormat"
+
+/** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
+function cellCls(v: number): string {
+  return v === 0 ? "r zero" : "r"
+}
+
+/** Net row tone: green surplus, red deficit, neutral when exactly balanced. */
+function netCls(net: number): string {
+  return net > 0 ? "positive" : net < 0 ? "negative" : ""
+}
 import { APP_CURRENCY } from "@/lib/appConfig"
 
 type Props = {
@@ -83,15 +93,15 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
-              <td className="r" style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a))}</td>
+              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              <td className={cellCls(accountTotal(a))} style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a))}</td>
             </tr>
           ))}
           {group.accounts.length > 1 && (
             <tr className="group-total">
               <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-              {gMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
-              <td className="r" style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
+              {gMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              <td className={cellCls(gTotal)} style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
             </tr>
           )}
         </React.Fragment>
@@ -143,6 +153,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
         .net td { font-weight: 700; font-size: 13px; border-top: 3px solid var(--c-rule-strong); border-bottom: none; padding-top: 6px; }
         .positive { color: var(--c-pos); }
         .negative { color: var(--c-neg); }
+        .zero { color: var(--c-label-dim); }
         @media print { body { margin: 0; } ${isMonthly ? "@page { size: landscape; }" : ""} }
       `}</style>
 
@@ -167,23 +178,23 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               {renderMonthlyGroups(incomeGroups, "ig")}
               <tr className="section-total">
                 <td colSpan={2}>Total Income</td>
-                {incomeMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
-                <td className="r">{fmtGrid(totalIncome)}</td>
+                {incomeMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                <td className={cellCls(totalIncome)}>{fmtGrid(totalIncome)}</td>
               </tr>
 
               <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
               {renderMonthlyGroups(expenseGroups, "eg")}
               <tr className="section-total">
                 <td colSpan={2}>Total Expenses</td>
-                {expenseMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
-                <td className="r">{fmtGrid(totalExpenses)}</td>
+                {expenseMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                <td className={cellCls(totalExpenses)}>{fmtGrid(totalExpenses)}</td>
               </tr>
             </tbody>
             <tfoot>
-              <tr className={`net ${net >= 0 ? "positive" : "negative"}`}>
+              <tr className={`net ${netCls(net)}`}>
                 <td colSpan={2}>Net Surplus / (Deficit)</td>
-                {netMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
-                <td className="r">{fmtGrid(net)}</td>
+                {netMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                <td className={cellCls(net)}>{fmtGrid(net)}</td>
               </tr>
             </tfoot>
           </table>
@@ -216,7 +227,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             </tr>
           </tbody>
           <tfoot>
-            <tr className={`net ${net >= 0 ? "positive" : "negative"}`}>
+            <tr className={`net ${netCls(net)}`}>
               <td colSpan={2}>Net Surplus / (Deficit)</td>
               <td className="r">{fmt(net)}</td>
             </tr>
