@@ -297,10 +297,14 @@ export function BankReviewTable({
               const remainingCents = toCents(row.amount) - allocatedCents
               return (
               <Fragment key={row.bankRef}>
-              <TableRow className={row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : ""}>
-                <TableCell className="text-sm">{row.date}</TableCell>
+              <TableRow
+                className={cn(
+                  row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : i % 2 === 1 && "bg-muted/30"
+                )}
+              >
+                <TableCell className="text-sm font-medium">{row.date}</TableCell>
                 <TableCell className="text-sm">
-                  <div>{row.description}</div>
+                  <div className="font-semibold">{row.description}</div>
                   {(() => {
                     const extra = row.details.startsWith(row.description + " | ")
                       ? row.details.slice(row.description.length + 3)
@@ -320,7 +324,7 @@ export function BankReviewTable({
                 <TableCell className="text-right tabular text-sm">
                   {row.ambiguousType && !row.skip ? (
                     <div className="space-y-1">
-                      <div className="tabular">${row.amount}</div>
+                      <div className="tabular font-semibold">${row.amount}</div>
                       <Select
                         value=""
                         onValueChange={(v: string) =>
@@ -344,7 +348,7 @@ export function BankReviewTable({
                       </Select>
                     </div>
                   ) : (
-                    <span className={row.type === "INCOME" ? "text-income" : "text-expense"}>
+                    <span className={cn("font-semibold", row.type === "INCOME" ? "text-income" : "text-expense")}>
                       {row.type === "INCOME" ? "+" : "-"}${row.amount}
                     </span>
                   )}
@@ -577,7 +581,7 @@ export function BankReviewTable({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">{row.date}</p>
-                  <p className="font-medium text-sm">{row.description}</p>
+                  <p className="font-semibold text-sm">{row.description}</p>
                   {(() => {
                     const extra = row.details.startsWith(row.description + " | ")
                       ? row.details.slice(row.description.length + 3)
@@ -595,7 +599,7 @@ export function BankReviewTable({
                   )}
                 </div>
                 <span className={cn(
-                  "shrink-0 tabular text-sm whitespace-nowrap",
+                  "shrink-0 tabular text-sm font-semibold whitespace-nowrap",
                   !row.ambiguousType && (row.type === "INCOME" ? "text-income" : "text-expense")
                 )}>
                   {row.ambiguousType && !row.skip ? `$${row.amount}` : `${row.type === "INCOME" ? "+" : "-"}$${row.amount}`}
