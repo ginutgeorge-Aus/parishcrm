@@ -1,5 +1,5 @@
 import {
-  lineGstCents, computeInvoiceTotals, centsToDecimalString, formatInvoiceNo, parseInvoiceDraft, parseInvoiceCursor, formatInvoiceCursor,
+  lineGstCents, computeInvoiceTotals, centsToDecimalString, formatInvoiceNo, parseInvoiceDraft, parseInvoiceCursor, formatInvoiceCursor, invoiceCursorDate,
 } from "@/lib/invoice"
 
 const line = (o: Partial<{ description: string; qty: number; unitPriceCents: number; gst: boolean }> = {}) =>
@@ -103,12 +103,21 @@ describe("invoice cursor", () => {
     expect(formatInvoiceCursor(c)).toBe("2026-10-11_42")
     expect(parseInvoiceCursor("2026-10-11_42")).toEqual(c)
   })
+  it("round-trips a full ISO timestamp so a non-midnight issueDate keeps its time", () => {
+    const c = { issueDate: "2026-10-11T09:30:00.000Z", id: 42 }
+    expect(parseInvoiceCursor(formatInvoiceCursor(c))).toEqual(c)
+  })
+  it("uses the date-only form at UTC midnight, the full timestamp otherwise", () => {
+    expect(invoiceCursorDate(new Date("2026-10-11"))).toBe("2026-10-11")
+    expect(invoiceCursorDate(new Date("2026-10-11T09:30:00Z"))).toBe("2026-10-11T09:30:00.000Z")
+  })
   it("accepts the id boundary", () => {
     expect(parseInvoiceCursor("2026-10-11_2147483647")).toEqual({ issueDate: "2026-10-11", id: 2147483647 })
   })
   it.each([
     undefined, null, 5, "", "2026-10-11", "2026-10-11_", "_5", "2026-10-11_0", "2026-10-11_2147483648",
     "2026-10-11_-1", "2026-10-11_1.5", "2026-02-30_5", "2026-13-01_5", "2026-10-11_5 ", "2026-10-11_5;DROP", "2026-10-11_12345678901",
+    "2026-10-11T25:00:00.000Z_5", "2026-10-11T09:30:00Z_5", "2026-10-11T09:30:00.000+10:00_5",
   ])("rejects %p", (bad) => {
     expect(parseInvoiceCursor(bad)).toBeNull()
   })

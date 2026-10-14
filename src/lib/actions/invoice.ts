@@ -9,7 +9,7 @@ import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
-import { centsToDecimalString, computeInvoiceTotals, INVOICE_PAGE_SIZE, formatInvoiceCursor, parseInvoiceCursor, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
+import { centsToDecimalString, computeInvoiceTotals, INVOICE_PAGE_SIZE, formatInvoiceCursor, invoiceCursorDate, parseInvoiceCursor, parseInvoiceDraft, type InvoiceCursor, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { isRealCalendarDate, isValidPgId } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
@@ -157,6 +157,12 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
 export type InvoiceListFilter = { status?: InvoiceStatus; from?: string; to?: string; after?: string; before?: string }
 export type InvoicePage = { rows: InvoiceListRow[]; nextCursor: string | null; prevCursor: string | null }
 
+/** Keyset predicate for rows strictly past `c` in `(issueDate, id)` order: `lt` walks older, `gt` newer. */
+function keysetWhere(c: InvoiceCursor, op: "lt" | "gt") {
+  const day = new Date(c.issueDate)
+  return { AND: [{ OR: [{ issueDate: { [op]: day } }, { issueDate: day, id: { [op]: c.id } }] }] }
+}
+
 /**
  * One page of invoices (no PII beyond recipient name), newest first (`issueDate desc, id desc`),
  * filtered by status and issue-date range. `after` / `before` are keyset cursors from a previous
@@ -171,11 +177,7 @@ export async function listInvoices(filter: InvoiceListFilter = {}): Promise<Invo
   if (filter.to && isRealCalendarDate(filter.to)) issueDate.lte = new Date(filter.to)
   const after = parseInvoiceCursor(filter.after)
   const before = after ? null : parseInvoiceCursor(filter.before)
-  const cursor = after ?? before
-  const day = cursor ? new Date(cursor.issueDate) : undefined
-  const keyset = !cursor || !day ? {}
-    : after ? { AND: [{ OR: [{ issueDate: { lt: day } }, { issueDate: day, id: { lt: cursor.id } }] }] }
-    : { AND: [{ OR: [{ issueDate: { gt: day } }, { issueDate: day, id: { gt: cursor.id } }] }] }
+  const keyset = after ? keysetWhere(after, "lt") : before ? keysetWhere(before, "gt") : {}
   const found = await prisma.invoice.findMany({
     where: { ...(filter.status ? { status: filter.status } : {}), ...(issueDate.gte || issueDate.lte ? { issueDate } : {}), ...keyset },
     orderBy: before ? [{ issueDate: "asc" }, { id: "asc" }] : [{ issueDate: "desc" }, { id: "desc" }],
@@ -185,7 +187,7 @@ export async function listInvoices(filter: InvoiceListFilter = {}): Promise<Invo
   const hasMore = found.length > INVOICE_PAGE_SIZE
   const page = found.slice(0, INVOICE_PAGE_SIZE)
   if (before) page.reverse() // fetched ascending to walk backwards; show newest first
-  const edge = (r?: { issueDate: Date; id: number }) => (r ? formatInvoiceCursor({ issueDate: ymdOf(r.issueDate), id: r.id }) : null)
+  const edge = (r?: { issueDate: Date; id: number }) => (r ? formatInvoiceCursor({ issueDate: invoiceCursorDate(r.issueDate), id: r.id }) : null)
   // Arriving via `after` means rows newer than the cursor exist behind us; via `before`, older ones do.
   const nextCursor = (before || hasMore) && page.length ? edge(page.at(-1)) : null
   const prevCursor = ((after && page.length) || (before && hasMore)) ? edge(page[0]) : null

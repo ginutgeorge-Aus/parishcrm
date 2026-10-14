@@ -206,6 +206,15 @@ describe("listInvoices", () => {
     })
     expect(r).toEqual(expect.objectContaining({ prevCursor: "2026-10-11_100", nextCursor: null }))
   })
+  it("keeps the full timestamp in the cursor so same-day rows past a page boundary aren't skipped", async () => {
+    const rows = mk(51).map((r) => ({ ...r, issueDate: new Date("2026-10-11T09:30:00Z") }))
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(rows)
+    const r = (await listInvoices()) as { nextCursor: string | null }
+    expect(r.nextCursor).toBe("2026-10-11T09:30:00.000Z_51")
+    await listInvoices({ after: r.nextCursor! })
+    const stamp = new Date("2026-10-11T09:30:00Z")
+    expect(lastWhere().where).toEqual({ AND: [{ OR: [{ issueDate: { lt: stamp } }, { issueDate: stamp, id: { lt: 51 } }] }] })
+  })
   it("before: walks ascending, returns rows newest first, next always present", async () => {
     const asc = mk(3).reverse() // ids 98, 99, 100 as fetched ascending
     ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(asc)

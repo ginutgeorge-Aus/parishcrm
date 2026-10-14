@@ -134,18 +134,36 @@ export function parseInvoiceDraft(formData: FormData): { data: InvoiceDraftInput
 }
 
 /** Keyset position in the invoice list (`issueDate desc, id desc`). */
+/** `issueDate` is `YYYY-MM-DD`, or a full ISO timestamp when the stored value isn't UTC midnight. */
 export type InvoiceCursor = { issueDate: string; id: number }
 
-/** Encode a list position as `YYYY-MM-DD_id` for the `after`/`before` URL params. */
+/**
+ * The cursor form of a stored `issueDate`: `YYYY-MM-DD` at UTC midnight (every app write), else the
+ * full ISO timestamp, so keyset pagination never truncates a time and skips same-day rows.
+ */
+export function invoiceCursorDate(d: Date): string {
+  const iso = d.toISOString()
+  return iso.endsWith("T00:00:00.000Z") ? iso.slice(0, 10) : iso
+}
+
+/** Encode a list position as `<date>_id` for the `after`/`before` URL params. */
 export function formatInvoiceCursor(c: InvoiceCursor): string {
   return `${c.issueDate}_${c.id}`
 }
 
-/** Strictly parse a `YYYY-MM-DD_id` cursor; anything malformed or out of range yields null (caller falls back to page 1). */
+/**
+ * Strictly parse a `YYYY-MM-DD_id` or `<ISO timestamp>_id` cursor; anything malformed or out of
+ * range yields null (caller falls back to page 1).
+ */
 export function parseInvoiceCursor(raw: unknown): InvoiceCursor | null {
   if (typeof raw !== "string") return null
-  const m = /^(\d{4}-\d{2}-\d{2})_(\d{1,10})$/.exec(raw)
-  if (!m || !isRealCalendarDate(m[1])) return null
+  const m = /^(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}\.\d{3}Z)?)_(\d{1,10})$/.exec(raw)
+  if (!m || !isRealCalendarDate(m[1].slice(0, 10))) return null
+  // A timestamp must round-trip exactly (rejects 25:00, 23:59:60 etc.).
+  if (m[1].length > 10) {
+    const t = new Date(m[1])
+    if (Number.isNaN(t.getTime()) || t.toISOString() !== m[1]) return null
+  }
   const id = Number(m[2])
   return isValidPgId(id) ? { issueDate: m[1], id } : null
 }
