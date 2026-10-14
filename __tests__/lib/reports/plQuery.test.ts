@@ -136,12 +136,18 @@ describe("getPLReportData", () => {
     ]
     mockAccountFindMany.mockResolvedValue(withIdle)
     // Account 4's entries net to zero but it still has rows → stays visible.
+    const rows = [
+      { id: 1, accountId: 1, amount: dec("3000"), date: new Date("2025-08-15") },
+      { id: 2, accountId: 2, amount: dec("1000"), date: new Date("2025-09-10") },
+      { id: 3, accountId: 4, amount: dec("50"), date: new Date("2025-10-01") },
+      { id: 4, accountId: 4, amount: dec("-50"), date: new Date("2025-10-02") },
+    ]
     mockTxGroupBy.mockResolvedValue([
       { accountId: 1, _sum: { amount: dec("3000") } },
       { accountId: 2, _sum: { amount: dec("1000") } },
       { accountId: 4, _sum: { amount: dec("0") } },
     ])
-    mockTxFindMany.mockResolvedValue([])
+    mockTxFindMany.mockResolvedValue(rows)
 
     const monthly = await getPLReportData(2025, true)
     const ids = (gs: typeof monthly.incomeGroups) => gs.flatMap((g) => g.accounts.map((a) => a.id))
@@ -171,6 +177,10 @@ describe("getPLReportData", () => {
     const data = await getPLReportData(2025, true)
     expect(data.incomeGroups.flatMap((g) => g.accounts.map((a) => a.id))).toEqual([1, 3])
     expect(data.incomeMonthly[1]).toBe(305000)
+    // Totals come from the same scan, so the Total column equals the sum of the months.
+    expect(mockTxGroupBy).not.toHaveBeenCalled()
+    expect(data.totalMap.get(3)).toBe(5000)
+    expect(data.totalIncome).toBe(305000)
   })
 
   it("excludes the XFER clearing account from the account query", async () => {

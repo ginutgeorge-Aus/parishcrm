@@ -61,7 +61,9 @@ function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
  * streamed in keyset-paginated batches and folded by accountId into 12-month
  * arrays, bounding peak memory to one batch regardless of transaction count
  *; the accumulated totals are identical to loading every row at once. The
- * monthly view also drops accounts with no transactions in the FY.
+ * monthly view also drops accounts with no transactions in the FY, and takes
+ * its annual totals from that same scan so the Total column always equals the
+ * sum of its months (a separate groupBy could see a different set of rows).
  */
 export async function getPLReportData(year: number, isMonthly: boolean): Promise<PLReportData> {
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
@@ -84,16 +86,14 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
         group: { select: { id: true, name: true, sortOrder: true } },
       },
     }),
-    prisma.transaction.groupBy({
-      by: ["accountId"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
-      _sum: { amount: true },
-    }),
+    isMonthly
+      ? null
+      : prisma.transaction.groupBy({
+          by: ["accountId"],
+          where: { date: { gte: fyStart, lt: fyEnd } },
+          _sum: { amount: true },
+        }),
   ])
-
-  const totalMap = new Map<number, number>(
-    totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)]),
-  )
 
   const acctMonthlyMap = new Map<number, number[]>()
   const acctMonthlyCountMap = new Map<number, number[]>()
@@ -110,14 +110,16 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
     )
   }
 
+  const totalMap = new Map<number, number>(
+    totalGroups
+      ? totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)])
+      : [...acctMonthlyMap].map(([id, months]) => [id, months.reduce((s, v) => s + v, 0)]),
+  )
+
   // Monthly grid hides categories with no FY transactions — 15 columns of
   // $0.00 bury the real figures. `totalMap` keys = accounts with ≥1 row, so
   // an account whose entries net to zero stays visible. Totals are unaffected.
-  // Also keep accounts seen by the monthly scan: a row inserted after the
-  // groupBy would otherwise be summed into no visible account and vanish.
-  const shown = isMonthly
-    ? accounts.filter((a) => totalMap.has(a.id) || acctMonthlyMap.has(a.id))
-    : accounts
+  const shown = isMonthly ? accounts.filter((a) => totalMap.has(a.id)) : accounts
 
   const incomeAccounts = shown.filter((a) => a.type === "INCOME")
   const expenseAccounts = shown.filter((a) => a.type === "EXPENSE")
