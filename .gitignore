@@ -70,3 +70,7 @@ docs/private/
 
 # Instance-specific one-off ops scripts — never ship in the public OSS repo
 scripts/private/
+
+# Gemini CLI (gemini-review workflow)
+.gemini/
+gha-creds-*.json
