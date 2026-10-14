@@ -29,6 +29,17 @@ describe("DialogContent close button (#150)", () => {
     expect(content.lastElementChild).toHaveAttribute("data-slot", "dialog-close-sticky")
   })
 
+  it("derives sticky and button offsets from --dialog-pad so zero-padding dialogs do not clip it (#236)", () => {
+    open()
+    const close = screen.getByRole("button", { name: "Close" })
+    const wrapper = close.closest('[data-slot="dialog-close-sticky"]')!
+    expect(wrapper.className).toContain("top-(--dialog-pad)")
+    expect(close.className).toContain("top-[calc(0.5rem-var(--dialog-pad))]")
+    expect(close.className).toContain("right-[calc(0.5rem-var(--dialog-pad))]")
+    expect(close.className).not.toMatch(/(^|\s)-(top|right)-2/)
+    expect(document.querySelector('[data-slot="dialog-content"]')!.className).toContain("[--dialog-pad:--spacing(4)]")
+  })
+
   it("omits the wrapper and the gap-cancelling class when showCloseButton is false", () => {
     open(false)
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull()
