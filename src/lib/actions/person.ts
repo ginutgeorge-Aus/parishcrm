@@ -10,7 +10,7 @@ import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
-import { lockedYearRefs } from "@/lib/sundaySchoolYearLock"
+import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
 
@@ -266,6 +266,8 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   try {
     linkedCount = await prisma.$transaction(
       async (tx) => {
+        // First statement, before the snapshot: see blockYearClosers (#234).
+        await blockYearClosers(tx)
         const [txCount, dgrCount, pettyCashCount] = await Promise.all([
           tx.transaction.count({ where: { personId: id } }),
           tx.dgrReceipt.count({ where: { personId: id } }),
