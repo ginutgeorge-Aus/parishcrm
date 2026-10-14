@@ -1095,8 +1095,9 @@ model Invoice {
   /// so re-sends and downloads of a sent invoice always render the same document.
   issuer           Json?
   /// The PDF as first sent, stored as `Buffer.from(encrypt(base64), "utf8")` (same as
-  /// TransactionAttachment.data). Written in the DRAFT → SENT transaction so the letterhead
-  /// image is frozen too. Null for drafts and for invoices sent before this column existed.
+  /// TransactionAttachment.data). Written best-effort right after the DRAFT → SENT commit (and
+  /// lazily on first load if that failed) so the letterhead image is frozen too. Null for drafts
+  /// and for invoices sent before this column existed.
   frozenPdf        Bytes?
   accountId        Int
   account          Account       @relation(fields: [accountId], references: [id])
