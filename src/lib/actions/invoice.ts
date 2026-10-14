@@ -27,7 +27,7 @@ export type InvoiceView = {
   notes: string | null; sentAt: Date | null; paidAt: Date | null; voidedAt: Date | null; voidReason: string | null
   paymentTransactionId: number | null
 }
-export type InvoiceListRow = {
+type InvoiceListRow = {
   id: number; invoiceNo: string | null; status: InvoiceStatus; recipientName: string
   issueDate: string; dueDate: string; total: string; gstTotal: string; paidAt: Date | null
 }
