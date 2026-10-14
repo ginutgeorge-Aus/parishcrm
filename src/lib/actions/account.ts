@@ -131,12 +131,9 @@ export async function updateAccount(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (isP2002(e)) return { error: "Account code already exists" }
-    // Serializable conflict. Only a type change reads invoices, so only then is "invoices use it" the likely cause
-    // (a concurrent invoice write won); a rename or other edit gets a generic retry message. The edit is rolled back
-    // either way, which is the safe outcome.
-    if (isP2034(e)) {
-      return { error: parsed.data.type !== target.type ? "Cannot change account type while invoices use it" : CONFLICT_ERROR }
-    }
+    // Serializable conflict: a concurrent invoice write or a concurrent edit of this account won. Either way the
+    // edit is rolled back; no auto-retry, since parsed.data may now be stale.
+    if (isP2034(e)) return { error: CONFLICT_ERROR }
     throw e
   }
   if (guardError) return { error: guardError }

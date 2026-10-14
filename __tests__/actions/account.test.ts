@@ -305,13 +305,13 @@ describe("updateAccount", () => {
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it("runs the retype guard + update Serializable and maps P2034 to the invoices-use-it error", async () => {
+  it("runs the retype guard + update Serializable and maps P2034 to the generic conflict error", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, type: "EXPENSE" }) // INCOME submitted: a type change
     mockFindFirst.mockResolvedValue(null)
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
     const result = await updateAccount(1, undefined, fd(validAccount))
-    expect(result).toEqual({ error: "Cannot change account type while invoices use it" })
+    expect(result).toEqual({ error: "This account was changed at the same time by someone else — try again." })
     expect(mockRedirect).not.toHaveBeenCalled()
     mockUpdate.mockResolvedValue({})
     await updateAccount(1, undefined, fd(validAccount))
