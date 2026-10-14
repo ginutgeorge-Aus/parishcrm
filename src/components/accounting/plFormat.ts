@@ -1,3 +1,4 @@
+import { APP_LOCALE } from "@/lib/appConfig"
 import { centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
 import { fyDateRange } from "@/lib/fiscalYear"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
@@ -7,6 +8,19 @@ import type { PLAccountRow } from "@/lib/reports/plQuery"
 // and converted to dollars only here, at the moment of display.
 export function fmt(cents: number): string {
   return fmtAUDAccounting(centsToNumber(cents))
+}
+
+const gridNumber = new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * Compact cents formatter for the dense monthly grid: no currency symbol
+ * (the table caption names the currency once), accounting parentheses for negatives, and an
+ * en dash for zero so the real figures stand out.
+ */
+export function fmtGrid(cents: number): string {
+  if (cents === 0) return "–"
+  const s = gridNumber.format(Math.abs(centsToNumber(cents)))
+  return cents < 0 ? `(${s})` : s
 }
 
 export function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {

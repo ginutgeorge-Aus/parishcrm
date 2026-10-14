@@ -14,6 +14,8 @@ import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
+import { fmtGrid } from "@/components/accounting/plFormat"
+import { APP_CURRENCY } from "@/lib/appConfig"
 
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
@@ -63,7 +65,8 @@ export default async function PLPrintPage(props: Readonly<Props>) {
 
   /**
    * Monthly-view rows for one section's groups: a header, one row per account
-   * with 12 month columns + total, and a subtotal. Keyed by the group's first
+   * with 12 month columns + total, and a subtotal (skipped for a single-account
+   * group, where it would only repeat that row). Keyed by the group's first
    * account id (stable and unique — an account belongs to one group).
    */
   const renderMonthlyGroups = (groups: Group[], prefix: string) =>
@@ -80,15 +83,17 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-              <td className="r" style={{ fontWeight: 600 }}>{fmt(accountTotal(a))}</td>
+              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
+              <td className="r" style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a))}</td>
             </tr>
           ))}
-          <tr className="group-total">
-            <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-            {gMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-            <td className="r" style={{ fontWeight: 600 }}>{fmt(gTotal)}</td>
-          </tr>
+          {group.accounts.length > 1 && (
+            <tr className="group-total">
+              <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
+              {gMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
+              <td className="r" style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
+            </tr>
+          )}
         </React.Fragment>
       )
     })
@@ -147,40 +152,45 @@ export default async function PLPrintPage(props: Readonly<Props>) {
       </p>
 
       {isMonthly ? (
-        <table>
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Category</th>
-              {MONTH_LABELS.map((m) => <th key={m} className="r">{m}</th>)}
-              <th className="r">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="section-header"><td colSpan={MONTHLY_COLS}>Income</td></tr>
-            {renderMonthlyGroups(incomeGroups, "ig")}
-            <tr className="section-total">
-              <td colSpan={2}>Total Income</td>
-              {incomeMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-              <td className="r">{fmt(totalIncome)}</td>
-            </tr>
+        <>
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Category</th>
+                {MONTH_LABELS.map((m) => <th key={m} className="r">{m}</th>)}
+                <th className="r">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="section-header"><td colSpan={MONTHLY_COLS}>Income</td></tr>
+              {renderMonthlyGroups(incomeGroups, "ig")}
+              <tr className="section-total">
+                <td colSpan={2}>Total Income</td>
+                {incomeMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
+                <td className="r">{fmtGrid(totalIncome)}</td>
+              </tr>
 
-            <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
-            {renderMonthlyGroups(expenseGroups, "eg")}
-            <tr className="section-total">
-              <td colSpan={2}>Total Expenses</td>
-              {expenseMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-              <td className="r">{fmt(totalExpenses)}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr className={`net ${net >= 0 ? "positive" : "negative"}`}>
-              <td colSpan={2}>Net Surplus / (Deficit)</td>
-              {netMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
-              <td className="r">{fmt(net)}</td>
-            </tr>
-          </tfoot>
-        </table>
+              <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
+              {renderMonthlyGroups(expenseGroups, "eg")}
+              <tr className="section-total">
+                <td colSpan={2}>Total Expenses</td>
+                {expenseMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
+                <td className="r">{fmtGrid(totalExpenses)}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr className={`net ${net >= 0 ? "positive" : "negative"}`}>
+                <td colSpan={2}>Net Surplus / (Deficit)</td>
+                {netMonthly.map((v, i) => <td key={i} className="r">{fmtGrid(v)}</td>)}
+                <td className="r">{fmtGrid(net)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="meta" style={{ marginTop: 8 }}>
+            Amounts in {APP_CURRENCY}. Categories with no transactions this financial year are hidden.
+          </p>
+        </>
       ) : (
         <table>
           <thead>

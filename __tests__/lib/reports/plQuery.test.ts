@@ -128,6 +128,32 @@ describe("getPLReportData", () => {
     expect(data.netMonthly[2]).toBe(-100000)
   })
 
+  it("hides accounts with no FY transactions in monthly view only", async () => {
+    const withIdle = [
+      ...accounts,
+      { id: 3, code: "110", name: "Idle", isActive: true, type: "INCOME", group: { id: 3, name: "Unused", sortOrder: 3 } },
+      { id: 4, code: "120", name: "Wash", isActive: true, type: "INCOME", group: { id: 1, name: "Giving", sortOrder: 1 } },
+    ]
+    mockAccountFindMany.mockResolvedValue(withIdle)
+    // Account 4's entries net to zero but it still has rows → stays visible.
+    mockTxGroupBy.mockResolvedValue([
+      { accountId: 1, _sum: { amount: dec("3000") } },
+      { accountId: 2, _sum: { amount: dec("1000") } },
+      { accountId: 4, _sum: { amount: dec("0") } },
+    ])
+    mockTxFindMany.mockResolvedValue([])
+
+    const monthly = await getPLReportData(2025, true)
+    const ids = (gs: typeof monthly.incomeGroups) => gs.flatMap((g) => g.accounts.map((a) => a.id))
+    expect(ids(monthly.incomeGroups)).toEqual([1, 4])
+    // The emptied "Unused" group disappears entirely.
+    expect(monthly.incomeGroups.map((g) => g.groupName)).toEqual(["Giving"])
+    expect(monthly.totalIncome).toBe(300000)
+
+    const annual = await getPLReportData(2025, false)
+    expect(ids(annual.incomeGroups)).toEqual([1, 4, 3])
+  })
+
   it("excludes the XFER clearing account from the account query", async () => {
     mockAccountFindMany.mockResolvedValue(accounts)
     mockTxGroupBy.mockResolvedValue([])

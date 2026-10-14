@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { PLMonthlyTable } from "@/components/accounting/PLMonthlyTable"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 
@@ -40,5 +40,41 @@ describe("PLMonthlyTable drill-down links", () => {
     renderTable(zeros())
     // Only the FY-wide category-name links remain.
     for (const a of screen.getAllByRole("link")) expect(a).toHaveTextContent("Offerings")
+  })
+})
+
+describe("PLMonthlyTable grid formatting", () => {
+  it("shows a dash for zero months and drops the currency symbol in cells", () => {
+    const counts = zeros()
+    counts[0] = 1
+    const monthly = zeros()
+    monthly[0] = 123456
+    render(
+      <PLMonthlyTable
+        incomeGroups={[{ groupName: "Giving", sortOrder: 0, accounts: [account] }]}
+        expenseGroups={[]}
+        totalMap={new Map([[7, 123456]])}
+        totalIncome={123456}
+        totalExpenses={0}
+        net={123456}
+        year={2025}
+        acctMonthlyMap={new Map([[7, monthly]])}
+        acctMonthlyCountMap={new Map([[7, counts]])}
+        incomeMonthly={monthly}
+        expenseMonthly={zeros()}
+        netMonthly={monthly}
+      />,
+    )
+    // Mobile summary cards keep full currency; only the grid is compacted.
+    const grid = within(screen.getAllByRole("table")[0])
+    expect(grid.getAllByText("1,234.56").length).toBeGreaterThan(0)
+    expect(grid.getAllByText("–").length).toBeGreaterThan(0)
+    expect(grid.queryByText("$0.00")).toBeNull()
+    expect(grid.getByText(/no transactions this financial year are hidden/)).toBeInTheDocument()
+  })
+
+  it("skips the subtotal row for a single-account group", () => {
+    renderTable(zeros())
+    expect(screen.queryByText("Giving subtotal")).toBeNull()
   })
 })

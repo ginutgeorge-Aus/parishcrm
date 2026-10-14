@@ -60,7 +60,8 @@ function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
  * breakdowns are computed only when `isMonthly` — FY-scoped transactions are
  * streamed in keyset-paginated batches and folded by accountId into 12-month
  * arrays, bounding peak memory to one batch regardless of transaction count
- *; the accumulated totals are identical to loading every row at once.
+ *; the accumulated totals are identical to loading every row at once. The
+ * monthly view also drops accounts with no transactions in the FY.
  */
 export async function getPLReportData(year: number, isMonthly: boolean): Promise<PLReportData> {
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
@@ -94,8 +95,13 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
     totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)]),
   )
 
-  const incomeAccounts = accounts.filter((a) => a.type === "INCOME")
-  const expenseAccounts = accounts.filter((a) => a.type === "EXPENSE")
+  // Monthly grid hides categories with no FY transactions — 15 columns of
+  // $0.00 bury the real figures. `totalMap` keys = accounts with ≥1 row, so
+  // an account whose entries net to zero stays visible. Totals are unaffected.
+  const shown = isMonthly ? accounts.filter((a) => totalMap.has(a.id)) : accounts
+
+  const incomeAccounts = shown.filter((a) => a.type === "INCOME")
+  const expenseAccounts = shown.filter((a) => a.type === "EXPENSE")
 
   const incomeGroups = groupByAccountGroup(incomeAccounts)
   const expenseGroups = groupByAccountGroup(expenseAccounts)
