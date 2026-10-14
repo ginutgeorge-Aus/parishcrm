@@ -14,6 +14,7 @@ jest.mock("@/lib/prisma", () => ({
     event: { findUnique: jest.fn() },
     registration: { groupBy: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }) },
     paymentReminderSend: { groupBy: jest.fn() },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }))
 jest.mock("@/lib/eventManager", () => ({ canManageEvent: jest.fn() }))

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@/lib/generated/prisma/client"
 import { centsToNumber, toCents } from "@/lib/formatting"
 
 export type EventRegistrationRollup = {
@@ -15,10 +16,11 @@ export type EventRegistrationRollup = {
  * registrations (not a capped list) so they stay exact past the table cap.
  * Card = Stripe bookings (carry a PaymentIntent `paymentRef`); everything else
  * paid — bank transfer or manually marked paid — counts as transfer, matching
- * the registrations table and CSV export.
+ * the registrations table's Method column. Both reads share one RepeatableRead
+ * snapshot so a concurrent payment change can't push card above total.
  */
 export async function getEventRegistrationRollup(eventId: number): Promise<EventRegistrationRollup> {
-  const [statusRollup, cardRollup] = await Promise.all([
+  const [statusRollup, cardRollup] = await prisma.$transaction([
     prisma.registration.groupBy({
       by: ["paymentStatus"],
       where: { eventId },
@@ -29,11 +31,15 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
       where: { eventId, paymentStatus: "PAID", paymentRef: { not: null } },
       _sum: { totalAmount: true },
     }),
-  ])
+  ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   const row = (status: string) => statusRollup.find((r) => r.paymentStatus === status)
   // Sum in integer cents so card + transfer always equals revenue exactly.
   const revenueCents = toCents(row("PAID")?._sum.totalAmount)
   const cardCents = toCents(cardRollup._sum.totalAmount)
+  // toCents yields NaN past the safe-integer range; never render a bogus figure.
+  if (!Number.isSafeInteger(revenueCents) || !Number.isSafeInteger(cardCents)) {
+    throw new Error(`event ${eventId} revenue rollup exceeds safe integer range`)
+  }
   return {
     paid: row("PAID")?._count._all ?? 0,
     cancelled: row("CANCELLED")?._count._all ?? 0,

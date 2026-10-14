@@ -14,6 +14,7 @@ jest.mock("@/lib/prisma", () => ({
     eventManager: { findMany: jest.fn() },
     registration: { groupBy: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }) },
     paymentReminderSend: { groupBy: jest.fn() },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }))
 // The ADMIN branch loads the event-managers panel data (Task 8): a
