@@ -29,7 +29,11 @@ jobs:
     concurrency:
       group: gemini-rereview-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    environment: coderabbit-nudge
+    # deployment: false — borrow the env's secret (branch policy still applies)
+    # without logging every run as a public deployment. Same as coderabbit-nudge.yml.
+    environment:
+      name: coderabbit-nudge
+      deployment: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
