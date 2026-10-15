@@ -55,7 +55,11 @@ jobs:
     concurrency:
       group: coderabbit-nudge
       cancel-in-progress: true
-    environment: coderabbit-nudge
+    # deployment: false — borrow the env's secret (branch policy still applies)
+    # without logging every run as a public deployment.
+    environment:
+      name: coderabbit-nudge
+      deployment: false
     runs-on: ubuntu-latest
     timeout-minutes: 75   # > the script's 65-min --wait cap
     steps:
