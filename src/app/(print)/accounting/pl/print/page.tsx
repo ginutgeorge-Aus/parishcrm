@@ -15,6 +15,7 @@ import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { fmtGrid } from "@/components/accounting/plFormat"
+import { APP_CURRENCY } from "@/lib/appConfig"
 
 /** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
 function cellCls(v: number): string {
@@ -25,7 +26,6 @@ function cellCls(v: number): string {
 function netCls(net: number): string {
   return net > 0 ? "positive" : net < 0 ? "negative" : ""
 }
-import { APP_CURRENCY } from "@/lib/appConfig"
 
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
