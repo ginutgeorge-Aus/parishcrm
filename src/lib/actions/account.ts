@@ -119,7 +119,11 @@ export async function updateAccount(
   let guardError: string | null
   try {
     guardError = await prisma.$transaction(async (tx) => {
-      if (parsed.data.type !== target.type) {
+      // Re-read the type inside the transaction: `target` was read before it, so a concurrent retype in between
+      // would make the stale comparison skip the guards below.
+      const current = await tx.account.findUnique({ where: { id }, select: { type: true } })
+      if (!current) return "Account not found"
+      if (parsed.data.type !== current.type) {
         const txCount = await tx.transaction.count({ where: { accountId: id } })
         if (txCount > 0) return "Cannot change account type while transactions exist"
         // Invoices post to an INCOME account; retyping would leave them on an invalid one.

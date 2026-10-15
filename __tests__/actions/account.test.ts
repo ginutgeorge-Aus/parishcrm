@@ -238,6 +238,19 @@ describe("updateAccount", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  it("guards on the type re-read inside the transaction, not the stale pre-read", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    // Pre-read sees EXPENSE; a concurrent edit retyped it to INCOME and linked an invoice before the tx.
+    mockFindUnique.mockResolvedValueOnce({ id: 1, type: "EXPENSE" }).mockResolvedValueOnce({ type: "INCOME" })
+    mockFindFirst.mockResolvedValue(null)
+    mockGroupFind.mockResolvedValue({ id: 1, type: "EXPENSE" })
+    mockTxCount.mockResolvedValue(0)
+    ;(prisma.invoice.count as jest.Mock).mockResolvedValueOnce(1)
+    const result = await updateAccount(1, undefined, fd({ ...validAccount, type: "EXPENSE" }))
+    expect(result).toEqual({ error: "Cannot change account type while invoices use it" })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
   it("allows type change when no transactions exist", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, type: "INCOME" })
