@@ -101,20 +101,26 @@ export function buildInvoicePdfModel(inv: {
  * Best-effort freeze: store the encrypted PDF on a non-draft invoice that has none yet, plus
  * the issuer snapshot used for that render when the row has none (legacy rows), so later reads
  * can trust the stored blob. Both writes are conditional (never overwrite a blob, an existing
- * issuer or a draft) and run in one transaction; 0 rows matched is fine and a DB error is
- * logged, never thrown (the caller still has the PDF to serve).
+ * issuer or a draft) and run in one transaction; a DB error is logged, never thrown (the
+ * caller still has the PDF to serve). Returns the blob another request froze first when this
+ * write matched 0 rows and that blob is readable, so concurrent first renders serve the same
+ * bytes; null otherwise (the caller serves its own render).
  */
-async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: IssuerSnapshot | null): Promise<void> {
+async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: IssuerSnapshot | null): Promise<Buffer | null> {
   const notDraft = { id, frozenPdf: null, status: { not: "DRAFT" as const } }
   try {
-    await prisma.$transaction([
+    const results = await prisma.$transaction([
       ...(issuerIfMissing
         ? [prisma.invoice.updateMany({ where: { ...notDraft, issuer: { equals: Prisma.AnyNull } }, data: { issuer: issuerIfMissing } })]
         : []),
       prisma.invoice.updateMany({ where: notDraft, data: { frozenPdf: encryptBytes(pdf) } }),
     ])
+    if (results[results.length - 1]?.count !== 0) return null
+    const winner = await prisma.invoice.findUnique({ where: { id }, select: { frozenPdf: true } })
+    return winner?.frozenPdf ? decryptBytes(winner.frozenPdf) : null
   } catch (e) {
     logger.error("invoice frozenPdf store failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+    return null
   }
 }
 
@@ -177,9 +183,11 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
   // readFrozenPdf can never serve (it needs the snapshot) — skip it and keep rendering live.
   const malformedIssuer = sent && r.issuer !== null && !frozen
   if (malformedIssuer) logger.error("invoice issuer snapshot malformed, not freezing", { invoiceId: id })
-  if (sent && !r.frozenPdf && stored !== "unreadable" && !malformedIssuer) await storeFrozenPdf(id, pdf, frozen ? null : issuer)
+  const winner = sent && !r.frozenPdf && stored !== "unreadable" && !malformedIssuer
+    ? await storeFrozenPdf(id, pdf, frozen ? null : issuer)
+    : null
   return {
-    pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
+    pdf: winner ?? pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,
     churchName: church.name, paymentDetails: issuer.paymentDetails,
   }

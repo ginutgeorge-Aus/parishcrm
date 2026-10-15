@@ -87,7 +87,7 @@ async function emailInvoice(id: number, settings?: InvoiceSettings): Promise<voi
   ])
 }
 
-/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. The PDF freeze happens after the commit and never fails the send. */
+/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. The PDF is rendered (and frozen) after the commit. With `email` false a render failure is logged and never fails the send; with `email` true it surfaces as an email failure (the invoice stays SENT). */
 async function send(id: number, email: boolean): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }

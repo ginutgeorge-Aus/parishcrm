@@ -180,6 +180,22 @@ describe("frozen PDF", () => {
     await expect(loadInvoicePdf(11)).resolves.toMatchObject({ filename: "INV-0001.pdf" })
     expect(logger.error).not.toHaveBeenCalled()
   })
+  it("lost the freeze race (0 rows): re-reads and serves the blob the other request froze", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ ...sent, frozenPdf: null })
+      .mockResolvedValueOnce({ frozenPdf: stored })
+    ;(prisma.$transaction as jest.Mock).mockResolvedValue([{ count: 0 }])
+    const out = await loadInvoicePdf(11)
+    expect(out?.pdf.toString()).toBe("%PDF-frozen")
+    expect(prisma.invoice.findUnique).toHaveBeenLastCalledWith({ where: { id: 11 }, select: { frozenPdf: true } })
+  })
+  it("lost the race but the winner's blob is unreadable: serves our own render", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ ...sent, frozenPdf: null })
+      .mockResolvedValueOnce({ frozenPdf: Buffer.from("garbage") })
+    ;(prisma.$transaction as jest.Mock).mockResolvedValue([{ count: 0 }])
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+  })
   it("logs but still serves the PDF when the freeze write fails", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: null })
     ;(prisma.$transaction as jest.Mock).mockRejectedValue(new Error("db down"))
