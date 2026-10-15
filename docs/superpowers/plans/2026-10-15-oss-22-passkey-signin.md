@@ -314,7 +314,8 @@ export function normalisePasskeyName(name: unknown): string | null {
 export type PasskeySummary = { id: string; name: string; createdAt: Date; lastUsedAt: Date | null; backedUp: boolean }
 export type PasskeyStatus = { available: boolean; passkeys: PasskeySummary[] }
 export async function getPasskeyStatus(): Promise<PasskeyStatus>
-export async function startPasskeyRegistration(password: string): Promise<{ error: string } | { challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }>
+// arg: the current account password (re-auth)
+export async function startPasskeyRegistration(currentPw: string): Promise<{ error: string } | { challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }>
 export async function finishPasskeyRegistration(challengeId: string, response: unknown, name: string): Promise<{ error: string } | { success: true }>
 export async function removePasskey(id: string): Promise<{ error: string } | { success: true }>
 export async function startPasskeyLogin(): Promise<{ error: string } | { challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }>
