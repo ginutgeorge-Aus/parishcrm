@@ -17,6 +17,7 @@ import {
 import { DeleteUserButton } from "@/components/users/DeleteUserButton"
 import { UnlockUserButton } from "@/components/users/UnlockUserButton"
 import { ResetTotpButton } from "@/components/users/ResetTotpButton"
+import { RevokePasskeysButton } from "@/components/users/RevokePasskeysButton"
 import { ResendWelcomeButton } from "@/components/users/ResendWelcomeButton"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { DemoNotice } from "@/components/DemoNotice"
@@ -51,7 +52,7 @@ export default async function UsersPage() {
   const users = await prisma.user.findMany({
     where: { archivedAt: null }, // hide soft-deleted users
     orderBy: { name: "asc" },
-    select: { id: true, name: true, email: true, role: true, lockedUntil: true, otpLockedUntil: true, totpEnabledAt: true },
+    select: { id: true, name: true, email: true, role: true, lockedUntil: true, otpLockedUntil: true, totpEnabledAt: true, _count: { select: { passkeys: true } } },
   })
 
   // Last successful login per user, derived from the USER_LOGIN audit events
@@ -113,6 +114,7 @@ export default async function UsersPage() {
                 <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
                   {isLocked && <UnlockUserButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
                   {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
+                  {u._count.passkeys > 0 && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <RevokePasskeysButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
                   <Button variant="ghost" size="sm" asChild className="h-11 sm:h-7 any-pointer-coarse:h-11">
                     <Link href={`/users/${u.id}/edit`}>Edit</Link>
                   </Button>
@@ -168,6 +170,7 @@ export default async function UsersPage() {
                       <div className="flex flex-wrap gap-2">
                         {isLocked && <UnlockUserButton userId={u.id} />}
                         {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} />}
+                        {u._count.passkeys > 0 && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <RevokePasskeysButton userId={u.id} />}
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/users/${u.id}/edit`}>Edit</Link>
                         </Button>

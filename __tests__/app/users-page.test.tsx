@@ -15,6 +15,7 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/components/users/DeleteUserButton", () => ({ DeleteUserButton: () => "DELETE_BTN" }))
 jest.mock("@/components/users/UnlockUserButton", () => ({ UnlockUserButton: () => null }))
 jest.mock("@/components/users/ResetTotpButton", () => ({ ResetTotpButton: () => "RESET_TOTP_BTN" }))
+jest.mock("@/components/users/RevokePasskeysButton", () => ({ RevokePasskeysButton: () => "REVOKE_PASSKEYS_BTN" }))
 jest.mock("@/components/users/ResendWelcomeButton", () => ({ ResendWelcomeButton: () => null }))
 
 import { auth } from "@/auth"
@@ -53,8 +54,8 @@ describe("UsersPage", () => {
   it("renders a last-login column with date or Never fallback", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUsers.mockResolvedValue([
-      { id: 1, name: "Alice", email: "a@x.com", role: "ADMIN", lockedUntil: null, otpLockedUntil: null },
-      { id: 2, name: "Bob", email: "b@x.com", role: "VIEWER", lockedUntil: null, otpLockedUntil: null },
+      { id: 1, name: "Alice", email: "a@x.com", role: "ADMIN", lockedUntil: null, otpLockedUntil: null, _count: { passkeys: 0 } },
+      { id: 2, name: "Bob", email: "b@x.com", role: "VIEWER", lockedUntil: null, otpLockedUntil: null, _count: { passkeys: 0 } },
     ])
     mockGroupBy.mockResolvedValue([
       { userId: 1, _max: { createdAt: new Date("2026-06-20T03:30:00.000Z") } },
@@ -68,7 +69,7 @@ describe("UsersPage", () => {
   it("shows Locked badge when otpLockedUntil is in the future", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockUsers.mockResolvedValue([
-      { id: 1, name: "Alice", email: "a@x.com", role: "ADMIN", lockedUntil: null, otpLockedUntil: new Date(Date.now() + 60_000) },
+      { id: 1, name: "Alice", email: "a@x.com", role: "ADMIN", lockedUntil: null, otpLockedUntil: new Date(Date.now() + 60_000), _count: { passkeys: 0 } },
     ])
     mockGroupBy.mockResolvedValue([])
     const html = renderToStaticMarkup(await UsersPage())
@@ -77,7 +78,7 @@ describe("UsersPage", () => {
 
   it("shows the TOTP reset button only for roles the viewer can act on", async () => {
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
-    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: new Date("2026-09-01") }
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: new Date("2026-09-01"), _count: { passkeys: 0 } }
     mockUsers.mockResolvedValue([
       { id: 2, name: "Pat", email: "pastor@example.com", role: "PASTOR", ...base },
     ])
@@ -92,7 +93,7 @@ describe("UsersPage", () => {
 
   it("hides manage controls on rows the viewer cannot act on (OFFICE_ADMIN → PASTOR)", async () => {
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
-    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null }
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null, _count: { passkeys: 0 } }
     mockUsers.mockResolvedValue([
       { id: 2, name: "Pat", email: "pastor@example.com", role: "PASTOR", ...base },
     ])
@@ -111,7 +112,7 @@ describe("UsersPage", () => {
 
   it("does not offer Delete on the viewer's own row", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null }
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null, _count: { passkeys: 0 } }
     mockUsers.mockResolvedValue([
       { id: 1, name: "Me", email: "me@example.com", role: "ADMIN", ...base },
     ])
@@ -119,5 +120,19 @@ describe("UsersPage", () => {
     const html = renderToStaticMarkup(await UsersPage())
     expect(html).toContain("/users/1/edit")
     expect(html).not.toContain("DELETE_BTN")
+  })
+
+  it("shows Revoke passkeys only for users with passkeys the viewer can act on", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "1" } })
+    const base = { lockedUntil: null, otpLockedUntil: null, totpEnabledAt: null }
+    mockGroupBy.mockResolvedValue([])
+    mockUsers.mockResolvedValue([{ id: 3, name: "Vic", email: "viewer@example.com", role: "VIEWER", ...base, _count: { passkeys: 0 } }])
+    expect(renderToStaticMarkup(await UsersPage())).not.toContain("REVOKE_PASSKEYS_BTN")
+
+    mockUsers.mockResolvedValue([{ id: 2, name: "Pat", email: "pastor@example.com", role: "PASTOR", ...base, _count: { passkeys: 2 } }])
+    expect(renderToStaticMarkup(await UsersPage())).not.toContain("REVOKE_PASSKEYS_BTN")
+
+    mockUsers.mockResolvedValue([{ id: 3, name: "Vic", email: "viewer@example.com", role: "VIEWER", ...base, _count: { passkeys: 2 } }])
+    expect(renderToStaticMarkup(await UsersPage())).toContain("REVOKE_PASSKEYS_BTN")
   })
 })
