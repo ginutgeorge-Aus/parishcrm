@@ -22,6 +22,7 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
+  encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`, "utf8")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 

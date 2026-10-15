@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { encrypt, safeDecrypt } from "@/lib/crypto"
+import { encrypt, encryptBytes, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { CUID_ID_RE, isP2002, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
@@ -132,7 +132,7 @@ export async function upsertClearance(
 
   const docData = upload
     ? {
-        document: Buffer.from(encrypt(upload.bytes.toString("base64")), "utf8"),
+        document: encryptBytes(upload.bytes),
         documentName: encrypt(upload.name),
         documentType: upload.contentType,
         documentSize: upload.bytes.length,

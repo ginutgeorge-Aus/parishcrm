@@ -13,6 +13,8 @@ jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefine
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`, "utf8")),
+  decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""), "base64")),
 }))
 
 import { auth } from "@/auth"
