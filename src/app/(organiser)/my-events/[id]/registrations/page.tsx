@@ -4,11 +4,11 @@ import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { canManageEvent } from "@/lib/eventManager"
 import { safeDecrypt } from "@/lib/crypto"
-import { centsToNumber, toCents } from "@/lib/formatting"
 import { toFloat } from "@/lib/utils"
 import { formatSydneyDate } from "@/lib/dates"
 import { lastRemindedAtByRegistration } from "@/lib/actions/registration"
 import { RegistrationStats } from "@/components/events/RegistrationStats"
+import { getEventRegistrationRollup } from "@/lib/reports/eventRegistrationRollup"
 import { RegistrationsTable } from "@/components/events/RegistrationsTable"
 import { ExportButtons } from "@/components/events/ExportButtons"
 import { SendPaymentRemindersClient } from "@/components/events/SendPaymentRemindersClient"
@@ -26,6 +26,13 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
+/**
+ * Renders the organiser-facing registrations page for a specific event.
+ * It includes statistics, tables of registrations, export options, and payment reminders.
+ *
+ * @param {Readonly<Props>} props - The component props containing route parameters.
+ * @returns {Promise<JSX.Element>} The React component for the organiser registrations page.
+ */
 export default async function OrganiserRegistrationsPage(props: Readonly<Props>) {
   const { id } = await props.params
   const session = await auth()
@@ -56,7 +63,6 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
         orderBy: { createdAt: "desc" },
         take: EVENT_REGISTRATIONS_CAP,
       },
-      _count: { select: { registrations: true } },
     },
   })
   if (!event) notFound()
@@ -64,17 +70,8 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
   // Headline stats come from a DB rollup over ALL registrations, not the
   // capped list above — so total/paid/cancelled/revenue stay exact even when
   // the table is truncated, matching the admin twin.
-  const statusRollup = await prisma.registration.groupBy({
-    by: ["paymentStatus"],
-    where: { eventId },
-    _count: { _all: true },
-    _sum: { totalAmount: true },
-  })
-  const countOf = (status: string) => statusRollup.find((r) => r.paymentStatus === status)?._count._all ?? 0
-  const totalRegistrations = event._count.registrations
-  const paidCount = countOf("PAID")
-  const cancelled = countOf("CANCELLED")
-  const revenue = centsToNumber(toCents(statusRollup.find((r) => r.paymentStatus === "PAID")?._sum.totalAmount))
+  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } =
+    await getEventRegistrationRollup(eventId)
   const ticketsSold = event.ticketTypes.map((tt) => ({
     name: tt.name,
     count: tt.registrationItems.reduce((s, i) => s + i.quantity, 0),
@@ -117,6 +114,8 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
         paid={paidCount}
         cancelled={cancelled}
         revenue={revenue}
+        cardRevenue={cardRevenue}
+        transferRevenue={transferRevenue}
         ticketsSold={ticketsSold}
       />
 
