@@ -25,6 +25,10 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: {
       findUnique: jest.fn(),
     },
+    passkey: {
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
     trustedDevice: {
       create: jest.fn().mockResolvedValue({ id: "grant1" }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -67,6 +71,13 @@ jest.mock("@/lib/totpVerify", () => ({ verifySecondFactor: jest.fn() }))
 
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 
+jest.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: jest.fn() }))
+
+jest.mock("@/lib/webauthn", () => ({
+  getRelyingParty: jest.fn(() => ({ rpID: "crm.example.org", origin: "https://crm.example.org" })),
+  consumeChallenge: jest.fn(),
+}))
+
 jest.mock("@/lib/trustedDevice", () => ({
   DEVICE_TRUST_GRANT_PREFIX: "grant:",
   DEVICE_TRUST_GRANT_TTL_MS: 300000,
@@ -89,6 +100,8 @@ import { authorizeCredentials, AccountLocked, OtpSent, OtpDeliveryFailed, TotpRe
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
+import { verifyAuthenticationResponse } from "@simplewebauthn/server"
+import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
 const nextAuthOptions = (NextAuth as jest.Mock).mock.calls[0][0]
 
@@ -1209,5 +1222,128 @@ describe("authorizeCredentials — demo mode", () => {
     expect(prisma.user.update).not.toHaveBeenCalled()
     expect(prisma.user.updateMany).not.toHaveBeenCalled()
     expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe("authorizeCredentials — passkey", () => {
+  const OLD_DEMO = process.env.DEMO_MODE
+  const passkeyRow = (user: Record<string, unknown> = {}) => ({
+    id: "pk1",
+    credentialId: "cred-1",
+    publicKey: Buffer.from([1, 2, 3]),
+    counter: BigInt(5),
+    transports: ["internal"],
+    user: { ...baseUser, id: 7, archivedAt: null, otpLockedUntil: null, ...user },
+  })
+  const creds = (over: Record<string, unknown> = {}) => ({
+    email: "passkey",
+    mode: "passkey",
+    challengeId: "ch1",
+    assertion: JSON.stringify({ id: "cred-1", response: {} }),
+    remember: "true",
+    ...over,
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.DEMO_MODE
+    ;(getRelyingParty as jest.Mock).mockReturnValue({ rpID: "crm.example.org", origin: "https://crm.example.org" })
+    ;(consumeChallenge as jest.Mock).mockResolvedValue("login-ch")
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow())
+    ;(prisma.passkey.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    ;(verifyAuthenticationResponse as jest.Mock).mockResolvedValue({ verified: true, authenticationInfo: { newCounter: 6 } })
+  })
+  afterAll(() => { process.env.DEMO_MODE = OLD_DEMO })
+
+  it("signs in with a verified passkey — no password, no second factor, no device grant", async () => {
+    const result = await authorizeCredentials(creds())
+    expect(result).toEqual({ id: "7", name: baseUser.name, email: baseUser.email, role: "ADMIN", remember: true })
+    expect(consumeChallenge).toHaveBeenCalledWith("ch1", "login", null)
+    expect(prisma.passkey.findUnique).toHaveBeenCalledWith({ where: { credentialId: "cred-1" }, include: { user: true } })
+    expect(prisma.passkey.updateMany).toHaveBeenCalledWith({
+      where: { id: "pk1", counter: BigInt(5) },
+      data: { counter: BigInt(6), lastUsedAt: expect.any(Date) },
+    })
+    expect(logAudit).toHaveBeenCalledWith(7, "USER_LOGIN", "User", 7, { via: "passkey" }, undefined)
+    expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("verifies with user verification against the consumed challenge", async () => {
+    await authorizeCredentials(creds())
+    expect(verifyAuthenticationResponse).toHaveBeenCalledWith(expect.objectContaining({
+      expectedChallenge: "login-ch",
+      expectedOrigin: "https://crm.example.org",
+      expectedRPID: "crm.example.org",
+      requireUserVerification: true,
+      credential: { id: "cred-1", publicKey: new Uint8Array([1, 2, 3]), counter: 5, transports: ["internal"] },
+    }))
+  })
+
+  it("honours remember=false", async () => {
+    await expect(authorizeCredentials(creds({ remember: "false" }))).resolves.toMatchObject({ remember: false })
+  })
+
+  it("rejects a consumed/expired challenge before any lookup", async () => {
+    ;(consumeChallenge as jest.Mock).mockResolvedValue(null)
+    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(prisma.passkey.findUnique).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["malformed JSON", { assertion: "{not json" }],
+    ["missing assertion", { assertion: undefined }],
+    ["oversized assertion", { assertion: "x".repeat(16_385) }],
+    ["no credential id", { assertion: JSON.stringify({ response: {} }) }],
+  ])("rejects %s", async (_n, over) => {
+    expect(await authorizeCredentials(creds(over))).toBeNull()
+    expect(verifyAuthenticationResponse).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unknown credential", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await authorizeCredentials(creds())).toBeNull()
+  })
+
+  it("rejects an archived user", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ archivedAt: new Date() }))
+    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(verifyAuthenticationResponse).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["password-locked", { lockedUntil: new Date(Date.now() + 60_000) }],
+    ["OTP-locked", { otpLockedUntil: new Date(Date.now() + 60_000) }],
+  ])("keeps a %s account locked", async (_n, over) => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow(over))
+    await expect(authorizeCredentials(creds())).rejects.toBeInstanceOf(AccountLocked)
+  })
+
+  it.each([
+    ["unverified", () => (verifyAuthenticationResponse as jest.Mock).mockResolvedValue({ verified: false })],
+    ["throwing", () => (verifyAuthenticationResponse as jest.Mock).mockRejectedValue(new Error("bad sig"))],
+  ])("rejects an %s assertion and audits it", async (_n, arrange) => {
+    arrange()
+    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(logAudit).toHaveBeenCalledWith(7, "USER_LOGIN_FAILED", "User", 7, { reason: "passkey_invalid" }, undefined)
+    expect(prisma.passkey.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects when the counter compare-and-swap loses", async () => {
+    ;(prisma.passkey.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(logAudit).not.toHaveBeenCalledWith(7, "USER_LOGIN", "User", 7, expect.anything(), undefined)
+  })
+
+  it("is disabled without a relying party", async () => {
+    ;(getRelyingParty as jest.Mock).mockReturnValue(null)
+    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(consumeChallenge).not.toHaveBeenCalled()
+  })
+
+  it("rejects a demo user's passkey in demo mode", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ email: "admin@demo.invalid" }))
+    expect(await authorizeCredentials(creds())).toBeNull()
   })
 })
