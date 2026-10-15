@@ -168,3 +168,29 @@
     animation: none;
   }
 }
+
+/* Large monitors: the UI was sized for laptops, so on 1920px+ screens text was
+   tiny and pages sat in a narrow column. Everything is rem-based, so bumping the
+   root font size scales text, spacing and widths together; the page-width caps
+   (max-w-2xl…5xl read --container-*) also grow. Min-width queries only —
+   phones, tablets and laptops are unchanged. */
+@media (min-width: 1536px) {
+  :root {
+    --container-2xl: 48rem;
+    --container-3xl: 60rem;
+    --container-4xl: 68rem;
+    --container-5xl: 80rem;
+  }
+}
+
+@media (min-width: 1920px) {
+  html {
+    font-size: 106.25%; /* 17px at the 16px default; % keeps a user's browser font size */
+  }
+}
+
+@media (min-width: 2400px) {
+  html {
+    font-size: 112.5%; /* 18px */
+  }
+}
