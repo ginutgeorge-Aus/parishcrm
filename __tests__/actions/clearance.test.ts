@@ -2,24 +2,30 @@
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
-  const prisma: Record<string, unknown> = {
+  // Writes exist only on the transaction client; the global client's write
+  // methods throw, so a mutation or audit made outside the transaction fails
+  // the test instead of passing silently.
+  const outsideTx = () => jest.fn(() => { throw new Error("write outside the transaction") })
+  const tx = {
     $queryRaw: jest.fn(),
+    personClearance: { create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
+  }
+  const prisma = {
     person: { findUnique: jest.fn() },
     personClearance: {
       findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
-      delete: jest.fn(),
-      deleteMany: jest.fn(),
+      create: outsideTx(),
+      update: outsideTx(),
+      updateMany: outsideTx(),
+      delete: outsideTx(),
+      deleteMany: outsideTx(),
     },
+    $transaction: jest.fn((fn: (t: unknown) => unknown) => fn(tx)),
   }
-  // The interactive transaction runs on the same mocks.
-  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
-  return { prisma }
+  return { prisma, __tx: tx }
 })
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -28,7 +34,7 @@ jest.mock("@/lib/crypto", () => ({
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import {
   upsertClearance,
   verifyClearance,
@@ -39,11 +45,13 @@ import {
 const mockAuth = auth as jest.Mock
 const personFind = prisma.person.findUnique as jest.Mock
 const find = prisma.personClearance.findUnique as jest.Mock
-const create = prisma.personClearance.create as jest.Mock
-const update = prisma.personClearance.update as jest.Mock
-const updateMany = prisma.personClearance.updateMany as jest.Mock
-const deleteMany = prisma.personClearance.deleteMany as jest.Mock
-const queryRaw = prisma.$queryRaw as jest.Mock
+type TxMock = { $queryRaw: jest.Mock; personClearance: Record<"create" | "update" | "updateMany" | "deleteMany", jest.Mock> }
+const { __tx: tx } = jest.requireMock<{ __tx: TxMock }>("@/lib/prisma")
+const create = tx.personClearance.create
+const update = tx.personClearance.update
+const updateMany = tx.personClearance.updateMany
+const deleteMany = tx.personClearance.deleteMany
+const queryRaw = tx.$queryRaw
 
 const ADMIN = { user: { role: "ADMIN", id: "5" } }
 const OFFICE = { user: { role: "OFFICE_ADMIN", id: "6" } }
@@ -173,9 +181,9 @@ describe("upsertClearance create", () => {
     expect(Buffer.isBuffer(data.document)).toBe(true)
     expect(data.document.toString("utf8")).toBe(`enc:${Buffer.from(pngBytes()).toString("base64")}`)
     expect(data.createdById).toBe(5)
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_ADDED", "Person", 3, expect.objectContaining({ type: "WWCC" }))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_ADDED", "Person", 3, expect.objectContaining({ type: "WWCC" }))
     // Audit metadata must never carry the number.
-    expect(JSON.stringify((logAudit as jest.Mock).mock.calls[0])).not.toContain("WWC0000000E")
+    expect(JSON.stringify((logAuditTx as jest.Mock).mock.calls[0])).not.toContain("WWC0000000E")
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
   })
 
@@ -220,7 +228,7 @@ describe("upsertClearance update", () => {
     expect(data.expiresAt).toEqual(new Date("2034-03-15T00:00:00.000Z"))
     expect(data).toMatchObject({ verifiedAt: null, verifiedById: null, verificationNote: null })
     expect(data.document).toBeUndefined() // no new file -> existing document kept
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UPDATED", "Person", 3,
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_UPDATED", "Person", 3,
       expect.objectContaining({ type: "WWCC", verificationCleared: true, documentReplaced: false }))
     expect(create).not.toHaveBeenCalled()
   })
@@ -235,7 +243,7 @@ describe("upsertClearance update", () => {
     const { data } = updateMany.mock.calls[0][0]
     expect(data.documentType).toBe("image/png")
     expect(data.verifiedAt).toBeNull()
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UPDATED", "Person", 3, expect.objectContaining({ documentReplaced: true }))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_UPDATED", "Person", 3, expect.objectContaining({ documentReplaced: true }))
   })
 
   it("rejects an edit that empties the last field of a document-less clearance", async () => {
@@ -255,7 +263,7 @@ describe("upsertClearance update", () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2029-03-15" }))
     expect(r).toBeUndefined()
     expect(updateMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it("rejects a stale Add form (no seen updatedAt) when the row now exists", async () => {
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", expiresAt: "2034-03-15" }))
@@ -266,7 +274,7 @@ describe("upsertClearance update", () => {
     updateMany.mockResolvedValue({ count: 0 })
     const r = await upsertClearance(3, "WWCC", fd({ number: "WWC0000000E", updatedAt: SEEN, expiresAt: "2034-03-15" }))
     expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it("404s a create when the person was archived after the pre-read (locked re-check)", async () => {
     find.mockResolvedValue(null)
@@ -274,7 +282,7 @@ describe("upsertClearance update", () => {
     const r = await upsertClearance(3, "WWCC", fd({ expiresAt: "2034-03-15" }))
     expect(r).toEqual({ error: "Not found" })
     expect(create).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it("rejects resubmitting the placeholder of an undecryptable number (keeps ciphertext)", async () => {
     find.mockResolvedValue({ id: CID, number: "bad-ciphertext", expiresAt: null, verifiedAt: null, updatedAt: UPDATED, documentType: null })
@@ -311,7 +319,7 @@ describe("verifyClearance", () => {
     expect(data.verifiedById).toBe(5)
     expect(data.verifiedAt).toBeInstanceOf(Date)
     expect(data.verificationNote).toBe("enc:checked on OCG portal")
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_VERIFIED", "Person", 3,
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_VERIFIED", "Person", 3,
       expect.objectContaining({ type: "WWCC", clearanceId: CID, hasNote: true }))
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
   })
@@ -334,7 +342,7 @@ describe("verifyClearance", () => {
     const r = await verifyClearance(CID, "2026-09-01T00:00:00.000Z")
     expect(r).toEqual({ error: "This clearance changed. Refresh and try again." })
     expect(updateMany.mock.calls[0][0].where).toEqual({ id: CID, updatedAt: new Date("2026-09-01T00:00:00.000Z"), person: { archivedAt: null } })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it.each([["empty", ""], ["malformed", "not-a-date"], ["missing", undefined]])(
     "rejects a %s seen value without writing",
@@ -355,7 +363,7 @@ describe("unverifyClearance / deleteClearance", () => {
       where: { id: CID, updatedAt: UPDATED, person: { archivedAt: null } },
       data: { verifiedAt: null, verifiedById: null, verificationNote: null },
     })
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_UNVERIFIED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_UNVERIFIED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
   })
   it("unverify errors on a stale or malformed seen value", async () => {
     updateMany.mockResolvedValue({ count: 0 })
@@ -363,12 +371,12 @@ describe("unverifyClearance / deleteClearance", () => {
     updateMany.mockClear()
     expect(await unverifyClearance(CID, "junk")).toEqual({ error: "This clearance changed. Refresh and try again." })
     expect(updateMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it("delete is guarded on the seen updatedAt, then audits REMOVED", async () => {
     expect(await deleteClearance(CID, SEEN)).toBeUndefined()
     expect(deleteMany).toHaveBeenCalledWith({ where: { id: CID, updatedAt: UPDATED, person: { archivedAt: null } } })
-    expect(logAudit).toHaveBeenCalledWith(5, "CLEARANCE_REMOVED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, "CLEARANCE_REMOVED", "Person", 3, expect.objectContaining({ type: "SAFE_MINISTRY" }))
     expect(revalidatePath).toHaveBeenCalledWith("/people/3")
   })
   it("all three 404 a clearance whose person is archived", async () => {
@@ -382,7 +390,7 @@ describe("unverifyClearance / deleteClearance", () => {
   it("delete errors and does not audit when the row changed since seen", async () => {
     deleteMany.mockResolvedValue({ count: 0 })
     expect(await deleteClearance(CID, SEEN)).toEqual({ error: "This clearance changed. Refresh and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
   it("delete rejects a malformed seen value without writing", async () => {
     expect(await deleteClearance(CID, "junk")).toEqual({ error: "This clearance changed. Refresh and try again." })
@@ -392,5 +400,34 @@ describe("unverifyClearance / deleteClearance", () => {
     find.mockResolvedValue(null)
     expect(await unverifyClearance(CID, SEEN)).toEqual({ error: "Not found" })
     expect(await deleteClearance(CID, SEEN)).toEqual({ error: "Not found" })
+  })
+})
+
+describe("audit write is transactional with the mutation", () => {
+  const AUDIT_DOWN = new Error("audit table unavailable")
+  const row = { id: CID, personId: 3, type: "WWCC", updatedAt: UPDATED, person: { archivedAt: null } }
+  const existing = { id: CID, number: "enc:WWC0000000E", expiresAt: new Date("2029-03-15T00:00:00.000Z"), verifiedAt: null, updatedAt: UPDATED }
+  const txMock = prisma.$transaction as jest.Mock
+  beforeEach(() => (logAuditTx as jest.Mock).mockRejectedValue(AUDIT_DOWN))
+
+  // Each mutation and its audit row share one $transaction call, so a throwing
+  // audit write rejects the transaction (Postgres rolls the mutation back) and
+  // the action surfaces the error instead of reporting success.
+  it.each([
+    ["create", () => upsertClearance(3, "WWCC", fd({ expiresAt: "2029-03-15" })), create],
+    ["update", () => {
+      find.mockResolvedValue(existing)
+      return upsertClearance(3, "WWCC", fd({ expiresAt: "2034-03-15", updatedAt: SEEN }))
+    }, updateMany],
+    ["verify", () => { find.mockResolvedValue(row); return verifyClearance(CID, SEEN) }, updateMany],
+    ["unverify", () => { find.mockResolvedValue(row); return unverifyClearance(CID, SEEN) }, updateMany],
+    ["delete", () => { find.mockResolvedValue(row); return deleteClearance(CID, SEEN) }, deleteMany],
+  ])("%s: a failed audit write rejects the transaction holding the write", async (_n, run, write) => {
+    await expect(run()).rejects.toBe(AUDIT_DOWN)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(txMock).toHaveBeenCalledTimes(1)
+    await expect(txMock.mock.results[0].value).rejects.toBe(AUDIT_DOWN)
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 5, expect.any(String), "Person", 3, expect.any(Object))
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })

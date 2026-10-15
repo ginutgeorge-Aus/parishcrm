@@ -49,7 +49,13 @@ export function resolvePLYear(rawYear: string | undefined): number {
   return parsed >= MIN_FY_YEAR && parsed <= MAX_FY_YEAR ? parsed : fyNow
 }
 
-function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
+/**
+ * Calculates the total value for a given account from the provided total map.
+ * @param a - The account row containing the account ID.
+ * @param totalMap - A map associating account IDs with their total values.
+ * @returns The total value for the account, or 0 if not found in the map.
+ */
+const accountTotal = (a: PLAccountRow, totalMap: Map<number, number>): number => {
   return totalMap.get(a.id) ?? 0
 }
 
@@ -60,7 +66,10 @@ function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
  * breakdowns are computed only when `isMonthly` — FY-scoped transactions are
  * streamed in keyset-paginated batches and folded by accountId into 12-month
  * arrays, bounding peak memory to one batch regardless of transaction count
- *; the accumulated totals are identical to loading every row at once.
+ *; the accumulated totals are identical to loading every row at once. The
+ * monthly view also drops accounts with no transactions in the FY, and takes
+ * its annual totals from that same scan so the Total column always equals the
+ * sum of its months (a separate groupBy could see a different set of rows).
  */
 export async function getPLReportData(year: number, isMonthly: boolean): Promise<PLReportData> {
   const { start: fyStart, end: fyEnd } = fyDateRange(year)
@@ -83,26 +92,14 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
         group: { select: { id: true, name: true, sortOrder: true } },
       },
     }),
-    prisma.transaction.groupBy({
-      by: ["accountId"],
-      where: { date: { gte: fyStart, lt: fyEnd } },
-      _sum: { amount: true },
-    }),
+    isMonthly
+      ? null
+      : prisma.transaction.groupBy({
+          by: ["accountId"],
+          where: { date: { gte: fyStart, lt: fyEnd } },
+          _sum: { amount: true },
+        }),
   ])
-
-  const totalMap = new Map<number, number>(
-    totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)]),
-  )
-
-  const incomeAccounts = accounts.filter((a) => a.type === "INCOME")
-  const expenseAccounts = accounts.filter((a) => a.type === "EXPENSE")
-
-  const incomeGroups = groupByAccountGroup(incomeAccounts)
-  const expenseGroups = groupByAccountGroup(expenseAccounts)
-
-  const totalIncome = incomeAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-  const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
-  const net = totalIncome - totalExpenses
 
   const acctMonthlyMap = new Map<number, number[]>()
   const acctMonthlyCountMap = new Map<number, number[]>()
@@ -119,6 +116,32 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
     )
   }
 
+  const totalMap = new Map<number, number>(
+    totalGroups
+      ? totalGroups.map((g) => [g.accountId, toCents(g._sum.amount)])
+      : [...acctMonthlyMap].map(([id, months]) => [id, months.reduce((s, v) => s + v, 0)]),
+  )
+
+  // Monthly grid hides categories with no FY transactions — 15 columns of
+  // $0.00 bury the real figures. `totalMap` keys = accounts with ≥1 row, so
+  // an account whose entries net to zero stays visible. Totals are unaffected.
+  const shown = isMonthly ? accounts.filter((a) => totalMap.has(a.id)) : accounts
+
+  const incomeAccounts = shown.filter((a) => a.type === "INCOME")
+  const expenseAccounts = shown.filter((a) => a.type === "EXPENSE")
+
+  const incomeGroups = groupByAccountGroup(incomeAccounts)
+  const expenseGroups = groupByAccountGroup(expenseAccounts)
+
+  const totalIncome = incomeAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+  const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+  const net = totalIncome - totalExpenses
+
+  /**
+   * Sums the monthly values for the provided accounts.
+   * @param accs - The accounts whose monthly values will be summed.
+   * @returns An array of 12 numbers representing the summed monthly values.
+   */
   const sumAccounts = (accs: PLAccountRow[]): number[] =>
     accs.reduce(
       (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id)?.[i] ?? 0)),

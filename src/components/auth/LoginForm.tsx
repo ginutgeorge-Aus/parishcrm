@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
@@ -14,6 +14,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { safeNextPath } from "@/lib/safeNext"
 import { trustDevice } from "@/lib/actions/trustedDevice"
+import { startPasskeyLogin } from "@/lib/actions/passkey"
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser"
+
+// WebAuthn support never changes during a page's life, so there is nothing to subscribe to.
+const noopSubscribe = () => () => { /* no-op */ }
 
 export function LoginForm({
   churchName,
@@ -52,6 +57,8 @@ export function LoginForm({
   const totpRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const firstRender = useRef(true)
+  // Server snapshot is false: the server render can't know, and a mismatch would break hydration.
+  const passkeySupported = useSyncExternalStore(noopSubscribe, browserSupportsWebAuthn, () => false)
 
   const lockRemainingMs = lockedUntil ? Math.max(0, lockedUntil - nowTs) : 0
   const isLocked = lockRemainingMs > 0
@@ -126,6 +133,39 @@ export function LoginForm({
       // object; surface a retry message so the button isn't left stuck on
       // "Signing in…" with no feedback.
       setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Usernameless: the browser offers this site's passkeys; the server resolves
+  // the user from the chosen credential (separate "passkey" provider).
+  async function handlePasskeyLogin() {
+    setError("")
+    setResendMsg("")
+    setLoading(true)
+    try {
+      const start = await startPasskeyLogin()
+      if ("error" in start) {
+        setError(start.error)
+        return
+      }
+      const assertion = await startAuthentication({ optionsJSON: start.options })
+      const result = await signIn("passkey", {
+        challengeId: start.challengeId,
+        assertion: JSON.stringify(assertion), remember: remember ? "true" : "false", redirect: false,
+      })
+      if (result?.code === "AccountLocked") {
+        setError("Account locked after too many failed attempts. Try again in 15 minutes.")
+        lockNow()
+      } else if (result?.error || !result?.ok) {
+        setError("Passkey not recognised. Use your password instead.")
+      } else {
+        goNext()
+      }
+    } catch (e) {
+      // NotAllowedError = the user dismissed the browser/OS prompt (or it timed out).
+      setError(e instanceof Error && e.name === "NotAllowedError" ? "Passkey sign-in was cancelled." : "Passkey sign-in failed. Use your password instead.")
     } finally {
       setLoading(false)
     }
@@ -367,6 +407,16 @@ export function LoginForm({
             <Button type="submit" className="w-full" disabled={loading || isLocked}>
               {loading ? "Signing in…" : isLocked ? `Locked · ${lockCountdown}` : "Sign in"}
             </Button>
+            {passkeySupported && !demoLogins && (
+              <>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" />
+                </div>
+                <Button type="button" variant="outline" className="w-full" disabled={loading || isLocked} onClick={handlePasskeyLogin}>
+                  Sign in with a passkey
+                </Button>
+              </>
+            )}
           </form>
         ) : step === "totp" ? (
           <form onSubmit={handleTotpSubmit} className="space-y-4">
