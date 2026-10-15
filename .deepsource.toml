@@ -18,6 +18,11 @@ name = "javascript"
   plugins = ["react"]
   environment = ["nodejs", "browser", "jest"]
   dialect = "typescript"
+  # Files are ES modules: without this, every module-level const is flagged
+  # as global-scope pollution.
+  module_system = "es-modules"
+  # Default flags "medium" (7+) complexity; only report high and above.
+  cyclomatic_complexity_threshold = "high"
 
 [[analyzers]]
 name = "docker"
