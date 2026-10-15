@@ -29,15 +29,26 @@ import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 // so the first unknown-email login doesn't also pay the hash cost.
 const DUMMY_PASSWORD_HASH = hash(randomBytes(32).toString("hex"), 12)
 
+/**
+ * Class representing a locked account error during credentials sign-in.
+ *
+ * @extends CredentialsSignin
+ * @property {string} code - The error code indicating the account is locked.
+ */
 export class AccountLocked extends CredentialsSignin {
   code = "AccountLocked"
 }
 
+/**
+ * Represents the OTP sent state in the credentials sign-in flow.
+ * @extends CredentialsSignin
+ */
 export class OtpSent extends CredentialsSignin {
   code = "OtpSent"
-}
-
-class OtpCooldown extends CredentialsSignin {
+/**
+ * Represents the cooldown period for generating one-time passwords (OTP).
+ */
+class OtpCooldown {
   code = "OtpCooldown"
 }
 
@@ -63,6 +74,14 @@ function clientIpFrom(request?: Request): string | undefined {
 
 type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
 
+/**
+ * Records a failed OTP attempt for a user, increments the failure count,
+ * locks the account if the failure threshold is reached, and logs the audit event.
+ * @param userId - The unique identifier of the user.
+ * @param reason - The reason for the OTP failure.
+ * @param ip - The IP address from which the attempt was made.
+ * @returns A promise that resolves when the OTP failure has been recorded.
+ */
 async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
   const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
     where: { id: userId },
@@ -121,6 +140,14 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
   }
 }
 
+/**
+ * Verifies the user's credentials by comparing the provided password with the stored hash.
+ *
+ * @param email The user's email address.
+ * @param password The password to verify.
+ * @param ip The IP address from which the authentication attempt originates.
+ * @returns The user object if authentication is successful, otherwise null.
+ */
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user) {
@@ -280,6 +307,12 @@ export async function authorizePasskey(
   return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: credentials.remember === "true" }
 }
 
+/**
+ * Authorizes user credentials, performing rate limiting and authentication checks.
+ * @param credentials - Partial record of credential fields: email, password, otp, mode, remember, code, emailFallback.
+ * @param request - Optional Request object to extract client IP.
+ * @returns User data object on successful authorization or null if authorization fails.
+ */
 export async function authorizeCredentials(
   credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember" | "code" | "emailFallback", unknown>>,
   request?: Request,
@@ -516,6 +549,12 @@ export async function authorizeCredentials(
 // and last-write-wins); the values are identical and the setting is read-only
 // here, so the worst case is a few redundant reads on expiry — acceptable.
 let idleMsCache: { value: number; expires: number } | null = null
+/**
+ * Retrieves the session idle timeout duration in milliseconds.
+ * Uses a cached value if not expired; otherwise fetches the setting from the database.
+ *
+ * @returns {Promise<number>} The idle timeout in milliseconds.
+ */
 async function getIdleMs(): Promise<number> {
   const now = Date.now()
   if (idleMsCache && now < idleMsCache.expires) return idleMsCache.value

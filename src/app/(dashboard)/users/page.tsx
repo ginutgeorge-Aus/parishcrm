@@ -40,6 +40,12 @@ const roleLabel: Record<UserRole, string> = {
   EVENT_ORGANISER: "Event Organiser",
 }
 
+/**
+ * Renders the Users page, fetching and displaying user data along with
+ * controls for managing user accounts.
+ *
+ * @returns {Promise<JSX.Element>} The Users page component.
+ */
 export default async function UsersPage() {
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")

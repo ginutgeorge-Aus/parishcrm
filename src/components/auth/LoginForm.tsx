@@ -17,16 +17,29 @@ import { trustDevice } from "@/lib/actions/trustedDevice"
 import { startPasskeyLogin } from "@/lib/actions/passkey"
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser"
 
-// WebAuthn support never changes during a page's life, so there is nothing to subscribe to.
+/**
+ * A no-op subscribe function that returns an unsubscribe function doing nothing.
+ * @returns {() => void} Unsubscribe function that performs no operation.
+ */
 const noopSubscribe = () => () => { /* no-op */ }
 
+/**
+ * A form component for user login.
+ * @param {Object} props - Component props.
+ * @param {string} props.churchName - Name of the church to display.
+ * @param {Array<{ label: string; email: string }>} [props.demoLogins] - Optional demo login options.
+ * @returns {JSX.Element} The login form component.
+ */
 export function LoginForm({
   churchName,
   demoLogins,
 }: Readonly<{ churchName: string; demoLogins?: ReadonlyArray<{ label: string; email: string }> }>) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  /** Goes to the validated same-origin deep link from middleware (?next=), or "/" if absent/unsafe. */
+  /**
+   * Navigates to the validated deep link from middleware or root path if absent or unsafe.
+   * @returns {void}
+   */
   const goNext = () => {
     router.push(safeNextPath(searchParams.get("next")))
     router.refresh()
@@ -96,6 +109,11 @@ export function LoginForm({
     else passwordRef.current?.focus()
   }, [step])
 
+  /**
+   * Handles the password form submission.
+   * @param {React.FormEvent} e - The form submission event.
+   * @returns {Promise<void>} Resolves when the submission handling is complete.
+   */
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
@@ -171,6 +189,12 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Handles logging in as a demo user.
+   *
+   * @param demoEmail - The email address used for demo login.
+   * @returns {Promise<void>} A promise that resolves when the login process completes.
+   */
   async function handleDemoLogin(demoEmail: string) {
     setDemoError("")
     setLoading(true)
@@ -185,11 +209,12 @@ export function LoginForm({
       setDemoError("Demo sign-in failed. Please try again.")
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleResend() {
-    setResendMsg("")
+  /**
+   * Handles resending the verification code to the user's email.
+   * Clears any previous errors, shows a loading state, and triggers signIn to resend the code.
+   * @returns {Promise<void>} Resolves when the resend operation completes.
+   */
+  const handleResend = async () => {
     // Clear any stale verify error so "New code sent." doesn't render alongside
     // "Invalid or expired code." — the two together read as contradictory.
     setError("")
@@ -218,6 +243,13 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Handles OTP form submission by validating the user’s one-time password with the authentication service
+   * and updates the UI based on the sign-in result.
+   *
+   * @param e React.FormEvent - the form event for OTP submission
+   * @returns Promise<void>
+   */
   async function handleOtpSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
@@ -248,6 +280,12 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Handles submission of the TOTP code form for two-factor authentication.
+   *
+   * @param {React.FormEvent} e - The form submission event.
+   * @returns {Promise<void>} A promise that resolves when the login flow completes.
+   */
   async function handleTotpSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
@@ -276,6 +314,14 @@ export function LoginForm({
     }
   }
 
+  /**
+   * Handles email fallback sign-in by attempting to sign in via credentials.
+   *
+   * Resets error and resend messages, manages loading states, and handles result codes:
+   * OTP sent, cooldown, account lock, or errors.
+   *
+   * @returns {Promise<void>} Resolves when complete.
+   */
   async function handleEmailFallback() {
     setError("")
     setResendMsg("")

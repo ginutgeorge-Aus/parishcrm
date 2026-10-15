@@ -21,6 +21,12 @@ const chartConfig = {
 }
 
 export function GivingTrendChart({ data }: Readonly<{ data: DataPoint[] }>) {
+  /**
+   * Renders a bar chart showing the monthly giving trend.
+   *
+   * @param data - Array of DataPoint objects representing monthly donation amounts.
+   * @returns The chart component or null if all data amounts are zero.
+   */
   if (data.every((d) => d.amount === 0)) return null
 
   // No adjacent text/table alternative today, so the bar chart needs its own

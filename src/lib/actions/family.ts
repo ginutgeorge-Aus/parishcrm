@@ -99,6 +99,14 @@ export async function createFamily(
   redirect(`/families/${newId}`)
 }
 
+/**
+ * Updates a family record with the specified ID using provided form data.
+ *
+ * @param id - The unique identifier of the family to update.
+ * @param _prev - The previous action result (unused).
+ * @param formData - The form data containing updated family details.
+ * @returns An ActionResult object indicating success or containing an error message.
+ */
 export async function updateFamily(
   id: number,
   _prev: ActionResult,
@@ -249,6 +257,12 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
   redirect("/families")
 }
 
+/**
+ * Archives a family and its members in the database.
+ *
+ * @param id The ID of the family to archive.
+ * @returns A promise resolving to an ActionResult indicating success or an error.
+ */
 export async function archiveFamily(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -276,6 +290,11 @@ export async function archiveFamily(id: number): Promise<ActionResult> {
   redirect("/families")
 }
 
+/**
+ * Unarchives a family and its associated members.
+ * @param id - The unique identifier of the family to unarchive.
+ * @returns The result of the unarchive operation, containing error information if unauthorized or not found.
+ */
 export async function unarchiveFamily(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -305,8 +324,17 @@ export type MergePreview = {
 
 const ARCHIVED_MERGE_ERROR = "Archived families can't be merged — unarchive first."
 
+/**
+ * Represents an error thrown when an entity is archived during a merge operation.
+ */
 class ArchivedDuringMerge extends Error {}
 
+/**
+ * Generates a preview of merging two families, including member counts, transaction count, and any conflicts.
+ * @param sourceId The ID of the source family.
+ * @param targetId The ID of the target family.
+ * @returns A promise resolving to a MergePreview object or an error object.
+ */
 async function _previewMergeCore(
   sourceId: number,
   targetId: number
@@ -361,9 +389,22 @@ export async function previewMerge(
 ): Promise<MergePreview | { error: string }> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+/**
+ * Previews the merge of two families without applying changes. Retrieves potential conflicts and changes.
+ * @param sourceId The ID of the source family.
+ * @param targetId The ID of the target family.
+ * @returns A promise resolving to a preview of the merge result, including potential conflicts and changes.
+ */
+export function previewMerge(sourceId: string, targetId: string) {
   return _previewMergeCore(sourceId, targetId)
 }
 
+/**
+ * Merges two families into one, transferring members and transactions, ensuring archival status and handling conflicts.
+ * @param sourceId The ID of the source family.
+ * @param targetId The ID of the target family.
+ * @returns A promise resolving to an object indicating success, error, or conflicts.
+ */
 export async function mergeFamilies(
   sourceId: number,
   targetId: number

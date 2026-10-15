@@ -12,6 +12,14 @@ type Props = {
 
 const chartConfig = { cumulative: { label: "Registrations", color: "hsl(var(--income))" } }
 
+/**
+ * Card component that displays a titled container with given children.
+ *
+ * @param {Object} props - The props for Card.
+ * @param {string} props.title - The title text to display in the card header.
+ * @param {React.ReactNode} props.children - The content to render inside the card.
+ * @returns {JSX.Element} The rendered Card component.
+ */
 function Card({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
   return (
     <div className="bg-card rounded-xl border border-border p-4">
@@ -21,6 +29,15 @@ function Card({ title, children }: Readonly<{ title: string; children: React.Rea
   )
 }
 
+/**
+ * EventAnalytics component that displays analytics for event fill rates, revenue by type, and registrations over time.
+ *
+ * @param {Object} props - The props for EventAnalytics.
+ * @param {{ name: string; sold: number; capacity: number | null; pct: number | null }[]} props.fillRates - Array of fill rate data for each category.
+ * @param {{ name: string; revenue: number }[]} props.revenueByType - Array of revenue data segmented by type.
+ * @param {{ date: string; cumulative: number }[]} props.regsOverTime - Array of cumulative registrations data over time.
+ * @returns {JSX.Element | null} The analytics charts or null if no data is available.
+ */
 export function EventAnalytics({ fillRates, revenueByType, regsOverTime }: Readonly<Props>) {
   const hasFill = fillRates.length > 0
   const hasRevenue = revenueByType.some(r => r.revenue > 0)

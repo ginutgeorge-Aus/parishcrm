@@ -4,6 +4,12 @@ import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { revokeUserPasskeys } from "@/lib/actions/user"
 
 export function RevokePasskeysButton({ userId, className = "" }: Readonly<{ userId: number; className?: string }>) {
+  /**
+   * Component for revoking a user's passkeys.
+   * @param {number} userId - The ID of the user whose passkeys will be revoked.
+   * @param {string} [className] - Optional additional CSS class names for the button.
+   * @returns {JSX.Element} A button that triggers a confirmation dialog to revoke passkeys.
+   */
   return (
     <DeleteConfirmButton
       onConfirm={() => revokeUserPasskeys(userId)}

@@ -10,6 +10,7 @@ import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
 
 
+
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
 // by target email (always present — caps reset-email bombing of a victim and
 // avoids the header-less "unknown" bucket), with a secondary per-IP DoS
@@ -18,6 +19,10 @@ import { assertNotDemo } from "@/lib/demoMode"
 const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
+/**
+ * Retrieves the client's IP address from the request headers.
+ * @returns {Promise<string | null>} The client's IP address, or null if not available.
+ */
 async function getClientIp(): Promise<string | null> {
   const xff = (await headers()).get("x-forwarded-for")
   if (xff) {
@@ -28,12 +33,19 @@ async function getClientIp(): Promise<string | null> {
   return null
 }
 
-// Randomized 200–500 ms delay on fast-return paths so they take roughly as
-// long as the real path (SMTP send) — masks user-existence timing.
+/**
+ * Introduces a randomized delay to mask timing differences.
+ * @returns {Promise<void>} A promise that resolves after a randomized delay.
+ */
 function randomDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300))
 }
 
+/**
+ * Requests a password reset for the specified email, enforcing rate limits and handling demo mode.
+ * @param {string} email The email address to send the password reset to.
+ * @returns {Promise<{ success?: true; error?: string }>} An object indicating success or containing an error message.
+ */
 export async function requestPasswordReset(
   email: string
 ): Promise<{ success?: true; error?: string }> {
@@ -148,6 +160,12 @@ export async function requestPasswordReset(
   return { success: true }
 }
 
+/**
+ * Resets user password using a provided token and new password.
+ * @param {string} token - The password reset token.
+ * @param {string} password - The new password to set.
+ * @returns {Promise<{ success?: true; error?: string }>} Result object indicating success or error message.
+ */
 export async function resetPassword(
   token: string,
   password: string

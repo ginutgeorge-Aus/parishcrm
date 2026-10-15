@@ -87,10 +87,23 @@ const WELCOME_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 // mutation's where-unique so a concurrent promotion to ADMIN/PASTOR between the
 // authorization pre-read and the write makes the write miss (P2025) instead of
 // acting on the now-elevated account. ADMIN actors are unrestricted.
+/**
+ * Generates a where clause restricting which user roles the actor can assign.
+ *
+ * @param actorRole The role of the actor performing the assignment.
+ * @returns A filter object for permissible assignment targets.
+ */
 function assignableTargetWhere(actorRole: UserRole | undefined) {
   return isAdmin(actorRole) ? {} : { role: { notIn: [UserRole.ADMIN, UserRole.PASTOR] } }
 }
 
+/**
+ * Issues a welcome invite by creating a set-password token, persisting it, and emailing the user.
+ *
+ * @param user An object containing the user's id, email, name, and role.
+ * @param targetGuard A filter object controlling which user roles are permissible targets.
+ * @returns A promise resolving to true if the welcome email was sent successfully, false otherwise.
+ */
 async function issueWelcomeInvite(
   user: {
     id: number
@@ -161,6 +174,13 @@ async function issueWelcomeInvite(
   }
 }
 
+/**
+ * Creates a new user after validating permissions and input data.
+ *
+ * @param {ActionResult} _prev - The previous action result.
+ * @param {FormData} formData - The form data containing new user details.
+ * @returns {Promise<ActionResult>} Returns an action result indicating success or error.
+ */
 export async function createUser(
   _prev: ActionResult,
   formData: FormData
@@ -220,6 +240,17 @@ type UserUpdateData = {
   otpLockedUntil?: Date | null
 }
 
+**/**
+ * Builds the data structure for updating a user, including hashing
+ * the password and resetting sessions if a new password is provided.
+ *
+ * @param {object} parsedData - The parsed user data.
+ * @param {string} parsedData.name - The user's name.
+ * @param {string} parsedData.email - The user's email address.
+ * @param {UserRole} parsedData.role - The user's role.
+ * @param {string} [parsedData.password] - The user's new password, if provided.
+ * @returns {Promise<UserUpdateData>} A promise that resolves with the data to update the user.
+ */
 async function buildUserUpdateData(parsedData: {
   name: string
   email: string
@@ -255,6 +286,16 @@ async function buildUserUpdateData(parsedData: {
 // read and this transaction starting could demote a newly-promoted sole
 // admin with no recount ever running (the stale pre-tx role said "not
 // ADMIN", so the guard was skipped entirely).
+/**
+ * Applies an update to a user's record within a transaction.
+ *
+ * @param tx The Prisma transaction client instance.
+ * @param id The ID of the user to update.
+ * @param newRole The new role to assign to the user.
+ * @param data The data fields to update on the user.
+ * @returns A promise that resolves when the update is complete.
+ * @throws TargetGoneError if user is not found or already archived.
+ */
 async function applyUserUpdate(
   tx: Prisma.TransactionClient,
   id: number,
@@ -269,9 +310,14 @@ async function applyUserUpdate(
   await tx.user.update({ where: { id }, data })
 }
 
-// Maps the errors applyUserUpdate's transaction can throw to a clean
-// ActionResult message. Returns undefined for anything else, which the
-// caller rethrows.
+/**
+ * Maps the errors applyUserUpdate's transaction can throw to a clean
+ * ActionResult message. Returns undefined for anything else, which the
+ * caller rethrows.
+ *
+ * @param e The error thrown during user update.
+ * @returns A string message if the error is recognized, otherwise undefined.
+ */
 function updateUserErrorMessage(e: unknown): string | undefined {
   if (e instanceof TargetGoneError) return e.message
   if (e instanceof LastAdminError) return e.message
@@ -280,6 +326,14 @@ function updateUserErrorMessage(e: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * Handles updating a user's information based on submitted form data.
+ *
+ * @param id The ID of the user to update.
+ * @param _prev The previous action result to consider (unused).
+ * @param formData The form data containing update fields.
+ * @returns An ActionResult indicating the outcome of the update operation.
+ */
 export async function updateUser(
   id: number,
   _prev: ActionResult,
@@ -343,6 +397,11 @@ export async function updateUser(
   redirect("/users")
 }
 
+/**
+ * Unlocks a user account by clearing lockout state.
+ * @param id The ID of the user to unlock.
+ * @returns A promise resolving to an ActionResult indicating success or containing error information.
+ */
 export async function unlockUser(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -371,6 +430,13 @@ export async function unlockUser(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+/**
+ * Resets the TOTP (Time-based One-Time Password) authenticator for a user by ID.
+ * Clears their authenticator, backup codes, trusted devices, passkeys, and existing sessions.
+ *
+ * @param id - The numeric ID of the user to reset TOTP for.
+ * @returns A Promise resolving to an ActionResult containing either success or an error message.
+ */
 export async function resetUserTotp(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -407,6 +473,12 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+/**
+ * Revokes all passkeys and sessions for a user, effectively requiring re-authentication.
+ *
+ * @param id - The unique identifier of the user whose passkeys will be revoked.
+ * @returns An ActionResult indicating success or containing an error message.
+ */
 export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -437,6 +509,12 @@ export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+/**
+ * Archives and deactivates a user account without permanently deleting it, preserving audit logs.
+ *
+ * @param id - The unique identifier of the user to be deleted (soft-deleted).
+ * @returns An ActionResult indicating success or containing an error message.
+ */
 export async function deleteUser(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -500,6 +578,12 @@ export async function deleteUser(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+/**
+ * Resends a welcome email invite to a user by their ID.
+ *
+ * @param id - The ID of the user to resend the welcome email to.
+ * @returns A promise that resolves to an object indicating success or an error message.
+ */
 export async function resendWelcome(id: number): Promise<{ success: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo

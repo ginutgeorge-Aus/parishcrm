@@ -10,8 +10,19 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { finishPasskeyRegistration, removePasskey, startPasskeyRegistration, type PasskeyStatus } from "@/lib/actions/passkey"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
+/**
+ * Formats a Date object as a locale-specific date string.
+ * @param {Date} d - The date to format.
+ * @returns {string} The formatted date string.
+ */
 const fmt = (d: Date) => new Date(d).toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })
 
+/**
+ * Component for managing passkey settings, including registration and removal.
+ * @param {object} props - The props for the component.
+ * @param {PasskeyStatus} props.status - Current passkey status.
+ * @returns {JSX.Element} The passkey settings component.
+ */
 export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>) {
   const router = useRouter()
   const [adding, setAdding] = useState(false)
@@ -27,8 +38,14 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
     if (adding) document.getElementById("passkey-name")?.focus()
   }, [adding])
 
+  /**
+   * Resets the passkey form state to default values.
+   */
   const reset = () => { setAdding(false); setName("Passkey"); setPassword(""); setError(null); setPasswordInvalid(false) }
 
+  /**
+   * Initiates the passkey registration process, handling UI state and server interactions.
+   */
   function add() {
     setError(null)
     setPasswordInvalid(false)
@@ -52,6 +69,10 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
     })
   }
 
+  /**
+   * Removes a passkey by its identifier and refreshes the UI.
+   * @param {string} id - The identifier of the passkey to remove.
+   */
   function remove(id: string) {
     setError(null)
     startTransition(async () => {

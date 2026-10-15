@@ -116,6 +116,13 @@ function readMinistryRoles(formData: FormData) {
   return parseMinistryRoles(formData.getAll("ministryRoles").map(String))
 }
 
+/**
+ * Create a new person associated with a family.
+ * @param {number} familyId - The ID of the family to which the person belongs.
+ * @param {ActionResult} _prev - The previous action result (unused).
+ * @param {FormData} formData - The form data containing the person's details.
+ * @returns {Promise<ActionResult>} The result of the create person action.
+ */
 export async function createPerson(
   familyId: number,
   _prev: ActionResult,
@@ -160,6 +167,14 @@ export async function createPerson(
   redirect(`/families/${familyId}`)
 }
 
+/**
+ * Update an existing person's details.
+ * @param {number} id - The ID of the person to update.
+ * @param {number} familyId - The ID of the family the person belongs to.
+ * @param {ActionResult} _prev - The previous action result (unused).
+ * @param {FormData} formData - The form data containing updated person details.
+ * @returns {Promise<ActionResult>} The result of the update person action.
+ */
 export async function updatePerson(
   id: number,
   familyId: number,
@@ -254,8 +269,18 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   // slip through and be silently orphaned. Only Serializable closes that
   // window — it aborts one side (P2034) when a concurrent insert conflicts
   // with the read.
+  /**
+   * Constructs an error message indicating that the person cannot be deleted due to linked giving/receipt records.
+   * @param n number of linked giving/receipt records referencing the person
+   * @returns formatted error message string
+   */
   const linkedMsg = (n: number) =>
     `Cannot delete — ${n} linked giving/receipt record(s) reference this person. Archive the family instead.`
+  /**
+   * Constructs an error message indicating that the person cannot be deleted due to Sunday School records in a locked school year referencing the person.
+   * @param n number of locked Sunday School records referencing the person
+   * @returns formatted error message string
+   */
   const lockedSsMsg = (n: number) =>
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0

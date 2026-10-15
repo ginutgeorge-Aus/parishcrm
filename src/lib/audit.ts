@@ -2,6 +2,17 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
+/**
+ * Logs an audit entry for a user action to the database.
+ *
+ * @param userId - The ID of the user performing the action, or null for anonymous.
+ * @param action - The action performed by the user.
+ * @param resourceType - The type of resource being acted upon.
+ * @param resourceId - The ID of the resource being acted upon.
+ * @param metadata - Additional metadata related to the action.
+ * @param ip - The IP address from which the action was performed.
+ * @returns A promise that resolves when the audit entry is created.
+ */
 export async function logAudit(
   userId: number | null,
   action: string,

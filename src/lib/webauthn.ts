@@ -58,6 +58,11 @@ export async function consumeChallenge(id: unknown, purpose: ChallengePurpose, u
   return row.challenge
 }
 
+/**
+ * Normalises the passkey name by trimming whitespace and validating its length.
+ * @param name - The input name to normalise.
+ * @returns The trimmed name if it has length between 1 and 50; otherwise null.
+ */
 export function normalisePasskeyName(name: unknown): string | null {
   if (typeof name !== "string") return null
   const n = name.trim()

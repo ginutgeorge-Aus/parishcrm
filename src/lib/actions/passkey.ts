@@ -63,10 +63,20 @@ async function notifyPasskeyChange(userId: number, to: string | null | undefined
   }
 }
 
+/**
+ * Escapes special HTML characters in a string to their corresponding HTML entities.
+ * @param s - The string to escape.
+ * @returns The escaped string.
+ */
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
+/**
+ * Retrieves the passkey status for the current user session.
+ *
+ * @returns {Promise<PasskeyStatus>} An object containing availability flag, limit, and list of passkeys.
+ */
 export async function getPasskeyStatus(): Promise<PasskeyStatus> {
   const userId = await sessionUserId()
   if (!userId) return { available: false, limit: MAX_PASSKEYS_PER_USER, passkeys: [] }
@@ -79,6 +89,11 @@ export async function getPasskeyStatus(): Promise<PasskeyStatus> {
   return { available: getRelyingParty() !== null && !isDemoMode(), limit: MAX_PASSKEYS_PER_USER, passkeys }
 }
 
+/**
+ * Starts the passkey registration process for a user by validating credentials and generating registration options.
+ * @param password - The user's password for re-authentication.
+ * @returns A promise resolving to an object containing either an error or the challengeId and registration options.
+ */
 export async function startPasskeyRegistration(
   password: string,
 ): Promise<{ error: string } | { challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }> {
@@ -116,6 +131,13 @@ export async function startPasskeyRegistration(
   return { challengeId, options }
 }
 
+/**
+ * Completes the passkey registration by verifying the client's response and storing the new credential.
+ * @param challengeId - The identifier of the registration challenge.
+ * @param response - The registration response object from the client.
+ * @param name - The user-provided name for the new passkey.
+ * @returns A promise resolving to an object containing either an error or a success flag.
+ */
 export async function finishPasskeyRegistration(
   challengeId: string,
   response: unknown,
@@ -176,6 +198,13 @@ export async function finishPasskeyRegistration(
   return { success: true }
 }
 
+/**
+ * Removes a passkey for the specified id belonging to the current user.
+ * Validates the id and ensures the user is authorized before deletion.
+ *
+ * @param {string} id - The identifier of the passkey to remove.
+ * @returns {Promise<{ error: string } | { success: true }>} A promise that resolves to an object with an error message if removal fails, or an object with success true if removal succeeds.
+ */
 export async function removePasskey(id: string): Promise<{ error: string } | { success: true }> {
   const demo = assertNotDemo()
   if (demo) return demo

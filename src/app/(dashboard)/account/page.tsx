@@ -8,6 +8,13 @@ import { TotpSettings } from "@/components/account/TotpSettings"
 import { PasskeySettings } from "@/components/account/PasskeySettings"
 import { DemoNotice } from "@/components/DemoNotice"
 
+/**
+ * Renders the account page, fetching authentication status and user settings for passkeys,
+ * authenticator app (TOTP), and trusted devices.
+ * Redirects to the login page if the user is not authenticated.
+ *
+ * @returns {JSX.Element} The account page component.
+ */
 export default async function AccountPage() {
   const session = await auth()
   if (!session?.user) redirect("/login")
