@@ -7,7 +7,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { isValidPgId, isP2002, isP2034 } from "@/lib/validation"
+import { isValidPgId, isP2002, isP2003, isP2034 } from "@/lib/validation"
 
 const CONFLICT_ERROR = "This account was changed at the same time by someone else — try again."
 
@@ -161,6 +161,9 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
   let blocked: ActionResult
   try {
     blocked = await prisma.$transaction(async (tx) => {
+      // Not-found check up front: a concurrent delete would otherwise make tx.account.delete throw P2025 (500).
+      const current = await tx.account.findUnique({ where: { id }, select: { id: true } })
+      if (!current) return { error: "Account not found" }
       const [txCount, budgetCount, pcReceiptCount, pcExpenseCount, invoiceCount] = await Promise.all([
         tx.transaction.count({ where: { accountId: id } }),
         tx.budget.count({ where: { accountId: id } }),
@@ -180,7 +183,8 @@ export async function deleteAccount(id: number): Promise<ActionResult> {
   } catch (e) {
     // Serializable conflict: the cause (a concurrent reference, or a false positive) can't be told apart, so the
     // message is generic. The delete is rolled back, the safe outcome.
-    if (isP2034(e)) return { error: CONFLICT_ERROR }
+    // A concurrent reference insert can also surface as an FK violation (P2003) rather than P2034.
+    if (isP2034(e) || isP2003(e)) return { error: CONFLICT_ERROR }
     throw e
   }
   if (blocked) return blocked

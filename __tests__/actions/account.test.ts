@@ -352,6 +352,23 @@ describe("updateAccount", () => {
 
 // --- deleteAccount ---
 describe("deleteAccount", () => {
+  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 1 }))
+
+  it("returns not-found when the account vanished before the transaction reads it (no P2025 500)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue(null)
+    const result = await deleteAccount(1)
+    expect(result).toEqual({ error: "Account not found" })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it("maps an FK violation (P2003) from a concurrent reference insert to the conflict message", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2003" })
+    const result = await deleteAccount(1)
+    expect(result).toEqual({ error: "This account was changed at the same time by someone else — try again." })
+  })
+
   it("blocks PASTOR", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     const result = await deleteAccount(1)
