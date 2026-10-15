@@ -6,6 +6,8 @@ import { getChurchName } from "@/lib/emailTemplateStore"
 import { sydneyMonthKey, sydneyToday } from "@/lib/dates"
 import { formatDMY } from "@/lib/formatting"
 import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
+import { withRetry } from "@/lib/retry"
+import { isP2002 } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { loadComplianceRows, bucketCompliance, bucketsEmpty, countFlaggedPeople } from "@/lib/clearanceCompliance"
 import { renderClearanceDigestEmail } from "@/lib/clearanceDigestEmail"
@@ -19,6 +21,8 @@ const DELIVERED_KEY = "clearanceDigestDelivered"
 // may reclaim it so the month is not silently lost. A digest is a handful of
 // emails, so 30 minutes is far longer than a live run.
 const LEASE_MS = 30 * 60_000
+// Compare-and-set rounds per delivered-list merge before giving up on contention.
+const MERGE_ATTEMPTS = 5
 
 /** Absolute link to the compliance page, or null when AUTH_URL is not a valid URL. */
 function complianceUrl(): string | null {
@@ -34,12 +38,14 @@ function normEmail(email: string): string {
   return email.trim().toLowerCase()
 }
 
-/** Emails already sent this Sydney `month` (empty for another month, a missing row or bad JSON). */
-async function loadDelivered(month: string): Promise<Set<string>> {
-  const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
-  if (!row) return new Set()
+/**
+ * Emails in a stored delivered list for `month` (empty for another month or bad JSON).
+ * @param value the stored setting value
+ * @param month the Sydney month key
+ */
+function parseDelivered(value: string, month: string): Set<string> {
   try {
-    const parsed = JSON.parse(row.value) as { month?: unknown; emails?: unknown }
+    const parsed = JSON.parse(value) as { month?: unknown; emails?: unknown }
     if (parsed.month !== month || !Array.isArray(parsed.emails)) return new Set()
     return new Set(parsed.emails.filter((e): e is string => typeof e === "string").map(normEmail))
   } catch {
@@ -47,11 +53,61 @@ async function loadDelivered(month: string): Promise<Set<string>> {
   }
 }
 
-/** Saves the delivered list for `month`; false when the write failed. Never throws, because mail is already out. */
-async function saveDelivered(month: string, emails: Set<string>): Promise<boolean> {
-  const value = JSON.stringify({ month, emails: [...emails] })
+/** The month key of a stored delivered list, or null for bad JSON or a missing month. */
+function storedMonth(value: string): string | null {
   try {
-    await prisma.appSetting.upsert({ where: { key: DELIVERED_KEY }, create: { key: DELIVERED_KEY, value }, update: { value } })
+    const m = (JSON.parse(value) as { month?: unknown }).month
+    return typeof m === "string" ? m : null
+  } catch {
+    return null
+  }
+}
+
+/** Emails already sent this Sydney `month` (empty for another month, a missing row or bad JSON). */
+async function loadDelivered(month: string): Promise<Set<string>> {
+  const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
+  return row ? parseDelivered(row.value, month) : new Set()
+}
+
+/**
+ * Merges `emails` into the stored delivered list for `month` by
+ * compare-and-set, so within a month the list only grows: a run that lost its
+ * lease mid-send can't overwrite recipients the new owner saved, which would
+ * let a later retry email them again. A save for a month older than the
+ * stored one is dropped: a run from a past month that resumes late must not
+ * replace a newer month's list (`YYYY-MM` keys compare as strings).
+ * @param month the Sydney month key
+ * @param emails normalised addresses this run delivered to
+ * @throws on a database error, or when the row keeps changing under us
+ */
+async function mergeDelivered(month: string, emails: Set<string>): Promise<void> {
+  for (let i = 0; i < MERGE_ATTEMPTS; i++) {
+    const row = await prisma.appSetting.findUnique({ where: { key: DELIVERED_KEY } })
+    const stored = row ? storedMonth(row.value) : null
+    if (stored !== null && stored > month) return // a newer month owns the list now
+    const merged = row ? parseDelivered(row.value, month) : new Set<string>()
+    for (const e of emails) merged.add(e)
+    const value = JSON.stringify({ month, emails: [...merged] })
+    if (row === null) {
+      try {
+        await prisma.appSetting.create({ data: { key: DELIVERED_KEY, value } })
+        return
+      } catch (e) {
+        if (isP2002(e)) continue // another run created it first: merge into theirs
+        throw e
+      }
+    }
+    if (row.value === value) return
+    const { count } = await prisma.appSetting.updateMany({ where: { key: DELIVERED_KEY, value: row.value }, data: { value } })
+    if (count > 0) return
+  }
+  throw new Error("the delivered list kept changing")
+}
+
+/** Merges into the delivered list for `month`, retried; false when it still failed. Never throws, because mail is already out. */
+async function saveDelivered(month: string, emails: Set<string>): Promise<boolean> {
+  try {
+    await withRetry(() => mergeDelivered(month, emails), { attempts: 3, baseDelayMs: 200 })
     return true
   } catch (e) {
     logger.error(`[clearanceDigest] could not save the delivered list: ${e instanceof Error ? e.message : String(e)}`)
@@ -64,8 +120,8 @@ async function saveDelivered(month: string, emails: Set<string>): Promise<boolea
  * clearances, names only, to every active ADMIN and PASTOR who has not already
  * got this Sydney month's digest. Delivered addresses are kept per month in an
  * app setting (email addresses only), so a retry after a partial failure sends
- * only to the rest. `force` ignores that list and replaces it with this run's
- * deliveries. An all-clear month sends nothing. Ambiguous delivery errors count
+ * only to the rest. `force` ignores that list when choosing whom to email
+ * (its deliveries are still merged in). An all-clear month sends nothing. Ambiguous delivery errors count
  * as delivered so a maybe-delivered email is never repeated; likewise, if the
  * list could not be saved, failures are not reported for retry (a retry could
  * not tell who already has it). Addresses differing only in case or spaces get
@@ -133,7 +189,7 @@ export async function sendClearanceDigest(
       }
     }
     delivered.add(r.key)
-    // Only the latest write matters: each one stores the whole set, so a later success repairs an earlier failure.
+    // Each write merges the whole local set, so a later success repairs an earlier failure.
     saved = await saveDelivered(month, delivered) // NOSONAR S9382
   }
   await logAudit(null, "CLEARANCE_DIGEST_SENT", "Person", undefined, {
@@ -141,7 +197,12 @@ export async function sendClearanceDigest(
     expired: buckets.expired.length, expiring: buckets.expiring.length,
     missing: buckets.missing.length, unverified: buckets.unverified.length,
   })
-  if (leaseLost) throw new LeaseLostError()
+  if (leaseLost) {
+    // Last chance to record our sends before the new owner (or a retry) reads
+    // the list; unrecorded ones would be emailed again.
+    if (!saved && delivered.size > 0) await saveDelivered(month, delivered)
+    throw new LeaseLostError()
+  }
   if (failed > 0 && !saved) {
     logger.error("[clearanceDigest] delivered list not saved; not retrying the failed sends, to avoid repeats")
     return { flagged, sent, failed: 0 }

@@ -74,7 +74,11 @@ describe("EmailTemplateForm preview + messages", () => {
     fireEvent.click(screen.getByText("Send test to me"))
     expect(await screen.findByText("Test sent.")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText("Save"))
+    // The message can commit before the transition's pending flag clears, so wait
+    // for Save to re-enable; clicking a disabled submit is a no-op.
+    const save = screen.getByRole("button", { name: "Save" })
+    await waitFor(() => expect(save).toBeEnabled())
+    fireEvent.click(save)
     await waitFor(() => expect(screen.queryByText("Test sent.")).toBeNull())
   })
 })
