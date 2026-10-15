@@ -15,6 +15,8 @@ import { auditIpFromHeaders } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
+import { verifyAuthenticationResponse, type AuthenticationResponseJSON, type AuthenticatorTransportFuture } from "@simplewebauthn/server"
+import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
 // bcrypt hash (cost 12, matching the real hash cost used at
 // signup/reset — src/lib/actions/auth.ts, src/lib/actions/user.ts) for a dummy
@@ -182,6 +184,102 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   return user
 }
 
+// Per-IP throttle shared by both providers (the e2e exemption and its rationale
+// are documented at the call site in authorizeCredentials).
+async function loginIpAllowed(ip: string | undefined): Promise<boolean> {
+  if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
+  if (await dbRateLimit(`login:ip:${ip ?? "unknown"}`, 10, 60_000)) return true
+  // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
+  // diagnosable from container logs. No PII beyond the ip already logged.
+  logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
+  return false
+}
+
+// Usernameless passkey login (its own Credentials provider, id "passkey"): the
+// authenticator proves possession of the private key AND (userVerification
+// "required") a local biometric/PIN, so it stands in for both the password and
+// the second factor. The user is resolved from the credential.
+export async function authorizePasskey(
+  credentials: Partial<Record<"challengeId" | "assertion" | "remember", unknown>>,
+  request?: Request,
+) {
+  const ip = clientIpFrom(request)
+  if (!(await loginIpAllowed(ip))) return null
+  const rp = getRelyingParty()
+  if (!rp || typeof credentials.assertion !== "string" || credentials.assertion.length > 16_384) return null
+  // Consume first: a malformed or unknown-credential attempt still burns the challenge.
+  const expectedChallenge = await consumeChallenge(credentials.challengeId, "login", null)
+  if (!expectedChallenge) return null
+  let response: AuthenticationResponseJSON
+  try {
+    response = JSON.parse(credentials.assertion) as AuthenticationResponseJSON
+  } catch {
+    return null
+  }
+  if (typeof response?.id !== "string") return null
+
+  const passkey = await prisma.passkey.findUnique({ where: { credentialId: response.id }, include: { user: true } })
+  if (!passkey) {
+    logger.warn("credential login rejected", { reason: "passkey_unknown", ipPresent: Boolean(ip) })
+    return null
+  }
+  const user = passkey.user
+  if (user.archivedAt || (isDemoMode() && isDemoEmail(user.email))) return null
+
+  let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>> | null
+  try {
+    verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge,
+      expectedOrigin: rp.origin,
+      expectedRPID: rp.rpID,
+      requireUserVerification: true,
+      credential: {
+        id: passkey.credentialId,
+        publicKey: new Uint8Array(passkey.publicKey),
+        counter: Number(passkey.counter),
+        transports: passkey.transports as AuthenticatorTransportFuture[],
+      },
+    })
+  } catch {
+    verification = null
+  }
+  if (!verification?.verified) {
+    void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "passkey_invalid" }, ip)
+    return null
+  }
+  // A password- or OTP-locked account stays locked: the lock is the admin's and
+  // the user's signal that something is wrong with this account. Checked only
+  // after the signature verifies, so a bare credential id can't probe lock state.
+  if ((user.lockedUntil && user.lockedUntil > new Date()) || (user.otpLockedUntil && user.otpLockedUntil > new Date())) {
+    throw new AccountLocked()
+  }
+
+  // Compare-and-swap on the counter just read: a cloned authenticator racing the
+  // real one can't both win. The library already rejected a non-increasing
+  // counter (unless both are 0, i.e. the authenticator doesn't count).
+  const { count } = await prisma.passkey.updateMany({
+    where: { id: passkey.id, counter: passkey.counter },
+    data: { counter: BigInt(verification.authenticationInfo.newCounter), lastUsedAt: new Date() },
+  })
+  if (count === 0) {
+    void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "passkey_counter_race" }, ip)
+    return null
+  }
+  // Like a correct password, a verified passkey clears stale typo counters. CAS on
+  // the values read so a concurrent failure increment isn't silently wiped. The
+  // lock timestamps are left alone — a lock already stopped us above.
+  if (user.failedLoginAttempts > 0 || user.failedOtpAttempts > 0) {
+    await prisma.user.updateMany({
+      where: { id: user.id, failedLoginAttempts: user.failedLoginAttempts, failedOtpAttempts: user.failedOtpAttempts },
+      data: { failedLoginAttempts: 0, failedOtpAttempts: 0 },
+    })
+  }
+  void logAudit(user.id, "USER_LOGIN", "User", user.id, { via: "passkey" }, ip)
+  // No device-trust grant: a passkey has no OTP step to skip.
+  return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: credentials.remember === "true" }
+}
+
 export async function authorizeCredentials(
   credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember" | "code" | "emailFallback", unknown>>,
   request?: Request,
@@ -210,13 +308,7 @@ export async function authorizeCredentials(
   // key on `ip ?? "unknown"` so a request whose XFF is missing or fails
   // the IP regex falls back to a shared bucket rather than skipping the throttle
   // entirely — matches the sibling limiters (publicFeedback.ts, membership.ts).
-  const e2eOverride = process.env.E2E_ALLOW_TEST_OVERRIDES === "true"
-  if (!e2eOverride && !(await dbRateLimit(`login:ip:${ip ?? "unknown"}`, 10, 60_000))) {
-    // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
-    // diagnosable from container logs. No PII beyond the ip already logged.
-    logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
-    return null
-  }
+  if (!(await loginIpAllowed(ip))) return null
 
   // Live demo one-click login (/login role buttons). Honoured ONLY when
   // DEMO_MODE=true AND the email is on the reserved @demo.invalid domain, so a
@@ -535,6 +627,16 @@ export const { auth, handlers, signOut } = NextAuth({
         emailFallback: { label: "Email fallback", type: "text" },
       },
       authorize: authorizeCredentials,
+    }),
+    Credentials({
+      id: "passkey",
+      name: "Passkey",
+      credentials: {
+        challengeId: { label: "Passkey challenge", type: "text" },
+        assertion: { label: "Passkey assertion", type: "text" },
+        remember: { label: "Remember device", type: "text" },
+      },
+      authorize: authorizePasskey,
     }),
   ],
   callbacks: {
