@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import type { ReactNode } from "react"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { BankImportClient } from "@/components/accounting/BankImportClient"
@@ -14,21 +15,26 @@ jest.mock("@/components/accounting/BankUploadStep", () => ({
 // BankImportClient's draft-persistence logic, not Radix internals (same
 // pattern as petty-cash-ImportClient.test.tsx).
 jest.mock("@/components/ui/select", () => ({
-  Select: ({ value, onValueChange, disabled, children }: any) => (
+  Select: ({ value, onValueChange, disabled, children }: {
+    value?: string
+    onValueChange?: (value: string) => void
+    disabled?: boolean
+    children?: React.ReactNode
+  }) => (
     <select
       value={value ?? ""}
       disabled={disabled}
-      onChange={(e: any) => onValueChange?.(e.target.value)}
+      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(e.target.value)}
     >
       {children}
     </select>
   ),
-  SelectTrigger: ({ children }: any) => <>{children}</>,
-  SelectValue: ({ placeholder }: any) => (placeholder ? <option value="">{placeholder}</option> : null),
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectGroup: ({ children }: any) => <>{children}</>,
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectValue: ({ placeholder }: { placeholder?: string }) => (placeholder ? <option value="">{placeholder}</option> : null),
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectGroup: ({ children }: { children: ReactNode }) => <>{children}</>,
   SelectLabel: () => null,
-  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
 }))
 
 const accounts: Account[] = [

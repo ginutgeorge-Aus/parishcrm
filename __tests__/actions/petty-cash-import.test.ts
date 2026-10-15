@@ -122,15 +122,24 @@ describe("commitImport", () => {
     const fakeTx = {
       pettyCashSession: {
         findMany: jest.fn().mockResolvedValue([]),
-        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({ id: 100, status: "OPEN", ...create })),
         // Pre-insert lock recheck — default to a winning match (still OPEN).
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
-      pettyCashExpense: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
-      transaction: { createMany: jest.fn(async (_args: any) => ({ count: 1 })) },
+      pettyCashReceipt: {
+        createManyAndReturn: jest.fn(async ({ data }: { data: unknown[] }) => {
+          return data.map((d: unknown, i: number) => {
+            if (typeof d !== 'object' || d === null) {
+              throw new Error('Invalid data');
+            }
+            return { id: i + 1, ...(d as Record<string, unknown>) };
+          });
+        }),
+      },
+      pettyCashExpense: { createManyAndReturn: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => data.map((d: Record<string, unknown>, i: number) => ({ id: i + 1, ...d }))) },
+      transaction: { createMany: jest.fn(async (_args: unknown) => ({ count: 1 })) },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    mockTx.mockImplementation(async (cb: (tx: typeof fakeTx) => void) => cb(fakeTx))
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const csv = `${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,\n2025-09-07,expense,Church Operations,Vicar,200,Vicar Ta`
@@ -141,7 +150,7 @@ describe("commitImport", () => {
     expect(fakeTx.pettyCashReceipt.createManyAndReturn).toHaveBeenCalledTimes(1)             // one batched receipt insert
     expect(fakeTx.pettyCashReceipt.createManyAndReturn.mock.calls[0][0].data).toHaveLength(1)
     expect(fakeTx.pettyCashExpense.createManyAndReturn.mock.calls[0][0].data).toHaveLength(1)
-    const mirrors = fakeTx.transaction.createMany.mock.calls.reduce((n: number, c: any) => n + c[0].data.length, 0)
+    const mirrors = fakeTx.transaction.createMany.mock.calls.reduce((n: number, c: { data: unknown[] }[]) => n + c[0].data.length, 0)
     expect(mirrors).toBe(2)                                                                  // mirror per entry
     // Mirror rows link back to the generated ids and carry the session title.
     const receiptMirror = fakeTx.transaction.createMany.mock.calls[0][0].data[0]
@@ -155,14 +164,27 @@ describe("commitImport", () => {
     const fakeTx = {
       pettyCashSession: {
         findMany: jest.fn().mockResolvedValue([]),
-        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        upsert: jest.fn(async (args: unknown) => {
+            if (typeof args !== 'object' || args === null || !('create' in args)) {
+                throw new Error('Invalid arguments');
+            }
+            const { create } = args as { create: unknown };
+            if (typeof create !== 'object' || create === null) {
+                throw new Error('Invalid create data');
+            }
+            return { id: 100, status: "OPEN", ...(create as Record<string, unknown>) };
+        }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       pettyCashReceipt: { createManyAndReturn: jest.fn() },
       pettyCashExpense: { createManyAndReturn: jest.fn() },
       transaction: { createMany: jest.fn() },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    mockTx.mockImplementation(async (cb: unknown) => {
+      if (typeof cb === 'function') {
+        return (cb as (tx: typeof fakeTx) => unknown)(fakeTx);
+      }
+    })
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,`))
@@ -211,7 +233,7 @@ describe("commitImport", () => {
     const fakeTx = {
       pettyCashSession: {
         findMany: jest.fn().mockResolvedValue([]),
-        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({ id: 100, status: "OPEN", ...create })),
         // Pre-insert lock recheck — default to a winning match (still OPEN).
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -219,7 +241,7 @@ describe("commitImport", () => {
       pettyCashExpense: { createManyAndReturn: jest.fn() },
       transaction: { createMany: jest.fn() },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    mockTx.mockImplementation(async (cb: (tx: typeof fakeTx) => unknown) => cb(fakeTx))
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,Amy Taylor,122,`))
@@ -239,7 +261,15 @@ describe("commitImport", () => {
     const fakeTx = {
       pettyCashSession: {
         findMany: jest.fn().mockResolvedValue([]),
-        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        upsert: jest.fn(async (args: unknown) => {
+          if (typeof args === 'object' && args !== null && 'create' in args) {
+            const { create } = args as { create: Record<string, unknown> };
+            if (typeof create === 'object' && create !== null) {
+              return { id: 100, status: "OPEN", ...create };
+            }
+          }
+          throw new Error("Invalid arguments for upsert");
+        }),
         // Pre-insert lock recheck — default to a winning match (still OPEN).
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -247,7 +277,7 @@ describe("commitImport", () => {
       pettyCashExpense: { createManyAndReturn: jest.fn() },
       transaction: { createMany: jest.fn() },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    mockTx.mockImplementation(async (cb: (tx: typeof fakeTx) => unknown) => cb(fakeTx))
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,Amy Taylor,122,`))
@@ -272,15 +302,15 @@ describe("commitImport", () => {
     const fakeTx = {
       pettyCashSession: {
         findMany: jest.fn().mockResolvedValue([]),
-        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({ id: 100, status: "OPEN", ...create })),
         // Pre-insert lock recheck — default to a winning match (still OPEN).
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
+      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) => data.map((d: Record<string, unknown>, i: number) => ({ id: i + 1, ...d }))) },
       pettyCashExpense: { createManyAndReturn: jest.fn() },
-      transaction: { createMany: jest.fn(async (_args: any) => ({ count: 1 })) },
+      transaction: { createMany: jest.fn(async (_args: unknown) => ({ count: 1 })) },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    mockTx.mockImplementation(async (cb: (tx: typeof fakeTx) => unknown) => cb(fakeTx))
     ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,`))
@@ -292,19 +322,23 @@ describe("commitImport", () => {
   it("reuses the session when a concurrent import wins the race", async () => {
     // upsert (INSERT … ON CONFLICT) resolves the unique-title race to the winner
     // row without raising P2002 — no in-tx refetch that a 25P02 abort would break.
-    const fakeTx: any = {
+    const fakeTx = {
       pettyCashSession: {
-        findMany: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([] as unknown[]),
         upsert: jest.fn().mockResolvedValue({ id: 100, title: "07-SEP-2025", status: "OPEN" }),
         // Pre-insert lock recheck — default to a winning match (still OPEN).
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
+      pettyCashReceipt: {
+        createManyAndReturn: jest.fn(async ({ data }: { data: Record<string, unknown>[] }) =>
+          data.map((d: Record<string, unknown>, i: number) => ({ id: i + 1, ...d })),
+        ),
+      },
       pettyCashExpense: { createManyAndReturn: jest.fn() },
-      transaction: { createMany: jest.fn(async (_args: any) => ({ count: 1 })) },
+      transaction: { createMany: jest.fn(async (_args: unknown) => ({ count: 1 })) },
     }
-    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
-    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    mockTx.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(fakeTx))
+    (prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
 
     const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,`))
 

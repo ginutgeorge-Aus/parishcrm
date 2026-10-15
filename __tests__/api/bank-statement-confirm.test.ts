@@ -5,7 +5,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { __resetRateLimit } from "@/lib/rateLimit"
-
+import { Prisma } from "@prisma/client"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/accountingLock", () => ({
@@ -231,7 +231,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
   test("fromPettyCash: skips the XFER_OUT when a matching session transfer exists", async () => {
     // The bankRef-dedup query returns []; the session-transfer-mirror query
     // returns a matching transfer (same cents, date within window).
-    ;(prisma.transaction.findMany as jest.Mock).mockImplementation((args: any) =>
+    ;(prisma.transaction.findMany as jest.Mock).mockImplementation((args: Prisma.TransactionFindManyArgs) =>
       Promise.resolve(
         args?.where?.pettyCashTransferId
           ? [{ id: 50, amount: "1200.00", date: new Date("2025-07-23"), pettyCashTransferId: 42 }]
@@ -248,12 +248,13 @@ describe("POST /api/import/bank-statement/confirm", () => {
   })
 
   test("fromPettyCash: still creates the XFER_OUT when no session transfer matches", async () => {
-    ;(prisma.transaction.findMany as jest.Mock).mockImplementation((args: any) =>
+    ;(prisma.transaction.findMany as jest.Mock).mockImplementation((args: Prisma.TransactionFindManyArgs) =>
       Promise.resolve(
         args?.where?.pettyCashTransferId
           ? [{ id: 50, amount: "999.00", date: new Date("2025-07-23"), pettyCashTransferId: 42 }] // amount mismatch
           : []
       )
+    )
     )
     await POST(makeRequest([pettyCashRow]))
     expect(prisma.transaction.create).toHaveBeenCalledTimes(2) // income + cash-out

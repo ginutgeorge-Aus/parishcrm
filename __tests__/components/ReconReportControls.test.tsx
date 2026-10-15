@@ -1,19 +1,20 @@
 import { render, screen, fireEvent } from "@testing-library/react"
 import { ReconReportControls } from "@/components/accounting/ReconReportControls"
+import type { ReactNode } from "react"
 
 // Render the shadcn Select as a plain native <select> — this test drives
 // ReconReportControls' URL-push logic, not Radix internals (same pattern as
 // petty-cash-ImportClient.test.tsx).
 jest.mock("@/components/ui/select", () => ({
-  Select: ({ value, onValueChange, children }: any) => (
+  Select: ({ value, onValueChange, children }: { value?: string; onValueChange?: (value: string) => void; children: JSX.Element | JSX.Element[]; }) => (
     <select value={value ?? ""} onChange={(e) => onValueChange?.(e.target.value)}>
       {children}
     </select>
   ),
-  SelectTrigger: ({ children }: any) => <>{children}</>,
-  SelectValue: ({ placeholder }: any) => (placeholder ? <option value="">{placeholder}</option> : null),
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+  SelectTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectValue: ({ placeholder }: { placeholder?: string }) => (placeholder ? <option value="">{placeholder}</option> : null),
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
 }))
 
 const mockPush = jest.fn()

@@ -9,30 +9,31 @@
 import { render } from "@testing-library/react"
 import { ExpenseForm } from "@/components/petty-cash/ExpenseForm"
 import { ReceiptForm } from "@/components/petty-cash/ReceiptForm"
+import type { ReactNode } from "react"
 
 jest.mock("next/navigation", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn() }) }))
 
 // Render the shadcn Select/Command/Popover as inert passthroughs — these tests
 // assert the hidden fundId input's initial value, not Radix/cmdk internals.
 jest.mock("@/components/ui/select", () => ({
-  Select: ({ children }: any) => <>{children}</>,
-  SelectTrigger: ({ children }: any) => <>{children}</>,
+  Select: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   SelectValue: () => null,
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectItem: ({ children }: any) => <>{children}</>,
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 jest.mock("@/components/ui/popover", () => ({
-  Popover: ({ children }: any) => <>{children}</>,
-  PopoverTrigger: ({ children }: any) => <>{children}</>,
-  PopoverContent: ({ children }: any) => <>{children}</>,
+  Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 jest.mock("@/components/ui/command", () => ({
-  Command: ({ children }: any) => <>{children}</>,
-  CommandEmpty: ({ children }: any) => <>{children}</>,
-  CommandGroup: ({ children }: any) => <>{children}</>,
+  Command: ({ children }: { children: ReactNode }) => <>{children}</>,
+  CommandEmpty: ({ children }: { children: ReactNode }) => <>{children}</>,
+  CommandGroup: ({ children }: { children: ReactNode }) => <>{children}</>,
   CommandInput: () => null,
-  CommandItem: ({ children }: any) => <>{children}</>,
-  CommandList: ({ children }: any) => <>{children}</>,
+  CommandItem: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  CommandList: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
 const noopAction = async () => undefined

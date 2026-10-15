@@ -1,14 +1,25 @@
 /** @jest-environment node */
+import type { PrismaClient } from "@prisma/client"
 import { getXferAccountId } from "@/lib/xferAccount"
 
 it("returns the existing XFER account id", async () => {
-  const client = { account: { findUnique: jest.fn().mockResolvedValue({ id: 7 }), upsert: jest.fn() } } as any
+  const client: { account: { findUnique: jest.Mock<Promise<{ id: number } | null>, []>; upsert: jest.Mock<any, any> } } = {
+    account: {
+      findUnique: jest.fn().mockResolvedValue({ id: 7 }),
+      upsert: jest.fn()
+    }
+  }
   expect(await getXferAccountId(client)).toBe(7)
   expect(client.account.upsert).not.toHaveBeenCalled()
 })
 
 it("upserts the XFER account when missing", async () => {
-  const client = { account: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({ id: 8 }) } } as any
+  const client = {
+    account: {
+      findUnique: jest.fn<Promise<null>, []>().mockResolvedValue(null),
+      upsert: jest.fn<Promise<{ id: number }>, []>().mockResolvedValue({ id: 8 }),
+    },
+  }
   expect(await getXferAccountId(client)).toBe(8)
   expect(client.account.upsert).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -24,14 +35,14 @@ it("upserts the XFER account when missing", async () => {
 it("resolves to the winner's row via upsert on a concurrent race", async () => {
   const findUnique = jest.fn().mockResolvedValue(null)
   const upsert = jest.fn().mockResolvedValue({ id: 9 })
-  const client = { account: { findUnique, upsert } } as any
+  const client: { account: { findUnique: () => Promise<{ id: number } | null>; upsert: () => Promise<{ id: number }> } } = { account: { findUnique, upsert } }
   expect(await getXferAccountId(client)).toBe(9)
   expect(findUnique).toHaveBeenCalledTimes(1)
 })
 
 it("rethrows an upsert failure", async () => {
-  const client = {
+  const client: Pick<PrismaClient, 'account'> = {
     account: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockRejectedValue({ code: "P2003" }) },
-  } as any
+  }
   await expect(getXferAccountId(client)).rejects.toEqual({ code: "P2003" })
 })

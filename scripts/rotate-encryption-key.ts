@@ -236,7 +236,7 @@ export async function rotateModel(
   const fields = FIELDS[name]
   const blobFields = new Set(BLOB_FIELDS[name] ?? [])
   const delegate = opts.delegate ?? ((prisma as unknown as Record<string, ModelDelegate>)[name])
-  const runTx = opts.runTx ?? ((ops: unknown[]) => prisma.$transaction(ops as any))
+  const runTx = opts.runTx ?? ((ops: unknown[]) => prisma.$transaction(ops as unknown[]))
   const apply = opts.apply ?? APPLY
   if (!delegate) throw new Error(`Unknown model: ${String(name)}`)
   const total: number = await delegate.count()

@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import { ReactNode } from 'react'
 import { render, screen, fireEvent, act } from "@testing-library/react"
 import { TransactionFilters } from "@/components/accounting/TransactionFilters"
 
@@ -24,24 +25,24 @@ jest.mock("@/components/ui/select", () => {
   const React = require("react")
   const SelectTrigger = () => null
   return {
-    Select: ({ value, onValueChange, children }: any) => {
+    Select: ({ value, onValueChange, children }: { value?: string; onValueChange: (value: string) => void; children: React.ReactNode }) => {
       const trigger = React.Children.toArray(children).find(
-        (c: any) => c.type === SelectTrigger
-      ) as any
+        (c): c is React.ReactElement<{ "aria-label"?: string }> => React.isValidElement(c) && c.type === SelectTrigger
+      );
       return (
         <select
           value={value || ""}
-          onChange={(e: any) => onValueChange(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onValueChange(e.target.value)}
           aria-label={trigger?.props?.["aria-label"]}
         >
           {children}
         </select>
-      )
+      );
     },
     SelectTrigger,
     SelectValue: () => null,
-    SelectContent: ({ children }: any) => <>{children}</>,
-    SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+    SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
   }
 })
 

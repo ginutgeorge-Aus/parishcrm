@@ -96,7 +96,7 @@ describe("saveStatementBalance", () => {
   })
 
   it.each([
-    ["returns error for invalid paymentAccount", "INVALID" as any, "2026-05-31", "12820.00"],
+    ["returns error for invalid paymentAccount", "INVALID" as unknown, "2026-05-31", "12820.00"],
     ["returns error for invalid date", 1, "not-a-date", "12820.00"],
     ["returns error for invalid amount", 1, "2026-05-31", "abc"],
   ])("%s", async (_name, paymentAccountId, date, amount) => {

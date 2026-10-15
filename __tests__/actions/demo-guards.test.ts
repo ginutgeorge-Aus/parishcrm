@@ -30,7 +30,7 @@ import * as pettyCashImport from "@/lib/actions/pettyCashImport"
 import { parseImageUpload } from "@/lib/actions/eventForm"
 
 const fd = () => new FormData()
-const anyArgs = (fn: (...a: any[]) => unknown) => fn(undefined, fd(), fd())
+const anyArgs = (fn: (...a: unknown[]) => unknown) => fn(undefined, fd(), fd())
 
 const CASES: Array<[string, () => Promise<unknown>]> = [
   ["createUser", () => anyArgs(user.createUser) as Promise<unknown>],

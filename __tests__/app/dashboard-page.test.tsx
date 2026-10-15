@@ -256,7 +256,7 @@ function simulateWestOfUtcLocalGetters() {
 type ElementLike ={ type?: unknown; props?: { children?: unknown; [k: string]: unknown } }
 
 /** Depth-first search of a React element tree for the first element matching `pred`. */
-function findElement(node: unknown, pred: (e: ElementLike) => boolean): ElementLike & { props: Record<string, any> } {
+function findElement(node: unknown, pred: (e: ElementLike) => boolean): ElementLike & { props: Record<string, unknown> } {
   const walk = (n: unknown): ElementLike | null => {
     if (!n || typeof n !== "object") return null
     if (Array.isArray(n)) {
@@ -272,5 +272,5 @@ function findElement(node: unknown, pred: (e: ElementLike) => boolean): ElementL
   }
   const hit = walk(node)
   if (!hit) throw new Error("element not found")
-  return hit as ElementLike & { props: Record<string, any> }
+  return hit as ElementLike & { props: Record<string, unknown> }
 }

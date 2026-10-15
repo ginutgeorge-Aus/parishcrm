@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { MergeClient } from "@/components/families/MergeClient"
 import { previewMerge, mergeFamilies } from "@/lib/actions/family"
+import type { ReactNode } from "react"
 
 jest.mock("@/lib/actions/family", () => ({
   previewMerge: jest.fn(),
@@ -14,16 +15,28 @@ jest.mock("@/lib/actions/family", () => ({
 // keeps resolving it via the existing <Label htmlFor>.
 jest.mock("@/components/ui/select", () => {
   const ReactLib = jest.requireActual("react")
-  function SelectTrigger({ children }: any) {
+  function SelectTrigger({ children }: { children: ReactNode }) {
     return <>{children}</>
   }
-  function Select({ value, onValueChange, children }: any) {
+  function Select({
+    value,
+    onValueChange,
+    children,
+  }: {
+    value?: string;
+    onValueChange?: (value: string) => void;
+    children: React.ReactNode;
+  }) {
     let id: string | undefined
-    ReactLib.Children.forEach(children, (child: any) => {
+    ReactLib.Children.forEach(children, (child: ReactLib.ReactElement) => {
       if (child?.type === SelectTrigger) id = child.props.id
     })
     return (
-      <select id={id} value={value ?? ""} onChange={(e: any) => onValueChange?.(e.target.value)}>
+      <select
+        id={id}
+        value={value ?? ""}
+        onChange={(e: ReactLib.ChangeEvent<HTMLSelectElement>) => onValueChange?.(e.target.value)}
+      >
         {children}
       </select>
     )
@@ -31,9 +44,9 @@ jest.mock("@/components/ui/select", () => {
   return {
     Select,
     SelectTrigger,
-    SelectValue: ({ placeholder }: any) => (placeholder ? <option value="">{placeholder}</option> : null),
-    SelectContent: ({ children }: any) => <>{children}</>,
-    SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+    SelectValue: ({ placeholder }: { placeholder?: string }) => (placeholder ? <option value="">{placeholder}</option> : null),
+    SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
   }
 })
 

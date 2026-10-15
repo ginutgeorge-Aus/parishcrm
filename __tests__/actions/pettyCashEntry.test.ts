@@ -2,12 +2,22 @@
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
 import { createReceiptEntry, createExpenseEntry } from "@/lib/actions/pettyCashEntry"
 
-function mockTx() {
+function mockTx(): {
+  pettyCashReceipt: {
+    create: jest.Mock<Promise<{ id: number; date: Date; amount: string; accountId: number }>, []>;
+  };
+  pettyCashExpense: {
+    create: jest.Mock<Promise<{ id: number; date: Date; amount: string; accountId: number }>, []>;
+  };
+  transaction: {
+    create: jest.Mock<Promise<{ id: number }>, []>;
+  };
+} {
   return {
     pettyCashReceipt: { create: jest.fn().mockResolvedValue({ id: 1, date: new Date("2026-06-14"), amount: "20", accountId: 3 }) },
     pettyCashExpense: { create: jest.fn().mockResolvedValue({ id: 2, date: new Date("2026-06-14"), amount: "5", accountId: 4 }) },
     transaction: { create: jest.fn().mockResolvedValue({ id: 9 }) },
-  } as any
+  };
 }
 
 it("persists importKey on the receipt when provided", async () => {

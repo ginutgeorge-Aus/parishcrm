@@ -81,11 +81,12 @@ it("passes the pasted imageUrl as bannerSrc to EventHero when no image is upload
   })
   const ui = await render("hero-test")
   // The page returns a React element tree. Find the EventHero element and verify its props.
-  function findEventHeroProps(node: any): Record<string, unknown> | null {
+  function findEventHeroProps(node: unknown): Record<string, unknown> | null {
     if (!node || typeof node !== "object") return null
-    if (node.type === mockEventHero || node.type === EventHero) return node.props
-    if (node.props?.children) {
-      const children = Array.isArray(node.props.children) ? node.props.children : [node.props.children]
+    const n = node as { type: unknown; props?: { children?: unknown } & Record<string, unknown> }
+    if (n.type === mockEventHero || n.type === EventHero) return n.props as Record<string, unknown>
+    if (n.props?.children) {
+      const children = Array.isArray(n.props.children) ? n.props.children : [n.props.children]
       for (const child of children) {
         const found = findEventHeroProps(child)
         if (found) return found

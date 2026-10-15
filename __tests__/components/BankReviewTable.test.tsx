@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import type { ReactNode } from "react"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { BankReviewTable } from "@/components/accounting/BankReviewTable"
@@ -11,7 +12,12 @@ import type { ReviewRow, Account, Family } from "@/components/accounting/BankRev
 // existing assertions query <option> elements directly (matches the pattern
 // already used in petty-cash-ImportClient.test.tsx).
 jest.mock("@/components/ui/select", () => ({
-  Select: ({ value, onValueChange, disabled, children }: any) => (
+  Select: ({ value, onValueChange, disabled, children }: {
+    value?: string;
+    onValueChange?: (value: string) => void;
+    disabled?: boolean;
+    children?: React.ReactNode;
+  }) => (
     <select
       value={value ?? ""}
       disabled={disabled}
@@ -20,12 +26,12 @@ jest.mock("@/components/ui/select", () => ({
       {children}
     </select>
   ),
-  SelectTrigger: ({ children }: any) => <>{children}</>,
-  SelectValue: ({ placeholder }: any) => (placeholder ? <option value="">{placeholder}</option> : null),
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectGroup: ({ children }: any) => <>{children}</>,
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectValue: ({ placeholder }: { placeholder?: string }) => (placeholder ? <option value="">{placeholder}</option> : null),
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectGroup: ({ children }: { children: ReactNode }) => <>{children}</>,
   SelectLabel: () => null,
-  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => <option value={value}>{children}</option>,
 }))
 
 const accounts: Account[] = [

@@ -6,6 +6,7 @@
  * inputs, copy-from-previous-year action (success, empty, and failure paths),
  * year-navigation routing, and server-action error/success display.
  */
+import type { ReactNode } from "react"
 import { render, screen, within, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { BudgetForm } from "@/components/accounting/BudgetForm"
@@ -14,15 +15,15 @@ import { BudgetForm } from "@/components/accounting/BudgetForm"
 // year-range/navigation logic, not Radix internals (same pattern as
 // petty-cash-ImportClient.test.tsx).
 jest.mock("@/components/ui/select", () => ({
-  Select: ({ value, onValueChange, children }: any) => (
+  Select: ({ value, onValueChange, children }: { value?: string; onValueChange?: (value: string) => void; children?: ReactNode }) => (
     <select value={value ?? ""} onChange={(e) => onValueChange?.(e.target.value)}>
       {children}
     </select>
   ),
-  SelectTrigger: ({ children }: any) => <>{children}</>,
-  SelectValue: ({ placeholder }: any) => (placeholder ? <option value="">{placeholder}</option> : null),
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+  SelectTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectValue: ({ placeholder }: { placeholder?: string }) => (placeholder ? <option value=\"\">{placeholder}</option> : null),
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
 }))
 
 const mockPush = jest.fn()
