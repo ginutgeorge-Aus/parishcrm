@@ -160,10 +160,6 @@ export function decrypt(value: string): string {
   ]).toString("utf8")
 }
 
-// Bulk-export placeholder for a value that cannot be decrypted (legacy/corrupt
-// ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
-// single bad row degrades to a visible marker instead of 500-ing the whole
-// export. Use only on read paths that iterate many rows.
 /**
  * Encrypt raw bytes for a BYTEA column: UTF-8 bytes of `encrypt(base64)` (the convention
  * shared by TransactionAttachment.data and PersonClearance.document; rotated via BLOB_FIELDS).
@@ -177,6 +173,10 @@ export function decryptBytes(blob: Uint8Array): Buffer<ArrayBuffer> {
   return Buffer.from(decrypt(Buffer.from(blob).toString("utf8")), "base64")
 }
 
+// Bulk-export placeholder for a value that cannot be decrypted (legacy/corrupt
+// ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
+// single bad row degrades to a visible marker instead of 500-ing the whole
+// export. Use only on read paths that iterate many rows.
 export const DECRYPTION_ERROR_PLACEHOLDER = "[decryption error]"
 
 export function safeDecrypt(value: string): string {
