@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { sendEmail } from "@/lib/email"
+import { logger } from "@/lib/logger"
 import { buildIssuerSnapshot, churchReadyError, loadInvoicePdf } from "@/lib/invoicePdfModel"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/invoicePdfModel", () => ({ loadInvoicePdf: jest.fn(), churchReadyError: jest.fn(), buildIssuerSnapshot: jest.fn() }))
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn() }))
@@ -60,6 +62,21 @@ describe("sendInvoice", () => {
     expect(getInvoiceSettings).toHaveBeenCalledTimes(1)
     expect(loadInvoicePdf).toHaveBeenCalledWith(11, { gstRegistered: true, paymentDetails: "BSB 000-000" })
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_SENT", "Invoice", 11, { invoiceNo: "INV-0007" })
+  })
+  it("never renders inside the transaction: the single post-commit load feeds the email", async () => {
+    await sendInvoice(11)
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+    expect(loadInvoicePdf).toHaveBeenCalledTimes(1)
+  })
+  it("markInvoiceSent freezes the PDF after commit (best effort)", async () => {
+    expect(await markInvoiceSent(11)).toEqual({ success: "Invoice INV-0007 marked as sent" })
+    expect(loadInvoicePdf).toHaveBeenCalledWith(11, { gstRegistered: true, paymentDetails: "BSB 000-000" })
+  })
+  it("markInvoiceSent still succeeds when the post-commit render fails", async () => {
+    ;(loadInvoicePdf as jest.Mock).mockRejectedValueOnce(new Error("render"))
+    expect(await markInvoiceSent(11)).toEqual({ success: "Invoice INV-0007 marked as sent" })
+    expect(logger.error).toHaveBeenCalledWith("markInvoiceSent freeze failed", expect.objectContaining({ invoiceId: 11 }))
+    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_MARKED_SENT", "Invoice", 11, { invoiceNo: "INV-0007" })
   })
   it("strips GST from totals when the church is no longer GST registered", async () => {
     ;(getInvoiceSettings as jest.Mock).mockResolvedValue({ gstRegistered: false, paymentDetails: "" })

@@ -87,7 +87,7 @@ async function emailInvoice(id: number, settings?: InvoiceSettings): Promise<voi
   ])
 }
 
-/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. */
+/** Shared DRAFT → SENT flow; `email` decides whether the PDF is emailed. The PDF freeze happens after the commit and never fails the send. */
 async function send(id: number, email: boolean): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -113,6 +113,12 @@ async function send(id: number, email: boolean): Promise<Result> {
   const { invoiceNo } = alloc
 
   if (!email) {
+    // Freeze the PDF (letterhead) now, best effort: a failure leaves it to the lazy freeze on first download.
+    try {
+      await loadInvoicePdf(id, settings)
+    } catch (e) {
+      logger.error("markInvoiceSent freeze failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+    }
     await logAudit(uid, "INVOICE_MARKED_SENT", "Invoice", id, { invoiceNo })
     revalidate(id)
     return { success: `Invoice ${invoiceNo} marked as sent` }

@@ -53,6 +53,10 @@ describe("markInvoicePaid — link", () => {
     expect(await markInvoicePaid(11, link)).toEqual({ error: "Unauthorized" })
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
   })
+  it("never loads the frozen PDF blob", async () => {
+    await markInvoicePaid(11, link)
+    expect(prisma.invoice.findUnique).toHaveBeenCalledWith({ where: { id: 11 }, omit: { frozenPdf: true } })
+  })
   it("links and flips to PAID", async () => {
     expect(await markInvoicePaid(11, link)).toEqual({ success: "INV-0007 marked paid" })
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 50, ...LINKABLE, updatedAt: income.updatedAt }, data: { invoiceId: 11, accountId: 4, fundId: null } })
