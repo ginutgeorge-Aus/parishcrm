@@ -26,6 +26,11 @@ optionally set a new password directly (this immediately signs the user out ever
 clears any lockout on the account). An OFFICE_ADMIN cannot edit an ADMIN or PASTOR account,
 and cannot change anyone's role to ADMIN or PASTOR.
 
+**Revoking someone's passkeys:** if a staff member loses a device that holds one of their
+passkeys, click **Revoke passkeys** on their row (shown only when they have at least one).
+This removes every passkey they registered and signs them out everywhere. They can still
+sign in with their password and code, and add new passkeys from **My Account**.
+
 **Resending the welcome invite:** if the original invite email never arrived or expired, use
 **Resend invite** on the user's row — it issues a fresh 7-day token and re-sends the email.
 
