@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
@@ -286,13 +286,16 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         await tx.person.delete({ where: { id } })
         // Same transaction: a failed audit write rolls the delete back.
         await logAuditTx(tx, actor, "PERSON_DELETED", "Person", id, { familyId })
-        for (const c of removedClearances) {
-          await logAuditTx(tx, actor, "CLEARANCE_REMOVED", "Person", id, {
-            type: c.type,
-            clearanceId: c.id,
-            cascade: true,
-          })
-        }
+        await logAuditManyTx(
+          tx,
+          removedClearances.map((c) => ({
+            userId: actor,
+            action: "CLEARANCE_REMOVED",
+            resourceType: "Person",
+            resourceId: id,
+            metadata: { type: c.type, clearanceId: c.id, cascade: true },
+          })),
+        )
         return 0
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }

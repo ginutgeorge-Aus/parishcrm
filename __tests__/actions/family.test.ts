@@ -24,11 +24,21 @@ jest.mock("@/lib/prisma", () => {
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
   }
-  // Batch form resolves the array; interactive form runs the callback on the same mocks.
+  // Interactive transactions get a distinct client: reads are shared, but the
+  // family delete and audit writes exist only on it, and the global family
+  // delete throws — so a write made outside the transaction fails the test.
+  const family = prisma.family as Record<string, jest.Mock>
+  const tx = {
+    ...prisma,
+    family: { ...family, delete: jest.fn() },
+    auditLog: { create: jest.fn(), createMany: jest.fn() },
+  }
+  family.delete = jest.fn(() => { throw new Error("delete outside the transaction") })
+  // Batch form resolves the array; interactive form runs the callback on tx.
   prisma.$transaction = jest.fn((arg: unknown) =>
-    typeof arg === "function" ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[]),
+    typeof arg === "function" ? (arg as (t: unknown) => unknown)(tx) : Promise.all(arg as unknown[]),
   )
-  return { prisma }
+  return { prisma, __tx: tx }
 })
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -39,6 +49,7 @@ jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import * as prismaModule from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { createFamily, updateFamily, deleteFamily, archiveFamily, unarchiveFamily } from "@/lib/actions/family"
@@ -47,7 +58,18 @@ const mockSession = auth as jest.Mock
 const mockCreate = prisma.family.create as jest.Mock
 const mockUpdate = prisma.family.update as jest.Mock
 const mockUpdateMany = prisma.family.updateMany as jest.Mock
-const mockDelete = prisma.family.delete as jest.Mock
+type TxMock = { family: { delete: jest.Mock }; auditLog: { create: jest.Mock; createMany: jest.Mock } }
+const tx = (prismaModule as unknown as { __tx: TxMock }).__tx
+const mockDelete = tx.family.delete
+const mockTxAudit = tx.auditLog.create
+const mockTxAuditMany = tx.auditLog.createMany
+const mockQueryRaw = prisma.$queryRaw as jest.Mock
+// archivedAt returned by deleteFamily's locked re-read of the family row.
+let lockedArchivedAt: Date | null = null
+function familyArchivedAt(at: Date | null) {
+  mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: at })
+  lockedArchivedAt = at
+}
 const mockFindUnique = prisma.family.findUnique as jest.Mock
 const mockAudit = prisma.auditLog.create as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
@@ -67,6 +89,10 @@ beforeEach(() => {
   // updateFamily uses updateMany for optimistic concurrency — default
   // to a matched row so existing tests that don't care about the guard pass.
   mockUpdateMany.mockResolvedValue({ count: 1 })
+  lockedArchivedAt = null
+  mockQueryRaw.mockImplementation((sql: TemplateStringsArray) =>
+    Promise.resolve(sql.join("?").includes('FROM "Family"') ? [{ archivedAt: lockedArchivedAt }] : []),
+  )
 })
 
 describe("createFamily", () => {
@@ -340,10 +366,9 @@ describe("deleteFamily", () => {
     // members (it still holds its own encrypted PII).
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValue(0)
-    mockDelete.mockResolvedValue({})
     await deleteFamily(5)
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 5 } })
     expect(mockRedirect).toHaveBeenCalledWith("/families")
@@ -351,7 +376,7 @@ describe("deleteFamily", () => {
 
   it("blocks deleting a zero-member family that is not past the retention floor", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: null })
+    familyArchivedAt(null)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValue(0)
     const result = await deleteFamily(5)
@@ -384,12 +409,11 @@ describe("deleteFamily", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount
       .mockResolvedValueOnce(3) // total members — all archived alongside the family
       .mockResolvedValueOnce(0) // active (non-archived) members
-    mockDelete.mockResolvedValue({})
     await deleteFamily(5)
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 5 } })
     expect(mockRedirect).toHaveBeenCalledWith("/families")
@@ -399,7 +423,7 @@ describe("deleteFamily", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount
       .mockResolvedValueOnce(3)
@@ -415,7 +439,7 @@ describe("deleteFamily", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     const oneYearAgo = new Date()
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: oneYearAgo })
+    familyArchivedAt(oneYearAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValueOnce(2)
     const result = await deleteFamily(5)
@@ -436,12 +460,11 @@ describe("deleteFamily", () => {
     mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValue(0)
-    mockDelete.mockResolvedValue({})
     await deleteFamily(5)
-    expect(mockAudit).toHaveBeenCalledWith({
+    expect(mockTxAudit).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 3,
         action: "FAMILY_DELETED",
@@ -457,10 +480,9 @@ describe("deleteFamily clearance audit", () => {
     mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValue(0)
-    mockDelete.mockResolvedValue({})
     ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([
       { id: "ckclr1", type: "WWCC", personId: 11 },
     ])
@@ -468,29 +490,34 @@ describe("deleteFamily clearance audit", () => {
     expect(prisma.personClearance.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { person: { familyId: 5 } } }),
     )
-    expect(mockAudit).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 3,
-        action: "CLEARANCE_REMOVED",
-        resourceType: "Person",
-        resourceId: 11,
-      }),
+    expect(mockTxAuditMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userId: 3,
+          action: "CLEARANCE_REMOVED",
+          resourceType: "Person",
+          resourceId: 11,
+          metadata: { type: "WWCC", clearanceId: "ckclr1", cascade: true },
+        }),
+      ],
     })
   })
 
-  it("runs the delete and its audit rows in one transaction, so a failed audit write rejects it", async () => {
+  it.each([
+    ["FAMILY_DELETED", () => mockTxAudit],
+    ["cascaded CLEARANCE_REMOVED", () => mockTxAuditMany],
+  ])("a failed %s audit write rejects the delete transaction", async (_n, failing) => {
     mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
     const eightYearsAgo = new Date()
     eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
-    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    familyArchivedAt(eightYearsAgo)
     mockTxCount.mockResolvedValue(0)
     mockPersonCount.mockResolvedValue(0)
-    mockDelete.mockResolvedValue({})
     ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([
       { id: "ckclr1", type: "WWCC", personId: 11 },
     ])
     const auditDown = new Error("audit table unavailable")
-    mockAudit.mockRejectedValueOnce(auditDown)
+    failing().mockRejectedValueOnce(auditDown)
     mockBatch.mockClear()
     await expect(deleteFamily(5)).rejects.toBe(auditDown)
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 5 } })
@@ -498,6 +525,45 @@ describe("deleteFamily clearance audit", () => {
     expect(mockBatch).toHaveBeenCalledTimes(1)
     await expect(mockBatch.mock.results[0].value).rejects.toBe(auditDown)
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteFamily concurrency", () => {
+  it("locks the family, then its members in id order, before any eligibility check", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    const eightYearsAgo = new Date()
+    eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
+    familyArchivedAt(eightYearsAgo)
+    mockTxCount.mockResolvedValue(0)
+    mockPersonCount.mockResolvedValue(0)
+    await deleteFamily(5)
+    const sqls = mockQueryRaw.mock.calls.map(([sql]) => (sql as TemplateStringsArray).join("?"))
+    expect(sqls[0]).toMatch(/FROM "Family" WHERE id = \? FOR UPDATE/)
+    expect(sqls[1]).toMatch(/FROM "Person" WHERE "familyId" = \? ORDER BY id FOR UPDATE/)
+    expect(mockQueryRaw.mock.invocationCallOrder[1]).toBeLessThan(mockTxCount.mock.invocationCallOrder[0])
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 5 } })
+  })
+
+  it("re-checks retention on the locked row: a family unarchived since the pre-read is not deleted", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    const eightYearsAgo = new Date()
+    eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
+    familyArchivedAt(eightYearsAgo)
+    lockedArchivedAt = null // unarchived between the pre-read and the lock
+    mockTxCount.mockResolvedValue(0)
+    mockPersonCount.mockResolvedValue(2)
+    const result = await deleteFamily(5)
+    expect(result).toEqual({ error: "Cannot delete — 2 member(s) in this family. Archive it instead." })
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockTxAudit).not.toHaveBeenCalled()
+  })
+
+  it("returns Not found when the family was deleted between the pre-read and the lock", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValueOnce({ id: 5 })
+    mockQueryRaw.mockResolvedValueOnce([])
+    expect(await deleteFamily(5)).toEqual({ error: "Not found" })
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 })
 

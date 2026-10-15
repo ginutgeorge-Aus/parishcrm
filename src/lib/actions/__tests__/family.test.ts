@@ -23,6 +23,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({
   logAudit: jest.fn().mockResolvedValue(undefined),
   logAuditTx: jest.fn().mockResolvedValue(undefined),
+  logAuditManyTx: jest.fn().mockResolvedValue(undefined),
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -67,21 +68,35 @@ function form(fields: Record<string, string>): FormData {
 
 const VALID = { name: "Smith Family" }
 
+// The family delete exists only on the transaction client; the global one
+// throws, so a delete outside the transaction fails the test.
+const familyDeleteTx = jest.fn()
+
 beforeEach(() => {
   jest.clearAllMocks()
+  familyDeleteTx.mockResolvedValue({})
+  ;(prisma.family.delete as jest.Mock).mockImplementation(() => {
+    throw new Error("delete outside the transaction")
+  })
   // Default $transaction: run a callback against a tx proxy, or resolve an array.
   ;(prisma.$transaction as jest.Mock).mockImplementation(async (arg: unknown) => {
     if (typeof arg === "function") {
       return (arg as (tx: unknown) => unknown)({
-        person: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-        transaction: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        // deleteFamily's row locks: the family lock re-reads archivedAt, served
+        // from the same findUnique mock the test primed.
+        $queryRaw: jest.fn(async (sql: TemplateStringsArray) => {
+          if (!sql.join("?").includes('FROM "Family"')) return []
+          const row = await (prisma.family.findUnique as jest.Mock)()
+          return row ? [{ archivedAt: row.archivedAt ?? null }] : []
+        }),
+        person: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), count: prisma.person.count },
+        transaction: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), count: prisma.transaction.count },
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
-          // Shared with the top-level mock so delete assertions see tx writes.
-          delete: prisma.family.delete,
+          delete: familyDeleteTx,
         },
         personClearance: prisma.personClearance,
       })
@@ -195,7 +210,7 @@ describe("deleteFamily", () => {
     ;(prisma.transaction.count as jest.Mock).mockResolvedValue(2)
     const r = await deleteFamily(3)
     expect(r).toMatchObject({ error: expect.stringContaining("2 transaction(s)") })
-    expect(prisma.family.delete).not.toHaveBeenCalled()
+    expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
   it("blocks deletion when members exist and it is not past the retention floor", async () => {
@@ -205,7 +220,7 @@ describe("deleteFamily", () => {
     ;(prisma.person.count as jest.Mock).mockResolvedValue(3)
     const r = await deleteFamily(3)
     expect(r).toMatchObject({ error: expect.stringContaining("3 member(s)") })
-    expect(prisma.family.delete).not.toHaveBeenCalled()
+    expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
   it("blocks a past-retention delete while any member is still active", async () => {
@@ -220,7 +235,7 @@ describe("deleteFamily", () => {
       .mockResolvedValueOnce(1) // activeMemberCount
     const r = await deleteFamily(3)
     expect(r).toMatchObject({ error: expect.stringContaining("1 active member(s)") })
-    expect(prisma.family.delete).not.toHaveBeenCalled()
+    expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
   it("permanently deletes a past-retention family with only archived members", async () => {
@@ -234,7 +249,7 @@ describe("deleteFamily", () => {
       .mockResolvedValueOnce(2) // memberCount
       .mockResolvedValueOnce(0) // activeMemberCount
     await expect(deleteFamily(3)).rejects.toThrow("NEXT_REDIRECT")
-    expect(prisma.family.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+    expect(familyDeleteTx).toHaveBeenCalledWith({ where: { id: 3 } })
   })
 
   it("blocks deleting a zero-member family that is not past the retention floor", async () => {
@@ -245,7 +260,7 @@ describe("deleteFamily", () => {
     ;(prisma.person.count as jest.Mock).mockResolvedValue(0)
     const r = await deleteFamily(3)
     expect(r).toMatchObject({ error: expect.stringContaining("7 years") })
-    expect(prisma.family.delete).not.toHaveBeenCalled()
+    expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
   it("permanently deletes a zero-member family once past the retention floor", async () => {
@@ -259,7 +274,7 @@ describe("deleteFamily", () => {
       .mockResolvedValueOnce(0) // memberCount
       .mockResolvedValueOnce(0) // activeMemberCount
     await expect(deleteFamily(3)).rejects.toThrow("NEXT_REDIRECT")
-    expect(prisma.family.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+    expect(familyDeleteTx).toHaveBeenCalledWith({ where: { id: 3 } })
   })
 })
 

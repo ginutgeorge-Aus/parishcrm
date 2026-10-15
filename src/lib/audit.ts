@@ -69,3 +69,28 @@ export async function logAuditTx(
     },
   })
 }
+
+/** One audit row for {@link logAuditManyTx}. */
+export type AuditEntry = {
+  userId: number | null
+  action: string
+  resourceType: string
+  resourceId?: number
+  metadata?: Record<string, unknown>
+  ip?: string
+}
+
+/**
+ * Write several audit rows in one INSERT inside the caller's transaction.
+ * Same guarantee as logAuditTx (a failure throws and rolls the mutation back),
+ * without one round trip per row while the transaction holds its locks.
+ * No-op for an empty list.
+ * @param tx interactive-transaction client
+ * @param entries rows to write (metadata: ids/flags only — never PII)
+ */
+export async function logAuditManyTx(tx: Prisma.TransactionClient, entries: AuditEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  await tx.auditLog.createMany({
+    data: entries.map((e) => ({ ...e, metadata: e.metadata as Prisma.InputJsonValue | undefined })),
+  })
+}

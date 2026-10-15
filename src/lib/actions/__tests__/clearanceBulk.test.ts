@@ -8,7 +8,8 @@ jest.mock("@/lib/crypto", () => ({
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    personClearance: { findMany: jest.fn(), updateMany: jest.fn() },
+    // The update must go through the transaction client, never the global one.
+    personClearance: { findMany: jest.fn(), updateMany: jest.fn(() => { throw new Error("write outside the transaction") }) },
     $transaction: jest.fn(),
   },
 }))
@@ -21,7 +22,7 @@ import { verifyClearancesBulk } from "@/lib/actions/clearance"
 
 const mockAuth = auth as jest.Mock
 const findMany = prisma.personClearance.findMany as jest.Mock
-const updateMany = prisma.personClearance.updateMany as jest.Mock
+const updateMany = jest.fn() // transaction-client updateMany
 const transaction = prisma.$transaction as jest.Mock
 const queryRaw = jest.fn().mockResolvedValue([])
 const auditCreateMany = jest.fn()
@@ -169,15 +170,14 @@ describe("verifyClearancesBulk", () => {
     expect(ids).toEqual([1, 2])
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(updateMany.mock.invocationCallOrder[0])
     expect(auditCreateMany).toHaveBeenCalledTimes(1)
-    const rows = auditCreateMany.mock.calls[0][0].data
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toEqual({
+    const row = (resourceId: number, clearanceId: string) => ({
       userId: 7,
       action: "CLEARANCE_VERIFIED",
       resourceType: "Person",
-      resourceId: 1,
-      metadata: { clearanceId: "c11", type: "WWCC", bulk: true, hasNote: true },
+      resourceId,
+      metadata: { clearanceId, type: "WWCC", bulk: true, hasNote: true },
     })
+    expect(auditCreateMany.mock.calls[0][0].data).toEqual([row(1, "c11"), row(2, "c12")])
     expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(auditCreateMany.mock.invocationCallOrder[0])
     expect(revalidatePath).toHaveBeenCalledWith("/people/clearances")
     expect(revalidatePath).toHaveBeenCalledWith("/people/1")

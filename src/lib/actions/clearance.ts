@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
-import { logAuditTx } from "@/lib/audit"
+import { logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { CUID_ID_RE, isP2002, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
@@ -428,15 +428,16 @@ export async function verifyClearancesBulk(
       })
       if (res.count !== unique.length) throw new StaleBatchError()
       // One row per clearance, in the same transaction as the update.
-      await tx.auditLog.createMany({
-        data: found.map((c) => ({
+      await logAuditManyTx(
+        tx,
+        found.map((c) => ({
           userId: actor,
           action: "CLEARANCE_VERIFIED",
           resourceType: "Person",
           resourceId: c.personId,
           metadata: { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" },
         })),
-      })
+      )
       return res.count
     })
   } catch (e) {
