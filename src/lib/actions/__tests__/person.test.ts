@@ -67,7 +67,7 @@ beforeEach(() => {
     throw new Error("delete outside the transaction")
   })
   personDeleteTx.mockResolvedValue({})
-  ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: (t: unknown) => unknown) => cb(tx))
+  ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (t: unknown) => unknown) => Promise.resolve(cb(tx)))
 })
 
 describe("createPerson", () => {

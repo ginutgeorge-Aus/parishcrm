@@ -28,12 +28,18 @@ jest.mock("@/lib/prisma", () => {
   // family delete and audit writes exist only on it, and the global family
   // delete throws — so a write made outside the transaction fails the test.
   const family = prisma.family as Record<string, jest.Mock>
+  const outsideTx = () => jest.fn(() => { throw new Error("called outside the transaction") })
   const tx = {
     ...prisma,
     family: { ...family, delete: jest.fn() },
+    person: { ...(prisma.person as object), count: jest.fn() },
+    transaction: { count: jest.fn() },
     auditLog: { create: jest.fn(), createMany: jest.fn() },
   }
-  family.delete = jest.fn(() => { throw new Error("delete outside the transaction") })
+  family.delete = outsideTx()
+  // deleteFamily's eligibility counts must run under its row locks.
+  ;(prisma.person as Record<string, jest.Mock>).count = outsideTx()
+  ;(prisma.transaction as Record<string, jest.Mock>).count = outsideTx()
   // Batch form resolves the array; interactive form runs the callback on tx.
   prisma.$transaction = jest.fn((arg: unknown) =>
     typeof arg === "function" ? (arg as (t: unknown) => unknown)(tx) : Promise.all(arg as unknown[]),
@@ -49,7 +55,6 @@ jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import * as prismaModule from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { createFamily, updateFamily, deleteFamily, archiveFamily, unarchiveFamily } from "@/lib/actions/family"
@@ -58,24 +63,29 @@ const mockSession = auth as jest.Mock
 const mockCreate = prisma.family.create as jest.Mock
 const mockUpdate = prisma.family.update as jest.Mock
 const mockUpdateMany = prisma.family.updateMany as jest.Mock
-type TxMock = { family: { delete: jest.Mock }; auditLog: { create: jest.Mock; createMany: jest.Mock } }
-const tx = (prismaModule as unknown as { __tx: TxMock }).__tx
+const mockFindUnique = prisma.family.findUnique as jest.Mock
+type TxMock = {
+  family: { delete: jest.Mock }
+  person: { count: jest.Mock }
+  transaction: { count: jest.Mock }
+  auditLog: { create: jest.Mock; createMany: jest.Mock }
+}
+const { __tx: tx } = jest.requireMock<{ __tx: TxMock }>("@/lib/prisma")
 const mockDelete = tx.family.delete
 const mockTxAudit = tx.auditLog.create
 const mockTxAuditMany = tx.auditLog.createMany
 const mockQueryRaw = prisma.$queryRaw as jest.Mock
 // archivedAt returned by deleteFamily's locked re-read of the family row.
 let lockedArchivedAt: Date | null = null
-function familyArchivedAt(at: Date | null) {
+const familyArchivedAt = (at: Date | null) => {
   mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: at })
   lockedArchivedAt = at
 }
-const mockFindUnique = prisma.family.findUnique as jest.Mock
 const mockAudit = prisma.auditLog.create as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
-const mockTxCount = prisma.transaction.count as jest.Mock
+const mockTxCount = tx.transaction.count
 const mockPersonUpdateMany = prisma.person.updateMany as jest.Mock
-const mockPersonCount = prisma.person.count as jest.Mock
+const mockPersonCount = tx.person.count
 const mockBatch = prisma.$transaction as jest.Mock
 
 function makeFormData(fields: Record<string, string>) {

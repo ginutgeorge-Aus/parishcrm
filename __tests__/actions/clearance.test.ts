@@ -33,7 +33,6 @@ jest.mock("@/lib/crypto", () => ({
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import * as prismaModule from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { logAuditTx } from "@/lib/audit"
 import {
@@ -47,7 +46,7 @@ const mockAuth = auth as jest.Mock
 const personFind = prisma.person.findUnique as jest.Mock
 const find = prisma.personClearance.findUnique as jest.Mock
 type TxMock = { $queryRaw: jest.Mock; personClearance: Record<"create" | "update" | "updateMany" | "deleteMany", jest.Mock> }
-const tx = (prismaModule as unknown as { __tx: TxMock }).__tx
+const { __tx: tx } = jest.requireMock<{ __tx: TxMock }>("@/lib/prisma")
 const create = tx.personClearance.create
 const update = tx.personClearance.update
 const updateMany = tx.personClearance.updateMany
