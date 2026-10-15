@@ -1,4 +1,5 @@
 // src/lib/__tests__/errorDigest.test.ts
+jest.mock("node:crypto", () => ({ ...jest.requireActual("node:crypto"), randomUUID: () => "tok" }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     errorLog: { groupBy: jest.fn(), findFirst: jest.fn(), deleteMany: jest.fn() },
@@ -85,7 +86,9 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
   const settingDeleteMany = prisma.appSetting.deleteMany as jest.Mock
   const MON = new Date("2026-07-06T00:00:00Z") // Mon 2026-07-06 10:00 AEST
   const KEY = "errorDigestLastWeek"
-  const lease = (week: string, at: Date) => `running:${week}:${at.getTime()}`
+  const lease = (week: string, at: Date) => `running:${week}:tok:${at.getTime()}`
+  /** Matches any value of this run's lease (the heartbeat restamps it). */
+  const mine = (week: string, at: Date) => ({ startsWith: lease(week, at).replace(/\d+$/, "") })
 
   // The lease is stamped with the run's `now`; pin the clock to it so the
   // heartbeat's expiry check (wall clock vs lease stamp) sees a fresh lease.
@@ -107,7 +110,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     await runErrorDigestOncePerWeek(MON)
     expect(updateMany).toHaveBeenNthCalledWith(1, { where: { key: KEY, value: "2026-06-29" }, data: { value: lease("2026-07-06", MON) } })
     expect(groupBy).toHaveBeenCalled()
-    expect(updateMany).toHaveBeenNthCalledWith(2, { where: { key: KEY, value: lease("2026-07-06", MON) }, data: { value: "2026-07-06" } })
+    expect(updateMany).toHaveBeenNthCalledWith(2, { where: { key: KEY, value: mine("2026-07-06", MON) }, data: { value: "2026-07-06" } })
   })
 
   it("creates the lease on first ever run", async () => {
@@ -171,7 +174,7 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     findUnique.mockResolvedValue({ key: KEY, value: "2026-06-29" })
     groupBy.mockRejectedValueOnce(new Error("db down"))
     await expect(runErrorDigestLocked(MON)).rejects.toThrow("db down")
-    expect(updateMany).toHaveBeenNthCalledWith(2, { where: { key: KEY, value: lease("2026-07-06", MON) }, data: { value: "2026-06-29" } })
+    expect(updateMany).toHaveBeenNthCalledWith(2, { where: { key: KEY, value: mine("2026-07-06", MON) }, data: { value: "2026-06-29" } })
   })
 
   it("rethrows the original error even if releasing the lease also fails (the lease then goes stale)", async () => {
@@ -206,6 +209,6 @@ describe("digest lock (runErrorDigestLocked / runErrorDigestOncePerWeek)", () =>
     findUnique.mockResolvedValue(null)
     groupBy.mockRejectedValueOnce(new Error("db down"))
     await expect(runErrorDigestLocked(MON)).rejects.toThrow("db down")
-    expect(settingDeleteMany).toHaveBeenCalledWith({ where: { key: KEY, value: lease("2026-07-06", MON) } })
+    expect(settingDeleteMany).toHaveBeenCalledWith({ where: { key: KEY, value: mine("2026-07-06", MON) } })
   })
 })

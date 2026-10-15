@@ -76,6 +76,7 @@ export default async function EditEventPage(props: Readonly<Props>) {
             <a
               href={`/e/${event.slug}`}
               target="_blank"
+              rel="noopener noreferrer"
               className="text-primary underline"
             >
               /e/{event.slug}

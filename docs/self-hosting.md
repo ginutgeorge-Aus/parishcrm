@@ -159,6 +159,17 @@ Sign in as the admin you created, then:
   group (**Manage Groups**) and a category, and a payment account under
   **Acct. Settings → Payment Accounts**, before recording the first transaction
 
+### Passkeys
+
+Users can add passkeys on **My Account** and sign in with fingerprint, face or
+device PIN. They need `AUTH_URL` to be `https://` on a domain name, not an IP
+address (or `http://localhost` for development); otherwise adding one is disabled and passkey sign-in reports
+"not available".
+A passkey is bound to the `AUTH_URL` hostname: **changing the domain invalidates
+every registered passkey**. Users then sign in with password + code and add new
+ones. An admin can remove a user's passkeys (and trusted devices) with **Revoke
+passkeys** on **Users**. Password reset also removes them.
+
 ## Scheduled jobs
 
 Event reminders, abandoned-checkout cleanup, celebration emails and the optional

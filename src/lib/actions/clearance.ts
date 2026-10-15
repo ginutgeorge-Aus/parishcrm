@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canManageClearances } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { encrypt, encryptBytes, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { CUID_ID_RE, isP2002, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
@@ -165,6 +165,8 @@ export async function upsertClearance(
             createdById: actor,
           },
         })
+        // Same transaction: a failed audit write rolls the create back.
+        await logAuditTx(tx, actor, "CLEARANCE_ADDED", "Person", personId, { type, documentReplaced: upload !== null })
         return true
       })
       if (!created) return { error: "Not found" }
@@ -172,7 +174,6 @@ export async function upsertClearance(
       if (isP2002(e)) return { error: "This clearance was just added by someone else. Refresh and try again." }
       throw e
     }
-    await logAudit(actor, "CLEARANCE_ADDED", "Person", personId, { type, documentReplaced: upload !== null })
     revalidatePath(`/people/${personId}`)
     return
   }
@@ -191,23 +192,27 @@ export async function upsertClearance(
 
   // The seen timestamp is part of the write predicate, so an edit or verify
   // committed between the read above and this write still makes it stale.
-  const result = await prisma.personClearance.updateMany({
-    where: { id: existing.id, updatedAt: seenAt as Date, ...LIVE_PERSON },
-    data: {
-      number: number ? encrypt(number) : null,
-      expiresAt,
-      ...docData,
-      verifiedAt: null,
-      verifiedById: null,
-      verificationNote: null,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.personClearance.updateMany({
+      where: { id: existing.id, updatedAt: seenAt as Date, ...LIVE_PERSON },
+      data: {
+        number: number ? encrypt(number) : null,
+        expiresAt,
+        ...docData,
+        verifiedAt: null,
+        verifiedById: null,
+        verificationNote: null,
+      },
+    })
+    if (result.count === 0) return false
+    await logAuditTx(tx, actor, "CLEARANCE_UPDATED", "Person", personId, {
+      type,
+      documentReplaced: upload !== null,
+      verificationCleared: existing.verifiedAt !== null,
+    })
+    return true
   })
-  if (result.count === 0) return { error: STALE_ERROR }
-  await logAudit(actor, "CLEARANCE_UPDATED", "Person", personId, {
-    type,
-    documentReplaced: upload !== null,
-    verificationCleared: existing.verifiedAt !== null,
-  })
+  if (!updated) return { error: STALE_ERROR }
   revalidatePath(`/people/${personId}`)
 }
 
@@ -240,21 +245,24 @@ export async function verifyClearance(
   if (!row) return { error: "Not found" }
 
   const actor = actorId(session)
-  const result = await prisma.personClearance.updateMany({
-    where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
-    data: {
-      verifiedAt: new Date(),
-      verifiedById: actor,
-      verificationNote: trimmed ? encrypt(trimmed) : null,
-    },
+  const verified = await prisma.$transaction(async (tx) => {
+    const result = await tx.personClearance.updateMany({
+      where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
+      data: {
+        verifiedAt: new Date(),
+        verifiedById: actor,
+        verificationNote: trimmed ? encrypt(trimmed) : null,
+      },
+    })
+    if (result.count === 0) return false
+    await logAuditTx(tx, actor, "CLEARANCE_VERIFIED", "Person", row.personId, {
+      type: row.type,
+      clearanceId: row.id,
+      hasNote: trimmed.length > 0,
+    })
+    return true
   })
-  if (result.count === 0) return { error: STALE_ERROR }
-
-  await logAudit(actor, "CLEARANCE_VERIFIED", "Person", row.personId, {
-    type: row.type,
-    clearanceId: row.id,
-    hasNote: trimmed.length > 0,
-  })
+  if (!verified) return { error: STALE_ERROR }
   revalidatePath(`/people/${row.personId}`)
 }
 
@@ -276,15 +284,19 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
   const row = await loadClearance(clearanceId)
   if (!row) return { error: "Not found" }
 
-  const result = await prisma.personClearance.updateMany({
-    where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
-    data: { verifiedAt: null, verifiedById: null, verificationNote: null },
+  const unverified = await prisma.$transaction(async (tx) => {
+    const result = await tx.personClearance.updateMany({
+      where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON },
+      data: { verifiedAt: null, verifiedById: null, verificationNote: null },
+    })
+    if (result.count === 0) return false
+    await logAuditTx(tx, actorId(session), "CLEARANCE_UNVERIFIED", "Person", row.personId, {
+      type: row.type,
+      clearanceId: row.id,
+    })
+    return true
   })
-  if (result.count === 0) return { error: STALE_ERROR }
-  await logAudit(actorId(session), "CLEARANCE_UNVERIFIED", "Person", row.personId, {
-    type: row.type,
-    clearanceId: row.id,
-  })
+  if (!unverified) return { error: STALE_ERROR }
   revalidatePath(`/people/${row.personId}`)
 }
 
@@ -308,12 +320,16 @@ export async function deleteClearance(clearanceId: string, seenUpdatedAt: string
   const row = await loadClearance(clearanceId)
   if (!row) return { error: "Not found" }
 
-  const result = await prisma.personClearance.deleteMany({ where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON } })
-  if (result.count === 0) return { error: STALE_ERROR }
-  await logAudit(actorId(session), "CLEARANCE_REMOVED", "Person", row.personId, {
-    type: row.type,
-    clearanceId: row.id,
+  const removed = await prisma.$transaction(async (tx) => {
+    const result = await tx.personClearance.deleteMany({ where: { id: row.id, updatedAt: seenAt, ...LIVE_PERSON } })
+    if (result.count === 0) return false
+    await logAuditTx(tx, actorId(session), "CLEARANCE_REMOVED", "Person", row.personId, {
+      type: row.type,
+      clearanceId: row.id,
+    })
+    return true
   })
+  if (!removed) return { error: STALE_ERROR }
   revalidatePath(`/people/${row.personId}`)
 }
 
@@ -331,7 +347,7 @@ class StaleBatchError extends Error {}
  * conditioned on both and on `verifiedAt: null` inside a transaction, so it can
  * never vouch for a number/expiry or DOB edited since, nor overwrite another verification.
  * Verification time and actor are recorded; one CLEARANCE_VERIFIED audit entry
- * is written per clearance actually updated.
+ * is written per clearance actually updated, in the same transaction.
  * @param items PersonClearance.id + ISO clearance and person `updatedAt` as rendered (max 200)
  * @param note optional free text, max 500 chars, stored encrypted
  */
@@ -411,6 +427,17 @@ export async function verifyClearancesBulk(
         data: { verifiedAt: new Date(), verifiedById: actor, verificationNote: cleanNote ? encrypt(cleanNote) : null },
       })
       if (res.count !== unique.length) throw new StaleBatchError()
+      // One row per clearance, in the same transaction as the update.
+      await logAuditManyTx(
+        tx,
+        found.map((c) => ({
+          userId: actor,
+          action: "CLEARANCE_VERIFIED",
+          resourceType: "Person",
+          resourceId: c.personId,
+          metadata: { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" },
+        })),
+      )
       return res.count
     })
   } catch (e) {
@@ -420,12 +447,6 @@ export async function verifyClearancesBulk(
     if (isP2034(e)) return { error: STALE_ERROR }
     throw e
   }
-  // logAudit never throws (it logs and swallows), so concurrent writes cannot reject.
-  await Promise.all(
-    found.map((c) =>
-      logAudit(actor, "CLEARANCE_VERIFIED", "Person", c.personId, { clearanceId: c.id, type: c.type, bulk: true, hasNote: cleanNote !== "" }),
-    ),
-  )
   revalidatePath("/people/clearances")
   for (const personId of new Set(found.map((c) => c.personId))) revalidatePath(`/people/${personId}`)
   return { success: `Marked ${count} clearance(s) verified` }
