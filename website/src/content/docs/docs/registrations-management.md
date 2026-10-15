@@ -21,7 +21,10 @@ reminder, and reset controls. The page shows:
 - Headline stats — total registrations, paid count, cancelled count, revenue, and tickets sold
   per ticket type. These are computed from a full database rollup, not just the rows displayed,
   so they stay exact even for a very large event. Revenue is split into **Card** (paid online via
-  Stripe) and **Bank transfer** (everything else marked paid, including manual mark-paid).
+  Stripe) and **Bank transfer** (everything else marked paid, including manual mark-paid). The
+  card figure is the ticket total and excludes any card-fee surcharge, so it tracks what the church
+  receives rather than what Stripe charged the payer. The split appears only once an event has card
+  revenue.
 - Fill-rate, revenue-by-ticket-type, and registrations-over-time charts.
 - The registration table itself (decrypted name/email/phone/amount/status), capped at the most
   recent 2000 rows for display — a "newest N of M" note appears if an event has more than that.

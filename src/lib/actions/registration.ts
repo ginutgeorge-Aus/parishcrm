@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import { auth } from "@/auth"
+import { paymentMethodOf } from "@/lib/paymentMethod"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { canEdit, isAdmin, canViewPeople } from "@/lib/roleGuard"
@@ -187,12 +188,6 @@ export type RegistrationDetailDTO = {
   attendees: RegistrationAttendeeDTO[]
 }
 export type RegistrationDetailResult = { data: RegistrationDetailDTO } | { error: string }
-
-// Card registrations are created by the Stripe webhook with a PaymentIntent id in
-// paymentRef; bank-transfer / cash bookings have none. Mirrors RegistrationsTable.
-function paymentMethodOf(paymentRef: string | null): string {
-  return paymentRef ? "Card" : "Bank transfer"
-}
 
 // Event.customQuestions is Prisma Json — validate the shape at the boundary
 // and keep only the fields answer-labelling needs: id/label/type/scope/ticketTypeNames.

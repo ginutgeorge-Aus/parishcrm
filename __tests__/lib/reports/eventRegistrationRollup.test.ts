@@ -31,7 +31,7 @@ describe("getEventRegistrationRollup", () => {
     const rollup = await getEventRegistrationRollup(9)
 
     expect(mockAggregate).toHaveBeenCalledWith({
-      where: { eventId: 9, paymentStatus: "PAID", paymentRef: { not: null } },
+      where: { eventId: 9, paymentStatus: "PAID", paymentRef: { gt: "" } },
       _sum: { totalAmount: true },
     })
     expect(rollup).toEqual({ total: 6, paid: 3, cancelled: 1, revenue: 150.3, cardRevenue: 100.1, transferRevenue: 50.2 })
@@ -45,7 +45,7 @@ describe("getEventRegistrationRollup", () => {
     ])
     mockAggregate.mockResolvedValue({ _sum: { totalAmount: null } })
 
-    await expect(getEventRegistrationRollup(9)).rejects.toThrow("safe integer range")
+    await expect(getEventRegistrationRollup(9)).rejects.toThrow("not a safe integer")
   })
 
   it("returns zeros for an event with no registrations", async () => {
