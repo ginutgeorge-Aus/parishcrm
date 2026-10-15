@@ -9,6 +9,8 @@ test_patterns = [
 exclude_patterns = [
   "src/lib/generated/**",
   "src/components/ui/**",
+  # Implementation plans: historical snippets, not shipped code
+  "docs/superpowers/**",
 ]
 
 [[analyzers]]
@@ -18,9 +20,31 @@ name = "javascript"
   plugins = ["react"]
   environment = ["nodejs", "browser", "jest"]
   dialect = "typescript"
+  module_system = "es-modules"
+  # Flag only genuinely complex functions; "medium" fires on ordinary guard-heavy
+  # server actions (auth/role/demo/validation checks).
+  cyclomatic_complexity_threshold = "high"
+  # The codebase documents the *why* inline, not via JSDoc on every function.
+  skip_doc_coverage = [
+    "function-declaration",
+    "function-expression",
+    "arrow-function-expression",
+    "class-declaration",
+    "class-expression",
+    "method-definition",
+  ]
 
 [[analyzers]]
 name = "docker"
 
 [[analyzers]]
 name = "secrets"
+
+[[analyzers]]
+name = "shell"
+
+[[analyzers]]
+name = "sql"
+
+  [analyzers.meta]
+  dialect = "postgres"
