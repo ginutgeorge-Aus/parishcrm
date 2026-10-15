@@ -9,8 +9,6 @@ test_patterns = [
 exclude_patterns = [
   "src/lib/generated/**",
   "src/components/ui/**",
-  "website/**",
-  "public/**",
 ]
 
 [[analyzers]]
