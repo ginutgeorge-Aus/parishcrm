@@ -3,6 +3,8 @@ import { Prisma } from "@/lib/generated/prisma/client"
 import { centsToNumber, toCents } from "@/lib/formatting"
 
 export type EventRegistrationRollup = {
+  /** All registrations, any status — same snapshot as the status counts. */
+  total: number
   paid: number
   cancelled: number
   /** Paid revenue in dollars, then split by payment method. */
@@ -42,6 +44,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
     throw new Error(`event ${eventId} revenue rollup exceeds safe integer range`)
   }
   return {
+    total: statusRollup.reduce((n, r) => n + r._count._all, 0),
     paid: row("PAID")?._count._all ?? 0,
     cancelled: row("CANCELLED")?._count._all ?? 0,
     revenue: centsToNumber(revenueCents),

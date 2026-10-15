@@ -63,7 +63,6 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
         orderBy: { createdAt: "desc" },
         take: EVENT_REGISTRATIONS_CAP,
       },
-      _count: { select: { registrations: true } },
     },
   })
   if (!event) notFound()
@@ -71,9 +70,8 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
   // Headline stats come from a DB rollup over ALL registrations, not the
   // capped list above — so total/paid/cancelled/revenue stay exact even when
   // the table is truncated, matching the admin twin.
-  const { paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } =
+  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } =
     await getEventRegistrationRollup(eventId)
-  const totalRegistrations = event._count.registrations
   const ticketsSold = event.ticketTypes.map((tt) => ({
     name: tt.name,
     count: tt.registrationItems.reduce((s, i) => s + i.quantity, 0),
