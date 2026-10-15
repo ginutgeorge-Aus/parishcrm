@@ -182,6 +182,7 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
   if (!isValidPgId(id)) return null
   const r = await prisma.invoice.findUnique({
     where: { id },
+    omit: { frozenPdf: true },
     include: { account: { select: { name: true } }, fund: { select: { name: true } }, payment: { select: { id: true } } },
   })
   if (!r) return null

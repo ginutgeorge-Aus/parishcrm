@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { encrypt } from "@/lib/crypto"
+import { encrypt, encryptBytes } from "@/lib/crypto"
 import { isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
@@ -83,7 +83,7 @@ export async function attachTransactionReceipt(
       filename: encrypt(sanitizeFilename(file.name)),
       contentType: sniffed,
       size: bytes.length,
-      data: Buffer.from(encrypt(bytes.toString("base64")), "utf8"),
+      data: encryptBytes(bytes),
       uploadedById: actorId(session),
     },
   })
