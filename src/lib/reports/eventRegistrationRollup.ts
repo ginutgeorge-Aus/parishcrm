@@ -32,6 +32,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
       _sum: { totalAmount: true },
     }),
   ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
+  /** The status rollup group for one payment status, if any registrations have it. */
   const row = (status: string) => statusRollup.find((r) => r.paymentStatus === status)
   // Sum in integer cents so card + transfer always equals revenue exactly.
   const revenueCents = toCents(row("PAID")?._sum.totalAmount)

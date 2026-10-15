@@ -28,13 +28,13 @@ describe("getEventRegistrationRollup", () => {
     ])
     mockAggregate.mockResolvedValue({ _sum: { totalAmount: dec("100.10") } })
 
-    const r = await getEventRegistrationRollup(9)
+    const rollup = await getEventRegistrationRollup(9)
 
     expect(mockAggregate).toHaveBeenCalledWith({
       where: { eventId: 9, paymentStatus: "PAID", paymentRef: { not: null } },
       _sum: { totalAmount: true },
     })
-    expect(r).toEqual({ paid: 3, cancelled: 1, revenue: 150.3, cardRevenue: 100.1, transferRevenue: 50.2 })
+    expect(rollup).toEqual({ paid: 3, cancelled: 1, revenue: 150.3, cardRevenue: 100.1, transferRevenue: 50.2 })
     // Both reads share one snapshot so card can never exceed total.
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Array), { isolationLevel: "RepeatableRead" })
   })
