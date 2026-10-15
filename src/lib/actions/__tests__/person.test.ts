@@ -3,7 +3,7 @@ import { createPerson, updatePerson, deletePerson } from "@/lib/actions/person"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 
 // Locks in the guards person.ts fixed by hand with no regression net: the
 // canEdit/isAdmin role gates, the family-scope IDOR checks, the
@@ -11,7 +11,11 @@ import { logAudit } from "@/lib/audit"
 //, and the pastoral-notes role strip.
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+  logAuditManyTx: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock("@/lib/sundaySchoolYearLock", () => ({ blockYearClosers: jest.fn(async () => {}), lockedYearRefs: jest.fn(async () => 0) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -46,17 +50,24 @@ function form(fields: Record<string, string | string[]>): FormData {
 }
 
 const VALID = { firstName: "John", lastName: "Smith", role: "HEAD", classification: "MEMBER" }
+const personDeleteTx = jest.fn()
+const tx = { ...prisma, person: { ...prisma.person, delete: personDeleteTx } }
 
 beforeEach(() => {
   jest.clearAllMocks()
   // deletePerson's linked-record guard — default to no linked
   // records so existing delete tests that don't care about the guard pass.
-  // Guard's count+delete run inside a Serializable $transaction, so
-  // run the callback against the same prisma mock (tx === prisma here).
+  // Guard's count+delete run inside a Serializable $transaction. The callback
+  // gets a distinct tx client that shares the read mocks but owns the delete;
+  // the global delete throws, so a delete outside the transaction fails loudly.
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.dgrReceipt.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
-  ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma))
+  ;(prisma.person.delete as jest.Mock).mockImplementation(() => {
+    throw new Error("delete outside the transaction")
+  })
+  personDeleteTx.mockResolvedValue({})
+  ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (t: unknown) => unknown) => Promise.resolve(cb(tx)))
 })
 
 describe("createPerson", () => {
@@ -203,7 +214,7 @@ describe("deletePerson", () => {
     ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 99 })
     const r = await deletePerson(3, 5)
     expect(r).toEqual({ error: "Person not found" })
-    expect(prisma.person.delete).not.toHaveBeenCalled()
+    expect(personDeleteTx).not.toHaveBeenCalled()
   })
 
   // Transaction.personId / PettyCashReceipt.personId / DgrReceipt.personId
@@ -215,7 +226,7 @@ describe("deletePerson", () => {
     ;(prisma.transaction.count as jest.Mock).mockResolvedValue(1)
     const r = await deletePerson(3, 5)
     expect(r).toMatchObject({ error: expect.stringContaining("Cannot delete") })
-    expect(prisma.person.delete).not.toHaveBeenCalled()
+    expect(personDeleteTx).not.toHaveBeenCalled()
   })
 
   it("surfaces the friendly error when the Serializable tx aborts on a concurrent write (P2034)", async () => {
@@ -224,15 +235,47 @@ describe("deletePerson", () => {
     ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2034" })
     const r = await deletePerson(3, 5)
     expect(r).toMatchObject({ error: expect.stringContaining("Cannot delete") })
-    expect(prisma.person.delete).not.toHaveBeenCalled()
+    expect(personDeleteTx).not.toHaveBeenCalled()
   })
 
   it("allows deletion when no linked records exist", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
-    ;(prisma.person.delete as jest.Mock).mockResolvedValue({})
     await expect(deletePerson(3, 5)).rejects.toThrow("NEXT_REDIRECT")
-    expect(prisma.person.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+    expect(personDeleteTx).toHaveBeenCalledWith({ where: { id: 3 } })
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "PERSON_DELETED", "Person", 3, { familyId: 5 })
+  })
+
+  it("audits each cascaded clearance as CLEARANCE_REMOVED inside the delete transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([{ id: "ckclr1", type: "WWCC" }])
+    await expect(deletePerson(3, 5)).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAuditManyTx).toHaveBeenCalledWith(tx, [
+      {
+        userId: 1,
+        action: "CLEARANCE_REMOVED",
+        resourceType: "Person",
+        resourceId: 3,
+        metadata: { type: "WWCC", clearanceId: "ckclr1", cascade: true },
+      },
+    ])
+  })
+
+  it.each([
+    ["PERSON_DELETED", logAuditTx],
+    ["cascaded CLEARANCE_REMOVED", logAuditManyTx],
+  ])("a failed %s audit write rejects the delete transaction (rolled back, no redirect)", async (_n, failing) => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([{ id: "ckclr1", type: "WWCC" }])
+    const auditDown = new Error("audit table unavailable")
+    ;(failing as jest.Mock).mockRejectedValueOnce(auditDown)
+    await expect(deletePerson(3, 5)).rejects.toBe(auditDown)
+    expect(personDeleteTx).toHaveBeenCalledWith({ where: { id: 3 } })
+    const tx = prisma.$transaction as jest.Mock
+    await expect(tx.mock.results[tx.mock.results.length - 1].value).rejects.toBe(auditDown)
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })
 
