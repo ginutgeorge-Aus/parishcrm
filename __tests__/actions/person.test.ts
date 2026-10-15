@@ -25,6 +25,7 @@ jest.mock("@/lib/prisma", () => ({
     },
     auditLog: {
       create: jest.fn(),
+      createMany: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -809,20 +810,21 @@ describe("deletePerson", () => {
     await deletePerson(7, 3)
 
     expect(mockClearanceFindMany).toHaveBeenCalledWith({ where: { personId: 7 }, select: { id: true, type: true } })
-    expect(mockAudit).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 3,
-        action: "CLEARANCE_REMOVED",
-        resourceType: "Person",
-        resourceId: 7,
-        metadata: { type: "WWCC", clearanceId: "ckc1", cascade: true },
-      }),
-    })
-    expect(mockAudit).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: "CLEARANCE_REMOVED",
-        metadata: { type: "SAFE_MINISTRY", clearanceId: "ckc2", cascade: true },
-      }),
+    // One batched insert for the cascaded clearances.
+    expect(prisma.auditLog.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userId: 3,
+          action: "CLEARANCE_REMOVED",
+          resourceType: "Person",
+          resourceId: 7,
+          metadata: { type: "WWCC", clearanceId: "ckc1", cascade: true },
+        }),
+        expect.objectContaining({
+          action: "CLEARANCE_REMOVED",
+          metadata: { type: "SAFE_MINISTRY", clearanceId: "ckc2", cascade: true },
+        }),
+      ],
     })
   })
 
@@ -835,6 +837,7 @@ describe("deletePerson", () => {
     await deletePerson(7, 3)
 
     expect(mockAudit).not.toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLEARANCE_REMOVED" }) })
+    expect(prisma.auditLog.createMany).not.toHaveBeenCalled()
   })
 
   it("audit-logs PERSON_DELETED", async () => {

@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
@@ -229,7 +229,7 @@ export async function updatePerson(
 /**
  * Permanently delete a person (ADMIN only) unless giving/receipt records link
  * to them. Clearances cascade with the person, so each is audited as
- * CLEARANCE_REMOVED (cascade) after the delete commits.
+ * CLEARANCE_REMOVED (cascade) in the same transaction as the delete.
  * @param id Person.id
  * @param familyId expected family (IDOR guard)
  */
@@ -260,9 +260,9 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0
   let lockedSsCount = 0
-  // PersonClearance cascades on person delete; capture ids/types first so the
-  // removal can be audited (no decrypted values).
-  let removedClearances: { id: string; type: string }[] = []
+  // PersonClearance cascades on person delete; its ids/types are captured
+  // inside the transaction so the removal can be audited (no decrypted values).
+  const actor = actorId(session)
   try {
     linkedCount = await prisma.$transaction(
       async (tx) => {
@@ -279,11 +279,23 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         // locked Sunday School year.
         lockedSsCount = await lockedYearRefs(tx, id)
         if (lockedSsCount > 0) return 0
-        removedClearances = await tx.personClearance.findMany({
+        const removedClearances = await tx.personClearance.findMany({
           where: { personId: id },
           select: { id: true, type: true },
         })
         await tx.person.delete({ where: { id } })
+        // Same transaction: a failed audit write rolls the delete back.
+        await logAuditTx(tx, actor, "PERSON_DELETED", "Person", id, { familyId })
+        await logAuditManyTx(
+          tx,
+          removedClearances.map((c) => ({
+            userId: actor,
+            action: "CLEARANCE_REMOVED",
+            resourceType: "Person",
+            resourceId: id,
+            metadata: { type: c.type, clearanceId: c.id, cascade: true },
+          })),
+        )
         return 0
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
@@ -298,14 +310,6 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
   if (lockedSsCount > 0) return { error: lockedSsMsg(lockedSsCount) }
 
-  await logAudit(actorId(session), "PERSON_DELETED", "Person", id, { familyId })
-  for (const c of removedClearances) {
-    await logAudit(actorId(session), "CLEARANCE_REMOVED", "Person", id, {
-      type: c.type,
-      clearanceId: c.id,
-      cascade: true,
-    })
-  }
   revalidatePath(`/families/${familyId}`)
   redirect(`/families/${familyId}`)
 }

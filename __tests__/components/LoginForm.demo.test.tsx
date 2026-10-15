@@ -3,6 +3,8 @@ import { LoginForm } from "@/components/auth/LoginForm"
 import { signIn } from "next-auth/react"
 
 jest.mock("next-auth/react", () => ({ signIn: jest.fn() }))
+jest.mock("@/lib/actions/passkey", () => ({ startPasskeyLogin: jest.fn() }))
+jest.mock("@simplewebauthn/browser", () => ({ browserSupportsWebAuthn: jest.fn(() => false), startAuthentication: jest.fn() }))
 jest.mock("@/lib/actions/trustedDevice", () => ({ trustDevice: jest.fn() }))
 const mockPush = jest.fn()
 jest.mock("next/navigation", () => ({
