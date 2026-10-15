@@ -25,6 +25,11 @@ function zeroTone(v: number): string {
   return v === 0 ? "text-muted-foreground" : ""
 }
 
+/** Mobile month-card figure: full currency format, en dash for an empty month. */
+function fmtCard(v: number): string {
+  return v === 0 ? "–" : fmt(v)
+}
+
 /** Per-report lookups shared by both sections of the monthly table. */
 type MonthlyCtx = {
   acctMonthlyMap: Map<number, number[]>
@@ -223,18 +228,18 @@ export function PLMonthlyTable({
             <div className="grid grid-cols-2 gap-y-1 px-3 py-2 text-sm">
               <div>
                 <span className="text-muted-foreground">Income</span>
-                <div className="text-right tabular">{fmt(incomeMonthly[i])}</div>
+                <div className={`text-right tabular ${zeroTone(incomeMonthly[i])}`}>{fmtCard(incomeMonthly[i])}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Expenses</span>
-                <div className="text-right tabular">{fmt(expenseMonthly[i])}</div>
+                <div className={`text-right tabular ${zeroTone(expenseMonthly[i])}`}>{fmtCard(expenseMonthly[i])}</div>
               </div>
               <div className="col-span-2">
                 <span className="text-muted-foreground">Net</span>
                 <div
-                  className={`text-right tabular font-medium ${netMonthly[i] >= 0 ? "text-income" : "text-expense"}`}
+                  className={`text-right tabular font-medium ${netTone(netMonthly[i])}`}
                 >
-                  {fmt(netMonthly[i])}
+                  {fmtCard(netMonthly[i])}
                 </div>
               </div>
             </div>
@@ -256,7 +261,7 @@ export function PLMonthlyTable({
             <div className="col-span-2">
               <span className="text-muted-foreground">Net</span>
               <div
-                className={`text-right tabular font-medium ${net >= 0 ? "text-income" : "text-expense"}`}
+                className={`text-right tabular font-medium ${netTone(net)}`}
               >
                 {fmt(net)}
               </div>

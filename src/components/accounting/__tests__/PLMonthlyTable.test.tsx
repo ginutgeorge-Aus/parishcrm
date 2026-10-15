@@ -78,6 +78,15 @@ describe("PLMonthlyTable grid formatting", () => {
     expect(grid.getByText(/no transactions this financial year are hidden/)).toBeInTheDocument()
   })
 
+  it("shows dashes and a muted net on an empty mobile month card", () => {
+    renderTable(zeros())
+    const card = screen.getByText("JUL", { selector: "div" }).parentElement!
+    expect(within(card).getAllByText("–")).toHaveLength(3)
+    const net = within(card).getByText("Net").nextElementSibling!
+    expect(net).toHaveClass("text-muted-foreground")
+    expect(net).not.toHaveClass("text-income")
+  })
+
   it("skips the subtotal row for a single-account group", () => {
     renderTable(zeros())
     expect(screen.queryByText("Giving subtotal")).toBeNull()
