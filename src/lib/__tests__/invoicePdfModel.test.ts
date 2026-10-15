@@ -192,6 +192,12 @@ describe("frozen PDF", () => {
     await loadInvoicePdf(11)
     expect(logger.error).toHaveBeenCalledWith("invoice frozenPdf store failed", { invoiceId: 11, message: "unknown" })
   })
+  it("malformed non-null issuer: renders live, logs, and never freezes an unservable blob", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, issuer: { name: 5 }, frozenPdf: null })
+    expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")
+    expect(logger.error).toHaveBeenCalledWith("invoice issuer snapshot malformed, not freezing", { invoiceId: 11 })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
   it("undecryptable stored blob: logs the id, renders live, never overwrites the blob", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...sent, frozenPdf: Buffer.from("garbage") })
     expect((await loadInvoicePdf(11))?.pdf.toString()).toBe("%PDF")

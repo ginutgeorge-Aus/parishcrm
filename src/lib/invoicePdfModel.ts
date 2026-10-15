@@ -173,7 +173,11 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
     notes: r.notes ? safeDecrypt(r.notes) : "",
   }, church, settings)
   const pdf = await renderInvoicePdf(model)
-  if (sent && !r.frozenPdf && stored !== "unreadable") await storeFrozenPdf(id, pdf, frozen ? null : issuer)
+  // A non-null issuer that fails to parse is never overwritten, so freezing would store a blob
+  // readFrozenPdf can never serve (it needs the snapshot) — skip it and keep rendering live.
+  const malformedIssuer = sent && r.issuer !== null && !frozen
+  if (malformedIssuer) logger.error("invoice issuer snapshot malformed, not freezing", { invoiceId: id })
+  if (sent && !r.frozenPdf && stored !== "unreadable" && !malformedIssuer) await storeFrozenPdf(id, pdf, frozen ? null : issuer)
   return {
     pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,
