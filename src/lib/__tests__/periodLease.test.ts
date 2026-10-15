@@ -29,6 +29,30 @@ function opts(logError = jest.fn()) {
   return { settingKey: "k", periodKey: "2026-10", leaseMs: LEASE_MS, now: new Date(START), logError }
 }
 
+type UpdateArgs = { where: { key: string; value: string | { startsWith: string } }; data: { value: string } }
+
+/**
+ * Backs the appSetting mocks with one stored row, so an update applies only
+ * when its predicate matches the stored value.
+ */
+function leaseStore() {
+  let row: { key: string; value: string } | null = null
+  /** Applies `a` if its predicate matches the stored row; returns the count. */
+  function apply(a: UpdateArgs) {
+    const want = a.where.value
+    const hit = row !== null && (typeof want === "string" ? row.value === want : row.value.startsWith(want.startsWith))
+    if (hit) row = { key: a.where.key, value: a.data.value }
+    return { count: hit ? 1 : 0 }
+  }
+  mockFindUnique.mockImplementation(async () => row && { ...row })
+  mockCreate.mockImplementation(async (a: { data: { key: string; value: string } }) => {
+    row = { ...a.data }
+    return row
+  })
+  mockUpdateMany.mockImplementation(async (a: UpdateArgs) => apply(a))
+  return { apply, value: () => row?.value }
+}
+
 /** A promise plus its resolver, to hold `fn` open while timers advance. */
 function deferred() {
   let resolve!: () => void
@@ -90,23 +114,35 @@ describe("runOncePerPeriodLocked lease heartbeat", () => {
     await run
   })
 
-  it("retries by prefix when a renewal and its readback both fail, whichever way the write went", async () => {
+  it.each([
+    ["committed", true],
+    ["did not commit", false],
+  ])("retries by prefix when a renewal that %s and its readback both fail", async (_, commits) => {
+    const store = leaseStore()
     const logError = jest.fn()
     const work = deferred()
     const run = runOncePerPeriodLocked(opts(logError), () => work.promise.then(() => "ok"))
-    mockUpdateMany.mockRejectedValueOnce(new Error("db down")) // may have committed
+    await jest.advanceTimersByTimeAsync(0) // acquire
+    const acquired = store.value()
+    expect(acquired).toBe(`${OWN}${START}`)
+    mockUpdateMany.mockImplementationOnce(async (a: UpdateArgs) => {
+      if (commits) store.apply(a) // the write lands, then the reply is lost
+      throw new Error("db down")
+    })
     mockFindUnique.mockRejectedValueOnce(new Error("db down")) // readback fails too: unknown
     await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
     expect(logError).toHaveBeenCalledWith(expect.stringContaining("db down"))
+    expect(store.value()).toBe(commits ? `${OWN}${START + LEASE_MS / 3}` : acquired)
     await jest.advanceTimersByTimeAsync(LEASE_MS / 3)
-    // Matches the acquired value or the maybe-committed one alike (#235).
+    // The prefix predicate matches the stored row either way (#235).
     expect(mockUpdateMany).toHaveBeenLastCalledWith({
       where: { key: "k", value: MINE },
       data: { value: `${OWN}${START + (2 * LEASE_MS) / 3}` },
     })
+    expect(store.value()).toBe(`${OWN}${START + (2 * LEASE_MS) / 3}`)
     work.resolve()
     await expect(run).resolves.toBe("ok")
-    expect(mockUpdateMany).toHaveBeenLastCalledWith({ where: { key: "k", value: MINE }, data: { value: "2026-10" } })
+    expect(store.value()).toBe("2026-10")
   })
 })
 
