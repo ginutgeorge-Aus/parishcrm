@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
 import { encryptFamilyFields } from "@/lib/familyFields"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
 
@@ -160,70 +160,91 @@ export async function updateFamily(
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
  * past the retention floor with no linked transactions or active members.
- * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED.
+ * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED,
+ * in the same transaction as the delete.
  * @param id Family.id
  */
 export async function deleteFamily(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
-  const target = await prisma.family.findUnique({ where: { id }, select: { id: true, archivedAt: true } })
+  const target = await prisma.family.findUnique({ where: { id }, select: { id: true } })
   if (!target) return { error: "Not found" }
 
-  // Transaction.familyId is SetNull on delete — deleting a family with giving
-  // history would silently orphan those rows and break annual statements.
-  // Block and steer to archive instead, mirroring deleteAccount.
-  const txCount = await prisma.transaction.count({ where: { familyId: id } })
-  if (txCount > 0) {
-    return { error: `Cannot delete — ${txCount} transaction(s) linked to this family. Archive it instead.` }
-  }
-
-  // Person.familyId is onDelete: Cascade — deleting a family with members would
-  // silently and permanently destroy every person record. Block and steer
-  // to archive, which soft-archives the family and its members together —
-  // EXCEPT once the family has sat archived past the 7-year ATO retention floor
-  //: the archived-families page then offers permanent deletion, and it
-  // must actually work rather than always failing on the members it archived
-  // alongside the family. Still block if any member is somehow not archived.
-  //
-  // The retention floor applies regardless of member count: a family still holds
-  // its own encrypted PII (address/suburb/state/postcode/homePhone/notes), so a
-  // zero-member family must also be archived and past the floor before hard
-  // delete. Previously this guard was nested under `memberCount > 0`, letting a
-  // same-day archive+delete of a memberless family destroy PII early.
-  const pastRetention = target.archivedAt !== null && target.archivedAt < retentionFloor()
-  const memberCount = await prisma.person.count({ where: { familyId: id } })
-  if (!pastRetention) {
-    if (memberCount > 0) {
-      return { error: `Cannot delete — ${memberCount} member(s) in this family. Archive it instead.` }
-    }
-    return { error: "Cannot delete — a family can only be permanently deleted 7 years after it was archived. Archive it instead." }
-  }
-  // Past the floor: still block if any member somehow remains active (the archive
-  // step should have archived them alongside the family).
-  const activeMemberCount = await prisma.person.count({ where: { familyId: id, archivedAt: null } })
-  if (activeMemberCount > 0) {
-    return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
-  }
-
-  // Clearances cascade with the members (family -> person -> clearance), so
-  // capture them first and audit each as CLEARANCE_REMOVED once the delete
-  // commits. Archived members can't gain clearances (upsertClearance 404s
-  // them), so nothing slips in between this read and the delete.
-  const removedClearances = await prisma.personClearance.findMany({
-    where: { person: { familyId: id } },
-    select: { id: true, type: true, personId: true },
-  })
-  await prisma.family.delete({ where: { id } })
   const actor = actorId(session)
-  await logAudit(actor, "FAMILY_DELETED", "Family", id)
-  for (const c of removedClearances) {
-    await logAudit(actor, "CLEARANCE_REMOVED", "Person", c.personId, {
-      type: c.type,
-      clearanceId: c.id,
-      cascade: true,
+  const blocked = await prisma.$transaction(async (tx): Promise<{ error: string } | null> => {
+    // Lock the family, then its members in id order (archiveFamily's order, so
+    // the two can't deadlock), before any check. Each racing write then either
+    // committed first — and the checks below see it — or waits until we
+    // commit: an unarchive (UPDATE Family/Person), a new linked transaction
+    // (its FK takes KEY SHARE on the family row), or a new clearance
+    // (upsertClearance takes FOR SHARE on the person row).
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    const locked = await tx.$queryRaw<{ archivedAt: Date | null }[]>`
+      SELECT "archivedAt" FROM "Family" WHERE id = ${id} FOR UPDATE`
+    if (locked.length === 0) return { error: "Not found" }
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`
+
+    // Transaction.familyId is SetNull on delete — deleting a family with giving
+    // history would silently orphan those rows and break annual statements.
+    // Block and steer to archive instead, mirroring deleteAccount.
+    const txCount = await tx.transaction.count({ where: { familyId: id } })
+    if (txCount > 0) {
+      return { error: `Cannot delete — ${txCount} transaction(s) linked to this family. Archive it instead.` }
+    }
+
+    // Person.familyId is onDelete: Cascade — deleting a family with members would
+    // silently and permanently destroy every person record. Block and steer
+    // to archive, which soft-archives the family and its members together —
+    // EXCEPT once the family has sat archived past the 7-year ATO retention floor
+    //: the archived-families page then offers permanent deletion, and it
+    // must actually work rather than always failing on the members it archived
+    // alongside the family. Still block if any member is somehow not archived.
+    //
+    // The retention floor applies regardless of member count: a family still holds
+    // its own encrypted PII (address/suburb/state/postcode/homePhone/notes), so a
+    // zero-member family must also be archived and past the floor before hard
+    // delete. Previously this guard was nested under `memberCount > 0`, letting a
+    // same-day archive+delete of a memberless family destroy PII early.
+    const archivedAt = locked[0].archivedAt
+    const pastRetention = archivedAt !== null && archivedAt < retentionFloor()
+    const memberCount = await tx.person.count({ where: { familyId: id } })
+    if (!pastRetention) {
+      if (memberCount > 0) {
+        return { error: `Cannot delete — ${memberCount} member(s) in this family. Archive it instead.` }
+      }
+      return { error: "Cannot delete — a family can only be permanently deleted 7 years after it was archived. Archive it instead." }
+    }
+    // Past the floor: still block if any member somehow remains active (the archive
+    // step should have archived them alongside the family).
+    const activeMemberCount = await tx.person.count({ where: { familyId: id, archivedAt: null } })
+    if (activeMemberCount > 0) {
+      return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
+    }
+
+    // Clearances cascade with the members (family -> person -> clearance), so
+    // capture them under the member locks and audit each as CLEARANCE_REMOVED
+    // in this transaction — a failed audit write rolls the delete back.
+    const removedClearances = await tx.personClearance.findMany({
+      where: { person: { familyId: id } },
+      select: { id: true, type: true, personId: true },
     })
-  }
+    await tx.family.delete({ where: { id } })
+    await logAuditTx(tx, actor, "FAMILY_DELETED", "Family", id)
+    await logAuditManyTx(
+      tx,
+      removedClearances.map((c) => ({
+        userId: actor,
+        action: "CLEARANCE_REMOVED",
+        resourceType: "Person",
+        resourceId: c.personId,
+        metadata: { type: c.type, clearanceId: c.id, cascade: true },
+      })),
+    )
+    return null
+  })
+  if (blocked) return blocked
   revalidatePath("/families")
   redirect("/families")
 }
