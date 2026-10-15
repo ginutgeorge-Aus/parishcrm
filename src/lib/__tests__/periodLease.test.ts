@@ -40,12 +40,16 @@ function leaseStore() {
   /** Applies `a` if its predicate matches the stored row; returns the count. */
   function apply(a: UpdateArgs) {
     const want = a.where.value
-    const hit = row !== null && (typeof want === "string" ? row.value === want : row.value.startsWith(want.startsWith))
+    const hit =
+      row?.key === a.where.key && (typeof want === "string" ? row.value === want : row.value.startsWith(want.startsWith))
     if (hit) row = { key: a.where.key, value: a.data.value }
     return { count: hit ? 1 : 0 }
   }
-  mockFindUnique.mockImplementation(async () => row && { ...row })
+  mockFindUnique.mockImplementation(async (a: { where: { key: string } }) =>
+    row?.key === a.where.key ? { ...row } : null
+  )
   mockCreate.mockImplementation(async (a: { data: { key: string; value: string } }) => {
+    if (row?.key === a.data.key) throw Object.assign(new Error("Unique constraint"), { code: "P2002" })
     row = { ...a.data }
     return row
   })
