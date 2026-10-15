@@ -8,10 +8,8 @@ event ticketing, petty cash, membership, and receipts, in one app your church ru
 [![codecov](https://codecov.io/gh/ginutgeorge-Aus/parishcrm/graph/badge.svg)](https://codecov.io/gh/ginutgeorge-Aus/parishcrm)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ginutgeorge-Aus/parishcrm/badge)](https://scorecard.dev/viewer/?uri=github.com/ginutgeorge-Aus/parishcrm)
 
-<p>
-  <a href="https://parishcrm-demo.onrender.com"><img alt="Try the live demo" src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-2ea44f?style=for-the-badge"></a>
-  <a href="https://ginutgeorge-aus.github.io/parishcrm/"><img alt="Read the docs" src="https://img.shields.io/badge/Read%20the%20docs-0969da?style=for-the-badge"></a>
-</p>
+[![Try the live demo](https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-2ea44f?style=for-the-badge)](https://parishcrm-demo.onrender.com)
+[![Read the docs](https://img.shields.io/badge/Read%20the%20docs-0969da?style=for-the-badge)](https://ginutgeorge-aus.github.io/parishcrm/docs/)
 
 🌐 **[Website & documentation](https://ginutgeorge-aus.github.io/parishcrm/)** — every feature in detail: how to use it, how it works, and how to configure it.
 
