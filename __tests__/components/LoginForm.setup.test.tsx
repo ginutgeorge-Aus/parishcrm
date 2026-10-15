@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react"
 import { LoginForm } from "@/components/auth/LoginForm"
 
 jest.mock("next-auth/react", () => ({ signIn: jest.fn() }))
+jest.mock("@/lib/actions/passkey", () => ({ startPasskeyLogin: jest.fn() }))
+jest.mock("@simplewebauthn/browser", () => ({ browserSupportsWebAuthn: jest.fn(() => false), startAuthentication: jest.fn() }))
 jest.mock("@/lib/actions/trustedDevice", () => ({ trustDevice: jest.fn() }))
 
 let params: Record<string, string> = {}
