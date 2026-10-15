@@ -80,9 +80,16 @@ describe("PLMonthlyTable grid formatting", () => {
 
   it("shows dashes and a muted net on an empty mobile month card", () => {
     renderTable(zeros())
-    const card = screen.getByText("JUL", { selector: "div" }).parentElement!
+    const card = screen.getByText("JUL", { selector: "div" }).parentElement
+    if (!card) {
+      throw new Error("Expected card parent element to be present")
+    }
     expect(within(card).getAllByText("–")).toHaveLength(3)
-    const net = within(card).getByText("Net").nextElementSibling!
+    const netElement = within(card).getByText("Net").nextElementSibling
+    if (!netElement) {
+      throw new Error("Expected Net sibling element to be present")
+    }
+    const net = netElement
     expect(net).toHaveClass("text-muted-foreground")
     expect(net).not.toHaveClass("text-income")
   })

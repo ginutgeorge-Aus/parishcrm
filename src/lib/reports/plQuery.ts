@@ -49,7 +49,13 @@ export function resolvePLYear(rawYear: string | undefined): number {
   return parsed >= MIN_FY_YEAR && parsed <= MAX_FY_YEAR ? parsed : fyNow
 }
 
-function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
+/**
+ * Calculates the total value for a given account from the provided total map.
+ * @param a - The account row containing the account ID.
+ * @param totalMap - A map associating account IDs with their total values.
+ * @returns The total value for the account, or 0 if not found in the map.
+ */
+const accountTotal = (a: PLAccountRow, totalMap: Map<number, number>): number => {
   return totalMap.get(a.id) ?? 0
 }
 
@@ -131,6 +137,11 @@ export async function getPLReportData(year: number, isMonthly: boolean): Promise
   const totalExpenses = expenseAccounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
   const net = totalIncome - totalExpenses
 
+  /**
+   * Sums the monthly values for the provided accounts.
+   * @param accs - The accounts whose monthly values will be summed.
+   * @returns An array of 12 numbers representing the summed monthly values.
+   */
   const sumAccounts = (accs: PLAccountRow[]): number[] =>
     accs.reduce(
       (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id)?.[i] ?? 0)),

@@ -19,17 +19,20 @@ const gridNumber = new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2,
  */
 export function fmtGrid(cents: number): string {
   if (cents === 0) return "–"
-  const s = gridNumber.format(Math.abs(centsToNumber(cents)))
-  return cents < 0 ? `(${s})` : s
+  const formattedGridValue = gridNumber.format(Math.abs(centsToNumber(cents)))
+  return cents < 0 ? `(${formattedGridValue})` : formattedGridValue
 }
 
+/**
+ * Calculates the total amount for a given account row based on a map of totals.
+ *
+ * @param a The account row containing the account ID.
+ * @param totalMap A map where the key is the account ID and the value is the total amount.
+ * @returns The total amount for the given account ID, or 0 if not found.
+ */
 export function accountTotal(a: PLAccountRow, totalMap: Map<number, number>): number {
   return totalMap.get(a.id) ?? 0
 }
-
-/** UTC `YYYY-MM-DD` for `Date.UTC(year, month, day)` — month/day may overflow. */
-function isoDay(year: number, month: number, day: number): string {
-  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10)
 }
 
 /**

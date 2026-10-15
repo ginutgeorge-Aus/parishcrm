@@ -15,18 +15,18 @@ const MONTHLY_COLS = 1 + MONTH_LABELS.length + 1
 const STICKY = "sticky left-0 z-10"
 
 /** Net row colour: surplus green, deficit red, zero muted. */
-function netTone(v: number): string {
+const netTone = (v: number): string => {
   if (v === 0) return "text-muted-foreground"
   return v > 0 ? "text-income" : "text-expense"
 }
 
 /** Muted en dash for zero cells, so the eye lands on real figures. */
-function zeroTone(v: number): string {
+const zeroTone = (v: number): string => {
   return v === 0 ? "text-muted-foreground" : ""
 }
 
 /** Mobile month-card figure: full currency format, en dash for an empty month. */
-function fmtCard(v: number): string {
+const fmtCard = (v: number): string => {
   return v === 0 ? "–" : fmt(v)
 }
 
@@ -43,14 +43,14 @@ type MonthlyCtx = {
  * A group's subtotal row is skipped when it has a single account — it would
  * only repeat that account's row.
  */
-function renderMonthlyGroups(
+const renderMonthlyGroups = (
   groups: AccountGroup<PLAccountRow>[],
   sectionMonthly: number[],
   sectionTotal: number,
   totalLabel: string,
   keyPrefix: string,
   { acctMonthlyMap, acctMonthlyCountMap, totalMap, year }: MonthlyCtx,
-): React.ReactNode {
+): React.ReactNode => {
   return (
     <>
       {groups.map((group) => {
@@ -100,7 +100,7 @@ function renderMonthlyGroups(
                   {group.groupName} subtotal
                 </td>
                 {groupMonthly.map((v, i) => (
-                  <td key={i} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
+                  <td key={`${v}-${i}`} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
                     {fmtGrid(v)}
                   </td>
                 ))}
