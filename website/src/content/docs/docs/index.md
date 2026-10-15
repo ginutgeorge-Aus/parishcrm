@@ -16,6 +16,7 @@ shadcn/ui. Licensed under [AGPL-3.0](https://github.com/ginutgeorge-Aus/parishcr
 
 ## Getting started
 
+- [Live demo](https://parishcrm-demo.onrender.com) — try every role with sample data; resets nightly, first load can take a minute
 - [Installation](/parishcrm/docs/installation/) — Docker image, PostgreSQL, migrations, seeding, first login
 - [Environment Variables](/parishcrm/docs/environment-variables/) — full `.env` reference, grouped
 - [Upgrading](/parishcrm/docs/upgrading/) — safely moving to a new release
