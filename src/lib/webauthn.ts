@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 export type RelyingParty = { rpID: string; origin: string }
 export type ChallengePurpose = "register" | "login"
 
-export const PASSKEY_CHALLENGE_TTL_MS = 5 * 60_000
+const PASSKEY_CHALLENGE_TTL_MS = 5 * 60_000
 export const MAX_PASSKEYS_PER_USER = 10
 
 // The RP ID is the domain a passkey is bound to. Derive it from AUTH_URL so it is

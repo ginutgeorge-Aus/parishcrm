@@ -1,5 +1,7 @@
 # Passkey (WebAuthn) Sign-in Implementation Plan
 
+> **Superseded in places by review fixes on PR #286.** The shipped code uses a separate `passkey` Credentials provider (`authorizePasskey`, client `signIn("passkey", …)`) instead of `mode: "passkey"`. It rejects IP hosts as the RP ID (only `https://` or `http://localhost`), checks the account lock only after the signature verifies, and wipes passkeys and trusted devices on password reset, admin password change, TOTP reset and admin revoke. The code is the source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let users register passkeys on `/account` and sign in with one, so a single passkey ceremony replaces the password and the second-factor steps.

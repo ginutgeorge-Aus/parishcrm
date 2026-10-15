@@ -80,6 +80,7 @@ test("shows a start error (e.g. wrong password) without opening the browser prom
   render(<PasskeySettings status={{ available: true, limit: 10, passkeys: [] }} />)
   await addPasskey()
   expect(screen.getByRole("alert")).toHaveTextContent("Incorrect password")
+  expect(screen.getByLabelText("Current password")).toHaveAttribute("aria-invalid", "true")
   expect(mockBrowserReg).not.toHaveBeenCalled()
 })
 
@@ -89,6 +90,8 @@ test("reports a cancelled browser prompt", async () => {
   render(<PasskeySettings status={{ available: true, limit: 10, passkeys: [] }} />)
   await addPasskey()
   expect(screen.getByRole("alert")).toHaveTextContent("Passkey setup was cancelled.")
+  // Not a password problem — don't mark the password field invalid.
+  expect(screen.getByLabelText("Current password")).not.toHaveAttribute("aria-invalid")
   expect(mockFinish).not.toHaveBeenCalled()
 })
 

@@ -316,18 +316,22 @@ export async function updateUser(
   // findFirst check above is itself check-then-act.
   try {
     await prisma.$transaction(
-      (tx) => applyUserUpdate(tx, id, parsed.data.role, data),
+      async (tx) => {
+        await applyUserUpdate(tx, id, parsed.data.role, data)
+        if (parsed.data.password) {
+          // Trusted devices skip OTP and passkeys bypass the password entirely, so
+          // a forced password change drops both — in the same transaction, so a
+          // failed delete can't leave them alive behind a committed new password.
+          await tx.trustedDevice.deleteMany({ where: { userId: id } })
+          await tx.passkey.deleteMany({ where: { userId: id } })
+        }
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
   } catch (e) {
     const message = updateUserErrorMessage(e)
     if (message) return { error: message }
     throw e
-  }
-  if (parsed.data.password) {
-    // Passkeys bypass the password, so a forced password change must drop them too.
-    await prisma.trustedDevice.deleteMany({ where: { userId: id } })
-    await prisma.passkey.deleteMany({ where: { userId: id } })
   }
   const userId = actorId(session)
   await logAudit(userId, "USER_UPDATED", "User", id, {
@@ -421,6 +425,8 @@ export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
     await prisma.$transaction([
       prisma.user.update({ where: { id, ...assignableTargetWhere(session?.user?.role) }, data: { sessionsValidFrom: new Date() } }),
       prisma.passkey.deleteMany({ where: { userId: id } }),
+      // Trusted devices skip OTP after the password; the lost device may hold one.
+      prisma.trustedDevice.deleteMany({ where: { userId: id } }),
     ])
   } catch (e) {
     // Target promoted to ADMIN/PASTOR since the pre-read.

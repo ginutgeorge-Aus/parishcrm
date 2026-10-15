@@ -220,7 +220,7 @@ export async function authorizePasskey(
 
   const passkey = await prisma.passkey.findUnique({ where: { credentialId: response.id }, include: { user: true } })
   if (!passkey) {
-    logger.warn("credential login rejected", { reason: "passkey_unknown", ipPresent: !!ip })
+    logger.warn("credential login rejected", { reason: "passkey_unknown", ipPresent: Boolean(ip) })
     return null
   }
   const user = passkey.user
@@ -265,6 +265,15 @@ export async function authorizePasskey(
   if (count === 0) {
     void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "passkey_counter_race" }, ip)
     return null
+  }
+  // Like a correct password, a verified passkey clears stale typo counters. CAS on
+  // the values read so a concurrent failure increment isn't silently wiped. The
+  // lock timestamps are left alone — a lock already stopped us above.
+  if (user.failedLoginAttempts > 0 || user.failedOtpAttempts > 0) {
+    await prisma.user.updateMany({
+      where: { id: user.id, failedLoginAttempts: user.failedLoginAttempts, failedOtpAttempts: user.failedOtpAttempts },
+      data: { failedLoginAttempts: 0, failedOtpAttempts: 0 },
+    })
   }
   void logAudit(user.id, "USER_LOGIN", "User", user.id, { via: "passkey" }, ip)
   // No device-trust grant: a passkey has no OTP step to skip.

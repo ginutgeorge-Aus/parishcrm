@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { startRegistration } from "@simplewebauthn/browser"
 import { Button } from "@/components/ui/button"
@@ -18,16 +18,28 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
   const [name, setName] = useState("Passkey")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
+  // Only a wrong password marks the password field invalid (not a cancelled prompt, bad name…).
+  const [passwordInvalid, setPasswordInvalid] = useState(false)
   const [pending, startTransition] = useTransition()
 
-  const reset = () => { setAdding(false); setName("Passkey"); setPassword(""); setError(null) }
+  // "Add a passkey" unmounts the focused button; land on the form's first field.
+  useEffect(() => {
+    if (adding) document.getElementById("passkey-name")?.focus()
+  }, [adding])
+
+  const reset = () => { setAdding(false); setName("Passkey"); setPassword(""); setError(null); setPasswordInvalid(false) }
 
   function add() {
     setError(null)
+    setPasswordInvalid(false)
     startTransition(async () => {
       try {
         const start = await startPasskeyRegistration(password)
-        if ("error" in start) { setError(start.error); return }
+        if ("error" in start) {
+          setError(start.error)
+          setPasswordInvalid(start.error === "Incorrect password")
+          return
+        }
         const attestation = await startRegistration({ optionsJSON: start.options })
         const res = await finishPasskeyRegistration(start.challengeId, attestation, name)
         if ("error" in res) { setError(res.error); return }
@@ -90,7 +102,7 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
           <div className="space-y-2">
             <Label htmlFor="passkey-name">Passkey name</Label>
             <Input
-              id="passkey-name" required maxLength={50} autoFocus
+              id="passkey-name" required maxLength={50}
               value={name} onChange={(e) => setName(e.target.value)}
             />
           </div>
@@ -99,8 +111,8 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
             <Input
               id="passkey-password" type="password" required autoComplete="current-password"
               value={password} onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? "passkey-error" : undefined}
+              aria-invalid={passwordInvalid ? true : undefined}
+              aria-describedby={passwordInvalid ? "passkey-error" : undefined}
             />
           </div>
           <FormFeedback state={{ error }} id="passkey-error" />

@@ -28,7 +28,7 @@ and cannot change anyone's role to ADMIN or PASTOR.
 
 **Revoking someone's passkeys:** if a staff member loses a device that holds one of their
 passkeys, click **Revoke passkeys** on their row (shown only when they have at least one).
-This removes every passkey they registered and signs them out everywhere. They can still
+This removes every passkey and trusted device they have and signs them out everywhere. They can still
 sign in with their password and code, and add new passkeys from **My Account**.
 
 **Resending the welcome invite:** if the original invite email never arrived or expired, use

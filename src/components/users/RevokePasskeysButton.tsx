@@ -8,7 +8,7 @@ export function RevokePasskeysButton({ userId, className = "" }: Readonly<{ user
     <DeleteConfirmButton
       onConfirm={() => revokeUserPasskeys(userId)}
       title="Revoke this user's passkeys?"
-      description="Every passkey they registered is removed and they are signed out everywhere. They can still sign in with their password and code."
+      description="Every passkey and trusted device they have is removed and they are signed out everywhere. They can still sign in with their password and code."
       triggerVariant="outline"
       triggerSize="sm"
       triggerLabel="Revoke passkeys"

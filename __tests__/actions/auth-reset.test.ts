@@ -6,6 +6,7 @@ import { sendPasswordResetEmail } from "@/lib/email"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: jest.fn(),
     user: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     trustedDevice: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -116,6 +117,10 @@ describe("requestPasswordReset", () => {
 })
 
 describe("resetPassword", () => {
+  beforeEach(() => {
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma))
+  })
+
   beforeEach(() => jest.clearAllMocks())
 
   // Real reset tokens are 32-byte hex (randomBytes(32).toString("hex")).
@@ -160,6 +165,8 @@ describe("resetPassword", () => {
     mockUpdateMany.mockResolvedValue({ count: 1 })
     expect(await resetPassword(VALID_TOKEN, "StrongPass1!")).toEqual({ success: true })
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
+    // Same transaction as the password write: a failed delete must roll the reset back.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
   })
 
 

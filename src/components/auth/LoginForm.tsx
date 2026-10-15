@@ -17,7 +17,8 @@ import { trustDevice } from "@/lib/actions/trustedDevice"
 import { startPasskeyLogin } from "@/lib/actions/passkey"
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser"
 
-const noopSubscribe = () => () => {}
+// WebAuthn support never changes during a page's life, so there is nothing to subscribe to.
+const noopSubscribe = () => () => { /* no-op */ }
 
 export function LoginForm({
   churchName,

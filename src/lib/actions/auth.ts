@@ -178,30 +178,34 @@ export async function resetPassword(
   // link can't both land — the first clears the token, the second matches 0 rows
   //. A count of 0 means the link was already used or expired between the
   // read above and here.
-  const consumed = await prisma.user.updateMany({
-    where: { id: user.id, passwordResetToken: tokenHash, passwordResetExpires: { gte: new Date() } },
-    data: {
-      passwordHash,
-      passwordResetToken: null,
-      passwordResetExpires: null,
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      // Invalidate any in-flight OTP and OTP lockout
-      otpCode: null,
-      otpExpiresAt: null,
-      failedOtpAttempts: 0,
-      otpLockedUntil: null,
-      // Kill any session/JWT minted before this reset — a stolen token must not
-      // survive a password change (same mechanism logout uses).
-      sessionsValidFrom: new Date(),
-    },
+  const ok = await prisma.$transaction(async (tx) => {
+    const consumed = await tx.user.updateMany({
+      where: { id: user.id, passwordResetToken: tokenHash, passwordResetExpires: { gte: new Date() } },
+      data: {
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        // Invalidate any in-flight OTP and OTP lockout
+        otpCode: null,
+        otpExpiresAt: null,
+        failedOtpAttempts: 0,
+        otpLockedUntil: null,
+        // Kill any session/JWT minted before this reset — a stolen token must not
+        // survive a password change (same mechanism logout uses).
+        sessionsValidFrom: new Date(),
+      },
+    })
+    if (consumed.count === 0) return false
+    // A passkey replaces both the password and the second factor, so recovery must
+    // drop them too — otherwise one planted by whoever knew the old password survives.
+    // Same transaction: a failed delete rolls the reset back instead of leaving them.
+    await tx.trustedDevice.deleteMany({ where: { userId: user.id } })
+    await tx.passkey.deleteMany({ where: { userId: user.id } })
+    return true
   })
-  if (consumed.count === 0) return { error: "Invalid or expired reset link." }
-
-  // A passkey replaces both the password and the second factor, so recovery must
-  // drop them too — otherwise one planted by whoever knew the old password survives.
-  await prisma.trustedDevice.deleteMany({ where: { userId: user.id } })
-  await prisma.passkey.deleteMany({ where: { userId: user.id } })
+  if (!ok) return { error: "Invalid or expired reset link." }
 
   return { success: true }
 }

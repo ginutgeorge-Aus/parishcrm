@@ -106,6 +106,12 @@ describe("getPasskeyStatus", () => {
     expect(pk.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 7 } }))
   })
 
+  it("reports unavailable in demo mode (registration is blocked there)", async () => {
+    process.env.DEMO_MODE = "true"
+    pk.findMany.mockResolvedValue([])
+    await expect(getPasskeyStatus()).resolves.toMatchObject({ available: false })
+  })
+
   it("no session → unavailable, empty", async () => {
     ;(auth as jest.Mock).mockResolvedValue(null)
     await expect(getPasskeyStatus()).resolves.toEqual({ available: false, limit: 10, passkeys: [] })

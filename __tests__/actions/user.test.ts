@@ -238,6 +238,21 @@ describe("updateUser", () => {
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
   })
 
+  it("drops credentials inside the password-update transaction", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindFirst.mockResolvedValue(null)
+    const order: string[] = []
+    mockTransaction.mockImplementationOnce(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
+      order.push("tx:start")
+      const r = await fn(prisma)
+      order.push("tx:end")
+      return r
+    })
+    ;(prisma.passkey.deleteMany as jest.Mock).mockImplementationOnce(() => { order.push("passkeys"); return Promise.resolve({ count: 0 }) })
+    await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
+    expect(order).toEqual(["tx:start", "passkeys", "tx:end"])
+  })
+
   it("keeps passkeys when the admin edit has no new password", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindFirst.mockResolvedValue(null)
@@ -853,6 +868,8 @@ describe("revokeUserPasskeys", () => {
     await expect(revokeUserPasskeys(3)).resolves.toBeUndefined()
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) } })
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
+    // Trusted devices skip OTP after the password; a lost device must not keep that.
+    expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(mockLogAudit).toHaveBeenCalledWith(42, "PASSKEYS_REVOKED", "User", 3, { targetUserId: 3 })
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })

@@ -1279,6 +1279,22 @@ describe("authorizePasskey", () => {
     }))
   })
 
+  it("clears stale failure counters on success (compare-and-swap)", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ failedLoginAttempts: 3, failedOtpAttempts: 2 }))
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await authorizePasskey(creds())
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, failedLoginAttempts: 3, failedOtpAttempts: 2 },
+      data: { failedLoginAttempts: 0, failedOtpAttempts: 0 },
+    })
+  })
+
+  it("skips the counter write when there is nothing to clear", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ failedLoginAttempts: 0, failedOtpAttempts: 0 }))
+    await authorizePasskey(creds())
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+  })
+
   it("honours remember=false", async () => {
     await expect(authorizePasskey(creds({ remember: "false" }))).resolves.toMatchObject({ remember: false })
   })

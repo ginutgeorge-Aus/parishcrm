@@ -21,12 +21,12 @@ import { sendEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
 import { auditIpFromHeaders } from "@/lib/clientIp"
-import { assertNotDemo } from "@/lib/demoMode"
+import { assertNotDemo, isDemoMode } from "@/lib/demoMode"
 import {
   MAX_PASSKEYS_PER_USER, consumeChallenge, createChallenge, getRelyingParty, normalisePasskeyName,
 } from "@/lib/webauthn"
 
-export type PasskeySummary = { id: string; name: string; createdAt: Date; lastUsedAt: Date | null; backedUp: boolean }
+type PasskeySummary = { id: string; name: string; createdAt: Date; lastUsedAt: Date | null; backedUp: boolean }
 export type PasskeyStatus = { available: boolean; limit: number; passkeys: PasskeySummary[] }
 
 const UNAUTHORIZED = { error: "Unauthorized" } as const
@@ -34,6 +34,7 @@ const UNAVAILABLE = { error: "Passkeys are not available on this server" } as co
 const EXPIRED = { error: "Passkey request expired — try again" } as const
 const NOT_VERIFIED = { error: "Passkey could not be verified" } as const
 const RATE_LIMITED = { error: "Too many attempts. Try again in 15 minutes." } as const
+const WRONG_PASSWORD = "Incorrect password"
 const AT_CAP = { error: `You can register up to ${MAX_PASSKEYS_PER_USER} passkeys` } as const
 
 // Every management action acts on the session user only — no userId argument,
@@ -74,7 +75,8 @@ export async function getPasskeyStatus(): Promise<PasskeyStatus> {
     select: { id: true, name: true, createdAt: true, lastUsedAt: true, backedUp: true },
     orderBy: { createdAt: "asc" },
   })
-  return { available: getRelyingParty() !== null, limit: MAX_PASSKEYS_PER_USER, passkeys }
+  // Demo mode blocks registration, so don't offer it.
+  return { available: getRelyingParty() !== null && !isDemoMode(), limit: MAX_PASSKEYS_PER_USER, passkeys }
 }
 
 export async function startPasskeyRegistration(
@@ -95,7 +97,7 @@ export async function startPasskeyRegistration(
   // Re-auth: a hijacked session alone must not be able to plant a persistent
   // passkey. Rate-limited above, so this can't be used to guess the password.
   if (typeof password !== "string" || !password || !(await compare(password, user.passwordHash))) {
-    return { error: "Incorrect password" }
+    return { error: WRONG_PASSWORD }
   }
   const existing = await prisma.passkey.findMany({ where: { userId }, select: { credentialId: true, transports: true } })
   if (existing.length >= MAX_PASSKEYS_PER_USER) return AT_CAP

@@ -1,12 +1,12 @@
 ---
 title: "Login and Two-Step Verification"
-description: "Every staff sign-in is two steps: a password, then a one-time email code or an authenticator-app code, unless the browser is already marked as a trusted device. This page covers the…"
+description: "Staff sign in with a password and then a one-time email or authenticator-app code (unless the browser is trusted), or in one step with a passkey. This page covers the…"
 ---
 
-Every staff sign-in is two steps: a password, then a one-time code, unless the browser is
+Staff sign in with two steps: a password, then a one-time code, unless the browser is
 already marked as a trusted device. The code is emailed by default, or comes from an
-authenticator app if you've turned that on. This page covers the login flow, authenticator
-apps and backup codes, lockouts, "remember this device," password reset, and session lifetime. For who can do what once
+authenticator app if you've turned that on. Alternatively, sign in in one step with a
+passkey. This page covers the login flow, passkeys, authenticator apps and backup codes, lockouts, "remember this device," password reset, and session lifetime. For who can do what once
 signed in, see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); for the underlying request-level protections, see
 [Security-Model](/parishcrm/docs/security-model/).
 
@@ -45,8 +45,8 @@ for when you don't have that device with you.
    provider (e.g. iCloud Keychain or Google Password Manager).
 
 You can have up to 10 passkeys. Choose **Remove** next to one you no longer use. You get a
-confirmation email whenever a passkey is added or removed. Passkeys only appear when the
-site is served over HTTPS.
+confirmation email whenever a passkey is added or removed. You can only add passkeys when the
+site is served over HTTPS (or over HTTP on `localhost` for development).
 
 **Turning on an authenticator app:**
 1. Go to **My Account** (`/account`) and, under **Authenticator app**, choose **Set up
