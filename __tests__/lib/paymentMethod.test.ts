@@ -1,3 +1,5 @@
+/** @jest-environment node */
+
 import { CARD_PAYMENT_WHERE, paymentMethodOf } from "@/lib/paymentMethod"
 
 describe("paymentMethodOf", () => {

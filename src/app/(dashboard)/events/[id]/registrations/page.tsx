@@ -45,7 +45,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   const eventId = parseRouteId(params.id) ?? notFound()
 
   // Rollup (one RepeatableRead tx) runs alongside the page loads, not after them.
-  const [event, rollup] = await Promise.all([
+  const [event, rollup, lastReminded] = await Promise.all([
     prisma.event.findUnique({
       where: { id: eventId },
       include: {
@@ -70,6 +70,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
       },
     }),
     getEventRegistrationRollup(eventId),
+    lastRemindedAtByRegistration(eventId),
   ])
   if (!event) notFound()
 
@@ -101,7 +102,6 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   const analyticsRevenue = revenueByType(event.registrations)
   const analyticsTime = regsOverTime(event.registrations.filter(r => r.paymentStatus !== "CANCELLED"))
 
-  const lastReminded = await lastRemindedAtByRegistration(event.id)
   const reminderRows: PendingReminderRow[] = event.registrations
     .filter((r) => r.paymentStatus === "PENDING")
     .map((r) => ({
