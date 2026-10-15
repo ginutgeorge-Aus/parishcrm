@@ -30,7 +30,9 @@ const config: Config = {
     "<rootDir>/.next/",
     "<rootDir>/.claude/",
     "<rootDir>/website/",
+    "<rootDir>/.worktrees/", // local git worktrees carry their own React copy
   ],
+  modulePathIgnorePatterns: ["<rootDir>/.worktrees/"],
   // Coverage is collected only when --coverage is passed (CI does; local
   // `npm test` stays fast). collectCoverageFrom spans all of src so a new
   // untested file drags the percentage down and trips the floor.
