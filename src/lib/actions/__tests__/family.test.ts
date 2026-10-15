@@ -20,7 +20,10 @@ import { revalidatePath } from "next/cache"
 // merge conflict / cascade-relink handling (//P2002).
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => {
@@ -77,8 +80,10 @@ beforeEach(() => {
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
-          delete: jest.fn().mockResolvedValue({}),
+          // Shared with the top-level mock so delete assertions see tx writes.
+          delete: prisma.family.delete,
         },
+        personClearance: prisma.personClearance,
       })
     }
     return Promise.all(arg as unknown[])

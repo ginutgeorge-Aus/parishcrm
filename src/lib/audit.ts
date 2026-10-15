@@ -34,3 +34,38 @@ export async function logAudit(
     })
   }
 }
+
+/**
+ * Write an audit row inside the caller's interactive transaction. Unlike
+ * logAudit it does NOT swallow errors: a failed audit write throws, which rolls
+ * back the mutation it records, so an audited change can never commit without
+ * its history. Use it for safeguarding records and any mutation whose audit
+ * trail must be guaranteed.
+ * @param tx interactive-transaction client (`prisma.$transaction(async (tx) => …)`)
+ * @param userId acting user, or null for system actions
+ * @param action audit action code, e.g. "CLEARANCE_ADDED"
+ * @param resourceType resource the action applies to, e.g. "Person"
+ * @param resourceId id of that resource
+ * @param metadata extra JSON (ids/flags only — never PII)
+ * @param ip client IP, when known
+ */
+export async function logAuditTx(
+  tx: Prisma.TransactionClient,
+  userId: number | null,
+  action: string,
+  resourceType: string,
+  resourceId?: number,
+  metadata?: Record<string, unknown>,
+  ip?: string
+): Promise<void> {
+  await tx.auditLog.create({
+    data: {
+      userId,
+      action,
+      resourceType,
+      resourceId,
+      metadata: metadata as Prisma.InputJsonValue | undefined,
+      ip,
+    },
+  })
+}

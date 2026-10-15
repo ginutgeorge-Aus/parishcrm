@@ -3,7 +3,7 @@ import { createPerson, updatePerson, deletePerson } from "@/lib/actions/person"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 
 // Locks in the guards person.ts fixed by hand with no regression net: the
 // canEdit/isAdmin role gates, the family-scope IDOR checks, the
@@ -11,7 +11,10 @@ import { logAudit } from "@/lib/audit"
 //, and the pastoral-notes role strip.
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock("@/lib/sundaySchoolYearLock", () => ({ blockYearClosers: jest.fn(async () => {}), lockedYearRefs: jest.fn(async () => 0) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -233,6 +236,33 @@ describe("deletePerson", () => {
     ;(prisma.person.delete as jest.Mock).mockResolvedValue({})
     await expect(deletePerson(3, 5)).rejects.toThrow("NEXT_REDIRECT")
     expect(prisma.person.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "PERSON_DELETED", "Person", 3, { familyId: 5 })
+  })
+
+  it("audits each cascaded clearance as CLEARANCE_REMOVED inside the delete transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.person.delete as jest.Mock).mockResolvedValue({})
+    ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([{ id: "ckclr1", type: "WWCC" }])
+    await expect(deletePerson(3, 5)).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "CLEARANCE_REMOVED", "Person", 3, {
+      type: "WWCC",
+      clearanceId: "ckclr1",
+      cascade: true,
+    })
+  })
+
+  it("a failed audit write rejects the delete transaction (rolled back, no redirect)", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.person.delete as jest.Mock).mockResolvedValue({})
+    const auditDown = new Error("audit table unavailable")
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(auditDown)
+    await expect(deletePerson(3, 5)).rejects.toBe(auditDown)
+    expect(prisma.person.delete).toHaveBeenCalledWith({ where: { id: 3 } })
+    const tx = prisma.$transaction as jest.Mock
+    await expect(tx.mock.results[tx.mock.results.length - 1].value).rejects.toBe(auditDown)
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })
 

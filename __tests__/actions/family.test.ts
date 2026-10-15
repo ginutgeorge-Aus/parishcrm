@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/prisma", () => ({
-  prisma: {
+jest.mock("@/lib/prisma", () => {
+  const prisma: Record<string, unknown> = {
     family: {
       create: jest.fn(),
       update: jest.fn(),
@@ -22,10 +22,14 @@ jest.mock("@/lib/prisma", () => ({
     auditLog: {
       create: jest.fn(),
     },
-    $transaction: jest.fn((ops) => Promise.all(ops)),
     $queryRaw: jest.fn().mockResolvedValue([]),
-  },
-}))
+  }
+  // Batch form resolves the array; interactive form runs the callback on the same mocks.
+  prisma.$transaction = jest.fn((arg: unknown) =>
+    typeof arg === "function" ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[]),
+  )
+  return { prisma }
+})
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -472,6 +476,28 @@ describe("deleteFamily clearance audit", () => {
         resourceId: 11,
       }),
     })
+  })
+
+  it("runs the delete and its audit rows in one transaction, so a failed audit write rejects it", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    const eightYearsAgo = new Date()
+    eightYearsAgo.setFullYear(eightYearsAgo.getFullYear() - 8)
+    mockFindUnique.mockResolvedValueOnce({ id: 5, archivedAt: eightYearsAgo })
+    mockTxCount.mockResolvedValue(0)
+    mockPersonCount.mockResolvedValue(0)
+    mockDelete.mockResolvedValue({})
+    ;(prisma.personClearance.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: "ckclr1", type: "WWCC", personId: 11 },
+    ])
+    const auditDown = new Error("audit table unavailable")
+    mockAudit.mockRejectedValueOnce(auditDown)
+    mockBatch.mockClear()
+    await expect(deleteFamily(5)).rejects.toBe(auditDown)
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 5 } })
+    // The delete ran inside the rejected transaction, so Postgres rolls it back.
+    expect(mockBatch).toHaveBeenCalledTimes(1)
+    await expect(mockBatch.mock.results[0].value).rejects.toBe(auditDown)
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
 

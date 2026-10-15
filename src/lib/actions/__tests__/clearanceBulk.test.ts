@@ -1,7 +1,6 @@
 /** @jest-environment node */
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   safeDecrypt: jest.fn((v: string) => (v === "enc:bad" ? "[decryption error]" : v.replace(/^enc:/, ""))),
@@ -16,7 +15,6 @@ jest.mock("@/lib/prisma", () => ({
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { revalidatePath } from "next/cache"
 import { verifyClearancesBulk } from "@/lib/actions/clearance"
@@ -26,6 +24,7 @@ const findMany = prisma.personClearance.findMany as jest.Mock
 const updateMany = prisma.personClearance.updateMany as jest.Mock
 const transaction = prisma.$transaction as jest.Mock
 const queryRaw = jest.fn().mockResolvedValue([])
+const auditCreateMany = jest.fn()
 
 const T = "2026-09-30T01:02:03.000Z"
 const P = "2026-09-29T05:06:07.000Z"
@@ -42,7 +41,10 @@ describe("verifyClearancesBulk", () => {
     mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "7" } })
     findMany.mockResolvedValue(found)
     updateMany.mockResolvedValue({ count: 2 })
-    transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb({ personClearance: { updateMany }, $queryRaw: queryRaw }))
+    auditCreateMany.mockResolvedValue({ count: 2 })
+    transaction.mockImplementation((cb: (tx: unknown) => unknown) =>
+      cb({ personClearance: { updateMany }, auditLog: { createMany: auditCreateMany }, $queryRaw: queryRaw }),
+    )
   })
 
   it("is blocked in demo mode before anything else", async () => {
@@ -78,15 +80,14 @@ describe("verifyClearancesBulk", () => {
     expect(findMany).not.toHaveBeenCalled()
   })
 
-  it("writes one audit entry per clearance concurrently (all started before any resolves)", async () => {
-    const resolvers: (() => void)[] = []
-    ;(logAudit as jest.Mock).mockImplementation(() => new Promise<void>((r) => resolvers.push(r)))
-    const pending = verifyClearancesBulk([it1("c11"), it1("c12")])
-    await new Promise((r) => setTimeout(r, 0))
-    expect(logAudit).toHaveBeenCalledTimes(2)
-    resolvers.forEach((r) => r())
-    expect(await pending).toEqual({ success: "Marked 2 clearance(s) verified" })
-    ;(logAudit as jest.Mock).mockResolvedValue(undefined)
+  it("writes the audit rows inside the transaction, so a failed audit write rejects the verification", async () => {
+    const auditDown = new Error("audit table unavailable")
+    auditCreateMany.mockRejectedValue(auditDown)
+    await expect(verifyClearancesBulk([it1("c11"), it1("c12")])).rejects.toBe(auditDown)
+    // The update ran in the same callback, so the rejected transaction rolls it back.
+    expect(updateMany).toHaveBeenCalledTimes(1)
+    await expect(transaction.mock.results[0].value).rejects.toBe(auditDown)
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("rejects a note over 500 characters", async () => {
@@ -167,8 +168,17 @@ describe("verifyClearancesBulk", () => {
     expect(sql.join("?")).toMatch(/FROM "Person" WHERE id = ANY\(\?::int\[\]\) ORDER BY id FOR SHARE/)
     expect(ids).toEqual([1, 2])
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(updateMany.mock.invocationCallOrder[0])
-    expect(logAudit).toHaveBeenCalledTimes(2)
-    expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_VERIFIED", "Person", 1, { clearanceId: "c11", type: "WWCC", bulk: true, hasNote: true })
+    expect(auditCreateMany).toHaveBeenCalledTimes(1)
+    const rows = auditCreateMany.mock.calls[0][0].data
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toEqual({
+      userId: 7,
+      action: "CLEARANCE_VERIFIED",
+      resourceType: "Person",
+      resourceId: 1,
+      metadata: { clearanceId: "c11", type: "WWCC", bulk: true, hasNote: true },
+    })
+    expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(auditCreateMany.mock.invocationCallOrder[0])
     expect(revalidatePath).toHaveBeenCalledWith("/people/clearances")
     expect(revalidatePath).toHaveBeenCalledWith("/people/1")
     expect(res).toEqual({ success: "Marked 2 clearance(s) verified" })
@@ -187,7 +197,7 @@ describe("verifyClearancesBulk", () => {
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
       error: "This clearance changed. Refresh and try again.",
     })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditCreateMany).not.toHaveBeenCalled()
   })
 
   it("fails whole batch and audits nothing when a row was verified since load", async () => {
@@ -195,7 +205,7 @@ describe("verifyClearancesBulk", () => {
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({
       error: "This clearance changed. Refresh and try again.",
     })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditCreateMany).not.toHaveBeenCalled()
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 
@@ -208,7 +218,7 @@ describe("verifyClearancesBulk", () => {
   it("fails with a stale error and writes nothing when a row was edited since load", async () => {
     updateMany.mockResolvedValue({ count: 1 }) // the edited row no longer matches its seen updatedAt
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({ error: "This clearance changed. Refresh and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditCreateMany).not.toHaveBeenCalled()
   })
 
   it("rejects a missing or malformed seenPersonUpdatedAt without writing", async () => {
@@ -220,6 +230,6 @@ describe("verifyClearancesBulk", () => {
   it("fails with a stale error when the person (e.g. their DOB) was edited since load", async () => {
     updateMany.mockResolvedValue({ count: 1 }) // c12's person no longer matches its seen updatedAt
     expect(await verifyClearancesBulk([it1("c11"), it1("c12")])).toEqual({ error: "This clearance changed. Refresh and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditCreateMany).not.toHaveBeenCalled()
   })
 })

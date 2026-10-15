@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
 import { encryptFamilyFields } from "@/lib/familyFields"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
 
@@ -160,7 +160,8 @@ export async function updateFamily(
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
  * past the retention floor with no linked transactions or active members.
- * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED.
+ * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED,
+ * in the same transaction as the delete.
  * @param id Family.id
  */
 export async function deleteFamily(id: number): Promise<ActionResult> {
@@ -207,23 +208,26 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
   }
 
   // Clearances cascade with the members (family -> person -> clearance), so
-  // capture them first and audit each as CLEARANCE_REMOVED once the delete
-  // commits. Archived members can't gain clearances (upsertClearance 404s
-  // them), so nothing slips in between this read and the delete.
-  const removedClearances = await prisma.personClearance.findMany({
-    where: { person: { familyId: id } },
-    select: { id: true, type: true, personId: true },
-  })
-  await prisma.family.delete({ where: { id } })
+  // capture them first and audit each as CLEARANCE_REMOVED in the same
+  // transaction as the delete — a failed audit write rolls the delete back.
+  // Archived members can't gain clearances (upsertClearance 404s them), so
+  // nothing slips in between this read and the delete.
   const actor = actorId(session)
-  await logAudit(actor, "FAMILY_DELETED", "Family", id)
-  for (const c of removedClearances) {
-    await logAudit(actor, "CLEARANCE_REMOVED", "Person", c.personId, {
-      type: c.type,
-      clearanceId: c.id,
-      cascade: true,
+  await prisma.$transaction(async (tx) => {
+    const removedClearances = await tx.personClearance.findMany({
+      where: { person: { familyId: id } },
+      select: { id: true, type: true, personId: true },
     })
-  }
+    await tx.family.delete({ where: { id } })
+    await logAuditTx(tx, actor, "FAMILY_DELETED", "Family", id)
+    for (const c of removedClearances) {
+      await logAuditTx(tx, actor, "CLEARANCE_REMOVED", "Person", c.personId, {
+        type: c.type,
+        clearanceId: c.id,
+        cascade: true,
+      })
+    }
+  })
   revalidatePath("/families")
   redirect("/families")
 }

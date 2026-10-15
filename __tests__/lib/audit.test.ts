@@ -8,7 +8,7 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 
 const mockCreate = prisma.auditLog.create as jest.Mock
@@ -61,5 +61,31 @@ describe("logAudit", () => {
       resourceId: 7,
       error: "DB connection lost",
     })
+  })
+})
+
+describe("logAuditTx", () => {
+  it("writes through the transaction client, not the global one", async () => {
+    const txCreate = jest.fn().mockResolvedValue({})
+    const tx = { auditLog: { create: txCreate } } as unknown as Parameters<typeof logAuditTx>[0]
+    await logAuditTx(tx, 4, "CLEARANCE_ADDED", "Person", 9, { type: "WWCC" })
+    expect(txCreate).toHaveBeenCalledWith({
+      data: {
+        userId: 4,
+        action: "CLEARANCE_ADDED",
+        resourceType: "Person",
+        resourceId: 9,
+        metadata: { type: "WWCC" },
+        ip: undefined,
+      },
+    })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a failed write so the enclosing transaction rolls back", async () => {
+    const boom = new Error("audit table unavailable")
+    const tx = { auditLog: { create: jest.fn().mockRejectedValue(boom) } } as unknown as Parameters<typeof logAuditTx>[0]
+    await expect(logAuditTx(tx, 4, "CLEARANCE_ADDED", "Person", 9)).rejects.toBe(boom)
+    expect(mockLoggerError).not.toHaveBeenCalled()
   })
 })
