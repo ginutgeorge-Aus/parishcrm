@@ -10,7 +10,7 @@ import { TransactionFilters } from "@/components/accounting/TransactionFilters"
 import { TransactionMobileList } from "@/components/accounting/TransactionMobileList"
 import { TransactionTable } from "@/components/accounting/TransactionTable"
 import { TransactionPagination } from "@/components/accounting/TransactionPagination"
-import { transactionListQuery } from "@/lib/transactionFilters"
+import { transactionExportQuery, transactionListQuery } from "@/lib/transactionFilters"
 import { getTransactionsData, TX_CAP, SEARCH_SCAN_CAP, type TransactionsSearchParams } from "@/lib/reports/transactionsQuery"
 
 export default async function TransactionsPage(
@@ -52,20 +52,16 @@ export default async function TransactionsPage(
   // matching the all-roles receipt-audit logging from).
   void logAudit(actorId(session), "VIEW_TRANSACTION_LIST", "Transaction")
 
-  const exportParams = new URLSearchParams()
-  if (searchParams.from) exportParams.set("from", searchParams.from)
-  if (searchParams.to) exportParams.set("to", searchParams.to)
-  if (accountId !== undefined) exportParams.set("account", String(accountId))
-  // Forward the validated values, not the raw searchParams strings, so an
-  // invalid account/type/paymentAccount can't be passed through to the export route.
-  if (type) exportParams.set("type", type)
-  if (searchParams.family) exportParams.set("family", searchParams.family)
-  if (paymentAccountId !== undefined) exportParams.set("paymentAccount", String(paymentAccountId))
-  if (searchParams.reconciled) exportParams.set("reconciled", searchParams.reconciled)
-  if (searchParams.fund) exportParams.set("fund", searchParams.fund)
-  if (searchParams.q) exportParams.set("q", searchParams.q)
+  // Same allow-list as listQuery (minus `page`); forwards the validated
+  // account/type/paymentAccount, not the raw searchParams strings, so an
+  // invalid value can't be passed through to the export route.
+  const exportQuery = transactionExportQuery(searchParams, {
+    account: accountId === undefined ? undefined : String(accountId),
+    type: type || undefined,
+    paymentAccount: paymentAccountId === undefined ? undefined : String(paymentAccountId),
+  })
   const listQuery = transactionListQuery(searchParams)
-  const exportHref = `/api/accounting/transactions/export-csv?${exportParams.toString()}`
+  const exportHref = `/api/accounting/transactions/export-csv?${exportQuery}`
 
   return (
     <div className="space-y-4">

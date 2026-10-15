@@ -72,10 +72,27 @@ export async function isYearLockedTx(tx: Prisma.TransactionClient, year: number)
 }
 
 /**
+ * Orders a cascading delete against year closers (rolloverYear,
+ * lockSundaySchoolYear). It takes ROW EXCLUSIVE on the class, teacher and enrolment
+ * tables, which conflicts with the SHARE ROW EXCLUSIVE a closer holds while it
+ * writes the lock row: a closer in flight finishes first, and one that starts
+ * later waits for the delete. It must be the transaction's FIRST statement. A
+ * Serializable/Repeatable Read snapshot freezes at the first SELECT or write,
+ * and LOCK TABLE takes none, so later reads (lockedYearRefs) see a lock row the
+ * closer committed while we waited. holdYear can't do this: it is a SELECT, so
+ * the snapshot is taken before the wait.
+ */
+export async function blockYearClosers(tx: Prisma.TransactionClient): Promise<void> {
+  // nosemgrep: crm-no-raw-sql — table lock; Prisma has no locking API
+  await tx.$executeRaw`LOCK TABLE "SundaySchoolClass", "SundaySchoolTeacher", "SundaySchoolEnrolment" IN ROW EXCLUSIVE MODE`
+}
+
+/**
  * Count `personId`'s Sunday School rows (teacher, enrolment, attendance) in
  * locked years. A hard person delete would cascade them away and rewrite closed
  * history, so deletePerson refuses while this is non-zero. Run it in the
- * delete's Serializable transaction so a concurrent lock conflicts with it.
+ * delete's Serializable transaction, after blockYearClosers, so a concurrent
+ * year lock either lands first (and is counted) or waits for the delete.
  */
 export async function lockedYearRefs(tx: Prisma.TransactionClient, personId: number): Promise<number> {
   const years = (await tx.sundaySchoolYearLock.findMany({ select: { year: true } })).map((r) => r.year)

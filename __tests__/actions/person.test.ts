@@ -29,7 +29,7 @@ jest.mock("@/lib/prisma", () => ({
     $transaction: jest.fn(),
   },
 }))
-jest.mock("@/lib/sundaySchoolYearLock", () => ({ lockedYearRefs: jest.fn(async () => 0) }))
+jest.mock("@/lib/sundaySchoolYearLock", () => ({ blockYearClosers: jest.fn(async () => {}), lockedYearRefs: jest.fn(async () => 0) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/roleGuard", () => {
@@ -53,7 +53,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { createPerson, updatePerson, deletePerson } from "@/lib/actions/person"
-import { lockedYearRefs } from "@/lib/sundaySchoolYearLock"
+import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
 import { canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt } from "@/lib/crypto"
 
@@ -770,6 +770,20 @@ describe("deletePerson", () => {
     expect(lockedYearRefs).toHaveBeenCalledWith(prisma, 7)
     expect(mockDelete).not.toHaveBeenCalled()
     expect(mockAudit).not.toHaveBeenCalled()
+  })
+
+  it("blocks year closers before its first read, so a concurrent rollover's lock row is seen (#234)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ familyId: 3 })
+    mockDelete.mockResolvedValue({})
+
+    await deletePerson(7, 3)
+
+    expect(blockYearClosers).toHaveBeenCalledWith(prisma)
+    const blocked = (blockYearClosers as jest.Mock).mock.invocationCallOrder[0]
+    // Before every read in the delete transaction (the snapshot freezes at the first one).
+    expect(blocked).toBeLessThan((prisma.transaction.count as jest.Mock).mock.invocationCallOrder[0])
+    expect(blocked).toBeLessThan((lockedYearRefs as jest.Mock).mock.invocationCallOrder[0])
   })
 
   it("allows ADMIN to delete and redirects to family", async () => {
