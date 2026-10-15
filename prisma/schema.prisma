@@ -1155,6 +1155,7 @@ model Invoice {
   @@index([personId])
   @@index([customerId])
   @@index([accountId])
+  @@index([fundId])
 }
 
 enum MembershipStatus {
