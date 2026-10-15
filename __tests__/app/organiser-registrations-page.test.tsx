@@ -174,3 +174,17 @@ it("builds reminderRows from PENDING registrations with decrypted email + merged
     lastRemindedAt: "2026-09-01T00:00:00.000Z",
   })
 })
+
+it("passes the card/transfer revenue split to RegistrationStats", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { role: "EVENT_ORGANISER", id: "5" } })
+  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
+  ;(prisma.registration.groupBy as jest.Mock).mockResolvedValue([
+    { paymentStatus: "PAID", _count: { _all: 3 }, _sum: { totalAmount: "150.00" } },
+  ])
+  ;(prisma.registration.aggregate as jest.Mock).mockResolvedValueOnce({ _sum: { totalAmount: "100.00" } })
+  const { RegistrationStats } = jest.requireMock("@/components/events/RegistrationStats") as { RegistrationStats: unknown }
+  const ui = await Page({ params: Promise.resolve({ id: "1" }) })
+  expect(findElement(ui, RegistrationStats)?.props).toEqual(
+    expect.objectContaining({ total: 3, paid: 3, revenue: 150, cardRevenue: 100, transferRevenue: 50 }),
+  )
+})
