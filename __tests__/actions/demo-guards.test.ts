@@ -37,6 +37,7 @@ const CASES: Array<[string, () => Promise<unknown>]> = [
   ["updateUser", () => anyArgs(user.updateUser) as Promise<unknown>],
   ["unlockUser", () => anyArgs(user.unlockUser) as Promise<unknown>],
   ["resetUserTotp", () => anyArgs(user.resetUserTotp) as Promise<unknown>],
+  ["revokeUserPasskeys", () => anyArgs(user.revokeUserPasskeys) as Promise<unknown>],
   ["deleteUser", () => anyArgs(user.deleteUser) as Promise<unknown>],
   ["resendWelcome", () => anyArgs(user.resendWelcome) as Promise<unknown>],
   ["startTotpEnrolment", () => anyArgs(totp.startTotpEnrolment) as Promise<unknown>],

@@ -8,7 +8,7 @@ export function ResetTotpButton({ userId, className = "" }: Readonly<{ userId: n
     <DeleteConfirmButton
       onConfirm={() => resetUserTotp(userId)}
       title="Reset this user's authenticator?"
-      description="They'll sign in with an emailed code until they set it up again. Their backup codes and trusted devices are also removed."
+      description="They'll sign in with an emailed code until they set it up again. Their backup codes, trusted devices and passkeys are also removed."
       triggerVariant="outline"
       triggerSize="sm"
       triggerLabel="Reset 2FA"
