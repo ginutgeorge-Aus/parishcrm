@@ -9,6 +9,8 @@ test_patterns = [
 exclude_patterns = [
   "src/lib/generated/**",
   "src/components/ui/**",
+  # Implementation plans: historical snippets, not shipped code
+  "docs/superpowers/**",
 ]
 
 [[analyzers]]

@@ -34,7 +34,7 @@ const UNAVAILABLE = { error: "Passkeys are not available on this server" } as co
 const EXPIRED = { error: "Passkey request expired — try again" } as const
 const NOT_VERIFIED = { error: "Passkey could not be verified" } as const
 const RATE_LIMITED = { error: "Too many attempts. Try again in 15 minutes." } as const
-const WRONG_PASSWORD = "Incorrect password"
+const REAUTH_FAILED = { error: "Incorrect password" } as const
 const AT_CAP = { error: `You can register up to ${MAX_PASSKEYS_PER_USER} passkeys` } as const
 
 // Every management action acts on the session user only — no userId argument,
@@ -97,7 +97,7 @@ export async function startPasskeyRegistration(
   // Re-auth: a hijacked session alone must not be able to plant a persistent
   // passkey. Rate-limited above, so this can't be used to guess the password.
   if (typeof password !== "string" || !password || !(await compare(password, user.passwordHash))) {
-    return { error: WRONG_PASSWORD }
+    return REAUTH_FAILED
   }
   const existing = await prisma.passkey.findMany({ where: { userId }, select: { credentialId: true, transports: true } })
   if (existing.length >= MAX_PASSKEYS_PER_USER) return AT_CAP
