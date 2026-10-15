@@ -44,29 +44,34 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
 
   const eventId = parseRouteId(params.id) ?? notFound()
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: {
-      ticketTypes: {
-        include: {
-          // Exclude cancelled registrations from tickets-sold + fill-rate
-          // counts (matches capacity check, which filters `not: CANCELLED`).
-          registrationItems: {
-            where: { registration: { paymentStatus: { not: "CANCELLED" } } },
-            select: { quantity: true },
+  // Rollup (one RepeatableRead tx) runs alongside the page loads, not after them.
+  const [event, rollup, lastReminded] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      include: {
+        ticketTypes: {
+          include: {
+            // Exclude cancelled registrations from tickets-sold + fill-rate
+            // counts (matches capacity check, which filters `not: CANCELLED`).
+            registrationItems: {
+              where: { registration: { paymentStatus: { not: "CANCELLED" } } },
+              select: { quantity: true },
+            },
           },
         },
-      },
-      registrations: {
-        include: {
-          items: { include: { attendees: { select: { name: true } }, ticketType: { select: { name: true } } } },
+        registrations: {
+          include: {
+            items: { include: { attendees: { select: { name: true } }, ticketType: { select: { name: true } } } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: EVENT_REGISTRATIONS_CAP,
         },
-        orderBy: { createdAt: "desc" },
-        take: EVENT_REGISTRATIONS_CAP,
+        _count: { select: { waitlist: true, checkoutSessions: true } },
       },
-      _count: { select: { waitlist: true, checkoutSessions: true } },
-    },
-  })
+    }),
+    getEventRegistrationRollup(eventId),
+    lastRemindedAtByRegistration(eventId),
+  ])
   if (!event) notFound()
 
   const [managers, assignable] = canEdit(session.user.role)
@@ -82,8 +87,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   // Headline stats come from a DB rollup over ALL registrations, not the capped
   // list above — so total/paid/cancelled/revenue stay exact even when the table
   // is truncated.
-  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } =
-    await getEventRegistrationRollup(eventId)
+  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } = rollup
 
   const ticketsSold = event.ticketTypes.map(tt => ({
     name: tt.name,
@@ -98,7 +102,6 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   const analyticsRevenue = revenueByType(event.registrations)
   const analyticsTime = regsOverTime(event.registrations.filter(r => r.paymentStatus !== "CANCELLED"))
 
-  const lastReminded = await lastRemindedAtByRegistration(event.id)
   const reminderRows: PendingReminderRow[] = event.registrations
     .filter((r) => r.paymentStatus === "PENDING")
     .map((r) => ({

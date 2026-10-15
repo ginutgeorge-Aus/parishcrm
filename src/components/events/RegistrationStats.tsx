@@ -26,7 +26,10 @@ export function RegistrationStats({ total, paid, cancelled, revenue, cardRevenue
           {
             label: "Revenue",
             value: fmtAUD(revenue),
-            sub: `Card ${fmtAUD(cardRevenue)} · Bank transfer ${fmtAUD(transferRevenue)}`,
+            // The split only helps when some revenue came by card; otherwise it's "Card $0.00".
+            sub: cardRevenue > 0
+              ? `Card ${fmtAUD(cardRevenue)} · Bank transfer ${fmtAUD(transferRevenue)}`
+              : "from paid registrations",
           },
           {
             label: "Tickets Sold",
