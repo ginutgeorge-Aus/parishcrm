@@ -31,6 +31,11 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
+/**
+ * Renders the registrations page for an event, handling authentication, data fetching, and UI rendering.
+ * @param props - Readonly Props object containing params with the event ID.
+ * @returns A React component displaying event registrations, analytics, and management tools.
+ */
 export default async function RegistrationsPage(props: Readonly<Props>) {
   const params = await props.params;
   const session = await auth()

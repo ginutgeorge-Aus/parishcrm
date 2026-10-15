@@ -1,6 +1,3 @@
-import Link from "next/link"
-import { auth } from "@/auth"
-import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { canManageEvent } from "@/lib/eventManager"
 import { safeDecrypt } from "@/lib/crypto"
@@ -26,6 +23,13 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
+/**
+ * Renders the organiser-facing registrations page for a specific event.
+ * It includes statistics, tables of registrations, export options, and payment reminders.
+ *
+ * @param {Readonly<Props>} props - The component props containing route parameters.
+ * @returns {Promise<JSX.Element>} The React component for the organiser registrations page.
+ */
 export default async function OrganiserRegistrationsPage(props: Readonly<Props>) {
   const { id } = await props.params
   const session = await auth()
