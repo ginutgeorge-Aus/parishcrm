@@ -231,6 +231,20 @@ describe("updateUser", () => {
     })
   })
 
+  it("removes the target's passkeys when an admin changes their password", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindFirst.mockResolvedValue(null)
+    await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
+  })
+
+  it("keeps passkeys when the admin edit has no new password", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindFirst.mockResolvedValue(null)
+    await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+  })
+
   it("clears all four lockout fields on admin-forced password change", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindFirst.mockResolvedValue(null)
@@ -796,6 +810,7 @@ describe("resetUserTotp", () => {
     })
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(mockLogAudit).toHaveBeenCalledWith(42, "TOTP_RESET", "User", 3, { targetUserId: 3 })
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })

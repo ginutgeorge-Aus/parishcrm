@@ -102,13 +102,13 @@ describe("getPasskeyStatus", () => {
   it("lists the session user's passkeys", async () => {
     const rows = [{ id: "pk1", name: "Phone", createdAt: new Date(), lastUsedAt: null, backedUp: true }]
     pk.findMany.mockResolvedValue(rows)
-    await expect(getPasskeyStatus()).resolves.toEqual({ available: true, passkeys: rows })
+    await expect(getPasskeyStatus()).resolves.toEqual({ available: true, limit: 10, passkeys: rows })
     expect(pk.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 7 } }))
   })
 
   it("no session → unavailable, empty", async () => {
     ;(auth as jest.Mock).mockResolvedValue(null)
-    await expect(getPasskeyStatus()).resolves.toEqual({ available: false, passkeys: [] })
+    await expect(getPasskeyStatus()).resolves.toEqual({ available: false, limit: 10, passkeys: [] })
   })
 })
 
@@ -205,13 +205,23 @@ describe("finishPasskeyRegistration", () => {
 
 describe("removePasskey", () => {
   it("is scoped to the session user", async () => {
+    pk.findFirst.mockResolvedValue({ name: "Phone", user: { email: "admin@example.com" } })
     pk.deleteMany.mockResolvedValue({ count: 1 })
     await expect(removePasskey("pk1")).resolves.toEqual({ success: true })
     expect(pk.deleteMany).toHaveBeenCalledWith({ where: { id: "pk1", userId: 7 } })
+    expect(pk.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "pk1", userId: 7 } }))
     expect(logAudit).toHaveBeenCalledWith(7, "PASSKEY_REMOVED", "User", 7, { passkeyId: "pk1" })
+    expect(sendEmail).toHaveBeenCalledWith("admin@example.com", expect.stringContaining("Passkey removed"), expect.any(String), expect.any(String))
   })
 
-  it("reports not found when nothing was deleted", async () => {
+  it("reports not found for another user's passkey without deleting", async () => {
+    pk.findFirst.mockResolvedValue(null)
+    await expect(removePasskey("someone-elses")).resolves.toEqual({ error: "Passkey not found" })
+    expect(pk.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("reports not found when a concurrent remove won", async () => {
+    pk.findFirst.mockResolvedValue({ name: "Phone", user: { email: "admin@example.com" } })
     pk.deleteMany.mockResolvedValue({ count: 0 })
     await expect(removePasskey("someone-elses")).resolves.toEqual({ error: "Passkey not found" })
     expect(logAudit).not.toHaveBeenCalled()

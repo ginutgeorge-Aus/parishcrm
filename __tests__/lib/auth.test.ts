@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { hash } from "bcryptjs"
 import NextAuth from "next-auth"
+import { dbRateLimit } from "@/lib/dbRateLimit"
 
 // spy on the real compare() so the timing-equalisation test can assert
 // it was invoked, without disturbing the genuine bcrypt behaviour every other
@@ -52,7 +53,7 @@ jest.mock("next-auth", () => {
 
 jest.mock("next-auth/providers/credentials", () => ({
   __esModule: true,
-  default: jest.fn(),
+  default: jest.fn((opts: unknown) => opts),
 }))
 
 jest.mock("@/auth.config", () => ({ authConfig: {} }))
@@ -96,7 +97,7 @@ jest.mock("@/lib/trustedDevice", () => ({
 }))
 
 import { prisma } from "@/lib/prisma"
-import { authorizeCredentials, AccountLocked, OtpSent, OtpDeliveryFailed, TotpRequired, jwtCallback } from "@/auth"
+import { authorizeCredentials, authorizePasskey, AccountLocked, OtpSent, OtpDeliveryFailed, TotpRequired, jwtCallback } from "@/auth"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
@@ -1225,7 +1226,7 @@ describe("authorizeCredentials — demo mode", () => {
   })
 })
 
-describe("authorizeCredentials — passkey", () => {
+describe("authorizePasskey", () => {
   const OLD_DEMO = process.env.DEMO_MODE
   const passkeyRow = (user: Record<string, unknown> = {}) => ({
     id: "pk1",
@@ -1236,8 +1237,6 @@ describe("authorizeCredentials — passkey", () => {
     user: { ...baseUser, id: 7, archivedAt: null, otpLockedUntil: null, ...user },
   })
   const creds = (over: Record<string, unknown> = {}) => ({
-    email: "passkey",
-    mode: "passkey",
     challengeId: "ch1",
     assertion: JSON.stringify({ id: "cred-1", response: {} }),
     remember: "true",
@@ -1256,7 +1255,7 @@ describe("authorizeCredentials — passkey", () => {
   afterAll(() => { process.env.DEMO_MODE = OLD_DEMO })
 
   it("signs in with a verified passkey — no password, no second factor, no device grant", async () => {
-    const result = await authorizeCredentials(creds())
+    const result = await authorizePasskey(creds())
     expect(result).toEqual({ id: "7", name: baseUser.name, email: baseUser.email, role: "ADMIN", remember: true })
     expect(consumeChallenge).toHaveBeenCalledWith("ch1", "login", null)
     expect(prisma.passkey.findUnique).toHaveBeenCalledWith({ where: { credentialId: "cred-1" }, include: { user: true } })
@@ -1270,7 +1269,7 @@ describe("authorizeCredentials — passkey", () => {
   })
 
   it("verifies with user verification against the consumed challenge", async () => {
-    await authorizeCredentials(creds())
+    await authorizePasskey(creds())
     expect(verifyAuthenticationResponse).toHaveBeenCalledWith(expect.objectContaining({
       expectedChallenge: "login-ch",
       expectedOrigin: "https://crm.example.org",
@@ -1281,12 +1280,12 @@ describe("authorizeCredentials — passkey", () => {
   })
 
   it("honours remember=false", async () => {
-    await expect(authorizeCredentials(creds({ remember: "false" }))).resolves.toMatchObject({ remember: false })
+    await expect(authorizePasskey(creds({ remember: "false" }))).resolves.toMatchObject({ remember: false })
   })
 
   it("rejects a consumed/expired challenge before any lookup", async () => {
     ;(consumeChallenge as jest.Mock).mockResolvedValue(null)
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
     expect(prisma.passkey.findUnique).not.toHaveBeenCalled()
   })
 
@@ -1296,18 +1295,18 @@ describe("authorizeCredentials — passkey", () => {
     ["oversized assertion", { assertion: "x".repeat(16_385) }],
     ["no credential id", { assertion: JSON.stringify({ response: {} }) }],
   ])("rejects %s", async (_n, over) => {
-    expect(await authorizeCredentials(creds(over))).toBeNull()
+    expect(await authorizePasskey(creds(over))).toBeNull()
     expect(verifyAuthenticationResponse).not.toHaveBeenCalled()
   })
 
   it("rejects an unknown credential", async () => {
     ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(null)
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
   })
 
   it("rejects an archived user", async () => {
     ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ archivedAt: new Date() }))
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
     expect(verifyAuthenticationResponse).not.toHaveBeenCalled()
   })
 
@@ -1316,7 +1315,13 @@ describe("authorizeCredentials — passkey", () => {
     ["OTP-locked", { otpLockedUntil: new Date(Date.now() + 60_000) }],
   ])("keeps a %s account locked", async (_n, over) => {
     ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow(over))
-    await expect(authorizeCredentials(creds())).rejects.toBeInstanceOf(AccountLocked)
+    await expect(authorizePasskey(creds())).rejects.toBeInstanceOf(AccountLocked)
+  })
+
+  it("does not reveal a lock to an assertion that fails verification", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ lockedUntil: new Date(Date.now() + 60_000) }))
+    ;(verifyAuthenticationResponse as jest.Mock).mockResolvedValue({ verified: false })
+    expect(await authorizePasskey(creds())).toBeNull()
   })
 
   it.each([
@@ -1324,26 +1329,37 @@ describe("authorizeCredentials — passkey", () => {
     ["throwing", () => (verifyAuthenticationResponse as jest.Mock).mockRejectedValue(new Error("bad sig"))],
   ])("rejects an %s assertion and audits it", async (_n, arrange) => {
     arrange()
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
     expect(logAudit).toHaveBeenCalledWith(7, "USER_LOGIN_FAILED", "User", 7, { reason: "passkey_invalid" }, undefined)
     expect(prisma.passkey.updateMany).not.toHaveBeenCalled()
   })
 
   it("rejects when the counter compare-and-swap loses", async () => {
     ;(prisma.passkey.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
     expect(logAudit).not.toHaveBeenCalledWith(7, "USER_LOGIN", "User", 7, expect.anything(), undefined)
+  })
+
+  it("shares the per-IP login throttle", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    expect(await authorizePasskey(creds(), reqWithIp("203.0.113.9"))).toBeNull()
+    expect(dbRateLimit).toHaveBeenCalledWith("login:ip:203.0.113.9", 10, 60_000)
+    expect(consumeChallenge).not.toHaveBeenCalled()
+  })
+
+  it("registers as its own credentials provider", () => {
+    expect(nextAuthOptions.providers).toContainEqual(expect.objectContaining({ id: "passkey", authorize: authorizePasskey }))
   })
 
   it("is disabled without a relying party", async () => {
     ;(getRelyingParty as jest.Mock).mockReturnValue(null)
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
     expect(consumeChallenge).not.toHaveBeenCalled()
   })
 
   it("rejects a demo user's passkey in demo mode", async () => {
     process.env.DEMO_MODE = "true"
     ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ email: "admin@demo.invalid" }))
-    expect(await authorizeCredentials(creds())).toBeNull()
+    expect(await authorizePasskey(creds())).toBeNull()
   })
 })

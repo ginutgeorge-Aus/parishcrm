@@ -27,7 +27,7 @@ import {
 } from "@/lib/webauthn"
 
 export type PasskeySummary = { id: string; name: string; createdAt: Date; lastUsedAt: Date | null; backedUp: boolean }
-export type PasskeyStatus = { available: boolean; passkeys: PasskeySummary[] }
+export type PasskeyStatus = { available: boolean; limit: number; passkeys: PasskeySummary[] }
 
 const UNAUTHORIZED = { error: "Unauthorized" } as const
 const UNAVAILABLE = { error: "Passkeys are not available on this server" } as const
@@ -68,13 +68,13 @@ function escapeHtml(s: string): string {
 
 export async function getPasskeyStatus(): Promise<PasskeyStatus> {
   const userId = await sessionUserId()
-  if (!userId) return { available: false, passkeys: [] }
+  if (!userId) return { available: false, limit: MAX_PASSKEYS_PER_USER, passkeys: [] }
   const passkeys = await prisma.passkey.findMany({
     where: { userId },
     select: { id: true, name: true, createdAt: true, lastUsedAt: true, backedUp: true },
     orderBy: { createdAt: "asc" },
   })
-  return { available: getRelyingParty() !== null, passkeys }
+  return { available: getRelyingParty() !== null, limit: MAX_PASSKEYS_PER_USER, passkeys }
 }
 
 export async function startPasskeyRegistration(
@@ -182,13 +182,14 @@ export async function removePasskey(id: string): Promise<{ error: string } | { s
   // Bound the client-supplied id; the userId scope below is the real ownership
   // guard — another user's id deletes nothing.
   if (typeof id !== "string" || id.length === 0 || id.length > 64) return { error: "Passkey not found" }
-  const row = await prisma.passkey.findFirst({ where: { id, userId }, select: { name: true } })
+  const row = await prisma.passkey.findFirst({ where: { id, userId }, select: { name: true, user: { select: { email: true } } } })
+  if (!row) return { error: "Passkey not found" }
+  // count re-checks ownership/existence at delete time (a concurrent remove wins once).
   const { count } = await prisma.passkey.deleteMany({ where: { id, userId } })
   if (count === 0) return { error: "Passkey not found" }
 
   await logAudit(userId, "PASSKEY_REMOVED", "User", userId, { passkeyId: id })
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
-  await notifyPasskeyChange(userId, user?.email, false, row?.name ?? "Passkey")
+  await notifyPasskeyChange(userId, row.user.email, false, row.name)
   revalidatePath("/account")
   return { success: true }
 }

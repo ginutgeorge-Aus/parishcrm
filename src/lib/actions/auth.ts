@@ -198,7 +198,10 @@ export async function resetPassword(
   })
   if (consumed.count === 0) return { error: "Invalid or expired reset link." }
 
+  // A passkey replaces both the password and the second factor, so recovery must
+  // drop them too — otherwise one planted by whoever knew the old password survives.
   await prisma.trustedDevice.deleteMany({ where: { userId: user.id } })
+  await prisma.passkey.deleteMany({ where: { userId: user.id } })
 
   return { success: true }
 }

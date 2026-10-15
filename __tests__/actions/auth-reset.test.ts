@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     trustedDevice: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   },
 }))
 jest.mock("@/lib/email", () => ({ sendPasswordResetEmail: jest.fn() }))
@@ -154,6 +155,13 @@ describe("resetPassword", () => {
     const data = mockUpdateMany.mock.calls[0][0].data
     expect(data.sessionsValidFrom).toBeInstanceOf(Date)
   })
+  it("removes every passkey on success (a planted passkey must not outlive recovery)", async () => {
+    mockFindUnique.mockResolvedValue({ id: 1, passwordResetExpires: new Date(Date.now() + 60000) })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    expect(await resetPassword(VALID_TOKEN, "StrongPass1!")).toEqual({ success: true })
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
+  })
+
 
   it("returns invalid when the token was already consumed by a concurrent reset", async () => {
     mockFindUnique.mockResolvedValue({ id: 1, passwordResetExpires: new Date(Date.now() + 60000) })
@@ -161,6 +169,7 @@ describe("resetPassword", () => {
     mockUpdateMany.mockResolvedValue({ count: 0 })
     expect(await resetPassword(VALID_TOKEN, "StrongPass1!")).toEqual({ error: "Invalid or expired reset link." })
     expect(prisma.trustedDevice.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
   })
 
   it("clears active OTP and OTP lockout on success", async () => {

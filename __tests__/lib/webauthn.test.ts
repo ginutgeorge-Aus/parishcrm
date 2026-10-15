@@ -19,6 +19,10 @@ describe("getRelyingParty", () => {
     process.env.AUTH_URL = "http://localhost:3000"
     expect(getRelyingParty()).toEqual({ rpID: "localhost", origin: "http://localhost:3000" })
   })
+  it.each(["http://127.0.0.1:3000", "http://[::1]:3000", "https://10.0.0.5"])("disables on an IP host (%s) — RP IDs must be domains", (url) => {
+    process.env.AUTH_URL = url
+    expect(getRelyingParty()).toBeNull()
+  })
   it("disables on plain http public host", () => {
     process.env.AUTH_URL = "http://crm.example.org"
     expect(getRelyingParty()).toBeNull()

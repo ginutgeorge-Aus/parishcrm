@@ -81,7 +81,8 @@ an admin to unlock you early from **Users** (see [User-Management](/parishcrm/do
    account — this is deliberate, so the page can't be used to find out who has an account.
 3. If an account exists, a reset link arrives, valid for 1 hour and usable once. Follow it,
    choose a new password meeting the strength rule (8+ characters, upper, lower, digit,
-   symbol). This also signs you out everywhere else and clears any lockouts.
+   symbol). This also signs you out everywhere else, clears any lockouts, and removes your
+   trusted devices and passkeys.
 
 **Managing trusted devices:** go to **My Account** (`/account`) to see every device you've
 told the system to remember, with when it was last used, and revoke any you don't recognise
@@ -116,9 +117,12 @@ the relying party (domain) and challenge store are in `src/lib/webauthn.ts`, bui
 second step. Adding a passkey re-checks your password, so a stolen session alone can't add
 one. Each ceremony uses a server-stored challenge that expires after 5 minutes and is
 deleted on first use. Sign-in is "usernameless": the browser offers its passkeys for this
-site and the server identifies you from the chosen credential (`mode: "passkey"` in
-`authorizeCredentials`). A locked account stays locked, and the authenticator's signature
-counter is checked and updated atomically to detect cloned keys.
+site and the server identifies you from the chosen credential (a separate `passkey`
+Credentials provider, `authorizePasskey` in `src/auth.ts`, sharing the per-IP login limit).
+A locked account stays locked, and the authenticator's signature counter is checked and
+updated atomically to detect cloned keys. Resetting your password (or an admin changing it,
+or resetting your authenticator) removes all your passkeys, so one added by someone who
+knew the old password can't outlive the recovery.
 
 **Authenticator app (TOTP).** Enrolment, backup codes and turning it off live in
 `src/lib/actions/totp.ts`; code checking is in `src/lib/totpVerify.ts` and `src/lib/totp.ts`.

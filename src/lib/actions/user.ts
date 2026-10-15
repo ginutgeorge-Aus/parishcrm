@@ -325,7 +325,9 @@ export async function updateUser(
     throw e
   }
   if (parsed.data.password) {
+    // Passkeys bypass the password, so a forced password change must drop them too.
     await prisma.trustedDevice.deleteMany({ where: { userId: id } })
+    await prisma.passkey.deleteMany({ where: { userId: id } })
   }
   const userId = actorId(session)
   await logAudit(userId, "USER_UPDATED", "User", id, {
@@ -389,6 +391,8 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
       }),
       prisma.backupCode.deleteMany({ where: { userId: id } }),
       prisma.trustedDevice.deleteMany({ where: { userId: id } }),
+      // A lost phone usually holds a passkey too.
+      prisma.passkey.deleteMany({ where: { userId: id } }),
     ])
   } catch (e) {
     // Target promoted to ADMIN/PASTOR since the pre-read.

@@ -138,8 +138,7 @@ export function LoginForm({
   }
 
   // Usernameless: the browser offers this site's passkeys; the server resolves
-  // the user from the chosen credential. `email` is a placeholder the
-  // credentials provider requires — it is never used for lookup.
+  // the user from the chosen credential (separate "passkey" provider).
   async function handlePasskeyLogin() {
     setError("")
     setResendMsg("")
@@ -151,8 +150,8 @@ export function LoginForm({
         return
       }
       const assertion = await startAuthentication({ optionsJSON: start.options })
-      const result = await signIn("credentials", {
-        email: "passkey", mode: "passkey", challengeId: start.challengeId,
+      const result = await signIn("passkey", {
+        challengeId: start.challengeId,
         assertion: JSON.stringify(assertion), remember: remember ? "true" : "false", redirect: false,
       })
       if (result?.code === "AccountLocked") {

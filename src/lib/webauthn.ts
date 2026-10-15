@@ -1,4 +1,5 @@
 import "server-only"
+import { isIP } from "node:net"
 import { prisma } from "@/lib/prisma"
 
 export type RelyingParty = { rpID: string; origin: string }
@@ -7,13 +8,12 @@ export type ChallengePurpose = "register" | "login"
 export const PASSKEY_CHALLENGE_TTL_MS = 5 * 60_000
 export const MAX_PASSKEYS_PER_USER = 10
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"])
-
 // The RP ID is the domain a passkey is bound to. Derive it from AUTH_URL so it is
 // the one stable public origin of this deployment — a self-hoster who moves
 // domain loses their registered passkeys (documented in docs/self-hosting.md).
-// Browsers only allow WebAuthn on https or loopback, so anything else disables
-// passkeys rather than offering a button that can never work.
+// Browsers only allow WebAuthn on https or http://localhost, and an RP ID must be
+// a domain — never an IP (so http://127.0.0.1 is out too). Anything else
+// disables passkeys rather than offering a button that can never work.
 export function getRelyingParty(): RelyingParty | null {
   const raw = process.env.AUTH_URL
   if (!raw) return null
@@ -23,8 +23,9 @@ export function getRelyingParty(): RelyingParty | null {
   } catch {
     return null
   }
-  const loopback = LOOPBACK_HOSTS.has(url.hostname.toLowerCase())
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return null
+  const host = url.hostname.toLowerCase()
+  if (isIP(host.replace(/^\[|\]$/g, "")) !== 0) return null
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && host === "localhost")) return null
   return { rpID: url.hostname, origin: url.origin }
 }
 

@@ -10,9 +10,6 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { finishPasskeyRegistration, removePasskey, startPasskeyRegistration, type PasskeyStatus } from "@/lib/actions/passkey"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
-// Mirrors MAX_PASSKEYS_PER_USER in src/lib/webauthn.ts (server-only); the server enforces it.
-const MAX_PASSKEYS = 10
-
 const fmt = (d: Date) => new Date(d).toLocaleDateString(APP_LOCALE, { timeZone: APP_TIMEZONE })
 
 export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>) {
@@ -22,10 +19,6 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-
-  if (!status.available) {
-    return <p className="text-sm text-muted-foreground">Passkeys need this site to be served over HTTPS.</p>
-  }
 
   const reset = () => { setAdding(false); setName("Passkey"); setPassword(""); setError(null) }
 
@@ -62,6 +55,10 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
 
   return (
     <div className="space-y-3">
+      {/* Existing passkeys stay listed (and removable) even when new ones can't be added. */}
+      {!status.available && (
+        <p className="text-sm text-muted-foreground">Passkeys need this site to be served over HTTPS.</p>
+      )}
       {status.passkeys.length > 0 && (
         <ul className="divide-y divide-border rounded-md border">
           {status.passkeys.map((p) => (
@@ -114,7 +111,7 @@ export function PasskeySettings({ status }: Readonly<{ status: PasskeyStatus }>)
         </form>
       ) : (
         <>
-          {status.passkeys.length < MAX_PASSKEYS && (
+          {status.available && status.passkeys.length < status.limit && (
             <Button variant="outline" size="sm" disabled={pending} onClick={() => setAdding(true)}>
               Add a passkey
             </Button>

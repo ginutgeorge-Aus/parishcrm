@@ -42,8 +42,8 @@ own account this way (use a different admin, or just wait 15 minutes).
 
 **Resetting someone's authenticator app:** if a staff member loses the phone with their
 authenticator app, click **Reset 2FA** on their row (shown only when they have one turned
-on). This removes the authenticator, its backup codes and their trusted devices, and signs
-them out; they sign in with emailed codes until they set it up again. Only an ADMIN can do
+on). This removes the authenticator, its backup codes, their trusted devices and their
+passkeys, and signs them out; they sign in with emailed codes until they set it up again. Only an ADMIN can do
 this for an ADMIN or PASTOR, and you can't reset your own (use **My Account**). See
 [Login-and-Two-Step-Verification](/parishcrm/docs/login-and-two-step-verification/#using-it).
 

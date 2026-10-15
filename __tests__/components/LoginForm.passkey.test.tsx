@@ -45,8 +45,8 @@ describe("LoginForm — passkey", () => {
     mockSignIn.mockResolvedValue({ ok: true })
     await clickPasskey()
     expect(mockAuthn).toHaveBeenCalledWith({ optionsJSON: { challenge: "c" } })
-    expect(mockSignIn).toHaveBeenCalledWith("credentials", {
-      email: "passkey", mode: "passkey", challengeId: "ch1",
+    expect(mockSignIn).toHaveBeenCalledWith("passkey", {
+      challengeId: "ch1",
       assertion: JSON.stringify({ id: "cred-1" }), remember: "true", redirect: false,
     })
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"))
