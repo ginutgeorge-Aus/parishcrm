@@ -9,7 +9,7 @@ import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
-import { centsToDecimalString, computeInvoiceTotals, INVOICE_LIST_LIMIT, parseInvoiceDraft, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
+import { centsToDecimalString, computeInvoiceTotals, INVOICE_PAGE_SIZE, formatInvoiceCursor, invoiceCursorDate, parseInvoiceCursor, parseInvoiceDraft, type InvoiceCursor, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
@@ -32,7 +32,7 @@ export type InvoiceView = {
   /** Optimistic-concurrency token: the edit form round-trips it so a stale draft save is rejected. */
   updatedAt: Date
 }
-export type InvoiceListRow = {
+type InvoiceListRow = {
   id: number; invoiceNo: string | null; status: InvoiceStatus; recipientName: string
   issueDate: string; dueDate: string; total: string; gstTotal: string; paidAt: Date | null
 }
@@ -205,21 +205,46 @@ export async function getInvoice(id: number): Promise<InvoiceView | null | { err
   }
 }
 
-/** List invoices (no PII beyond recipient name) filtered by status and issue-date range. */
-export async function listInvoices(filter: { status?: InvoiceStatus; from?: string; to?: string } = {}): Promise<InvoiceListRow[] | { error: string }> {
+export type InvoiceListFilter = { status?: InvoiceStatus; from?: string; to?: string; after?: string; before?: string }
+export type InvoicePage = { rows: InvoiceListRow[]; nextCursor: string | null; prevCursor: string | null }
+
+/** Keyset predicate for rows strictly past `c` in `(issueDate, id)` order: `lt` walks older, `gt` newer. */
+function keysetWhere(c: InvoiceCursor, op: "lt" | "gt") {
+  const day = new Date(c.issueDate)
+  return { AND: [{ OR: [{ issueDate: { [op]: day } }, { issueDate: day, id: { [op]: c.id } }] }] }
+}
+
+/**
+ * One page of invoices (no PII beyond recipient name), newest first (`issueDate desc, id desc`),
+ * filtered by status and issue-date range. `after` / `before` are keyset cursors from a previous
+ * page's `nextCursor` / `prevCursor`; a malformed cursor is ignored (first page), and so is a
+ * `from` / `to` that isn't a real YYYY-MM-DD date (an Invalid Date would make Prisma throw).
+ */
+export async function listInvoices(filter: InvoiceListFilter = {}): Promise<InvoicePage | { error: string }> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const issueDate: { gte?: Date; lte?: Date } = {}
-  if (filter.from) issueDate.gte = new Date(filter.from)
-  if (filter.to) issueDate.lte = new Date(filter.to)
-  const rows = await prisma.invoice.findMany({
-    where: { ...(filter.status ? { status: filter.status } : {}), ...(filter.from || filter.to ? { issueDate } : {}) },
-    orderBy: [{ issueDate: "desc" }, { id: "desc" }],
-    take: INVOICE_LIST_LIMIT,
+  if (filter.from && isRealCalendarDate(filter.from)) issueDate.gte = new Date(filter.from)
+  if (filter.to && isRealCalendarDate(filter.to)) issueDate.lte = new Date(filter.to)
+  const after = parseInvoiceCursor(filter.after)
+  // `after` wins by presence: a malformed one means first page, never a fallback `before` walk.
+  const before = filter.after ? null : parseInvoiceCursor(filter.before)
+  const keyset = after ? keysetWhere(after, "lt") : before ? keysetWhere(before, "gt") : {}
+  const found = await prisma.invoice.findMany({
+    where: { ...(filter.status ? { status: filter.status } : {}), ...(issueDate.gte || issueDate.lte ? { issueDate } : {}), ...keyset },
+    orderBy: before ? [{ issueDate: "asc" }, { id: "asc" }] : [{ issueDate: "desc" }, { id: "desc" }],
+    take: INVOICE_PAGE_SIZE + 1, // one extra row tells us whether another page exists
     select: { id: true, invoiceNo: true, status: true, recipientName: true, issueDate: true, dueDate: true, total: true, gstTotal: true, paidAt: true, lines: true },
   })
+  const hasMore = found.length > INVOICE_PAGE_SIZE
+  const page = found.slice(0, INVOICE_PAGE_SIZE)
+  if (before) page.reverse() // fetched ascending to walk backwards; show newest first
+  const edge = (r?: { issueDate: Date; id: number }) => (r ? formatInvoiceCursor({ issueDate: invoiceCursorDate(r.issueDate), id: r.id }) : null)
+  // Arriving via `after` means rows newer than the cursor exist behind us; via `before`, older ones do.
+  const nextCursor = (before || hasMore) && page.length ? edge(page.at(-1)) : null
+  const prevCursor = ((after && page.length) || (before && hasMore)) ? edge(page[0]) : null
   const { gstRegistered } = await getInvoiceSettings()
-  return rows.map(({ lines, ...r }) => {
+  const rows = page.map(({ lines, ...r }) => {
     // Drafts show totals for the current GST setting (same as the detail page and draft PDF).
     const t = r.status === InvoiceStatus.DRAFT ? computeInvoiceTotals(lines as InvoiceLine[], gstRegistered) : null
     return {
@@ -228,6 +253,7 @@ export async function listInvoices(filter: { status?: InvoiceStatus; from?: stri
       gstTotal: t ? centsToDecimalString(t.gstCents) : r.gstTotal.toString(),
     }
   })
+  return { rows, nextCursor, prevCursor }
 }
 
 export type InvoiceSummary = { outstandingCents: number; outstandingCount: number; paidCents: number; paidCount: number; gstCollectedCents: number }

@@ -230,7 +230,7 @@ describe("listInvoices", () => {
       { ...base, status: "DRAFT", total: { toString: () => "300.00" }, gstTotal: { toString: () => "0.00" } },
       { ...base, id: 12, invoiceNo: "INV-0001", status: "SENT", total: { toString: () => "300.00" }, gstTotal: { toString: () => "0.00" } },
     ])
-    const rows = await listInvoices()
+    const { rows } = (await listInvoices()) as { rows: unknown[] }
     expect(rows).toEqual([
       expect.objectContaining({ id: 11, total: "330.00", gstTotal: "30.00", issueDate: "2026-10-11" }),
       expect.objectContaining({ id: 12, total: "300.00", gstTotal: "0.00" }),
@@ -243,6 +243,74 @@ describe("listInvoices", () => {
     expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { status: "SENT", issueDate: { gte: new Date("2026-10-01"), lte: new Date("2026-10-31") } },
     }))
+  })
+  it("ignores a malformed or impossible date filter instead of passing Invalid Date to Prisma", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([])
+    await listInvoices({ from: "garbage", to: "2026-02-30" })
+    expect((prisma.invoice.findMany as jest.Mock).mock.calls.at(-1)[0].where).toEqual({})
+  })
+  const mk = (n: number, day = "2026-10-11") => Array.from({ length: n }, (_, i) => ({ ...base, id: 100 - i, issueDate: new Date(day), status: "SENT", total: { toString: () => "1.00" }, gstTotal: { toString: () => "0.00" } }))
+  const lastWhere = () => (prisma.invoice.findMany as jest.Mock).mock.calls.at(-1)[0]
+  it("first page: fetches page size + 1, no where cursor, next but no prev when more exist", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(mk(51))
+    const r = (await listInvoices()) as { rows: unknown[]; nextCursor: string | null; prevCursor: string | null }
+    expect(lastWhere().take).toBe(51)
+    expect(lastWhere().where).toEqual({})
+    expect(lastWhere().orderBy).toEqual([{ issueDate: "desc" }, { id: "desc" }])
+    expect(r.rows).toHaveLength(50)
+    expect(r.nextCursor).toBe("2026-10-11_51")
+    expect(r.prevCursor).toBeNull()
+  })
+  it("exactly a page of rows has no next", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(mk(50))
+    expect(await listInvoices()).toEqual(expect.objectContaining({ nextCursor: null, prevCursor: null }))
+  })
+  it("after: keyset where AND-ed with filters, prev cursor points at first row", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(mk(3))
+    const r = await listInvoices({ status: "SENT" as never, from: "2026-10-01", after: "2026-10-11_90" })
+    const day = new Date("2026-10-11")
+    expect(lastWhere().where).toEqual({
+      status: "SENT", issueDate: { gte: new Date("2026-10-01") },
+      AND: [{ OR: [{ issueDate: { lt: day } }, { issueDate: day, id: { lt: 90 } }] }],
+    })
+    expect(r).toEqual(expect.objectContaining({ prevCursor: "2026-10-11_100", nextCursor: null }))
+  })
+  it("keeps the full timestamp in the cursor so same-day rows past a page boundary aren't skipped", async () => {
+    const rows = mk(51).map((r) => ({ ...r, issueDate: new Date("2026-10-11T09:30:00Z") }))
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(rows)
+    const r = (await listInvoices()) as { nextCursor: string | null }
+    expect(r.nextCursor).toBe("2026-10-11T09:30:00.000Z_51")
+    await listInvoices({ after: r.nextCursor! })
+    const stamp = new Date("2026-10-11T09:30:00Z")
+    expect(lastWhere().where).toEqual({ AND: [{ OR: [{ issueDate: { lt: stamp } }, { issueDate: stamp, id: { lt: 51 } }] }] })
+  })
+  it("before: walks ascending, returns rows newest first, next always present", async () => {
+    const asc = mk(3).reverse() // ids 98, 99, 100 as fetched ascending
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(asc)
+    const r = (await listInvoices({ before: "2026-10-11_97" })) as { rows: { id: number }[]; nextCursor: string | null; prevCursor: string | null }
+    const day = new Date("2026-10-11")
+    expect(lastWhere().orderBy).toEqual([{ issueDate: "asc" }, { id: "asc" }])
+    expect(lastWhere().where).toEqual({ AND: [{ OR: [{ issueDate: { gt: day } }, { issueDate: day, id: { gt: 97 } }] }] })
+    expect(r.rows.map((x) => x.id)).toEqual([100, 99, 98])
+    expect(r.nextCursor).toBe("2026-10-11_98")
+    expect(r.prevCursor).toBeNull()
+  })
+  it("before with more rows behind sets prev from the newest visible row", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue(mk(51).reverse())
+    const r = (await listInvoices({ before: "2026-10-11_1" })) as { rows: unknown[]; prevCursor: string | null }
+    expect(r.rows).toHaveLength(50)
+    expect(r.prevCursor).toBe("2026-10-11_99")
+  })
+  it("ignores a malformed cursor (first page) and prefers after over before", async () => {
+    ;(prisma.invoice.findMany as jest.Mock).mockResolvedValue([])
+    await listInvoices({ after: "garbage", before: "2026-10-11_0" })
+    expect(lastWhere().where).toEqual({})
+    // A present-but-malformed `after` still wins: first page, not a `before` walk.
+    await listInvoices({ after: "garbage", before: "2026-10-11_9" })
+    expect(lastWhere().where).toEqual({})
+    expect(lastWhere().orderBy).toEqual([{ issueDate: "desc" }, { id: "desc" }])
+    await listInvoices({ after: "2026-10-11_5", before: "2026-10-11_9" })
+    expect(lastWhere().orderBy).toEqual([{ issueDate: "desc" }, { id: "desc" }])
   })
   it("rejects VIEWER", async () => { as("VIEWER"); expect(await listInvoices()).toEqual({ error: "Unauthorized" }) })
 })
