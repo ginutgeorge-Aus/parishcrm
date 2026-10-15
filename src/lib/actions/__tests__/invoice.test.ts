@@ -155,7 +155,7 @@ describe("updateInvoice", () => {
     ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await updateInvoice(11, undefined, fd({ updatedAt: "2026-10-11T01:02:03.456Z" })))
       .toEqual({ error: "This invoice has changed. Reload and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(redirect).not.toHaveBeenCalled()
   })
   it("ignores a malformed updatedAt token (status-only guard)", async () => {
