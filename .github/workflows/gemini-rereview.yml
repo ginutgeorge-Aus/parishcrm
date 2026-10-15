@@ -21,6 +21,7 @@ jobs:
     if: >-
       github.repository == 'ginutgeorge-Aus/parishcrm' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
       !github.event.pull_request.draft &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       !contains(github.event.pull_request.labels.*.name, 'no-gemini')
@@ -43,4 +44,11 @@ jobs:
             exit 1
           fi
           sleep 120   # debounce follow-up pushes
+          # Recheck: the PR may have been closed, drafted or labelled during the wait.
+          state=$(gh pr view "$PR" --repo "$REPO" --json state,isDraft,labels \
+            --jq '"\(.state) \(.isDraft) \([.labels[].name] | index("no-gemini") != null)"')
+          if [ "$state" != "OPEN false false" ]; then
+            echo "PR no longer eligible ($state) — skipping."
+            exit 0
+          fi
           gh pr comment "$PR" --repo "$REPO" --body "/gemini review"
