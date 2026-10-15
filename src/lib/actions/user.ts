@@ -399,6 +399,34 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
   revalidatePath("/users")
 }
 
+export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!canManageUsers(session?.user?.role)) return { error: "Unauthorized" }
+  if (!isValidPgId(id)) return { error: "User not found" }
+  if (actorId(session) === id) return { error: "Use My Account to manage your own passkeys" }
+
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
+  if (!target || target.archivedAt) return { error: "User not found" }
+  if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
+
+  try {
+    // Lost/stolen device: drop every passkey and kill live sessions (the device
+    // may already be signed in). Password + OTP/TOTP still work.
+    await prisma.$transaction([
+      prisma.user.update({ where: { id, ...assignableTargetWhere(session?.user?.role) }, data: { sessionsValidFrom: new Date() } }),
+      prisma.passkey.deleteMany({ where: { userId: id } }),
+    ])
+  } catch (e) {
+    // Target promoted to ADMIN/PASTOR since the pre-read.
+    if ((e as { code?: unknown })?.code === "P2025") return { error: "Unauthorized" }
+    throw e
+  }
+  await logAudit(actorId(session), "PASSKEYS_REVOKED", "User", id, { targetUserId: id })
+  revalidatePath("/users")
+}
+
 export async function deleteUser(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo

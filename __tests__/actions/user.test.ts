@@ -16,6 +16,7 @@ jest.mock("@/lib/prisma", () => ({
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     backupCode: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   },
   // user.ts now re-imports `Prisma` from this module instead of the generated
   // client directly — the isolation-level enum value must still resolve.
@@ -35,7 +36,7 @@ import { hash } from "bcryptjs"
 import { logAudit } from "@/lib/audit"
 import { sendWelcomeEmail } from "@/lib/email"
 import { TOTP_CLEARED } from "@/lib/totp"
-import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp } from "@/lib/actions/user"
+import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUserTotp, revokeUserPasskeys } from "@/lib/actions/user"
 
 const mockSession = auth as jest.Mock
 const mockFindUnique = prisma.user.findUnique as jest.Mock
@@ -796,6 +797,48 @@ describe("resetUserTotp", () => {
     expect(prisma.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
     expect(mockLogAudit).toHaveBeenCalledWith(42, "TOTP_RESET", "User", 3, { targetUserId: 3 })
+    expect(mockRevalidate).toHaveBeenCalledWith("/users")
+  })
+})
+
+// --- revokeUserPasskeys ---
+describe("revokeUserPasskeys", () => {
+  beforeEach(() => {
+    mockUpdate.mockResolvedValue({})
+    mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: null })
+    mockTransaction.mockImplementation(async (ops: unknown) => (Array.isArray(ops) ? Promise.all(ops) : (ops as (tx: typeof prisma) => unknown)(prisma)))
+  })
+
+  it("blocks non-managers", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
+    await expect(revokeUserPasskeys(3)).resolves.toEqual({ error: "Unauthorized" })
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("blocks self-revoke", async () => {
+    mockSession.mockResolvedValue({ user: { id: "3", role: "ADMIN" } })
+    await expect(revokeUserPasskeys(3)).resolves.toEqual({ error: "Use My Account to manage your own passkeys" })
+  })
+
+  it("blocks OFFICE_ADMIN revoking an ADMIN", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "OFFICE_ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 3, role: "ADMIN", archivedAt: null })
+    await expect(revokeUserPasskeys(3)).resolves.toEqual({ error: "Unauthorized" })
+    expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("returns not found for archived users", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: new Date() })
+    await expect(revokeUserPasskeys(3)).resolves.toEqual({ error: "User not found" })
+  })
+
+  it("deletes every passkey, kills live sessions, and audits", async () => {
+    mockSession.mockResolvedValue({ user: { id: "42", role: "ADMIN" } })
+    await expect(revokeUserPasskeys(3)).resolves.toBeUndefined()
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 3 }, data: { sessionsValidFrom: expect.any(Date) } })
+    expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 3 } })
+    expect(mockLogAudit).toHaveBeenCalledWith(42, "PASSKEYS_REVOKED", "User", 3, { targetUserId: 3 })
     expect(mockRevalidate).toHaveBeenCalledWith("/users")
   })
 })
