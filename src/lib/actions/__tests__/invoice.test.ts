@@ -1,11 +1,11 @@
 import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices, getInvoiceSummary } from "@/lib/actions/invoice"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { redirect } from "next/navigation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
@@ -58,7 +58,7 @@ describe("createInvoice", () => {
       subtotal: "300.00", gstTotal: "30.00", total: "330.00", accountId: 4, fundId: null, createdById: 1,
       lines: [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }],
     }) })
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_CREATED", "Invoice", 11, { total: "330.00" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_CREATED", "Invoice", 11, { total: "330.00" })
     expect(redirect).toHaveBeenCalledWith("/accounting/invoices/11")
   })
   it("ignores GST when not registered", async () => {
@@ -178,7 +178,11 @@ describe("updateInvoice", () => {
   })
   it("audits on success", async () => {
     await updateInvoice(11, undefined, fd())
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
+  })
+  it("rolls the edit back when the in-transaction audit write fails", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    await expect(updateInvoice(11, undefined, fd())).rejects.toThrow("audit down")
   })
 })
 

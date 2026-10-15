@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { encryptOrNull, decryptOrNull } from "@/lib/nullableCrypto"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
@@ -12,7 +12,7 @@ import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, INVOICE_PAGE_SIZE, formatInvoiceCursor, invoiceCursorDate, parseInvoiceCursor, parseInvoiceDraft, type InvoiceCursor, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { isP2003, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
 import { endOfDayUTC } from "@/lib/dates"
 import type { ActionResult } from "./types"
@@ -37,14 +37,8 @@ type InvoiceListRow = {
   issueDate: string; dueDate: string; total: string; gstTotal: string; paidAt: Date | null
 }
 
+/** UTC `YYYY-MM-DD` date part of `d`. */
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
-
-/** True for a Postgres foreign-key violation (P2003): the referenced account was deleted mid-write. */
-function isFkViolation(e: unknown): boolean {
-  if (typeof e !== "object" || e === null) return false
-  const err = e as { code?: string; cause?: { kind?: string } }
-  return err.code === "P2003" || err.cause?.kind === "ForeignKeyConstraintViolation"
-}
 
 /**
  * Run an invoice write that validates its account and inserts/updates in one Serializable transaction.
@@ -61,7 +55,7 @@ async function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promis
     try {
       return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     } catch (e) {
-      if (!isP2034(e) && !isFkViolation(e)) throw e
+      if (!isP2034(e) && !isP2003(e)) throw e
       if (attempt >= MAX_TX_ATTEMPTS) return BUSY
     }
   }
@@ -124,11 +118,13 @@ export async function createInvoice(_prev: ActionResult, formData: FormData): Pr
   const created = await serializableWrite<{ error: string } | { row: { id: number } }>(async (tx) => {
     const refErr = await validateRefs(parsed.data, null, tx)
     if (refErr) return { error: refErr }
-    return { row: await tx.invoice.create({ data: { ...data, status: InvoiceStatus.DRAFT, createdById: uid } }) }
+    const row = await tx.invoice.create({ data: { ...data, status: InvoiceStatus.DRAFT, createdById: uid } })
+    // Audit inside the transaction so it commits or rolls back with the insert.
+    await logAuditTx(tx, uid, "INVOICE_CREATED", "Invoice", row.id, { total: data.total })
+    return { row }
   })
   if (!("row" in created)) return created
   const { row } = created
-  await logAudit(uid, "INVOICE_CREATED", "Invoice", row.id, { total: data.total })
   revalidatePath(INVOICES_PATH)
   redirect(`${INVOICES_PATH}/${row.id}`)
 }
@@ -157,10 +153,11 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
       where: { id, status: InvoiceStatus.DRAFT, ...(seenAt ? { updatedAt: seenAt } : {}) },
       data: { ...data, updatedAt: new Date() },
     })
-    return res.count === 0 ? CHANGED : null
+    if (res.count === 0) return CHANGED
+    await logAuditTx(tx, actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
+    return null
   })
   if (result) return result
-  await logAudit(actorId(session), "INVOICE_UPDATED", "Invoice", id, { total: data.total })
   revalidatePath(INVOICES_PATH)
   redirect(`${INVOICES_PATH}/${id}`)
 }
