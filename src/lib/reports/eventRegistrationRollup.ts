@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { centsToNumber, toCents } from "@/lib/formatting"
+import { CARD_PAYMENT_WHERE } from "@/lib/paymentMethod"
 
 export type EventRegistrationRollup = {
   /** All registrations, any status — same snapshot as the status counts. */
@@ -30,7 +31,7 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
       _sum: { totalAmount: true },
     }),
     prisma.registration.aggregate({
-      where: { eventId, paymentStatus: "PAID", paymentRef: { not: null } },
+      where: { eventId, paymentStatus: "PAID", ...CARD_PAYMENT_WHERE },
       _sum: { totalAmount: true },
     }),
   ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
@@ -39,9 +40,9 @@ export async function getEventRegistrationRollup(eventId: number): Promise<Event
   // Sum in integer cents so card + transfer always equals revenue exactly.
   const revenueCents = toCents(row("PAID")?._sum.totalAmount)
   const cardCents = toCents(cardRollup._sum.totalAmount)
-  // toCents yields NaN past the safe-integer range; never render a bogus figure.
+  // toCents yields NaN past the safe-integer range or on a malformed value; never render a bogus figure.
   if (!Number.isSafeInteger(revenueCents) || !Number.isSafeInteger(cardCents)) {
-    throw new Error(`event ${eventId} revenue rollup exceeds safe integer range`)
+    throw new Error(`event ${eventId} revenue rollup is not a safe integer (overflow or malformed aggregate)`)
   }
   return {
     total: statusRollup.reduce((n, r) => n + r._count._all, 0),

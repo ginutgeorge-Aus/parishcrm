@@ -24,4 +24,12 @@ describe("RegistrationStats", () => {
     )
     expect(screen.getByText("Card $100.00 · Bank transfer $50.00")).toBeInTheDocument()
   })
+
+  it("hides the split when no revenue came by card", () => {
+    render(
+      <RegistrationStats total={3} paid={3} cancelled={0} revenue={50} cardRevenue={0} transferRevenue={50} ticketsSold={[]} />
+    )
+    expect(screen.getByText("from paid registrations")).toBeInTheDocument()
+    expect(screen.queryByText(/Card \$/)).not.toBeInTheDocument()
+  })
 })
