@@ -18,36 +18,28 @@ import { fmtGrid } from "@/components/accounting/plFormat"
 import { APP_CURRENCY } from "@/lib/appConfig"
 
 /** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
-const cellCls = (v: number): string => {
-  return v === 0 ? "r zero" : "r";
-};
+function cellCls(v: number): string {
+  return v === 0 ? "r zero" : "r"
+}
 
 /** Net row tone: green surplus, red deficit, neutral when exactly balanced. */
-const netCls = (net: number): string => {
-  const netMap: Record<number, string> = { 1: "positive", -1: "negative", 0: "" };
-  return netMap[Math.sign(net)];
-};
+function netCls(net: number): string {
+  return net > 0 ? "positive" : net < 0 ? "negative" : ""
+}
 
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
 }
 
 /**
- * Formats an amount in cents to an AUD accounting string.
- * @param cents The amount in integer cents.
- * @returns The formatted string representation.
+ * Formats integer cents as an AUD accounting string — same accumulation path
+ * as the on-screen report, so print and screen totals match to the cent.
  */
-// Takes integer cents — same accumulation path as the on-screen report,
-// so print and screen totals are identical to the cent.
-const fmt = (cents: number): string => {
-  return fmtAUDAccounting(centsToNumber(cents));
+function fmt(cents: number): string {
+  return fmtAUDAccounting(centsToNumber(cents))
 }
 
-/**
- * Renders the profit and loss report print page.
- * @param props Readonly props including search parameters promise.
- * @returns The JSX element for the print page.
- */
+/** Server-rendered, print-optimised P&L report (annual or `?view=monthly`). */
 export default async function PLPrintPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
   const session = await auth()
@@ -111,7 +103,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
           {group.accounts.length > 1 && (
             <tr className="group-total">
               <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-              {gMonthly.map((v) => <td key={v.id} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              {gMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
               <td className={cellCls(gTotal)} style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
             </tr>
           )}
@@ -149,44 +141,6 @@ export default async function PLPrintPage(props: Readonly<Props>) {
       <style nonce={nonce}>{`
         /* Print-scoped palette — CSS vars defined here apply reliably in @media print (unlike app :root tokens). */
         :root { --c-meta: #666; --c-rule-strong: #333; --c-rule: #eee; --c-rule-mid: #999; --c-label: #555; --c-label-dim: #888; --c-zebra: #f8f8f8; --c-pos: #166534; --c-neg: #991b1b; }
-      const MonthlyReportTable = ({
-        incomeGroups,
-        incomeMonthly,
-        totalIncome,
-        expenseGroups,
-        expenseMonthly,
-        totalExpenses
-      }) => (
-        <table>
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Category</th>
-              {MONTH_LABELS.map((m) => <th key={m} className="r">{m}</th>)}
-              <th className="r">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="section-header"><td colSpan={MONTHLY_COLS}>Income</td></tr>
-            {renderMonthlyGroups(incomeGroups, "ig")}
-            <tr className="section-total">
-              <td colSpan={2}>Total Income</td>
-              {incomeMonthly.map((v) => <td key={v.id} className={cellCls(v)}>{fmtGrid(v)}</td>)}
-              <td className={cellCls(totalIncome)}>{fmtGrid(totalIncome)}</td>
-            </tr>
-
-            <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
-            {renderMonthlyGroups(expenseGroups, "eg")}
-            <tr className="section-total">
-              <td colSpan={2}>Total Expenses</td>
-              {expenseMonthly.map((v) => <td key={v.id} className={cellCls(v)}>{fmtGrid(v)}</td>)}
-              <td className={cellCls(totalExpenses)}>{fmtGrid(totalExpenses)}</td>
-            </tr>
-          </tbody>
-        </table>
-      );
-
-      <style jsx>{`  
         body { font-family: sans-serif; font-size: 11px; margin: 24px; }
         h1 { font-size: 16px; margin-bottom: 2px; }
         .meta { color: var(--c-meta); font-size: 10px; margin-bottom: 16px; }
@@ -212,22 +166,37 @@ export default async function PLPrintPage(props: Readonly<Props>) {
       </p>
 
       {isMonthly ? (
-        <MonthlyReportTable
-          incomeGroups={incomeGroups}
-          incomeMonthly={incomeMonthly}
-          totalIncome={totalIncome}
-          expenseGroups={expenseGroups}
-          expenseMonthly={expenseMonthly}
-          totalExpenses={totalExpenses}
-        />
-      ) : (
-        /* non-monthly rendering */
-      )
+        <>
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Category</th>
+                {MONTH_LABELS.map((m) => <th key={m} className="r">{m}</th>)}
+                <th className="r">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="section-header"><td colSpan={MONTHLY_COLS}>Income</td></tr>
+              {renderMonthlyGroups(incomeGroups, "ig")}
+              <tr className="section-total">
+                <td colSpan={2}>Total Income</td>
+                {incomeMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                <td className={cellCls(totalIncome)}>{fmtGrid(totalIncome)}</td>
+              </tr>
+
+              <tr className="section-header"><td colSpan={MONTHLY_COLS}>Expenses</td></tr>
+              {renderMonthlyGroups(expenseGroups, "eg")}
+              <tr className="section-total">
+                <td colSpan={2}>Total Expenses</td>
+                {expenseMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                <td className={cellCls(totalExpenses)}>{fmtGrid(totalExpenses)}</td>
+              </tr>
             </tbody>
             <tfoot>
               <tr className={`net ${netCls(net)}`}>
                 <td colSpan={2}>Net Surplus / (Deficit)</td>
-                {netMonthly.map((v, i) => <td key={`${v}-${i}`} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {netMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
                 <td className={cellCls(net)}>{fmtGrid(net)}</td>
               </tr>
             </tfoot>
