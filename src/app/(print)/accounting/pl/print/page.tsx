@@ -8,13 +8,13 @@ import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromHeaders } from "@/lib/clientIp"
 import { MONTH_LABELS } from "@/lib/reports/plHelpers"
-import { centsToNumber, fmtAUDAccounting, MONTH_ABBR } from "@/lib/formatting"
+import { MONTH_ABBR } from "@/lib/formatting"
 import { fyRangeLabel } from "@/lib/fiscalYear"
 import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
-import { fmtGrid } from "@/components/accounting/plFormat"
+import { fmt, fmtGrid } from "@/components/accounting/plFormat"
 import { APP_CURRENCY } from "@/lib/appConfig"
 
 /** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
@@ -29,14 +29,6 @@ function netCls(net: number): string {
 
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
-}
-
-/**
- * Formats integer cents as an AUD accounting string — same accumulation path
- * as the on-screen report, so print and screen totals match to the cent.
- */
-function fmt(cents: number): string {
-  return fmtAUDAccounting(centsToNumber(cents))
 }
 
 /** Server-rendered, print-optimised P&L report (annual or `?view=monthly`). */
