@@ -45,3 +45,6 @@ name = "shell"
 
 [[analyzers]]
 name = "sql"
+
+  [analyzers.meta]
+  dialect = "postgres"
