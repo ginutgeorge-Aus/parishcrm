@@ -1,0 +1,28 @@
+version = 1
+
+test_patterns = [
+  "**/__tests__/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+]
+
+exclude_patterns = [
+  "src/lib/generated/**",
+  "src/components/ui/**",
+  "website/**",
+  "public/**",
+]
+
+[[analyzers]]
+name = "javascript"
+
+  [analyzers.meta]
+  plugins = ["react"]
+  environment = ["nodejs", "browser", "jest"]
+  dialect = "typescript"
+
+[[analyzers]]
+name = "docker"
+
+[[analyzers]]
+name = "secrets"
