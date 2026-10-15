@@ -14,7 +14,7 @@ import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
-import { fmt, fmtGrid } from "@/components/accounting/plFormat"
+import { accountTotal, fmt, fmtGrid } from "@/components/accounting/plFormat"
 import { APP_CURRENCY } from "@/lib/appConfig"
 
 /** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
@@ -62,7 +62,6 @@ export default async function PLPrintPage(props: Readonly<Props>) {
   } = await getPLReportData(year, isMonthly)
 
   /** Annual total (integer cents) for one account; 0 when it has no transactions. */
-  const accountTotal = (a: { id: number }): number => totalMap.get(a.id) ?? 0
 
   const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
 
@@ -80,7 +79,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
         (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0))[i]),
         new Array<number>(12).fill(0),
       )
-      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
+      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
       return (
         <React.Fragment key={`${prefix}-${group.accounts[0].id}`}>
           <tr className="group-header"><td colSpan={MONTHLY_COLS}>{group.groupName}</td></tr>
@@ -89,7 +88,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
               {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
-              <td className={cellCls(accountTotal(a))} style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a))}</td>
+              <td className={cellCls(accountTotal(a, totalMap))} style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a, totalMap))}</td>
             </tr>
           ))}
           {group.accounts.length > 1 && (
@@ -106,7 +105,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
   /** Annual-view rows for one section's groups (same shape, one Actual column). */
   const renderAnnualGroups = (groups: Group[], prefix: string) =>
     groups.map((group) => {
-      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a), 0)
+      const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
       return (
         <React.Fragment key={`${prefix}-${group.accounts[0].id}`}>
           <tr className="group-header"><td colSpan={3}>{group.groupName}</td></tr>
@@ -114,7 +113,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              <td className="r">{fmt(accountTotal(a))}</td>
+              <td className="r">{fmt(accountTotal(a, totalMap))}</td>
             </tr>
           ))}
           <tr className="group-total">

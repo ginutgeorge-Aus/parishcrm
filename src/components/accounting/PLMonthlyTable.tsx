@@ -100,7 +100,7 @@ const renderMonthlyGroups = (
                   {group.groupName} subtotal
                 </td>
                 {groupMonthly.map((v, i) => (
-                  <td key={`${v}-${i}`} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
+                  <td key={i} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
                     {fmtGrid(v)}
                   </td>
                 ))}
