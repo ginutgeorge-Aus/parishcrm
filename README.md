@@ -10,6 +10,8 @@ event ticketing, petty cash, membership, and receipts, in one app your church ru
 
 🌐 **[Website & documentation](https://ginutgeorge-aus.github.io/parishcrm/)** — every feature in detail: how to use it, how it works, and how to configure it.
 
+🧪 **[Live demo](https://parishcrm-demo.onrender.com)** — one-click login as each role, sample data only, resets nightly. Free hosting, so the first visit can take a minute to wake up.
+
 > **Single-tenant by design.** One deployment per church, driven by settings a church
 > types in — not a multi-tenant SaaS. Your data stays on your server, encrypted at rest.
 
