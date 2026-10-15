@@ -5,10 +5,13 @@ type Props = {
   paid: number
   cancelled: number
   revenue: number
+  /** Paid revenue split by payment method (card = Stripe, transfer = everything else). */
+  cardRevenue: number
+  transferRevenue: number
   ticketsSold: { name: string; count: number }[]
 }
 
-export function RegistrationStats({ total, paid, cancelled, revenue, ticketsSold }: Readonly<Props>) {
+export function RegistrationStats({ total, paid, cancelled, revenue, cardRevenue, transferRevenue, ticketsSold }: Readonly<Props>) {
   // CANCELLED registrations still count toward the headline total but are neither
   // paid nor pending.
   const pending = total - paid - cancelled
@@ -20,7 +23,11 @@ export function RegistrationStats({ total, paid, cancelled, revenue, ticketsSold
         [
           { label: "Registered", value: total, sub: registeredSub },
           { label: "Paid", value: paid, sub: `${pending} pending`, valueClass: "text-income" },
-          { label: "Revenue", value: fmtAUD(revenue), sub: "from paid registrations" },
+          {
+            label: "Revenue",
+            value: fmtAUD(revenue),
+            sub: `Card ${fmtAUD(cardRevenue)} · Bank transfer ${fmtAUD(transferRevenue)}`,
+          },
           {
             label: "Tickets Sold",
             value: ticketsSold.reduce((s, t) => s + t.count, 0),

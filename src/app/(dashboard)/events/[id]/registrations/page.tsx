@@ -5,11 +5,11 @@ import { canEdit, canViewPeople, isAdmin } from "@/lib/roleGuard"
 import { resetEventRegistrations, lastRemindedAtByRegistration } from "@/lib/actions/registration"
 import { DeleteEventButton } from "@/components/events/DeleteEventButton"
 import { safeDecrypt } from "@/lib/crypto"
-import { centsToNumber, toCents } from "@/lib/formatting"
 import { toFloat } from "@/lib/utils"
 import { formatSydneyDate } from "@/lib/dates"
 import Link from "next/link"
 import { RegistrationStats } from "@/components/events/RegistrationStats"
+import { getEventRegistrationRollup } from "@/lib/reports/eventRegistrationRollup"
 import { EventAnalytics } from "@/components/events/EventAnalytics"
 import { fillRates, revenueByType, regsOverTime } from "@/lib/reports/eventAnalytics"
 import { RegistrationsTable } from "@/components/events/RegistrationsTable"
@@ -31,6 +31,11 @@ const EVENT_REGISTRATIONS_CAP = 2000
 
 type Props = { params: Promise<{ id: string }> }
 
+/**
+ * Renders the registrations page for an event, handling authentication, data fetching, and UI rendering.
+ * @param props - Readonly Props object containing params with the event ID.
+ * @returns A React component displaying event registrations, analytics, and management tools.
+ */
 export default async function RegistrationsPage(props: Readonly<Props>) {
   const params = await props.params;
   const session = await auth()
@@ -59,7 +64,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
         orderBy: { createdAt: "desc" },
         take: EVENT_REGISTRATIONS_CAP,
       },
-      _count: { select: { waitlist: true, checkoutSessions: true, registrations: true } },
+      _count: { select: { waitlist: true, checkoutSessions: true } },
     },
   })
   if (!event) notFound()
@@ -77,17 +82,8 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
   // Headline stats come from a DB rollup over ALL registrations, not the capped
   // list above — so total/paid/cancelled/revenue stay exact even when the table
   // is truncated.
-  const statusRollup = await prisma.registration.groupBy({
-    by: ["paymentStatus"],
-    where: { eventId },
-    _count: { _all: true },
-    _sum: { totalAmount: true },
-  })
-  const countOf = (status: string) => statusRollup.find(r => r.paymentStatus === status)?._count._all ?? 0
-  const totalRegistrations = event._count.registrations
-  const paidCount = countOf("PAID")
-  const cancelled = countOf("CANCELLED")
-  const revenue = centsToNumber(toCents(statusRollup.find(r => r.paymentStatus === "PAID")?._sum.totalAmount))
+  const { total: totalRegistrations, paid: paidCount, cancelled, revenue, cardRevenue, transferRevenue } =
+    await getEventRegistrationRollup(eventId)
 
   const ticketsSold = event.ticketTypes.map(tt => ({
     name: tt.name,
@@ -177,6 +173,8 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
         paid={paidCount}
         cancelled={cancelled}
         revenue={revenue}
+        cardRevenue={cardRevenue}
+        transferRevenue={transferRevenue}
         ticketsSold={ticketsSold}
       />
 
