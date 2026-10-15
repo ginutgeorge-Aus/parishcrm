@@ -128,7 +128,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       <fieldset className="space-y-2">
         <legend className="font-medium">Lines {gstEnabled && <span className="text-sm text-muted-foreground">(prices exclude GST)</span>}</legend>
         {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-12 items-end gap-2">
+          <div key={l.id} className="grid grid-cols-12 items-end gap-2">
             <Input className="col-span-6" aria-label={`Line ${i + 1} description`} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
             <Input className="col-span-2" aria-label={`Line ${i + 1} quantity`} inputMode="numeric" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
             <Input className="col-span-2" aria-label={`Line ${i + 1} unit price`} inputMode="decimal" value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />

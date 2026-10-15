@@ -13,8 +13,8 @@ export default function Loading() {
 
       {/* Summary — 4 stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+        {Array.from({ length: 4 }, (_, i) => i + 1).map((id) => (
+          <div key={id} className="h-20 rounded-lg bg-muted animate-pulse" />
         ))}
       </div>
 
@@ -22,8 +22,8 @@ export default function Loading() {
       <div className="space-y-2">
         <div className="h-5 w-40 rounded bg-muted animate-pulse" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+          {['loading-skeleton-1', 'loading-skeleton-2', 'loading-skeleton-3'].map((id) => (
+            <div key={id} className="h-20 rounded-lg bg-muted animate-pulse" />
           ))}
         </div>
       </div>
@@ -32,7 +32,7 @@ export default function Loading() {
       <div className="space-y-2">
         <div className="h-5 w-48 rounded bg-muted animate-pulse" />
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-10 w-full rounded bg-muted animate-pulse" />
+          <div key={`loading-line-${i}`} className="h-10 w-full rounded bg-muted animate-pulse" />
         ))}
       </div>
     </LoadingStatus>

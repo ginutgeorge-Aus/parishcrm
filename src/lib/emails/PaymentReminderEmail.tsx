@@ -25,8 +25,8 @@ export function PaymentReminderEmail(props: Readonly<PaymentReminderData>) {
       {/* Operator's editable message. Rendered as its own paragraph — never merged
           into template slots, and split on blank lines so multi-paragraph text
           keeps its breaks. */}
-      {props.message.split(/\n{2,}/).map((para, i) => (
-        <Text key={i} style={{ fontSize: "14px", color: "#334155", whiteSpace: "pre-line" }}>
+      {props.message.split(/\n{2,}/).map((para) => (
+        <Text key={para} style={{ fontSize: "14px", color: "#334155", whiteSpace: "pre-line" }}>
           {para}
         </Text>
       ))}

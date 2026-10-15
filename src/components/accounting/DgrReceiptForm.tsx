@@ -195,7 +195,7 @@ export default function DgrReceiptForm({
       <div className="space-y-3">
         <Label>Donation lines</Label>
         {lines.map((l, i) => (
-          <div key={i} className="flex flex-wrap items-end gap-2">
+          <div key={l.id} className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
               <span className="text-xs text-muted-foreground block">Date</span>
               <Input

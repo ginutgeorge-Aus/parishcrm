@@ -208,8 +208,8 @@ export function ImportClient() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {previewRows.map((row, i) => (
-                <TableRow key={`${row.family.name}-${row.person.firstName}-${row.person.lastName}-${i}`}>
+              {previewRows.map((row) => (
+                <TableRow key={`${row.family.name}-${row.person.firstName}-${row.person.lastName}`}>  
                   <TableCell className="font-medium">{row.family.name}</TableCell>
                   <TableCell>{row.person.firstName} {row.person.lastName}</TableCell>
                   <TableCell>
@@ -267,8 +267,8 @@ export function ImportClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {result.errors.map((err, i) => (
-                  <TableRow key={`${err.row}-${i}`}>
+                {result.errors.map((err) => (
+                  <TableRow key={`${err.row}-${err.message}`}>
                     <TableCell>
                       <Badge variant="destructive">{err.row}</Badge>
                     </TableCell>

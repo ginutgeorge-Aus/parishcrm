@@ -61,8 +61,8 @@ function OrganizerList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
       <Text style={{ ...label, fontWeight: 700, textTransform: "uppercase" }}>
         {organizers.length === 1 ? "Organiser" : "Organisers"}
       </Text>
-      {organizers.map((o, i) => (
-        <Text key={i} style={{ ...value, marginBottom: "4px" }}>
+      {organizers.map((o) => (
+        <Text key={o.id} style={{ ...value, marginBottom: "4px" }}>
           {o.name}
           {o.phone ? (
             <span style={{ fontWeight: 400, color: "#64748b" }}> — {o.phone}</span>
@@ -103,8 +103,8 @@ export function RegistrationConfirmationEmail(props: Readonly<RegistrationConfir
 
       <Hr />
       <Section>
-        {props.items.map((it, i) => (
-          <Text key={i} style={{ fontSize: "14px", color: "#334155", margin: "0 0 4px" }}>
+        {props.items.map((it) => (
+          <Text key={`${it.ticketName}-${it.attendeeNames.join(", ")}`} style={{ fontSize: "14px", color: "#334155", margin: "0 0 4px" }}>
             {it.quantity}× {it.ticketName}
             {it.attendeeNames.length > 0 ? ` — ${it.attendeeNames.join(", ")}` : ""}
           </Text>

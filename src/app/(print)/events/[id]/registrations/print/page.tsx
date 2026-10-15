@@ -124,8 +124,8 @@ export default async function PrintPage(props: Readonly<Props>) {
               <td>{r.email ? safeDecrypt(r.email) : "—"}</td>
               <td>{r.phone ? safeDecrypt(r.phone) : "—"}</td>
               <td>
-                {r.items.map((i, idx) => (
-                  <div key={idx}>
+                {r.items.map((i) => (
+                  <div key={i.id}>
                     {i.quantity}× {i.ticketType.name}
                     {i.attendees.length > 0 && `: ${i.attendees.map((a: { name: string }) => a.name).join(", ")}`}
                   </div>
@@ -149,8 +149,8 @@ export default async function PrintPage(props: Readonly<Props>) {
           </tr>
         </thead>
         <tbody>
-          {attendees.map((a, idx) => (
-            <tr key={idx}>
+          {attendees.map((a) => (
+            <tr key={a.id}>
               <td>{a.name}</td>
               <td>{a.ticketType}</td>
               <td>{a.bookedBy}</td>
@@ -188,7 +188,7 @@ export default async function PrintPage(props: Readonly<Props>) {
                   }
                 }
                 return rows.map((row, idx) => (
-                  <tr key={`${r.id}-${idx}`}>
+                  <tr key={row.id}>
                     <td>{idx === 0 ? ref : ""}</td>
                     <td>{row.name}</td>
                     <td style={{ fontSize: "11px" }}>{row.ticket}</td>

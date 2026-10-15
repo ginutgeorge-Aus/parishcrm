@@ -95,7 +95,7 @@ export function TicketPicker({ ticketTypes, soldCounts, quantities, names, onCha
               {qty > 0 && (
                 <div className="flex flex-col gap-1.5 pl-1">
                   {Array.from({ length: qty }).map((_, i) => (
-                    <div key={i} className="flex flex-col gap-1.5">
+                    <div key={`att-${tt.id}-${i}`} className="flex flex-col gap-1.5">
                       <label htmlFor={`att-name-${tt.id}-${i}`} className="text-sm font-medium text-foreground">
                         {`${tt.name} ${i + 1}`}
                       </label>

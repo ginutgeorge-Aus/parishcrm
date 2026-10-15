@@ -110,8 +110,8 @@ export default async function SubmissionDetail(props: Readonly<Props>) {
         <h3 className="font-medium mb-2">Family contact</h3>
         <DiffTable rows={diff.family} />
       </section>
-      {diff.members.map((m, i) => (
-        <section key={i}>
+      {diff.members.map((m) => (
+        <section key={m.label}>
           <h3 className="font-medium mb-2">
             {m.label}{" "}
             {m.isNew && <span className="text-xs bg-income/10 text-income px-2 py-0.5 rounded">NEW</span>}

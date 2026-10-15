@@ -102,8 +102,8 @@ export default async function InvoicePage(props: Readonly<{ params: Promise<{ id
             </tr>
           </thead>
           <tbody>
-            {inv.lines.map((l, i) => (
-              <tr key={i} className="border-t border-border">
+            {inv.lines.map((l) => (
+              <tr key={l.id} className="border-t border-border">
                 <td className="px-3 py-2">{l.description}</td>
                 <td className="px-3 py-2 text-right">{l.qty}</td>
                 <td className="px-3 py-2 text-right">{money(l.unitPriceCents)}</td>

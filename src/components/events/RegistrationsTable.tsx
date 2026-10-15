@@ -247,8 +247,8 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                 <TableCell className="text-muted-foreground">{reg.phone ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">
                   <div className="flex flex-col gap-0.5">
-                    {reg.items.map((i, idx) => (
-                      <div key={idx}>
+                    {reg.items.map(i => (
+                      <div key={i.id}>
                         <span className="font-medium text-muted-foreground">{i.quantity} {i.ticketType.name}</span>
                         {i.attendees.length > 0 && (
                           <span className="text-muted-foreground">: {i.attendees.map(a => a.name).join(", ")}</span>
@@ -306,8 +306,8 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
               </span>
             </div>
             <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">
-              {reg.items.map((i, idx) => (
-                <div key={idx}>
+              {reg.items.map((i) => (
+                <div key={i.id}>
                   <span className="font-medium text-muted-foreground">{i.quantity} {i.ticketType.name}</span>
                   {i.attendees.length > 0 && (
                     <span className="text-muted-foreground">: {i.attendees.map(a => a.name).join(", ")}</span>

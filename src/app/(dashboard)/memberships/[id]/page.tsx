@@ -107,8 +107,8 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
         <section className="rounded-md border p-4">
           <h3 className="font-semibold mb-2">Children</h3>
           <ul className="text-sm list-disc pl-5">
-            {p.children.map((c, i) => (
-              <li key={i}>{[c.name, c.sex, c.dateOfBirth].filter(Boolean).join(" · ")}</li>
+            {p.children.map((c) => (
+              <li key={[c.name, c.sex, c.dateOfBirth].filter(Boolean).join("-")}>{[c.name, c.sex, c.dateOfBirth].filter(Boolean).join(" · ")}</li>
             ))}
           </ul>
         </section>
@@ -118,8 +118,8 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
         <section className="rounded-md border p-4">
           <h3 className="font-semibold mb-2">Other Dependents</h3>
           <ul className="text-sm list-disc pl-5">
-            {p.dependents.map((d, i) => (
-              <li key={i}>{[d.name, d.sex, d.dateOfBirth, d.relationship].filter(Boolean).join(" · ")}</li>
+            {p.dependents.map((d) => (
+              <li key={`${d.name}-${d.dateOfBirth}-${d.relationship}`}>{[d.name, d.sex, d.dateOfBirth, d.relationship].filter(Boolean).join(" · ")}</li>
             ))}
           </ul>
         </section>

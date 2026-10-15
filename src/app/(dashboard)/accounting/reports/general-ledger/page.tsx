@@ -114,8 +114,8 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-border">
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b border-border">
                     <td className="py-2 pr-3 whitespace-nowrap">{formatDMY(r.date)}</td>
                     <td className="py-2 pr-3">{r.description}</td>
                     <td className="py-2 pr-3 text-muted-foreground">{r.reference ?? "—"}</td>
@@ -134,8 +134,8 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
                 No transactions found
               </li>
             )}
-            {rows.map((r, i) => (
-              <li key={i} className="rounded-lg border bg-card p-3">
+            {rows.map((r) => (
+              <li key={`${r.date}-${r.description}`} className="rounded-lg border bg-card p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium">{r.description}</p>

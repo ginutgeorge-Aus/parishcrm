@@ -20,8 +20,8 @@ export default async function WhatsNewPage() {
                 <span className="text-xs text-muted-foreground">{e.date}</span>
               </div>
               <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                {e.highlights.map((h, i) => (
-                  <li key={`${e.version}-${i}`}>{h}</li>
+                {e.highlights.map((h) => (
+                  <li key={`${e.version}-${h}`}>{h}</li>
                 ))}
               </ul>
             </li>

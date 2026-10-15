@@ -54,7 +54,7 @@ function renderMonthlyGroups(
                     <PLAccountName account={a} year={year} />
                   </td>
                   {acctMonthly.map((v, i) => (
-                    <td key={i} className="py-1.5 px-1 text-right tabular whitespace-nowrap">
+                    <td key={`${a.id}-${year}-${i}`} className="py-1.5 px-1 text-right tabular whitespace-nowrap">
                       {/* Link any month with rows — offsetting entries can net to 0. */}
                       {!acctCounts?.[i] ? (
                         fmt(v)
@@ -75,8 +75,8 @@ function renderMonthlyGroups(
               <td colSpan={2} className="py-1 pr-3 pl-4 text-xs text-muted-foreground italic whitespace-nowrap">
                 {group.groupName} subtotal
               </td>
-              {groupMonthly.map((v, i) => (
-                <td key={i} className="py-1 px-1 text-right tabular text-xs font-medium whitespace-nowrap">
+              {groupMonthly.map((v) => (
+                <td key={v.id} className="py-1 px-1 text-right tabular text-xs font-medium whitespace-nowrap">
                   {fmt(v)}
                 </td>
               ))}
@@ -89,8 +89,8 @@ function renderMonthlyGroups(
       })}
       <tr className="border-t-2 border-border font-semibold">
         <td colSpan={2} className="py-2 pr-3 whitespace-nowrap">{totalLabel}</td>
-        {sectionMonthly.map((v, i) => (
-          <td key={i} className="py-2 px-1 text-right tabular whitespace-nowrap">
+        {sectionMonthly.map((v) => (
+          <td key={v} className="py-2 px-1 text-right tabular whitespace-nowrap">
             {fmt(v)}
           </td>
         ))}
@@ -174,7 +174,7 @@ export function PLMonthlyTable({
             <td colSpan={2} className="pt-3 pr-3 whitespace-nowrap">Net Surplus / (Deficit)</td>
             {netMonthly.map((v, i) => (
               <td
-                key={i}
+                key={`${v}-${i}`}
                 className={`pt-3 px-1 text-right tabular whitespace-nowrap ${v >= 0 ? "text-income" : "text-expense"}`}
               >
                 {fmt(v)}

@@ -19,7 +19,7 @@ export function ListPageSkeleton({ rows = 8, rowHeight = "h-12" }: Readonly<{ ro
       {/* List rows */}
       <div className="space-y-2">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className={`${rowHeight} w-full rounded bg-muted animate-pulse`} />
+          <div key={`${rowHeight}-${i}`} className={`${rowHeight} w-full rounded bg-muted animate-pulse`} />
         ))}
       </div>
     </LoadingStatus>

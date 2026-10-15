@@ -299,7 +299,7 @@ export function QuestionField({ q, idPrefix, value, onChange }: Readonly<Questio
             {q.statements.map((s, k) => {
               const sId = `${idPrefix}-${q.id}-s${k}`
               return (
-                <label key={k} className="flex items-start gap-2 py-1.5 text-sm text-foreground">
+                <label key={sId} className="flex items-start gap-2 py-1.5 text-sm text-foreground">
                   <input
                     type="checkbox"
                     className="h-5 w-5 shrink-0 mt-0.5"

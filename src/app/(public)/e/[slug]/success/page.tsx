@@ -340,8 +340,8 @@ function OrganizersList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
         {organizers.length === 1 ? "Organiser" : "Organisers"}
       </p>
       <div className="flex flex-col gap-1 text-sm">
-        {organizers.map((o, i) => (
-          <div key={i} className="flex items-center justify-between gap-2">
+        {organizers.map((o) => (
+          <div key={`${o.name}-${o.phone}`} className="flex items-center justify-between gap-2">
             <span className="font-semibold text-foreground">{o.name}</span>
             {o.phone && (
               <a href={`tel:${o.phone.replace(/\s+/g, "")}`} className="text-primary underline">

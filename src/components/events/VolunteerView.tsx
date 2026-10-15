@@ -66,8 +66,8 @@ export function VolunteerView({
         </div>
         {overallPct != null && <p className="text-sm text-muted-foreground mt-1">{overallPct}% full</p>}
         <ul className="mt-3 space-y-1">
-          {fills.map((f, i) => (
-            <li key={i} className="flex justify-between text-sm">
+          {fills.map((f) => (
+            <li key={f.name} className="flex justify-between text-sm">
               <span className="text-muted-foreground">{f.name}</span>
               <span className="text-foreground">
                 {f.sold}
@@ -83,11 +83,11 @@ export function VolunteerView({
         Bookings ({registrations.length})
       </h2>
       <ul className="space-y-2">
-        {registrations.map((r, i) => {
+        {registrations.map((r) => {
           const badge = BADGE[bookingStatus(r.paymentStatus, r.totalAmount)]
           return (
             <li
-              key={i}
+              key={r.id}
               className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2"
             >
               <div className="min-w-0">

@@ -558,7 +558,7 @@ function RowSection<T extends { name: string }>(props: Readonly<{
         {rows.map((row, i) => {
           const rowHeadingId = `${slug(title)}-row-${i}-heading`
           return (
-          <div key={i} className="space-y-1">
+          <div key={row.id} className="space-y-1">
             {/* sr-only row heading: sighted users see the visible per-column
                 labels below; SR users get "<title>, row N" prepended to each
                 column's accessible name so repeated columns stay distinct. */}

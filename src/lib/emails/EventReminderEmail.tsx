@@ -40,8 +40,8 @@ export function EventReminderEmail(props: Readonly<EventReminderData>) {
       {props.organizers && props.organizers.length > 0 ? (
         <Section>
           <Text style={label}>{props.organizers.length === 1 ? "Organiser" : "Organisers"}</Text>
-          {props.organizers.map((o, i) => (
-            <Text key={i} style={{ ...value, marginBottom: "4px" }}>
+          {props.organizers.map((o) => (
+            <Text key={`${o.name}-${o.phone || ''}`} style={{ ...value, marginBottom: "4px" }}>
               {o.name}
               {o.phone ? (
                 <span style={{ fontWeight: 400, color: "#64748b" }}> — {o.phone}</span>

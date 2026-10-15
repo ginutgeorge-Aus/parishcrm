@@ -101,7 +101,7 @@ export function EventHero({ title, description, date, endDate, location, organiz
                 {organizers.length === 1 ? "Organiser: " : "Organisers: "}
               </span>
               {organizers.map((o, i) => (
-                <span key={i}>
+                <span key={o.id}>
                   {i > 0 && ", "}
                   {o.name}
                   {o.phone && (

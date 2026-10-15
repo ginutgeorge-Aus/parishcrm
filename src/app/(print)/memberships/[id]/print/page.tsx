@@ -131,7 +131,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
             </thead>
             <tbody>
               {p.children.map((c, i) => (
-                <tr key={i}><td>{i + 1}</td><td>{c.name}</td><td>{c.sex}</td><td>{c.dateOfBirth}</td><td>{c.occupation}</td><td>{c.phoneEmail}</td></tr>
+                <tr key={`${c.name}-${c.dateOfBirth}`}><td>{i + 1}</td><td>{c.name}</td><td>{c.sex}</td><td>{c.dateOfBirth}</td><td>{c.occupation}</td><td>{c.phoneEmail}</td></tr>
               ))}
             </tbody>
           </table>
@@ -147,7 +147,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
             </thead>
             <tbody>
               {p.dependents.map((d, i) => (
-                <tr key={i}><td>{i + 1}</td><td>{d.name}</td><td>{d.sex}</td><td>{d.dateOfBirth}</td><td>{d.relationship}</td><td>{d.phoneEmail}</td></tr>
+                <tr key={d.id}><td>{i + 1}</td><td>{d.name}</td><td>{d.sex}</td><td>{d.dateOfBirth}</td><td>{d.relationship}</td><td>{d.phoneEmail}</td></tr>
               ))}
             </tbody>
           </table>
@@ -163,7 +163,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
             </thead>
             <tbody>
               {p.relativesInAustralia.map((r, i) => (
-                <tr key={i}><td>{i + 1}</td><td>{r.name}</td><td>{r.place}</td><td>{r.relationship}</td><td>{r.phoneEmail}</td></tr>
+                <tr key={r.phoneEmail}><td>{i + 1}</td><td>{r.name}</td><td>{r.place}</td><td>{r.relationship}</td><td>{r.phoneEmail}</td></tr>
               ))}
             </tbody>
           </table>

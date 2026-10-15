@@ -17,8 +17,8 @@ export function RegistrationClosedPanel({ title, organizers, message }: Readonly
         <div className="mt-4 text-sm">
           <p className="text-muted-foreground">Please contact:</p>
           <ul className="mt-2 space-y-1">
-            {organizers.map((o, i) => (
-              <li key={i}>
+            {organizers.map((o) => (
+              <li key={o.id}>
                 {o.name}
                 {o.phone && (
                   <>

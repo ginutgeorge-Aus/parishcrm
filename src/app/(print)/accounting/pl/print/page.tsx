@@ -80,13 +80,13 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={`${a.id}-${i}`} className="r">{fmt(v)}</td>)}
               <td className="r" style={{ fontWeight: 600 }}>{fmt(accountTotal(a))}</td>
             </tr>
           ))}
           <tr className="group-total">
             <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-            {gMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+            {gMonthly.map(v => <td key={v} className="r">{fmt(v)}</td>)}
             <td className="r" style={{ fontWeight: 600 }}>{fmt(gTotal)}</td>
           </tr>
         </React.Fragment>
@@ -161,7 +161,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             {renderMonthlyGroups(incomeGroups, "ig")}
             <tr className="section-total">
               <td colSpan={2}>Total Income</td>
-              {incomeMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+              {incomeMonthly.map((v) => <td key={v} className="r">{fmt(v)}</td>)}
               <td className="r">{fmt(totalIncome)}</td>
             </tr>
 
@@ -169,14 +169,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             {renderMonthlyGroups(expenseGroups, "eg")}
             <tr className="section-total">
               <td colSpan={2}>Total Expenses</td>
-              {expenseMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+              {expenseMonthly.map((v, i) => <td key={`${v}-${i}`} className="r">{fmt(v)}</td>)}
               <td className="r">{fmt(totalExpenses)}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr className={`net ${net >= 0 ? "positive" : "negative"}`}>
               <td colSpan={2}>Net Surplus / (Deficit)</td>
-              {netMonthly.map((v, i) => <td key={i} className="r">{fmt(v)}</td>)}
+              {netMonthly.map((v) => <td key={v} className="r">{fmt(v)}</td>)}
               <td className="r">{fmt(net)}</td>
             </tr>
           </tfoot>

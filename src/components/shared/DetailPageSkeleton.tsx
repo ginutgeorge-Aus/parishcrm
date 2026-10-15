@@ -12,7 +12,7 @@ export function DetailPageSkeleton({ rows = 4 }: Readonly<{ rows?: number }>) {
       <div className="h-7 w-48 rounded bg-muted animate-pulse" />
       <div className="space-y-3">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="h-10 w-full rounded bg-muted animate-pulse" />
+          <div key={`row-${i}`} className="h-10 w-full rounded bg-muted animate-pulse" />
         ))}
       </div>
     </LoadingStatus>
