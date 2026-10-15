@@ -46,7 +46,8 @@ for when you don't have that device with you.
 
 You can have up to 10 passkeys. Choose **Remove** next to one you no longer use. You get a
 confirmation email whenever a passkey is added or removed. You can only add passkeys when the
-site is served over HTTPS (or over HTTP on `localhost` for development).
+site is served over HTTPS on a domain name, not an IP address (or over HTTP on
+`localhost` for development).
 
 **Turning on an authenticator app:**
 1. Go to **My Account** (`/account`) and, under **Authenticator app**, choose **Set up
