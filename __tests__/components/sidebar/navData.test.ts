@@ -1,4 +1,4 @@
-import { buildNavGroups, flattenNavItems, type NavFlags } from "@/components/layout/sidebar/navData"
+import { buildNavGroups, flattenNavItems, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
 
 /** Items of the named group, failing loudly if the group is missing. */
 function groupItems(flags: NavFlags, label: string) {
@@ -88,4 +88,10 @@ it("shows Sunday School in Community only to roles that can view people", () => 
       .find((i) => i.href === "/sunday-school")
   expect(find(true)).toMatchObject({ label: "Sunday School", show: true })
   expect(find(false)?.show).toBe(false)
+})
+
+it("pendingTotal sums badges of visible links only", () => {
+  const items = groupItems({ ...allTrueFlags, pendingUpdates: 2, membershipPending: 3 }, "Community")
+  expect(pendingTotal(items)).toBe(5)
+  expect(pendingTotal(groupItems({ ...allTrueFlags, isEditor: false, pendingUpdates: 2, membershipPending: 3 }, "Community"))).toBe(0)
 })

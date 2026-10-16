@@ -18,7 +18,7 @@ const group: NavGroup = {
   ],
 }
 
-function renderGroup(isOpen: boolean, onToggle = () => {}) {
+function renderGroup(isOpen: boolean, onToggle: () => void = jest.fn()) {
   return render(
     <TooltipProvider>
       <SidebarGroup
@@ -27,7 +27,7 @@ function renderGroup(isOpen: boolean, onToggle = () => {}) {
         hasActive={false}
         isActive={() => false}
         onToggle={onToggle}
-        onNavigate={() => {}}
+        onNavigate={jest.fn()}
       />
     </TooltipProvider>
   )
@@ -63,13 +63,12 @@ it("wires aria-controls on the toggle to the panel's id", () => {
   expect(document.getElementById(controlsId!)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
 })
 
-function renderCustom(g: NavGroup, isOpen: boolean) {
-  return render(
+const renderCustom = (g: NavGroup, isOpen: boolean) =>
+  render(
     <TooltipProvider>
       <SidebarGroup group={g} isOpen={isOpen} hasActive={false} isActive={() => false} onToggle={jest.fn()} onNavigate={jest.fn()} />
     </TooltipProvider>
   )
-}
 
 it("renders a headless group's links with no toggle header, even when not open", () => {
   renderCustom({ label: "Main", headless: true, items: [{ href: "/", label: "Dashboard", icon: Home, show: true }] }, false)

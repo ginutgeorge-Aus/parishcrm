@@ -22,7 +22,23 @@ const REPORTS = [
   { href: "/accounting/reports/funds", title: "Fund Report", description: "Income, expenses and net movement per fund.", icon: Layers },
 ] as const
 
+/** One linked report card on the hub. */
+const ReportCard = ({ href, title, description, icon: Icon }: (typeof REPORTS)[number]) => (
+  <Link href={href} className="block h-full rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
+    <Card className="h-full transition-colors hover:bg-muted/50">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
+    </Card>
+  </Link>
+)
+
 /** Hub page listing every accounting report — replaces the per-report sidebar links. */
+// skipcq -- module scope, not global; Next.js pages export a default function.
 export default async function ReportsHubPage() {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
@@ -32,19 +48,9 @@ export default async function ReportsHubPage() {
       <h1 className="mb-1 text-2xl font-semibold text-foreground">Reports</h1>
       <p className="mb-6 text-sm text-muted-foreground">Financial reports for the church&apos;s books.</p>
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {REPORTS.map(({ href, title, description, icon: Icon }) => (
-          <li key={href}>
-            <Link href={href} className="block h-full rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
-              <Card className="h-full transition-colors hover:bg-muted/50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    {title}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
-              </Card>
-            </Link>
+        {REPORTS.map((report) => (
+          <li key={report.href}>
+            <ReportCard {...report} />
           </li>
         ))}
       </ul>

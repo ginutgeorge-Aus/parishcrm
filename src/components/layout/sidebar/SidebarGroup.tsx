@@ -2,7 +2,7 @@ import { useId } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
-import { flattenNavItems, type NavGroup, type NavEntry } from "@/components/layout/sidebar/navData"
+import { pendingTotal, type NavGroup, type NavEntry } from "@/components/layout/sidebar/navData"
 
 export function SidebarGroup({
   group,
@@ -36,9 +36,7 @@ export function SidebarGroup({
 
   // Surface pending counts on the header while collapsed, so a badge on a
   // hidden link (Family Updates, Release Checks…) isn't lost.
-  const pendingTotal = flattenNavItems(group.items)
-    .filter((i) => i.show)
-    .reduce((sum, i) => sum + (i.badge ?? 0), 0)
+  const pending = pendingTotal(group.items)
 
   return (
     <div>
@@ -53,9 +51,9 @@ export function SidebarGroup({
       >
         <span className="flex items-center gap-2">
           {group.label}
-          {!isOpen && pendingTotal > 0 ? (
+          {!isOpen && pending > 0 ? (
             <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold normal-case tracking-normal text-warning-foreground">
-              {pendingTotal}<span className="sr-only"> pending</span>
+              {pending}<span className="sr-only"> pending</span>
             </span>
           ) : null}
         </span>

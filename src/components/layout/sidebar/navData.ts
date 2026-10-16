@@ -107,6 +107,13 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
   ]
 }
 
+/** Sum of badge counts on a group's visible links (shown on its header while collapsed). */
+export function pendingTotal(items: NavEntry[]): number {
+  return flattenNavItems(items)
+    .filter((i) => i.show)
+    .reduce((sum, i) => sum + (i.badge ?? 0), 0)
+}
+
 export function flattenNavItems(items: NavEntry[]): NavItem[] {
   return items.flatMap((entry) => ("subLabel" in entry ? entry.items : [entry]))
 }
