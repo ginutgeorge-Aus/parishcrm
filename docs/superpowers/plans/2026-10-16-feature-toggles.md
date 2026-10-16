@@ -274,6 +274,7 @@ import "server-only"
 import { cache } from "react"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import {
   FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, parseOverrides, resolveFeatures, type FeatureKey,
 } from "@/lib/features"
@@ -325,18 +326,25 @@ export async function skipIfFeatureOff<T>(key: FeatureKey, fn: () => Promise<T>)
 - Consumes: `readRawOverrides`, `FEATURES`, `resolveFeatures`, `FEATURES_SETTING_KEY`, `FEATURES_ONBOARDING_KEY`.
 - Produces: `saveFeatures(overrides: Record<string, boolean>): Promise<ActionResultWithSuccess>`; `FeaturesForm({ initial: Partial<Record<FeatureKey, boolean>>, welcome?: boolean })`.
 
-- [ ] **Step 1: Failing action tests** (mock `@/auth`, `@/lib/prisma`, `@/lib/audit`, `next/cache` as in `src/lib/actions/__tests__/settings*.test.ts`):
+- [ ] **Step 1: Failing action tests** (mock `@/auth`, `@/lib/prisma`, `@/lib/audit`, `next/cache` as in `src/lib/actions/__tests__/settings*.test.ts`; mock `prisma.$transaction` as `(fn) => fn(prisma)` so the tx calls land on the same mocks):
 
 ```ts
-it("rejects non-admin", async () => {
-  mockSession("PASTOR")
+it.each(["PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER"])("rejects %s", async (role) => {
+  mockSession(role)
   expect(await saveFeatures({ events: false })).toEqual({ error: "Forbidden" })
   expect(prisma.appSetting.upsert).not.toHaveBeenCalled()
 })
 
 it("rejects unknown keys", async () => {
   mockSession("ADMIN")
-  expect(await saveFeatures({ bogus: false } as never)).toEqual({ error: "Unknown feature: bogus" })
+  expect(await saveFeatures({ bogus: false } as never)).toEqual({ error: "Invalid feature settings" })
+  expect(prisma.$transaction).not.toHaveBeenCalled()
+})
+
+it.each([null, [], { events: "no" }])("rejects malformed input %p", async (input) => {
+  mockSession("ADMIN")
+  expect(await saveFeatures(input as never)).toEqual({ error: "Invalid feature settings" })
+  expect(prisma.$transaction).not.toHaveBeenCalled()
 })
 
 it("stores only overrides differing from default, audits, clears onboarding flag", async () => {
@@ -348,7 +356,7 @@ it("stores only overrides differing from default, audits, clears onboarding flag
     where: { key: "features" }, update: { value: '{"events":false}' },
   }))
   expect(prisma.appSetting.deleteMany).toHaveBeenCalledWith({ where: { key: "features.onboarding" } })
-  expect(logAudit).toHaveBeenCalledWith("u1", "UPDATE_FEATURES", "AppSetting", "features",
+  expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), "u1", "UPDATE_FEATURES", "AppSetting", "features",
     { before: {}, after: { events: false } })
 })
 
@@ -376,9 +384,9 @@ import type { ActionResultWithSuccess } from "./types"
 const DEFAULTS = new Map(FEATURES.map((f) => [f.key, f.defaultOn]))
 
 // Strict object of known keys → boolean; rejects null, non-objects and unknown keys.
-const FeaturesInput = z
-  .object(Object.fromEntries(FEATURES.map((f) => [f.key, z.boolean().optional()])))
-  .strict()
+const FeaturesInput = z.strictObject(
+  Object.fromEntries(FEATURES.map((f) => [f.key, z.boolean().optional()])),
+)
 
 /**
  * Save the admin's feature choices. Stores only values that differ from the
