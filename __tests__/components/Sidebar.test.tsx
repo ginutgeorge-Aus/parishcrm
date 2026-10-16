@@ -25,6 +25,7 @@ afterEach(() => {
 
 it("shows Family Updates with a badge for editors", () => {
   mockRole = "ADMIN"
+  mockPathname = "/families/updates" // opens its Community group
   render(<Sidebar churchName="Example Church" pendingUpdates={4} />)
   // Sidebar renders both a mobile and a desktop nav, so the item appears twice.
   const links = screen.getAllByRole("link", { name: /family updates/i })
@@ -39,13 +40,28 @@ it("hides Family Updates for viewers", () => {
   expect(screen.queryAllByRole("link", { name: /family updates/i })).toHaveLength(0)
 })
 
-it("groups Accounting items under Transactions/Reports/Admin sub-headers", () => {
+it("shows the pending count on the collapsed Community header", () => {
+  mockRole = "ADMIN"
+  render(<Sidebar churchName="Example Church" pendingUpdates={4} membershipPending={3} />)
+  expect(screen.getAllByRole("button", { name: "Community 7 pending" }).length).toBeGreaterThan(0)
+})
+
+it("groups Accounting items under Books/Billing & Receipts/Admin sub-headers", () => {
   mockRole = "ADMIN"
   mockPathname = "/accounting"
   render(<Sidebar churchName="Example Church" />)
-  expect(screen.getAllByText("Transactions").length).toBeGreaterThan(0)
-  expect(screen.getAllByText("Reports").length).toBeGreaterThan(0)
+  expect(screen.getAllByText("Books").length).toBeGreaterThan(0)
+  expect(screen.getAllByText("Billing & Receipts").length).toBeGreaterThan(0)
   expect(screen.getAllByText("Admin").length).toBeGreaterThan(0)
+})
+
+it("highlights the Reports hub link on an individual report page", () => {
+  mockRole = "ADMIN"
+  mockPathname = "/accounting/reports/pl"
+  render(<Sidebar churchName="Example Church" />)
+  const current = screen.getAllByRole("link", { current: "page" })
+  expect(current.length).toBeGreaterThan(0)
+  for (const link of current) expect(link).toHaveAttribute("href", "/accounting/reports")
 })
 
 it("collapsing to icon-only rail removes desktop link labels and persists the choice", () => {
