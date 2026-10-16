@@ -84,7 +84,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
     area: "Admin",
     title: "Feature verification page",
     steps:
-      "Open Verify in the sidebar → confirm checkpoints are listed grouped by version → mark one Working and confirm the badge count drops.",
+      "Open Release Checks in the sidebar → confirm checkpoints are listed grouped by version → mark one Working and confirm the badge count drops.",
   },
   {
     id: "v1.19.0-verify-not-working",

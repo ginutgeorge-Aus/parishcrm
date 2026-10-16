@@ -1,4 +1,11 @@
-import { buildNavGroups, flattenNavItems } from "@/components/layout/sidebar/navData"
+import { buildNavGroups, flattenNavItems, type NavFlags } from "@/components/layout/sidebar/navData"
+
+/** Items of the named group, failing loudly if the group is missing. */
+function groupItems(flags: NavFlags, label: string) {
+  const group = buildNavGroups(flags).find((g) => g.label === label)
+  if (!group) throw new Error(`no "${label}" nav group`)
+  return group.items
+}
 
 const allTrueFlags = {
   isAccounting: true,
@@ -21,15 +28,12 @@ it("puts Dashboard/People/Families/Events in a headless top-level group", () => 
 })
 
 it("nests Accounting items under Books/Billing & Receipts/Admin sub-headers", () => {
-  const groups = buildNavGroups(allTrueFlags)
-  const accounting = groups.find((g) => g.label === "Accounting")!
-  const subLabels = accounting.items.map((entry) => ("subLabel" in entry ? entry.subLabel : entry.label))
+  const subLabels = groupItems(allTrueFlags, "Accounting").map((entry) => ("subLabel" in entry ? entry.subLabel : entry.label))
   expect(subLabels).toEqual(["Books", "Billing & Receipts", "Admin"])
 })
 
 it("links the reports hub instead of each individual report", () => {
-  const accounting = buildNavGroups(allTrueFlags).find((g) => g.label === "Accounting")!
-  const hrefs = flattenNavItems(accounting.items).map((i) => i.href)
+  const hrefs = flattenNavItems(groupItems(allTrueFlags, "Accounting")).map((i) => i.href)
   expect(hrefs).toContain("/accounting/reports")
   expect(hrefs.filter((h) => h.startsWith("/accounting/reports/"))).toEqual([])
   expect(hrefs).toHaveLength(14)
@@ -42,17 +46,13 @@ it("gives every link a unique icon and a unique href", () => {
 })
 
 it("hides admin-only Accounting items when isAdmin is false", () => {
-  const groups = buildNavGroups({ ...allTrueFlags, isAdmin: false })
-  const accounting = groups.find((g) => g.label === "Accounting")!
-  const visible = flattenNavItems(accounting.items).filter((i) => i.show)
+  const visible = flattenNavItems(groupItems({ ...allTrueFlags, isAdmin: false }, "Accounting")).filter((i) => i.show)
   expect(visible.map((i) => i.label)).not.toContain("Budget")
   expect(visible.map((i) => i.label)).not.toContain("Accounting Settings")
 })
 
 it("shows the Reports hub to read-only accounting viewers (AUDITOR/OFFICE_ADMIN), not just mutation-capable roles", () => {
-  const groups = buildNavGroups({ ...allTrueFlags, isAccounting: false, isAccountingViewer: true })
-  const accounting = groups.find((g) => g.label === "Accounting")!
-  const visible = flattenNavItems(accounting.items).filter((i) => i.show)
+  const visible = flattenNavItems(groupItems({ ...allTrueFlags, isAccounting: false, isAccountingViewer: true }, "Accounting")).filter((i) => i.show)
   expect(visible.map((i) => i.label)).toContain("Reports")
   expect(visible.map((i) => i.label)).not.toContain("Bank Import")
 })
@@ -69,16 +69,14 @@ it("hides Families/People/Birthdays/Events from a role that can't view people (A
 })
 
 it("keeps Main/Community/Settings groups as flat NavItem arrays", () => {
-  const groups = buildNavGroups(allTrueFlags)
   for (const label of ["Main", "Community", "Settings"]) {
-    const group = groups.find((g) => g.label === label)!
-    expect(group.items.every((entry) => !("subLabel" in entry))).toBe(true)
+    expect(groupItems(allTrueFlags, label).every((entry) => !("subLabel" in entry))).toBe(true)
   }
 })
 
 it("shows the Clearances link only to editors (canManageClearances = canEdit)", () => {
   const visible = (flags: typeof allTrueFlags) =>
-    flattenNavItems(buildNavGroups(flags).find((g) => g.label === "Community")!.items)
+    flattenNavItems(groupItems(flags, "Community"))
       .filter((i) => i.show).map((i) => i.label)
   expect(visible(allTrueFlags)).toContain("Clearances")
   expect(visible({ ...allTrueFlags, isEditor: false })).not.toContain("Clearances")
@@ -86,7 +84,7 @@ it("shows the Clearances link only to editors (canManageClearances = canEdit)", 
 
 it("shows Sunday School in Community only to roles that can view people", () => {
   const find = (canViewPeople: boolean) =>
-    flattenNavItems(buildNavGroups({ ...allTrueFlags, canViewPeople }).find((g) => g.label === "Community")!.items)
+    flattenNavItems(groupItems({ ...allTrueFlags, canViewPeople }, "Community"))
       .find((i) => i.href === "/sunday-school")
   expect(find(true)).toMatchObject({ label: "Sunday School", show: true })
   expect(find(false)?.show).toBe(false)

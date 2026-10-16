@@ -66,7 +66,7 @@ it("wires aria-controls on the toggle to the panel's id", () => {
 function renderCustom(g: NavGroup, isOpen: boolean) {
   return render(
     <TooltipProvider>
-      <SidebarGroup group={g} isOpen={isOpen} hasActive={false} isActive={() => false} onToggle={() => {}} onNavigate={() => {}} />
+      <SidebarGroup group={g} isOpen={isOpen} hasActive={false} isActive={() => false} onToggle={jest.fn()} onNavigate={jest.fn()} />
     </TooltipProvider>
   )
 }

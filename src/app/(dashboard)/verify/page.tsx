@@ -20,6 +20,7 @@ const TAB_LABEL: Record<Filter, string> = {
 
 export const metadata = { title: "Release Checks" }
 
+/** Release Checks: admin checklist for confirming each release's changes work. */
 export default async function VerifyPage({
   searchParams,
 }: Readonly<{

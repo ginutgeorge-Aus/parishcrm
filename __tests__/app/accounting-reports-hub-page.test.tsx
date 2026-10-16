@@ -5,7 +5,7 @@ jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("REDIRECT") }),
 }))
 
-import { readdirSync, statSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import path from "node:path"
 import { renderToStaticMarkup } from "react-dom/server"
 import { auth } from "@/auth"
@@ -29,7 +29,8 @@ it("links every report route under /accounting/reports for a read-only AUDITOR",
   // Every report directory must be reachable from the hub, since the sidebar
   // no longer links reports individually.
   const dir = path.join(process.cwd(), "src/app/(dashboard)/accounting/reports")
-  const reports = readdirSync(dir).filter((d) => statSync(path.join(dir, d)).isDirectory())
+  // Only route segments (dirs with a page) — colocated helper dirs aren't reports.
+  const reports = readdirSync(dir).filter((d) => existsSync(path.join(dir, d, "page.tsx")))
   expect(reports.length).toBeGreaterThan(0)
   for (const slug of reports) {
     expect(html).toContain(`href="/accounting/reports/${slug}"`)

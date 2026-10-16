@@ -42,8 +42,8 @@ it("hides Family Updates for viewers", () => {
 
 it("shows the pending count on the collapsed Community header", () => {
   mockRole = "ADMIN"
-  render(<Sidebar churchName="Example Church" pendingUpdates={4} />)
-  expect(screen.getAllByRole("button", { name: "Community 4 pending" }).length).toBeGreaterThan(0)
+  render(<Sidebar churchName="Example Church" pendingUpdates={4} membershipPending={3} />)
+  expect(screen.getAllByRole("button", { name: "Community 7 pending" }).length).toBeGreaterThan(0)
 })
 
 it("groups Accounting items under Books/Billing & Receipts/Admin sub-headers", () => {

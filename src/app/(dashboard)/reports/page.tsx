@@ -20,11 +20,13 @@ const STATUS: Record<ReportStatus, { label: string; variant: "outline" | "defaul
   DECLINED: { label: "Won't fix", variant: "secondary" },
 }
 
+/** Formats a submission date in the church timezone, e.g. "16 Oct 2026". */
 const fmtDate = (d: Date) =>
   new Intl.DateTimeFormat(APP_LOCALE, { timeZone: APP_TIMEZONE, dateStyle: "medium" }).format(d)
 
 export const metadata = { title: "My Feedback" }
 
+/** My Feedback: the signed-in user's submitted feedback reports and their status. */
 export default async function ReportsPage() {
   const session = await auth()
   if (!session?.user) redirect("/login")

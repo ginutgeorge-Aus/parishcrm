@@ -7,7 +7,7 @@ ParishCRM includes a full double-entry-style accounting module for a single pari
 
 ## Using it
 
-All accounting screens live under **Accounting** in the sidebar, visible only to roles with accounting access. The sidebar groups them as **Books** (overview, transactions, reconciliation, bank import, petty cash, dues, reports), **Billing & Receipts** (invoices, customers, receipts) and **Admin** (budget, accounting settings). Every financial report — P&L, Budget vs Actual, Balance Sheet, Trial Balance, Cash Flow, General Ledger, Reconciliation, Giving Summary and Fund Report — is listed on one **Reports** page (`/accounting/reports`). Who can do what:
+All accounting screens live under **Accounting** in the sidebar, visible only to roles with accounting access. The sidebar groups them as **Books** (overview, transactions, reconciliation, bank import, petty cash, dues, reports), **Billing & Receipts** (invoices, customers, receipts) and **Admin** (budget, accounting settings). Every financial report — P&L, Budget vs Actual, Balance Sheet, Trial Balance, Cash Flow, General Ledger, Reconciliation, Giving Summary and Fund Report, plus Dues — is listed on one **Reports** page (`/accounting/reports`). Who can do what:
 
 | Role | Can view accounting | Can enter/edit transactions | Can manage settings (accounts, opening balances, period lock) |
 |------|---------------------|------------------------------|-----------------------------------------------------------------|

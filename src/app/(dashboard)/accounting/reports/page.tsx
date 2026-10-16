@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import {
-  TrendingUp, BarChart2, Scale, Calculator, ArrowLeftRight, BookOpen, ListChecks, Gift, Layers,
+  TrendingUp, BarChart2, Scale, Calculator, ArrowLeftRight, BookOpen, ListChecks, Gift, Layers, HandCoins,
 } from "lucide-react"
 import { auth } from "@/auth"
 import { canViewAccounting } from "@/lib/roleGuard"
@@ -18,6 +18,7 @@ const REPORTS = [
   { href: "/accounting/reports/general-ledger", title: "General Ledger", description: "Every transaction for one account across a financial year.", icon: BookOpen },
   { href: "/accounting/reports/reconciliation", title: "Reconciliation Report", description: "A statement closing balance against the recorded transactions.", icon: ListChecks },
   { href: "/accounting/reports/giving-summary", title: "Giving Summary", description: "Giving totals for a financial year.", icon: Gift },
+  { href: "/accounting/dues", title: "Dues", description: "Subscription dues paid and owing per family for a financial year.", icon: HandCoins },
   { href: "/accounting/reports/funds", title: "Fund Report", description: "Income, expenses and net movement per fund.", icon: Layers },
 ] as const
 
@@ -33,7 +34,7 @@ export default async function ReportsHubPage() {
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {REPORTS.map(({ href, title, description, icon: Icon }) => (
           <li key={href}>
-            <Link href={href} className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Link href={href} className="block h-full rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
               <Card className="h-full transition-colors hover:bg-muted/50">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
