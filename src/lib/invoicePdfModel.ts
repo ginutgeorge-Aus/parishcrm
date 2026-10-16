@@ -102,12 +102,13 @@ export function buildInvoicePdfModel(inv: {
  * the issuer snapshot used for that render when the row has none (legacy rows), so later reads
  * can trust the stored blob. Both writes are conditional (never overwrite a blob, an existing
  * issuer or a draft) and run in one transaction; a DB error is logged, never thrown (the
- * caller still has the PDF to serve). Returns the blob another request froze first when this
- * write matched 0 rows and that blob is readable, so concurrent first renders serve the same
- * bytes; null otherwise (the caller serves its own render).
+ * caller still has the PDF to serve). Returns the blob and issuer snapshot another request
+ * froze first when this write matched 0 rows and both are readable, so concurrent first
+ * renders serve the same bytes and metadata; null otherwise (the caller serves its own render).
  */
-async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: IssuerSnapshot | null): Promise<Buffer | null> {
+async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: IssuerSnapshot | null): Promise<FrozenWinner | null> {
   const notDraft = { id, frozenPdf: null, status: { not: "DRAFT" as const } }
+  let lostRace: boolean
   try {
     const results = await prisma.$transaction([
       ...(issuerIfMissing
@@ -115,11 +116,27 @@ async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: Issu
         : []),
       prisma.invoice.updateMany({ where: notDraft, data: { frozenPdf: encryptBytes(pdf) } }),
     ])
-    if (results[results.length - 1]?.count !== 0) return null
-    const winner = await prisma.invoice.findUnique({ where: { id }, select: { frozenPdf: true } })
-    return winner?.frozenPdf ? decryptBytes(winner.frozenPdf) : null
+    lostRace = results[results.length - 1]?.count === 0
   } catch (e) {
     logger.error("invoice frozenPdf store failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+    return null
+  }
+  return lostRace ? readWinner(id) : null
+}
+
+type FrozenWinner = { pdf: Buffer; issuer: IssuerSnapshot }
+
+/**
+ * After losing a freeze race, read back the winner's blob and issuer snapshot together so the
+ * caller serves matching bytes and metadata. Null (logged on error) when either is missing or unreadable.
+ */
+async function readWinner(id: number): Promise<FrozenWinner | null> {
+  try {
+    const winner = await prisma.invoice.findUnique({ where: { id }, select: { frozenPdf: true, issuer: true } })
+    const issuer = parseIssuer(winner?.issuer)
+    return winner?.frozenPdf && issuer ? { pdf: decryptBytes(winner.frozenPdf), issuer } : null
+  } catch (e) {
+    logger.error("invoice frozenPdf winner read failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
     return null
   }
 }
@@ -187,8 +204,8 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
     ? await storeFrozenPdf(id, pdf, frozen ? null : issuer)
     : null
   return {
-    pdf: winner ?? pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
+    pdf: winner?.pdf ?? pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,
-    churchName: church.name, paymentDetails: issuer.paymentDetails,
+    churchName: (winner?.issuer ?? issuer).name, paymentDetails: (winner?.issuer ?? issuer).paymentDetails,
   }
 }
