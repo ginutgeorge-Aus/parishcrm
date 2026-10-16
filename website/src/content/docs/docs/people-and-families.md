@@ -29,7 +29,7 @@ Shows the family's contact details, member list, and (for roles that can view ac
 From a family's page, **Add person** opens `/families/[id]/people/new`. The person form captures name (first/middle/last, title, suffix), gender, date of birth, family role (Head / Spouse / Child / Other), classification (Member / Visitor / Inactive / Student), contact details (email, mobile, work/home phone), membership date, baptism date, notes, profession, mother parish, marital status, banking name (for bank-import auto-matching), and email consent. It also has a **Ministry roles** checkbox group (Staff, Volunteer, Sunday school teacher, Youth leader, Children's ministry, Other) for the roles the person serves in. **Pastoral notes** and **emergency contact** fields only appear for roles allowed to see them (see below).
 
 ### People list (`/people`)
-- Search by first/last name; filter by classification, family role and ministry role.
+- Search by first/last name; filter by classification, family role and ministry role. On a phone the three filter dropdowns sit behind a **Filters** button (it shows how many are active).
 - The **Export CSV** link carries the same filters, including ministry role, and the CSV has a **Ministry Roles** column (labels joined with "; ").
 - Capped at 500 rows per query — narrow with filters if a search is truncated (a banner explains this).
 - **Export CSV** (ADMIN only) downloads the filtered list.

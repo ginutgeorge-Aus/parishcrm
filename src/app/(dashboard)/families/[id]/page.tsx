@@ -129,7 +129,7 @@ function FamilyActionButtons({
     <div className="flex flex-wrap gap-2 print:hidden">
       <PrintButton />
       {userCanEdit && (
-        <Button variant="outline" size="sm" className="h-11 sm:h-7 any-pointer-coarse:h-11" asChild>
+        <Button variant="outline" size="sm" asChild>
           <Link href={`/families/${familyId}/edit`}>Edit</Link>
         </Button>
       )}

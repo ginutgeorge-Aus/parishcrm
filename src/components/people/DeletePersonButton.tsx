@@ -20,7 +20,6 @@ export function DeletePersonButton({
       triggerVariant="destructive"
       triggerSize="sm"
       triggerLabel="Delete"
-      triggerClassName="h-11 sm:h-7 any-pointer-coarse:h-11"
     />
   )
 }
