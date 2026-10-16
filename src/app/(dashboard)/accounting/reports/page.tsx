@@ -18,7 +18,7 @@ const REPORTS = [
   { href: "/accounting/reports/general-ledger", title: "General Ledger", description: "Every transaction for one account across a financial year.", icon: BookOpen },
   { href: "/accounting/reports/reconciliation", title: "Reconciliation Report", description: "A statement closing balance against the recorded transactions.", icon: ListChecks },
   { href: "/accounting/reports/giving-summary", title: "Giving Summary", description: "Giving totals for a financial year.", icon: Gift },
-  { href: "/accounting/dues", title: "Dues", description: "Subscription dues paid and owing per family for a financial year.", icon: HandCoins },
+  { href: "/accounting/dues", title: "Subscription Dues", description: "Subscription dues paid and owing per family for a financial year.", icon: HandCoins },
   { href: "/accounting/reports/funds", title: "Fund Report", description: "Income, expenses and net movement per fund.", icon: Layers },
 ] as const
 
