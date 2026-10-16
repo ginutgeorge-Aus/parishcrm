@@ -92,7 +92,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
     area: "Admin",
     title: "Not-working files a bug",
     steps:
-      "On Verify, mark a checkpoint Not working → enter a note → confirm a GitHub issue is filed and it appears in My Reports.",
+      "On Release Checks, mark a checkpoint Not working → enter a note → confirm a GitHub issue is filed and it appears in My Feedback.",
   },
 ]
 

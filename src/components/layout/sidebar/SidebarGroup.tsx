@@ -2,7 +2,7 @@ import { useId } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
-import type { NavGroup, NavEntry } from "@/components/layout/sidebar/navData"
+import { flattenNavItems, type NavGroup, type NavEntry } from "@/components/layout/sidebar/navData"
 
 export function SidebarGroup({
   group,
@@ -23,6 +23,23 @@ export function SidebarGroup({
   // aside), so a slug id would be duplicated and aria-controls ambiguous.
   const panelId = useId()
 
+  const entries = group.items.map((entry) => (
+    <SidebarEntry
+      key={"subLabel" in entry ? entry.subLabel : entry.href}
+      entry={entry}
+      isActive={isActive}
+      onNavigate={onNavigate}
+    />
+  ))
+
+  if (group.headless) return <div className="space-y-0.5 pb-2">{entries}</div>
+
+  // Surface pending counts on the header while collapsed, so a badge on a
+  // hidden link (Family Updates, Release Checks…) isn't lost.
+  const pendingTotal = flattenNavItems(group.items)
+    .filter((i) => i.show)
+    .reduce((sum, i) => sum + (i.badge ?? 0), 0)
+
   return (
     <div>
       <button
@@ -34,7 +51,14 @@ export function SidebarGroup({
           hasActive ? "text-primary-foreground" : "text-primary-foreground/70 hover:text-primary-foreground/90"
         )}
       >
-        {group.label}
+        <span className="flex items-center gap-2">
+          {group.label}
+          {!isOpen && pendingTotal > 0 ? (
+            <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold normal-case tracking-normal text-warning-foreground">
+              {pendingTotal}<span className="sr-only"> pending</span>
+            </span>
+          ) : null}
+        </span>
         {isOpen
           ? <ChevronDown className="w-3 h-3" aria-hidden="true" />
           : <ChevronRight className="w-3 h-3" aria-hidden="true" />
@@ -43,14 +67,7 @@ export function SidebarGroup({
 
       {/* Always rendered so aria-controls resolves while collapsed. */}
       <div id={panelId} hidden={!isOpen} className="mt-0.5 space-y-0.5">
-          {group.items.map((entry) => (
-            <SidebarEntry
-              key={"subLabel" in entry ? entry.subLabel : entry.href}
-              entry={entry}
-              isActive={isActive}
-              onNavigate={onNavigate}
-            />
-          ))}
+        {entries}
       </div>
     </div>
   )

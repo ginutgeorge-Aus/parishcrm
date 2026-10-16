@@ -62,3 +62,33 @@ it("wires aria-controls on the toggle to the panel's id", () => {
   expect(controlsId).toBeTruthy()
   expect(document.getElementById(controlsId!)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
 })
+
+function renderCustom(g: NavGroup, isOpen: boolean) {
+  return render(
+    <TooltipProvider>
+      <SidebarGroup group={g} isOpen={isOpen} hasActive={false} isActive={() => false} onToggle={() => {}} onNavigate={() => {}} />
+    </TooltipProvider>
+  )
+}
+
+it("renders a headless group's links with no toggle header, even when not open", () => {
+  renderCustom({ label: "Main", headless: true, items: [{ href: "/", label: "Dashboard", icon: Home, show: true }] }, false)
+  expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument()
+})
+
+it("shows the total of visible link badges on the header only while collapsed", () => {
+  const badged: NavGroup = {
+    label: "Community",
+    items: [
+      { href: "/families/updates", label: "Family Updates", icon: Home, show: true, badge: 2 },
+      { href: "/memberships", label: "Membership Forms", icon: User, show: true, badge: 3 },
+      { href: "/hidden", label: "Hidden", icon: User, show: false, badge: 9 },
+    ],
+  }
+  const { unmount } = renderCustom(badged, false)
+  expect(screen.getByRole("button", { name: "Community 5 pending" })).toBeInTheDocument()
+  unmount()
+  renderCustom(badged, true)
+  expect(screen.getByRole("button", { name: "Community" })).toBeInTheDocument()
+})

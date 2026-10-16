@@ -23,7 +23,7 @@ const STATUS: Record<ReportStatus, { label: string; variant: "outline" | "defaul
 const fmtDate = (d: Date) =>
   new Intl.DateTimeFormat(APP_LOCALE, { timeZone: APP_TIMEZONE, dateStyle: "medium" }).format(d)
 
-export const metadata = { title: "My Reports" }
+export const metadata = { title: "My Feedback" }
 
 export default async function ReportsPage() {
   const session = await auth()
@@ -49,7 +49,7 @@ export default async function ReportsPage() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold text-foreground mb-2">My Reports</h1>
+      <h1 className="text-2xl font-semibold text-foreground mb-2">My Feedback</h1>
       <p className="text-sm text-muted-foreground mb-6">
         Bugs, features, and ideas you&apos;ve sent us, and where they stand. Use the Feedback
         button in the sidebar to send a new one.

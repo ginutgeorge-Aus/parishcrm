@@ -18,7 +18,7 @@ A public, unauthenticated form (`/membershipform`) lets a visitor apply to join 
 
 ### Staff review
 
-1. Log in and open **Memberships** in the sidebar (`/memberships`). Available to `ADMIN`, `PASTOR`, and `OFFICE_ADMIN` (anyone `canEdit`); other roles are redirected away.
+1. Log in and open **Community → Membership Forms** in the sidebar (`/memberships`). Available to `ADMIN`, `PASTOR`, and `OFFICE_ADMIN` (anyone `canEdit`); other roles are redirected away.
 2. The inbox is tabbed by status — Pending / Approved / Rejected — with a pending count badge. Pending applications are listed oldest-first.
 3. Open an application to see every section the applicant filled in, plus their drawn signature and any "Other details" notes block. A **Print form** link opens a formatted print view of the same data.
 4. If the system finds existing families that plausibly match (same email, same mobile, or same surname), they're listed with a **Merge into this family** button — merging fills in only the family's *blank* fields (it never overwrites existing data) and appends the applicant's notes to the family's existing notes.
