@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { House } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/table"
 import { FamilyStatus } from "@/lib/generated/prisma/enums"
 import { FAMILY_STATUS_LABELS } from "@/lib/familyLabels"
+import { EmptyState, type EmptyStateAction } from "@/components/shared/EmptyState"
 
 type Family = {
   id: number
@@ -27,23 +29,53 @@ const statusVariant: Record<FamilyStatus, "default" | "secondary" | "outline"> =
   VISITOR: "outline",
 }
 
+/**
+ * Family directory: stacked cards on mobile, a table from `md` up. With no
+ * rows it shows an empty state — "no matches" (Clear filters) when a filter
+ * is active, otherwise "no families yet" with the add/import actions the
+ * viewer is allowed to use.
+ */
 export function FamilyList({
   families,
   canEdit,
+  isFiltered = false,
+  canImport = false,
 }: Readonly<{
   families: Family[]
   canEdit: boolean
+  /** A search/filter is applied, so an empty list means "no matches". */
+  isFiltered?: boolean
+  /** Viewer may bulk-import families from CSV (ADMIN). */
+  canImport?: boolean
 }>) {
+  if (families.length === 0) {
+    if (isFiltered) {
+      return (
+        <EmptyState
+          icon={House}
+          title="No families match your filters"
+          description="Try a different name, status or suburb, or clear the filters."
+          actions={[{ label: "Clear filters", href: "/families", variant: "outline" }]}
+        />
+      )
+    }
+    const actions: EmptyStateAction[] = []
+    if (canEdit) actions.push({ label: "Add family", href: "/families/new" })
+    if (canImport) actions.push({ label: "Import CSV", href: "/import" })
+    return (
+      <EmptyState
+        icon={House}
+        title="No families yet"
+        description="Add your first family by hand, or import your existing list from a spreadsheet."
+        actions={actions}
+      />
+    )
+  }
+
   return (
     <>
       {/* Mobile: stacked cards */}
       <ul className="space-y-3 md:hidden">
-        {families.length === 0 && (
-          <li className="rounded-lg border bg-card py-12 text-center">
-            <p className="font-medium">No families found</p>
-            <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search, or add a new family.</p>
-          </li>
-        )}
         {families.map((f) => (
           <li key={f.id}>
             <Link
@@ -78,14 +110,6 @@ export function FamilyList({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {families.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={6} className="py-12 text-center">
-                <p className="font-medium">No families found</p>
-                <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search, or add a new family.</p>
-              </TableCell>
-            </TableRow>
-          )}
           {families.map((f) => (
             <TableRow key={f.id}>
               <TableCell className="font-medium">{f.name}</TableCell>

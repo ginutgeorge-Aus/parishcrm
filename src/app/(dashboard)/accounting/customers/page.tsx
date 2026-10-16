@@ -5,6 +5,8 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { listCustomers } from "@/lib/actions/customer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { Building2 } from "lucide-react"
 import { CustomerActiveToggle } from "./CustomerActiveToggle"
 
 /** Saved outside customers that invoices can be addressed to. */
@@ -28,7 +30,12 @@ export default async function CustomersPage() {
         Outside people or organisations you invoice (hall hire, venue fees). Church members are picked from People instead.
       </p>
       {result.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No customers yet.</p>
+        <EmptyState
+          icon={Building2}
+          title="No customers yet"
+          description="Save the groups and organisations you invoice so you can pick them on a new invoice."
+          actions={canManage ? [{ label: "New customer", href: "/accounting/customers/new" }] : []}
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

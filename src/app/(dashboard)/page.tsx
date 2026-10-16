@@ -16,6 +16,7 @@ import { BirthdayWidget } from "@/components/dashboard/BirthdayWidget"
 import { AnniversaryWidget } from "@/components/dashboard/AnniversaryWidget"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
 import { WhatsNewFooter } from "@/components/dashboard/WhatsNewFooter"
+import { SetupChecklist } from "@/components/dashboard/SetupChecklist"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default async function DashboardPage() {
@@ -270,6 +271,8 @@ export default async function DashboardPage() {
       <h2 className="text-2xl font-semibold">
         Welcome back, {session?.user?.name?.split(" ")[0]}
       </h2>
+
+      <SetupChecklist role={role} />
 
       {/* Money — balances + giving */}
       {canViewAccounting(role) && (

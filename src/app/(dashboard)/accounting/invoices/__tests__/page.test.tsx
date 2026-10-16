@@ -80,7 +80,7 @@ describe("InvoicesPage", () => {
     as("ADMIN")
     mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
     const html = renderToStaticMarkup(await call({ status: "PAID", from: "2026-10-01", after: "2026-10-11_11" }))
-    expect(html).toContain("No invoices found.")
+    expect(html).toContain("No invoices on this page")
     expect(html).toContain('href="/accounting/invoices?status=PAID&amp;from=2026-10-01"')
     const plain = renderToStaticMarkup(await call({ before: "2026-10-11_11" }))
     expect(plain).toContain('href="/accounting/invoices"')
@@ -90,6 +90,26 @@ describe("InvoicesPage", () => {
     as("ADMIN")
     mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
     expect(renderToStaticMarkup(await call())).not.toContain("Back to the first page")
+  })
+
+  it("offers Clear filters when filters hide every invoice", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
+    const html = renderToStaticMarkup(await call({ status: "PAID" }))
+    expect(html).toContain("No invoices match your filters")
+    expect(html).toContain("Clear filters")
+  })
+
+  it("offers New invoice on a first run only to roles that can create one", async () => {
+    mockList.mockResolvedValue({ rows: [], nextCursor: null, prevCursor: null })
+    as("ADMIN")
+    const admin = renderToStaticMarkup(await call())
+    expect(admin).toContain("No invoices yet")
+    expect(admin).toContain("New invoice")
+    as("AUDITOR")
+    const auditor = renderToStaticMarkup(await call())
+    expect(auditor).toContain("No invoices yet")
+    expect(auditor).not.toContain("/accounting/invoices/new")
   })
 
   it("passes a valid cursor through and drops a malformed one", async () => {

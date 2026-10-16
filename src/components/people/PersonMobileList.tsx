@@ -17,15 +17,14 @@ type Person = {
   mobile: string | null
 }
 
+/**
+ * Mobile (below `md`) card list of a family's members. Renders rows only —
+ * the caller shows the shared EmptyState when there are no members.
+ */
 export function PersonMobileList({ people }: Readonly<{ people: Person[] }>) {
   return (
     // Mobile: card per member (avoids sideways table scroll)
     <ul className="space-y-2 md:hidden">
-      {people.length === 0 && (
-        <li className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
-          No members yet
-        </li>
-      )}
       {people.map((person) => {
         const dob = person.dateOfBirth
           ? person.dateOfBirth.toLocaleDateString(APP_LOCALE)

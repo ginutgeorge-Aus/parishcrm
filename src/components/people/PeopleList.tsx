@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/table"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
 import { CLASSIFICATION_BADGE, CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
+import { EmptyState, type EmptyStateAction } from "@/components/shared/EmptyState"
 
 // Intentionally local and distinct from PersonCard's Person: the list row needs
 // `family` (for the link) but not `dateOfBirth`, while the card is the inverse.
@@ -26,17 +28,60 @@ type Person = {
   family: { id: number; name: string }
 }
 
-export function PeopleList({ people }: Readonly<{ people: Person[] }>) {
+/**
+ * People directory: stacked cards on mobile, a table from `md` up. With no
+ * rows it shows an empty state — "no matches" (Clear filters) when a filter
+ * is active, otherwise "no people yet" with the add/import actions the viewer
+ * is allowed to use. A person always belongs to a family, so with no
+ * families yet the add action points at "Add family" instead.
+ */
+export function PeopleList({
+  people,
+  isFiltered = false,
+  canAdd = false,
+  canImport = false,
+  hasFamilies = true,
+}: Readonly<{
+  people: Person[]
+  /** A search/filter is applied, so an empty list means "no matches". */
+  isFiltered?: boolean
+  /** Viewer may add people (canEdit). */
+  canAdd?: boolean
+  /** Viewer may bulk-import families/people from CSV (ADMIN). */
+  canImport?: boolean
+  /** At least one family exists — /people/new is a family picker. */
+  hasFamilies?: boolean
+}>) {
+  if (people.length === 0) {
+    if (isFiltered) {
+      return (
+        <EmptyState
+          icon={Users}
+          title="No people match your filters"
+          description="Try a different name or clear the filters to see everyone."
+          actions={[{ label: "Clear filters", href: "/people", variant: "outline" }]}
+        />
+      )
+    }
+    const actions: EmptyStateAction[] = []
+    if (canAdd) {
+      actions.push(hasFamilies ? { label: "Add person", href: "/people/new" } : { label: "Add family", href: "/families/new" })
+    }
+    if (canImport) actions.push({ label: "Import CSV", href: "/import" })
+    return (
+      <EmptyState
+        icon={Users}
+        title="No people yet"
+        description="Everyone in your church directory will show up here."
+        actions={actions}
+      />
+    )
+  }
+
   return (
     <>
       {/* Mobile: stacked cards */}
       <ul className="space-y-3 md:hidden">
-        {people.length === 0 && (
-          <li className="rounded-lg border bg-card py-12 text-center">
-            <p className="font-medium">No people found</p>
-            <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search, or add a new person.</p>
-          </li>
-        )}
         {people.map((p) => (
           <li key={p.id}>
             <Link
@@ -78,14 +123,6 @@ export function PeopleList({ people }: Readonly<{ people: Person[] }>) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {people.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="py-12 text-center">
-                <p className="font-medium">No people found</p>
-                <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search, or add a new person.</p>
-              </TableCell>
-            </TableRow>
-          )}
           {people.map((p) => (
             <TableRow key={p.id}>
               <TableCell className="font-medium">

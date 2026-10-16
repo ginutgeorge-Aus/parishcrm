@@ -132,7 +132,12 @@ export default async function FamiliesPage(
         </p>
       )}
 
-      <FamilyList families={visibleFamilies} canEdit={userCanEdit} />
+      <FamilyList
+        families={visibleFamilies}
+        canEdit={userCanEdit}
+        isFiltered={Boolean(q || statusFilter || suburbFilter)}
+        canImport={userIsAdmin}
+      />
     </div>
   )
 }

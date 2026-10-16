@@ -66,6 +66,13 @@ export default async function PeoplePage(
     prisma.person.count({ where: peopleWhere }),
   ])
 
+  const isFiltered = Boolean(q || classificationFilter || roleFilter || ministryRoleFilter)
+  // Only on a truly empty directory: does any family exist to add a person to?
+  const hasFamilies =
+    totalCount > 0 || isFiltered || !userCanEdit
+      ? true
+      : (await prisma.family.findFirst({ where: { archivedAt: null }, select: { id: true } })) !== null
+
   const decrypted = people.map((p) => ({
     ...p,
     email: p.email ? safeDecrypt(p.email) : null,
@@ -111,7 +118,13 @@ export default async function PeoplePage(
         </p>
       )}
 
-      <PeopleList people={decrypted} />
+      <PeopleList
+        people={decrypted}
+        isFiltered={isFiltered}
+        canAdd={userCanEdit}
+        canImport={userIsAdmin}
+        hasFamilies={hasFamilies}
+      />
     </div>
   )
 }

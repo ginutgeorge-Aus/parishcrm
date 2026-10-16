@@ -25,6 +25,7 @@ jest.mock("@/components/dashboard/BirthdayWidget", () => ({ BirthdayWidget: () =
 jest.mock("@/components/dashboard/MarriageAnniversaryWidget", () => ({ MarriageAnniversaryWidget: () => null }))
 jest.mock("@/components/dashboard/AnniversaryWidget", () => ({ AnniversaryWidget: () => null }))
 jest.mock("@/components/dashboard/WhatsNewFooter", () => ({ WhatsNewFooter: () => null }))
+jest.mock("@/components/dashboard/SetupChecklist", () => ({ SetupChecklist: () => null }))
 
 import { renderToStaticMarkup } from "react-dom/server"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
