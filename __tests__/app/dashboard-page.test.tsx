@@ -169,8 +169,8 @@ function groupByCalls(by: string[]) {
 
 /** Route groupBy results by query shape: per-account balances vs per-account unreconciled. */
 function mockGroupBy({ balances = [], unreconciled = [] }: { balances?: unknown[]; unreconciled?: unknown[] }) {
-  ;(prisma.transaction.groupBy as jest.Mock).mockImplementation(async (args: { by: string[] }) =>
-    args.by.length === 1 ? unreconciled : balances,
+  ;(prisma.transaction.groupBy as jest.Mock).mockImplementation((args: { by: string[] }) =>
+    Promise.resolve(args.by.length === 1 ? unreconciled : balances),
   )
 }
 
@@ -230,10 +230,10 @@ describe("DashboardPage account balances", () => {
 
 describe("DashboardPage hierarchy and needs-attention list", () => {
   /** Render the dashboard for a role after priming the shared mocks; return its HTML. */
-  async function renderAs(role: string, prime: () => void = () => {}) {
+  async function renderAs(role: string, prime?: () => void) {
     mockAuth.mockResolvedValue({ user: { role, id: "1", name: "Sam Example" } })
     primeMocks()
-    prime()
+    prime?.()
     return renderToStaticMarkup(await DashboardPage())
   }
 
@@ -303,19 +303,23 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
   })
 
   it("shows a capped birthday count as N+", async () => {
-    const html = await renderAs("ADMIN", () => {
-      jest.useFakeTimers({ now: new Date("2026-03-10T01:00:00.000Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
-      mockPersonFindMany.mockResolvedValue(
-        Array.from({ length: PERSON_FETCH_CAP + 1 }, (_, i) => ({
-          id: i + 1,
-          firstName: "P",
-          lastName: String(i),
-          dateOfBirth: i === 0 ? "1990-03-11" : "1990-09-01",
-          family: { name: "F" },
-        })),
-      )
-    })
-    jest.useRealTimers()
+    jest.useFakeTimers({ now: new Date("2026-03-10T01:00:00.000Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+    let html: string
+    try {
+      html = await renderAs("ADMIN", () => {
+        mockPersonFindMany.mockResolvedValue(
+          Array.from({ length: PERSON_FETCH_CAP + 1 }, (_, i) => ({
+            id: i + 1,
+            firstName: "P",
+            lastName: String(i),
+            dateOfBirth: i === 0 ? "1990-03-11" : "1990-09-01",
+            family: { name: "F" },
+          })),
+        )
+      })
+    } finally {
+      jest.useRealTimers()
+    }
     expect(html).toMatch(/>1\+<\/span><span[^>]*>Birthday in the next 7 days/)
   })
 

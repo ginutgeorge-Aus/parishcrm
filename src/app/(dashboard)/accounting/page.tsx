@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/button"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
 import { APP_LOCALE } from "@/lib/appConfig"
 
+/**
+ * Accounting overview: current-FY income/expense/net, per-payment-account
+ * balance tiles and quick links. Redirects roles that cannot view accounting.
+ */
 export default async function AccountingPage() {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")

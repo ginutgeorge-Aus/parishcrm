@@ -27,7 +27,7 @@ export function NeedsAttention({ items }: Readonly<{ items: AttentionItem[] }>) 
             <li key={item.key}>
               <Link
                 href={item.href}
-                className="flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none motion-reduce:transition-none"
+                className="flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-hidden motion-reduce:transition-none"
               >
                 <span className="min-w-[2.5rem] rounded-full bg-gold px-2 py-0.5 text-center font-semibold tabular text-gold-foreground">
                   {item.count}

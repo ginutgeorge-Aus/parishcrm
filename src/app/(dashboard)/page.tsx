@@ -244,6 +244,7 @@ export default async function DashboardPage() {
 
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
+    /** Sum of this account's transactions of `type` since its opening balance, or null if none. */
     const sumOf = (type: string): Money =>
       accountSums.find((g) => g.paymentAccountId === acct.id && g.type === type)?._sum.amount ?? null
     const balance = ob ? accountBalance(ob.amount, sumOf("INCOME"), sumOf("EXPENSE")) : null
