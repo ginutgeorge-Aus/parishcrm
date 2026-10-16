@@ -112,7 +112,7 @@ function MarkPaidDialog({ id, bankAccounts, hasEmail, onDone }: Readonly<{
                 <p className="text-sm text-muted-foreground">No active bank account — add one in accounting settings.</p>
               ) : (
                 <select id="paidAccount" value={paId ?? ""} onChange={(e) => setPaId(Number.parseInt(e.target.value, 10))}
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                  className="h-11 md:h-9 any-pointer-coarse:h-11 w-full rounded-md border border-input bg-background px-2 text-sm">
                   {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               )}

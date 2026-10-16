@@ -115,12 +115,12 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
         <div className="space-y-1"><Label htmlFor="dueDate">Due date</Label>
           <Input id="dueDate" name="dueDate" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} required /></div>
         <div className="space-y-1"><Label htmlFor="accountId">Income account</Label>
-          <select id="accountId" name="accountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} required className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="accountId" name="accountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} required className="h-11 md:h-9 any-pointer-coarse:h-11 w-full rounded-md border border-input bg-background px-2 text-sm">
             <option value="" disabled>Choose…</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select></div>
         <div className="space-y-1"><Label htmlFor="fundId">Fund (optional)</Label>
-          <select id="fundId" name="fundId" value={fundId} onChange={(e) => setFundId(e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select id="fundId" name="fundId" value={fundId} onChange={(e) => setFundId(e.target.value)} className="h-11 md:h-9 any-pointer-coarse:h-11 w-full rounded-md border border-input bg-background px-2 text-sm">
             <option value="">None</option>
             {funds.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select></div>

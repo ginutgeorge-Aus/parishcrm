@@ -151,7 +151,7 @@ export default async function PettyCashPage(
                   )}
               </span>
               <span className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" asChild className="h-11 sm:h-8 any-pointer-coarse:h-11">
+                <Button variant="ghost" size="sm" asChild>
                   <Link href={`/accounting/petty-cash/sessions/${s.id}`}>View</Link>
                 </Button>
                 {userIsAdmin && s.status === "OPEN" && <DeleteSessionButton id={s.id} />}
