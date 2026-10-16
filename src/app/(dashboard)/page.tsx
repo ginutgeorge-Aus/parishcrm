@@ -16,8 +16,15 @@ import { BirthdayWidget } from "@/components/dashboard/BirthdayWidget"
 import { AnniversaryWidget } from "@/components/dashboard/AnniversaryWidget"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
 import { WhatsNewFooter } from "@/components/dashboard/WhatsNewFooter"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { NeedsAttention } from "@/components/dashboard/NeedsAttention"
+import { BalanceTile } from "@/components/accounting/BalanceTile"
+import { buildAttentionItems } from "@/lib/dashboardAttention"
 
+/**
+ * Authenticated home page. Leads with a role-aware "Needs attention" list,
+ * then a slim stats strip, the money snapshot (accounting roles) and the
+ * people/celebration widgets. All queries run in one parallel batch.
+ */
 export default async function DashboardPage() {
   const session = await auth()
   if (!session) redirect("/login")
@@ -73,6 +80,7 @@ export default async function DashboardPage() {
     accountSums,
     personCount,
     pendingUpdates,
+    pendingMemberships,
   ] = await Promise.all([
     prisma.person.findMany({
       where: { dateOfBirth: { not: null }, archivedAt: null },
@@ -115,7 +123,7 @@ export default async function DashboardPage() {
     prisma.family.count({ where: { status: "ACTIVE", archivedAt: null } }),
     prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
     prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
-    prisma.pettyCashSession.count({ where: { status: "OPEN" } }),
+    canViewAccounting(role) ? prisma.pettyCashSession.count({ where: { status: "OPEN" } }) : Promise.resolve(0),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
     prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } }),
@@ -135,10 +143,12 @@ export default async function DashboardPage() {
     // Per-account income/expense since its opening-balance asOfDate, in one
     // groupBy (each account has its own asOfDate, hence the OR). An account
     // with no opening balance set yet is left out and renders "—" + a link to
-    // set it, rather than blocking the others.
+    // set it, rather than blocking the others. Also split by `reconciled` with
+    // a row count, so the same query yields the "Unreconciled transactions"
+    // attention count — no extra round-trip.
     balancedAccounts.length > 0
       ? prisma.transaction.groupBy({
-          by: ["paymentAccountId", "type"],
+          by: ["paymentAccountId", "type", "reconciled"],
           where: {
             type: { in: ["INCOME", "EXPENSE"] },
             OR: balancedAccounts.map((acct) => ({
@@ -147,11 +157,15 @@ export default async function DashboardPage() {
             })),
           },
           _sum: { amount: true },
+          _count: true,
         })
       : Promise.resolve([]),
 
     prisma.person.count({ where: { archivedAt: null } }),
     canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
+    // Same PENDING count the /memberships inbox shows; a plain count, so no
+    // encrypted column is read or decrypted.
+    canEdit(role) ? prisma.membershipApplication.count({ where: { status: "PENDING" } }) : Promise.resolve(0),
   ])
 
   // A hit cap renders a "may be incomplete" notice in the widget.
@@ -215,22 +229,51 @@ export default async function DashboardPage() {
   // asOfDate is a UTC-midnight calendar date — read it with UTC getters.
   const fmtDate = (d: Date) => `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 
+  // The groupBy is split by `reconciled`, so a type can have two rows per
+  // account — sum both (in cents) before handing the total to accountBalance.
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
     const sumOf = (type: string): Money =>
-      accountSums.find((g) => g.paymentAccountId === acct.id && g.type === type)?._sum.amount ?? null
+      centsToNumber(
+        accountSums
+          .filter((g) => g.paymentAccountId === acct.id && g.type === type)
+          .reduce((cents, g) => cents + toCents(g._sum.amount ?? 0), 0),
+      )
     const balance = ob ? accountBalance(ob.amount, sumOf("INCOME"), sumOf("EXPENSE")) : null
-    return { label: acct.name, balance, ob }
+    return { id: acct.id, label: acct.name, balance, ob }
   })
+
+  // Unreconciled transactions since each account's opening balance (same
+  // window as the balance). When they all sit in one account, deep-link to
+  // that account's pending view from its asOfDate; otherwise land on the
+  // reconciliation page's pending filter.
+  const unreconciledByAccount = new Map<number, number>()
+  for (const g of accountSums) {
+    if (g.reconciled || g.paymentAccountId === null) continue
+    unreconciledByAccount.set(g.paymentAccountId, (unreconciledByAccount.get(g.paymentAccountId) ?? 0) + g._count)
+  }
+  const unreconciledCount = [...unreconciledByAccount.values()].reduce((n, c) => n + c, 0)
+  let unreconciledHref: string | undefined
+  if (unreconciledByAccount.size === 1) {
+    const [onlyId] = unreconciledByAccount.keys()
+    const from = ymd(obByAccountId.get(onlyId)!.asOfDate)
+    unreconciledHref = `/accounting/reconciliation?paymentAccount=${onlyId}&from=${from}&status=pending`
+  }
 
   const givingNow = centsToNumber(toCents(givingThisMonth._sum.amount ?? 0))
   const givingLastYearAmt = centsToNumber(toCents(givingLastYear._sum.amount ?? 0))
 
-  const stats = [
-    { label: "Total families", value: familyCount },
-    { label: "Active families", value: activeCount },
-    { label: "Total members", value: personCount },
-    { label: "Added (30 days)", value: recentFamilies + recentPeople, sub: `${recentFamilies} families · ${recentPeople} people` },
+  // One slim inline strip of headline numbers. Member counts only for roles
+  // that can view people; upcoming events for everyone.
+  const stats: { label: string; value: number; sub?: string }[] = [
+    ...(canViewPeople(role)
+      ? [
+          { label: "Families", value: familyCount, sub: `${activeCount} active` },
+          { label: "Members", value: personCount },
+          { label: "Added (30 days)", value: recentFamilies + recentPeople },
+        ]
+      : []),
+    { label: "Upcoming events (30 days)", value: upcomingEventCount },
   ]
 
   // Giving trend vs the same month last year — drives the arrow + colour. A
@@ -240,150 +283,97 @@ export default async function DashboardPage() {
   if (givingDelta > 0) givingTrend = { arrow: "▲", srLabel: "Up", className: "text-income" }
   else if (givingDelta < 0) givingTrend = { arrow: "▼", srLabel: "Down", className: "text-expense" }
 
-  // "Needs attention" tiles, only the ones this role can act on. A non-zero
-  // count makes the tile actionable (gold accent + link).
-  const attention = [
-    canEdit(role) && {
-      label: "Family updates to review",
-      value: pendingUpdates,
-      href: "/families/updates",
-      active: pendingUpdates > 0,
-    },
-    canViewAccounting(role) && {
-      label: "Open petty cash sessions",
-      value: openPettyCash,
-      href: "/accounting/petty-cash",
-      active: openPettyCash > 0,
-    },
+  // Role-aware "Needs attention" rows — zero counts and items this role can't
+  // act on are dropped inside buildAttentionItems.
+  const attention = buildAttentionItems(
+    role,
     {
-      label: "Upcoming events (30d)",
-      value: upcomingEventCount,
-      href: "/events",
-      active: false,
+      pendingFamilyUpdates: pendingUpdates,
+      pendingMemberships,
+      unreconciledTransactions: unreconciledCount,
+      openPettyCash,
+      upcomingBirthdays: upcomingBirthdays.length,
     },
-  ].filter(Boolean) as { label: string; value: number; href: string; active: boolean }[]
+    { unreconciledHref },
+  )
 
-  const sectionHeader = "text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+  const sectionHeading = "text-lg font-semibold"
 
   return (
     <div className="space-y-8">
-      <h2 className="text-2xl font-semibold">
-        Welcome back, {session?.user?.name?.split(" ")[0]}
-      </h2>
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold">
+          Welcome back, {session?.user?.name?.split(" ")[0]}
+        </h1>
+        <dl aria-label="At a glance" className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+          {stats.map((s) => (
+            <div key={s.label} className="flex items-baseline gap-1.5">
+              <dt className="text-muted-foreground">{s.label}</dt>
+              <dd className="font-semibold tabular">
+                {s.value}
+                {s.sub && <span className="ml-1 font-normal text-muted-foreground">({s.sub})</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </header>
 
-      {/* Money — balances + giving */}
+      <NeedsAttention items={attention} />
+
+      {/* Money — one primary figure (giving) + per-account balances */}
       {canViewAccounting(role) && (
-        <section className="space-y-3">
-          <h3 className={sectionHeader}>Money</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {accountBalances.map(({ label, balance, ob }) => (
-              <Card key={label}>
-                <CardHeader className="pb-1 pt-4 px-4">
-                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4">
-                  {balance !== null ? (
-                    <>
-                      <p className="text-3xl font-bold tabular">{fmt(balance)}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        as of {fmtDate(ob!.asOfDate)}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-3xl font-bold text-muted-foreground">—</p>
-                      {isAdmin(role) && (
-                        <Link
-                          href="/accounting/settings"
-                          className="text-xs text-primary hover:underline mt-1 block"
-                        >
-                          Set opening balance
-                        </Link>
+        <section aria-labelledby="money-heading" className="space-y-3">
+          <h2 id="money-heading" className={sectionHeading}>Money</h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="rounded-lg border bg-card px-4 py-4">
+              <p className="text-sm text-muted-foreground">Giving this month</p>
+              <p className="mt-1 text-3xl font-bold tabular sm:text-4xl">{fmt(givingNow)}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-1 text-xs">
+                {givingTrend ? (
+                  <span className={`tabular font-medium ${givingTrend.className}`}>
+                    <span aria-hidden="true">{givingTrend.arrow}</span>
+                    <span className="sr-only">{givingTrend.srLabel}</span> {fmt(Math.abs(givingDelta))}
+                  </span>
+                ) : (
+                  <span className="font-medium text-muted-foreground">No change</span>
+                )}
+                <span className="text-muted-foreground">vs last year</span>
+              </p>
+            </div>
+            {accountBalances.length > 0 && (
+              <ul aria-label="Account balances" className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                {accountBalances.map(({ id, label, balance, ob }) => (
+                  <li key={id}>
+                    <BalanceTile label={label} balance={balance}>
+                      {ob ? (
+                        <p className="mt-1 text-xs text-muted-foreground">as of {fmtDate(ob.asOfDate)}</p>
+                      ) : (
+                        isAdmin(role) && (
+                          <Link
+                            href="/accounting/settings"
+                            className="mt-1 inline-flex min-h-11 items-center text-xs text-primary hover:underline sm:min-h-0"
+                          >
+                            Set opening balance
+                          </Link>
+                        )
                       )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-            <Card>
-              <CardHeader className="pb-1 pt-4 px-4">
-                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Giving this month
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <p className="text-3xl font-bold tabular">{fmt(givingNow)}</p>
-                <p className="mt-1 flex items-center gap-1 text-xs">
-                  {givingTrend ? (
-                    <span className={`tabular font-medium ${givingTrend.className}`}>
-                      <span aria-hidden="true">{givingTrend.arrow}</span>
-                      <span className="sr-only">{givingTrend.srLabel}</span> {fmt(Math.abs(givingDelta))}
-                    </span>
-                  ) : (
-                    <span className="font-medium text-muted-foreground">No change</span>
-                  )}
-                  <span className="text-muted-foreground">vs last year</span>
-                </p>
-              </CardContent>
-            </Card>
+                    </BalanceTile>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       )}
 
-      {/* People — counts + birthdays / anniversaries */}
+      {/* People — birthdays / anniversaries */}
       {canViewPeople(role) && (
-        <section className="space-y-3">
-          <h3 className={sectionHeader}>People</h3>
+        <section aria-labelledby="people-heading" className="space-y-3">
+          <h2 id="people-heading" className={sectionHeading}>People</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <MarriageAnniversaryWidget families={marriageAnniversaries} />
             <BirthdayWidget birthdays={upcomingBirthdays} truncated={birthdaysTruncated} />
             <AnniversaryWidget anniversaries={upcomingAnniversaries} truncated={anniversariesTruncated} />
-          </div>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {stats.map((s) => (
-              <Card key={s.label}>
-                <CardHeader className="pb-1 pt-4 px-4">
-                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {s.label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4">
-                  <p className="text-2xl sm:text-3xl font-bold tabular">{s.value}</p>
-                  {s.sub && <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Needs attention — the to-do tiles for this role */}
-      {attention.length > 0 && (
-        <section className="space-y-3">
-          <h3 className={sectionHeader}>Needs attention</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {attention.map((a) => (
-              <Link key={a.label} href={a.href} className="block overflow-hidden group">
-                <Card
-                  className={`transition-all duration-200 hover:scale-[1.02] hover:bg-accent motion-reduce:transition-none ${
-                    a.active ? "border-gold ring-1 ring-gold/40" : ""
-                  }`}
-                >
-                  <CardHeader className="pb-1 pt-4 px-4">
-                    <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      {a.label}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <p className="text-3xl font-bold tabular text-foreground">
-                      {a.value}
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
           </div>
         </section>
       )}
