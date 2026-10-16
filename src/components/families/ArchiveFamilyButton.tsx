@@ -12,7 +12,6 @@ export function ArchiveFamilyButton({ familyId, memberCount }: Readonly<{ family
       triggerVariant="outline"
       triggerSize="sm"
       triggerLabel="Archive"
-      triggerClassName="h-11 sm:h-7 any-pointer-coarse:h-11"
       confirmLabel="Archive"
       pendingLabel="Archiving…"
     />

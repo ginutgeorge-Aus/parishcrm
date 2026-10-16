@@ -79,7 +79,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |
 | Clearance digest email (monthly, opt-in) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — status badge only | Yes | Yes | Yes | No | Yes | No |
-| Accounting — view (transactions, reports, petty cash, receipt audit) | Yes | Yes | Yes | Yes | No | No |
+| Accounting — view (transactions, reports, petty cash, Receipt Log) | Yes | Yes | Yes | Yes | No | No |
 | Accounting — mutate (create/edit transactions, reconcile, close petty cash) | Yes | Yes | No | No | No | No |
 | CSV export (accounting) | Yes | Yes | Yes | Yes | No | No |
 | Invoices & customers — create, edit, send | Yes | Yes | No | No | No | No |

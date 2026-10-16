@@ -38,7 +38,7 @@ export default async function HelpPage() {
         <h3 className="text-lg font-medium">Feedback &amp; bug reports</h3>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
           <li>Use the &ldquo;Feedback&rdquo; button in the sidebar — choose Bug, Feature, or Idea.</li>
-          <li>Track what you&apos;ve sent and its status (Open / Resolved / Won&apos;t-fix) under &ldquo;My Reports&rdquo;.</li>
+          <li>Track what you&apos;ve sent and its status (Open / Resolved / Won&apos;t-fix) under &ldquo;My Feedback&rdquo;.</li>
         </ul>
       </section>
 

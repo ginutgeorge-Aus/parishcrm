@@ -40,6 +40,36 @@ const roleLabel: Record<UserRole, string> = {
   EVENT_ORGANISER: "Event Organiser",
 }
 
+/**
+ * Row action buttons shared by the mobile card list and the desktop table.
+ * Callers gate on canAssignRole; TOTP/passkey resets and delete are hidden on
+ * the signed-in user's own row.
+ */
+function UserActions({
+  user,
+  isLocked,
+  isSelf,
+  className = "",
+}: Readonly<{
+  user: { id: number; name: string; totpEnabledAt: Date | null; _count: { passkeys: number } }
+  isLocked: boolean
+  isSelf: boolean
+  className?: string
+}>) {
+  return (
+    <div className={`flex flex-wrap gap-2 ${className}`}>
+      {isLocked && <UnlockUserButton userId={user.id} />}
+      {user.totpEnabledAt && !isSelf && <ResetTotpButton userId={user.id} />}
+      {user._count.passkeys > 0 && !isSelf && <RevokePasskeysButton userId={user.id} />}
+      <Button variant="ghost" size="sm" asChild>
+        <Link href={`/users/${user.id}/edit`}>Edit</Link>
+      </Button>
+      <ResendWelcomeButton userId={user.id} />
+      {!isSelf && <DeleteUserButton userId={user.id} userName={user.name} />}
+    </div>
+  )
+}
+
 export default async function UsersPage() {
   const session = await auth()
   if (!canManageUsers(session?.user?.role)) redirect("/")
@@ -111,16 +141,7 @@ export default async function UsersPage() {
                   : "Never"}
               </p>
               {canAssignRole(session?.user?.role, u.role) && (
-                <div className="mt-2 flex flex-wrap gap-2 border-t pt-2">
-                  {isLocked && <UnlockUserButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
-                  {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
-                  {u._count.passkeys > 0 && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <RevokePasskeysButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />}
-                  <Button variant="ghost" size="sm" asChild className="h-11 sm:h-7 any-pointer-coarse:h-11">
-                    <Link href={`/users/${u.id}/edit`}>Edit</Link>
-                  </Button>
-                  <ResendWelcomeButton userId={u.id} className="h-11 sm:h-7 any-pointer-coarse:h-11" />
-                  {String(u.id) !== session?.user?.id && <DeleteUserButton userId={u.id} userName={u.name} triggerClassName="h-11 sm:h-7 any-pointer-coarse:h-11" />}
-                </div>
+                <UserActions user={u} isLocked={isLocked} isSelf={String(u.id) === session?.user?.id} className="mt-2 border-t pt-2" />
               )}
             </li>
           )
@@ -167,16 +188,7 @@ export default async function UsersPage() {
                   </TableCell>
                   <TableCell>
                     {canAssignRole(session?.user?.role, u.role) && (
-                      <div className="flex flex-wrap gap-2">
-                        {isLocked && <UnlockUserButton userId={u.id} />}
-                        {u.totpEnabledAt && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <ResetTotpButton userId={u.id} />}
-                        {u._count.passkeys > 0 && String(u.id) !== session?.user?.id && canAssignRole(session?.user?.role, u.role) && <RevokePasskeysButton userId={u.id} />}
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/users/${u.id}/edit`}>Edit</Link>
-                        </Button>
-                        <ResendWelcomeButton userId={u.id} />
-                        {String(u.id) !== session?.user?.id && <DeleteUserButton userId={u.id} userName={u.name} />}
-                      </div>
+                      <UserActions user={u} isLocked={isLocked} isSelf={String(u.id) === session?.user?.id} />
                     )}
                   </TableCell>
                 </TableRow>
