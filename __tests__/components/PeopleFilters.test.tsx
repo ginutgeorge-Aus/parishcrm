@@ -45,7 +45,8 @@ test("classification and role dropdowns show humanized labels, not raw enum valu
 test("mobile Filters toggle shows and hides the select filters", () => {
   render(<PeopleFilters />)
   const toggle = screen.getByRole("button", { name: "Filters" })
-  const panel = document.getElementById("people-select-filters")!
+  const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "")
+  expect(panel).not.toBeNull()
   expect(toggle).toHaveAttribute("aria-expanded", "false")
   expect(panel).toHaveClass("hidden", "md:contents")
 
@@ -53,10 +54,15 @@ test("mobile Filters toggle shows and hides the select filters", () => {
   expect(toggle).toHaveAttribute("aria-expanded", "true")
   expect(panel).toHaveClass("flex")
   expect(panel).not.toHaveClass("hidden")
+
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute("aria-expanded", "false")
+  expect(panel).toHaveClass("hidden")
+  expect(panel).not.toHaveClass("flex")
 })
 
 test("Filters toggle counts active select filters but not the name search", () => {
-  mockParams = new URLSearchParams("q=jo&classification=MEMBER&ministryRole=OTHER")
+  mockParams = new URLSearchParams("q=jo&classification=MEMBER&ministryRole=OTHER&role=ALL")
   render(<PeopleFilters />)
   expect(screen.getByRole("button", { name: "Filters (2)" })).toBeInTheDocument()
 })

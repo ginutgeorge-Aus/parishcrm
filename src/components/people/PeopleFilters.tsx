@@ -48,11 +48,16 @@ export function PeopleFilters() {
     return () => clearTimeout(t)
   }, [query, urlQ, update])
 
+  /** Drop every filter by navigating to the bare /people list. */
   const clear = () => router.push("/people")
   const hasFilters = searchParams.size > 0
   // Select filters collapse behind a toggle on phones; always shown from md up.
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const activeSelects = ["classification", "role", "ministryRole"].filter((k) => searchParams.has(k)).length
+  // "ALL" is the unfiltered default, so a hand-typed ?role=ALL isn't counted.
+  const activeSelects = ["classification", "role", "ministryRole"].filter((k) => {
+    const v = searchParams.get(k)
+    return !!v && v !== "ALL"
+  }).length
 
   return (
     <div className="flex flex-wrap items-center gap-3 print:hidden">
