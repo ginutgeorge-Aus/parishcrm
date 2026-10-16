@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
+import { countPendingMemberships } from "@/lib/pendingUpdates"
 import { MEMBERSHIP_STATUS_LABELS } from "@/lib/membershipLabels"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
@@ -28,7 +29,8 @@ export default async function MembershipsInbox({
       orderBy: { createdAt: "asc" },
       take: 200,
     }),
-    prisma.membershipApplication.count({ where: { status: "PENDING" } }),
+    // React-cached: shared with the sidebar badge and the dashboard.
+    countPendingMemberships(),
   ])
 
   return (

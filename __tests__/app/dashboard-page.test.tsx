@@ -293,7 +293,8 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
       by: ["paymentAccountId"],
       where: {
         reconciled: false,
-        paymentAccountId: { not: null },
+        // CASH (petty-cash mirror) accounts are never reconciled.
+        paymentAccount: { kind: "BANK" },
         // 01:00Z on 10 Mar = 12:00 on 10 Mar in Sydney.
         date: { lte: new Date("2026-03-10T23:59:59.999Z") },
       },
@@ -344,6 +345,14 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
     expect(html).not.toContain(">Members<")
     expect(html).toContain("Upcoming events (30 days)")
     expect(html).toContain("Giving this month")
+    // Nothing an auditor can act on: no section rather than "All caught up".
+    expect(html).not.toContain("Needs attention")
+    expect(html).not.toContain("All caught up")
+  })
+
+  it("links the upcoming-events figure to /events", async () => {
+    const html = await renderAs("VIEWER")
+    expect(html).toMatch(/<a[^>]*href="\/events"[^>]*>Upcoming events \(30 days\)<\/a>/)
   })
 
   it("keeps OFFICE_ADMIN off the accounting to-do rows", async () => {

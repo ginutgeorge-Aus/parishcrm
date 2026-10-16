@@ -35,12 +35,42 @@ export type AttentionItem = {
 
 type Candidate = AttentionItem & { allowed: boolean }
 
+/** A `groupBy({ by: ["paymentAccountId"], _count: true, _min: { date: true } })` row. */
+type UnreconciledGroup = { paymentAccountId: number | null; _count: number; _min: { date: Date | null } }
+
+/**
+ * Narrow raw groupBy rows to `UnreconciledAccountRow`s, dropping any without an
+ * account or an oldest date (neither occurs for real rows; this keeps the
+ * types honest without non-null assertions).
+ *
+ * @param groups - Raw per-account unreconciled groups.
+ */
+export function toUnreconciledRows(groups: UnreconciledGroup[]): UnreconciledAccountRow[] {
+  return groups.flatMap((g) =>
+    g.paymentAccountId !== null && g._min.date !== null
+      ? [{ paymentAccountId: g.paymentAccountId, count: g._count, earliest: g._min.date }]
+      : [],
+  )
+}
+
+/**
+ * Whether the role can ever have a "Needs attention" item (any gate in
+ * `buildAttentionItems` passes). Roles that can't (e.g. AUDITOR) get no
+ * section instead of a permanent "All caught up".
+ *
+ * @param role - The viewer's role.
+ */
+export function canHaveAttentionItems(role: UserRole | undefined): boolean {
+  return canEdit(role) || canAccessAccounting(role) || canViewPeople(role)
+}
+
 /**
  * Link for the "Unreconciled transactions" row: the Reconciliation page's
  * pending view for the account with the most unreconciled rows, starting at
- * that account's oldest one. The page's `to` defaults to today, matching the
- * count's upper bound, so every counted row for that account is listed there.
- * Ties go to the lowest account id so the link is stable.
+ * that account's oldest one. That page works on one account at a time (no
+ * all-accounts view), so when several accounts are pending the row's label
+ * says so (see `buildAttentionItems`). The page's `to` defaults to today,
+ * matching the count's upper bound. Ties go to the lowest account id.
  *
  * @param rows - Per-account unreconciled counts (non-empty for a useful link).
  */
@@ -90,7 +120,9 @@ export function buildAttentionItems(role: UserRole | undefined, counts: Attentio
       key: "unreconciled",
       allowed: canAccessAccounting(role),
       count: unreconciledCount,
-      label: plural(unreconciledCount, "Unreconciled transaction", "Unreconciled transactions"),
+      label:
+        plural(unreconciledCount, "Unreconciled transaction", "Unreconciled transactions") +
+        (counts.unreconciled.length > 1 ? ` across ${counts.unreconciled.length} accounts` : ""),
       href: unreconciledHref(counts.unreconciled),
     },
     {

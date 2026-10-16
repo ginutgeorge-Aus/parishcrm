@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
 import { canViewAccounting, canAccessAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
 import { accountBalance } from "@/lib/reports/plHelpers"
-import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, type Money } from "@/lib/formatting"
+import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, safeDobDate, type Money } from "@/lib/formatting"
 import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC, endOfDayUTC } from "@/lib/dates"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
@@ -18,7 +18,7 @@ import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnnive
 import { WhatsNewFooter } from "@/components/dashboard/WhatsNewFooter"
 import { NeedsAttention } from "@/components/dashboard/NeedsAttention"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
-import { buildAttentionItems } from "@/lib/dashboardAttention"
+import { buildAttentionItems, canHaveAttentionItems, toUnreconciledRows } from "@/lib/dashboardAttention"
 
 /**
  * Authenticated home page. Leads with a role-aware "Needs attention" list,
@@ -166,15 +166,16 @@ export default async function DashboardPage() {
     canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
     // React-cached: shared with the layout's Sidebar badge.
     canEdit(role) ? countPendingMemberships() : Promise.resolve(0),
-    // Unreconciled transactions per account — exactly the rows the
-    // Reconciliation page's pending view can list and clear: any payment
-    // account (it lists deactivated and CASH ones too), up to the end of
-    // today (its default `to`), no opening-balance requirement. _min date
-    // seeds the deep link's `from`. Rides @@index([paymentAccountId, reconciled, date]).
+    // Unreconciled transactions per BANK account. CASH accounts are excluded:
+    // their rows mirror petty-cash activity and are never reconciled, so
+    // counting them would leave the row permanently uncleared. Deactivated
+    // bank accounts stay in (the Reconciliation page lists them). Up to the
+    // end of today (its default `to`), no opening-balance requirement. _min
+    // date seeds the deep link's `from`.
     canAccessAccounting(role)
       ? prisma.transaction.groupBy({
           by: ["paymentAccountId"],
-          where: { reconciled: false, paymentAccountId: { not: null }, date: { lte: endOfDayUTC(today) } },
+          where: { reconciled: false, paymentAccount: { kind: "BANK" }, date: { lte: endOfDayUTC(today) } },
           _count: true,
           _min: { date: true },
         })
@@ -197,10 +198,10 @@ export default async function DashboardPage() {
       .filter((p) => p.dateOfBirth)
       .map((p) => {
         // safeDecrypt returns '[decryption error]' on a bad/rotated-away
-        // ciphertext; new Date() of that is Invalid Date, which would poison
-        // the whole window calc. Drop the record instead.
-        const dateOfBirth = new Date(safeDecrypt(p.dateOfBirth!))
-        if (Number.isNaN(dateOfBirth.getTime())) return null
+        // ciphertext; safeDobDate turns that (and impossible dates) into null,
+        // matching /people/birthdays, so the window calc isn't poisoned.
+        const dateOfBirth = safeDobDate(safeDecrypt(p.dateOfBirth as string))
+        if (dateOfBirth === null) return null
         return {
           id: p.id,
           firstName: p.firstName,
@@ -256,7 +257,7 @@ export default async function DashboardPage() {
 
   // One slim inline strip of headline numbers. Member counts only for roles
   // that can view people; upcoming events for everyone.
-  const stats: { label: string; value: number; sub?: string }[] = [
+  const stats: { label: string; value: number; sub?: string; href?: string }[] = [
     ...(canViewPeople(role)
       ? [
           { label: "Families", value: familyCount, sub: `${activeCount} active` },
@@ -268,7 +269,7 @@ export default async function DashboardPage() {
           },
         ]
       : []),
-    { label: "Upcoming events (30 days)", value: upcomingEventCount },
+    { label: "Upcoming events (30 days)", value: upcomingEventCount, href: "/events" },
   ]
 
   // Giving trend vs the same month last year — drives the arrow + colour. A
@@ -283,9 +284,7 @@ export default async function DashboardPage() {
   const attention = buildAttentionItems(role, {
     pendingFamilyUpdates: pendingUpdates,
     pendingMemberships,
-    unreconciled: unreconciledGroups
-      .filter((g) => g.paymentAccountId !== null && g._min.date !== null)
-      .map((g) => ({ paymentAccountId: g.paymentAccountId!, count: g._count, earliest: g._min.date! })),
+    unreconciled: toUnreconciledRows(unreconciledGroups),
     openPettyCash,
     upcomingBirthdays: upcomingBirthdays.length,
     birthdaysTruncated,
@@ -302,7 +301,15 @@ export default async function DashboardPage() {
         <dl aria-label="At a glance" className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
           {stats.map((s) => (
             <div key={s.label} className="flex items-baseline gap-1.5">
-              <dt className="text-muted-foreground">{s.label}</dt>
+              <dt className="text-muted-foreground">
+                {s.href ? (
+                  <Link href={s.href} className="inline-flex min-h-11 items-center hover:underline sm:min-h-0">
+                    {s.label}
+                  </Link>
+                ) : (
+                  s.label
+                )}
+              </dt>
               <dd className="font-semibold tabular">
                 {s.value}
                 {s.sub && <span className="ml-1 font-normal text-muted-foreground">({s.sub})</span>}
@@ -312,7 +319,7 @@ export default async function DashboardPage() {
         </dl>
       </header>
 
-      <NeedsAttention items={attention} />
+      {canHaveAttentionItems(role) && <NeedsAttention items={attention} />}
 
       {/* Money — one primary figure (giving) + per-account balances */}
       {canViewAccounting(role) && (

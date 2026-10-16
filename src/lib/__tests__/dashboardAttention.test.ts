@@ -1,5 +1,10 @@
 /** @jest-environment node */
-import { buildAttentionItems, unreconciledHref, type AttentionCounts } from "@/lib/dashboardAttention"
+import {
+  buildAttentionItems,
+  canHaveAttentionItems,
+  toUnreconciledRows,
+  unreconciledHref,
+  type AttentionCounts } from "@/lib/dashboardAttention"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 const ALL: AttentionCounts = {
@@ -80,6 +85,44 @@ describe("buildAttentionItems", () => {
     expect(capped[0]).toMatchObject({ key: "birthdays", count: 2, atLeast: true })
     const exact = buildAttentionItems(UserRole.ADMIN, { ...NONE, upcomingBirthdays: 2 })
     expect(exact[0].atLeast).toBeFalsy()
+  })
+})
+
+describe("unreconciled row label", () => {
+  it("notes the account count when several accounts are pending (the link opens only the busiest)", () => {
+    const item = buildAttentionItems(UserRole.ADMIN, ALL).find((i) => i.key === "unreconciled")
+    expect(item?.count).toBe(4)
+    expect(item?.label).toBe("Unreconciled transactions across 2 accounts")
+  })
+
+  it("keeps the plain label for a single account", () => {
+    const item = buildAttentionItems(UserRole.ADMIN, { ...ALL, unreconciled: [ALL.unreconciled[1]] }).find(
+      (i) => i.key === "unreconciled",
+    )
+    expect(item?.label).toBe("Unreconciled transactions")
+  })
+})
+
+describe("canHaveAttentionItems", () => {
+  it("is false only for roles with no actionable item (AUDITOR)", () => {
+    expect(canHaveAttentionItems(UserRole.AUDITOR)).toBe(false)
+    expect(canHaveAttentionItems(undefined)).toBe(false)
+    expect(canHaveAttentionItems(UserRole.VIEWER)).toBe(true)
+    expect(canHaveAttentionItems(UserRole.OFFICE_ADMIN)).toBe(true)
+    expect(canHaveAttentionItems(UserRole.ADMIN)).toBe(true)
+  })
+})
+
+describe("toUnreconciledRows", () => {
+  it("maps complete groups and drops ones without an account or oldest date", () => {
+    const d = new Date("2026-01-01T00:00:00Z")
+    expect(
+      toUnreconciledRows([
+        { paymentAccountId: 1, _count: 2, _min: { date: d } },
+        { paymentAccountId: null, _count: 1, _min: { date: d } },
+        { paymentAccountId: 3, _count: 1, _min: { date: null } },
+      ]),
+    ).toEqual([{ paymentAccountId: 1, count: 2, earliest: d }])
   })
 })
 
