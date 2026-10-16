@@ -61,7 +61,7 @@ it("wires aria-controls on the toggle to the panel's id", () => {
   const button = screen.getByRole("button", { name: /accounting/i })
   const controlsId = button.getAttribute("aria-controls") ?? ""
   expect(controlsId).toBeTruthy()
-  expect(document.getElementById(controlsId)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
+  expect(document.getElementById(controlsId)).toContainElement(screen.getByText("Overview"))
 })
 
 const renderCustom = (g: NavGroup, isOpen: boolean) =>
