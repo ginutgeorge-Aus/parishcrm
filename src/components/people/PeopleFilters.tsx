@@ -55,8 +55,8 @@ export function PeopleFilters() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   // "ALL" is the unfiltered default, so a hand-typed ?role=ALL isn't counted.
   const activeSelects = ["classification", "role", "ministryRole"].filter((k) => {
-    const v = searchParams.get(k)
-    return !!v && v !== "ALL"
+    const value = searchParams.get(k)
+    return Boolean(value) && value !== "ALL"
   }).length
 
   return (
