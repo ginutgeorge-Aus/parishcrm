@@ -98,7 +98,8 @@ export default async function EventsPage(
         <h1 className="text-2xl font-bold text-foreground">Events</h1>
         <div className="flex items-center gap-3">
           {isAdmin(session.user.role) && isWebsiteSyncConfigured() && <ResyncEventsButton />}
-          {canEdit(session.user.role) && (
+          {/* With no events at all the empty state carries New event. */}
+          {canEdit(session.user.role) && hasAnyEvents && (
             <Button asChild>
               <Link href="/events/new">New Event</Link>
             </Button>
@@ -125,6 +126,7 @@ export default async function EventsPage(
         hasAnyEvents ? (
           <EmptyState
             icon={CalendarDays}
+            headingLevel={2}
             title={`No ${filter === "past" ? "past" : "upcoming"} events`}
             description="Switch tabs to see the rest of your events."
             actions={[{ label: "View all events", href: "/events?filter=all", variant: "outline" }]}
@@ -132,6 +134,7 @@ export default async function EventsPage(
         ) : (
           <EmptyState
             icon={CalendarDays}
+            headingLevel={2}
             title="No events yet"
             description="Create an event to take registrations, sell tickets and check people in."
             actions={canEdit(session.user.role) ? [{ label: "New event", href: "/events/new" }] : []}

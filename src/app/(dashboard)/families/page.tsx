@@ -75,6 +75,11 @@ export default async function FamiliesPage(
     },
   })
 
+  const isFiltered = Boolean(q || statusFilter || suburbFilter)
+  // Empty directory: the list's empty state carries Add family / Import CSV,
+  // so the toolbar doesn't offer them a second time.
+  const noFamiliesYet = totalCount === 0 && !isFiltered
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -97,12 +102,12 @@ export default async function FamiliesPage(
         <Suspense>
           <FamilyFilters />
         </Suspense>
-        {userCanEdit && (
+        {userCanEdit && !noFamiliesYet && (
           <Button asChild>
             <Link href="/families/new">New family</Link>
           </Button>
         )}
-        {userIsAdmin && (
+        {userIsAdmin && !noFamiliesYet && (
           <Button variant="outline" asChild>
             <Link href="/import">Import CSV</Link>
           </Button>
@@ -135,7 +140,7 @@ export default async function FamiliesPage(
       <FamilyList
         families={visibleFamilies}
         canEdit={userCanEdit}
-        isFiltered={Boolean(q || statusFilter || suburbFilter)}
+        isFiltered={isFiltered}
         canImport={userIsAdmin}
       />
     </div>

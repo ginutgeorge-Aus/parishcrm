@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
+import { Suspense } from "react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
@@ -272,7 +273,9 @@ export default async function DashboardPage() {
         Welcome back, {session?.user?.name?.split(" ")[0]}
       </h2>
 
-      <SetupChecklist role={role} />
+      <Suspense fallback={null}>
+        <SetupChecklist role={role} />
+      </Suspense>
 
       {/* Money — balances + giving */}
       {canViewAccounting(role) && (

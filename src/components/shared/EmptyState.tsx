@@ -20,20 +20,29 @@ export type EmptyStateAction = {
  * - "no data yet" — explain what goes here and offer the primary action
  *   (Add person, Import CSV…)
  * - "no matches" — filters hid everything; offer a Clear filters link
+ *
+ * When the no-data state shows, the page should hide its own toolbar copy of
+ * the same create/import action so it isn't offered twice. The title is a
+ * heading (`headingLevel`, default h3) so it shows up in heading navigation —
+ * pick the level that fits under the page's own heading.
  */
 export function EmptyState({
   icon: Icon,
   title,
   description,
   actions = [],
+  headingLevel = 3,
   className,
 }: Readonly<{
   icon?: LucideIcon
   title: string
   description?: string
   actions?: EmptyStateAction[]
+  /** Heading level for the title; default 3 (pages use an h2 title). */
+  headingLevel?: 2 | 3 | 4
   className?: string
 }>) {
+  const Heading = `h${headingLevel}` as const
   return (
     <div
       className={cn(
@@ -46,13 +55,13 @@ export function EmptyState({
           <Icon className="size-6 text-muted-foreground" />
         </div>
       )}
-      <p className="font-medium text-foreground">{title}</p>
+      <Heading className="text-base font-medium text-foreground">{title}</Heading>
       {description && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>}
       {actions.length > 0 && (
         <div className="mt-5 flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:justify-center print:hidden">
           {actions.map((a, i) => (
             <Button
-              key={a.href}
+              key={a.label}
               asChild
               variant={a.variant ?? (i === 0 ? "default" : "outline")}
               className="min-h-11 sm:min-h-0"

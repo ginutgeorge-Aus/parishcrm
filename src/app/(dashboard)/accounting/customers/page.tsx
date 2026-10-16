@@ -23,7 +23,8 @@ export default async function CustomersPage() {
         <h2 className="text-2xl font-semibold text-foreground">Customers</h2>
         <div className="flex gap-2">
           <Button asChild variant="outline"><Link href="/accounting/invoices">Invoices</Link></Button>
-          {canManage && <Button asChild><Link href="/accounting/customers/new">New customer</Link></Button>}
+          {/* With no customers the empty state carries New customer. */}
+          {canManage && result.length > 0 && <Button asChild><Link href="/accounting/customers/new">New customer</Link></Button>}
         </div>
       </div>
       <p className="text-sm text-muted-foreground">

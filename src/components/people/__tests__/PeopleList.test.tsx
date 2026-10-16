@@ -6,13 +6,8 @@ const links = () => screen.queryAllByRole("link").map((a) => a.getAttribute("hre
 describe("PeopleList empty states", () => {
   it("offers Add person and Import CSV on an empty directory to an ADMIN", () => {
     render(<PeopleList people={[]} canAdd canImport />)
-    expect(screen.getByText("No people yet")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "No people yet" })).toBeInTheDocument()
     expect(links()).toEqual(["/people/new", "/import"])
-  })
-
-  it("points Add at a new family when no family exists yet", () => {
-    render(<PeopleList people={[]} canAdd hasFamilies={false} />)
-    expect(screen.getByRole("link", { name: "Add family" })).toHaveAttribute("href", "/families/new")
   })
 
   it("shows a VIEWER the text only", () => {

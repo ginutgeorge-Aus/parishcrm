@@ -219,7 +219,8 @@ function MembersSection({
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-foreground">Members ({people.length})</h3>
-        {userCanEdit && (
+        {/* With no members the empty state below carries Add member. */}
+        {userCanEdit && people.length > 0 && (
           <Button size="sm" asChild className="print:hidden">
             <Link href={`/families/${familyId}/people/new`}>Add member</Link>
           </Button>
@@ -230,6 +231,7 @@ function MembersSection({
         <EmptyState
           icon={UserPlus}
           title="No members yet"
+          headingLevel={4}
           description="Add the people who belong to this family."
           actions={userCanEdit ? [{ label: "Add member", href: `/families/${familyId}/people/new` }] : []}
         />

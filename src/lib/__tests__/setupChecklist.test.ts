@@ -1,35 +1,42 @@
 /** @jest-environment node */
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    appSetting: { findFirst: jest.fn() },
+    appSetting: { findMany: jest.fn() },
     brandingAsset: { findFirst: jest.fn() },
     person: { findFirst: jest.fn() },
     account: { findFirst: jest.fn() },
     paymentAccount: { findFirst: jest.fn() },
   },
 }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 
 import { prisma } from "@/lib/prisma"
-import { getSetupChecklist, resetSetupChecklistCache } from "@/lib/setupChecklist"
+import { logger } from "@/lib/logger"
+import { getSetupChecklist } from "@/lib/setupChecklist"
 
-const m = prisma as unknown as Record<string, { findFirst: jest.Mock }>
-const models = ["appSetting", "brandingAsset", "person", "account", "paymentAccount"]
+const m = prisma as unknown as Record<string, { findFirst: jest.Mock; findMany: jest.Mock }>
+const rowModels = ["brandingAsset", "person", "account", "paymentAccount"]
 
 /** Prime every existence check; `done` lists the models that have a row. */
-function prime(done: string[]) {
-  for (const k of models) m[k].findFirst.mockResolvedValue(done.includes(k) ? { id: 1 } : null)
+function prime(done: string[], settings: { key: string; value: string }[] = []) {
+  for (const k of rowModels) m[k].findFirst.mockResolvedValue(done.includes(k) ? { id: 1 } : null)
+  m.appSetting.findMany.mockResolvedValue(settings)
 }
 
-const OLD_NAME = process.env.CHURCH_NAME
+const churchStep = async () => (await getSetupChecklist("ADMIN"))!.find((s) => s.id === "church")!.done
+
+const OLD = { name: process.env.CHURCH_NAME, address: process.env.CHURCH_ADDRESS }
 
 beforeEach(() => {
   jest.clearAllMocks()
-  resetSetupChecklistCache()
   delete process.env.CHURCH_NAME
+  delete process.env.CHURCH_ADDRESS
 })
 afterAll(() => {
-  if (OLD_NAME === undefined) delete process.env.CHURCH_NAME
-  else process.env.CHURCH_NAME = OLD_NAME
+  if (OLD.name === undefined) delete process.env.CHURCH_NAME
+  else process.env.CHURCH_NAME = OLD.name
+  if (OLD.address === undefined) delete process.env.CHURCH_ADDRESS
+  else process.env.CHURCH_ADDRESS = OLD.address
 })
 
 describe("getSetupChecklist", () => {
@@ -37,7 +44,8 @@ describe("getSetupChecklist", () => {
     for (const role of ["PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER", undefined] as const) {
       expect(await getSetupChecklist(role)).toBeNull()
     }
-    for (const k of models) expect(m[k].findFirst).not.toHaveBeenCalled()
+    for (const k of rowModels) expect(m[k].findFirst).not.toHaveBeenCalled()
+    expect(m.appSetting.findMany).not.toHaveBeenCalled()
   })
 
   it("lists every step as not done on an empty install, each with a link", async () => {
@@ -55,34 +63,57 @@ describe("getSetupChecklist", () => {
     expect(done).toEqual({ church: false, branding: true, people: true, categories: false, paymentAccounts: false })
   })
 
-  it("counts a CHURCH_NAME env var as church details done", async () => {
+  it("needs both a church name and address", async () => {
+    prime([], [{ key: "churchName", value: "Example Parish" }])
+    expect(await churchStep()).toBe(false)
+    prime([], [
+      { key: "churchName", value: "Example Parish" },
+      { key: "churchAddress", value: "1 Example St" },
+    ])
+    expect(await churchStep()).toBe(true)
+  })
+
+  it("accepts the env fallbacks", async () => {
     process.env.CHURCH_NAME = "Example Parish"
+    process.env.CHURCH_ADDRESS = "1 Example St"
     prime([])
-    const steps = await getSetupChecklist("ADMIN")
-    expect(steps!.find((s) => s.id === "church")!.done).toBe(true)
+    expect(await churchStep()).toBe(true)
   })
 
-  it("only counts a non-empty churchName setting and active people", async () => {
+  it("does not count the shipped placeholder name or whitespace", async () => {
+    process.env.CHURCH_ADDRESS = "1 Example St"
+    process.env.CHURCH_NAME = "Your Church"
     prime([])
-    await getSetupChecklist("ADMIN")
-    expect(m.appSetting.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { key: "churchName", value: { not: "" } } })
-    )
-    expect(m.person.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { archivedAt: null } }))
+    expect(await churchStep()).toBe(false)
+    prime([], [{ key: "churchName", value: "  Your Church " }])
+    expect(await churchStep()).toBe(false)
+    delete process.env.CHURCH_NAME
+    prime([], [{ key: "churchName", value: "   " }])
+    expect(await churchStep()).toBe(false)
   })
 
-  it("returns null once complete and skips the queries on later calls", async () => {
-    prime(models)
+  it("returns null once every step is done", async () => {
+    prime(rowModels, [
+      { key: "churchName", value: "Example Parish" },
+      { key: "churchAddress", value: "1 Example St" },
+    ])
     expect(await getSetupChecklist("ADMIN")).toBeNull()
-    jest.clearAllMocks()
-    expect(await getSetupChecklist("ADMIN")).toBeNull()
-    for (const k of models) expect(m[k].findFirst).not.toHaveBeenCalled()
   })
 
-  it("keeps checking while setup is incomplete", async () => {
-    prime([])
+  it("re-checks on every call (no in-process memo)", async () => {
+    prime(rowModels, [
+      { key: "churchName", value: "Example Parish" },
+      { key: "churchAddress", value: "1 Example St" },
+    ])
     await getSetupChecklist("ADMIN")
     await getSetupChecklist("ADMIN")
     expect(m.account.findFirst).toHaveBeenCalledTimes(2)
+  })
+
+  it("logs and returns null when a query fails", async () => {
+    prime([])
+    m.person.findFirst.mockRejectedValue(new Error("db down"))
+    expect(await getSetupChecklist("ADMIN")).toBeNull()
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("setupChecklist"), { error: "db down" })
   })
 })

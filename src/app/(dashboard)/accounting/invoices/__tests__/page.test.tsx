@@ -105,7 +105,8 @@ describe("InvoicesPage", () => {
     as("ADMIN")
     const admin = renderToStaticMarkup(await call())
     expect(admin).toContain("No invoices yet")
-    expect(admin).toContain("New invoice")
+    // Offered once — the toolbar copy hides while the empty state shows it.
+    expect(admin.match(/\/accounting\/invoices\/new/g)).toHaveLength(1)
     as("AUDITOR")
     const auditor = renderToStaticMarkup(await call())
     expect(auditor).toContain("No invoices yet")

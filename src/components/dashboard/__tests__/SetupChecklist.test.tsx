@@ -22,6 +22,7 @@ describe("SetupChecklist", () => {
     mockGet.mockResolvedValue([step("church", true), step("people", false, "/families"), step("categories", false)])
     render(<>{await SetupChecklist({ role: "ADMIN" })}</>)
     expect(screen.getByRole("heading", { name: "Finish setting up" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Finish setting up" })).toBeInTheDocument()
     expect(screen.getByText("1 of 3 done")).toBeInTheDocument()
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1")
     expect(screen.getByRole("link", { name: /Title people/ })).toHaveAttribute("href", "/families")

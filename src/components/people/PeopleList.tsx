@@ -32,15 +32,13 @@ type Person = {
  * People directory: stacked cards on mobile, a table from `md` up. With no
  * rows it shows an empty state — "no matches" (Clear filters) when a filter
  * is active, otherwise "no people yet" with the add/import actions the viewer
- * is allowed to use. A person always belongs to a family, so with no
- * families yet the add action points at "Add family" instead.
+ * is allowed to use.
  */
 export function PeopleList({
   people,
   isFiltered = false,
   canAdd = false,
   canImport = false,
-  hasFamilies = true,
 }: Readonly<{
   people: Person[]
   /** A search/filter is applied, so an empty list means "no matches". */
@@ -49,8 +47,6 @@ export function PeopleList({
   canAdd?: boolean
   /** Viewer may bulk-import families/people from CSV (ADMIN). */
   canImport?: boolean
-  /** At least one family exists — /people/new is a family picker. */
-  hasFamilies?: boolean
 }>) {
   if (people.length === 0) {
     if (isFiltered) {
@@ -64,9 +60,7 @@ export function PeopleList({
       )
     }
     const actions: EmptyStateAction[] = []
-    if (canAdd) {
-      actions.push(hasFamilies ? { label: "Add person", href: "/people/new" } : { label: "Add family", href: "/families/new" })
-    }
+    if (canAdd) actions.push({ label: "Add person", href: "/people/new" })
     if (canImport) actions.push({ label: "Import CSV", href: "/import" })
     return (
       <EmptyState

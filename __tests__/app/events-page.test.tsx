@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { ResyncEventsButton } from "@/components/events/ResyncEventsButton"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -88,6 +89,16 @@ describe("EventsPage — empty states", () => {
     const props = await empty("ADMIN")
     expect(props?.title).toBe("No events yet")
     expect(props?.actions.map((a) => a.href)).toEqual(["/events/new"])
+  })
+
+  it("hides the toolbar New Event while the first-run empty state offers it", async () => {
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
+    expect(html).not.toContain(">New Event<")
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
+    const tab = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
+    expect(tab).toContain(">New Event<")
   })
 
   it("shows a VIEWER the first-run text without actions", async () => {

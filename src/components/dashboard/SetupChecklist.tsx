@@ -17,7 +17,7 @@ export async function SetupChecklist({ role }: Readonly<{ role: UserRole | undef
   const pct = Math.round((doneCount / steps.length) * 100)
 
   return (
-    <Card aria-labelledby="setup-checklist-title" className="print:hidden">
+    <Card role="region" aria-labelledby="setup-checklist-title" className="print:hidden">
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <CardTitle as="h3" id="setup-checklist-title" className="text-base font-semibold">

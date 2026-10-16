@@ -134,6 +134,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const periodLabel = `${period.from} to ${period.to}`
   const canManage = canAccessAccounting(session?.user?.role)
   const today = sydneyTodayYMD()
+  const noInvoicesYet = rows.length === 0 && !after && !before && !status && !from && !to
 
   return (
     <div className="space-y-6">
@@ -141,7 +142,8 @@ export default async function InvoicesPage(props: Readonly<Props>) {
         <h2 className="text-2xl font-semibold text-foreground">Invoices</h2>
         <div className="flex gap-2">
           <Button asChild variant="outline"><Link href="/accounting/customers">Customers</Link></Button>
-          {canManage && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
+          {/* On a first run the empty state carries New invoice. */}
+          {canManage && !noInvoicesYet && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
         </div>
       </div>
 

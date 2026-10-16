@@ -46,4 +46,12 @@ describe("CustomersPage", () => {
     expect(html).toContain("/accounting/customers/new")
     expect(html).toContain("/accounting/customers/9/edit")
   })
+
+  it("offers New customer once, in the empty state, when there are none yet", async () => {
+    as("ADMIN")
+    mockList.mockResolvedValue([])
+    const html = renderToStaticMarkup(await CustomersPage())
+    expect(html).toContain("No customers yet")
+    expect(html.match(/\/accounting\/customers\/new/g)).toHaveLength(1)
+  })
 })
