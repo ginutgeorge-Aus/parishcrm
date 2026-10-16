@@ -92,6 +92,7 @@ export default function InvoiceForm({ recipients, accounts, funds, gstEnabled, e
       <input type="hidden" name="recipientKind" value={recipient.kind} />
       <input type="hidden" name="recipientId" value={recipient.id ?? ""} />
       <input type="hidden" name="lines" value={serialized} />
+      {edit && <input type="hidden" name="updatedAt" value={edit.updatedAt.toISOString()} />}
 
       <fieldset className="space-y-3">
         <legend className="font-medium">Recipient</legend>

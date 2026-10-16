@@ -250,9 +250,14 @@ export async function updateTransaction(
   // can't silently clobber each other — the second save matches 0 rows and is
   // told to reload. A missing/invalid token falls back to an id-only update
   // (older cached form) — no worse than the prior last-write-wins behaviour.
+  //
+  // invoiceId is part of the predicate too: markInvoicePaid links a row by writing invoiceId, so if it lands
+  // between the read above and this write, the row no longer matches (0 rows -> conflict) and the edit cannot
+  // overwrite a just-linked payment's amount/date/type/account/fund. Even with no updatedAt token the link
+  // wins; and if the row was unlinked meanwhile (invoiceId changed non-null -> null) the edit also conflicts.
   const seenAt = parseOptimisticUpdatedAt(formData)
   const result = await prisma.transaction.updateMany({
-    where: seenAt ? { id, updatedAt: seenAt } : { id },
+    where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
     data: {
       ...rest,
       description: encrypt(rest.description),
@@ -306,7 +311,14 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   if (existing.date >= retentionFloor()) return { error: retentionError(existing.date) }
 
-  await prisma.transaction.delete({ where: { id } })
+  // invoiceId: null in the predicate orders this against markInvoicePaid's link write (which also matches
+  // invoiceId: null): whichever commits first wins. If the link lands after the read above, this delete matches
+  // 0 rows and conflicts instead of removing a just-linked payment (which would leave the invoice PAID with none);
+  // if the delete commits first, the link's own guarded write matches 0 rows and rolls the PAID flip back.
+  const removed = await prisma.transaction.deleteMany({ where: { id, invoiceId: null } })
+  if (removed.count === 0) {
+    return { error: "This transaction was changed by someone else since you opened it. Reload the page and try again." }
+  }
   await logAudit(actorId(session), "TRANSACTION_DELETED", "Transaction", id, {
     amount: Number(existing.amount),
     type: existing.type,

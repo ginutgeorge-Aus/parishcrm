@@ -204,6 +204,10 @@ describe("updateTransaction on an invoice payment", () => {
     expect(await updateTransaction(1, undefined, validForm(over))).toEqual({ error: LINKED })
     expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
   })
+  it("pins an edit of a linked row to its invoiceId (an unlink in between conflicts)", async () => {
+    await expect(updateTransaction(1, undefined, validForm({ description: "Hall hire, Oct" }))).rejects.toThrow("REDIRECT")
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, invoiceId: 11 } }))
+  })
   it("allows a description-only edit", async () => {
     await expect(updateTransaction(1, undefined, validForm({ description: "Hall hire, Oct" }))).rejects.toThrow("REDIRECT")
     expect(prisma.transaction.updateMany).toHaveBeenCalled()
