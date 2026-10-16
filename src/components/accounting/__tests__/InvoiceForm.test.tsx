@@ -39,11 +39,24 @@ describe("InvoiceForm", () => {
       id: 1, customerId: 3, personId: null, recipientName: "Example Scouts",
       recipientEmail: "scouts@example.com", recipientAddress: "1 Example St",
       issueDate: "2026-10-01", dueDate: "2026-10-15", accountId: 4, fundId: null, notes: "", lines: [],
+      updatedAt: new Date("2026-10-01T02:03:04.005Z"),
     } as unknown as React.ComponentProps<typeof InvoiceForm>["edit"]
     render(<InvoiceForm {...props} edit={edit} />)
     expect(screen.getByLabelText("Email")).toHaveValue("scouts@example.com")
     fireEvent.click(screen.getByRole("button", { name: "Clear recipient" }))
     expect(screen.getByLabelText("Email")).toHaveValue("")
     expect(screen.getByLabelText("Address")).toHaveValue("")
+  })
+  it("round-trips the loaded updatedAt as a hidden token when editing, and omits it on create", () => {
+    const edit = {
+      id: 1, customerId: 3, personId: null, recipientName: "Example Scouts", recipientEmail: "", recipientAddress: "",
+      issueDate: "2026-10-01", dueDate: "2026-10-15", accountId: 4, fundId: null, notes: "", lines: [],
+      updatedAt: new Date("2026-10-01T02:03:04.005Z"),
+    } as unknown as React.ComponentProps<typeof InvoiceForm>["edit"]
+    const { container, unmount } = render(<InvoiceForm {...props} edit={edit} />)
+    expect(container.querySelector<HTMLInputElement>('input[name="updatedAt"]')?.value).toBe("2026-10-01T02:03:04.005Z")
+    unmount()
+    const created = render(<InvoiceForm {...props} />)
+    expect(created.container.querySelector('input[name="updatedAt"]')).toBeNull()
   })
 })
