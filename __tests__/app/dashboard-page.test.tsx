@@ -18,6 +18,7 @@ jest.mock("@/lib/prisma", () => ({
 }))
 jest.mock("@/lib/crypto", () => ({
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("REDIRECT") }),
@@ -161,6 +162,18 @@ describe("DashboardPage date math (Sydney day, UTC-midnight bounds)", () => {
   })
 })
 
+/** Calls to transaction.groupBy whose `by` matches `by` exactly. */
+function groupByCalls(by: string[]) {
+  return (prisma.transaction.groupBy as jest.Mock).mock.calls.filter((c) => JSON.stringify(c[0].by) === JSON.stringify(by))
+}
+
+/** Route groupBy results by query shape: per-account balances vs per-account unreconciled. */
+function mockGroupBy({ balances = [], unreconciled = [] }: { balances?: unknown[]; unreconciled?: unknown[] }) {
+  ;(prisma.transaction.groupBy as jest.Mock).mockImplementation(async (args: { by: string[] }) =>
+    args.by.length === 1 ? unreconciled : balances,
+  )
+}
+
 describe("DashboardPage account balances", () => {
   it("sums every account's income/expense (deactivated included) since its own asOfDate in one groupBy", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
@@ -176,19 +189,19 @@ describe("DashboardPage account balances", () => {
       { paymentAccountId: "a1", amount: "100.00", asOfDate: asOf1 },
       { paymentAccountId: "a2", amount: "10.00", asOfDate: asOf2 },
     ])
-    // a1's income is split across reconciled/unreconciled rows — both count
-    // toward the balance.
-    ;(prisma.transaction.groupBy as jest.Mock).mockResolvedValue([
-      { paymentAccountId: "a1", type: "INCOME", reconciled: true, _sum: { amount: "50.00" }, _count: 2 },
-      { paymentAccountId: "a1", type: "INCOME", reconciled: false, _sum: { amount: "0.25" }, _count: 1 },
-      { paymentAccountId: "a1", type: "EXPENSE", reconciled: true, _sum: { amount: "20.00" }, _count: 1 },
-      { paymentAccountId: "a2", type: "EXPENSE", reconciled: true, _sum: { amount: "4.50" }, _count: 1 },
-    ])
+    mockGroupBy({
+      balances: [
+        { paymentAccountId: "a1", type: "INCOME", _sum: { amount: "50.25" } },
+        { paymentAccountId: "a1", type: "EXPENSE", _sum: { amount: "20.00" } },
+        { paymentAccountId: "a2", type: "EXPENSE", _sum: { amount: "4.50" } },
+      ],
+    })
     const html = renderToStaticMarkup(await DashboardPage())
 
-    expect(prisma.transaction.groupBy).toHaveBeenCalledTimes(1)
-    expect(prisma.transaction.groupBy).toHaveBeenCalledWith({
-      by: ["paymentAccountId", "type", "reconciled"],
+    const balanceCalls = groupByCalls(["paymentAccountId", "type"])
+    expect(balanceCalls).toHaveLength(1)
+    expect(balanceCalls[0][0]).toEqual({
+      by: ["paymentAccountId", "type"],
       where: {
         type: { in: ["INCOME", "EXPENSE"] },
         OR: [
@@ -197,7 +210,6 @@ describe("DashboardPage account balances", () => {
         ],
       },
       _sum: { amount: true },
-      _count: true,
     })
     // Only the two giving totals still use aggregate — no per-account queries.
     expect(prisma.transaction.aggregate).toHaveBeenCalledTimes(2)
@@ -207,12 +219,12 @@ describe("DashboardPage account balances", () => {
     expect((prisma.paymentAccount.findMany as jest.Mock).mock.calls[0][0]?.where ?? {}).not.toHaveProperty("isActive")
   })
 
-  it("skips the groupBy when no account has an opening balance", async () => {
+  it("skips the balance groupBy when no account has an opening balance", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks()
     ;(prisma.paymentAccount.findMany as jest.Mock).mockResolvedValue([{ id: "a1", name: "Main Cheque", isActive: true }])
     await DashboardPage()
-    expect(prisma.transaction.groupBy).not.toHaveBeenCalled()
+    expect(groupByCalls(["paymentAccountId", "type"])).toHaveLength(0)
   })
 })
 
@@ -238,27 +250,73 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
     expect(html).toContain("All caught up")
   })
 
+  it("keeps the families/people breakdown on the 'Added (30 days)' stat", async () => {
+    const html = await renderAs("ADMIN", () => {
+      ;(prisma.family.count as jest.Mock).mockResolvedValue(2)
+      ;(prisma.person.count as jest.Mock).mockResolvedValue(5)
+    })
+    expect(html).toContain("2 families · 5 people")
+  })
+
   it("lists pending family updates, membership forms and unreconciled transactions with links", async () => {
     const html = await renderAs("ADMIN", () => {
       ;(prisma.familyUpdateSubmission.count as jest.Mock).mockResolvedValue(2)
       ;(prisma.membershipApplication.count as jest.Mock).mockResolvedValue(3)
-      ;(prisma.paymentAccount.findMany as jest.Mock).mockResolvedValue([{ id: 7, name: "Main Cheque", isActive: true }])
-      ;(prisma.accountOpeningBalance.findMany as jest.Mock).mockResolvedValue([
-        { paymentAccountId: 7, amount: "0.00", asOfDate: new Date("2026-01-01T00:00:00Z") },
-      ])
-      ;(prisma.transaction.groupBy as jest.Mock).mockResolvedValue([
-        { paymentAccountId: 7, type: "INCOME", reconciled: false, _sum: { amount: "10.00" }, _count: 4 },
-      ])
+      mockGroupBy({
+        unreconciled: [
+          { paymentAccountId: 7, _count: 4, _min: { date: new Date("2026-01-01T00:00:00Z") } },
+          { paymentAccountId: 8, _count: 1, _min: { date: new Date("2025-06-01T00:00:00Z") } },
+        ],
+      })
     })
     expect(html).not.toContain("All caught up")
     expect(html).toContain("Family updates to review")
     expect(html).toContain('href="/families/updates"')
     expect(html).toContain("Membership applications to review")
     expect(html).toContain('href="/memberships?status=PENDING"')
-    expect(html).toContain("Unreconciled transactions")
-    // All pending rows sit in one account → deep-link to its pending view.
+    expect(html).toMatch(/>5<\/span><span[^>]*>Unreconciled transactions/)
+    // Links the account with the most pending rows, from its oldest one.
     expect(html).toContain('href="/accounting/reconciliation?paymentAccount=7&amp;from=2026-01-01&amp;status=pending"')
     expect(prisma.membershipApplication.count).toHaveBeenCalledWith({ where: { status: "PENDING" } })
+  })
+
+  it("counts unreconciled rows the reconciliation page can show: any account, up to end of today", async () => {
+    jest.useFakeTimers({ now: new Date("2026-03-10T01:00:00.000Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+    try {
+      await renderAs("ADMIN")
+    } finally {
+      jest.useRealTimers()
+    }
+    const calls = groupByCalls(["paymentAccountId"])
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toEqual({
+      by: ["paymentAccountId"],
+      where: {
+        reconciled: false,
+        paymentAccountId: { not: null },
+        // 01:00Z on 10 Mar = 12:00 on 10 Mar in Sydney.
+        date: { lte: new Date("2026-03-10T23:59:59.999Z") },
+      },
+      _count: true,
+      _min: { date: true },
+    })
+  })
+
+  it("shows a capped birthday count as N+", async () => {
+    const html = await renderAs("ADMIN", () => {
+      jest.useFakeTimers({ now: new Date("2026-03-10T01:00:00.000Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+      mockPersonFindMany.mockResolvedValue(
+        Array.from({ length: PERSON_FETCH_CAP + 1 }, (_, i) => ({
+          id: i + 1,
+          firstName: "P",
+          lastName: String(i),
+          dateOfBirth: i === 0 ? "1990-03-11" : "1990-09-01",
+          family: { name: "F" },
+        })),
+      )
+    })
+    jest.useRealTimers()
+    expect(html).toMatch(/>1\+<\/span><span[^>]*>Birthday in the next 7 days/)
   })
 
   it("does not query or show editor/accounting items for VIEWER", async () => {
@@ -270,12 +328,24 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
     expect(html).toContain("All caught up")
   })
 
-  it("keeps AUDITOR off member counts and editor queues", async () => {
+  it("keeps AUDITOR off people queries, editor queues and the accounting to-do rows", async () => {
     const html = await renderAs("AUDITOR")
     expect(prisma.membershipApplication.count).not.toHaveBeenCalled()
+    expect(prisma.person.findMany).not.toHaveBeenCalled()
+    expect(prisma.family.findMany).not.toHaveBeenCalled()
+    expect(prisma.family.count).not.toHaveBeenCalled()
+    expect(prisma.person.count).not.toHaveBeenCalled()
+    expect(prisma.pettyCashSession.count).not.toHaveBeenCalled()
+    expect(groupByCalls(["paymentAccountId"])).toHaveLength(0)
     expect(html).not.toContain(">Members<")
     expect(html).toContain("Upcoming events (30 days)")
     expect(html).toContain("Giving this month")
+  })
+
+  it("keeps OFFICE_ADMIN off the accounting to-do rows", async () => {
+    await renderAs("OFFICE_ADMIN")
+    expect(prisma.pettyCashSession.count).not.toHaveBeenCalled()
+    expect(groupByCalls(["paymentAccountId"])).toHaveLength(0)
   })
 
   it("renders balances as tinted tiles with +/− markers, not side stripes", async () => {

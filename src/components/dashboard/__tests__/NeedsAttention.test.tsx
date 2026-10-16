@@ -21,6 +21,15 @@ describe("NeedsAttention", () => {
     expect(screen.queryByText(/All caught up/)).not.toBeInTheDocument()
   })
 
+  it("renders a lower-bound count as N+", () => {
+    render(
+      <NeedsAttention
+        items={[{ key: "birthdays", label: "Birthdays in the next 7 days", count: 2, atLeast: true, href: "/people/birthdays" }]}
+      />,
+    )
+    expect(screen.getByRole("link")).toHaveTextContent("2+")
+  })
+
   it("shows the all-caught-up state when there is nothing pending", () => {
     render(<NeedsAttention items={[]} />)
     expect(screen.getByText(/All caught up/)).toBeInTheDocument()

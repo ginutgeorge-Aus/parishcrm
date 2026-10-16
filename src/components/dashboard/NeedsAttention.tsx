@@ -4,8 +4,9 @@ import type { AttentionItem } from "@/lib/dashboardAttention"
 
 /**
  * The dashboard's lead section: what needs the viewer today. One full-width,
- * 44px+ tappable row per pending item (label, count, link to the page that
- * resolves it), or a calm "All caught up" line when nothing is pending.
+ * 44px+ tappable row per pending item (label, count — "N+" when the count is
+ * a lower bound — and a link to the page that resolves it), or a calm "All
+ * caught up" line when nothing is pending.
  *
  * @param items - Already role-filtered, non-zero items from `buildAttentionItems`.
  */
@@ -30,6 +31,7 @@ export function NeedsAttention({ items }: Readonly<{ items: AttentionItem[] }>) 
               >
                 <span className="min-w-[2.5rem] rounded-full bg-gold px-2 py-0.5 text-center font-semibold tabular text-gold-foreground">
                   {item.count}
+                  {item.atLeast && "+"}
                 </span>
                 <span className="flex-1 font-medium">{item.label}</span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

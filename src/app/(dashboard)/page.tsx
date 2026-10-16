@@ -3,15 +3,15 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
-import { canViewAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
+import { canViewAccounting, canAccessAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
 import { accountBalance } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, type Money } from "@/lib/formatting"
-import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC } from "@/lib/dates"
+import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC, endOfDayUTC } from "@/lib/dates"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { upcomingBirthdays as computeUpcomingBirthdays } from "@/lib/birthdays"
 import { upcomingAnniversaries as computeUpcomingAnniversaries, type AnniversaryFamily, type FamilyRoleLite } from "@/lib/anniversaries"
-import { countPendingFamilyUpdates } from "@/lib/pendingUpdates"
+import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 import { BirthdayWidget } from "@/components/dashboard/BirthdayWidget"
 import { AnniversaryWidget } from "@/components/dashboard/AnniversaryWidget"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
@@ -81,8 +81,11 @@ export default async function DashboardPage() {
     personCount,
     pendingUpdates,
     pendingMemberships,
+    unreconciledGroups,
   ] = await Promise.all([
-    prisma.person.findMany({
+    // People queries (incl. the DOB fetch + decrypt) only for roles that see
+    // the people side — AUDITOR never renders them.
+    canViewPeople(role) ? prisma.person.findMany({
       where: { dateOfBirth: { not: null }, archivedAt: null },
       // Safety net: cap fetch + decryption cost so this query doesn't
       // grow unbounded with membership. The widget only shows a 7-day window;
@@ -99,8 +102,8 @@ export default async function DashboardPage() {
         dateOfBirth: true,
         family: { select: { name: true } },
       },
-    }),
-    prisma.family.findMany({
+    }) : Promise.resolve([]),
+    canViewPeople(role) ? prisma.family.findMany({
       where: { marriageDate: { not: null }, archivedAt: null },
       // Safety net: cap fetch so this query doesn't grow unbounded with
       // the family count. The widget only shows the current month; a DB-level
@@ -118,12 +121,13 @@ export default async function DashboardPage() {
           select: { id: true, firstName: true, role: true, email: true, emailConsent: true },
         },
       },
-    }),
-    prisma.family.count({ where: { archivedAt: null } }),
-    prisma.family.count({ where: { status: "ACTIVE", archivedAt: null } }),
-    prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
-    prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }),
-    canViewAccounting(role) ? prisma.pettyCashSession.count({ where: { status: "OPEN" } }) : Promise.resolve(0),
+    }) : Promise.resolve([]),
+    canViewPeople(role) ? prisma.family.count({ where: { archivedAt: null } }) : Promise.resolve(0),
+    canViewPeople(role) ? prisma.family.count({ where: { status: "ACTIVE", archivedAt: null } }) : Promise.resolve(0),
+    canViewPeople(role) ? prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }) : Promise.resolve(0),
+    canViewPeople(role) ? prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }) : Promise.resolve(0),
+    // Only feeds the "Needs attention" row, which is ADMIN/PASTOR-only.
+    canAccessAccounting(role) ? prisma.pettyCashSession.count({ where: { status: "OPEN" } }) : Promise.resolve(0),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
     prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } }),
@@ -143,12 +147,10 @@ export default async function DashboardPage() {
     // Per-account income/expense since its opening-balance asOfDate, in one
     // groupBy (each account has its own asOfDate, hence the OR). An account
     // with no opening balance set yet is left out and renders "—" + a link to
-    // set it, rather than blocking the others. Also split by `reconciled` with
-    // a row count, so the same query yields the "Unreconciled transactions"
-    // attention count — no extra round-trip.
+    // set it, rather than blocking the others.
     balancedAccounts.length > 0
       ? prisma.transaction.groupBy({
-          by: ["paymentAccountId", "type", "reconciled"],
+          by: ["paymentAccountId", "type"],
           where: {
             type: { in: ["INCOME", "EXPENSE"] },
             OR: balancedAccounts.map((acct) => ({
@@ -157,15 +159,26 @@ export default async function DashboardPage() {
             })),
           },
           _sum: { amount: true },
-          _count: true,
         })
       : Promise.resolve([]),
 
-    prisma.person.count({ where: { archivedAt: null } }),
+    canViewPeople(role) ? prisma.person.count({ where: { archivedAt: null } }) : Promise.resolve(0),
     canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
-    // Same PENDING count the /memberships inbox shows; a plain count, so no
-    // encrypted column is read or decrypted.
-    canEdit(role) ? prisma.membershipApplication.count({ where: { status: "PENDING" } }) : Promise.resolve(0),
+    // React-cached: shared with the layout's Sidebar badge.
+    canEdit(role) ? countPendingMemberships() : Promise.resolve(0),
+    // Unreconciled transactions per account — exactly the rows the
+    // Reconciliation page's pending view can list and clear: any payment
+    // account (it lists deactivated and CASH ones too), up to the end of
+    // today (its default `to`), no opening-balance requirement. _min date
+    // seeds the deep link's `from`. Rides @@index([paymentAccountId, reconciled, date]).
+    canAccessAccounting(role)
+      ? prisma.transaction.groupBy({
+          by: ["paymentAccountId"],
+          where: { reconciled: false, paymentAccountId: { not: null }, date: { lte: endOfDayUTC(today) } },
+          _count: true,
+          _min: { date: true },
+        })
+      : Promise.resolve([]),
   ])
 
   // A hit cap renders a "may be incomplete" notice in the widget.
@@ -229,36 +242,13 @@ export default async function DashboardPage() {
   // asOfDate is a UTC-midnight calendar date — read it with UTC getters.
   const fmtDate = (d: Date) => `${d.getUTCDate()} ${MONTH_ABBR_TITLE[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 
-  // The groupBy is split by `reconciled`, so a type can have two rows per
-  // account — sum both (in cents) before handing the total to accountBalance.
   const accountBalances = accounts.map((acct) => {
     const ob = obByAccountId.get(acct.id) ?? null
     const sumOf = (type: string): Money =>
-      centsToNumber(
-        accountSums
-          .filter((g) => g.paymentAccountId === acct.id && g.type === type)
-          .reduce((cents, g) => cents + toCents(g._sum.amount ?? 0), 0),
-      )
+      accountSums.find((g) => g.paymentAccountId === acct.id && g.type === type)?._sum.amount ?? null
     const balance = ob ? accountBalance(ob.amount, sumOf("INCOME"), sumOf("EXPENSE")) : null
     return { id: acct.id, label: acct.name, balance, ob }
   })
-
-  // Unreconciled transactions since each account's opening balance (same
-  // window as the balance). When they all sit in one account, deep-link to
-  // that account's pending view from its asOfDate; otherwise land on the
-  // reconciliation page's pending filter.
-  const unreconciledByAccount = new Map<number, number>()
-  for (const g of accountSums) {
-    if (g.reconciled || g.paymentAccountId === null) continue
-    unreconciledByAccount.set(g.paymentAccountId, (unreconciledByAccount.get(g.paymentAccountId) ?? 0) + g._count)
-  }
-  const unreconciledCount = [...unreconciledByAccount.values()].reduce((n, c) => n + c, 0)
-  let unreconciledHref: string | undefined
-  if (unreconciledByAccount.size === 1) {
-    const [onlyId] = unreconciledByAccount.keys()
-    const from = ymd(obByAccountId.get(onlyId)!.asOfDate)
-    unreconciledHref = `/accounting/reconciliation?paymentAccount=${onlyId}&from=${from}&status=pending`
-  }
 
   const givingNow = centsToNumber(toCents(givingThisMonth._sum.amount ?? 0))
   const givingLastYearAmt = centsToNumber(toCents(givingLastYear._sum.amount ?? 0))
@@ -270,7 +260,11 @@ export default async function DashboardPage() {
       ? [
           { label: "Families", value: familyCount, sub: `${activeCount} active` },
           { label: "Members", value: personCount },
-          { label: "Added (30 days)", value: recentFamilies + recentPeople },
+          {
+            label: "Added (30 days)",
+            value: recentFamilies + recentPeople,
+            sub: `${recentFamilies} families · ${recentPeople} people`,
+          },
         ]
       : []),
     { label: "Upcoming events (30 days)", value: upcomingEventCount },
@@ -285,17 +279,16 @@ export default async function DashboardPage() {
 
   // Role-aware "Needs attention" rows — zero counts and items this role can't
   // act on are dropped inside buildAttentionItems.
-  const attention = buildAttentionItems(
-    role,
-    {
-      pendingFamilyUpdates: pendingUpdates,
-      pendingMemberships,
-      unreconciledTransactions: unreconciledCount,
-      openPettyCash,
-      upcomingBirthdays: upcomingBirthdays.length,
-    },
-    { unreconciledHref },
-  )
+  const attention = buildAttentionItems(role, {
+    pendingFamilyUpdates: pendingUpdates,
+    pendingMemberships,
+    unreconciled: unreconciledGroups
+      .filter((g) => g.paymentAccountId !== null && g._min.date !== null)
+      .map((g) => ({ paymentAccountId: g.paymentAccountId!, count: g._count, earliest: g._min.date! })),
+    openPettyCash,
+    upcomingBirthdays: upcomingBirthdays.length,
+    birthdaysTruncated,
+  })
 
   const sectionHeading = "text-lg font-semibold"
 

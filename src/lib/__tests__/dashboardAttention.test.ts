@@ -1,28 +1,33 @@
 /** @jest-environment node */
-import { buildAttentionItems, type AttentionCounts } from "@/lib/dashboardAttention"
+import { buildAttentionItems, unreconciledHref, type AttentionCounts } from "@/lib/dashboardAttention"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 const ALL: AttentionCounts = {
   pendingFamilyUpdates: 2,
   pendingMemberships: 3,
-  unreconciledTransactions: 4,
+  unreconciled: [
+    { paymentAccountId: 7, count: 1, earliest: new Date("2026-01-05T00:00:00Z") },
+    { paymentAccountId: 9, count: 3, earliest: new Date("2025-11-20T00:00:00Z") },
+  ],
   openPettyCash: 1,
   upcomingBirthdays: 5,
 }
 
-/** Labels of the items a role sees for the given counts. */
-const labelsFor = (role: UserRole | undefined, counts: AttentionCounts = ALL) =>
+const NONE: AttentionCounts = {
+  pendingFamilyUpdates: 0,
+  pendingMemberships: 0,
+  unreconciled: [],
+  openPettyCash: 0,
+  upcomingBirthdays: 0,
+}
+
+/** Keys of the items a role sees for the given counts. */
+const keysFor = (role: UserRole | undefined, counts: AttentionCounts = ALL) =>
   buildAttentionItems(role, counts).map((i) => i.key)
 
 describe("buildAttentionItems", () => {
   it("shows ADMIN every item, in priority order", () => {
-    expect(labelsFor(UserRole.ADMIN)).toEqual([
-      "familyUpdates",
-      "memberships",
-      "unreconciled",
-      "pettyCash",
-      "birthdays",
-    ])
+    expect(keysFor(UserRole.ADMIN)).toEqual(["familyUpdates", "memberships", "unreconciled", "pettyCash", "birthdays"])
   })
 
   it("gives each item its count and resolving link", () => {
@@ -30,67 +35,72 @@ describe("buildAttentionItems", () => {
     expect(items.find((i) => i.key === "memberships")).toMatchObject({ count: 3, href: "/memberships?status=PENDING" })
     expect(items.find((i) => i.key === "familyUpdates")).toMatchObject({ count: 2, href: "/families/updates" })
     expect(items.find((i) => i.key === "birthdays")).toMatchObject({ count: 5, href: "/people/birthdays" })
+    expect(items.find((i) => i.key === "unreconciled")).toMatchObject({
+      count: 4,
+      href: "/accounting/reconciliation?paymentAccount=9&from=2025-11-20&status=pending",
+    })
   })
 
   it("hides zero-count items", () => {
-    expect(labelsFor(UserRole.ADMIN, { ...ALL, pendingMemberships: 0, openPettyCash: 0 })).toEqual([
+    expect(keysFor(UserRole.ADMIN, { ...ALL, pendingMemberships: 0, openPettyCash: 0, unreconciled: [] })).toEqual([
       "familyUpdates",
-      "unreconciled",
       "birthdays",
     ])
   })
 
   it("returns nothing when every count is zero (the all-caught-up state)", () => {
-    const zero: AttentionCounts = {
-      pendingFamilyUpdates: 0,
-      pendingMemberships: 0,
-      unreconciledTransactions: 0,
-      openPettyCash: 0,
-      upcomingBirthdays: 0,
-    }
-    expect(buildAttentionItems(UserRole.ADMIN, zero)).toEqual([])
+    expect(buildAttentionItems(UserRole.ADMIN, NONE)).toEqual([])
   })
 
-  it("gives AUDITOR accounting items only — no member-PII or editor items", () => {
-    expect(labelsFor(UserRole.AUDITOR)).toEqual(["unreconciled", "pettyCash"])
+  it("gives PASTOR the same items as ADMIN", () => {
+    expect(keysFor(UserRole.PASTOR)).toEqual(keysFor(UserRole.ADMIN))
   })
 
-  it("gives VIEWER people items only — no editor or accounting items", () => {
-    expect(labelsFor(UserRole.VIEWER)).toEqual(["birthdays"])
+  it("keeps view-only accounting roles off the accounting rows (they can't reconcile or close a session)", () => {
+    expect(keysFor(UserRole.AUDITOR)).toEqual([])
+    expect(keysFor(UserRole.OFFICE_ADMIN)).toEqual(["familyUpdates", "memberships", "birthdays"])
   })
 
-  it("gives OFFICE_ADMIN editor, accounting-view and people items", () => {
-    expect(labelsFor(UserRole.OFFICE_ADMIN)).toEqual([
-      "familyUpdates",
-      "memberships",
-      "unreconciled",
-      "pettyCash",
-      "birthdays",
-    ])
+  it("gives VIEWER people items only", () => {
+    expect(keysFor(UserRole.VIEWER)).toEqual(["birthdays"])
   })
 
   it("gives an unknown/organiser role nothing", () => {
-    expect(labelsFor(UserRole.EVENT_ORGANISER)).toEqual([])
-    expect(labelsFor(undefined)).toEqual([])
+    expect(keysFor(UserRole.EVENT_ORGANISER)).toEqual([])
+    expect(keysFor(undefined)).toEqual([])
   })
 
   it("uses the singular label for a count of one", () => {
-    const [item] = buildAttentionItems(UserRole.ADMIN, {
-      pendingFamilyUpdates: 0,
-      pendingMemberships: 1,
-      unreconciledTransactions: 0,
-      openPettyCash: 0,
-      upcomingBirthdays: 0,
-    })
+    const [item] = buildAttentionItems(UserRole.ADMIN, { ...NONE, pendingMemberships: 1 })
     expect(item.label).toBe("Membership application to review")
   })
 
-  it("links unreconciled to a specific reconciliation view when one is given", () => {
-    const items = buildAttentionItems(UserRole.ADMIN, ALL, {
-      unreconciledHref: "/accounting/reconciliation?paymentAccount=7&status=pending",
-    })
-    expect(items.find((i) => i.key === "unreconciled")?.href).toBe(
-      "/accounting/reconciliation?paymentAccount=7&status=pending",
+  it("flags a capped birthday count as a lower bound", () => {
+    const capped = buildAttentionItems(UserRole.ADMIN, { ...NONE, upcomingBirthdays: 2, birthdaysTruncated: true })
+    expect(capped[0]).toMatchObject({ key: "birthdays", count: 2, atLeast: true })
+    const exact = buildAttentionItems(UserRole.ADMIN, { ...NONE, upcomingBirthdays: 2 })
+    expect(exact[0].atLeast).toBeFalsy()
+  })
+})
+
+describe("unreconciledHref", () => {
+  it("links the account with the most pending rows from its oldest one", () => {
+    expect(unreconciledHref(ALL.unreconciled)).toBe(
+      "/accounting/reconciliation?paymentAccount=9&from=2025-11-20&status=pending",
     )
+  })
+
+  it("breaks ties on the lowest account id", () => {
+    const d = new Date("2026-02-01T00:00:00Z")
+    expect(
+      unreconciledHref([
+        { paymentAccountId: 5, count: 2, earliest: d },
+        { paymentAccountId: 3, count: 2, earliest: d },
+      ]),
+    ).toBe("/accounting/reconciliation?paymentAccount=3&from=2026-02-01&status=pending")
+  })
+
+  it("falls back to the pending filter with no rows", () => {
+    expect(unreconciledHref([])).toBe("/accounting/reconciliation?status=pending")
   })
 })
