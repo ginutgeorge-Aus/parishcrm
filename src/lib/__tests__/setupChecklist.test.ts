@@ -114,6 +114,6 @@ describe("getSetupChecklist", () => {
     prime([])
     m.person.findFirst.mockRejectedValue(new Error("db down"))
     expect(await getSetupChecklist("ADMIN")).toBeNull()
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("setupChecklist"), { error: "db down" })
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("setupChecklist"), { error: "Error" })
   })
 })

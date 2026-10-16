@@ -40,6 +40,7 @@ export function FamilyList({
   canEdit,
   isFiltered = false,
   canImport = false,
+  scanIncomplete = false,
 }: Readonly<{
   families: Family[]
   canEdit: boolean
@@ -47,8 +48,20 @@ export function FamilyList({
   isFiltered?: boolean
   /** Viewer may bulk-import families from CSV (ADMIN). */
   canImport?: boolean
+  /** The suburb scan hit its candidate cap, so an empty result may be incomplete. */
+  scanIncomplete?: boolean
 }>) {
   if (families.length === 0) {
+    if (isFiltered && scanIncomplete) {
+      return (
+        <EmptyState
+          icon={House}
+          title="No matches found in the first families searched"
+          description="The suburb search only covers part of the directory. Narrow the name or status filters, or clear the filters."
+          actions={[{ label: "Clear filters", href: "/families", variant: "outline" }]}
+        />
+      )
+    }
     if (isFiltered) {
       return (
         <EmptyState
@@ -66,7 +79,11 @@ export function FamilyList({
       <EmptyState
         icon={House}
         title="No families yet"
-        description="Add your first family by hand, or import your existing list from a spreadsheet."
+        description={
+          actions.length > 0
+            ? "Add your first family by hand, or import your existing list from a spreadsheet."
+            : "Families will appear here once an editor adds them."
+        }
         actions={actions}
       />
     )

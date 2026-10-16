@@ -18,6 +18,14 @@ describe("FamilyList empty states", () => {
   it("shows a VIEWER the text only", () => {
     render(<FamilyList families={[]} canEdit={false} />)
     expect(links()).toEqual([])
+    expect(screen.queryByText(/add your first family/i)).not.toBeInTheDocument()
+  })
+
+  it("does not claim 'no matches' when the suburb scan was capped", () => {
+    render(<FamilyList families={[]} canEdit isFiltered scanIncomplete />)
+    expect(screen.queryByText("No families match your filters")).not.toBeInTheDocument()
+    expect(screen.getByText(/only covers part of the directory/i)).toBeInTheDocument()
+    expect(links()).toEqual(["/families"])
   })
 
   it("offers Clear filters when filters hide every family", () => {

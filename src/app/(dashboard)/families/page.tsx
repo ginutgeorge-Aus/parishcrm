@@ -142,6 +142,7 @@ export default async function FamiliesPage(
         canEdit={userCanEdit}
         isFiltered={isFiltered}
         canImport={userIsAdmin}
+        scanIncomplete={Boolean(suburbFilter) && families.length >= SUBURB_SCAN_CAP}
       />
     </div>
   )

@@ -61,7 +61,7 @@ export async function SetupChecklist({ role }: Readonly<{ role: UserRole | undef
                     <p className="text-xs text-muted-foreground">{step.description}</p>
                   </div>
                   <ChevronRight
-                    className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+                    className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
                     aria-hidden="true"
                   />
                 </Link>

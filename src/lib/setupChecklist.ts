@@ -52,7 +52,7 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
     ])
   } catch (err) {
     logger.error("[setupChecklist] DB read failed — hiding the checklist", {
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.name : "UnknownError",
     })
     return null
   }

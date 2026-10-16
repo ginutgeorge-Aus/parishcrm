@@ -41,7 +41,7 @@ describe("EmptyState", () => {
       />
     )
     expect(screen.getAllByRole("link")).toHaveLength(2)
-    expect(spy).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything(), expect.anything())
+    expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 })
