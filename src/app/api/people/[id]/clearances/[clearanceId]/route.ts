@@ -7,6 +7,7 @@ import { getClientIp } from "@/lib/clientIp"
 import { canManageClearances } from "@/lib/roleGuard"
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
+import { logger } from "@/lib/logger"
 import { CUID_ID_RE, parseRouteId } from "@/lib/validation"
 
 const notFound = () => new NextResponse("Not found", { status: 404 })
@@ -50,12 +51,19 @@ export async function GET(
   if (row?.personId !== personId || row.person.archivedAt || !row.document || !row.documentType) return notFound()
 
   // Decrypt before auditing so a failed decrypt never records a view.
-  const response = encryptedDocumentResponse({
-    blob: row.document,
-    encryptedName: row.documentName,
-    contentType: row.documentType,
-    fallbackName: "clearance",
-  })
+  let response: NextResponse
+  try {
+    response = encryptedDocumentResponse({
+      blob: row.document,
+      encryptedName: row.documentName,
+      contentType: row.documentType,
+      fallbackName: "clearance",
+    })
+  } catch (e) {
+    // Blob not decryptable (legacy plaintext, wrong key, corruption): clean error, no audit row, no content in the log.
+    logger.error("encrypted document unreadable", { clearanceId, message: e instanceof Error ? e.message : "unknown" })
+    return NextResponse.json({ error: "Document could not be read" }, { status: 500 })
+  }
 
   await logAudit(
     actorId(session),

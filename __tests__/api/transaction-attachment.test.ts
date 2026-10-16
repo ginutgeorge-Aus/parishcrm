@@ -10,6 +10,7 @@ jest.mock("@/lib/crypto", () => ({
   encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`, "utf8")),
   decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""), "base64")),
 }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
 }))
@@ -20,6 +21,8 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { rateLimit } from "@/lib/rateLimit"
+import { decryptBytes } from "@/lib/crypto"
+import { logger } from "@/lib/logger"
 
 const findUnique = prisma.transactionAttachment.findUnique as jest.Mock
 const mockAuth = auth as jest.Mock
@@ -141,4 +144,14 @@ it("is auditor-accessible (read-only accounting role)", async () => {
   })
   const res = await call("1", "5")
   expect(res.status).toBe(200)
+})
+
+it("returns a clean 500 and records no view when the blob cannot be decrypted", async () => {
+  findUnique.mockResolvedValue({ data: storedBlob("X"), contentType: "application/pdf", filename: encName("r.pdf"), transactionId: 1 })
+  ;(decryptBytes as jest.Mock).mockImplementationOnce(() => { throw new Error("not encrypted") })
+  const res = await call("1", "5")
+  expect(res.status).toBe(500)
+  expect(await res.json()).toEqual({ error: "Document could not be read" })
+  expect(logger.error).toHaveBeenCalledWith("encrypted document unreadable", expect.objectContaining({ message: "not encrypted" }))
+  expect(logAudit).not.toHaveBeenCalled()
 })

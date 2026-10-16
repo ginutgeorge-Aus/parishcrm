@@ -8,6 +8,7 @@ jest.mock("@/lib/crypto", () => ({
   encryptBytes: jest.fn((b: Uint8Array) => Buffer.from(`enc:${Buffer.from(b).toString("base64")}`, "utf8")),
   decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""), "base64")),
 }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn(() => true) }))
 
 import { NextRequest } from "next/server"
@@ -16,6 +17,8 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
 import { rateLimit } from "@/lib/rateLimit"
+import { decryptBytes } from "@/lib/crypto"
+import { logger } from "@/lib/logger"
 
 const find = prisma.personClearance.findUnique as jest.Mock
 const mockAuth = auth as jest.Mock
@@ -102,4 +105,14 @@ it("forces download as octet-stream for a non-allowlisted stored type", async ()
   const res = await call("3", CID)
   expect(res.headers.get("Content-Type")).toBe("application/octet-stream")
   expect(res.headers.get("Content-Disposition")).toContain("attachment")
+})
+
+it("returns a clean 500 and records no view when the blob cannot be decrypted", async () => {
+  find.mockResolvedValue(row())
+  ;(decryptBytes as jest.Mock).mockImplementationOnce(() => { throw new Error("not encrypted") })
+  const res = await call("3", CID)
+  expect(res.status).toBe(500)
+  expect(await res.json()).toEqual({ error: "Document could not be read" })
+  expect(logger.error).toHaveBeenCalledWith("encrypted document unreadable", expect.objectContaining({ message: "not encrypted" }))
+  expect(logAudit).not.toHaveBeenCalled()
 })
