@@ -63,7 +63,7 @@ The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL)
 
 ### Clearance compliance (`/people/clearances`)
 
-*People → Clearances* in the sidebar (ADMIN, PASTOR and OFFICE_ADMIN only). It lists every active person who has a ministry role or a clearance on file, with a WWCC status and a Safe Ministry status for each: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** or **Expired**. Anyone with a ministry role is expected to hold both clearances, so an absent one shows as Missing. A person with no ministry role is not marked Missing for a clearance they do not have. The list shows up to 2,000 people after the filter is applied, and says so if there are more.
+*Community → Clearances* in the sidebar (ADMIN, PASTOR and OFFICE_ADMIN only). It lists every active person who has a ministry role or a clearance on file, with a WWCC status and a Safe Ministry status for each: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** or **Expired**. Anyone with a ministry role is expected to hold both clearances, so an absent one shows as Missing. A person with no ministry role is not marked Missing for a clearance they do not have. The list shows up to 2,000 people after the filter is applied, and says so if there are more.
 
 - **Filter chips** (Expired, Expiring, Missing, Unverified) narrow the list to people with that status on either clearance.
 - **Export CSV** downloads the current filter: names, roles, statuses and dates only. It never contains WWC numbers or dates of birth. Each export is written to the audit log (`CLEARANCE_EXPORTED`).

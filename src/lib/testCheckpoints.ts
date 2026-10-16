@@ -84,7 +84,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
     area: "Admin",
     title: "Feature verification page",
     steps:
-      "Open Verify in the sidebar → confirm checkpoints are listed grouped by version → mark one Working and confirm the badge count drops.",
+      "Open Release Checks in the sidebar → confirm checkpoints are listed grouped by version → mark one Working and confirm the badge count drops.",
   },
   {
     id: "v1.19.0-verify-not-working",
@@ -92,7 +92,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
     area: "Admin",
     title: "Not-working files a bug",
     steps:
-      "On Verify, mark a checkpoint Not working → enter a note → confirm a GitHub issue is filed and it appears in My Reports.",
+      "On Release Checks, mark a checkpoint Not working → enter a note → confirm a GitHub issue is filed and it appears in My Feedback.",
   },
 ]
 

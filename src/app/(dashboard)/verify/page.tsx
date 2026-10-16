@@ -18,8 +18,9 @@ const TAB_LABEL: Record<Filter, string> = {
   all: "All",
 }
 
-export const metadata = { title: "Verify" }
+export const metadata = { title: "Release Checks" }
 
+/** Release Checks: admin checklist for confirming each release's changes work. */
 export default async function VerifyPage({
   searchParams,
 }: Readonly<{
@@ -67,7 +68,7 @@ export default async function VerifyPage({
 
   return (
     <div className="max-w-3xl">
-      <h1 className="mb-1 text-2xl font-semibold text-foreground">Verify</h1>
+      <h1 className="mb-1 text-2xl font-semibold text-foreground">Release Checks</h1>
       <p className="mb-4 text-sm text-muted-foreground">
         Check each change works. {pendingCount} pending verification.
       </p>

@@ -7,7 +7,7 @@ ParishCRM includes a full double-entry-style accounting module for a single pari
 
 ## Using it
 
-All accounting screens live under **Accounting** in the sidebar, visible only to roles with accounting access. Who can do what:
+All accounting screens live under **Accounting** in the sidebar, visible only to roles with accounting access. The sidebar groups them as **Books** (overview, transactions, reconciliation, bank import, petty cash, dues, reports), **Billing & Receipts** (invoices, customers, receipts) and **Admin** (budget, accounting settings). Every financial report — P&L, Budget vs Actual, Balance Sheet, Trial Balance, Cash Flow, General Ledger, Reconciliation, Giving Summary and Fund Report, plus Dues — is listed on one **Reports** page (`/accounting/reports`). Who can do what:
 
 | Role | Can view accounting | Can enter/edit transactions | Can manage settings (accounts, opening balances, period lock) |
 |------|---------------------|------------------------------|-----------------------------------------------------------------|
@@ -29,7 +29,7 @@ Sub-areas, each documented on its own page:
 - [Reconciliation](/parishcrm/docs/reconciliation/) — matching the ledger to a bank statement, the reconciliation equation, period lock.
 - [Budgets](/parishcrm/docs/budgets/) — annual budgets per account and the Budget vs Actual report.
 - [Financial Reports](/parishcrm/docs/financial-reports/) — P&L, Balance Sheet, Cash Flow, Trial Balance, General Ledger, Giving Summary, Dues, Funds.
-- [Receipts](/parishcrm/docs/receipts/) — emailed transaction receipts, annual DGR (tax-deductible) donation receipts, and the receipt audit trail.
+- [Receipts](/parishcrm/docs/receipts/) — emailed transaction receipts, annual DGR (tax-deductible) donation receipts, and the Receipt Log.
 - [Invoices](/parishcrm/docs/invoices/) — invoices to members or saved outside customers, optional GST tax invoices, PDF and email.
 - [Petty Cash](/parishcrm/docs/petty-cash/) — weekly cash sessions, receipts/expenses/transfers, closing with a physical cash count.
 
