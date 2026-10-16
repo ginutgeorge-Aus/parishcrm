@@ -1,7 +1,7 @@
 import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices, getInvoiceSummary } from "@/lib/actions/invoice"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { redirect } from "next/navigation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -180,7 +180,7 @@ describe("updateInvoice", () => {
     await updateInvoice(11, undefined, fd())
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
   })
-  it("rolls the edit back when the in-transaction audit write fails", async () => {
+  it("propagates an in-transaction audit write failure (tx callback rejects)", async () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     await expect(updateInvoice(11, undefined, fd())).rejects.toThrow("audit down")
   })
