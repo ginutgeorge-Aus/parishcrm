@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => ({
     paymentAccount: { findFirst: jest.fn() },
   },
 }))
+jest.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 
 import { prisma } from "@/lib/prisma"
@@ -25,18 +26,22 @@ function prime(done: string[], settings: { key: string; value: string }[] = []) 
 
 const churchStep = async () => (await getSetupChecklist("ADMIN"))!.find((s) => s.id === "church")!.done
 
-const OLD = { name: process.env.CHURCH_NAME, address: process.env.CHURCH_ADDRESS }
+const ABN = { key: "churchABN", value: "11 222 333 444" }
+const OLD = { name: process.env.CHURCH_NAME, address: process.env.CHURCH_ADDRESS, abn: process.env.CHURCH_ABN }
 
 beforeEach(() => {
   jest.clearAllMocks()
   delete process.env.CHURCH_NAME
   delete process.env.CHURCH_ADDRESS
+  delete process.env.CHURCH_ABN
 })
 afterAll(() => {
   if (OLD.name === undefined) delete process.env.CHURCH_NAME
   else process.env.CHURCH_NAME = OLD.name
   if (OLD.address === undefined) delete process.env.CHURCH_ADDRESS
   else process.env.CHURCH_ADDRESS = OLD.address
+  if (OLD.abn === undefined) delete process.env.CHURCH_ABN
+  else process.env.CHURCH_ABN = OLD.abn
 })
 
 describe("getSetupChecklist", () => {
@@ -63,12 +68,18 @@ describe("getSetupChecklist", () => {
     expect(done).toEqual({ church: false, branding: true, people: true, categories: false, paymentAccounts: false })
   })
 
-  it("needs both a church name and address", async () => {
+  it("needs a church name, address and ABN (as receipts do)", async () => {
     prime([], [{ key: "churchName", value: "Example Parish" }])
     expect(await churchStep()).toBe(false)
     prime([], [
       { key: "churchName", value: "Example Parish" },
       { key: "churchAddress", value: "1 Example St" },
+    ])
+    expect(await churchStep()).toBe(false)
+    prime([], [
+      { key: "churchName", value: "Example Parish" },
+      { key: "churchAddress", value: "1 Example St" },
+      ABN,
     ])
     expect(await churchStep()).toBe(true)
   })
@@ -76,12 +87,14 @@ describe("getSetupChecklist", () => {
   it("accepts the env fallbacks", async () => {
     process.env.CHURCH_NAME = "Example Parish"
     process.env.CHURCH_ADDRESS = "1 Example St"
+    process.env.CHURCH_ABN = "11 222 333 444"
     prime([])
     expect(await churchStep()).toBe(true)
   })
 
   it("does not count the shipped placeholder name or whitespace", async () => {
     process.env.CHURCH_ADDRESS = "1 Example St"
+    process.env.CHURCH_ABN = "11 222 333 444"
     process.env.CHURCH_NAME = "Your Church"
     prime([])
     expect(await churchStep()).toBe(false)
@@ -92,10 +105,23 @@ describe("getSetupChecklist", () => {
     expect(await churchStep()).toBe(false)
   })
 
+  it("only counts usable rows: LOGO slot, active income/expense (not XFER), active BANK account", async () => {
+    prime(rowModels)
+    await getSetupChecklist("ADMIN")
+    expect(m.brandingAsset.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { slot: "LOGO" } }))
+    expect(m.account.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: true, type: { in: ["INCOME", "EXPENSE"] }, code: { not: "XFER" } } })
+    )
+    expect(m.paymentAccount.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: true, kind: "BANK" } })
+    )
+  })
+
   it("returns null once every step is done", async () => {
     prime(rowModels, [
       { key: "churchName", value: "Example Parish" },
       { key: "churchAddress", value: "1 Example St" },
+      ABN,
     ])
     expect(await getSetupChecklist("ADMIN")).toBeNull()
   })
@@ -104,6 +130,7 @@ describe("getSetupChecklist", () => {
     prime(rowModels, [
       { key: "churchName", value: "Example Parish" },
       { key: "churchAddress", value: "1 Example St" },
+      ABN,
     ])
     await getSetupChecklist("ADMIN")
     await getSetupChecklist("ADMIN")

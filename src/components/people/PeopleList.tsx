@@ -39,6 +39,7 @@ export function PeopleList({
   isFiltered = false,
   canAdd = false,
   canImport = false,
+  hasFamilies = true,
 }: Readonly<{
   people: Person[]
   /** A search/filter is applied, so an empty list means "no matches". */
@@ -47,6 +48,8 @@ export function PeopleList({
   canAdd?: boolean
   /** Viewer may bulk-import families/people from CSV (ADMIN). */
   canImport?: boolean
+  /** At least one family exists; people can only be added to a family. */
+  hasFamilies?: boolean
 }>) {
   if (people.length === 0) {
     if (isFiltered) {
@@ -60,7 +63,15 @@ export function PeopleList({
       )
     }
     const actions: EmptyStateAction[] = []
-    if (canAdd) actions.push({ label: "Add person", href: "/people/new" })
+    // Every person belongs to a family, so with none yet "Add person" would
+    // dead-end at "Add a family first" — offer Add family directly.
+    if (canAdd) {
+      actions.push(
+        hasFamilies
+          ? { label: "Add person", href: "/people/new" }
+          : { label: "Add family", href: "/families/new" }
+      )
+    }
     if (canImport) actions.push({ label: "Import CSV", href: "/import" })
     return (
       <EmptyState

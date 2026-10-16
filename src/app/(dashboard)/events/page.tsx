@@ -64,7 +64,10 @@ export default async function EventsPage(
   for (const e of events) for (const tt of e.ticketTypes) ttToEvent.set(tt.id, e.id)
   const ticketTypeIds = [...ttToEvent.keys()]
 
-  const [revenueRows, soldRows] = await Promise.all([
+  // Empty list: tell "no events at all" (offer New event) apart from "none in
+  // this tab" (offer View all). Only queried when the list is empty, and run
+  // alongside the rollups so it adds no round trip.
+  const [revenueRows, soldRows, anyEventRow] = await Promise.all([
     eventIds.length
       ? prisma.registration.groupBy({
           by: ["eventId"],
@@ -81,13 +84,11 @@ export default async function EventsPage(
           _sum: { quantity: true },
         })
       : Promise.resolve([]),
+    events.length === 0 && filter !== "all"
+      ? prisma.event.findFirst({ select: { id: true } })
+      : Promise.resolve(null),
   ])
-
-  // Empty list: tell "no events at all" (offer New event) apart from "none in
-  // this tab" (offer View all). Only queried when the list is empty.
-  const hasAnyEvents =
-    events.length > 0 ||
-    (filter !== "all" && (await prisma.event.findFirst({ select: { id: true } })) !== null)
+  const hasAnyEvents = events.length > 0 || (filter !== "all" && anyEventRow !== null)
 
   const eventStats = rollupEventStats(ttToEvent, revenueRows, soldRows)
   const statsFor = (id: number) => eventStats.get(id) ?? { ticketsSold: 0, revenue: 0 }

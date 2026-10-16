@@ -75,6 +75,10 @@ export default async function FamiliesPage(
     },
   })
 
+  // totalCount is the candidate set the suburb scan draws from, so more
+  // candidates than the scan cap means some were never searched.
+  const scanIncomplete = Boolean(suburbFilter) && totalCount > SUBURB_SCAN_CAP
+
   const isFiltered = Boolean(q || statusFilter || suburbFilter)
   // Empty directory: the list's empty state carries Add family / Import CSV,
   // so the toolbar doesn't offer them a second time.
@@ -124,9 +128,9 @@ export default async function FamiliesPage(
         {suburbFilter ? ` matching suburb "${suburbFilter}"` : ""}
       </p>
 
-      {suburbFilter && (suburbCapped || families.length >= SUBURB_SCAN_CAP) && (
+      {suburbFilter && (suburbCapped || scanIncomplete) && (
         <p className="text-sm text-warning bg-warning/10 border border-warning/40 rounded px-3 py-2">
-          {families.length >= SUBURB_SCAN_CAP
+          {scanIncomplete
             ? `Suburb results may be incomplete: only the first ${SUBURB_SCAN_CAP} candidate families were searched. Showing up to ${FAMILY_CAP} matches. Narrow other filters to reduce results.`
             : `Showing first ${FAMILY_CAP} suburb matches. Narrow other filters to reduce results.`}
         </p>
@@ -142,7 +146,7 @@ export default async function FamiliesPage(
         canEdit={userCanEdit}
         isFiltered={isFiltered}
         canImport={userIsAdmin}
-        scanIncomplete={Boolean(suburbFilter) && families.length >= SUBURB_SCAN_CAP}
+        scanIncomplete={scanIncomplete}
       />
     </div>
   )

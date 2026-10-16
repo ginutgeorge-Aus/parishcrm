@@ -10,6 +10,11 @@ describe("PeopleList empty states", () => {
     expect(links()).toEqual(["/people/new", "/import"])
   })
 
+  it("offers Add family instead of a dead-end Add person when no family exists", () => {
+    render(<PeopleList people={[]} canAdd canImport hasFamilies={false} />)
+    expect(links()).toEqual(["/families/new", "/import"])
+  })
+
   it("shows a VIEWER the text only", () => {
     render(<PeopleList people={[]} />)
     expect(screen.getByText("No people yet")).toBeInTheDocument()

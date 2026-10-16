@@ -70,6 +70,10 @@ export default async function PeoplePage(
   // Empty directory: the list's empty state carries the Add/Import actions, so
   // the toolbar doesn't offer "New person" a second time.
   const noPeopleYet = totalCount === 0 && !isFiltered
+  // Only the empty directory needs to know: with no families, Add person would
+  // dead-end, so the empty state offers Add family instead.
+  const hasFamilies =
+    !noPeopleYet || !userCanEdit || (await prisma.family.findFirst({ where: { archivedAt: null }, select: { id: true } })) !== null
 
   const decrypted = people.map((p) => ({
     ...p,
@@ -121,6 +125,7 @@ export default async function PeoplePage(
         isFiltered={isFiltered}
         canAdd={userCanEdit}
         canImport={userIsAdmin}
+        hasFamilies={hasFamilies}
       />
     </div>
   )

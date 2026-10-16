@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { logger } from "@/lib/logger"
-import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
+import { getChurchSettingsFresh, missingChurchIdentity } from "@/lib/churchSettings"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 
 /** One first-run setup step shown on the dashboard checklist. */
@@ -15,25 +15,18 @@ export type SetupStep = {
 }
 
 /**
- * True when a church name/address value is really set: non-blank after
- * trimming, and (for the name) not the shipped "Your Church" placeholder —
- * `.env.example` and a ChurchInfoForm saved with its pre-filled fallback both
- * carry that placeholder, which mustn't tick the step.
- */
-function isRealValue(value: string | null | undefined, placeholder?: string): boolean {
-  const v = value?.trim() ?? ""
-  return v !== "" && v !== placeholder
-}
-
-/**
  * Loads the first-run setup checklist for the dashboard, or null when it
  * should not show: the viewer isn't an ADMIN (every step links to an
  * ADMIN-only page), every step is already done, or the DB read failed (a
  * setup hint must never break the dashboard).
  *
- * Each step is one cheap indexed lookup (`findMany` on two AppSetting primary
- * keys, `findFirst` selecting only the key elsewhere) — no counts over big
- * tables and nothing encrypted is read.
+ * Each step is one cheap lookup (the church settings rows, `findFirst`
+ * selecting only the id elsewhere) — no counts over big tables and nothing
+ * encrypted is read. "Done" means usable: church identity complete as receipts
+ * require (name, address, ABN), the LOGO slot uploaded (the one the sidebar and
+ * login render), an active income/expense category (the auto-created inactive
+ * XFER account doesn't count) and an active BANK account (the auto-created
+ * Petty Cash CASH account doesn't count).
  */
 export async function getSetupChecklist(role: UserRole | undefined): Promise<SetupStep[] | null> {
   if (!isAdmin(role)) return null
@@ -41,14 +34,17 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
   let rows
   try {
     rows = await Promise.all([
-      prisma.appSetting.findMany({
-        where: { key: { in: ["churchName", "churchAddress"] } },
-        select: { key: true, value: true },
-      }),
-      prisma.brandingAsset.findFirst({ select: { slot: true } }),
+      getChurchSettingsFresh(),
+      prisma.brandingAsset.findFirst({ where: { slot: "LOGO" }, select: { slot: true } }),
       prisma.person.findFirst({ where: { archivedAt: null }, select: { id: true } }),
-      prisma.account.findFirst({ select: { id: true } }),
-      prisma.paymentAccount.findFirst({ select: { id: true } }),
+      prisma.account.findFirst({
+        where: { isActive: true, type: { in: ["INCOME", "EXPENSE"] }, code: { not: "XFER" } },
+        select: { id: true },
+      }),
+      prisma.paymentAccount.findFirst({
+        where: { isActive: true, kind: "BANK" },
+        select: { id: true },
+      }),
     ])
   } catch (err) {
     logger.error("[setupChecklist] DB read failed — hiding the checklist", {
@@ -56,21 +52,15 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
     })
     return null
   }
-  const [churchRows, branding, person, account, paymentAccount] = rows
-
-  // A saved setting wins; the env var is the documented fallback (same order
-  // as getChurchSettings).
-  const setting = (key: string) => churchRows.find((r) => r.key === key)?.value
-  const churchName = setting("churchName")?.trim() || process.env.CHURCH_NAME
-  const churchAddress = setting("churchAddress")?.trim() || process.env.CHURCH_ADDRESS
+  const [church, branding, person, account, paymentAccount] = rows
 
   const steps: SetupStep[] = [
     {
       id: "church",
       title: "Add your church details",
-      description: "Your church's name and address, used on receipts, emails and letters.",
+      description: "Your church's name, address and ABN, used on receipts, emails and letters.",
       href: "/settings#general",
-      done: isRealValue(churchName, DEFAULT_CHURCH_NAME) && isRealValue(churchAddress),
+      done: missingChurchIdentity(church).length === 0,
     },
     {
       id: "branding",
