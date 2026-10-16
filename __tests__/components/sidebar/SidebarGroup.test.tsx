@@ -45,7 +45,8 @@ it("hides entries when the group is closed", () => {
   // Panel stays mounted (so aria-controls resolves) but is hidden from AT + layout.
   expect(screen.queryByRole("link", { name: /overview/i })).not.toBeInTheDocument()
   const header = screen.getByRole("button", { name: /accounting/i })
-  expect(document.getElementById(header.getAttribute("aria-controls")!)).not.toBeVisible()
+  const panelId = header.getAttribute("aria-controls") ?? ""
+  expect(document.getElementById(panelId)).not.toBeVisible()
 })
 
 it("calls onToggle when the header is clicked", () => {
@@ -58,9 +59,9 @@ it("calls onToggle when the header is clicked", () => {
 it("wires aria-controls on the toggle to the panel's id", () => {
   renderGroup(true)
   const button = screen.getByRole("button", { name: /accounting/i })
-  const controlsId = button.getAttribute("aria-controls")
+  const controlsId = button.getAttribute("aria-controls") ?? ""
   expect(controlsId).toBeTruthy()
-  expect(document.getElementById(controlsId!)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
+  expect(document.getElementById(controlsId)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
 })
 
 const renderCustom = (g: NavGroup, isOpen: boolean) =>

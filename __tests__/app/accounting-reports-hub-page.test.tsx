@@ -16,10 +16,17 @@ const mockAuth = auth as jest.Mock
 
 beforeEach(() => jest.clearAllMocks())
 
-it("redirects roles without accounting view access", async () => {
-  mockAuth.mockResolvedValue({ user: { role: "VIEWER", id: "1" } })
+it.each(["VIEWER", "EVENT_ORGANISER"])("redirects %s (no accounting view access)", async (role) => {
+  mockAuth.mockResolvedValue({ user: { role, id: "1" } })
   await expect(ReportsHubPage()).rejects.toThrow("REDIRECT")
   expect(redirect).toHaveBeenCalledWith("/")
+})
+
+it.each(["ADMIN", "PASTOR", "OFFICE_ADMIN", "AUDITOR"])("renders the hub for %s", async (role) => {
+  mockAuth.mockResolvedValue({ user: { role, id: "1" } })
+  const html = renderToStaticMarkup(await ReportsHubPage())
+  expect(redirect).not.toHaveBeenCalled()
+  expect(html).toContain("Profit &amp; Loss")
 })
 
 it("links every report route under /accounting/reports for a read-only AUDITOR", async () => {
