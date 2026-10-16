@@ -158,6 +158,33 @@ it("re-keys a blob returned as a plain Uint8Array (not a Buffer)", async () => {
   expect(decrypt(data.document.toString("utf8"))).toBe(plainB64)
 })
 
+it("re-keys the invoice frozenPdf BYTEA blob and registers it as a blob field", async () => {
+  setBaseEnv()
+  process.env.ENCRYPTION_KEY_ID = "v1"
+  const { encrypt: enc } = await import("@/lib/cryptoCore")
+  const plainB64 = Buffer.from("%PDF-frozen").toString("base64")
+  const v1blob = Buffer.from(enc(plainB64), "utf8")
+
+  jest.resetModules()
+  process.env.ENCRYPTION_KEY_ID = "v2"
+  const { rotateModel, BLOB_FIELDS } = await import("../../scripts/rotate-encryption-key")
+  const { decrypt, keyIdOf } = await import("@/lib/cryptoCore")
+  expect(BLOB_FIELDS.invoice).toEqual(["frozenPdf"])
+
+  const update = jest.fn((arg: unknown) => ({ __op: arg }))
+  const delegate = {
+    count: jest.fn().mockResolvedValue(1),
+    findMany: jest.fn().mockResolvedValueOnce([{ id: 1, frozenPdf: v1blob }]).mockResolvedValue([]),
+    updateMany: update,
+  }
+  await rotateModel("invoice", { delegate, runTx: jest.fn(okTx), apply: true })
+
+  const data = (update.mock.calls[0][0] as { data: { frozenPdf: Buffer } }).data
+  expect(Buffer.isBuffer(data.frozenPdf)).toBe(true)
+  expect(keyIdOf(data.frozenPdf.toString("utf8"))).toBe("v2")
+  expect(decrypt(data.frozenPdf.toString("utf8"))).toBe(plainB64)
+})
+
 // a single malformed/undecryptable ciphertext row must not abort the
 // whole rotation — the previous behaviour propagated decrypt()'s throw out of
 // the model loop, aborting every model that hadn't run yet.
@@ -409,7 +436,7 @@ describe("FIELDS map", () => {
     personClearance: ["number", "documentName", "document", "verificationNote"],
     // Invoices (OSS-20): customer contact + invoice recipient snapshot.
     customer: ["email", "phone", "address", "notes"],
-    invoice: ["recipientEmail", "recipientAddress", "notes"],
+    invoice: ["recipientEmail", "recipientAddress", "notes", "frozenPdf"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible

@@ -1,6 +1,6 @@
 import "server-only"
 import { NextResponse } from "next/server"
-import { decrypt } from "@/lib/crypto"
+import { decrypt, decryptBytes } from "@/lib/crypto"
 
 // Only inert types render inline. A user-supplied Content-Type like text/html or
 // image/svg+xml would execute as stored XSS if shown inline in the browser;
@@ -26,8 +26,7 @@ export function encryptedDocumentResponse(args: {
   fallbackName: string
 }): NextResponse {
   const { blob, encryptedName, contentType, fallbackName } = args
-  const stored = (Buffer.isBuffer(blob) ? blob : Buffer.from(blob)).toString("utf8")
-  const body = Buffer.from(decrypt(stored), "base64")
+  const body = decryptBytes(blob)
   const filename = encryptedName ? decrypt(encryptedName) : fallbackName
   // Filenames are user-supplied; RFC 5987-encode the UTF-8 param so
   // quotes/newlines/non-ASCII can't break out of the header. The legacy

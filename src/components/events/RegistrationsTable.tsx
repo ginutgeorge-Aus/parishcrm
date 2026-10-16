@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { paymentMethodOf } from "@/lib/paymentMethod"
 import { markPaid, cancelRegistration } from "@/lib/actions/registration"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,12 +30,6 @@ type Reg = {
   paymentRef: string | null
   createdAt: Date
   items: Item[]
-}
-
-// Card registrations are created by the Stripe webhook with a PaymentIntent id
-// in paymentRef; bank-transfer / cash bookings have none.
-function paymentMethod(paymentRef: string | null): string {
-  return paymentRef ? "Card" : "Bank transfer"
 }
 
 type Props = { registrations: Reg[]; eventId: number; canEdit: boolean; total?: number }
@@ -261,7 +256,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                   {fmtAUD(Number.parseFloat(reg.totalAmount.toString()))}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs">
-                  {paymentMethod(reg.paymentRef)}
+                  {paymentMethodOf(reg.paymentRef)}
                 </TableCell>
                 <TableCell>
                   <Badge className={STATUS_COLOURS[reg.paymentStatus] ?? ""}>
@@ -320,7 +315,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
                 {reg.paymentStatus.charAt(0) + reg.paymentStatus.slice(1).toLowerCase()}
               </Badge>
               <span className="text-xs text-muted-foreground">
-                {paymentMethod(reg.paymentRef)} · {format(reg.createdAt, "d MMM yyyy")}
+                {paymentMethodOf(reg.paymentRef)} · {format(reg.createdAt, "d MMM yyyy")}
               </span>
             </div>
             {canEdit && (

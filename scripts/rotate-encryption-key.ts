@@ -84,7 +84,8 @@ export const FIELDS: Record<string, string[]> = {
   // Invoices (src/lib/actions/customer.ts, invoice.ts): saved customer contact
   // details and the invoice's recipient snapshot + notes.
   customer: ["email", "phone", "address", "notes"],
-  invoice: ["recipientEmail", "recipientAddress", "notes"],
+  // frozenPdf is the BYTEA PDF frozen at send (see BLOB_FIELDS).
+  invoice: ["recipientEmail", "recipientAddress", "notes", "frozenPdf"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
@@ -93,6 +94,7 @@ export const FIELDS: Record<string, string[]> = {
 export const BLOB_FIELDS: Record<string, string[]> = {
   transactionAttachment: ["data"],
   personClearance: ["document"],
+  invoice: ["frozenPdf"],
 }
 
 // Returns the re-encrypted update for one row, or null if nothing to do.

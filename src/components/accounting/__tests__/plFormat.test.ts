@@ -1,4 +1,9 @@
-import { plTransactionsHref } from "@/components/accounting/plFormat"
+import { fmtGrid, plTransactionsHref } from "@/components/accounting/plFormat"
+import { APP_LOCALE } from "@/lib/appConfig"
+
+// Expected strings follow APP_LOCALE so the suite passes under any configured locale.
+const num = (n: number) =>
+  new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
 // Default FY starts in July (APP_FY_START_MONTH unset in tests).
 describe("plTransactionsHref", () => {
@@ -33,5 +38,13 @@ describe("plTransactionsHref", () => {
     expect(() => plTransactionsHref(3, 2025, 12)).toThrow(RangeError)
     expect(() => plTransactionsHref(3, 2025, -1)).toThrow(RangeError)
     expect(() => plTransactionsHref(3, 2025, 1.5)).toThrow(RangeError)
+  })
+})
+
+describe("fmtGrid", () => {
+  it("formats cents without a currency symbol, dash for zero, parens for negatives", () => {
+    expect(fmtGrid(0)).toBe("–")
+    expect(fmtGrid(123456)).toBe(num(1234.56))
+    expect(fmtGrid(-5000)).toBe(`(${num(50)})`)
   })
 })

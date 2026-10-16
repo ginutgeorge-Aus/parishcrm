@@ -11,7 +11,7 @@ export function ExportButtons({ eventId, slug }: Readonly<Props>) {
         <a href={`/api/events/${encodeURIComponent(slug)}/export-csv`}>Export CSV</a>
       </Button>
       <Button asChild variant="outline" size="sm">
-        <a href={`/events/${eventId}/registrations/print`} target="_blank">Export PDF</a>
+        <a href={`/events/${eventId}/registrations/print`} target="_blank" rel="noopener noreferrer">Export PDF</a>
       </Button>
     </div>
   )

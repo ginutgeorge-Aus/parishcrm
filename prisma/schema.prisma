@@ -86,10 +86,9 @@ model Person {
   sundaySchoolTeaching   SundaySchoolTeacher[]
   sundaySchoolEnrolments SundaySchoolEnrolment[]
   sundaySchoolAttendance SundaySchoolAttendance[]
+  invoices               Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
-  invoices                Invoice[]
-
   @@index([archivedAt])
   @@index([familyId])
   @@index([classification])
@@ -146,6 +145,8 @@ model User {
   submissionsReviewed          FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
   trustedDevices               TrustedDevice[]
   backupCodes                  BackupCode[]
+  passkeys                     Passkey[]
+  webAuthnChallenges           WebAuthnChallenge[]
   reports                      Report[]
   checkpointResults            CheckpointResult[]
   dgrReceiptsCreated           DgrReceipt[]             @relation("DgrReceiptCreatedBy")
@@ -181,6 +182,40 @@ model BackupCode {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// Passkey (WebAuthn) credential. publicKey is the COSE public key — not secret,
+// so stored plain. counter is the authenticator's signature counter (u32, hence
+// BigInt); many platform passkeys always report 0, which disables the check.
+model Passkey {
+  id           String    @id @default(cuid())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      BigInt    @default(0)
+  transports   String[]
+  name         String
+  backedUp     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
+}
+
+// Server-side WebAuthn challenge. Single-use: consumed by delete, so only one
+// request can ever win it. userId is set for registration (bound to the
+// session user) and null for usernameless login.
+model WebAuthnChallenge {
+  id        String   @id @default(cuid())
+  challenge String
+  purpose   String
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 // In-app feedback (bug / feature / suggestion) mirrored from the GitHub issue it
@@ -1094,6 +1129,11 @@ model Invoice {
   /// Church identity + payment details frozen at send ({ name, address, abn, email, paymentDetails }),
   /// so re-sends and downloads of a sent invoice always render the same document.
   issuer           Json?
+  /// The PDF as first sent, stored as `Buffer.from(encrypt(base64), "utf8")` (same as
+  /// TransactionAttachment.data). Written best-effort right after the DRAFT → SENT commit (and
+  /// lazily on first load if that failed) so the letterhead image is frozen too. Null for drafts
+  /// and for invoices sent before this column existed.
+  frozenPdf        Bytes?
   accountId        Int
   account          Account       @relation(fields: [accountId], references: [id])
   fundId           Int?
@@ -1114,6 +1154,8 @@ model Invoice {
   @@index([status, issueDate])
   @@index([personId])
   @@index([customerId])
+  @@index([accountId])
+  @@index([fundId])
 }
 
 enum MembershipStatus {

@@ -1,6 +1,9 @@
 /** @jest-environment node */
 jest.mock("server-only", () => ({}))
-jest.mock("@/lib/crypto", () => ({ decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
+jest.mock("@/lib/crypto", () => ({
+  decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
+  decryptBytes: jest.fn((b: Uint8Array) => Buffer.from(Buffer.from(b).toString("utf8").replace(/^enc:/, ""), "base64")),
+}))
 
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 

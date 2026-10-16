@@ -1,12 +1,12 @@
 ---
 title: "Login and Two-Step Verification"
-description: "Every staff sign-in is two steps: a password, then a one-time email code or an authenticator-app code, unless the browser is already marked as a trusted device. This page covers the…"
+description: "Staff sign in with a password and then a one-time email or authenticator-app code (unless the browser is trusted), or in one step with a passkey. This page covers the…"
 ---
 
-Every staff sign-in is two steps: a password, then a one-time code, unless the browser is
+Staff sign in with two steps: a password, then a one-time code, unless the browser is
 already marked as a trusted device. The code is emailed by default, or comes from an
-authenticator app if you've turned that on. This page covers the login flow, authenticator
-apps and backup codes, lockouts, "remember this device," password reset, and session lifetime. For who can do what once
+authenticator app if you've turned that on. Alternatively, sign in in one step with a
+passkey. This page covers the login flow, passkeys, authenticator apps and backup codes, lockouts, "remember this device," password reset, and session lifetime. For who can do what once
 signed in, see [Roles-and-Permissions](/parishcrm/docs/roles-and-permissions/); for the underlying request-level protections, see
 [Security-Model](/parishcrm/docs/security-model/).
 
@@ -29,6 +29,25 @@ changes. No email is sent; instead you enter the 6-digit code from your app. Cho
 backup code** to enter a saved backup code instead, or **Send email code instead** to get an
 emailed code if you don't have your phone. The app code step re-checks your password in the
 same request, so it can't be used on its own.
+
+**Signing in with a passkey:** choose **Sign in with a passkey** on the login page. Your
+browser or phone asks you to pick a passkey and unlock it with your fingerprint, face or
+device PIN. You're then signed in directly, with no password and no code. **Remember this
+device** still controls how long the session lasts. Your password and code keep working
+for when you don't have that device with you.
+
+**Adding a passkey:**
+1. Go to **My Account** (`/account`). Under **Passkeys**, choose **Add a passkey**.
+2. Give it a name you'll recognise (for example "Work laptop"), enter your current password,
+   and choose **Create passkey**.
+3. Follow your browser's prompt to save the passkey to this device, your phone, or a
+   password manager. Passkeys marked **Synced** are backed up to your account with that
+   provider (e.g. iCloud Keychain or Google Password Manager).
+
+You can have up to 10 passkeys. Choose **Remove** next to one you no longer use. You get a
+confirmation email whenever a passkey is added or removed. You can only add passkeys when the
+site is served over HTTPS on a domain name, not an IP address (or over HTTP on
+`localhost` for development).
 
 **Turning on an authenticator app:**
 1. Go to **My Account** (`/account`) and, under **Authenticator app**, choose **Set up
@@ -63,7 +82,8 @@ an admin to unlock you early from **Users** (see [User-Management](/parishcrm/do
    account — this is deliberate, so the page can't be used to find out who has an account.
 3. If an account exists, a reset link arrives, valid for 1 hour and usable once. Follow it,
    choose a new password meeting the strength rule (8+ characters, upper, lower, digit,
-   symbol). This also signs you out everywhere else and clears any lockouts.
+   symbol). This also signs you out everywhere else, clears any lockouts, and removes your
+   trusted devices and passkeys.
 
 **Managing trusted devices:** go to **My Account** (`/account`) to see every device you've
 told the system to remember, with when it was last used, and revoke any you don't recognise
@@ -90,6 +110,20 @@ rejection-sampling over a CSPRNG so every 6-digit value is equally likely, and i
 using a timing-safe comparison rather than `===`. Consuming an OTP is atomic — a database
 update conditioned on the exact code still being present — so two near-simultaneous
 submissions of the same correct code can't both succeed and mint two sessions.
+
+**Passkeys (WebAuthn).** Registration and removal live in `src/lib/actions/passkey.ts`;
+the relying party (domain) and challenge store are in `src/lib/webauthn.ts`, built on
+`@simplewebauthn/server`. Both registration and sign-in require *user verification*
+(biometric or device PIN), which is why one passkey stands in for both the password and the
+second step. Adding a passkey re-checks your password, so a stolen session alone can't add
+one. Each ceremony uses a server-stored challenge that expires after 5 minutes and is
+deleted on first use. Sign-in is "usernameless": the browser offers its passkeys for this
+site and the server identifies you from the chosen credential (a separate `passkey`
+Credentials provider, `authorizePasskey` in `src/auth.ts`, sharing the per-IP login limit).
+A locked account stays locked, and the authenticator's signature counter is checked and
+updated atomically to detect cloned keys. Resetting your password (or an admin changing it,
+or resetting your authenticator) removes all your passkeys, so one added by someone who
+knew the old password can't outlive the recovery.
 
 **Authenticator app (TOTP).** Enrolment, backup codes and turning it off live in
 `src/lib/actions/totp.ts`; code checking is in `src/lib/totpVerify.ts` and `src/lib/totp.ts`.

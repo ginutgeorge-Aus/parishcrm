@@ -1,5 +1,6 @@
-import { prisma } from "@/lib/prisma"
-import { safeDecrypt } from "@/lib/crypto"
+import { prisma, Prisma } from "@/lib/prisma"
+import { logger } from "@/lib/logger"
+import { decryptBytes, encryptBytes, safeDecrypt } from "@/lib/crypto"
 import { getChurchSettingsFresh, getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getInvoiceSettings, type InvoiceSettings } from "@/lib/invoiceSettings"
 import { renderInvoicePdf } from "@/lib/pdf/InvoicePdf"
@@ -96,15 +97,68 @@ export function buildInvoicePdfModel(inv: {
   }
 }
 
-/** Load, decrypt and render an invoice PDF. Callers must have checked authorisation. */
+/**
+ * Best-effort freeze: store the encrypted PDF on a non-draft invoice that has none yet, plus
+ * the issuer snapshot used for that render when the row has none (legacy rows), so later reads
+ * can trust the stored blob. Both writes are conditional (never overwrite a blob, an existing
+ * issuer or a draft) and run in one transaction; 0 rows matched is fine and a DB error is
+ * logged, never thrown (the caller still has the PDF to serve).
+ */
+async function storeFrozenPdf(id: number, pdf: Uint8Array, issuerIfMissing: IssuerSnapshot | null): Promise<void> {
+  const notDraft = { id, frozenPdf: null, status: { not: "DRAFT" as const } }
+  try {
+    await prisma.$transaction([
+      ...(issuerIfMissing
+        ? [prisma.invoice.updateMany({ where: { ...notDraft, issuer: { equals: Prisma.AnyNull } }, data: { issuer: issuerIfMissing } })]
+        : []),
+      prisma.invoice.updateMany({ where: notDraft, data: { frozenPdf: encryptBytes(pdf) } }),
+    ])
+  } catch (e) {
+    logger.error("invoice frozenPdf store failed", { invoiceId: id, message: e instanceof Error ? e.message : "unknown" })
+  }
+}
+
+type FrozenRow = { id: number; invoiceNo: string | null; recipientName: string; recipientEmail: string | null; total: { toString(): string }; dueDate: Date; frozenPdf: Uint8Array | null }
+
+/**
+ * Serve a non-draft invoice from its stored PDF with metadata only (no model building).
+ * Null when there is nothing usable (no blob or snapshot); "unreadable" when the blob fails to
+ * decrypt (logged with the id, never the content) so the caller renders live without overwriting.
+ */
+function readFrozenPdf(r: FrozenRow, frozen: IssuerSnapshot | null) {
+  if (!r.frozenPdf || !frozen) return null
+  try {
+    return {
+      pdf: decryptBytes(r.frozenPdf), filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`,
+      recipientEmail: r.recipientEmail ? safeDecrypt(r.recipientEmail) : "",
+      invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: money(toCents(r.total.toString())),
+      dueDate: formatLongDate(r.dueDate), churchName: frozen.name, paymentDetails: frozen.paymentDetails,
+    }
+  } catch (e) {
+    logger.error("invoice frozenPdf unreadable, rendering live", { invoiceId: r.id, message: e instanceof Error ? e.message : "unknown" })
+    return "unreadable" as const
+  }
+}
+
+/**
+ * Load an invoice and return its PDF plus the email metadata. A non-draft invoice with a
+ * stored `frozenPdf` (and issuer snapshot) serves those exact bytes with no re-render. A
+ * non-draft invoice without one (sent before this existed, or its post-send freeze failed)
+ * renders live and is frozen on the spot, snapshot included. A blob that fails to decrypt is
+ * rendered live without being overwritten. Drafts always render live. Callers must have
+ * checked authorisation.
+ */
 export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
   const r = await prisma.invoice.findUnique({ where: { id } })
   if (!r) return null
+  const sent = r.status !== "DRAFT"
+  const frozen = sent ? parseIssuer(r.issuer) : null
+  const stored = sent ? readFrozenPdf(r, frozen) : null
+  if (stored && stored !== "unreadable") return stored
   const recipientEmail = r.recipientEmail ? safeDecrypt(r.recipientEmail) : ""
   // Sent invoices render from the issuer snapshot frozen at send, so a re-send or download
   // is always the same document — and needs no live settings read. Drafts (and legacy rows
   // without a snapshot) use live settings: a tax invoice needs the ABN (strict loader throws when unset).
-  const frozen = r.status === "DRAFT" ? null : parseIssuer(r.issuer)
   const live = settingsIn ?? (frozen
     ? { gstRegistered: r.taxInvoice, paymentDetails: frozen.paymentDetails }
     : await getInvoiceSettings())
@@ -119,6 +173,11 @@ export async function loadInvoicePdf(id: number, settingsIn?: InvoiceSettings) {
     notes: r.notes ? safeDecrypt(r.notes) : "",
   }, church, settings)
   const pdf = await renderInvoicePdf(model)
+  // A non-null issuer that fails to parse is never overwritten, so freezing would store a blob
+  // readFrozenPdf can never serve (it needs the snapshot) — skip it and keep rendering live.
+  const malformedIssuer = sent && r.issuer !== null && !frozen
+  if (malformedIssuer) logger.error("invoice issuer snapshot malformed, not freezing", { invoiceId: id })
+  if (sent && !r.frozenPdf && stored !== "unreadable" && !malformedIssuer) await storeFrozenPdf(id, pdf, frozen ? null : issuer)
   return {
     pdf, filename: r.invoiceNo ? `${r.invoiceNo}.pdf` : `DRAFT-${r.id}.pdf`, recipientEmail,
     invoiceNo: r.invoiceNo, recipientName: r.recipientName, total: model.total, dueDate: model.dueDate,

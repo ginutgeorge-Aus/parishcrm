@@ -147,7 +147,7 @@ async function sendPaidEmail(inv: SentInvoice, paidAt: Date): Promise<string | u
 export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise<{ success: string; warning?: string } | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
-  const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id } }) : null
+  const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, omit: { frozenPdf: true } }) : null
   if (!inv) return { error: "Invoice not found" }
   if (inv.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be marked paid" }
 
