@@ -59,7 +59,7 @@ function PersonHeaderActions({
   return (
     <div className="flex gap-2">
       {userCanEdit && (
-        <Button variant="outline" size="sm" className="h-11 sm:h-7 any-pointer-coarse:h-11" asChild>
+        <Button variant="outline" size="sm" asChild>
           <Link href={`/people/${personId}/edit`}>Edit</Link>
         </Button>
       )}
@@ -67,7 +67,7 @@ function PersonHeaderActions({
         <DeletePersonButton personId={personId} familyId={familyId} personName={fullName} />
       )}
       {userIsAdmin && (
-        <Button variant="ghost" size="sm" className="h-11 sm:h-7 any-pointer-coarse:h-11" asChild>
+        <Button variant="ghost" size="sm" asChild>
           <a href={`/api/people/${personId}/export`} download={`member-${personId}.json`}>
             Export data
           </a>

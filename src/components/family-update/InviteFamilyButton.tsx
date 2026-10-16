@@ -44,7 +44,7 @@ export function InviteFamilyButton({ familyId, defaultEmail }: Readonly<{ family
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-11 sm:h-7 any-pointer-coarse:h-11">Invite family to update details</Button>
+        <Button variant="outline" size="sm">Invite family to update details</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
