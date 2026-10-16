@@ -10,6 +10,7 @@ The dashboard is the authenticated home page (`/`) — a role-aware overview com
 **Nav:** the app's landing page after login — no separate menu entry needed.
 
 What's shown:
+- **Finish setting up checklist** (`ADMIN` only, first run): a card at the top listing the setup steps still to do — church details, logo/branding, people, income and expense categories, bank and cash accounts — each linking to the page where it's done, with an "N of 5 done" progress bar. It disappears for good once every step is complete.
 - **Headline stats**: total families, active families, total members, and how many families/people were added in the last 30 days.
 - **Birthday widget**: members with a birthday in the next 7 days (name, family, age turning).
 - **Anniversary widget**: couples with a wedding anniversary in the next 7 days.
@@ -28,6 +29,7 @@ Implemented entirely as one server component (`src/app/(dashboard)/page.tsx`) th
 - **Birthday/anniversary data reuses the same pure matchers** described in [Birthdays and Celebrations](/parishcrm/docs/birthdays-and-celebrations/) (`upcomingBirthdays`/`upcomingAnniversaries`) — the dashboard widgets are a display-only 7-day-window preview; sending emails happens on the dedicated Birthdays/Anniversaries pages, not here.
 - **Fetch caps**: the birthday and anniversary source queries are capped (`PERSON_FETCH_CAP`, `src/lib/constants.ts`) so the widget query doesn't grow unbounded with membership size — one query fetches one row past the cap purely to detect truncation, and shows a "may be incomplete" note when hit. Both queries use a deterministic `orderBy: { id: "asc" }` so the truncated set is stable rather than an arbitrary database ordering.
 - **Decrypt safety**: dates of birth and marriage-linked emails are decrypted with a safe wrapper that returns a sentinel on a corrupt/rotated-away ciphertext; a record that decrypts to an invalid date is dropped from the widget rather than poisoning the whole sort/window calculation for everyone else.
+- **Setup checklist**: `getSetupChecklist()` (`src/lib/setupChecklist.ts`) runs one indexed existence check per step (`findFirst` on `AppSetting` `churchName` — or the `CHURCH_NAME` env var —, `BrandingAsset`, an active `Person`, `Account`, `PaymentAccount`); nothing is decrypted. Once all steps are done the server remembers it for the life of the process, so a set-up install pays no query cost; the `SetupChecklist` card (`src/components/dashboard/SetupChecklist.tsx`) renders nothing for other roles.
 - **Pending family updates**: `countPendingFamilyUpdates()` powers the "Family updates to review" tile, gated to editors only.
 - **Giving figures**: month-to-date and same-month-last-year income aggregates, plus per-payment-account balances derived from each account's configured opening balance — only computed at all when the viewer can see accounting, to avoid the extra queries for roles that can't use the numbers.
 

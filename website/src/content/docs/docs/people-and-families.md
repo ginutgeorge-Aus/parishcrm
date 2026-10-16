@@ -16,6 +16,7 @@ ParishCRM organises every member around two linked records: a **Family** (a hous
 - **Import CSV** (ADMIN) links to the bulk family/member importer — see [Family CSV Import](/parishcrm/docs/family-csv-import/).
 - **Print Directory** (ADMIN) opens a print-friendly family directory in a new tab.
 - **View archived** and **Merge duplicates** links (ADMIN only) — see below.
+- **Empty lists** tell "nothing yet" apart from "no matches": an empty directory offers **Add family** / **Add person** (editors) and **Import CSV** (ADMIN), while a filter that hides everything offers **Clear filters**. Read-only roles see the message without buttons. Events, invoices and customers lists follow the same pattern.
 
 ### Family detail (`/families/[id]`)
 Shows the family's contact details, member list, and (for roles that can view accounting) a giving summary link. Action buttons vary by role:

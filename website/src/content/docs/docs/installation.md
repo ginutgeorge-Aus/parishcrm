@@ -110,7 +110,9 @@ the token and create the first administrator. The page only works while the
 database has no users; afterwards remove `SETUP_TOKEN` and recreate the
 container again.
 
-Sign in as the admin account you created, then configure:
+Sign in as the admin account you created. The dashboard shows a **Finish
+setting up** checklist linking to each first-run step (it hides once all are
+done). In short, configure:
 
 - **Settings** — church details, branding (logo, letterhead, colours),
   welcome letter, membership form options, email templates, receipts. See
