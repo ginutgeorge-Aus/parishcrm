@@ -45,21 +45,21 @@
 | `celebrations` | `(dashboard)/people/birthdays`, `(dashboard)/people/anniversaries` | `birthday.ts`, `anniversary.ts` | job `celebrations`, `api/cron/send-celebrations` |
 | `clearances` | `(dashboard)/people/clearances` | `clearance.ts` | `api/people/[id]/clearances*`, `api/clearances/export`, job `clearanceDigest`, `api/cron/send-clearance-digest` |
 | `familyUpdates` | `(dashboard)/families/updates`, `(public)/family` | `familyUpdate.ts` | — |
-| `memberships` | `(dashboard)/memberships`, `(public)/membershipform` | `membership.ts` | — |
-| `welcomeLetter` | `(dashboard)/welcome-letter` | — | `api/welcome-letter/preview` |
+| `memberships` | `(dashboard)/memberships`, `(public)/membershipform`, `(print)/memberships` | `membership.ts` | — |
+| `welcomeLetter` | `(dashboard)/welcome-letter` | `welcomeLetter.ts` | `api/welcome-letter/preview` |
 | `sundaySchool` | `(dashboard)/sunday-school`, `(organiser)/my-classes` | `sundaySchool.ts`, `sundaySchoolAttendance.ts` | — |
-| `events` | `(dashboard)/events`, `(organiser)/my-events`, `(public)/e` | `event.ts`, `eventForm.ts`, `registration.ts`, `waitlist.ts`, `eventCheckout.ts`, `eventAccess.ts` | `api/events/[slug]/*`, jobs `reminders` + `checkouts`, `api/cron/send-reminders`, event branch of `api/stripe/webhook`, website event sync |
-| `accounting` | `(dashboard)/accounting` (whole segment) | `transaction.ts`, `transactionReconcile.ts`, `account.ts`, `accountGroup.ts`, `fund.ts`, `pettyCash*.ts`, `receipt.ts`, `invoice*.ts` | `api/accounting/*`, `api/import/bank-statement*` |
+| `events` | `(dashboard)/events`, `(organiser)/my-events`, `(public)/e`, `(print)/events` | `event.ts`, `eventForm.ts`, `registration.ts`, `waitlist.ts`, `eventCheckout.ts`, `eventAccess.ts` | `api/events/[slug]/*`, jobs `reminders` + `checkouts`, `api/cron/send-reminders`, `api/cron/sweep-checkouts`, website event sync (`api/stripe/webhook` stays live — see Task 6) |
+| `accounting` | `(dashboard)/accounting` (whole segment), `(print)/accounting` | `transaction.ts`, `transactionReconcile.ts`, `account.ts`, `accountGroup.ts`, `fund.ts`, `pettyCash*.ts`, `receipt.ts`, `invoice*.ts` | `api/accounting/*`, `api/import/bank-statement*` |
 | `reconciliation` | `accounting/reconciliation`, `accounting/reports/reconciliation` | `reconciliation.ts`, `transactionReconcile.ts` | — |
 | `bankImport` | `accounting/import` | (bank import action file) | `api/import/bank-statement*` |
-| `pettyCash` | `accounting/petty-cash` | `pettyCash*.ts` | — |
-| `dues` | `accounting/dues` | — | — |
-| `receipts` | `accounting/send-receipts`, `accounting/receipt-audit` | `receipt.ts` (non-DGR exports) | — |
-| `dgrReceipts` | `accounting/dgr-receipts` | DGR exports in `receipt.ts` | — |
-| `invoices` | `accounting/invoices`, `accounting/customers` | `invoice.ts`, `invoiceSend.ts`, `invoiceVoid.ts`, `invoicePayment.ts` | — |
+| `pettyCash` | `accounting/petty-cash`, `(print)/petty-cash` | `pettyCash*.ts` | — |
+| `dues` | `accounting/dues`; hide the `monthlyDues` field in `FamilyForm` and leave the stored value untouched on save | `family.ts` (`monthlyDues` write only — not a guard) | — |
+| `receipts` | `accounting/send-receipts`, `accounting/receipt-audit` | `receipt.ts`, `receiptSettings.ts` | — |
+| `dgrReceipts` | `accounting/dgr-receipts` | `dgrReceipt.ts` | — |
+| `invoices` | `accounting/invoices`, `accounting/customers` | `invoice.ts`, `invoiceSend.ts`, `invoiceVoid.ts`, `invoicePayment.ts`, `invoiceSettings.ts`, `customer.ts` | — |
 | `budget` | `accounting/budget`, `accounting/reports/budget-vs-actual` | (budget action file) | — |
 
-> Before Task 5, re-grep each row (`ls src/lib/actions | grep -i <area>`) — files may have moved since 2026-10-16. Where an action file serves two features (e.g. `receipt.ts`), guard per exported function, not per file.
+> Before Task 5, re-grep each row (`ls src/lib/actions | grep -i <area>`) — files may have moved since 2026-10-16. Where an action file serves two features, guard per exported function, not per file. `(families)/directory` print stays core (no guard).
 
 ---
 
@@ -222,7 +222,7 @@ export function resolveFeatures(overrides: Partial<Record<FeatureKey, boolean>>)
 
 **Interfaces:**
 - Consumes: Task 1 exports.
-- Produces: `getEnabledFeatures(): Promise<Set<FeatureKey>>` (React `cache`), `isFeatureOn(key): Promise<boolean>`, `requireFeature(key): Promise<void>` (calls `notFound()`), `featureGuard(key): Promise<{ error: string } | null>`, `skipIfFeatureOff<T>(key, fn: () => Promise<T>): Promise<T | { skipped: "feature off" }>`, `readRawOverrides(): Promise<Partial<Record<FeatureKey, boolean>>>`.
+- Produces: `getEnabledFeatures(): Promise<Set<FeatureKey>>` (React `cache`), `isFeatureOn(key): Promise<boolean>`, `requireFeature(key): Promise<void>` (calls `notFound()`), `featureGuard(key): Promise<{ error: string } | null>`, `skipIfFeatureOff<T>(key, fn: () => Promise<T>): Promise<T | { skipped: "feature off" }>`, `readRawOverrides(db = prisma): Promise<Partial<Record<FeatureKey, boolean>>>`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -278,9 +278,11 @@ import {
   FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, parseOverrides, resolveFeatures, type FeatureKey,
 } from "@/lib/features"
 
-/** Stored overrides only (no defaults applied). Used by the Features page. */
-export async function readRawOverrides(): Promise<Partial<Record<FeatureKey, boolean>>> {
-  const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
+/** Stored overrides only (no defaults applied). Used by the Features page and saveFeatures (inside its tx). */
+export async function readRawOverrides(
+  db: Pick<Prisma.TransactionClient, "appSetting"> = prisma,
+): Promise<Partial<Record<FeatureKey, boolean>>> {
+  const row = await db.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
   return parseOverrides(row?.value)
 }
 
@@ -363,7 +365,8 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { z } from "zod"
+import { logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 import { assertNotDemo } from "@/lib/demoMode"
 import { readRawOverrides } from "@/lib/featureFlags"
@@ -371,6 +374,11 @@ import { FEATURES, FEATURES_ONBOARDING_KEY, FEATURES_SETTING_KEY, type FeatureKe
 import type { ActionResultWithSuccess } from "./types"
 
 const DEFAULTS = new Map(FEATURES.map((f) => [f.key, f.defaultOn]))
+
+// Strict object of known keys → boolean; rejects null, non-objects and unknown keys.
+const FeaturesInput = z
+  .object(Object.fromEntries(FEATURES.map((f) => [f.key, z.boolean().optional()])))
+  .strict()
 
 /**
  * Save the admin's feature choices. Stores only values that differ from the
@@ -383,25 +391,25 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Forbidden" }
 
+  const parsed = FeaturesInput.safeParse(input)
+  if (!parsed.success) return { error: "Invalid feature settings" }
   const next: Partial<Record<FeatureKey, boolean>> = {}
-  for (const [k, v] of Object.entries(input)) {
-    if (!DEFAULTS.has(k as FeatureKey)) return { error: `Unknown feature: ${k}` }
-    if (typeof v !== "boolean") return { error: `Invalid value for ${k}` }
-    if (v !== DEFAULTS.get(k as FeatureKey)) next[k as FeatureKey] = v
+  for (const [k, v] of Object.entries(parsed.data) as [FeatureKey, boolean][]) {
+    if (v !== DEFAULTS.get(k)) next[k] = v
   }
-  const before = await readRawOverrides()
   const value = JSON.stringify(next)
-  await prisma.$transaction([
-    prisma.appSetting.upsert({ where: { key: FEATURES_SETTING_KEY }, create: { key: FEATURES_SETTING_KEY, value }, update: { value } }),
-    prisma.appSetting.deleteMany({ where: { key: FEATURES_ONBOARDING_KEY } }),
-  ])
-  await logAudit(actorId(session), "UPDATE_FEATURES", "AppSetting", FEATURES_SETTING_KEY, { before, after: next })
+  await prisma.$transaction(async (tx) => {
+    const before = await readRawOverrides(tx)
+    await tx.appSetting.upsert({ where: { key: FEATURES_SETTING_KEY }, create: { key: FEATURES_SETTING_KEY, value }, update: { value } })
+    await tx.appSetting.deleteMany({ where: { key: FEATURES_ONBOARDING_KEY } })
+    await logAuditTx(tx, actorId(session), "UPDATE_FEATURES", "AppSetting", FEATURES_SETTING_KEY, { before, after: next })
+  })
   revalidatePath("/", "layout")
   return { success: "Features saved" }
 }
 ```
 
-(Adjust `actorId(session)` / `logAudit` metadata arg to the exact signatures at `src/lib/actor.ts` and `src/lib/audit.ts:5`; adjust test mocks accordingly.)
+(Adjust `actorId(session)` / `logAuditTx` metadata arg to the exact signatures at `src/lib/actor.ts` and `src/lib/audit.ts:52`; The audit row commits with the change — a failed audit write rolls the save back. Tests: `null`, an array, an unknown key and a non-boolean value each return `{ error }` without a DB write.)
 
 - [ ] **Step 4: Page** — `src/app/(dashboard)/settings/features/page.tsx`:
 
@@ -497,6 +505,10 @@ const GUARDED_LAYOUTS: Record<string, string> = {
   "src/app/(organiser)/my-events/layout.tsx": "events",
   "src/app/(public)/e/layout.tsx": "events",
   "src/app/(dashboard)/memberships/layout.tsx": "memberships",
+  "src/app/(print)/memberships/layout.tsx": "memberships",
+  "src/app/(print)/events/layout.tsx": "events",
+  "src/app/(print)/accounting/layout.tsx": "accounting",
+  "src/app/(print)/petty-cash/layout.tsx": "pettyCash",
   "src/app/(public)/membershipform/layout.tsx": "memberships",
   "src/app/(dashboard)/sunday-school/layout.tsx": "sundaySchool",
   "src/app/(organiser)/my-classes/layout.tsx": "sundaySchool",
@@ -546,18 +558,26 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/invoiceSend.ts": "invoices",
   "src/lib/actions/invoiceVoid.ts": "invoices",
   "src/lib/actions/invoicePayment.ts": "invoices",
+  "src/lib/actions/invoiceSettings.ts": "invoices",
+  "src/lib/actions/customer.ts": "invoices",
+  "src/lib/actions/welcomeLetter.ts": "welcomeLetter",
+  "src/lib/actions/dgrReceipt.ts": "dgrReceipts",
+  "src/lib/actions/receipt.ts": "receipts",
+  "src/lib/actions/receiptSettings.ts": "receipts",
   // + pettyCash*.ts → "pettyCash", budget + bank import action files (confirm names via ls)
 }
 
 it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", (file, key) => {
   const src = fs.readFileSync(path.join(process.cwd(), file), "utf8")
-  const exported = src.match(/export async function \w+/g) ?? []
+  // Server Action exports: `export async function f` and `export const f = async`.
+  const exported = src.match(/export (?:async function \w+|const \w+ = async)/g) ?? []
+  expect(exported.length).toBeGreaterThan(0) // a mapped file with no actions is a stale map entry
   const guards = src.match(new RegExp(`featureGuard\\("${key}"\\)`, "g")) ?? []
   expect(guards.length).toBeGreaterThanOrEqual(exported.length)
 })
 ```
 
-Before writing the test, run `ls src/lib/actions | grep -iE "petty|budget|import|bank"` and add those files to `GUARDED_ACTIONS`. Accounting-wide action files (`transaction.ts`, `account.ts`, `accountGroup.ts`, `fund.ts`) guard `"accounting"`. For `receipt.ts`, guard each export with `receipts` or `dgrReceipts` as appropriate and exclude it from the count-based check (assert per-function names instead).
+Before writing the test, run `ls src/lib/actions | grep -iE "petty|budget|import|bank"` and add those files to `GUARDED_ACTIONS`. Accounting-wide action files (`transaction.ts`, `account.ts`, `accountGroup.ts`, `fund.ts`) guard `"accounting"`. `eventForm.ts` is a pure helper (no Server Actions) — if it has no exported async actions, drop it from the map rather than let the test pass vacuously. `family.ts` is not guarded: with `dues` off, `FamilyForm` hides `monthlyDues` and `updateFamily` leaves the stored value unchanged when the field is absent (add a test).
 
 - [ ] **Step 2: Run — FAIL.** `npm test -- --testPathPatterns="featureGuards"`
 - [ ] **Step 3: Add layouts** — every file follows the same shape (only the key changes):
@@ -590,7 +610,7 @@ For actions whose return type isn't `ActionResult`-compatible (e.g. returns data
 ### Task 6: Public API routes, Stripe webhook, scheduler
 
 **Files:**
-- Modify: `src/app/api/events/[slug]/*/route.ts`, `src/app/api/welcome-letter/preview/route.ts`, `src/app/api/people/[id]/clearances*/route.ts`, `src/app/api/clearances/export/route.ts`, `src/app/api/accounting/**/route.ts`, `src/app/api/import/bank-statement*/route.ts`, `src/app/api/cron/{send-reminders,send-celebrations,send-clearance-digest}/route.ts`, `src/app/api/stripe/webhook/route.ts`, website event sync entry (grep `event-webhook` / `docs/event-webhook.md`), `src/lib/schedulerRunner.ts`
+- Modify: `src/app/api/events/[slug]/*/route.ts`, `src/app/api/welcome-letter/preview/route.ts`, `src/app/api/people/[id]/clearances*/route.ts`, `src/app/api/clearances/export/route.ts`, `src/app/api/accounting/**/route.ts`, `src/app/api/import/bank-statement*/route.ts`, `src/app/api/cron/{send-reminders,send-celebrations,send-clearance-digest}/route.ts`, website event sync entry (grep `event-webhook` / `docs/event-webhook.md`), `src/lib/schedulerRunner.ts`
 - Test: `src/lib/__tests__/schedulerRunner.test.ts` (extend), one route test
 
 - [ ] **Step 1: Failing scheduler test** — with `DEFAULT_JOBS` exported (add `export`), mock `@/lib/featureFlags` so `isFeatureOn("events")` → false; call `DEFAULT_JOBS.reminders(now)`; expect `{ skipped: "feature off" }` and `@/lib/reminderSweep` not imported/called. Same for `celebrations` and `clearanceDigest`.
@@ -602,16 +622,16 @@ const gated = (key: FeatureKey, fn: Jobs[JobName]): Jobs[JobName] => async (now)
 
 export const DEFAULT_JOBS: Jobs = {
   reminders: gated("events", async (now) => (await import("@/lib/reminderSweep")).runReminderSweep(now)),
-  checkouts: gated("events", async () => (await import("@/lib/checkoutSweep")).sweepExpiredCheckouts()),
+  checkouts: async () => (await import("@/lib/checkoutSweep")).sweepExpiredCheckouts(), // not gated — settles in-flight checkouts
   celebrations: gated("celebrations", async (now) => (await import("@/lib/celebrationSweep")).runCelebrationSweep(now)),
   errorDigest: async (now) => (await import("@/lib/errorDigest")).runErrorDigestOncePerWeek(now),
   clearanceDigest: gated("clearances", async (now) => (await import("@/lib/clearanceDigest")).runClearanceDigest(now)),
 }
 ```
 
-`countsOnly` drops the string so logs show `result: {}` — acceptable; the job is recorded as a success for the period, which is correct (nothing to do).
+A feature-off skip must **not** count as the period's success: in `schedulerRunner.ts` (where `s.lastSuccessKey = successKey(name, now)` is set), skip that assignment when the result is `{ skipped: "feature off" }`. Otherwise turning Celebrations or Clearances back on mid-period would suppress the job until the next day/month. Test: off → run → on → run in the same period → the job runs.
 
-Note: `checkouts` releases expired held seats — if events was turned off mid-checkout those seats stay held until events is turned back on, then the sweep runs. Acceptable (data kept).
+`checkouts` and `api/cron/sweep-checkouts` stay ungated: they only settle or expire checkouts that already exist, which must finish even after Events is turned off.
 
 - [ ] **Step 3: API routes** — first lines of each handler, after the method's existing rate-limit/auth only if those must still run (otherwise first):
 
@@ -621,7 +641,7 @@ if (!(await isFeatureOn("events"))) return new Response("Not found", { status: 4
 
 Cron routes: return `Response.json({ skipped: "feature off" })` with 200 (external cron must not alert).
 
-- [ ] **Step 4: Stripe webhook** — after signature verification, for event-registration checkout events: `if (!(await isFeatureOn("events"))) return Response.json({ received: true, skipped: "feature off" })`. Signature verification still runs first. Add a test case to the existing webhook test.
+- [ ] **Step 4: Stripe webhook — no gate.** `api/stripe/webhook` keeps processing every event while Events is off: a customer already at Stripe Checkout when an admin turns Events off has paid, and the webhook is the only path that turns that `CheckoutSession` into a registration (acknowledging with 200 and skipping would stop Stripe retrying). Refunds and disputes must settle too. New checkouts are already blocked by the `eventCheckout.ts` guard and the `(public)/e` layout. Add a webhook test: events off + `checkout.session.completed` → registration still created.
 - [ ] **Step 5: Run — PASS.** `npm test -- --testPathPatterns="schedulerRunner|webhook|cron|api/events"`
 - [ ] **Step 6: Commit** — `feat(features): skip jobs and public endpoints of off features`
 
@@ -648,9 +668,9 @@ Branch: `feat/feature-onboarding` (after PR 1 merges). Card: OSS-310 (#310).
 ### Task 8: Onboarding flag + redirect
 
 **Files:**
-- Modify: `src/lib/actions/setup.ts`, `src/app/(dashboard)/layout.tsx`, `src/components/settings/FeaturesForm.tsx`
+- Modify: `src/lib/actions/setup.ts`, `src/app/(dashboard)/page.tsx` (dashboard home), `src/components/settings/FeaturesForm.tsx`
 - Create: `finishFeatureOnboarding` in `src/lib/actions/features.ts`
-- Test: `src/lib/actions/__tests__/setup.test.ts` (extend), `src/app/(dashboard)/__tests__/layout.test.tsx` (extend or create), `src/lib/actions/__tests__/features.test.ts` (extend)
+- Test: `src/lib/actions/__tests__/setup.test.ts` (extend), `src/app/(dashboard)/__tests__/page.test.tsx` (extend or create), `src/lib/actions/__tests__/features.test.ts` (extend)
 
 **Interfaces:**
 - Consumes: `FEATURES_ONBOARDING_KEY`, `saveFeatures` (already deletes the flag).
@@ -658,8 +678,8 @@ Branch: `feat/feature-onboarding` (after PR 1 merges). Card: OSS-310 (#310).
 
 - [ ] **Step 1: Failing tests**
   - setup: successful `createFirstAdmin` creates `AppSetting { key: "features.onboarding", value: "pending" }` inside the same transaction as the user insert.
-  - layout: ADMIN + flag `pending` + current path not `/settings/features` → `redirect("/settings/features?welcome=1")`; non-ADMIN or no flag → no redirect; `DEMO_MODE=true` → no redirect.
-  - `finishFeatureOnboarding`: non-admin → Forbidden; admin → `deleteMany` on the flag, audited `FINISH_FEATURE_ONBOARDING`.
+  - dashboard home: ADMIN + flag `pending` → `redirect("/settings/features?welcome=1")`; non-ADMIN or no flag → no redirect; `DEMO_MODE=true` → no redirect.
+  - `finishFeatureOnboarding`: `DEMO_MODE=true` → demo error, no DB call; non-admin → Forbidden; admin → `deleteMany` on the flag + `logAuditTx` `FINISH_FEATURE_ONBOARDING` in one transaction. Calls `assertNotDemo()` first, before `auth()`.
 - [ ] **Step 2: Run — FAIL.**
 - [ ] **Step 3: Implement setup** — inside the existing serializable `$transaction` after `tx.user.create`:
 
@@ -673,7 +693,7 @@ await tx.appSetting.upsert({
 
 (The callback returns the user — restructure to `const u = await tx.user.create(...); await tx.appSetting.upsert(...); return u`.)
 
-- [ ] **Step 4: Implement redirect** — layout can't read the pathname directly; read it from the `x-pathname`-style header if middleware already sets one (grep `src/middleware.ts`), otherwise do the redirect in `src/app/(dashboard)/page.tsx` (the dashboard home, where a new admin lands after login) instead of the layout — simpler and avoids a redirect loop. Prefer the dashboard-home option; update the layout test target accordingly.
+- [ ] **Step 4: Implement redirect** in `src/app/(dashboard)/page.tsx` (the dashboard home, where a new admin lands after login) — not the layout, which also wraps `/settings/features` and would loop.
 
 ```ts
 if (isAdmin(role) && !isDemoMode()) {

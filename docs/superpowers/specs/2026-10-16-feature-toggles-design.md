@@ -79,10 +79,11 @@ Resolution (`resolveFeatures(overrides)`, pure): `on(k) = (overrides[k] ?? def.d
 - `getEnabledFeatures()` — reads the row once per request (`React.cache`), returns `Set<FeatureKey>`.
 - `isFeatureOn(key)` → boolean.
 - `requireFeature(key)` — for pages; calls `notFound()` when off.
-- `featureOffResult(key)` / guard for Server Actions — returns the standard `ActionResult` error
+- `featureGuard(key)` — for Server Actions; returns `null` when on, else the standard `ActionResult` error
   `"This feature is turned off. An admin can enable it in Settings → Features."`.
-- `setFeatureOverrides(next, actor)` — ADMIN only, validates keys against the registry, writes the row,
-  `logAudit` (`resourceType: "AppSetting"`, old → new diff), revalidates the layout.
+- `saveFeatures(input)` (Server Action in `src/lib/actions/features.ts`) — ADMIN only, rejects DEMO_MODE,
+  zod-validates keys against the registry, writes the row and `logAuditTx` (`resourceType: "AppSetting"`,
+  old → new diff) in one transaction, revalidates the layout.
 
 ### Enforcement points
 
@@ -91,11 +92,13 @@ Resolution (`resolveFeatures(overrides)`, pure): `on(k) = (overrides[k] ?? def.d
 3. **Pages:** each feature's route segment calls `requireFeature` in its `layout.tsx` (one call per
    segment, not per page).
 4. **Server Actions:** every exported action in a feature's action files checks the feature first.
-5. **Public/organiser routes + API routes:** public event pages, registration, Stripe event checkout +
-   webhook *handling of event payments*, membership apply, family update form, website event sync →
-   404/`notFound` when off. The Stripe webhook still returns 200 to Stripe (so it doesn't retry) but
-   skips processing.
-6. **Scheduler jobs + cron routes:** jobs tied to a feature skip (log "skipped: feature off").
+5. **Public/organiser/print routes + API routes:** public event pages, registration, new Stripe event
+   checkouts, membership apply, family update form, website event sync, and the feature's `(print)`
+   pages → 404/`notFound` when off. The **Stripe webhook is not gated**: payments, refunds and disputes
+   for checkouts that already exist still settle (a customer mid-checkout when Events is turned off
+   must still get their registration).
+6. **Scheduler jobs + cron routes:** jobs tied to a feature skip (log "skipped: feature off"); a skip is
+   not recorded as the period's success. The checkout sweep is not gated (it settles in-flight checkouts).
 7. **Settings sub-sections** owned by a feature (e.g. accounting settings, email templates for events)
    hide when off.
 
@@ -106,14 +109,15 @@ Accounting-wide reports that aggregate across sub-features (P&L, balance sheet) 
 
 Grouped checklist (switch + label + description). Children render indented under their parent and are
 disabled (greyed, with "needs Accounting") while the parent/requirement is off. Single Save button →
-`setFeatureOverrides`. Mobile-first (many phone users): full-width rows at 375px. Linked from the
+`saveFeatures`. Mobile-first (many phone users): full-width rows at 375px. Linked from the
 Settings sidebar group and from the App Settings page.
 
 ### First-run prompt
 
 - The first-admin setup action writes `AppSetting` `features.onboarding = "pending"`.
-- Dashboard layout: if the user is ADMIN and the flag is `pending`, redirect to
-  `/settings/features?welcome=1` (once — page load does not clear it; Save or "Keep defaults" does).
+- Dashboard home page (not the layout, which also wraps `/settings/features`): if the user is ADMIN and
+  the flag is `pending`, redirect to `/settings/features?welcome=1`. Page load does not clear it; Save or
+  "Keep defaults" (`finishFeatureOnboarding`, DEMO_MODE-blocked) does.
 - Welcome banner: "Pick what your church needs. You can change this any time in Settings → Features."
 - Existing installs never have the flag → never prompted. DEMO_MODE: never prompted, all on.
 
@@ -122,7 +126,7 @@ Settings sidebar group and from the App Settings page.
 - Corrupt JSON → defaults + `console.warn`; Features page shows defaults and Save overwrites.
 - Turning off a feature with in-flight data (e.g. open event registrations) is allowed; the page shows
   a one-line warning on features with public surfaces ("Public registration links will stop working").
-- Non-admin calling `setFeatureOverrides` → standard forbidden result.
+- Non-admin calling `saveFeatures` → standard forbidden result.
 
 ## Testing
 
