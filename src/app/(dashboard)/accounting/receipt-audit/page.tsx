@@ -124,7 +124,7 @@ export default async function ReceiptAuditPage(props: Readonly<Props>) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-semibold text-foreground">Receipt Audit Log</h2>
+      <h2 className="text-2xl font-semibold text-foreground">Receipt Log</h2>
 
       {/* Filters */}
       <form method="GET" className="flex flex-wrap gap-3 items-end">

@@ -24,7 +24,7 @@ A draft can be edited or deleted freely. It has no number yet.
 
 ### GST and tax invoices
 
-If the church is registered for GST, an ADMIN turns on **The church is registered for GST** under **Accounting → Acct. Settings → Invoices**. New invoices then become **Tax Invoices**: prices are entered excluding GST, each line has a GST tick-box (10%), and the PDF shows the church's ABN, a GST column, the GST total and the GST-inclusive total. A tax invoice needs the church name, address and ABN set under **Settings → Church Information**.
+If the church is registered for GST, an ADMIN turns on **The church is registered for GST** under **Accounting → Accounting Settings → Invoices**. New invoices then become **Tax Invoices**: prices are entered excluding GST, each line has a GST tick-box (10%), and the PDF shows the church's ABN, a GST column, the GST total and the GST-inclusive total. A tax invoice needs the church name, address and ABN set under **Settings → Church Information**.
 
 The same settings card holds **Payment details** (for example bank account and reference instructions), printed under "How to pay" on every invoice.
 

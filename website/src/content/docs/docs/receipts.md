@@ -3,7 +3,7 @@ title: "Receipts"
 description: "ParishCRM sends two distinct kinds of receipt: a per-transaction email receipt (an acknowledgement that a specific gift or payment was recorded) and an annual…"
 ---
 
-ParishCRM sends two distinct kinds of receipt: a **per-transaction email receipt** (an acknowledgement that a specific gift or payment was recorded) and an **annual DGR (tax-deductible gift) receipt** — a single formal PDF summarising every eligible donation a person made in a financial year, for their tax return. Every send of either kind is logged, and a dedicated **receipt audit** page lets an AUDITOR (or anyone with accounting access) review who was sent what.
+ParishCRM sends two distinct kinds of receipt: a **per-transaction email receipt** (an acknowledgement that a specific gift or payment was recorded) and an **annual DGR (tax-deductible gift) receipt** — a single formal PDF summarising every eligible donation a person made in a financial year, for their tax return. Every send of either kind is logged, and a dedicated **Receipt Log** page lets an AUDITOR (or anyone with accounting access) review who was sent what.
 
 ## Using it
 
@@ -23,7 +23,7 @@ From the transaction list or detail page (or the bulk **Send Receipts** screen a
 - **Sending** renders a formal PDF (with the parish's legal/ABN details and the receipt's tax-deductibility wording) and emails it as an attachment; the receipt then moves to **sent** and is permanently frozen — it can no longer be edited or re-sent, since it's now a delivered legal document. A delivery failure moves it to **failed**, which (like a draft) can still be edited or retried.
 - A donor's own view of their donation history is available separately to them via each email; staff never see a bulk unencrypted list of everyone's email on this screen — an individual donor's email is fetched and decrypted only when their receipt is being built.
 
-### Receipt audit
+### Receipt Log
 
 `/accounting/receipt-audit` (`canViewAccounting` — ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN) lists every per-transaction `ReceiptSend` attempt for a date range: recipient, status (success/failed), timestamp, and who triggered it. This is deliberately one of the few places an AUDITOR sees a decrypted donor email address — auditing exactly who a tax receipt was sent to is core to the receipt-audit function, so it isn't masked here (it *is* masked elsewhere in the app for the accounting-only AUDITOR role). Every view of this page is itself logged, for ADMIN/PASTOR as well as AUDITOR — bulk access to donor contact data always leaves a trail.
 

@@ -208,7 +208,7 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
               <p>{message.text}</p>
               {message.type === "success" && (
                 <Link href="/reports" className="underline" onClick={() => handleOpenChange(false)}>
-                  View your reports
+                  View your feedback
                 </Link>
               )}
             </div>
