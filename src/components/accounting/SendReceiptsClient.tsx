@@ -91,7 +91,7 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
         // idempotent, so do NOT tell the operator to blindly resend the same
         // selection (that would double-email the batch). Point them at the
         // receipt audit to see what actually went out.
-        setFetchError("The send could not be confirmed — some receipts may already have gone out. Check Receipt Audit before resending to avoid duplicates.")
+        setFetchError("The send could not be confirmed — some receipts may already have gone out. Check the Receipt Log before resending to avoid duplicates.")
       }
     })
   }

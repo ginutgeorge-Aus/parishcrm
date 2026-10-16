@@ -16,7 +16,7 @@ Two print/PDF surfaces round out the membership workflow: a formatted copy of a 
 
 ### Send a welcome letter
 
-1. Open **Welcome Letter** in the sidebar (`/welcome-letter`), staff-only (`canEdit`).
+1. Open **Community → Welcome Letter** in the sidebar (`/welcome-letter`), staff-only (`canEdit`).
 2. Pick a family from the dropdown (non-archived families, alphabetical). This loads a pre-filled draft: today's date, membership number, addressee, address, greeting, the list of household members being welcomed, and the parish's standard intro/contributions/closing paragraphs — all editable inline before sending.
 3. If the family includes a previous-church transfer (and the parish's "previous church" fields are enabled), a "transfer-certificate paragraph" checkbox is pre-ticked and mentions the church they transferred from; untick it to omit that sentence.
 4. Bank account details for regular giving (general fund and building fund, each with bank/BSB/account number/account name) are pre-filled from parish settings but can be tweaked for this one letter without changing the saved defaults.

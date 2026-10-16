@@ -3,7 +3,7 @@ title: "Sunday School"
 description: "Set up Sunday School classes for each school year, assign teachers, enrol children from People, take the class roll on a phone, and roll the whole school over to next year in one step."
 ---
 
-Sunday School lives under **Members → Sunday School** (`/sunday-school`). Classes belong to a
+Sunday School lives under **Community → Sunday School** (`/sunday-school`). Classes belong to a
 school year (the calendar year). ADMIN, PASTOR and OFFICE_ADMIN can set classes up; VIEWER can
 look but not change anything.
 

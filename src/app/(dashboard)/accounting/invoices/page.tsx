@@ -150,18 +150,18 @@ export default async function InvoicesPage(props: Readonly<Props>) {
       <form method="GET" className="flex flex-wrap items-end gap-3 text-sm">
         <label className="space-y-1">
           <span className="block text-muted-foreground">Status</span>
-          <select name="status" defaultValue={status ?? ""} className="h-9 rounded-md border border-input bg-background px-2">
+          <select name="status" defaultValue={status ?? ""} className="h-11 md:h-9 any-pointer-coarse:h-11 rounded-md border border-input bg-background px-2">
             <option value="">All</option>
             {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
           </select>
         </label>
         <label className="space-y-1">
           <span className="block text-muted-foreground">Issued from</span>
-          <input type="date" name="from" defaultValue={from ?? ""} className="h-9 rounded-md border border-input bg-background px-2" />
+          <input type="date" name="from" defaultValue={from ?? ""} className="h-11 md:h-9 any-pointer-coarse:h-11 rounded-md border border-input bg-background px-2" />
         </label>
         <label className="space-y-1">
           <span className="block text-muted-foreground">to</span>
-          <input type="date" name="to" defaultValue={to ?? ""} className="h-9 rounded-md border border-input bg-background px-2" />
+          <input type="date" name="to" defaultValue={to ?? ""} className="h-11 md:h-9 any-pointer-coarse:h-11 rounded-md border border-input bg-background px-2" />
         </label>
         <Button type="submit" variant="outline">Filter</Button>
       </form>

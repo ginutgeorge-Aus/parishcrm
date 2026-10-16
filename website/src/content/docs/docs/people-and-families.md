@@ -30,7 +30,7 @@ Shows the family's contact details, member list, and (for roles that can view ac
 From a family's page, **Add person** opens `/families/[id]/people/new`. The person form captures name (first/middle/last, title, suffix), gender, date of birth, family role (Head / Spouse / Child / Other), classification (Member / Visitor / Inactive / Student), contact details (email, mobile, work/home phone), membership date, baptism date, notes, profession, mother parish, marital status, banking name (for bank-import auto-matching), and email consent. It also has a **Ministry roles** checkbox group (Staff, Volunteer, Sunday school teacher, Youth leader, Children's ministry, Other) for the roles the person serves in. **Pastoral notes** and **emergency contact** fields only appear for roles allowed to see them (see below).
 
 ### People list (`/people`)
-- Search by first/last name; filter by classification, family role and ministry role.
+- Search by first/last name; filter by classification, family role and ministry role. On a phone the three filter dropdowns sit behind a **Filters** button (it shows how many are active).
 - The **Export CSV** link carries the same filters, including ministry role, and the CSV has a **Ministry Roles** column (labels joined with "; ").
 - Capped at 500 rows per query — narrow with filters if a search is truncated (a banner explains this).
 - **Export CSV** (ADMIN only) downloads the filtered list.
@@ -64,7 +64,7 @@ The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL)
 
 ### Clearance compliance (`/people/clearances`)
 
-*People → Clearances* in the sidebar (ADMIN, PASTOR and OFFICE_ADMIN only). It lists every active person who has a ministry role or a clearance on file, with a WWCC status and a Safe Ministry status for each: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** or **Expired**. Anyone with a ministry role is expected to hold both clearances, so an absent one shows as Missing. A person with no ministry role is not marked Missing for a clearance they do not have. The list shows up to 2,000 people after the filter is applied, and says so if there are more.
+*Community → Clearances* in the sidebar (ADMIN, PASTOR and OFFICE_ADMIN only). It lists every active person who has a ministry role or a clearance on file, with a WWCC status and a Safe Ministry status for each: **Missing**, **Unverified**, **Verified**, **Expiring (60 days)** or **Expired**. Anyone with a ministry role is expected to hold both clearances, so an absent one shows as Missing. A person with no ministry role is not marked Missing for a clearance they do not have. The list shows up to 2,000 people after the filter is applied, and says so if there are more.
 
 - **Filter chips** (Expired, Expiring, Missing, Unverified) narrow the list to people with that status on either clearance.
 - **Export CSV** downloads the current filter: names, roles, statuses and dates only. It never contains WWC numbers or dates of birth. Each export is written to the audit log (`CLEARANCE_EXPORTED`).

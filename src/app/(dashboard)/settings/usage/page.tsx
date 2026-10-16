@@ -27,7 +27,7 @@ export default async function UsagePage(props: Readonly<Props>) {
   return (
     <div className="space-y-8 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-[clamp(1.5rem,4vw,2.25rem)] font-semibold">Usage</h1>
+        <h1 className="text-[clamp(1.5rem,4vw,2.25rem)] font-semibold">App Usage</h1>
         <div className="flex gap-2 text-sm">
           {([30, 90] as const).map((d) => (
             <Link

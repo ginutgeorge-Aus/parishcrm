@@ -3,7 +3,7 @@ title: "Financial Reports"
 description: "All accounting reports live under /accounting/reports/*, are visible to anyone with canViewAccounting (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a…"
 ---
 
-Accounting reports live under `/accounting/reports/*` (the Dues report is at `/accounting/dues`), are visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a `VIEW_FINANCIAL_REPORT` audit entry on every page load (a CSV/PDF export logs a separate `EXPORT_FINANCIAL_REPORT`/`EXPORT_...` entry). Every report has a print-friendly view (a `PrintButton` that triggers the browser's print dialog against print-specific styling, or in the P&L's case a dedicated `(print)` route-group page), and most support a CSV download for spreadsheet work.
+Accounting reports live under `/accounting/reports/*` (the Dues report is at `/accounting/dues`) and are all listed on the **Reports** hub (`/accounting/reports`). They are visible to anyone with `canViewAccounting` (ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN), and log a `VIEW_FINANCIAL_REPORT` audit entry on every page load (a CSV/PDF export logs a separate `EXPORT_FINANCIAL_REPORT`/`EXPORT_...` entry). Every report has a print-friendly view (a `PrintButton` that triggers the browser's print dialog against print-specific styling, or in the P&L's case a dedicated `(print)` route-group page), and most support a CSV download for spreadsheet work.
 
 ## Using it
 

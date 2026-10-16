@@ -18,7 +18,7 @@ const group: NavGroup = {
   ],
 }
 
-function renderGroup(isOpen: boolean, onToggle = () => {}) {
+function renderGroup(isOpen: boolean, onToggle: () => void = jest.fn()) {
   return render(
     <TooltipProvider>
       <SidebarGroup
@@ -27,7 +27,7 @@ function renderGroup(isOpen: boolean, onToggle = () => {}) {
         hasActive={false}
         isActive={() => false}
         onToggle={onToggle}
-        onNavigate={() => {}}
+        onNavigate={jest.fn()}
       />
     </TooltipProvider>
   )
@@ -45,7 +45,8 @@ it("hides entries when the group is closed", () => {
   // Panel stays mounted (so aria-controls resolves) but is hidden from AT + layout.
   expect(screen.queryByRole("link", { name: /overview/i })).not.toBeInTheDocument()
   const header = screen.getByRole("button", { name: /accounting/i })
-  expect(document.getElementById(header.getAttribute("aria-controls")!)).not.toBeVisible()
+  const panelId = header.getAttribute("aria-controls") ?? ""
+  expect(document.getElementById(panelId)).not.toBeVisible()
 })
 
 it("calls onToggle when the header is clicked", () => {
@@ -58,7 +59,36 @@ it("calls onToggle when the header is clicked", () => {
 it("wires aria-controls on the toggle to the panel's id", () => {
   renderGroup(true)
   const button = screen.getByRole("button", { name: /accounting/i })
-  const controlsId = button.getAttribute("aria-controls")
+  const controlsId = button.getAttribute("aria-controls") ?? ""
   expect(controlsId).toBeTruthy()
-  expect(document.getElementById(controlsId!)).toBe(screen.getByText("Overview").closest(`#${controlsId}`))
+  expect(document.getElementById(controlsId)).toContainElement(screen.getByText("Overview"))
+})
+
+const renderCustom = (g: NavGroup, isOpen: boolean) =>
+  render(
+    <TooltipProvider>
+      <SidebarGroup group={g} isOpen={isOpen} hasActive={false} isActive={() => false} onToggle={jest.fn()} onNavigate={jest.fn()} />
+    </TooltipProvider>
+  )
+
+it("renders a headless group's links with no toggle header, even when not open", () => {
+  renderCustom({ label: "Main", headless: true, items: [{ href: "/", label: "Dashboard", icon: Home, show: true }] }, false)
+  expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument()
+})
+
+it("shows the total of visible link badges on the header only while collapsed", () => {
+  const badged: NavGroup = {
+    label: "Community",
+    items: [
+      { href: "/families/updates", label: "Family Updates", icon: Home, show: true, badge: 2 },
+      { href: "/memberships", label: "Membership Forms", icon: User, show: true, badge: 3 },
+      { href: "/hidden", label: "Hidden", icon: User, show: false, badge: 9 },
+    ],
+  }
+  const { unmount } = renderCustom(badged, false)
+  expect(screen.getByRole("button", { name: "Community 5 pending" })).toBeInTheDocument()
+  unmount()
+  renderCustom(badged, true)
+  expect(screen.getByRole("button", { name: "Community" })).toBeInTheDocument()
 })
