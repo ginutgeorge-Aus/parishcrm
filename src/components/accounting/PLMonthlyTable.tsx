@@ -69,8 +69,9 @@ const renderMonthlyGroups = (
           new Array<number>(12).fill(0),
         )
         const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+        // Keyed by first account id: unique, unlike group names ("Other" can repeat).
         return (
-          <React.Fragment key={`${keyPrefix}-${group.groupName}`}>
+          <React.Fragment key={`${keyPrefix}-${group.accounts[0].id}`}>
             <tr>
               <td colSpan={MONTHLY_COLS} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 <span className={STICKY_LABEL}>{group.groupName}</span>
@@ -87,7 +88,7 @@ const renderMonthlyGroups = (
                     <PLAccountName account={a} year={year} />
                   </td>
                   {acctMonthly.map((v, i) => (
-                    <td key={i} className={`py-1.5 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
+                    <td key={MONTH_LABELS[i]} className={`py-1.5 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
                       {/* Link any month with rows — offsetting entries can net to 0. */}
                       {!acctCounts?.[i] ? (
                         fmtGrid(v)
@@ -110,7 +111,7 @@ const renderMonthlyGroups = (
                   {group.groupName} subtotal
                 </td>
                 {groupMonthly.map((v, i) => (
-                  <td key={i} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
+                  <td key={MONTH_LABELS[i]} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
                     {fmtGrid(v)}
                   </td>
                 ))}
@@ -125,7 +126,7 @@ const renderMonthlyGroups = (
       <tr className="*:border-t *:border-t-border font-semibold">
         <td className={`${STICKY} bg-background py-2 pr-3 whitespace-nowrap`}>{totalLabel}</td>
         {sectionMonthly.map((v, i) => (
-          <td key={i} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
+          <td key={MONTH_LABELS[i]} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
             {fmtGrid(v)}
           </td>
         ))}
@@ -229,7 +230,7 @@ export function PLMonthlyTable({
             <td className={`${STICKY} bg-background pt-3 pr-3 whitespace-nowrap`}>Net Surplus / (Deficit)</td>
             {netMonthly.map((v, i) => (
               <td
-                key={i}
+                key={MONTH_LABELS[i]}
                 className={`pt-3 px-2 text-right tabular whitespace-nowrap ${netTone(v)}`}
               >
                 {fmtGrid(v)}
