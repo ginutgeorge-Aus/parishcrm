@@ -124,23 +124,30 @@ const COMMAND_DONE = /Review finished|Already reviewed/i
  * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
  * forever. `@coderabbitai review` (one review) still works while paused, so the
  * nudge keeps that command rather than `resume`, which would review every push.
- * A "Review finished"/"Already reviewed" reply newer than `since` means a nudge
- * was already answered for this head, so the PR isn't nudged again even if the
- * paused note's commit stays stale.
+ * A review command posted after `since` (so it targeted this head) that CodeRabbit
+ * answered with "Review finished"/"Already reviewed" means this head was already
+ * handled, so the PR isn't nudged again even if the paused note's commit stays
+ * stale. Only the most recently updated paused note counts.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's latest status on the head (≈ head push)
  */
 export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
-  const answered = comments.some(
-    (c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > since.getTime(),
+  const nudgeAt = Math.max(
+    -1,
+    ...comments
+      .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
+      .map((c) => Date.parse(c.createdAt)),
   )
+  const answered =
+    nudgeAt >= 0 && comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > nudgeAt)
   if (answered) return false
-  return comments.some((c) => {
-    if (c.user !== BOT || !c.body.toLowerCase().includes(PAUSED_MARKER)) return false
-    const last = LAST_REVIEWED.exec(c.body)?.[1]
-    return !last || !headSha.startsWith(last.toLowerCase())
-  })
+  const paused = comments
+    .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
+    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
+  if (!paused) return false
+  const last = LAST_REVIEWED.exec(paused.body)?.[1]
+  return !last || !headSha.startsWith(last.toLowerCase())
 }
 
 /**
