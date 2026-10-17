@@ -10,7 +10,10 @@ jest.mock("@/lib/prisma", () => ({
 }))
 jest.mock("@/lib/actions/settings", () => ({ getIdleTimeoutMinutes: jest.fn().mockResolvedValue(30) }))
 jest.mock("@/lib/churchSettings", () => ({ getChurchSettings: jest.fn().mockResolvedValue({ name: "Test Church" }) }))
-jest.mock("@/lib/pendingUpdates", () => ({ countPendingFamilyUpdates: jest.fn().mockResolvedValue(0) }))
+jest.mock("@/lib/pendingUpdates", () => ({
+  countPendingFamilyUpdates: jest.fn().mockResolvedValue(0),
+  countPendingMemberships: jest.fn().mockResolvedValue(0),
+}))
 jest.mock("@/components/layout/Sidebar", () => ({ Sidebar: () => null }))
 jest.mock("@/components/SiteFooter", () => ({ SiteFooter: () => null }))
 jest.mock("@/components/auth/IdleTimeout", () => ({ IdleTimeout: () => null }))
