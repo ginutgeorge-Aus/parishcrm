@@ -2,6 +2,7 @@
 import assert from "node:assert/strict"
 import {
   isReviewed,
+  latestStatusAt,
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
@@ -201,14 +202,30 @@ const PAUSED_BODY = (sha: string) => `<!-- This is an auto-generated comment: re
 test("pausedBefore: auto-paused summary whose last reviewed commit is not the head", () => {
   const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   const older = "ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"
+  const since = new Date("2026-10-07T01:00:00Z")
+  const paused = comment({ user: BOT, body: PAUSED_BODY(older) })
   // Seen on #275: status "Review completed", but the summary says paused at an older commit.
-  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(older) })], head), true)
+  assert.equal(pausedBefore([paused], head, since), true)
+  // Case of the marker doesn't matter.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(older).replace("review paused", "Review Paused") })], head, since), true)
   // Paused, but the last reviewed commit is the head: nothing left to review.
-  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head), false)
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head, since), false)
   // Paused note with no parseable commit: assume unreviewed commits wait.
-  assert.equal(pausedBefore([comment({ user: BOT, body: "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->" })], head), true)
+  assert.equal(pausedBefore([comment({ user: BOT, body: "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->" })], head, since), true)
   // Only CodeRabbit's own comment counts.
-  assert.equal(pausedBefore([comment({ user: "someone", body: PAUSED_BODY(older) })], head), false)
-  assert.equal(pausedBefore([comment({ user: BOT, body: "No actionable comments were generated." })], head), false)
-  assert.equal(pausedBefore([], head), false)
+  assert.equal(pausedBefore([comment({ user: "someone", body: PAUSED_BODY(older) })], head, since), false)
+  assert.equal(pausedBefore([comment({ user: BOT, body: "No actionable comments were generated." })], head, since), false)
+  assert.equal(pausedBefore([], head, since), false)
+  // A nudge already answered for this head: don't nudge again while the note stays stale.
+  const done = (body: string, at: string) => comment({ user: BOT, body, createdAt: at, updatedAt: at })
+  assert.equal(pausedBefore([paused, done("✅ Action performed\n\nReview finished.", "2026-10-07T03:00:00Z")], head, since), false)
+  assert.equal(pausedBefore([paused, done("Already reviewed the last commit.", "2026-10-07T03:00:00Z")], head, since), false)
+  // An answer from before the head was pushed doesn't count.
+  assert.equal(pausedBefore([paused, done("Review finished.", "2026-10-07T00:30:00Z")], head, since), true)
+})
+
+test("latestStatusAt: newest CodeRabbit status time, epoch when none", () => {
+  const st = (createdAt: string, context = "CodeRabbit") => ({ context, description: "Review completed", createdAt })
+  assert.equal(latestStatusAt([st("2026-10-12T05:00:00Z"), st("2026-10-12T06:00:00Z"), st("2026-10-12T07:00:00Z", "ci")]).toISOString(), "2026-10-12T06:00:00.000Z")
+  assert.equal(latestStatusAt([]).getTime(), 0)
 })

@@ -115,6 +115,8 @@ export function statusSaysReviewed(statuses: Status[]): boolean {
 /** Marker CodeRabbit puts in its summary when it auto-pauses a busy branch. */
 const PAUSED_MARKER = "review paused by coderabbit.ai"
 const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
+/** CodeRabbit's answer to a review command that it ran or refused as done. */
+const COMMAND_DONE = /Review finished|Already reviewed/i
 
 /**
  * True when CodeRabbit auto-paused reviews on this PR ("branch under active
@@ -122,15 +124,32 @@ const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
  * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
  * forever. `@coderabbitai review` (one review) still works while paused, so the
  * nudge keeps that command rather than `resume`, which would review every push.
+ * A "Review finished"/"Already reviewed" reply newer than `since` means a nudge
+ * was already answered for this head, so the PR isn't nudged again even if the
+ * paused note's commit stays stale.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
+ * @param since - time of CodeRabbit's latest status on the head (≈ head push)
  */
-export function pausedBefore(comments: Comment[], headSha: string): boolean {
+export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
+  const answered = comments.some(
+    (c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > since.getTime(),
+  )
+  if (answered) return false
   return comments.some((c) => {
-    if (c.user !== BOT || !c.body.includes(PAUSED_MARKER)) return false
+    if (c.user !== BOT || !c.body.toLowerCase().includes(PAUSED_MARKER)) return false
     const last = LAST_REVIEWED.exec(c.body)?.[1]
     return !last || !headSha.startsWith(last.toLowerCase())
   })
+}
+
+/**
+ * Time of CodeRabbit's latest commit status, or the epoch when there is none.
+ * @param statuses - commit statuses on the PR's head SHA, any order
+ */
+export function latestStatusAt(statuses: Status[]): Date {
+  const times = statuses.filter((s) => s.context === "CodeRabbit").map((s) => Date.parse(s.createdAt))
+  return new Date(times.length ? Math.max(...times) : 0)
 }
 
 /**
@@ -264,14 +283,12 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       return null
     }
     if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
-    if (pausedBefore(comments, pr.headSha)) {
-      unreviewed.push(pr)
-      continue
-    }
-    const statuses = await gh<{ context: string; description: string | null; created_at: string }[]>(
-      `/repos/${REPO}/commits/${pr.headSha}/statuses`,
-    )
-    if (statusSaysReviewed(statuses.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at })))) continue
+    const statuses = (
+      await gh<{ context: string; description: string | null; created_at: string }[]>(
+        `/repos/${REPO}/commits/${pr.headSha}/statuses`,
+      )
+    ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+    if (statusSaysReviewed(statuses) && !pausedBefore(comments, pr.headSha, latestStatusAt(statuses))) continue
     unreviewed.push(pr)
   }
 
