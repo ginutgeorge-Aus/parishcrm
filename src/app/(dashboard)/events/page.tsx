@@ -20,6 +20,8 @@ import {
 import { fmtAUD } from "@/lib/formatting"
 import { rollupEventStats } from "@/lib/eventStats"
 import { isWebsiteSyncConfigured } from "@/lib/websiteSync"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { CalendarDays } from "lucide-react"
 
 export default async function EventsPage(
   props: Readonly<{
@@ -62,7 +64,10 @@ export default async function EventsPage(
   for (const e of events) for (const tt of e.ticketTypes) ttToEvent.set(tt.id, e.id)
   const ticketTypeIds = [...ttToEvent.keys()]
 
-  const [revenueRows, soldRows] = await Promise.all([
+  // Empty list: tell "no events at all" (offer New event) apart from "none in
+  // this tab" (offer View all). Only queried when the list is empty, and run
+  // alongside the rollups so it adds no round trip.
+  const [revenueRows, soldRows, anyEventRow] = await Promise.all([
     eventIds.length
       ? prisma.registration.groupBy({
           by: ["eventId"],
@@ -79,7 +84,11 @@ export default async function EventsPage(
           _sum: { quantity: true },
         })
       : Promise.resolve([]),
+    events.length === 0 && filter !== "all"
+      ? prisma.event.findFirst({ select: { id: true } })
+      : Promise.resolve(null),
   ])
+  const hasAnyEvents = events.length > 0 || (filter !== "all" && anyEventRow !== null)
 
   const eventStats = rollupEventStats(ttToEvent, revenueRows, soldRows)
   const statsFor = (id: number) => eventStats.get(id) ?? { ticketsSold: 0, revenue: 0 }
@@ -90,7 +99,8 @@ export default async function EventsPage(
         <h1 className="text-2xl font-bold text-foreground">Events</h1>
         <div className="flex items-center gap-3">
           {isAdmin(session.user.role) && isWebsiteSyncConfigured() && <ResyncEventsButton />}
-          {canEdit(session.user.role) && (
+          {/* With no events at all the empty state carries New event. */}
+          {canEdit(session.user.role) && hasAnyEvents && (
             <Button asChild>
               <Link href="/events/new">New Event</Link>
             </Button>
@@ -113,13 +123,29 @@ export default async function EventsPage(
         ))}
       </div>
 
+      {events.length === 0 && (
+        hasAnyEvents ? (
+          <EmptyState
+            icon={CalendarDays}
+            headingLevel={2}
+            title={`No ${filter === "past" ? "past" : "upcoming"} events`}
+            description="Switch tabs to see the rest of your events."
+            actions={[{ label: "View all events", href: "/events?filter=all", variant: "outline" }]}
+          />
+        ) : (
+          <EmptyState
+            icon={CalendarDays}
+            headingLevel={2}
+            title="No events yet"
+            description="Create an event to take registrations, sell tickets and check people in."
+            actions={canEdit(session.user.role) ? [{ label: "New event", href: "/events/new" }] : []}
+          />
+        )
+      )}
+
       {/* Mobile: stacked cards */}
+      {events.length > 0 && (
       <ul className="space-y-3 md:hidden">
-        {events.length === 0 && (
-          <li className="rounded-lg border bg-card py-12 text-center">
-            <p className="font-medium text-muted-foreground">No events found.</p>
-          </li>
-        )}
         {events.map(event => {
           const { ticketsSold, revenue } = statsFor(event.id)
           return (
@@ -164,8 +190,10 @@ export default async function EventsPage(
           )
         })}
       </ul>
+      )}
 
       {/* Desktop: table */}
+      {events.length > 0 && (
       <div className="hidden md:block bg-card rounded-xl border border-border overflow-x-auto">
         <Table aria-label="Events">
           <TableHeader className="bg-muted">
@@ -178,13 +206,6 @@ export default async function EventsPage(
             </TableRow>
           </TableHeader>
           <TableBody>
-            {events.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  No events found.
-                </TableCell>
-              </TableRow>
-            )}
             {events.map(event => {
               const { ticketsSold, revenue } = statsFor(event.id)
 
@@ -234,6 +255,7 @@ export default async function EventsPage(
           </TableBody>
         </Table>
       </div>
+      )}
     </div>
   )
 }

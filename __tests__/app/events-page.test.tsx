@@ -3,6 +3,8 @@ import Page from "@/app/(dashboard)/events/page"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { ResyncEventsButton } from "@/components/events/ResyncEventsButton"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -10,7 +12,7 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    event: { findMany: jest.fn() },
+    event: { findMany: jest.fn(), findFirst: jest.fn() },
     registration: { groupBy: jest.fn() },
     registrationItem: { groupBy: jest.fn() },
   },
@@ -68,5 +70,53 @@ describe("EventsPage — resync button gate", () => {
     process.env.WEBSITE_SYNC_SECRET = "shared-secret"
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
     expect(findElement(await render(), ResyncEventsButton)).toBeNull()
+  })
+})
+
+describe("EventsPage — empty states", () => {
+  const empty = async (role: string, filter?: string) => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role } })
+    const el = findElement(await Page({ searchParams: Promise.resolve(filter ? { filter } : {}) }), EmptyState)
+    return el?.props as { title: string; actions: { href: string }[] } | undefined
+  }
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.event.findMany as jest.Mock).mockResolvedValue([])
+  })
+
+  it("offers New event on a first run to an editor", async () => {
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
+    const props = await empty("ADMIN")
+    expect(props?.title).toBe("No events yet")
+    expect(props?.actions.map((a) => a.href)).toEqual(["/events/new"])
+  })
+
+  it("hides the toolbar New Event while the first-run empty state offers it", async () => {
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
+    expect(html).not.toContain(">New Event<")
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
+    const tab = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
+    expect(tab).toContain(">New Event<")
+  })
+
+  it("shows a VIEWER the first-run text without actions", async () => {
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
+    const props = await empty("VIEWER")
+    expect(props?.title).toBe("No events yet")
+    expect(props?.actions).toEqual([])
+  })
+
+  it("points to all events when only this tab is empty", async () => {
+    ;(prisma.event.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
+    const props = await empty("VIEWER", "past")
+    expect(props?.title).toBe("No past events")
+    expect(props?.actions.map((a) => a.href)).toEqual(["/events?filter=all"])
+  })
+
+  it("skips the existence check on the All tab", async () => {
+    await empty("ADMIN", "all")
+    expect(prisma.event.findFirst).not.toHaveBeenCalled()
   })
 })

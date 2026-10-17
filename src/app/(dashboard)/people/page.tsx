@@ -66,6 +66,15 @@ export default async function PeoplePage(
     prisma.person.count({ where: peopleWhere }),
   ])
 
+  const isFiltered = Boolean(q || classificationFilter || roleFilter || ministryRoleFilter)
+  // Empty directory: the list's empty state carries the Add/Import actions, so
+  // the toolbar doesn't offer "New person" a second time.
+  const noPeopleYet = totalCount === 0 && !isFiltered
+  // Only the empty directory needs to know: with no families, Add person would
+  // dead-end, so the empty state offers Add family instead.
+  const hasFamilies =
+    !noPeopleYet || !userCanEdit || (await prisma.family.findFirst({ where: { archivedAt: null }, select: { id: true } })) !== null
+
   const decrypted = people.map((p) => ({
     ...p,
     email: p.email ? safeDecrypt(p.email) : null,
@@ -94,7 +103,7 @@ export default async function PeoplePage(
             <a href={exportUrl} download>Export CSV</a>
           </Button>
         )}
-        {userCanEdit && (
+        {userCanEdit && !noPeopleYet && (
           <Button size="sm" asChild>
             <Link href="/people/new">New person</Link>
           </Button>
@@ -111,7 +120,13 @@ export default async function PeoplePage(
         </p>
       )}
 
-      <PeopleList people={decrypted} />
+      <PeopleList
+        people={decrypted}
+        isFiltered={isFiltered}
+        canAdd={userCanEdit}
+        canImport={userIsAdmin}
+        hasFamilies={hasFamilies}
+      />
     </div>
   )
 }

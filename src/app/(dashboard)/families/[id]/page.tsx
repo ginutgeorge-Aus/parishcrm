@@ -24,6 +24,8 @@ import { fmtAUD, safeDobDate, sumCents, centsToNumber } from "@/lib/formatting"
 import { getFamilyLastUpdate } from "@/lib/actions/familyActivity"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { UserPlus } from "lucide-react"
 
 // Fetches the family + its active members and overlays the decrypted view
 // fields. Returns null for "doesn't exist" and "archived" alike — archived
@@ -217,41 +219,47 @@ function MembersSection({
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-foreground">Members ({people.length})</h3>
-        {userCanEdit && (
+        {/* With no members the empty state below carries Add member. */}
+        {userCanEdit && people.length > 0 && (
           <Button size="sm" asChild className="print:hidden">
             <Link href={`/families/${familyId}/people/new`}>Add member</Link>
           </Button>
         )}
       </div>
 
-      <div className="hidden md:block overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Classification</TableHead>
-            <TableHead>DOB</TableHead>
-            <TableHead>Email</TableHead>
-            <TableHead>Mobile</TableHead>
-            <TableHead className="w-20"><span className="sr-only">Actions</span></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {people.map((person) => (
-            <PersonCard key={person.id} person={person} />
-          ))}
-          {people.length === 0 && (
+      {people.length === 0 ? (
+        <EmptyState
+          icon={UserPlus}
+          title="No members yet"
+          headingLevel={4}
+          description="Add the people who belong to this family."
+          actions={userCanEdit ? [{ label: "Add member", href: `/families/${familyId}/people/new` }] : []}
+        />
+      ) : (
+        <>
+        <div className="hidden md:block overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8 text-sm">
-                No members yet
-              </TableCell>
+              <TableHead>Name</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Classification</TableHead>
+              <TableHead>DOB</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Mobile</TableHead>
+              <TableHead className="w-20"><span className="sr-only">Actions</span></TableHead>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
-      </div>
-      <PersonMobileList people={people} />
+          </TableHeader>
+          <TableBody>
+            {people.map((person) => (
+              <PersonCard key={person.id} person={person} />
+            ))}
+          </TableBody>
+        </Table>
+        </div>
+        <PersonMobileList people={people} />
+        </>
+      )}
     </div>
   )
 }
