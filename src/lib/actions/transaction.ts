@@ -15,7 +15,11 @@ import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
 import { TransactionSchema, validateParties } from "./transactionValidation"
 import { transactionListHref } from "@/lib/transactionFilters"
+import { serializableWrite } from "@/lib/serializableWrite"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
+
+const BUSY = { error: "Couldn't save the transaction. Try again." }
 
 // Report pages cache transaction-derived figures, so every transaction
 // mutation must invalidate them too — not just the list/index paths.
@@ -49,8 +53,24 @@ export async function validateAccount(
   // canAccessAccounting-gated, so this only blocks direct unauthenticated calls.
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return null
+  return accountMatches(prisma, accountId, type, options)
+}
 
-  const account = await prisma.account.findUnique({
+/**
+ * The account's name when it exists, has the expected type, and is active (unless `allowInactive`); else null.
+ * Takes the client so createTransaction/updateTransaction can re-run it inside their Serializable write.
+ * @param db - Prisma client or transaction client
+ * @param accountId - Account id
+ * @param type - required account type
+ * @param options - allowInactive keeps a deactivated account valid (edits of historical rows)
+ */
+async function accountMatches(
+  db: Prisma.TransactionClient,
+  accountId: number,
+  type: "INCOME" | "EXPENSE",
+  options?: { allowInactive?: boolean }
+): Promise<{ name: string } | null> {
+  const account = await db.account.findUnique({
     where: { id: accountId },
     select: { type: true, isActive: true, name: true },
   })
@@ -142,18 +162,27 @@ export async function createTransaction(
   }
 
   const isGiving = !!familyId
-  const created = await prisma.transaction.create({
-    data: {
-      ...rest,
-      description: encrypt(rest.description),
-      // notes can carry PII free-text — encrypt at rest. `...rest` spread
-      // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
-      notes: rest.notes ? encrypt(rest.notes) : null,
-      isGiving,
-      familyId,
-      personId,
-    },
-  })
+  // Re-check the account and insert in one Serializable transaction: the check above runs outside it, so a
+  // concurrent updateAccount retype (which counts transactions under Serializable) could otherwise commit in
+  // between and leave this row on an account of the wrong type. See serializableWrite.
+  const result = await serializableWrite<{ error: string } | { created: { id: number } }>(async (tx) => {
+    if (!(await accountMatches(tx, rest.accountId, rest.type))) return { error: "Invalid category" }
+    const created = await tx.transaction.create({
+      data: {
+        ...rest,
+        description: encrypt(rest.description),
+        // notes can carry PII free-text — encrypt at rest. `...rest` spread
+        // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
+        notes: rest.notes ? encrypt(rest.notes) : null,
+        isGiving,
+        familyId,
+        personId,
+      },
+    })
+    return { created }
+  }, BUSY)
+  if (!("created" in result)) return result
+  const { created } = result
   await logAudit(actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
     amount: Number(parsed.data.amount),
     type: parsed.data.type,
@@ -255,20 +284,27 @@ export async function updateTransaction(
   // between the read above and this write, the row no longer matches (0 rows -> conflict) and the edit cannot
   // overwrite a just-linked payment's amount/date/type/account/fund. Even with no updatedAt token the link
   // wins; and if the row was unlinked meanwhile (invoiceId changed non-null -> null) the edit also conflicts.
+  //
+  // The account re-check and the write share one Serializable transaction, as in createTransaction, so a
+  // concurrent retype of the (possibly newly chosen) account can't commit between them.
   const seenAt = parseOptimisticUpdatedAt(formData)
-  const result = await prisma.transaction.updateMany({
-    where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
-    data: {
-      ...rest,
-      description: encrypt(rest.description),
-      // notes can carry PII free-text — encrypt at rest. `...rest` spread
-      // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
-      notes: rest.notes ? encrypt(rest.notes) : null,
-      isGiving,
-      familyId,
-      personId,
-    },
-  })
+  const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
+    if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
+    return tx.transaction.updateMany({
+      where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
+      data: {
+        ...rest,
+        description: encrypt(rest.description),
+        // notes can carry PII free-text — encrypt at rest. `...rest` spread
+        // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
+        notes: rest.notes ? encrypt(rest.notes) : null,
+        isGiving,
+        familyId,
+        personId,
+      },
+    })
+  }, BUSY)
+  if ("error" in result) return result
   if (result.count === 0) {
     return {
       error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",

@@ -15,16 +15,19 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
-jest.mock("@/lib/prisma", () => ({
-  prisma: {
+jest.mock("@/lib/prisma", () => {
+  const prisma: Record<string, unknown> = {
     account: { findUnique: jest.fn() },
     fund: { findUnique: jest.fn() },
     family: { findUnique: jest.fn() },
     person: { findUnique: jest.fn() },
     paymentAccount: { findUnique: jest.fn() },
     transaction: { findMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-  },
-}))
+  }
+  // Interactive transaction: run the callback against the same mocked client.
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  return { prisma }
+})
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -234,6 +237,57 @@ test("updateTransaction returns a concurrency error when the optimistic update m
     error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",
   })
   expect(mockLogAudit).not.toHaveBeenCalled()
+})
+
+// #291: the account-type check and the write share one Serializable transaction, so a concurrent
+// updateAccount retype (Serializable, counts transactions) can't commit between them.
+describe("account check serialized with the write", () => {
+  const p2034 = Object.assign(new Error("write conflict"), { code: "P2034" })
+  const BUSY = { error: "Couldn't save the transaction. Try again." }
+  const txMock = () => prisma.$transaction as unknown as jest.Mock
+
+  it("createTransaction re-checks the account inside a Serializable transaction", async () => {
+    // Pre-check sees INCOME; by the time the transaction runs the account was retyped.
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "EXPENSE", isActive: true, name: "Offering" })
+    expect(await createTransaction(undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+    expect(txMock()).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("createTransaction retries a serialization conflict and succeeds", async () => {
+    txMock().mockRejectedValueOnce(p2034)
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("createTransaction gives up after repeated conflicts with a retry message", async () => {
+    txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
+    expect(await createTransaction(undefined, validForm())).toEqual(BUSY)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("createTransaction rethrows unrelated errors", async () => {
+    txMock().mockRejectedValueOnce(new Error("boom"))
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("boom")
+  })
+
+  it("updateTransaction re-checks the account inside a Serializable transaction", async () => {
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "EXPENSE", isActive: true, name: "Offering" })
+    expect(await updateTransaction(1, undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+    expect(txMock()).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("updateTransaction gives up after repeated conflicts with a retry message", async () => {
+    txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual(BUSY)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
 })
 
 // --- toggleReconciled / reconcileMany IDOR guard ---
