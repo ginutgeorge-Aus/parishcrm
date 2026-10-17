@@ -47,8 +47,11 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
       }),
     ])
   } catch (err) {
+    // Name + Prisma error code only: the message can echo query values (PII).
+    const code = typeof err === "object" && err !== null && "code" in err ? String(err.code) : undefined
     logger.error("[setupChecklist] DB read failed — hiding the checklist", {
       error: err instanceof Error ? err.name : "UnknownError",
+      ...(code && { code }),
     })
     return null
   }

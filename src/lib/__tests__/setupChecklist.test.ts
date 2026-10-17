@@ -143,4 +143,14 @@ describe("getSetupChecklist", () => {
     expect(await getSetupChecklist("ADMIN")).toBeNull()
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("setupChecklist"), { error: "Error" })
   })
+
+  it("logs the Prisma error code but not the message", async () => {
+    prime([])
+    m.person.findFirst.mockRejectedValue(Object.assign(new Error("secret@example.com"), { code: "P1001" }))
+    expect(await getSetupChecklist("ADMIN")).toBeNull()
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("setupChecklist"), {
+      error: "Error",
+      code: "P1001",
+    })
+  })
 })
