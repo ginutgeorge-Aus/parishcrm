@@ -123,3 +123,12 @@ jobs:
       - run: npx prisma migrate deploy
       - name: Migrations match schema.prisma
         run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script --exit-code
+      # Same disposable database: race tests that need real Postgres Serializable
+      # behaviour (__tests__/integration, skipped in the normal test job).
+      - name: Integration tests (real Postgres)
+        run: |
+          ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          export ENCRYPTION_KEY
+          npm test -- --testPathPatterns="__tests__/integration/"
+        env:
+          INTEGRATION_DB: '1'
