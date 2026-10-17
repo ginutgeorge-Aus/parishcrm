@@ -13,3 +13,13 @@ export const countPendingFamilyUpdates = cache(() =>
     where: { status: "PENDING", family: { archivedAt: null } },
   })
 )
+
+/**
+ * Pending membership applications — the same PENDING count the /memberships
+ * inbox shows. React-cached like countPendingFamilyUpdates so the layout's
+ * Sidebar badge and the dashboard "Needs attention" row share one DB count
+ * per render. A plain count: no encrypted column is read.
+ */
+export const countPendingMemberships = cache(() =>
+  prisma.membershipApplication.count({ where: { status: "PENDING" } })
+)

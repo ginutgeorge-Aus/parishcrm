@@ -6,7 +6,7 @@ import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
-import { countPendingFamilyUpdates } from "@/lib/pendingUpdates"
+import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
 
@@ -36,7 +36,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       ? countUntestedCheckpoints()
       : Promise.resolve(0),
     canEdit(role)
-      ? prisma.membershipApplication.count({ where: { status: "PENDING" } })
+      ? countPendingMemberships()
       : Promise.resolve(0),
   ])
   return (

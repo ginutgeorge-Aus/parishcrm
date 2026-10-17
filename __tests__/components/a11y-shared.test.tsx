@@ -86,7 +86,7 @@ describe("CardTitle heading level", () => {
 
   it("dashboard widgets expose a heading without reading the emoji", () => {
     render(<BirthdayWidget birthdays={[]} truncated={false} />)
-    const heading = screen.getByRole("heading", { level: 4, name: "Birthdays this week" })
+    const heading = screen.getByRole("heading", { level: 3, name: "Birthdays this week" })
     expect(heading.querySelector('[aria-hidden="true"]')).toHaveTextContent("🎂")
   })
 })

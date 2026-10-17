@@ -9,8 +9,13 @@ import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { BalanceTile } from "@/components/accounting/BalanceTile"
 import { APP_LOCALE } from "@/lib/appConfig"
 
+/**
+ * Accounting overview: current-FY income/expense/net, per-payment-account
+ * balance tiles and quick links. Redirects roles that cannot view accounting.
+ */
 export default async function AccountingPage() {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) redirect("/")
@@ -120,23 +125,9 @@ export default async function AccountingPage() {
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {accounts.map((acct) => {
-            const bal = centsToNumber(balanceCents.get(acct.id) ?? 0)
-            return (
-              <Card key={acct.id} className={bal >= 0 ? "border-l-4 border-l-green-500" : "border-l-4 border-l-red-500"}>
-                <CardHeader className="pb-1 pt-4 px-4">
-                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {acct.name}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4">
-                  <p className={`text-2xl font-bold ${bal >= 0 ? "text-income" : "text-expense"}`}>
-                    {fmt(bal)}
-                  </p>
-                </CardContent>
-              </Card>
-            )
-          })}
+          {accounts.map((acct) => (
+            <BalanceTile key={acct.id} label={acct.name} balance={centsToNumber(balanceCents.get(acct.id) ?? 0)} />
+          ))}
         </div>
       </div>
 
