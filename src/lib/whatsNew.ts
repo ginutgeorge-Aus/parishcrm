@@ -16,6 +16,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.7.0",
+    date: "2026-10-17",
+    highlights: [
+      "Sign in with a passkey (fingerprint, face or device PIN) instead of typing your password and code.",
+      "Dashboard: a new Needs attention list shows what is waiting on you, such as updates to review, transactions to reconcile and open petty cash sessions. New churches get a short setup checklist.",
+      "A simpler sidebar with five sections, plus one Reports page that links to every report.",
+      "Events: revenue is split into card and bank transfer payments, and sent invoices keep the letterhead they were sent with.",
+    ],
+  },
+  {
     version: "v1.6.0",
     date: "2026-10-13",
     highlights: [
