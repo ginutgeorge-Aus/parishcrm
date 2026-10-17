@@ -5,6 +5,7 @@ import {
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
+  pausedBefore,
   pickNext,
   statusSaysReviewed,
   waitForReset,
@@ -184,4 +185,30 @@ test("statusSaysReviewed: latest CodeRabbit status decides; rate limited or othe
   assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z"), st("Review rate limited", "2026-10-12T05:41:47Z")]), false)
   assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z", "license/cla")]), false)
   assert.equal(statusSaysReviewed([]), false)
+})
+
+const PAUSED_BODY = (sha: string) => `<!-- This is an auto-generated comment: review paused by coderabbit.ai -->
+
+> [!NOTE]
+> ## Reviews paused
+>
+> It looks like this branch is under active development.
+>
+> - Last reviewed commit: ${sha}
+>
+<!-- end of auto-generated comment: review paused by coderabbit.ai -->`
+
+test("pausedBefore: auto-paused summary whose last reviewed commit is not the head", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const older = "ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"
+  // Seen on #275: status "Review completed", but the summary says paused at an older commit.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(older) })], head), true)
+  // Paused, but the last reviewed commit is the head: nothing left to review.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head), false)
+  // Paused note with no parseable commit: assume unreviewed commits wait.
+  assert.equal(pausedBefore([comment({ user: BOT, body: "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->" })], head), true)
+  // Only CodeRabbit's own comment counts.
+  assert.equal(pausedBefore([comment({ user: "someone", body: PAUSED_BODY(older) })], head), false)
+  assert.equal(pausedBefore([comment({ user: BOT, body: "No actionable comments were generated." })], head), false)
+  assert.equal(pausedBefore([], head), false)
 })

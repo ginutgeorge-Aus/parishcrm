@@ -112,6 +112,27 @@ export function statusSaysReviewed(statuses: Status[]): boolean {
   return latest?.description === "Review completed"
 }
 
+/** Marker CodeRabbit puts in its summary when it auto-pauses a busy branch. */
+const PAUSED_MARKER = "review paused by coderabbit.ai"
+const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
+
+/**
+ * True when CodeRabbit auto-paused reviews on this PR ("branch under active
+ * development") and its last reviewed commit is not the head. A paused head still
+ * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
+ * forever. `@coderabbitai review` (one review) still works while paused, so the
+ * nudge keeps that command rather than `resume`, which would review every push.
+ * @param comments - issue comments on one PR, any order
+ * @param headSha - the PR's head commit SHA
+ */
+export function pausedBefore(comments: Comment[], headSha: string): boolean {
+  return comments.some((c) => {
+    if (c.user !== BOT || !c.body.includes(PAUSED_MARKER)) return false
+    const last = LAST_REVIEWED.exec(c.body)?.[1]
+    return !last || !headSha.startsWith(last.toLowerCase())
+  })
+}
+
 /**
  * CodeRabbit comments that aren't a review result: the instant "Review triggered"
  * ack, and the summary while it's edited to a "review in progress" placeholder.
@@ -243,6 +264,10 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       return null
     }
     if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
+    if (pausedBefore(comments, pr.headSha)) {
+      unreviewed.push(pr)
+      continue
+    }
     const statuses = await gh<{ context: string; description: string | null; created_at: string }[]>(
       `/repos/${REPO}/commits/${pr.headSha}/statuses`,
     )
