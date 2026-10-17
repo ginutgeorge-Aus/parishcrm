@@ -86,6 +86,14 @@ export const FIELDS: Record<string, string[]> = {
   customer: ["email", "phone", "address", "notes"],
   // frozenPdf is the BYTEA PDF frozen at send (see BLOB_FIELDS).
   invoice: ["recipientEmail", "recipientAddress", "notes", "frozenPdf"],
+  // Caught by the model-qualified coverage guard (#323): each writes a field
+  // name another model already rotates, so the old name-only check passed.
+  // Waitlist joins (events/[slug]/waitlist), family-update invites
+  // (actions/familyUpdate.ts), and the pending Stripe checkout payload
+  // (stripeCheckout.ts, encrypted PricedRegistration JSON).
+  waitlist: ["email"],
+  familyUpdateInvite: ["email"],
+  checkoutSession: ["payload"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
