@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { isP2002, isP2034 } from "@/lib/validation"
+import { isP2002, isP2003, isP2034 } from "@/lib/validation"
 
 describe("isP2034", () => {
   it("matches a Prisma P2034 error", () => {
@@ -37,5 +37,16 @@ describe("isP2002", () => {
     expect(isP2002(Object.assign(new Error("x"), { code: "P2034" }))).toBe(false)
     expect(isP2002({ cause: { kind: "TransactionWriteConflict" } })).toBe(false)
     expect(isP2002(null)).toBe(false)
+  })
+})
+
+describe("isP2003", () => {
+  it("matches a Prisma P2003 error and the unwrapped adapter FK violation", () => {
+    expect(isP2003({ code: "P2003" })).toBe(true)
+    expect(isP2003({ cause: { kind: "ForeignKeyConstraintViolation" } })).toBe(true)
+  })
+  it("rejects other errors", () => {
+    expect(isP2003({ code: "P2034" })).toBe(false)
+    expect(isP2003(null)).toBe(false)
   })
 })

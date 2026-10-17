@@ -7,6 +7,7 @@ import { getClientIp } from "@/lib/clientIp"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
+import { logger } from "@/lib/logger"
 
 const MAX_INT4 = 2147483647
 const notFound = () => new NextResponse("Not found", { status: 404 })
@@ -48,12 +49,19 @@ export async function GET(
   if (att?.transactionId !== txId) return notFound()
 
   // Decrypt before auditing so a failed decrypt never records a view.
-  const response = encryptedDocumentResponse({
-    blob: att.data,
-    encryptedName: att.filename,
-    contentType: att.contentType,
-    fallbackName: "attachment",
-  })
+  let response: NextResponse
+  try {
+    response = encryptedDocumentResponse({
+      blob: att.data,
+      encryptedName: att.filename,
+      contentType: att.contentType,
+      fallbackName: "attachment",
+    })
+  } catch (e) {
+    // Blob not decryptable (legacy plaintext, wrong key, corruption): clean error, no audit row, no content in the log.
+    logger.error("encrypted document unreadable", { attachmentId: attId, message: e instanceof Error ? e.message : "unknown" })
+    return NextResponse.json({ error: "Document could not be read" }, { status: 500 })
+  }
 
   // Egress of a decrypted financial document (bank statement/invoice/receipt
   // scan) needs a forensic trail — "who accessed donor X's receipt".

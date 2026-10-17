@@ -120,3 +120,14 @@ export function isP2034(e: unknown): boolean {
   const err = e as { code?: string; cause?: { kind?: string } }
   return err.code === "P2034" || err.cause?.kind === "TransactionWriteConflict"
 }
+
+/**
+ * Match a P2003 (foreign-key constraint) error. Under Serializable, a concurrent insert that references a row being
+ * deleted can surface as an FK violation (Postgres 23503) instead of a P2034 serialization failure. Also matches the
+ * unwrapped adapter-pg DriverAdapterError that carries no `code`.
+ */
+export function isP2003(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false
+  const err = e as { code?: string; cause?: { kind?: string } }
+  return err.code === "P2003" || err.cause?.kind === "ForeignKeyConstraintViolation"
+}

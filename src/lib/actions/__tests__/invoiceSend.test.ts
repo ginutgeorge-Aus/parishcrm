@@ -68,8 +68,19 @@ describe("sendInvoice", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
     expect(loadInvoicePdf).toHaveBeenCalledTimes(1)
   })
-  it("markInvoiceSent freezes the PDF after commit (best effort)", async () => {
+  it("markInvoiceSent freezes the PDF only after the transaction commits (best effort)", async () => {
+    const events: string[] = []
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const out = await fn(prisma)
+      events.push("commit")
+      return out
+    })
+    ;(loadInvoicePdf as jest.Mock).mockImplementation(async () => {
+      events.push("render")
+      return { invoiceNo: "INV-0007" }
+    })
     expect(await markInvoiceSent(11)).toEqual({ success: "Invoice INV-0007 marked as sent" })
+    expect(events).toEqual(["commit", "render"])
     expect(loadInvoicePdf).toHaveBeenCalledWith(11, { gstRegistered: true, paymentDetails: "BSB 000-000" })
   })
   it("markInvoiceSent still succeeds when the post-commit render fails", async () => {

@@ -26,6 +26,12 @@ describe("encrypt / decrypt", () => {
     expect(decryptBytes(new Uint8Array(blob))).toEqual(bytes)
   })
 
+  it("decryptBytes rejects a blob that is not encrypted (no plaintext passthrough)", async () => {
+    const { decryptBytes } = await import("@/lib/crypto")
+    expect(() => decryptBytes(new Uint8Array(Buffer.from("%PDF-1.7 raw bytes")))).toThrow("not an encrypted blob")
+    expect(() => decryptBytes(new Uint8Array())).toThrow("not an encrypted blob")
+  })
+
   it("produces different ciphertext each call (random IV)", async () => {
     const { encrypt } = await import("@/lib/crypto")
     const a = encrypt("same text")
