@@ -4,25 +4,35 @@ import type { AccountGroup } from "@/lib/reports/accountGrouping"
 import type { PLAccountRow } from "@/lib/reports/plQuery"
 import Link from "next/link"
 import { PLAccountName } from "@/components/accounting/PLAccountName"
-import { fmt, fmtGrid, accountTotal, plSections, plTransactionsHref } from "@/components/accounting/plFormat"
+import { fmt, fmtGrid, accountTotal, plSections, plTone, plTransactionsHref } from "@/components/accounting/plFormat"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { BarChart2 } from "lucide-react"
 
 // Category col (code inline) + 12 month cols + Total col
 const MONTHLY_COLS = 1 + MONTH_LABELS.length + 1
 
-// Category column stays pinned while the 12 months scroll sideways; it needs
-// an opaque background so scrolled figures don't show through.
-const STICKY = "sticky left-0 z-10"
+// Category column stays pinned while the 12 months scroll sideways on desktop;
+// it needs an opaque background so scrolled figures don't show through. Below
+// lg (the on-demand grid inside <details>) it scrolls with the row, since a
+// long pinned name would eat most of a 375px screen.
+const STICKY = "lg:sticky lg:left-0 lg:z-10"
+
+// Group-name header rows (colSpan): label pinned the same way, offset by the
+// cell's pl-2, so group names stay in view while the months scroll. Section
+// headers do the same with no offset.
+const STICKY_LABEL = "inline-block lg:sticky lg:left-2"
+
+const NET_TONE = { zero: "text-muted-foreground", positive: "text-income", negative: "text-expense" } as const
 
 /** Net row colour: surplus green, deficit red, zero muted. */
 const netTone = (v: number): string => {
-  if (v === 0) return "text-muted-foreground"
-  return v > 0 ? "text-income" : "text-expense"
+  return NET_TONE[plTone(v)]
 }
 
 /** Muted en dash for zero cells, so the eye lands on real figures. */
 const zeroTone = (v: number): string => {
-  return v === 0 ? "text-muted-foreground" : ""
+  return plTone(v) === "zero" ? "text-muted-foreground" : ""
 }
 
 /** Mobile month-card figure: full currency format, en dash for an empty month. */
@@ -63,7 +73,7 @@ const renderMonthlyGroups = (
           <React.Fragment key={`${keyPrefix}-${group.groupName}`}>
             <tr>
               <td colSpan={MONTHLY_COLS} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                {group.groupName}
+                <span className={STICKY_LABEL}>{group.groupName}</span>
               </td>
             </tr>
             {group.accounts.map((a) => {
@@ -71,7 +81,7 @@ const renderMonthlyGroups = (
               const acctCounts = acctMonthlyCountMap.get(a.id)
               const total = accountTotal(a, totalMap)
               return (
-                <tr key={a.id} className="group/row border-b border-border hover:bg-accent">
+                <tr key={a.id} className="group/row *:border-b *:border-b-border hover:bg-accent">
                   <td className={`${STICKY} bg-background group-hover/row:bg-accent py-1.5 pr-3 pl-4 whitespace-nowrap`}>
                     <span className="mr-2 font-mono text-xs text-muted-foreground">{a.code}</span>
                     <PLAccountName account={a} year={year} />
@@ -95,7 +105,7 @@ const renderMonthlyGroups = (
               )
             })}
             {group.accounts.length > 1 && (
-              <tr className="border-b border-border bg-muted">
+              <tr className="*:border-b *:border-b-border bg-muted">
                 <td className={`${STICKY} bg-muted py-1 pr-3 pl-4 text-xs text-muted-foreground italic whitespace-nowrap`}>
                   {group.groupName} subtotal
                 </td>
@@ -112,7 +122,7 @@ const renderMonthlyGroups = (
           </React.Fragment>
         )
       })}
-      <tr className="border-t-2 border-border font-semibold">
+      <tr className="*:border-t *:border-t-border font-semibold">
         <td className={`${STICKY} bg-background py-2 pr-3 whitespace-nowrap`}>{totalLabel}</td>
         {sectionMonthly.map((v, i) => (
           <td key={i} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
@@ -159,15 +169,33 @@ export function PLMonthlyTable({
   // default view is the stacked per-month summary below, but this full grid
   // stays reachable on demand inside a collapsible so per-account/group detail
   // is never lost below the lg breakpoint.
+  // The grid hides categories with no transactions, so an empty FY would show
+  // only headers and dashes.
+  if (incomeGroups.length === 0 && expenseGroups.length === 0) {
+    return (
+      <EmptyState
+        icon={BarChart2}
+        title="No income or expenses this financial year"
+        description="Income and expenses appear here month by month once they are recorded for this year."
+        headingLevel={3}
+        className="m-4"
+      />
+    )
+  }
   const ctx: MonthlyCtx = { acctMonthlyMap, acctMonthlyCountMap, totalMap, year }
   const sections = plSections({ incomeGroups, expenseGroups, totalIncome, totalExpenses, incomeMonthly, expenseMonthly })
   const detailTable = (
-      <table className="w-full min-w-table-wide text-sm">
+      // border-separate: with collapsed borders, row borders detach from the
+      // sticky Category cells while scrolling. Borders sit on the cells (`*:`),
+      // since rows can't draw borders in the separate model. Borders no longer
+      // merge, so a section total's 1px top rule stacks on the row above's 1px
+      // bottom rule to give the old 2px line.
+      <table className="w-full min-w-table-wide border-separate border-spacing-0 text-sm">
         <caption className="caption-bottom pt-3 text-left text-xs text-muted-foreground">
           Amounts in {APP_CURRENCY}. Categories with no transactions this financial year are hidden.
         </caption>
         <thead>
-          <tr className="border-b-2 border-border">
+          <tr className="*:border-b-2 *:border-b-border">
             <th className={`${STICKY} bg-background text-left py-1 pr-3 font-semibold text-muted-foreground whitespace-nowrap`}>Category</th>
             {MONTH_LABELS.map((m) => (
               <th key={m} className="text-right py-1 px-2 font-semibold text-muted-foreground whitespace-nowrap">
@@ -182,7 +210,7 @@ export function PLMonthlyTable({
             <React.Fragment key={section.key}>
               <tr>
                 <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
-                  {section.label}
+                  <span className="inline-block lg:sticky lg:left-0">{section.label}</span>
                 </td>
               </tr>
               {renderMonthlyGroups(
@@ -197,7 +225,7 @@ export function PLMonthlyTable({
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t-4 border-foreground font-bold text-base">
+          <tr className="*:border-t-4 *:border-t-foreground font-bold text-base">
             <td className={`${STICKY} bg-background pt-3 pr-3 whitespace-nowrap`}>Net Surplus / (Deficit)</td>
             {netMonthly.map((v, i) => (
               <td
