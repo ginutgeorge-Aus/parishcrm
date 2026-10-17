@@ -87,7 +87,7 @@ const renderMonthlyGroups = (
                     <PLAccountName account={a} year={year} />
                   </td>
                   {acctMonthly.map((v, i) => (
-                    <td key={i} className={`py-1.5 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
+                    <td key={MONTH_LABELS[i]} className={`py-1.5 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
                       {/* Link any month with rows — offsetting entries can net to 0. */}
                       {!acctCounts?.[i] ? (
                         fmtGrid(v)
@@ -110,7 +110,7 @@ const renderMonthlyGroups = (
                   {group.groupName} subtotal
                 </td>
                 {groupMonthly.map((v, i) => (
-                  <td key={i} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
+                  <td key={MONTH_LABELS[i]} className={`py-1 px-2 text-right tabular text-xs font-medium whitespace-nowrap ${zeroTone(v)}`}>
                     {fmtGrid(v)}
                   </td>
                 ))}
@@ -125,7 +125,7 @@ const renderMonthlyGroups = (
       <tr className="*:border-t *:border-t-border font-semibold">
         <td className={`${STICKY} bg-background py-2 pr-3 whitespace-nowrap`}>{totalLabel}</td>
         {sectionMonthly.map((v, i) => (
-          <td key={i} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
+          <td key={MONTH_LABELS[i]} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
             {fmtGrid(v)}
           </td>
         ))}
@@ -229,7 +229,7 @@ export function PLMonthlyTable({
             <td className={`${STICKY} bg-background pt-3 pr-3 whitespace-nowrap`}>Net Surplus / (Deficit)</td>
             {netMonthly.map((v, i) => (
               <td
-                key={i}
+                key={MONTH_LABELS[i]}
                 className={`pt-3 px-2 text-right tabular whitespace-nowrap ${netTone(v)}`}
               >
                 {fmtGrid(v)}

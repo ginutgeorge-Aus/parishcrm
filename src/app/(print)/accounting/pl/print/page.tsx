@@ -88,14 +88,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
               <td className={cellCls(accountTotal(a, totalMap))} style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a, totalMap))}</td>
             </tr>
           ))}
           {group.accounts.length > 1 && (
             <tr className="group-total">
               <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-              {gMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              {gMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
               <td className={cellCls(gTotal)} style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
             </tr>
           )}
@@ -175,7 +175,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               {renderMonthlyGroups(incomeGroups, "ig")}
               <tr className="section-total">
                 <td colSpan={2}>Total Income</td>
-                {incomeMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {incomeMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
                 <td className={cellCls(totalIncome)}>{fmtGrid(totalIncome)}</td>
               </tr>
 
@@ -183,14 +183,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               {renderMonthlyGroups(expenseGroups, "eg")}
               <tr className="section-total">
                 <td colSpan={2}>Total Expenses</td>
-                {expenseMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {expenseMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
                 <td className={cellCls(totalExpenses)}>{fmtGrid(totalExpenses)}</td>
               </tr>
             </tbody>
             <tfoot>
               <tr className={`net ${netCls(net)}`}>
                 <td colSpan={2}>Net Surplus / (Deficit)</td>
-                {netMonthly.map((v, i) => <td key={i} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {netMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
                 <td className={cellCls(net)}>{fmtGrid(net)}</td>
               </tr>
             </tfoot>
