@@ -441,6 +441,7 @@ describe("FIELDS map", () => {
     waitlist: ["email"],
     familyUpdateInvite: ["email"],
     checkoutSession: ["payload"],
+    attendee: ["answers"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible

@@ -94,6 +94,9 @@ export const FIELDS: Record<string, string[]> = {
   waitlist: ["email"],
   familyUpdateInvite: ["email"],
   checkoutSession: ["payload"],
+  // Per-attendee custom answers: encrypt(JSON.stringify(...)) in a Json column,
+  // like registration.customAnswers (eventRegistrationPersist.ts, nested create).
+  attendee: ["answers"],
 }
 
 // Fields in FIELDS whose column type is BYTEA, not TEXT — the ciphertext string
