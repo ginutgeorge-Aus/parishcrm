@@ -49,8 +49,9 @@ it("points every hub card at a route that exists, including ones outside /accoun
   const html = renderToStaticMarkup(await ReportsHubPage())
 
   // REPORTS is hand-kept, so a renamed or moved page (e.g. /accounting/dues)
-  // would leave a dead card that the directory scan above can't catch.
-  const hrefs = [...html.matchAll(/href="(\/accounting\/[^"]+)"/g)].map((m) => m[1])
+  // would leave a dead card that the directory scan above can't catch. Check
+  // every internal link on the hub, wherever it points; the hub only links cards.
+  const hrefs = [...html.matchAll(/href="(\/[^"?#]*)/g)].map((m) => m[1])
   expect(hrefs).toContain("/accounting/dues")
   for (const href of hrefs) {
     expect(existsSync(path.join(process.cwd(), "src/app/(dashboard)", href, "page.tsx"))).toBe(true)

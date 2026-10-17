@@ -18,7 +18,7 @@ const group: NavGroup = {
   ],
 }
 
-function renderGroup(isOpen: boolean, onToggle: () => void = jest.fn(), g: NavGroup = group) {
+function renderGroup(isOpen: boolean, g: NavGroup = group, onToggle: () => void = jest.fn()) {
   return render(
     <TooltipProvider>
       <SidebarGroup
@@ -51,7 +51,7 @@ it("hides entries when the group is closed", () => {
 
 it("calls onToggle when the header is clicked", () => {
   const onToggle = jest.fn()
-  renderGroup(true, onToggle)
+  renderGroup(true, group, onToggle)
   fireEvent.click(screen.getByRole("button", { name: /accounting/i }))
   expect(onToggle).toHaveBeenCalledTimes(1)
 })
@@ -65,7 +65,7 @@ it("wires aria-controls on the toggle to the panel's id", () => {
 })
 
 it("renders a headless group's links with no toggle header, even when not open", () => {
-  renderGroup(false, jest.fn(), { label: "Main", headless: true, items: [{ href: "/", label: "Dashboard", icon: Home, show: true }] })
+  renderGroup(false, { label: "Main", headless: true, items: [{ href: "/", label: "Dashboard", icon: Home, show: true }] })
   expect(screen.queryByRole("button")).not.toBeInTheDocument()
   expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument()
 })
@@ -79,9 +79,20 @@ it("shows the total of visible link badges on the header only while collapsed", 
       { href: "/hidden", label: "Hidden", icon: User, show: false, badge: 9 },
     ],
   }
-  const { unmount } = renderGroup(false, jest.fn(), badged)
+  const { unmount } = renderGroup(false, badged)
   expect(screen.getByRole("button", { name: "Community 5 pending" })).toBeInTheDocument()
   unmount()
-  renderGroup(true, jest.fn(), badged)
+  renderGroup(true, badged)
   expect(screen.getByRole("button", { name: "Community" })).toBeInTheDocument()
+})
+
+it("leaves informational badges out of the collapsed header total", () => {
+  renderGroup(false, {
+    label: "Settings",
+    items: [
+      { href: "/users", label: "Users", icon: User, show: true, badge: 1 },
+      { href: "/verify", label: "Release Checks", icon: Home, show: true, badge: 7, badgeInformational: true },
+    ],
+  })
+  expect(screen.getByRole("button", { name: "Settings 1 pending" })).toBeInTheDocument()
 })
