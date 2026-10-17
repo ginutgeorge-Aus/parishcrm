@@ -10,6 +10,53 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.7.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.6.0...v1.7.0) (2026-10-17)
+
+
+### Added
+
+* **accounting:** declutter P&L monthly grid ([#274](https://github.com/ginutgeorge-Aus/parishcrm/issues/274)) ([fee0324](https://github.com/ginutgeorge-Aus/parishcrm/commit/fee03246d3070eabc4a80f527ec40196297478b4))
+* **accounting:** emphasise bank import review rows ([#273](https://github.com/ginutgeorge-Aus/parishcrm/issues/273)) ([b0f1aa7](https://github.com/ginutgeorge-Aus/parishcrm/commit/b0f1aa774d437182ad0b74a92a54e80e7235ef69))
+* **auth:** passkey (WebAuthn) sign-in ([#286](https://github.com/ginutgeorge-Aus/parishcrm/issues/286)) ([d6bdbd0](https://github.com/ginutgeorge-Aus/parishcrm/commit/d6bdbd0145d5262741dcdc0185e0509c305fdac7))
+* **events:** split event revenue into card and transfer ([#275](https://github.com/ginutgeorge-Aus/parishcrm/issues/275)) ([a9b394c](https://github.com/ginutgeorge-Aus/parishcrm/commit/a9b394c16f4060c09c824d72201c50cd6bf12bff))
+* **events:** unify card rule, parallel rollup, quiet revenue tile ([#301](https://github.com/ginutgeorge-Aus/parishcrm/issues/301)) ([d952bba](https://github.com/ginutgeorge-Aus/parishcrm/commit/d952bbad4d7824333afe02cdacc14d4a55175265))
+* **invoices:** cursor-paginate the invoice list ([#265](https://github.com/ginutgeorge-Aus/parishcrm/issues/265)) ([b7cd46a](https://github.com/ginutgeorge-Aus/parishcrm/commit/b7cd46a5f5f66632179755ecba6f034de09bcc02))
+* **invoices:** freeze sent PDF letterhead + index accountId ([#268](https://github.com/ginutgeorge-Aus/parishcrm/issues/268)) ([25101e9](https://github.com/ginutgeorge-Aus/parishcrm/commit/25101e977102c997e01a3c099ae575925215472f))
+* **ui:** actionable empty states and first-run setup checklist ([#319](https://github.com/ginutgeorge-Aus/parishcrm/issues/319)) ([d0510a3](https://github.com/ginutgeorge-Aus/parishcrm/commit/d0510a3254bc58b091650cfd758d05db4b8da331))
+* **ui:** dashboard needs-attention list and clearer hierarchy ([#320](https://github.com/ginutgeorge-Aus/parishcrm/issues/320)) ([70c55ea](https://github.com/ginutgeorge-Aus/parishcrm/commit/70c55eac5ea6872048002fcdb96391c9b94581e7))
+* **ui:** scale layout up on large monitors ([#276](https://github.com/ginutgeorge-Aus/parishcrm/issues/276)) ([b176b7e](https://github.com/ginutgeorge-Aus/parishcrm/commit/b176b7e68ce582014ba6102b2dfd9ea607bd4fa6))
+* **ui:** slim sidebar nav to 5 top-level sections + reports hub ([#317](https://github.com/ginutgeorge-Aus/parishcrm/issues/317)) ([01e9ac3](https://github.com/ginutgeorge-Aus/parishcrm/commit/01e9ac3dda12794c7b83deccbf2748020ca3798f))
+
+
+### Fixed
+
+* **audit:** write clearance audit rows in the mutation transaction ([#284](https://github.com/ginutgeorge-Aus/parishcrm/issues/284)) ([2b55f0a](https://github.com/ginutgeorge-Aus/parishcrm/commit/2b55f0aef69786136d13da3780d9e7959ce30c95))
+* **auth:** renew before extending idle; monotonic idle clock ([#251](https://github.com/ginutgeorge-Aus/parishcrm/issues/251)) ([1c39cb0](https://github.com/ginutgeorge-Aus/parishcrm/commit/1c39cb00dbea72dd77d0e9661ef82d9137522fe5)), closes [#230](https://github.com/ginutgeorge-Aus/parishcrm/issues/230) [#233](https://github.com/ginutgeorge-Aus/parishcrm/issues/233)
+* **digest:** per-run lease token; merge delivered list ([#252](https://github.com/ginutgeorge-Aus/parishcrm/issues/252)) ([d49fc26](https://github.com/ginutgeorge-Aus/parishcrm/commit/d49fc26b6d85ee78ac031784e78a460231d166ed))
+* **invoices:** close account-type, draft-edit and payment-link races ([#266](https://github.com/ginutgeorge-Aus/parishcrm/issues/266)) ([3b45868](https://github.com/ginutgeorge-Aus/parishcrm/commit/3b45868a81f303cd897eb159a7e699095c572a89))
+* **invoices:** frozen PDF follow-ups from [#268](https://github.com/ginutgeorge-Aus/parishcrm/issues/268) ([#285](https://github.com/ginutgeorge-Aus/parishcrm/issues/285)) ([7c7d400](https://github.com/ginutgeorge-Aus/parishcrm/commit/7c7d40034c3d18fcccb1dc297eeaecc7d2c3a46b))
+* **settings:** keep debouncing action filter on audit log date change ([#257](https://github.com/ginutgeorge-Aus/parishcrm/issues/257)) ([329fb64](https://github.com/ginutgeorge-Aus/parishcrm/commit/329fb64669e17c5bdb9cd03b6b51333b254b06e0))
+* **sunday-school:** order deletePerson after year closers ([#253](https://github.com/ginutgeorge-Aus/parishcrm/issues/253)) ([5d8ee6d](https://github.com/ginutgeorge-Aus/parishcrm/commit/5d8ee6d64326a0ab5d1da2846c5906f6b89d6d9f))
+* **ui:** 44px touch targets on mobile ([#318](https://github.com/ginutgeorge-Aus/parishcrm/issues/318)) ([49061fe](https://github.com/ginutgeorge-Aus/parishcrm/commit/49061fe13cff077190aa55d066a38b7dc5537038))
+* **ui:** keep sticky dialog close button inside zero-padding dialogs ([#256](https://github.com/ginutgeorge-Aus/parishcrm/issues/256)) ([1c50ad4](https://github.com/ginutgeorge-Aus/parishcrm/commit/1c50ad4c83663cd6136b6f98728aa0e155affa1e))
+
+
+### Changed
+
+* **accounting:** P&L print page reuses getPLReportData ([#254](https://github.com/ginutgeorge-Aus/parishcrm/issues/254)) ([0ce2f6e](https://github.com/ginutgeorge-Aus/parishcrm/commit/0ce2f6e28755a0574fb0b6ae022d4e1bd19d55c4))
+* **accounting:** share tx filter allow-list between list and CSV export ([#255](https://github.com/ginutgeorge-Aus/parishcrm/issues/255)) ([c1db822](https://github.com/ginutgeorge-Aus/parishcrm/commit/c1db822cb274f889411e5c2e3fb4249638d75d61))
+* add rel noopener noreferrer to target='_blank' links ([#292](https://github.com/ginutgeorge-Aus/parishcrm/issues/292)) ([4ac7e25](https://github.com/ginutgeorge-Aus/parishcrm/commit/4ac7e25a9edbcb58f9589de24b21057546924fe6))
+
+
+### Dependencies
+
+* bump @azure/monitor-opentelemetry from 1.20.0 to 1.20.1 ([#262](https://github.com/ginutgeorge-Aus/parishcrm/issues/262)) ([40ceffb](https://github.com/ginutgeorge-Aus/parishcrm/commit/40ceffbe928778d02eb301b6d8370aa28eea72b9))
+* bump dotenv from 18.0.4 to 18.0.6 ([#263](https://github.com/ginutgeorge-Aus/parishcrm/issues/263)) ([c7c5cf6](https://github.com/ginutgeorge-Aus/parishcrm/commit/c7c5cf6b1baea0f5e4da7968afcff8e48cc3bb47))
+* bump knip from 6.38.0 to 6.40.0 ([#261](https://github.com/ginutgeorge-Aus/parishcrm/issues/261)) ([c3025cf](https://github.com/ginutgeorge-Aus/parishcrm/commit/c3025cfd5de7178902cd89afc214ea784a13e98b))
+* bump lucide-react from 1.48.0 to 1.52.0 ([#260](https://github.com/ginutgeorge-Aus/parishcrm/issues/260)) ([1c1187e](https://github.com/ginutgeorge-Aus/parishcrm/commit/1c1187e3bda11319a966d580747344ae7462fdd5))
+* bump the next-ecosystem group across 1 directory with 2 updates ([#259](https://github.com/ginutgeorge-Aus/parishcrm/issues/259)) ([830a404](https://github.com/ginutgeorge-Aus/parishcrm/commit/830a4044712193b5d39d8fa8b331a2e9c3fce19f))
+* bump the website group in /website with 2 updates ([#258](https://github.com/ginutgeorge-Aus/parishcrm/issues/258)) ([d3ab8b7](https://github.com/ginutgeorge-Aus/parishcrm/commit/d3ab8b7d5bc7866bd1352dfcc16bf32a2943accd))
+
 ## [1.6.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.5.0...v1.6.0) (2026-10-13)
 
 
