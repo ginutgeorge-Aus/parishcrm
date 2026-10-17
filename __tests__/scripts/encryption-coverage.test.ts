@@ -45,8 +45,8 @@ function walk(dir: string): string[] {
   return out
 }
 
-// Match `foo: encrypt(`, `foo: Buffer.from(encrypt(` and `x.foo = encrypt(`.
-const WRITE_RE = /(?:(\w+)\s*:\s*(?:Buffer\.from\(\s*)?encrypt\()|(?:\.(\w+)\s*=\s*encrypt\()/g
+// Match `foo: encrypt(`, `foo: Buffer.from(encrypt(`, `foo: encryptBytes(` and `x.foo = encrypt(`/`encryptBytes(`.
+const WRITE_RE = /(?:(\w+)\s*:\s*(?:Buffer\.from\(\s*)?encrypt(?:Bytes)?\()|(?:\.(\w+)\s*=\s*encrypt(?:Bytes)?\()/g
 
 function encryptedWriteFields(): Set<string> {
   const fields = new Set<string>()
