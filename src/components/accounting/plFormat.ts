@@ -21,13 +21,22 @@ export function fmt(cents: number): string {
  */
 export function makeFmtGrid(locale: string, currency: string): (cents: number) => string {
   const nf = new Intl.NumberFormat(locale, { style: "currency", currency, currencySign: "accounting" })
+  const scale = 10 ** (nf.resolvedOptions().maximumFractionDigits ?? 2)
   return (cents) => {
-    if (cents === 0) return "–"
-    return nf
-      .formatToParts(centsToNumber(cents))
-      // Drop the symbol and the spacing literal that sat next to it.
-      .filter((p) => p.type !== "currency" && !(p.type === "literal" && p.value.trim() === ""))
-      .map((p) => p.value)
+    const value = centsToNumber(cents)
+    // Dash anything that rounds to zero at the currency's precision (e.g. 40
+    // cents in JPY), not just an exact 0, so a "0" never shows in colour.
+    if (Math.round(Math.abs(value) * scale) === 0) return "–"
+    const parts = nf.formatToParts(value)
+    const at = parts.findIndex((p) => p.type === "currency")
+    return parts
+      .map((p, i) => {
+        if (i === at) return ""
+        // Only the literals touching the symbol lose their spacing; signs and
+        // brackets in them, and every other part, are kept.
+        if (p.type === "literal" && Math.abs(i - at) === 1) return p.value.replace(/\s/g, "")
+        return p.value
+      })
       .join("")
   }
 }

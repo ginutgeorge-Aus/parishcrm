@@ -4,6 +4,7 @@ import { forEachTransactionBatch } from "@/lib/reports/txBatches"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents } from "@/lib/formatting"
+import { accountTotal } from "@/components/accounting/plFormat"
 
 /** Row shape the P&L page renders — its own subset of the fetched account. */
 export type PLAccountRow = {
@@ -47,16 +48,6 @@ export function resolvePLYear(rawYear: string | undefined): number {
   if (!/^\d+$/.test(rawYear)) return fyNow
   const parsed = Number(rawYear)
   return parsed >= MIN_FY_YEAR && parsed <= MAX_FY_YEAR ? parsed : fyNow
-}
-
-/**
- * Annual total for one account, in integer cents.
- * @param a - The account row containing the account ID.
- * @param totalMap - Account ID → FY total in integer cents.
- * @returns The account's total in integer cents, or 0 if it has no transactions.
- */
-const accountTotal = (a: PLAccountRow, totalMap: Map<number, number>): number => {
-  return totalMap.get(a.id) ?? 0
 }
 
 /**

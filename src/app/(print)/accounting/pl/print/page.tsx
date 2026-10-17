@@ -157,7 +157,9 @@ export default async function PLPrintPage(props: Readonly<Props>) {
         {churchName} · Generated: {generated.day} {MONTH_ABBR[generated.month - 1]} {generated.year}
       </p>
 
-      {isMonthly ? (
+      {isMonthly && incomeGroups.length === 0 && expenseGroups.length === 0 ? (
+        <p className="meta">No income or expenses this financial year.</p>
+      ) : isMonthly ? (
         <>
           <table>
             <thead>

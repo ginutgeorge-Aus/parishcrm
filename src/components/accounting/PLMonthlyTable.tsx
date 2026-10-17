@@ -122,7 +122,7 @@ const renderMonthlyGroups = (
           </React.Fragment>
         )
       })}
-      <tr className="*:border-t-2 *:border-t-border font-semibold">
+      <tr className="*:border-t *:border-t-border font-semibold">
         <td className={`${STICKY} bg-background py-2 pr-3 whitespace-nowrap`}>{totalLabel}</td>
         {sectionMonthly.map((v, i) => (
           <td key={i} className={`py-2 px-2 text-right tabular whitespace-nowrap ${zeroTone(v)}`}>
@@ -175,9 +175,9 @@ export function PLMonthlyTable({
     return (
       <EmptyState
         icon={BarChart2}
-        title="No transactions this financial year"
-        description="Income and expenses appear here month by month once transactions are recorded for this year."
-        headingLevel={2}
+        title="No income or expenses this financial year"
+        description="Income and expenses appear here month by month once they are recorded for this year."
+        headingLevel={3}
         className="m-4"
       />
     )
@@ -187,7 +187,9 @@ export function PLMonthlyTable({
   const detailTable = (
       // border-separate: with collapsed borders, row borders detach from the
       // sticky Category cells while scrolling. Borders sit on the cells (`*:`),
-      // since rows can't draw borders in the separate model.
+      // since rows can't draw borders in the separate model. Borders no longer
+      // merge, so a section total's 1px top rule stacks on the row above's 1px
+      // bottom rule to give the old 2px line.
       <table className="w-full min-w-table-wide border-separate border-spacing-0 text-sm">
         <caption className="caption-bottom pt-3 text-left text-xs text-muted-foreground">
           Amounts in {APP_CURRENCY}. Categories with no transactions this financial year are hidden.

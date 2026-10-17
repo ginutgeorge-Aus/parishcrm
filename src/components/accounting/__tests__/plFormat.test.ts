@@ -1,9 +1,5 @@
 import { fmtGrid, makeFmtGrid, plTone, plTransactionsHref } from "@/components/accounting/plFormat"
-import { APP_LOCALE } from "@/lib/appConfig"
-
-// Expected strings follow APP_LOCALE so the suite passes under any configured locale.
-const num = (n: number) =>
-  new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+import { APP_CURRENCY, APP_LOCALE } from "@/lib/appConfig"
 
 // Default FY starts in July (APP_FY_START_MONTH unset in tests).
 describe("plTransactionsHref", () => {
@@ -42,14 +38,31 @@ describe("plTransactionsHref", () => {
 })
 
 describe("fmtGrid", () => {
-  it("formats cents without a currency symbol, dash for zero, parens for negatives", () => {
+  it("formats cents without a currency symbol, dash for zero", () => {
     expect(fmtGrid(0)).toBe("–")
-    expect(fmtGrid(123456)).toBe(num(1234.56))
-    expect(fmtGrid(-5000)).toBe(`(${num(50)})`)
+    // Matches the configured locale/currency's own accounting format.
+    expect(fmtGrid(123456)).toBe(makeFmtGrid(APP_LOCALE, APP_CURRENCY)(123456))
+    expect(fmtGrid(-5000)).not.toMatch(/[$€£¥]/)
   })
 })
 
 describe("makeFmtGrid", () => {
+  it("uses accounting parentheses for negatives in en-AU", () => {
+    const grid = makeFmtGrid("en-AU", "AUD")
+    expect(grid(123456)).toBe("1,234.56")
+    expect(grid(-5000)).toBe("(50.00)")
+  })
+
+  it("dashes amounts that round to zero at the currency's precision", () => {
+    expect(makeFmtGrid("ja-JP", "JPY")(40)).toBe("–")
+    expect(makeFmtGrid("ja-JP", "JPY")(-40)).toBe("–")
+  })
+
+  it("strips the symbol and its spacing inside accounting brackets", () => {
+    expect(makeFmtGrid("nl-NL", "EUR")(-5000)).toBe("(50,00)")
+    expect(makeFmtGrid("fr-FR", "EUR")(-5000)).toBe("(50,00)")
+  })
+
   it("follows the currency's fraction digits (JPY has none)", () => {
     const grid = makeFmtGrid("ja-JP", "JPY")
     expect(grid(123400)).toBe("1,234")

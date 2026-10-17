@@ -118,7 +118,7 @@ describe("PLMonthlyTable layout", () => {
         netMonthly={zeros()}
       />,
     )
-    expect(screen.getByRole("heading", { name: "No transactions this financial year" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "No income or expenses this financial year" })).toBeInTheDocument()
     expect(screen.queryByRole("table")).toBeNull()
   })
 
