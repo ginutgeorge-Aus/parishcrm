@@ -100,6 +100,33 @@ describe("PLMonthlyTable grid formatting", () => {
   })
 })
 
+describe("PLMonthlyTable group subtotal", () => {
+  it("renders a subtotal row with one cell per month for a multi-account group", () => {
+    const second: PLAccountRow = { id: 8, code: "4001", name: "Tithes", isActive: true, group: null }
+    const monthly = zeros()
+    monthly[1] = 2500
+    render(
+      <PLMonthlyTable
+        incomeGroups={[{ groupName: "Giving", sortOrder: 0, accounts: [account, second] }]}
+        expenseGroups={[]}
+        totalMap={new Map([[7, 2500], [8, 2500]])}
+        totalIncome={5000}
+        totalExpenses={0}
+        net={5000}
+        year={2025}
+        acctMonthlyMap={new Map([[7, monthly], [8, monthly]])}
+        acctMonthlyCountMap={new Map([[7, zeros()], [8, zeros()]])}
+        incomeMonthly={zeros()}
+        expenseMonthly={zeros()}
+        netMonthly={zeros()}
+      />,
+    )
+    const row = within(screen.getAllByRole("table")[0]).getByText("Giving subtotal").closest("tr")
+    expect(row?.querySelectorAll("td")).toHaveLength(14)
+    expect(row).toHaveTextContent(num(50))
+  })
+})
+
 describe("PLMonthlyTable layout", () => {
   it("shows an empty state instead of a bare grid when the FY has no transactions", () => {
     render(
