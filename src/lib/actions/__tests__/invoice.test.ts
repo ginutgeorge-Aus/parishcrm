@@ -1,11 +1,11 @@
 import { createInvoice, updateInvoice, deleteDraftInvoice, getInvoice, getRecipientContact, listInvoices, getInvoiceSummary } from "@/lib/actions/invoice"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { redirect } from "next/navigation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
@@ -13,15 +13,18 @@ jest.mock("@/lib/crypto", () => ({
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 jest.mock("@/lib/invoiceSettings", () => ({ getInvoiceSettings: jest.fn(async () => ({ gstRegistered: true, paymentDetails: "" })) }))
-jest.mock("@/lib/prisma", () => ({
-  prisma: {
+jest.mock("@/lib/prisma", () => {
+  // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
+  const prisma: Record<string, unknown> = {
     invoice: { create: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     account: { findUnique: jest.fn() },
     fund: { findUnique: jest.fn() },
     person: { findUnique: jest.fn() },
     customer: { findUnique: jest.fn() },
-  },
-}))
+  }
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  return { prisma }
+})
 
 const mockAuth = auth as jest.Mock
 const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role } })
@@ -55,7 +58,7 @@ describe("createInvoice", () => {
       subtotal: "300.00", gstTotal: "30.00", total: "330.00", accountId: 4, fundId: null, createdById: 1,
       lines: [{ description: "Hall hire", qty: 2, unitPriceCents: 15000, gst: true }],
     }) })
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_CREATED", "Invoice", 11, { total: "330.00" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_CREATED", "Invoice", 11, { total: "330.00" })
     expect(redirect).toHaveBeenCalledWith("/accounting/invoices/11")
   })
   it("ignores GST when not registered", async () => {
@@ -80,6 +83,45 @@ describe("createInvoice", () => {
     ;(prisma.fund.findUnique as jest.Mock).mockResolvedValue({ id: 2, isActive: false })
     expect(await createInvoice(undefined, fd({ fundId: "2" }))).toEqual({ error: "Choose an active fund" })
   })
+  it("validates the account and inserts in one Serializable transaction (closes the retype/delete race)", async () => {
+    await createInvoice(undefined, fd())
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+  it("retries after a Serializable conflict and re-validates against the committed state", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    await createInvoice(undefined, fd())
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    expect(redirect).toHaveBeenCalledWith("/accounting/invoices/11")
+    // The account was retyped by the winner: the retry now returns the ordinary validation message.
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 4, type: "EXPENSE", isActive: true })
+    ;(prisma.invoice.create as jest.Mock).mockClear()
+    expect(await createInvoice(undefined, fd())).toEqual({ error: "Choose an active income account" })
+    expect(prisma.invoice.create).not.toHaveBeenCalled()
+  })
+  it("retries when the account was deleted first (FK violation), ending in the validation message", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2003" })
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await createInvoice(undefined, fd())).toEqual({ error: "Choose an active income account" })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ cause: { kind: "ForeignKeyConstraintViolation" } })
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 4, type: "INCOME", isActive: true })
+    await createInvoice(undefined, fd())
+    expect(redirect).toHaveBeenCalledWith("/accounting/invoices/11")
+  })
+  it("stops retrying after repeated conflicts and asks the user to try again", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2034" })
+    expect(await createInvoice(undefined, fd())).toEqual({ error: "Couldn't save the invoice. Try again." })
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3)
+    expect(redirect).not.toHaveBeenCalled()
+    ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
+  })
+  it("rethrows unexpected database errors", async () => {
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(new Error("boom"))
+    await expect(createInvoice(undefined, fd())).rejects.toThrow("boom")
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce(null)
+    await expect(createInvoice(undefined, fd())).rejects.toBeNull()
+  })
 })
 
 describe("updateInvoice", () => {
@@ -103,13 +145,44 @@ describe("updateInvoice", () => {
     expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "This invoice has changed. Reload and try again." })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11, status: "DRAFT" } }))
   })
+  it("matches on the submitted last-seen updatedAt and runs Serializable", async () => {
+    const seen = "2026-10-11T01:02:03.456Z"
+    await updateInvoice(11, undefined, fd({ updatedAt: seen }))
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11, status: "DRAFT", updatedAt: new Date(seen) } }))
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+  it("returns CHANGED when another save bumped updatedAt first (0 rows)", async () => {
+    ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    expect(await updateInvoice(11, undefined, fd({ updatedAt: "2026-10-11T01:02:03.456Z" })))
+      .toEqual({ error: "This invoice has changed. Reload and try again." })
+    expect(logAuditTx).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+  it("ignores a malformed updatedAt token (status-only guard)", async () => {
+    await updateInvoice(11, undefined, fd({ updatedAt: "not-a-date" }))
+    expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11, status: "DRAFT" } }))
+  })
+  it("reports a vanished invoice from inside the transaction", async () => {
+    ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue(null)
+    expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "Invoice not found" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
+  it("rejects a draft saved onto an account retyped to EXPENSE (validated inside the transaction)", async () => {
+    ;(prisma.account.findUnique as jest.Mock).mockResolvedValue({ id: 4, type: "EXPENSE", isActive: true })
+    expect(await updateInvoice(11, undefined, fd())).toEqual({ error: "Choose an active income account" })
+    expect(prisma.invoice.updateMany).not.toHaveBeenCalled()
+  })
   it("bumps updatedAt explicitly (the send path's version check)", async () => {
     await updateInvoice(11, undefined, fd())
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ updatedAt: expect.any(Date) }) }))
   })
   it("audits on success", async () => {
     await updateInvoice(11, undefined, fd())
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_UPDATED", "Invoice", 11, { total: "330.00" })
+  })
+  it("propagates an in-transaction audit write failure (tx callback rejects)", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    await expect(updateInvoice(11, undefined, fd())).rejects.toThrow("audit down")
   })
 })
 

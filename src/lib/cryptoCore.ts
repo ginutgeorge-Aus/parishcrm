@@ -160,19 +160,6 @@ export function decrypt(value: string): string {
   ]).toString("utf8")
 }
 
-/**
- * Encrypt raw bytes for a BYTEA column: UTF-8 bytes of `encrypt(base64)` (the convention
- * shared by TransactionAttachment.data and PersonClearance.document; rotated via BLOB_FIELDS).
- */
-export function encryptBytes(bytes: Uint8Array): Buffer<ArrayBuffer> {
-  return Buffer.from(encrypt(Buffer.from(bytes).toString("base64")), "utf8")
-}
-
-/** Inverse of `encryptBytes`; throws like `decrypt` on a bad or foreign-key blob. */
-export function decryptBytes(blob: Uint8Array): Buffer<ArrayBuffer> {
-  return Buffer.from(decrypt(Buffer.from(blob).toString("utf8")), "base64")
-}
-
 // Bulk-export placeholder for a value that cannot be decrypted (legacy/corrupt
 // ciphertext, wrong/rotated key). Mirrors the receipt/birthday send paths so a
 // single bad row degrades to a visible marker instead of 500-ing the whole
@@ -185,6 +172,25 @@ export function safeDecrypt(value: string): string {
   } catch {
     return DECRYPTION_ERROR_PLACEHOLDER
   }
+}
+
+/**
+ * Encrypt raw bytes for a BYTEA column: UTF-8 bytes of `encrypt(base64)` (the convention
+ * shared by TransactionAttachment.data and PersonClearance.document; rotated via BLOB_FIELDS).
+ */
+export function encryptBytes(bytes: Uint8Array): Buffer<ArrayBuffer> {
+  return Buffer.from(encrypt(Buffer.from(bytes).toString("base64")), "utf8")
+}
+
+/**
+ * Inverse of `encryptBytes`. Strict: throws on a blob that is not an encrypted value (unlike
+ * `decrypt`, which passes plaintext through) and on a bad or foreign-key blob, so garbage
+ * bytes are never served as if they were the document.
+ */
+export function decryptBytes(blob: Uint8Array): Buffer<ArrayBuffer> {
+  const text = Buffer.from(blob).toString("utf8")
+  if (!hasEncryptedShape(text)) throw new Error("Decryption failed: not an encrypted blob")
+  return Buffer.from(decrypt(text), "base64")
 }
 
 // deterministic blind index over email addresses. Person.email and
