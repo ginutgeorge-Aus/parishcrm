@@ -13,6 +13,8 @@ import { parseInvoiceCursor } from "@/lib/invoice"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusBadge } from "@/components/accounting/InvoiceStatusBadge"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { FileText } from "lucide-react"
 
 type Props = { searchParams: Promise<{ status?: string; from?: string; to?: string; after?: string; before?: string }> }
 
@@ -64,6 +66,47 @@ function Pager({ filters, prevCursor, nextCursor }: Readonly<{ filters: Record<s
   )
 }
 
+/**
+ * Empty invoice list, picking the right way out: back to page one (a stale
+ * cursor page), Clear filters (filters hid everything) or, on a first run,
+ * New invoice for roles that can create one.
+ */
+function InvoicesEmptyState({
+  onCursorPage,
+  isFiltered,
+  firstPageHref,
+  canManage,
+}: Readonly<{ onCursorPage: boolean; isFiltered: boolean; firstPageHref: string; canManage: boolean }>) {
+  if (onCursorPage) {
+    return (
+      <EmptyState
+        icon={FileText}
+        title="No invoices on this page"
+        description="They may have been deleted or changed status since this link was made."
+        actions={[{ label: "Back to the first page", href: firstPageHref, variant: "outline" }]}
+      />
+    )
+  }
+  if (isFiltered) {
+    return (
+      <EmptyState
+        icon={FileText}
+        title="No invoices match your filters"
+        description="Try another status or date range."
+        actions={[{ label: "Clear filters", href: "/accounting/invoices", variant: "outline" }]}
+      />
+    )
+  }
+  return (
+    <EmptyState
+      icon={FileText}
+      title="No invoices yet"
+      description="Invoice outside groups for hall hire, venue fees and the like."
+      actions={canManage ? [{ label: "New invoice", href: "/accounting/invoices/new" }] : []}
+    />
+  )
+}
+
 /** Invoice list with status/date filters, 50 per page via keyset cursors. */
 export default async function InvoicesPage(props: Readonly<Props>) {
   const sp = await props.searchParams
@@ -91,6 +134,7 @@ export default async function InvoicesPage(props: Readonly<Props>) {
   const periodLabel = `${period.from} to ${period.to}`
   const canManage = canAccessAccounting(session?.user?.role)
   const today = sydneyTodayYMD()
+  const noInvoicesYet = rows.length === 0 && !after && !before && !status && !from && !to
 
   return (
     <div className="space-y-6">
@@ -98,7 +142,8 @@ export default async function InvoicesPage(props: Readonly<Props>) {
         <h2 className="text-2xl font-semibold text-foreground">Invoices</h2>
         <div className="flex gap-2">
           <Button asChild variant="outline"><Link href="/accounting/customers">Customers</Link></Button>
-          {canManage && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
+          {/* On a first run the empty state carries New invoice. */}
+          {canManage && !noInvoicesYet && <Button asChild><Link href="/accounting/invoices/new">New invoice</Link></Button>}
         </div>
       </div>
 
@@ -128,12 +173,12 @@ export default async function InvoicesPage(props: Readonly<Props>) {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No invoices found.
-          {(after || before) && (
-            <> <Link className="underline" href={firstPageHref}>Back to the first page</Link></>
-          )}
-        </p>
+        <InvoicesEmptyState
+          onCursorPage={Boolean(after || before)}
+          isFiltered={Boolean(status || from || to)}
+          firstPageHref={firstPageHref}
+          canManage={canManage}
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

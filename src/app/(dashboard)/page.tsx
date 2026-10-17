@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
+import { Suspense } from "react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
@@ -16,6 +17,7 @@ import { BirthdayWidget } from "@/components/dashboard/BirthdayWidget"
 import { AnniversaryWidget } from "@/components/dashboard/AnniversaryWidget"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
 import { WhatsNewFooter } from "@/components/dashboard/WhatsNewFooter"
+import { SetupChecklist } from "@/components/dashboard/SetupChecklist"
 import { NeedsAttention } from "@/components/dashboard/NeedsAttention"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
 import { buildAttentionItems, canHaveAttentionItems, toUnreconciledRows } from "@/lib/dashboardAttention"
@@ -318,6 +320,10 @@ export default async function DashboardPage() {
           ))}
         </dl>
       </header>
+
+      <Suspense fallback={null}>
+        <SetupChecklist role={role} />
+      </Suspense>
 
       {canHaveAttentionItems(role) && <NeedsAttention items={attention} />}
 

@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { House } from "lucide-react"
 
 export default async function NewPersonPage() {
   const session = await auth()
@@ -39,21 +41,34 @@ export default async function NewPersonPage() {
         </p>
         <h2 className="text-2xl font-semibold text-foreground">Add new person</h2>
       </div>
-      <p className="text-sm text-muted-foreground">Select a family to add a member to.</p>
-      <form action={goToFamily} className="space-y-3">
-        <label htmlFor="familyId" className="sr-only">Select a family</label>
-        <Select name="familyId" required>
-          <SelectTrigger id="familyId" className="w-full">
-            <SelectValue placeholder="Select a family…" />
-          </SelectTrigger>
-          <SelectContent>
-            {families.map((f) => (
-              <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" className="w-full">Continue</Button>
-      </form>
+      {families.length === 0 ? (
+        // Every person belongs to a family, so with none yet the picker
+        // would be a dead end — send the user to create one first.
+        <EmptyState
+          icon={House}
+          title="Add a family first"
+          description="Every person belongs to a family. Create the family, then add its members."
+          actions={[{ label: "Add family", href: "/families/new" }]}
+        />
+      ) : (
+        <>
+        <p className="text-sm text-muted-foreground">Select a family to add a member to.</p>
+        <form action={goToFamily} className="space-y-3">
+          <label htmlFor="familyId" className="sr-only">Select a family</label>
+          <Select name="familyId" required>
+            <SelectTrigger id="familyId" className="w-full">
+              <SelectValue placeholder="Select a family…" />
+            </SelectTrigger>
+            <SelectContent>
+              {families.map((f) => (
+                <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="submit" className="w-full">Continue</Button>
+        </form>
+        </>
+      )}
     </div>
   )
 }

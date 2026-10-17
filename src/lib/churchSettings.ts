@@ -88,6 +88,23 @@ export async function getChurchSettingsFresh(): Promise<ChurchSettings> {
 //      churchName/address/ABN row or env value, so toSettings() returns the
 //      neutral name and blank address/ABN. Validate after conversion and throw
 //      so the operator configures Settings before any receipt goes out.
+/**
+ * Names the identity fields a receipt needs that are still unset. A value of
+ * only spaces counts as blank, and the shipped "Your Church" name is a
+ * placeholder. Shared by the strict read and the dashboard setup checklist so
+ * "church details done" can never drift from "receipts can be issued".
+ * @param settings - settings as returned by `toSettings`
+ * @returns the missing field labels (`name`, `address`, `ABN`); empty when complete
+ */
+export function missingChurchIdentity(settings: ChurchSettings): string[] {
+  const missing: string[] = []
+  const name = settings.name.trim()
+  if (!name || name === DEFAULT_CHURCH_NAME) missing.push("name")
+  if (!settings.address.trim()) missing.push("address")
+  if (!settings.abn.trim()) missing.push("ABN")
+  return missing
+}
+
 export async function getChurchSettingsStrict(): Promise<ChurchSettings> {
   // Read the DB DIRECTLY, bypassing the SWR cache (getChurchSettingRows): the
   // "church-settings" tag is invalidated with the "max" stale-while-revalidate
@@ -99,11 +116,7 @@ export async function getChurchSettingsStrict(): Promise<ChurchSettings> {
   // Trim before validating — a saved value of only spaces is as blank on a
   // receipt as an empty string, and the settings schema doesn't require
   // non-whitespace content.
-  const missing: string[] = []
-  const name = settings.name.trim()
-  if (!name || name === DEFAULT_CHURCH_NAME) missing.push("name")
-  if (!settings.address.trim()) missing.push("address")
-  if (!settings.abn.trim()) missing.push("ABN")
+  const missing = missingChurchIdentity(settings)
   if (missing.length > 0) {
     throw new Error(
       `Church ${missing.join(", ")} not configured — set church details in Settings before issuing receipts.`
