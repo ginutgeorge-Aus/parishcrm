@@ -28,6 +28,17 @@ function netCls(net: number): string {
   return tone === "zero" ? "" : tone
 }
 
+/**
+ * One cell per month, keyed by its column label so cells line up with the
+ * header by construction. A missing array or month renders as zero.
+ */
+function monthCells(values: readonly number[] | undefined): React.ReactNode {
+  return MONTH_LABELS.map((m, i) => {
+    const v = values?.[i] ?? 0
+    return <td key={m} className={cellCls(v)}>{fmtGrid(v)}</td>
+  })
+}
+
 type Props = {
   searchParams: Promise<{ year?: string; view?: string }>
 }
@@ -62,8 +73,6 @@ export default async function PLPrintPage(props: Readonly<Props>) {
     acctMonthlyMap, incomeMonthly, expenseMonthly, netMonthly,
   } = await getPLReportData(year, isMonthly)
 
-  /** Annual total (integer cents) for one account; 0 when it has no transactions. */
-
   const MONTHLY_COLS = 2 + MONTH_LABELS.length + 1
 
   type Group = (typeof incomeGroups)[number]
@@ -76,10 +85,10 @@ export default async function PLPrintPage(props: Readonly<Props>) {
    */
   const renderMonthlyGroups = (groups: Group[], prefix: string) =>
     groups.map((group) => {
-      const gMonthly = group.accounts.reduce(
-        (acc, a) => acc.map((v, i) => v + (acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0))[i]),
-        new Array<number>(12).fill(0),
-      )
+      const gMonthly = group.accounts.reduce((acc, a) => {
+        const months = acctMonthlyMap.get(a.id)
+        return acc.map((v, i) => v + (months?.[i] ?? 0))
+      }, MONTH_LABELS.map(() => 0))
       const gTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
       return (
         <React.Fragment key={`${prefix}-${group.accounts[0].id}`}>
@@ -88,14 +97,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
             <tr key={a.id} className="account">
               <td style={{ fontFamily: "monospace", color: "var(--c-meta)" }}>{a.code}</td>
               <td>{a.name}{!a.isActive ? " (inactive)" : ""}</td>
-              {(acctMonthlyMap.get(a.id) ?? new Array<number>(12).fill(0)).map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              {monthCells(acctMonthlyMap.get(a.id))}
               <td className={cellCls(accountTotal(a, totalMap))} style={{ fontWeight: 600 }}>{fmtGrid(accountTotal(a, totalMap))}</td>
             </tr>
           ))}
           {group.accounts.length > 1 && (
             <tr className="group-total">
               <td colSpan={2} style={{ paddingInlineStart: 20 }}>{group.groupName} subtotal</td>
-              {gMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+              {monthCells(gMonthly)}
               <td className={cellCls(gTotal)} style={{ fontWeight: 600 }}>{fmtGrid(gTotal)}</td>
             </tr>
           )}
@@ -175,7 +184,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               {renderMonthlyGroups(incomeGroups, "ig")}
               <tr className="section-total">
                 <td colSpan={2}>Total Income</td>
-                {incomeMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {monthCells(incomeMonthly)}
                 <td className={cellCls(totalIncome)}>{fmtGrid(totalIncome)}</td>
               </tr>
 
@@ -183,14 +192,14 @@ export default async function PLPrintPage(props: Readonly<Props>) {
               {renderMonthlyGroups(expenseGroups, "eg")}
               <tr className="section-total">
                 <td colSpan={2}>Total Expenses</td>
-                {expenseMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {monthCells(expenseMonthly)}
                 <td className={cellCls(totalExpenses)}>{fmtGrid(totalExpenses)}</td>
               </tr>
             </tbody>
             <tfoot>
               <tr className={`net ${netCls(net)}`}>
                 <td colSpan={2}>Net Surplus / (Deficit)</td>
-                {netMonthly.map((v, i) => <td key={MONTH_LABELS[i]} className={cellCls(v)}>{fmtGrid(v)}</td>)}
+                {monthCells(netMonthly)}
                 <td className={cellCls(net)}>{fmtGrid(net)}</td>
               </tr>
             </tfoot>

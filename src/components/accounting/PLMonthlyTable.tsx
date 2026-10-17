@@ -69,8 +69,9 @@ const renderMonthlyGroups = (
           new Array<number>(12).fill(0),
         )
         const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
+        // Keyed by first account id: unique, unlike group names ("Other" can repeat).
         return (
-          <React.Fragment key={`${keyPrefix}-${group.groupName}`}>
+          <React.Fragment key={`${keyPrefix}-${group.accounts[0].id}`}>
             <tr>
               <td colSpan={MONTHLY_COLS} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 <span className={STICKY_LABEL}>{group.groupName}</span>
