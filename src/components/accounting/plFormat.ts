@@ -1,4 +1,4 @@
-import { APP_LOCALE } from "@/lib/appConfig"
+import { APP_CURRENCY, APP_LOCALE } from "@/lib/appConfig"
 import { centsToNumber, fmtAUDAccounting } from "@/lib/formatting"
 import { fyDateRange } from "@/lib/fiscalYear"
 import type { AccountGroup } from "@/lib/reports/accountGrouping"
@@ -12,17 +12,36 @@ export function fmt(cents: number): string {
   return fmtAUDAccounting(centsToNumber(cents))
 }
 
-const gridNumber = new Intl.NumberFormat(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
 /**
- * Compact cents formatter for the dense monthly grid: no currency symbol
- * (the table caption names the currency once), accounting parentheses for negatives, and an
- * en dash for zero so the real figures stand out.
+ * Builds the compact cents formatter for the dense monthly grid. It formats as
+ * an accounting currency figure, so fraction digits and the negative style
+ * follow the locale and currency like `fmt` does (0 decimals for JPY, `-1.234,56`
+ * for de-DE), then drops the currency symbol, since the table caption names the
+ * currency once. Zero renders as an en dash so the real figures stand out.
  */
-export function fmtGrid(cents: number): string {
-  if (cents === 0) return "–"
-  const s = gridNumber.format(Math.abs(centsToNumber(cents)))
-  return cents < 0 ? `(${s})` : s
+export function makeFmtGrid(locale: string, currency: string): (cents: number) => string {
+  const nf = new Intl.NumberFormat(locale, { style: "currency", currency, currencySign: "accounting" })
+  return (cents) => {
+    if (cents === 0) return "–"
+    return nf
+      .formatToParts(centsToNumber(cents))
+      // Drop the symbol and the spacing literal that sat next to it.
+      .filter((p) => p.type !== "currency" && !(p.type === "literal" && p.value.trim() === ""))
+      .map((p) => p.value)
+      .join("")
+  }
+}
+
+/** Grid formatter for the configured APP_LOCALE / APP_CURRENCY. */
+export const fmtGrid = makeFmtGrid(APP_LOCALE, APP_CURRENCY)
+
+/** Sign of a P&L figure, used to pick its colour in every layout. */
+export type PLTone = "zero" | "positive" | "negative"
+
+/** Classifies a cents figure as zero, positive or negative. */
+export function plTone(cents: number): PLTone {
+  if (cents === 0) return "zero"
+  return cents > 0 ? "positive" : "negative"
 }
 
 /** Annual total (integer cents) for one account; 0 when it has no transactions. */

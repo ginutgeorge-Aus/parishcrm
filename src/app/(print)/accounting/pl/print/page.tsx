@@ -14,17 +14,18 @@ import { getPLReportData, resolvePLYear } from "@/lib/reports/plQuery"
 import { sydneyParts } from "@/lib/dates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { PrintButton } from "@/components/ui/PrintButton"
-import { accountTotal, fmt, fmtGrid } from "@/components/accounting/plFormat"
+import { accountTotal, fmt, fmtGrid, plTone } from "@/components/accounting/plFormat"
 import { APP_CURRENCY } from "@/lib/appConfig"
 
 /** Right-aligned grid cell class; zero cells get the muted `.zero` tone. */
 function cellCls(v: number): string {
-  return v === 0 ? "r zero" : "r"
+  return plTone(v) === "zero" ? "r zero" : "r"
 }
 
 /** Net row tone: green surplus, red deficit, neutral when exactly balanced. */
 function netCls(net: number): string {
-  return net > 0 ? "positive" : net < 0 ? "negative" : ""
+  const tone = plTone(net)
+  return tone === "zero" ? "" : tone
 }
 
 type Props = {

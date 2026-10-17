@@ -50,10 +50,10 @@ export function resolvePLYear(rawYear: string | undefined): number {
 }
 
 /**
- * Calculates the total value for a given account from the provided total map.
+ * Annual total for one account, in integer cents.
  * @param a - The account row containing the account ID.
- * @param totalMap - A map associating account IDs with their total values.
- * @returns The total value for the account, or 0 if not found in the map.
+ * @param totalMap - Account ID → FY total in integer cents.
+ * @returns The account's total in integer cents, or 0 if it has no transactions.
  */
 const accountTotal = (a: PLAccountRow, totalMap: Map<number, number>): number => {
   return totalMap.get(a.id) ?? 0

@@ -1,4 +1,4 @@
-import { fmtGrid, plTransactionsHref } from "@/components/accounting/plFormat"
+import { fmtGrid, makeFmtGrid, plTone, plTransactionsHref } from "@/components/accounting/plFormat"
 import { APP_LOCALE } from "@/lib/appConfig"
 
 // Expected strings follow APP_LOCALE so the suite passes under any configured locale.
@@ -46,5 +46,28 @@ describe("fmtGrid", () => {
     expect(fmtGrid(0)).toBe("–")
     expect(fmtGrid(123456)).toBe(num(1234.56))
     expect(fmtGrid(-5000)).toBe(`(${num(50)})`)
+  })
+})
+
+describe("makeFmtGrid", () => {
+  it("follows the currency's fraction digits (JPY has none)", () => {
+    const grid = makeFmtGrid("ja-JP", "JPY")
+    expect(grid(123400)).toBe("1,234")
+    expect(grid(-5000)).toBe("(50)")
+  })
+
+  it("follows the locale's separators and negative style, without the symbol", () => {
+    const grid = makeFmtGrid("de-DE", "EUR")
+    expect(grid(123456)).toBe("1.234,56")
+    expect(grid(-5000)).toBe("-50,00")
+    expect(grid(0)).toBe("–")
+  })
+})
+
+describe("plTone", () => {
+  it("classifies zero, positive and negative figures", () => {
+    expect(plTone(0)).toBe("zero")
+    expect(plTone(1)).toBe("positive")
+    expect(plTone(-1)).toBe("negative")
   })
 })
