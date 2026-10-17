@@ -10,7 +10,7 @@ The dashboard is the authenticated home page (`/`) — a role-aware overview wit
 **Nav:** the app's landing page after login — no separate menu entry needed.
 
 What's shown, top to bottom:
-- **Title + stats strip**: a "Welcome back" heading with one slim line of numbers (the upcoming-events figure links to `/events`) — total families (and how many are active), total members, families/people added in the last 30 days, and upcoming events in the next 30 days. Member figures only show for roles that can view people; the events count shows for everyone.
+- **Title + stats strip**: a "Welcome back" heading with one slim line of numbers (the upcoming-events label links to `/events`) — total families (and how many are active), total members, families/people added in the last 30 days, and upcoming events in the next 30 days. Member figures only show for roles that can view people; the events count shows for everyone.
 - **Needs attention**: one row per pending item, each with a count and a link to the page that resolves it. Rows with a zero count are hidden, and when nothing is pending you see a calm "All caught up" line instead. Only items your role can see and act on appear:
   - *Family updates to review* → `/families/updates` (editors: Admin, Pastor, Office Admin)
   - *Membership applications to review* → `/memberships` (editors)

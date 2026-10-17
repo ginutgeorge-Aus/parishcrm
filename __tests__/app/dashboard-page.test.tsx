@@ -294,7 +294,7 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
       where: {
         reconciled: false,
         // CASH (petty-cash mirror) accounts are never reconciled.
-        paymentAccount: { kind: "BANK" },
+        paymentAccountRel: { kind: "BANK" },
         // 01:00Z on 10 Mar = 12:00 on 10 Mar in Sydney.
         date: { lte: new Date("2026-03-10T23:59:59.999Z") },
       },

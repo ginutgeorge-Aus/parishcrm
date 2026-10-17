@@ -175,7 +175,7 @@ export default async function DashboardPage() {
     canAccessAccounting(role)
       ? prisma.transaction.groupBy({
           by: ["paymentAccountId"],
-          where: { reconciled: false, paymentAccount: { kind: "BANK" }, date: { lte: endOfDayUTC(today) } },
+          where: { reconciled: false, paymentAccountRel: { kind: "BANK" }, date: { lte: endOfDayUTC(today) } },
           _count: true,
           _min: { date: true },
         })
