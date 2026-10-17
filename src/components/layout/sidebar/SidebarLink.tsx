@@ -14,7 +14,11 @@ export function SidebarLink({
   collapsed: boolean
   onNavigate: () => void
 }>) {
-  const { href, label, icon: Icon, badge } = item
+  const { href, label, icon: Icon, badge, badgeInformational } = item
+  // Amber means "needs action"; informational counts get a neutral tone so a
+  // long-lived one (unverified release checks) doesn't read as an alert.
+  const dotTone = badgeInformational ? "bg-primary-foreground/60" : "bg-warning"
+  const pillTone = badgeInformational ? "bg-white/15 text-primary-foreground" : "bg-warning text-warning-foreground"
 
   const link = (
     <Link
@@ -33,14 +37,14 @@ export function SidebarLink({
       <span className="relative shrink-0">
         <Icon className="w-4 h-4" aria-hidden="true" />
         {collapsed && badge ? (
-          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-warning" aria-hidden="true" />
+          <span className={cn("absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full", dotTone)} aria-hidden="true" />
         ) : null}
       </span>
       {!collapsed && (
         <>
           <span className="flex-1">{label}</span>
           {badge ? (
-            <span className="ml-auto rounded-full bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+            <span className={cn("ml-auto rounded-full px-2 py-0.5 text-xs font-semibold", pillTone)}>
               {badge}
             </span>
           ) : null}
