@@ -4,7 +4,7 @@ export default [
   { label: 'Overview', items: ['docs', 'docs/history'] },
   g('Setup & Administration', [
     'installation', 'environment-variables', 'gmail-setup', 'upgrading',
-    'settings-and-branding', 'regional-configuration', 'scheduled-jobs', 'operations-scripts',
+    'settings-and-branding', 'choosing-features', 'regional-configuration', 'scheduled-jobs', 'operations-scripts',
   ]),
   g('People & Families', [
     'people-and-families', 'family-csv-import', 'birthdays-and-celebrations', 'sunday-school', 'family-self-update',

@@ -59,7 +59,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
             </Label>
             <p className="text-sm text-muted-foreground">{def.description}</p>
             {blocker && <p className="text-sm text-muted-foreground">Needs {blocker}</p>}
-            {warn && <p className="text-sm text-amber-700 dark:text-amber-400">{def.publicWarning}</p>}
+            {warn && <p className="text-sm text-warning">{def.publicWarning}</p>}
           </div>
           <Switch
             id={id}

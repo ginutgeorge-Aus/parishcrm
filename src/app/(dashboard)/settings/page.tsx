@@ -21,8 +21,9 @@ import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSection"
 import { senderAddress } from "@/lib/mailConfig"
-import { SettingsNav } from "@/components/settings/SettingsNav"
+import { SettingsNav, SETTINGS_NAV_ITEMS } from "@/components/settings/SettingsNav"
 import { DemoNotice } from "@/components/DemoNotice"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 
 const GIT_SHA_DISPLAY_LENGTH = 7
 
@@ -43,6 +44,7 @@ export default async function SettingsPage() {
     tplEntries,
     auditEntries,
     recentRegistrations,
+    features,
   ] = await Promise.all([
     prisma.appSetting.findMany({
       where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
@@ -64,7 +66,14 @@ export default async function SettingsPage() {
       take: 5,
       select: { id: true, firstName: true, lastName: true, createdAt: true, event: { select: { title: true } } },
     }),
+    getEnabledFeatures(),
   ])
+  const on = (k: Parameters<typeof features.has>[0]) => features.has(k)
+  // Sections owned by features; a section with no entry is always shown.
+  const sectionShown: Record<string, boolean> = {
+    members: on("welcomeLetter") || on("memberships"),
+    receipts: on("receipts") || on("dgrReceipts"),
+  }
 
   const get = (key: string) => settings.find((s) => s.key === key)?.value ?? ""
   // churchWebsite: a saved row (even blank) must win over the env fallback, so an
@@ -84,7 +93,7 @@ export default async function SettingsPage() {
           Choose features →
         </Link>
       </p>
-      <SettingsNav />
+      <SettingsNav items={SETTINGS_NAV_ITEMS.filter((i) => sectionShown[i.id] ?? true)} />
       <div className="space-y-12">
         <section id="general" aria-label="General" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
           <ChurchInfoForm
@@ -107,23 +116,29 @@ export default async function SettingsPage() {
           <BrandingForm />
         </section>
         <section id="email" aria-label="Email" className="scroll-mt-32 md:scroll-mt-16 space-y-10">
-          <div className="space-y-10 max-w-lg">
-            <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
-            <hr className="border-border" />
-            <AnniversaryEmailForm subject={anniversaryTpl.subject} body={anniversaryTpl.body} />
-            <hr className="border-border" />
-            <AutoEmailToggles birthday={autoEmailFlags.birthday} anniversary={autoEmailFlags.anniversary} />
-          </div>
+          {on("celebrations") && (
+            <div className="space-y-10 max-w-lg">
+              <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
+              <hr className="border-border" />
+              <AnniversaryEmailForm subject={anniversaryTpl.subject} body={anniversaryTpl.body} />
+              <hr className="border-border" />
+              <AutoEmailToggles birthday={autoEmailFlags.birthday} anniversary={autoEmailFlags.anniversary} />
+            </div>
+          )}
           <EmailTemplatesSection templates={emailTemplates} />
         </section>
+        {(on("welcomeLetter") || on("memberships")) && (
         <section id="members" aria-label="Members" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
-          <LetterSettingsForm settings={letterSettings} />
-          <hr className="border-border" />
-          <MembershipSettingsForm settings={membershipSettings} />
+          {on("welcomeLetter") && <LetterSettingsForm settings={letterSettings} />}
+          {on("welcomeLetter") && on("memberships") && <hr className="border-border" />}
+          {on("memberships") && <MembershipSettingsForm settings={membershipSettings} />}
         </section>
-        <section id="receipts" aria-label="Receipts" className="scroll-mt-32 md:scroll-mt-16">
-          <ReceiptSettingsSection settings={receiptSettings} />
-        </section>
+        )}
+        {(on("receipts") || on("dgrReceipts")) && (
+          <section id="receipts" aria-label="Receipts" className="scroll-mt-32 md:scroll-mt-16">
+            <ReceiptSettingsSection settings={receiptSettings} />
+          </section>
+        )}
         <section id="security" aria-label="Security" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">
           <ActivityFeed
             isAdmin
