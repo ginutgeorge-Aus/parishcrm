@@ -41,3 +41,20 @@ it("wraps the link in a tooltip trigger only when collapsed", () => {
   )
   expect(screen.getByRole("link").closest('[data-slot="tooltip-trigger"]')).not.toBeNull()
 })
+
+it("gives an informational badge a neutral tone, not the amber action colour", () => {
+  const info = { ...item, badgeInformational: true }
+  const { rerender } = render(
+    <TooltipProvider>
+      <SidebarLink item={info} active={false} collapsed={false} onNavigate={() => {}} />
+    </TooltipProvider>
+  )
+  expect(screen.getByText("3")).not.toHaveClass("bg-warning")
+
+  rerender(
+    <TooltipProvider>
+      <SidebarLink item={info} active={false} collapsed={true} onNavigate={() => {}} />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole("link").querySelector(".bg-warning")).toBeNull()
+})

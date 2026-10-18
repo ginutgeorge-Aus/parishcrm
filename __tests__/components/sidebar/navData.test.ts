@@ -95,3 +95,9 @@ it("pendingTotal sums badges of visible links only", () => {
   expect(pendingTotal(items)).toBe(5)
   expect(pendingTotal(groupItems({ ...allTrueFlags, isEditor: false, pendingUpdates: 2, membershipPending: 3 }, "Community"))).toBe(0)
 })
+
+it("pendingTotal leaves informational badges (unverified release checks) out of the Settings total", () => {
+  const items = groupItems({ ...allTrueFlags, verifyPending: 7 }, "Settings")
+  expect(flattenNavItems(items).find((i) => i.href === "/verify")?.badge).toBe(7)
+  expect(pendingTotal(items)).toBe(0)
+})

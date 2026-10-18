@@ -34,8 +34,9 @@ export function SidebarGroup({
 
   if (group.headless) return <div className="space-y-0.5 pb-2">{entries}</div>
 
-  // Surface pending counts on the header while collapsed, so a badge on a
-  // hidden link (Family Updates, Release Checks…) isn't lost.
+  // Surface pending counts on the header while collapsed, so an actionable
+  // badge on a hidden link (Family Updates, Membership Forms…) isn't lost.
+  // Informational badges (Release Checks) stay out of the total.
   const pending = pendingTotal(group.items)
 
   return (
