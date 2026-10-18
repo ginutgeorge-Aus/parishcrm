@@ -294,5 +294,5 @@ test("needsNudge: at most one nudge per head SHA on a paused PR (#275/#317 comme
   // Before any nudge for this head, the stale pause still gets its one nudge.
   assert.equal(needsNudge([], [note], statuses, head), true)
   // A new head (first status after that nudge) gets its own nudge.
-  assert.equal(needsNudge([], [note, nudge, reply], [st("2026-10-16T01:00:00Z")], "99aa" + head.slice(4)), true)
+  assert.equal(needsNudge([], [note, nudge, reply], [st("2026-10-16T01:00:00Z")], `99aa${head.slice(4)}`), true)
 })
