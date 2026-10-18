@@ -6,8 +6,76 @@
 // database (CI's `migrations` job); skipped in the normal `npm test` run.
 //
 // Each case fires the two conflicting actions concurrently, many times, and checks
-// that exactly one side committed and the database matches the winner — a
-// conflict must surface as a friendly error, never a throw.
+// that exactly one side committed, the database matches the winner, and the loser
+// got one of the expected friendly errors — never a throw.
+//
+// Promise.all alone doesn't make the transactions overlap (one can commit before the
+// other starts), so every interactive transaction waits at a two-party barrier after
+// its reads/writes and before commit. Both sides are then in flight at once, and each
+// case asserts Postgres really raised a conflict at least once.
+
+/**
+ * Two-party rendezvous for the first attempt of each raced transaction. Released when
+ * both sides arrive, or after a timeout (a side blocked on a row lock can't arrive).
+ */
+const mockBarrier = {
+  armed: false,
+  gen: 0,
+  waiting: [] as (() => void)[],
+  conflicts: 0,
+  /** Arms the barrier for one round. */
+  arm() {
+    this.armed = true
+    this.gen++
+    this.waiting = []
+  },
+  /** Waits for the other side (or the timeout) while armed; passes straight through otherwise. */
+  async arrive() {
+    if (!this.armed) return
+    const gen = this.gen
+    await new Promise<void>((resolve) => {
+      this.waiting.push(resolve)
+      if (this.waiting.length >= 2) this.release(gen)
+      else setTimeout(() => this.release(gen), 1500)
+    })
+  },
+  /**
+   * Lets every waiter of round `gen` commit and disarms, so retries don't wait.
+   * @param gen - the round the release belongs to (a stale timer is ignored)
+   */
+  release(gen: number) {
+    if (gen !== this.gen) return
+    this.armed = false
+    for (const resolve of this.waiting.splice(0)) resolve()
+  },
+}
+
+// Wraps interactive $transaction so the body waits at the barrier before commit, and
+// counts serialization/FK aborts (proof the two sides really overlapped).
+jest.mock("@/lib/prisma", () => {
+  const actual = jest.requireActual("@/lib/prisma")
+  const { isP2003, isP2034 } = jest.requireActual("@/lib/validation")
+  type Body = (tx: unknown) => Promise<unknown>
+  const run = async (fn: Body, opts: unknown) => {
+    try {
+      return await actual.prisma.$transaction(async (tx: unknown) => {
+        const result = await fn(tx)
+        await mockBarrier.arrive()
+        return result
+      }, opts)
+    } catch (err) {
+      if (isP2034(err) || isP2003(err)) mockBarrier.conflicts++
+      throw err
+    }
+  }
+  const prisma = new Proxy(actual.prisma, {
+    get: (target, prop) =>
+      prop === "$transaction"
+        ? (arg: unknown, opts: unknown) => (typeof arg === "function" ? run(arg as Body, opts) : target.$transaction(arg, opts))
+        : Reflect.get(target, prop),
+  })
+  return { ...actual, prisma }
+})
 
 jest.mock("server-only", () => ({}))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -85,13 +153,37 @@ type Outcome = { ok: true } | { error: string }
 
   /**
    * Asserts exactly one of two raced actions committed, so a path that always
-   * errors (or both erroring) fails the test instead of passing vacuously.
+   * errors (or both erroring) fails the test instead of passing vacuously, and that
+   * the loser failed with one of the guard's friendly errors (not some unrelated one).
    * @param first - one side's outcome
    * @param second - the other side's outcome
+   * @param loserErrors - every error message the losing side may legitimately return
    */
-  function expectExactlyOneOk(first: Outcome, second: Outcome) {
-    expect([first, second].filter((o) => "ok" in o)).toHaveLength(1)
+  function expectOneWinner(first: Outcome, second: Outcome, loserErrors: string[]) {
+    const losers = [first, second].filter((o): o is { error: string } => "error" in o)
+    expect(losers).toHaveLength(1)
+    expect(loserErrors).toContain(losers[0].error)
   }
+
+  /**
+   * Runs both actions with the barrier armed, so their transactions are in flight at once.
+   * @param first - one side
+   * @param second - the other side
+   */
+  function race(first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<Outcome[]> {
+    mockBarrier.arm()
+    return Promise.all([settle(first()), settle(second())])
+  }
+
+  const CONFLICT = "This account was changed at the same time by someone else — try again."
+  const NOT_INCOME = "Choose an active income account"
+  const BUSY = "Couldn't save the invoice. Try again."
+  const RETYPE_RACE_LOSERS = [CONFLICT, "Cannot change account type while invoices use it", NOT_INCOME, BUSY]
+  const DELETE_RACE_LOSERS = [CONFLICT, "Cannot delete — 1 invoice(s) linked to this account", NOT_INCOME, BUSY]
+
+  beforeEach(() => {
+    mockBarrier.conflicts = 0
+  })
 
   beforeAll(async () => {
     ;({ prisma } = await import("@/lib/prisma"))
@@ -147,13 +239,11 @@ type Outcome = { ok: true } | { error: string }
   it("retype vs createInvoice: exactly one commits", async () => {
     for (let i = 0; i < ROUNDS; i++) {
       const acc = await newIncomeAccount()
-      const [retyped, created] = await Promise.all([
-        settle(retype(acc)),
-        settle(actions.createInvoice(undefined, invoiceForm(acc.id))),
-      ])
-      expectExactlyOneOk(retyped, created)
+      const [retyped, created] = await race(() => retype(acc), () => actions.createInvoice(undefined, invoiceForm(acc.id)))
+      expectOneWinner(retyped, created, RETYPE_RACE_LOSERS)
       await expectRetypeRaceState(acc.id, "ok" in retyped)
     }
+    expect(mockBarrier.conflicts).toBeGreaterThan(0)
   })
 
   it("retype vs updateInvoice moving a draft onto the account: exactly one commits", async () => {
@@ -163,27 +253,23 @@ type Outcome = { ok: true } | { error: string }
       expect(created).toEqual({ ok: true })
       const draft = await prisma.invoice.findFirstOrThrow({ where: { accountId: home.id }, orderBy: { id: "desc" } })
       const target = await newIncomeAccount()
-      const [retyped, moved] = await Promise.all([
-        settle(retype(target)),
-        settle(actions.updateInvoice(draft.id, undefined, invoiceForm(target.id))),
-      ])
-      expectExactlyOneOk(retyped, moved)
+      const [retyped, moved] = await race(() => retype(target), () => actions.updateInvoice(draft.id, undefined, invoiceForm(target.id)))
+      expectOneWinner(retyped, moved, RETYPE_RACE_LOSERS)
       await expectRetypeRaceState(target.id, "ok" in retyped)
     }
+    expect(mockBarrier.conflicts).toBeGreaterThan(0)
   })
 
   it("deleteAccount vs createInvoice: exactly one commits, a conflict is a friendly error", async () => {
     for (let i = 0; i < ROUNDS; i++) {
       const acc = await newIncomeAccount()
       // settle() rethrows anything but a redirect, so an unmapped P2003/P2034 fails here.
-      const [deleted, created] = await Promise.all([
-        settle(actions.deleteAccount(acc.id)),
-        settle(actions.createInvoice(undefined, invoiceForm(acc.id))),
-      ])
-      expectExactlyOneOk(deleted, created)
+      const [deleted, created] = await race(() => actions.deleteAccount(acc.id), () => actions.createInvoice(undefined, invoiceForm(acc.id)))
+      expectOneWinner(deleted, created, DELETE_RACE_LOSERS)
       const exists = await prisma.account.count({ where: { id: acc.id } })
       const invoices = await prisma.invoice.count({ where: { accountId: acc.id } })
       expect({ exists, invoices }).toEqual("ok" in deleted ? { exists: 0, invoices: 0 } : { exists: 1, invoices: 1 })
     }
+    expect(mockBarrier.conflicts).toBeGreaterThan(0)
   })
 })
