@@ -5,6 +5,7 @@ import { canEdit } from "@/lib/roleGuard"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // Lowercase URL param → Prisma enum. Anything else 404s (no enumeration of kinds).
 const KIND_MAP = { banner: "BANNER", poster: "POSTER" } as const
@@ -15,6 +16,8 @@ export async function GET(
   req: NextRequest,
   props: { params: Promise<{ slug: string; kind: string }> },
 ) {
+  const off = await featureNotFound("events")
+  if (off) return off
   // Unauthenticated (same public tier as register/waitlist) — throttle
   // before any DB work. Higher N than register/waitlist's 10/min since a
   // single page load can fan out to both banner + poster.

@@ -92,8 +92,46 @@ const EXEMPT: Record<string, string[]> = {
   "src/lib/actions/eventAccess.ts": ["listAssignableOrganisers"],
 }
 
+// API route → feature. Every handler 404s (or, for cron, skips) while off.
+const GUARDED_ROUTES: Record<string, string> = {
+  "src/app/api/events/[slug]/register/route.ts": "events",
+  "src/app/api/events/[slug]/waitlist/route.ts": "events",
+  "src/app/api/events/[slug]/export-csv/route.ts": "events",
+  "src/app/api/events/[slug]/image/[kind]/route.ts": "events",
+  "src/app/api/welcome-letter/preview/route.ts": "welcomeLetter",
+  "src/app/api/clearances/export/route.ts": "clearances",
+  "src/app/api/people/[id]/clearances/[clearanceId]/route.ts": "clearances",
+  "src/app/api/import/bank-statement/route.ts": "bankImport",
+  "src/app/api/import/bank-statement/confirm/route.ts": "bankImport",
+  "src/app/api/accounting/reports/general-ledger/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/reports/trial-balance/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/reports/balance-sheet/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/reports/cash-flow/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/reports/giving-summary/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/reports/budget-vs-actual/export-csv/route.ts": "budget",
+  "src/app/api/accounting/transactions/export-csv/route.ts": "accounting",
+  "src/app/api/accounting/transactions/[id]/attachments/[attachmentId]/route.ts": "accounting",
+  "src/app/api/cron/send-reminders/route.ts": "events",
+  "src/app/api/cron/send-celebrations/route.ts": "celebrations",
+  "src/app/api/cron/send-clearance-digest/route.ts": "clearances",
+}
+
+it.each(Object.entries(GUARDED_ROUTES))("%s: every handler gates %s", (file, key) => {
+  const src = read(file)
+  const handlers = src.match(/^export async function (GET|POST|PUT|PATCH|DELETE)\(/gm) ?? []
+  expect(handlers.length).toBeGreaterThan(0)
+  const gates = src.match(new RegExp(`(featureNotFound\\("${key}"\\)|cronFeatureSkip\\([^)]*\\), "${key}"\\))`, "g")) ?? []
+  expect(gates.length).toBeGreaterThanOrEqual(handlers.length)
+})
+
+it("the Stripe webhook and checkout sweep stay ungated (in-flight payments must settle)", () => {
+  for (const f of ["src/app/api/stripe/webhook/route.ts", "src/app/api/cron/sweep-checkouts/route.ts"]) {
+    expect(read(f)).not.toMatch(/featureNotFound|cronFeatureSkip|isFeatureOn/)
+  }
+})
+
 it("maps only known feature keys", () => {
-  for (const key of [...Object.values(GUARDED_LAYOUTS), ...Object.values(GUARDED_ACTIONS)]) {
+  for (const key of [...Object.values(GUARDED_LAYOUTS), ...Object.values(GUARDED_ACTIONS), ...Object.values(GUARDED_ROUTES)]) {
     expect(FEATURE_KEYS).toContain(key)
   }
 })

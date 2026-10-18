@@ -11,8 +11,11 @@ import { generateGeneralLedgerCsv, withRunningBalance } from "@/lib/generalLedge
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { parseRouteId } from "@/lib/validation"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canViewAccounting(session.user.role)) {

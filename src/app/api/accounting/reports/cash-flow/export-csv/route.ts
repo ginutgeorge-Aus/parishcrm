@@ -11,10 +11,13 @@ import { toCents } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
+import { featureNotFound } from "@/lib/featureFlags"
 
 type Row = { id: number; type: string; group: { id: number; name: string; sortOrder: number } | null }
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const guard = await guardAccountingExport("cash-flow")
   if (guard instanceof NextResponse) return guard
 

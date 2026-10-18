@@ -3,6 +3,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { createEventRegistration } from "@/lib/eventRegistration"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // Reject oversized bodies before req.json() buffers them into the heap.
 // A legit registration payload is a few KB; this cap leaves generous headroom.
@@ -26,6 +27,8 @@ const MAX_BODY_BYTES = 100 * 1024
  * unit-testable core in @/lib/eventRegistration and map its result to a response.
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const off = await featureNotFound("events")
+  if (off) return off
   const params = await props.params
   const ip = getClientIp(req)
   // 10 requests per IP per minute via the shared in-memory limiter.

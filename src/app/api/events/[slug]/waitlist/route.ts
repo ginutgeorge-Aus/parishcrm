@@ -9,6 +9,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { isRegistrationClosed } from "@/lib/eventClose"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const MAX_BODY_BYTES = 100 * 1024
 
@@ -137,6 +138,8 @@ async function createWaitlistEntry(
  * too large) | `429` (rate limited).
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const off = await featureNotFound("events")
+  if (off) return off
   const params = await props.params
   const ip = getClientIp(req)
   if (!rateLimit(`waitlist:${ip}`, 10, 60_000)) {

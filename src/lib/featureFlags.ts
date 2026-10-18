@@ -2,6 +2,7 @@ import "server-only"
 import { cache } from "react"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { bearerOk } from "@/lib/cronAuth"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
   FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, parseOverrides, resolveFeatures,
@@ -54,6 +55,24 @@ export async function featureGuard(key: FeatureKey): Promise<{ error: string } |
  */
 export async function assertFeature(key: FeatureKey): Promise<void> {
   if (!(await isFeatureOn(key))) throw new Error(FEATURE_OFF_MESSAGE)
+}
+
+/** API route guard: a 404 response while the feature is off, else null. */
+export async function featureNotFound(key: FeatureKey): Promise<Response | null> {
+  return (await isFeatureOn(key)) ? null : new Response("Not found", { status: 404 })
+}
+
+/**
+ * Cron route guard: a 200 `{ skipped: "feature off" }` (so an external cron
+ * doesn't alert) while the feature is off — but only for a caller holding the
+ * cron secret. Anyone else gets null and falls through to the route's own
+ * 401/503, so feature state isn't revealed to unauthenticated callers.
+ * @param authorization the request's Authorization header
+ */
+export async function cronFeatureSkip(authorization: string | null, key: FeatureKey): Promise<Response | null> {
+  const secret = process.env.CRON_SECRET
+  if (!secret || !bearerOk(authorization, secret)) return null
+  return (await isFeatureOn(key)) ? null : Response.json(FEATURE_OFF_SKIP)
 }
 
 /** Scheduler/cron wrapper: runs fn only when the feature is on. */

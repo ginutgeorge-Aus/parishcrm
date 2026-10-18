@@ -7,8 +7,11 @@ import { groupByAccountGroup } from "@/lib/reports/accountGrouping"
 import { fyDateRange } from "@/lib/fiscalYear"
 import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const guard = await guardAccountingExport("trial-balance")
   if (guard instanceof NextResponse) return guard
 

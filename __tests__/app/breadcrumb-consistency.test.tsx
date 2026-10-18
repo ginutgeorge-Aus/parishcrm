@@ -4,6 +4,7 @@
 // the linked-breadcrumb pattern now standardized across these routes points
 // at the right list/detail hrefs (including the dynamic id segments).
 
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined), featureNotFound: jest.fn().mockResolvedValue(null), cronFeatureSkip: jest.fn().mockResolvedValue(null), isFeatureOn: jest.fn().mockResolvedValue(true) }))
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

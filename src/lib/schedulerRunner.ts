@@ -1,4 +1,5 @@
 import { dueJobs, initialState, recordStart, successKey, type JobName, type SchedulerState } from "@/lib/scheduler"
+import type { FeatureKey } from "@/lib/features"
 
 /**
  * In-app scheduler: one timer per process, started from instrumentation.ts.
@@ -10,13 +11,24 @@ export const TICK_MS = 5 * 60_000
 export const FIRST_TICK_MS = 60_000
 export type Jobs = Record<JobName, (now: Date) => Promise<unknown>>
 
+/** Wraps a job so it skips (`{ skipped: "feature off" }`) while `key` is off. */
+const gated = (key: FeatureKey, fn: Jobs[JobName]): Jobs[JobName] => async (now) =>
+  (await import("@/lib/featureFlags")).skipIfFeatureOff(key, () => fn(now))
+
 // Dynamic imports keep Prisma/email out of instrumentation's boot path until a job runs.
-const DEFAULT_JOBS: Jobs = {
-  reminders: async (now) => (await import("@/lib/reminderSweep")).runReminderSweep(now),
+// `checkouts` is never gated: it settles or expires checkouts that already exist,
+// which must finish even after Events is turned off.
+export const DEFAULT_JOBS: Jobs = {
+  reminders: gated("events", async (now) => (await import("@/lib/reminderSweep")).runReminderSweep(now)),
   checkouts: async () => (await import("@/lib/checkoutSweep")).sweepExpiredCheckouts(),
-  celebrations: async (now) => (await import("@/lib/celebrationSweep")).runCelebrationSweep(now),
+  celebrations: gated("celebrations", async (now) => (await import("@/lib/celebrationSweep")).runCelebrationSweep(now)),
   errorDigest: async (now) => (await import("@/lib/errorDigest")).runErrorDigestOncePerWeek(now),
-  clearanceDigest: async (now) => (await import("@/lib/clearanceDigest")).runClearanceDigest(now),
+  clearanceDigest: gated("clearances", async (now) => (await import("@/lib/clearanceDigest")).runClearanceDigest(now)),
+}
+
+/** True for a gated job's feature-off result — not a success, so the period stays open. */
+function skippedFeatureOff(v: unknown): boolean {
+  return !!v && typeof v === "object" && (v as { skipped?: unknown }).skipped === "feature off"
 }
 
 // Keep only numbers (recursively) so a result can never leak a name or email into logs.
@@ -53,6 +65,12 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
   try {
     const result = await fn(now)
     const ms = Date.now() - t0
+    if (skippedFeatureOff(result)) {
+      // Not recorded as the period's success: turning the feature back on
+      // mid-period must still run the job this period.
+      log("info", { job: name, ms, message: "skipped: feature off" })
+      return
+    }
     if (reportsFailures(result)) {
       log("error", { job: name, ms, message: "completed with failed or in-flight sends — will retry", result: countsOnly(result) })
       return

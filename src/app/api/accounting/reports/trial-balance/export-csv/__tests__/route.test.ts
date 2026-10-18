@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined), featureNotFound: jest.fn().mockResolvedValue(null), cronFeatureSkip: jest.fn().mockResolvedValue(null), isFeatureOn: jest.fn().mockResolvedValue(true) }))
 import { GET } from "../route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

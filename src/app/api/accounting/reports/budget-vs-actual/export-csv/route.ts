@@ -7,8 +7,11 @@ import { generateBudgetVsActualCsv, type BudgetVsActualRow } from "@/lib/reports
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents, type Money } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("budget")
+  if (off) return off
   const guard = await guardAccountingExport("budget-vs-actual")
   if (guard instanceof NextResponse) return guard
 

@@ -8,6 +8,7 @@ import { canViewAccounting } from "@/lib/roleGuard"
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const MAX_INT4 = 2147483647
 const notFound = () => new NextResponse("Not found", { status: 404 })
@@ -26,6 +27,8 @@ export async function GET(
   req: NextRequest,
   props: { params: Promise<{ id: string; attachmentId: string }> },
 ) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return notFound()
 

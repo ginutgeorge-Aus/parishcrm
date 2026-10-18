@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { canEdit } from "@/lib/roleGuard"
 import { renderWelcomeLetterPdf } from "@/lib/pdf/WelcomeLetterPdf"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // The full model (all fields at their max lengths) is well under this; wide
 // headroom for real payloads. Reject before req.json() buffers the
@@ -45,6 +46,8 @@ const ModelSchema = z.object({
 })
 
 export async function POST(req: Request) {
+  const off = await featureNotFound("welcomeLetter")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return new Response("Unauthorized", { status: 403 })
 

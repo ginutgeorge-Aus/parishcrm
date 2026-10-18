@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { bearerOk } from "@/lib/cronAuth"
 import { runClearanceDigestLocked } from "@/lib/clearanceDigest"
 import { sydneyMonthKey } from "@/lib/dates"
+import { cronFeatureSkip } from "@/lib/featureFlags"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic"
  * @param req authenticated POST request
  */
 export async function POST(req: Request) {
+  const off = await cronFeatureSkip(req.headers.get("authorization"), "clearances")
+  if (off) return off
   const secret = process.env.CRON_SECRET
   if (!secret) {
     console.error("[send-clearance-digest] CRON_SECRET unset — clearance digest endpoint is DISABLED")

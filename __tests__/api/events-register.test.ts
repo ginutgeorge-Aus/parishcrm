@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined), featureNotFound: jest.fn().mockResolvedValue(null), cronFeatureSkip: jest.fn().mockResolvedValue(null), isFeatureOn: jest.fn().mockResolvedValue(true) }))
 import { POST } from "@/app/api/events/[slug]/register/route"
 import { prisma } from "@/lib/prisma"
 import { NextRequest } from "next/server"

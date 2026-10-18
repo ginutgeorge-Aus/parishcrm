@@ -154,3 +154,53 @@ describe("startScheduler", () => {
     expect(j.reminders).toHaveBeenCalledTimes(2)
   })
 })
+
+describe("feature-off jobs", () => {
+  it("a feature-off skip is not the period's success, so the job runs once the feature is back on", async () => {
+    const s = initialState()
+    const off = jobs({ clearanceDigest: jest.fn(async () => ({ skipped: "feature off" })) })
+    await tick(s, off, new Date("2026-06-30T21:00:00Z")) // Wed 2026-07-01 07:00 AEST
+    expect(s.clearanceDigest.lastSuccessKey).toBeNull()
+    const on = jobs()
+    await tick(s, on, new Date("2026-06-30T21:30:00Z"))
+    expect(on.clearanceDigest).toHaveBeenCalledTimes(1)
+    expect(s.clearanceDigest.lastSuccessKey).toBe("2026-07")
+  })
+})
+
+describe("DEFAULT_JOBS feature gating", () => {
+  afterEach(() => jest.resetModules())
+
+  /** Loads DEFAULT_JOBS with every feature off and the sweeps mocked. */
+  async function loadOff() {
+    const sweeps = {
+      runReminderSweep: jest.fn(),
+      runCelebrationSweep: jest.fn(),
+      runClearanceDigest: jest.fn(),
+      sweepExpiredCheckouts: jest.fn(async () => ({ expired: 0 })),
+    }
+    jest.doMock("@/lib/featureFlags", () => ({
+      skipIfFeatureOff: jest.fn(async () => ({ skipped: "feature off" })),
+    }))
+    jest.doMock("@/lib/reminderSweep", () => ({ runReminderSweep: sweeps.runReminderSweep }))
+    jest.doMock("@/lib/celebrationSweep", () => ({ runCelebrationSweep: sweeps.runCelebrationSweep }))
+    jest.doMock("@/lib/clearanceDigest", () => ({ runClearanceDigest: sweeps.runClearanceDigest }))
+    jest.doMock("@/lib/checkoutSweep", () => ({ sweepExpiredCheckouts: sweeps.sweepExpiredCheckouts }))
+    const { DEFAULT_JOBS } = await import("@/lib/schedulerRunner")
+    return { DEFAULT_JOBS, sweeps }
+  }
+
+  it.each(["reminders", "celebrations", "clearanceDigest"] as const)("%s skips while its feature is off", async (name) => {
+    const { DEFAULT_JOBS, sweeps } = await loadOff()
+    expect(await DEFAULT_JOBS[name](NOW)).toEqual({ skipped: "feature off" })
+    expect(sweeps.runReminderSweep).not.toHaveBeenCalled()
+    expect(sweeps.runCelebrationSweep).not.toHaveBeenCalled()
+    expect(sweeps.runClearanceDigest).not.toHaveBeenCalled()
+  })
+
+  it("checkouts are never gated (they settle in-flight payments)", async () => {
+    const { DEFAULT_JOBS, sweeps } = await loadOff()
+    await DEFAULT_JOBS.checkouts(NOW)
+    expect(sweeps.sweepExpiredCheckouts).toHaveBeenCalled()
+  })
+})

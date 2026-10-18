@@ -10,8 +10,11 @@ import { toAnswerMap } from "@/lib/eventAnswers"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export async function GET(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const off = await featureNotFound("events")
+  if (off) return off
   const params = await props.params;
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
