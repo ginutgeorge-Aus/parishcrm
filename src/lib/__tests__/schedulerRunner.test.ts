@@ -168,6 +168,19 @@ describe("feature-off jobs", () => {
   })
 })
 
+describe("feature-off skips and the attempt cap", () => {
+  it("many skipped ticks don't use up the period's attempts", async () => {
+    const s = initialState()
+    const off = jobs({ clearanceDigest: jest.fn(async () => ({ skipped: "feature off" })) })
+    // Four half-hourly skips on the 1st (more than the 3-attempt cap).
+    for (const t of ["21:00", "21:30", "22:00", "22:30"]) await tick(s, off, new Date(`2026-06-30T${t}:00Z`))
+    expect(off.clearanceDigest).toHaveBeenCalledTimes(4)
+    const on = jobs()
+    await tick(s, on, new Date("2026-06-30T23:00:00Z"))
+    expect(on.clearanceDigest).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("DEFAULT_JOBS feature gating", () => {
   afterEach(() => jest.resetModules())
 

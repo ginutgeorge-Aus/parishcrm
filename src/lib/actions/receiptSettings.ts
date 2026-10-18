@@ -13,7 +13,7 @@ import {
   RECEIPT_SETTING_MAX_LENGTHS,
   type ReceiptSettingKey,
 } from "@/lib/receiptSettingsShared"
-import { featureGuard } from "@/lib/featureFlags"
+import { featureGuardAny } from "@/lib/featureFlags"
 
 const KEY_SET = new Set<string>(RECEIPT_SETTING_KEYS)
 
@@ -31,7 +31,7 @@ const InputSchema = z
 export async function updateReceiptSettings(
   input: Record<string, string>
 ): Promise<{ ok: true } | { error: string }> {
-  const off = await featureGuard("receipts")
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
   if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
@@ -58,7 +58,7 @@ export async function updateReceiptSettings(
 }
 
 export async function resetReceiptSettings(): Promise<{ ok: true } | { error: string }> {
-  const off = await featureGuard("receipts")
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
   if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo

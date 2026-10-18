@@ -1,5 +1,5 @@
 import { dueJobs, initialState, recordStart, successKey, type JobName, type SchedulerState } from "@/lib/scheduler"
-import type { FeatureKey } from "@/lib/features"
+import { FEATURE_OFF_SKIP, type FeatureKey } from "@/lib/features"
 
 /**
  * In-app scheduler: one timer per process, started from instrumentation.ts.
@@ -28,7 +28,7 @@ export const DEFAULT_JOBS: Jobs = {
 
 /** True for a gated job's feature-off result — not a success, so the period stays open. */
 function skippedFeatureOff(v: unknown): boolean {
-  return !!v && typeof v === "object" && (v as { skipped?: unknown }).skipped === "feature off"
+  return !!v && typeof v === "object" && (v as { skipped?: unknown }).skipped === FEATURE_OFF_SKIP.skipped
 }
 
 // Keep only numbers (recursively) so a result can never leak a name or email into logs.
@@ -67,7 +67,9 @@ async function runJob(name: JobName, state: SchedulerState, fn: Jobs[JobName], n
     const ms = Date.now() - t0
     if (skippedFeatureOff(result)) {
       // Not recorded as the period's success: turning the feature back on
-      // mid-period must still run the job this period.
+      // mid-period must still run the job this period — nor does it use up one
+      // of the period's capped attempts.
+      s.attempts.count = Math.max(0, s.attempts.count - 1)
       log("info", { job: name, ms, message: "skipped: feature off" })
       return
     }

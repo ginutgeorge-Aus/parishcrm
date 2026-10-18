@@ -6,9 +6,12 @@ import { canViewAccounting } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { churchConfigMessage, loadInvoicePdf } from "@/lib/invoicePdfModel"
 import { UserRole } from "@/lib/generated/prisma/enums"
+import { featureNotFound } from "@/lib/featureFlags"
 
 /** Download an invoice PDF. Accounting viewers except AUDITOR (the PDF carries recipient contact details). */
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const off = await featureNotFound("invoices")
+  if (off) return off
   const params = await props.params
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

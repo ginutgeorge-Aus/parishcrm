@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { getAutoEmailFlags, updateAutoEmailFlags } from "@/lib/actions/settings"
 
 jest.mock("next/cache", () => ({

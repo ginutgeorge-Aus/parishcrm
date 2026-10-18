@@ -12,6 +12,7 @@ import { encryptFamilyFields } from "@/lib/familyFields"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
+import { getMembershipSettings } from "@/lib/membershipSettings"
 
 // Upper bound on monthly subscription dues — sanity cap, not a business rule.
 const MAX_MONTHLY_DUES_DOLLARS = 100_000
@@ -72,6 +73,12 @@ export async function createFamily(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const createData = { ...parsed.data }
+  // The dues field is hidden while Subscription dues is off: apply the same
+  // minimum-dues default the visible form would have prefilled.
+  if (!formData.has("monthlyDues")) {
+    const { minDues } = await getMembershipSettings()
+    createData.monthlyDues = minDues == null ? null : minDues.toFixed(2)
+  }
   encryptFamilyFields(createData)
 
   let newId: number

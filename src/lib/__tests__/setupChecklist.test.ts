@@ -10,10 +10,13 @@ jest.mock("@/lib/prisma", () => ({
 }))
 jest.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
+jest.mock("@/lib/featureFlags")
 
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import { getSetupChecklist } from "@/lib/setupChecklist"
+import { getEnabledFeatures } from "@/lib/featureFlags"
+import { resolveFeatures } from "@/lib/features"
 
 const m = prisma as unknown as Record<string, { findFirst: jest.Mock; findMany: jest.Mock }>
 const rowModels = ["brandingAsset", "person", "account", "paymentAccount"]
@@ -115,6 +118,13 @@ describe("getSetupChecklist", () => {
     expect(m.paymentAccount.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { isActive: true, kind: "BANK" } })
     )
+  })
+
+  it("drops the accounting steps while Accounting is off", async () => {
+    prime(["brandingAsset", "person"])
+    ;(getEnabledFeatures as jest.Mock).mockResolvedValueOnce(resolveFeatures({ accounting: false }))
+    const ids = (await getSetupChecklist("ADMIN"))!.map((s) => s.id)
+    expect(ids).toEqual(["church", "branding", "people"])
   })
 
   it("returns null once every step is done", async () => {

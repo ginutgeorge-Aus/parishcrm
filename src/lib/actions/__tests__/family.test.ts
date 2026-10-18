@@ -20,6 +20,7 @@ import { revalidatePath } from "next/cache"
 // merge conflict / cascade-relink handling (//P2002).
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/membershipSettings", () => ({ getMembershipSettings: jest.fn().mockResolvedValue({ minDues: 80 }) }))
 jest.mock("@/lib/audit", () => ({
   logAudit: jest.fn().mockResolvedValue(undefined),
   logAuditTx: jest.fn().mockResolvedValue(undefined),
@@ -126,6 +127,20 @@ describe("createFamily", () => {
     ).rejects.toThrow("NEXT_REDIRECT")
     const data = (prisma.family.create as jest.Mock).mock.calls[0][0].data
     expect(data.address).toBe("enc:1 Church St")
+  })
+
+  it("applies the minimum-dues default when the dues field is hidden (Subscription dues off)", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
+    await expect(createFamily(undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBe("80.00")
+  })
+
+  it("keeps a blank submitted dues field as no obligation", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
+    await expect(createFamily(undefined, form({ ...VALID, monthlyDues: "" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBeNull()
   })
 
   it("maps a memberNo unique-constraint clash to a clear message", async () => {

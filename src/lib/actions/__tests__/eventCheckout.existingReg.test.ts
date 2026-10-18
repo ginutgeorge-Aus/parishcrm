@@ -1,5 +1,5 @@
 /** @jest-environment node */
-jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/featureFlags")
 jest.mock("next/headers", () => ({ headers: jest.fn() }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: jest.fn() }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn() }))

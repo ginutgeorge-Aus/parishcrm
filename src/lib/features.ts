@@ -4,6 +4,9 @@
  */
 export const FEATURES_SETTING_KEY = "features"
 export const FEATURES_ONBOARDING_KEY = "features.onboarding"
+/** Result a gated job/cron returns instead of running while its feature is off. */
+export const FEATURE_OFF_SKIP = { skipped: "feature off" } as const
+export type FeatureOffSkip = typeof FEATURE_OFF_SKIP
 export const FEATURE_OFF_MESSAGE = "This feature is turned off. An admin can enable it in Settings → Features."
 
 export type FeatureKey =

@@ -1,5 +1,5 @@
 /** @jest-environment node */
-jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined), featureNotFound: jest.fn().mockResolvedValue(null), cronFeatureSkip: jest.fn().mockResolvedValue(null), isFeatureOn: jest.fn().mockResolvedValue(true) }))
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/prisma", () => ({
   prisma: { transactionAttachment: { findUnique: jest.fn() } },
 }))

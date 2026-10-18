@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/membershipSettings", () => ({ getMembershipSettings: jest.fn().mockResolvedValue({ minDues: null }) }))
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 

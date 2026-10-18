@@ -4,6 +4,7 @@
 // detail page rendered Transaction.description as ciphertext because it was
 // never decrypted (the /giving subpage decrypts; this page did not).
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -28,6 +29,8 @@ import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
 import { renderToStaticMarkup } from "react-dom/server"
 import FamilyDetailPage from "@/app/(dashboard)/families/[id]/page"
+import { getEnabledFeatures } from "@/lib/featureFlags"
+import { resolveFeatures } from "@/lib/features"
 
 const mockAuth = auth as jest.Mock
 const mockFamilyFindUnique = prisma.family.findUnique as jest.Mock
@@ -49,6 +52,17 @@ describe("FamilyDetailPage giving history", () => {
     await FamilyDetailPage(makeProps())
 
     expect(mockSafeDecrypt).toHaveBeenCalledWith("enc:Sunday Offering")
+  })
+
+  it("skips giving and the self-update invite/banner while their features are off", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFamilyFindUnique.mockResolvedValue({ id: 1, name: "Smith Family", people: [] })
+    ;(getEnabledFeatures as jest.Mock).mockResolvedValueOnce(resolveFeatures({ accounting: false, familyUpdates: false }))
+    const html = renderToStaticMarkup(await FamilyDetailPage(makeProps()))
+    expect(mockTransactionFindMany).not.toHaveBeenCalled()
+    expect(prisma.familyUpdateSubmission.findFirst).not.toHaveBeenCalled()
+    expect(html).not.toContain("Giving History")
+    expect(html).not.toContain("Invite family to update details")
   })
 
   it("shows the Giving History card to a read-only accounting role (OFFICE_ADMIN)", async () => {

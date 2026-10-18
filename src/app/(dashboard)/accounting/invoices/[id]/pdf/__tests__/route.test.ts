@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { GET } from "../route"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"

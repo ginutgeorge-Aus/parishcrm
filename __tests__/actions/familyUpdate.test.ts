@@ -1,4 +1,4 @@
-jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/featureFlags")
 import { sendFamilyUpdateInvite } from "@/lib/actions/familyUpdate"
 import { prisma } from "@/lib/prisma"
 import { sendFamilyUpdateInviteEmail } from "@/lib/email"

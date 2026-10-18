@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { upsertSetting, updateMembershipSettings, updateLetterSettings } from "@/lib/actions/settings"
 import { updateTag } from "next/cache"
 import { prisma } from "@/lib/prisma"

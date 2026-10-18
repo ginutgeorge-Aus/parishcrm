@@ -27,6 +27,7 @@ const GUARDED_LAYOUTS: Record<string, string> = {
   "src/app/(dashboard)/people/birthdays/layout.tsx": "celebrations",
   "src/app/(dashboard)/people/anniversaries/layout.tsx": "celebrations",
   "src/app/(dashboard)/families/updates/layout.tsx": "familyUpdates",
+  "src/app/(dashboard)/families/[id]/giving/layout.tsx": "accounting",
   "src/app/(public)/family/layout.tsx": "familyUpdates",
   "src/app/(dashboard)/accounting/layout.tsx": "accounting",
   "src/app/(dashboard)/accounting/reconciliation/layout.tsx": "reconciliation",
@@ -114,7 +115,19 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/api/cron/send-reminders/route.ts": "events",
   "src/app/api/cron/send-celebrations/route.ts": "celebrations",
   "src/app/api/cron/send-clearance-digest/route.ts": "clearances",
+  // Route handlers inside gated page segments: a segment layout never wraps a route.ts.
+  "src/app/(dashboard)/accounting/dgr-receipts/[id]/pdf/route.ts": "dgrReceipts",
+  "src/app/(dashboard)/accounting/invoices/[id]/pdf/route.ts": "invoices",
 }
+
+it("every route.ts inside a gated segment is itself gated", () => {
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name === "route.ts" ? [`${dir}/${e.name}`] : [])
+  const segments = Object.keys(GUARDED_LAYOUTS).map((f) => path.dirname(f))
+  const ungated = segments.flatMap(walk).filter((f) => !(f in GUARDED_ROUTES))
+  expect([...new Set(ungated)]).toEqual([])
+})
 
 it.each(Object.entries(GUARDED_ROUTES))("%s: every handler gates %s", (file, key) => {
   const src = read(file)
@@ -147,12 +160,41 @@ it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", 
   const unguarded = starts
     .filter((m, i) => {
       if (EXEMPT[file]?.includes(m[1])) return false
-      const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
-      return !body.includes(`featureGuard("${key}")`) && !body.includes(`assertFeature("${key}")`)
+      return !guards(src.slice(m.index, starts[i + 1]?.index ?? src.length), key)
     })
     .map((m) => m[1])
   expect(unguarded).toEqual([])
 })
+
+/** True when a function body checks `key` (single, any-of, or throwing form). */
+function guards(body: string, key: string): boolean {
+  return body.includes(`featureGuard("${key}")`)
+    || body.includes(`assertFeature("${key}")`)
+    || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
+}
+
+// Mixed files (core + feature-owned functions): function → feature.
+const GUARDED_FUNCTIONS: Record<string, Record<string, string>> = {
+  "src/lib/actions/settings.ts": {
+    updateBirthdayTemplate: "celebrations",
+    sendTestBirthdayEmail: "celebrations",
+    updateAnniversaryTemplate: "celebrations",
+    sendTestAnniversaryEmail: "celebrations",
+    updateAutoEmailFlags: "celebrations",
+    updatePettyCashCustodian: "pettyCash",
+    updateLetterSettings: "welcomeLetter",
+    updateMembershipSettings: "memberships",
+  },
+}
+
+it.each(Object.entries(GUARDED_FUNCTIONS).flatMap(([file, fns]) => Object.entries(fns).map(([fn, key]) => [file, fn, key])))(
+  "%s: %s guards %s", (file, fn, key) => {
+    const src = read(file)
+    const start = src.indexOf(`export async function ${fn}(`)
+    expect(start).toBeGreaterThan(-1)
+    const next = src.indexOf("\nexport ", start + 1)
+    expect(guards(src.slice(start, next === -1 ? undefined : next), key)).toBe(true)
+  })
 
 it("every Server Action file in a feature area is mapped", () => {
   // A new "use server" file whose name matches a feature area must be added above.

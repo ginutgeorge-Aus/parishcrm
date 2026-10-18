@@ -5,13 +5,10 @@ import { prisma } from "@/lib/prisma"
 import { bearerOk } from "@/lib/cronAuth"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, parseOverrides, resolveFeatures,
+  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, FEATURE_OFF_SKIP, type FeatureOffSkip, parseOverrides, resolveFeatures,
   type FeatureKey, type FeatureOverrides,
 } from "@/lib/features"
 
-/** Result a gated job/cron returns instead of running while its feature is off. */
-export const FEATURE_OFF_SKIP = { skipped: "feature off" } as const
-export type FeatureOffSkip = typeof FEATURE_OFF_SKIP
 
 /**
  * Stored overrides only (no defaults applied). Used by the Features page and
@@ -46,6 +43,16 @@ export async function requireFeature(key: FeatureKey): Promise<void> {
 /** Server Action guard: `{ error }` when off, else null. Call first, before auth/DB work. */
 export async function featureGuard(key: FeatureKey): Promise<{ error: string } | null> {
   return (await isFeatureOn(key)) ? null : { error: FEATURE_OFF_MESSAGE }
+}
+
+/**
+ * Server Action guard for something shared by several features (e.g. receipt
+ * settings, used by giving receipts and DGR receipts): `{ error }` only when
+ * every one of `keys` is off.
+ */
+export async function featureGuardAny(keys: FeatureKey[]): Promise<{ error: string } | null> {
+  const on = await getEnabledFeatures()
+  return keys.some((k) => on.has(k)) ? null : { error: FEATURE_OFF_MESSAGE }
 }
 
 /**

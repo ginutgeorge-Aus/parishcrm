@@ -1,5 +1,5 @@
 /** @jest-environment node */
-jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/featureFlags")
 import { createEvent, updateEvent, deleteEvent, publishEvent, resyncEventsToWebsite } from "@/lib/actions/event"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
