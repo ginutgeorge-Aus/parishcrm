@@ -53,24 +53,49 @@ function walk(dir: string): string[] {
 }
 
 // An object-literal key (after `{`, `,` or `(`) whose value calls encrypt/encryptBytes/encryptOrNull before the
-// next `,` `;` `{` `}` — so `foo: encrypt(x)`, `foo: x ? encrypt(x) : null` (even across lines),
-// `foo: Buffer.from(encrypt(x))` and `foo: encryptOrNull(x)` — or a property assignment `x.foo = encrypt(`.
+// next top-level `,` `;` `{` `}` — so `foo: encrypt(x)`, `foo: x ? encrypt(x) : null` (even across lines),
+// `foo: ok(a, b) ? encrypt(x) : null` (commas inside one level of parens are skipped),
+// `foo: Buffer.from(encrypt(x))` and `foo: encryptOrNull(x)` — or a property assignment `x.foo = encrypt(`
+// (optionally wrapped in `Buffer.from(`).
 // Not seen: keys assigned in a loop (`d[k] = encrypt(...)`, familyUpdate.ts / person.ts helpers), whose
 // fields are pinned by CANONICAL in rotate-encryption-key.test.ts instead.
 export const WRITE_RE =
-  /(?:^|[{,(])\s*(\w+)\s*:([^,;{}]*?)\b(encrypt|encryptBytes|encryptOrNull)\(|\.(\w+)\s*=\s*(encrypt|encryptBytes|encryptOrNull)\(/gm
+  /(?:^|[{,(])\s*(\w+)\s*:((?:[^,;{}()]|\([^()]*\)|\()*?)\b(encrypt|encryptBytes|encryptOrNull)\(|\.(\w+)\s*=\s*(Buffer\.from\(\s*)?(encrypt|encryptBytes|encryptOrNull)\(/gm
 // A Prisma delegate write call, e.g. `prisma.waitlist.create(` or `tx.invoice.updateMany(`.
 const CALL_RE = /\.(\w+)\.(?:create|createMany|update|updateMany|upsert)\(/g
 // A nested relation write (`attendees: { create: ... }`): rows there belong to the related model, not the call's.
-const NESTED_RE = /\b\w+\s*:\s*\{\s*(?:create|createMany|connectOrCreate|upsert)\s*:/
+const NESTED_RE = /\b\w+\s*:\s*\{\s*(?:create|createMany|connectOrCreate|upsert)\s*:/g
+// Prisma delegate names (camelCase model names), so a `.cache.update(` helper call is never taken for a model.
+const MODELS = new Set(
+  [...fs.readFileSync(path.join(__dirname, "../../prisma/schema.prisma"), "utf8").matchAll(/^model\s+(\w+)/gm)]
+    .map((m) => m[1][0].toLowerCase() + m[1].slice(1)),
+)
+
+/**
+ * True when the bracket opened at `open` is still unclosed at `pos`.
+ * @param text - file source
+ * @param open - offset of the opening bracket
+ * @param pos - offset to test
+ */
+function encloses(text: string, open: number, pos: number): boolean {
+  let depth = 0
+  for (let i = open; i < pos; i++) {
+    const ch = text[i]
+    if (ch === "(" || ch === "{" || ch === "[") depth++
+    else if (ch === ")" || ch === "}" || ch === "]") depth--
+    if (depth === 0) return false
+  }
+  return depth > 0
+}
 
 type WriteSite = { model: string | null; field: string; blob: boolean; where: string }
 
 /**
  * Model of the innermost Prisma write call whose argument list still encloses
- * `pos` (bracket depth > 0), or null when the write isn't inside one or sits in a
- * nested relation write (its model isn't the call's, and the relation name isn't
- * a model name).
+ * `pos`, or null when the write isn't inside one, the delegate isn't a Prisma
+ * model, or it sits inside a nested relation write (its model isn't the call's,
+ * and the relation name isn't a model name). A sibling key after a closed nested
+ * write still resolves to the call's model.
  * @param text - file source
  * @param pos - offset of the encrypted field's key
  */
@@ -79,14 +104,11 @@ export function enclosingModel(text: string, pos: number): string | null {
   for (const call of text.matchAll(CALL_RE)) {
     const open = call.index + call[0].length - 1
     if (open >= pos) break
-    let depth = 0
-    for (let i = open; i < pos; i++) {
-      const ch = text[i]
-      if (ch === "(" || ch === "{" || ch === "[") depth++
-      else if (ch === ")" || ch === "}" || ch === "]") depth--
-      if (depth === 0) break
-    }
-    if (depth > 0) model = NESTED_RE.test(text.slice(open, pos)) ? null : call[1]
+    if (!encloses(text, open, pos)) continue
+    const inNested = [...text.slice(open, pos).matchAll(NESTED_RE)].some((nested) =>
+      encloses(text, open + nested.index + nested[0].indexOf("{"), pos),
+    )
+    model = inNested || !MODELS.has(call[1]) ? null : call[1]
   }
   return model
 }
@@ -100,7 +122,7 @@ function encryptedWriteSites(): WriteSite[] {
     const text = fs.readFileSync(file, "utf8")
     for (const m of text.matchAll(WRITE_RE)) {
       const field = m[1] ?? m[4]
-      const blob = m[3] === "encryptBytes" || m[5] === "encryptBytes" || /Buffer\.from\(\s*$/.test(m[2] ?? "")
+      const blob = m[3] === "encryptBytes" || m[6] === "encryptBytes" || !!m[5] || /Buffer\.from\(\s*$/.test(m[2] ?? "")
       const pos = m.index + m[0].indexOf(field)
       sites.push({ model: enclosingModel(text, pos), field, blob, where: path.relative(SRC, file) })
     }
@@ -113,6 +135,7 @@ describe("encryption coverage", () => {
     process.env.DATABASE_URL = "postgresql://u:p@localhost:5432/db" // never connected — FIELDS is a static export
     const { FIELDS, BLOB_FIELDS } = await import("../../scripts/rotate-encryption-key")
     const anyModel = new Set(Object.values(FIELDS).flat())
+    const anyBlob = new Set(Object.values(BLOB_FIELDS).flat())
 
     const sites = encryptedWriteSites()
     // Sanity: the grep must actually find write sites, and resolve models for
@@ -123,7 +146,9 @@ describe("encryption coverage", () => {
     const uncovered = new Set<string>()
     for (const s of sites) {
       if (!s.model) {
-        if (!anyModel.has(s.field) && !ALLOWLIST.has(s.field)) uncovered.add(`${s.field} (${s.where})`)
+        if (ALLOWLIST.has(s.field)) continue
+        if (!anyModel.has(s.field)) uncovered.add(`${s.field} (${s.where})`)
+        else if (s.blob && !anyBlob.has(s.field)) uncovered.add(`${s.field} blob (${s.where})`)
         continue
       }
       const key = `${s.model}.${s.field}`
@@ -151,9 +176,20 @@ describe("encryption coverage", () => {
     expect(enclosingModel(text, text.indexOf("answers:"))).toBeNull()
   })
 
+  it("resolves a sibling key written after a closed nested relation write", () => {
+    const text = `await prisma.registration.create({ data: { attendees: { create: [] }, email: encrypt(e) } })`
+    expect(enclosingModel(text, text.indexOf("email:"))).toBe("registration")
+  })
+
+  it("ignores write-shaped calls on non-model delegates", () => {
+    const text = `await this.cache.update({ notes: encrypt(n) })`
+    expect(enclosingModel(text, text.indexOf("notes:"))).toBeNull()
+  })
+
   it("matches conditional, wrapper and blob writes, not ternary branches", () => {
     const text = `{
       notes: x ? encrypt(x) : null,
+      contact: isAllowed(user, event) ? encrypt(c) : null,
       answers: list[idx]
         ? encrypt(JSON.stringify(list[idx]))
         : undefined,
@@ -163,18 +199,21 @@ describe("encryption coverage", () => {
       plain: other,
     }
     const v = ok ? null : encrypt(y)
-    row.secret = encrypt(s)`
+    row.secret = encrypt(s)
+    row.file = Buffer.from(encrypt(f))`
     const found = [...text.matchAll(WRITE_RE)].map((m) => ({
       field: m[1] ?? m[4],
-      blob: m[3] === "encryptBytes" || /Buffer\.from\(\s*$/.test(m[2] ?? ""),
+      blob: m[3] === "encryptBytes" || m[6] === "encryptBytes" || !!m[5] || /Buffer\.from\(\s*$/.test(m[2] ?? ""),
     }))
     expect(found).toEqual([
       { field: "notes", blob: false },
+      { field: "contact", blob: false },
       { field: "answers", blob: false },
       { field: "email", blob: false },
       { field: "doc", blob: true },
       { field: "data", blob: true },
       { field: "secret", blob: false },
+      { field: "file", blob: true },
     ])
   })
 })
