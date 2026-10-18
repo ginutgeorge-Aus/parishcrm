@@ -132,7 +132,7 @@ function latestPausedNote(comments: Comment[]): Comment | undefined {
  */
 function pausedAtHead(note: Comment, headSha: string): boolean {
   const last = LAST_REVIEWED.exec(note.body)?.[1]
-  return !!last && headSha.toLowerCase().startsWith(last.toLowerCase())
+  return last !== undefined && headSha.toLowerCase().startsWith(last.toLowerCase())
 }
 
 /**
@@ -164,7 +164,7 @@ function nudgedSince(comments: Comment[], since: Date): boolean {
  */
 export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
   const note = latestPausedNote(comments)
-  return !!note && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
+  return note !== undefined && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
 }
 
 /**
