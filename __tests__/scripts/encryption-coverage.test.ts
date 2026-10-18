@@ -172,17 +172,17 @@ describe("encryption coverage", () => {
   })
 
   it("leaves a nested relation write unresolved (its model isn't the outer call's)", () => {
-    const text = `await tx.registrationItem.create({ data: { qty: 1, attendees: { create: rows.map((r) => ({ answers: encrypt(a) })) } } })`
+    const text = "await tx.registrationItem.create({ data: { qty: 1, attendees: { create: rows.map((r) => ({ answers: encrypt(a) })) } } })"
     expect(enclosingModel(text, text.indexOf("answers:"))).toBeNull()
   })
 
   it("resolves a sibling key written after a closed nested relation write", () => {
-    const text = `await prisma.registration.create({ data: { attendees: { create: [] }, email: encrypt(e) } })`
+    const text = "await prisma.registration.create({ data: { attendees: { create: [] }, email: encrypt(e) } })"
     expect(enclosingModel(text, text.indexOf("email:"))).toBe("registration")
   })
 
   it("ignores write-shaped calls on non-model delegates", () => {
-    const text = `await this.cache.update({ notes: encrypt(n) })`
+    const text = "await this.cache.update({ notes: encrypt(n) })"
     expect(enclosingModel(text, text.indexOf("notes:"))).toBeNull()
   })
 
