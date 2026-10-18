@@ -115,8 +115,36 @@ export function statusSaysReviewed(statuses: Status[]): boolean {
 /** Marker CodeRabbit puts in its summary when it auto-pauses a busy branch. */
 const PAUSED_MARKER = "review paused by coderabbit.ai"
 const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
-/** CodeRabbit's answer to a review command that it ran or refused as done. */
-const COMMAND_DONE = /Review finished|Already reviewed/i
+/**
+ * CodeRabbit's most recently updated paused note on the PR, if any.
+ * @param comments - issue comments on one PR, any order
+ */
+function latestPausedNote(comments: Comment[]): Comment | undefined {
+  return comments
+    .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
+    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
+}
+
+/**
+ * True when the paused note's "Last reviewed commit" is the head (any case).
+ * @param note - CodeRabbit's paused note
+ * @param headSha - the PR's head commit SHA
+ */
+function pausedAtHead(note: Comment, headSha: string): boolean {
+  const last = LAST_REVIEWED.exec(note.body)?.[1]
+  return !!last && headSha.toLowerCase().startsWith(last.toLowerCase())
+}
+
+/**
+ * True when someone other than CodeRabbit posted the review command after `since`.
+ * @param comments - issue comments on one PR, any order
+ * @param since - time of CodeRabbit's first status on the head
+ */
+function nudgedSince(comments: Comment[], since: Date): boolean {
+  return comments.some(
+    (c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime(),
+  )
+}
 
 /**
  * True when CodeRabbit auto-paused reviews on this PR ("branch under active
@@ -124,33 +152,19 @@ const COMMAND_DONE = /Review finished|Already reviewed/i
  * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
  * forever. `@coderabbitai review` (one review) still works while paused, so the
  * nudge keeps that command rather than `resume`, which would review every push.
- * A review command posted after `since` (so it targeted this head) counts as
- * answered only when it came after the paused note's last update and CodeRabbit
- * then replied "Review finished"/"Already reviewed". Either way the head gets at
- * most one nudge: once a command for this head exists, the PR isn't nudged again
- * even if the paused note's commit stays stale, so the hourly quota isn't spent
- * re-nudging one head. A new push resets this via `since`. Only the most recently
- * updated paused note counts.
+ * Each head gets at most one nudge: once a review command was posted after `since`
+ * (so it targeted this head), the PR isn't nudged again even if the paused note's
+ * commit stays stale. CodeRabbit edits that note while it handles the command
+ * (#275, #317), so a reply can't reliably be tied to it; without this cap the same
+ * head would be re-nudged every run. A new push resets this via `since`. Only the
+ * most recently updated paused note counts.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
  */
 export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
-  const paused = comments
-    .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
-    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
-  if (!paused) return false
-  const last = LAST_REVIEWED.exec(paused.body)?.[1]
-  if (last && headSha.toLowerCase().startsWith(last.toLowerCase())) return false
-  const nudgeAt = comments
-    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
-    .reduce((max, c) => Math.max(max, Date.parse(c.createdAt)), -1)
-  const answered =
-    nudgeAt > Date.parse(paused.updatedAt) &&
-    comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > nudgeAt)
-  // At most one nudge per head: CodeRabbit edits the stale note while it handles the
-  // command (#275, #317), so an unanswered command must not re-arm the same head.
-  return !answered && nudgeAt < 0
+  const note = latestPausedNote(comments)
+  return !!note && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
 }
 
 /**

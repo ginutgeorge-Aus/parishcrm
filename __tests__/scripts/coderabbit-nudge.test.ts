@@ -220,20 +220,19 @@ test("pausedBefore: auto-paused summary whose last reviewed commit is not the he
   // Only the most recently updated paused note counts (an older stale one doesn't).
   const pausedAtHead = comment({ user: BOT, body: PAUSED_BODY(head), updatedAt: "2026-10-07T04:00:00Z" })
   assert.equal(pausedBefore([pausedAtHead, { ...paused, updatedAt: "2026-10-07T02:00:00Z" }], head, since), false)
-  // A nudge for this head already answered: don't nudge again while the note stays stale.
+  // This head was already nudged (and answered): don't nudge again while the note stays stale.
   const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
   const nudge = at("someone", "@coderabbitai review", "2026-10-07T02:00:00Z")
   assert.equal(pausedBefore([paused, nudge, at(BOT, "✅ Action performed\n\nReview finished.", "2026-10-07T03:00:00Z")], head, since), false)
   assert.equal(pausedBefore([paused, nudge, at(BOT, "Already reviewed the last commit.", "2026-10-07T03:00:00Z")], head, since), false)
-  // A reply with no nudge for this head (e.g. answering a nudge for an earlier head) doesn't count.
+  // A reply alone, or a nudge from before this head's first status, doesn't use up this head's nudge.
   assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), true)
   const oldNudge = at("someone", "@coderabbitai review", "2026-10-07T00:30:00Z")
   assert.equal(pausedBefore([paused, oldNudge, at(BOT, "Review finished.", "2026-10-07T01:30:00Z")], head, since), true)
   // The nudge for this head is unanswered: still at most one nudge per head.
   assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T01:30:00Z"), nudge], head, since), false)
   // Real order (#275, #317): CodeRabbit edits the still-stale paused summary while
-  // handling the command, seconds before its reply's final edit. The command came
-  // before the note's last update, so the reply isn't an answer — but this head was
+  // handling the command, seconds before its reply's final edit. This head was
   // already nudged once, so it isn't nudged again.
   const editedMidReview = { ...paused, updatedAt: "2026-10-07T02:59:55Z" }
   assert.equal(pausedBefore([editedMidReview, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), false)
