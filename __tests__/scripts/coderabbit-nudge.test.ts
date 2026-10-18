@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   isReviewed,
   firstStatusAt,
+  needsNudge,
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
@@ -230,6 +231,10 @@ test("pausedBefore: auto-paused summary whose last reviewed commit is not the he
   assert.equal(pausedBefore([paused, oldNudge, at(BOT, "Review finished.", "2026-10-07T01:30:00Z")], head, since), true)
   // The nudge for this head is still unanswered.
   assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T01:30:00Z"), nudge], head, since), true)
+  // Real order (#275, #317): CodeRabbit edits the still-stale paused summary while
+  // handling the command, seconds before its reply's final edit. Still answered.
+  const editedMidReview = { ...paused, updatedAt: "2026-10-07T02:59:55Z" }
+  assert.equal(pausedBefore([editedMidReview, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), false)
   // A pause note updated after the reply is a new pause: nudge again.
   const repaused = { ...paused, updatedAt: "2026-10-07T04:00:00Z" }
   assert.equal(pausedBefore([repaused, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), true)
@@ -254,4 +259,21 @@ test("pausedBefore + firstStatusAt: a status posted when CodeRabbit answers the 
     at(BOT, "Review finished.", "2026-10-07T03:00:00Z"),
   ]
   assert.equal(pausedBefore(comments, head, firstStatusAt(statuses)), false)
+})
+
+test("needsNudge: PR selection — 'Review completed' status with a stale pause is still nudged", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (description: string, createdAt = "2026-10-07T01:00:00Z") => ({ context: "CodeRabbit", description, createdAt })
+  const stalePause = comment({ user: BOT, body: PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f") })
+  // Seen on #275: the status says reviewed, but the paused summary names an older commit.
+  assert.equal(needsNudge([], [stalePause], [st("Review completed")], head), true)
+  // Same status with no pause note: reviewed, skip.
+  assert.equal(needsNudge([], [], [st("Review completed")], head), false)
+  // Paused at the head: nothing left to review.
+  assert.equal(needsNudge([], [comment({ user: BOT, body: PAUSED_BODY(head) })], [st("Review completed")], head), false)
+  // A CodeRabbit review on the head wins over everything.
+  assert.equal(needsNudge([{ user: BOT, commitId: head, body: "Actionable comments posted: 0" }], [stalePause], [st("Review completed")], head), false)
+  // No review and no completed status: needs a nudge.
+  assert.equal(needsNudge([], [], [st("Review rate limited")], head), true)
+  assert.equal(needsNudge([], [], [], head), true)
 })

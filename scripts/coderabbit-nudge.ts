@@ -162,6 +162,20 @@ export function firstStatusAt(statuses: Status[]): Date {
 }
 
 /**
+ * The per-PR selection rule: true when CodeRabbit hasn't reviewed the head. A
+ * CodeRabbit review on the head counts; otherwise a "Review completed" status
+ * counts only when no stale paused note says commits are still waiting.
+ * @param reviews - PR reviews, any order
+ * @param comments - issue comments on the PR, any order
+ * @param statuses - commit statuses on the head SHA, any order
+ * @param headSha - the PR's head commit SHA
+ */
+export function needsNudge(reviews: Review[], comments: Comment[], statuses: Status[], headSha: string): boolean {
+  if (isReviewed(reviews, comments, headSha)) return false
+  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, firstStatusAt(statuses)))
+}
+
+/**
  * CodeRabbit comments that aren't a review result: the instant "Review triggered"
  * ack, and the summary while it's edited to a "review in progress" placeholder.
  */
@@ -291,14 +305,14 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
+    const reviewed = reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
+    if (isReviewed(reviewed, comments, pr.headSha)) continue
     const statuses = (
       await gh<{ context: string; description: string | null; created_at: string }[]>(
         `/repos/${REPO}/commits/${pr.headSha}/statuses`,
       )
     ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
-    if (statusSaysReviewed(statuses) && !pausedBefore(comments, pr.headSha, firstStatusAt(statuses))) continue
-    unreviewed.push(pr)
+    if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
