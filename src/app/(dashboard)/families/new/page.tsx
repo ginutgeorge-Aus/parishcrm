@@ -5,12 +5,13 @@ import { canEdit } from "@/lib/roleGuard"
 import { createFamily } from "@/lib/actions/family"
 import { FamilyForm } from "@/components/families/FamilyForm"
 import { getMembershipSettings } from "@/lib/membershipSettings"
+import { isFeatureOn } from "@/lib/featureFlags"
 
 export default async function NewFamilyPage() {
   const session = await auth()
   if (!session) redirect("/login")
   if (!canEdit(session.user.role)) redirect("/families")
-  const { minDues } = await getMembershipSettings()
+  const [{ minDues }, showDues] = await Promise.all([getMembershipSettings(), isFeatureOn("dues")])
 
   return (
     <div>
@@ -19,7 +20,7 @@ export default async function NewFamilyPage() {
         {" / New family"}
       </p>
       <h2 className="text-2xl font-semibold text-foreground mb-6">New family</h2>
-      <FamilyForm action={createFamily} defaultDues={minDues} />
+      <FamilyForm action={createFamily} defaultDues={minDues} showDues={showDues} />
     </div>
   )
 }

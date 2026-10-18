@@ -12,6 +12,7 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Receipt/invoice attachments for a transaction, mirroring Xero's
 // "attach files". Storage reuses the EventImage pattern — the bytes live in a
@@ -32,6 +33,8 @@ export async function attachTransactionReceipt(
   _prev: ActionResult,
   formData: FormData,
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -96,6 +99,8 @@ export async function attachTransactionReceipt(
 }
 
 export async function removeTransactionReceipt(attachmentId: number): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()

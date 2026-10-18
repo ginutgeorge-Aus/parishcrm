@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { sendBirthdayEmail, sendBirthdayEmailsBulk } from "@/lib/actions/birthday"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

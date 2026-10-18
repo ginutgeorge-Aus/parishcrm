@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import Page from "@/app/(organiser)/my-events/[id]/registrations/page"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

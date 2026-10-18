@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { buildWelcomeLetterDraft, sendWelcomeLetter } from "@/lib/actions/welcomeLetter"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

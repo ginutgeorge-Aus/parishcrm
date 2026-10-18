@@ -17,6 +17,7 @@ import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { sumCents, centsToNumber, formatLongDate } from "@/lib/formatting"
 import { isValidEmail, MIN_YEAR, MAX_YEAR, isP2002, isTwoDecimalMoney, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { featureGuard } from "@/lib/featureFlags"
 
 const LIST_PATH = "/accounting/dgr-receipts"
 
@@ -110,6 +111,8 @@ export async function createDgrReceipt(
   _prev: { error: string } | undefined,
   formData: FormData
 ): Promise<{ error: string } | undefined> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const uid = actorId(session)
@@ -180,6 +183,8 @@ export async function updateDgrReceipt(
   _prev: { error: string } | undefined,
   formData: FormData
 ): Promise<{ error: string } | undefined> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -236,6 +241,8 @@ export async function updateDgrReceipt(
 }
 
 export async function deleteDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -252,6 +259,8 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
 }
 
 export async function sendDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -341,6 +350,8 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
 // has to ship the whole congregation's plaintext emails to the client (#PII). Gated
 // like every other mutation-adjacent action — accounting editors only.
 export async function getDonorEmail(personId: number): Promise<{ email: string | null } | { error: string }> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(personId) || personId <= 0) return { error: "Invalid person." }
@@ -362,6 +373,8 @@ export type DgrReceiptListRow = {
 export async function listDgrReceipts(
   fyEndYear?: number
 ): Promise<DgrReceiptListRow[] | { error: string }> {
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

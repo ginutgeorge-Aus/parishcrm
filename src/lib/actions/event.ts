@@ -23,8 +23,11 @@ import {
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 export async function createEvent(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -74,6 +77,8 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
 }
 
 export async function updateEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid event" }
@@ -266,6 +271,8 @@ function deleteEventFailureResult(e: unknown): ActionResult {
 }
 
 export async function deleteEvent(id: number): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid event" }
@@ -311,6 +318,8 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
 }
 
 export async function publishEvent(id: number, publish: boolean): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid event" }
@@ -332,6 +341,8 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
 // Manually open/close public registration without unpublishing the event —
 // the event page stays live and shows a "registration closed" panel. canEdit-gated.
 export async function setRegistrationClosed(id: number, closed: boolean): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid event" }
@@ -350,6 +361,8 @@ export async function setRegistrationClosed(id: number, closed: boolean): Promis
 
 // Backstop for missed webhooks: re-push every event to the website. ADMIN only.
 export async function resyncEventsToWebsite(): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

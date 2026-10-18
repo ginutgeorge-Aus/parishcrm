@@ -15,6 +15,7 @@ import { toCents, centsToNumber } from "@/lib/formatting"
 import type { ReceiptData } from "@/lib/emails/ReceiptEmail"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { isValidEmail } from "@/lib/validation"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Double-click debounce window: a repeat send of the same receipt to the
 // same recipient inside this window is treated as a no-op so a donor never gets
@@ -137,6 +138,8 @@ export async function sendSingleReceipt(
   transactionId: number,
   toEmail: string
 ): Promise<SingleReceiptResult> {
+  const off = await featureGuard("receipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -199,6 +202,8 @@ export async function sendSingleReceipt(
 export async function sendBatchReceipts(
   rows: { transactionId: number; toEmail: string }[]
 ): Promise<BatchReceiptResult> {
+  const off = await featureGuard("receipts")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (rows.length > MAX_RECEIPT_BATCH_SIZE) return { error: `Max ${MAX_RECEIPT_BATCH_SIZE} per batch` }
@@ -335,6 +340,8 @@ export async function fetchTransactionsForReceipt(
   to: string,
   accountId?: number
 ): Promise<FetchResult> {
+  const off = await featureGuard("receipts")
+  if (off) return off
   // Read path — AUDITOR is allowed (matches the canViewAccounting page guard on
   // /accounting/receipt-audit). The actual send actions stay canAccessAccounting
   // (ADMIN/PASTOR). Previously this read used the stricter mutate-guard.

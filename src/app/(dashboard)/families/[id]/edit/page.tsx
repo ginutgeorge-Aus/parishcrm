@@ -8,6 +8,7 @@ import { FamilyForm } from "@/components/families/FamilyForm"
 import { safeDecrypt } from "@/lib/crypto"
 import { toFloat } from "@/lib/utils"
 import { parseRouteId } from "@/lib/validation"
+import { isFeatureOn } from "@/lib/featureFlags"
 
 export default async function EditFamilyPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
@@ -18,7 +19,7 @@ export default async function EditFamilyPage(props: Readonly<{ params: Promise<{
   const id = parseRouteId(params.id)
   if (id === null) notFound()
 
-  const family = await prisma.family.findUnique({ where: { id } })
+  const [family, showDues] = await Promise.all([prisma.family.findUnique({ where: { id } }), isFeatureOn("dues")])
   // Archived families are frozen — editing them via a direct URL would
   // bypass the archive/unarchive lifecycle and its atomic member handling.
   if (!family || family.archivedAt) notFound()
@@ -44,7 +45,7 @@ export default async function EditFamilyPage(props: Readonly<{ params: Promise<{
         {" / Edit"}
       </p>
       <h2 className="text-2xl font-semibold text-foreground mb-6">Edit family</h2>
-      <FamilyForm action={action} family={displayFamily} />
+      <FamilyForm action={action} family={displayFamily} showDues={showDues} />
     </div>
   )
 }

@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { isValidPgId, isP2034 } from "@/lib/validation"
 import type { ActionResult } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const FundSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
@@ -22,6 +23,8 @@ function revalidateFunds() {
 }
 
 export async function createFund(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FundSchema.safeParse(Object.fromEntries(formData))
@@ -38,6 +41,8 @@ export async function updateFund(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -57,6 +62,8 @@ export async function updateFund(
 }
 
 export async function deleteFund(id: number): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -107,6 +114,7 @@ export async function validateFund(
   fundId: number,
   options?: { allowInactive?: boolean }
 ): Promise<boolean> {
+  await assertFeature("accounting")
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return false
   const fund = await prisma.fund.findUnique({
@@ -119,6 +127,7 @@ export async function validateFund(
 }
 
 export async function getActiveFunds(): Promise<{ id: number; name: string }[]> {
+  await assertFeature("accounting")
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return []
   return prisma.fund.findMany({

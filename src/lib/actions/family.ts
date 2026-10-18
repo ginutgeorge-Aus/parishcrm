@@ -119,7 +119,9 @@ export async function updateFamily(
   const parsed = FamilySchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const updateData = { ...parsed.data }
+  const updateData: Partial<typeof parsed.data> = { ...parsed.data }
+  // The dues field is hidden while Subscription dues is off: keep the stored value.
+  if (!formData.has("monthlyDues")) delete updateData.monthlyDues
   encryptFamilyFields(updateData)
 
   // Optimistic concurrency: see transaction.ts::updateTransaction.
@@ -149,7 +151,7 @@ export async function updateFamily(
     "FAMILY_UPDATED",
     "Family",
     id,
-    { monthlyDues: parsed.data.monthlyDues }
+    { monthlyDues: updateData.monthlyDues }
   )
 
   revalidatePath("/families")

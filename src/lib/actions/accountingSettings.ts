@@ -12,6 +12,7 @@ import { ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const OpeningBalanceSchema = z.object({
   paymentAccountId: z.coerce.number().int().positive(),
@@ -39,6 +40,8 @@ export async function upsertOpeningBalance(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -87,6 +90,8 @@ export async function setAccountingLockDate(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()

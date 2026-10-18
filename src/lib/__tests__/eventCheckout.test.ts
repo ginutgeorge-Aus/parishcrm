@@ -5,6 +5,7 @@
 // createEventCheckoutSession untouched. Mock style follows
 // eventRegistration.characterization.test.ts.
 
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("next/headers", () => ({
   headers: jest.fn(),
 }))

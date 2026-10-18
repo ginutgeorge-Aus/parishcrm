@@ -4,6 +4,7 @@
 // an archived (soft-deleted) family stayed editable via a direct /edit URL.
 // Asserts the guard: archived families 404 instead of rendering the form.
 
+jest.mock("@/lib/featureFlags", () => ({ isFeatureOn: jest.fn().mockResolvedValue(true) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {

@@ -8,12 +8,15 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { assertNotDemo } from "@/lib/demoMode"
 import { INVOICE_SETTING_KEYS, INVOICE_PAYMENT_DETAILS_MAX } from "@/lib/invoiceSettingsShared"
+import { featureGuard } from "@/lib/featureFlags"
 
 /** Save GST-registered flag and invoice payment details (ADMIN only). */
 export async function updateInvoiceSettings(input: {
   gstRegistered: boolean
   paymentDetails: string
 }): Promise<{ ok: true } | { error: string }> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()

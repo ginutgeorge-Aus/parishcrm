@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { createExpense } from "@/lib/actions/pettyCashExpense"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

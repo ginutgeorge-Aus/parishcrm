@@ -16,11 +16,14 @@ const AccountGroupSchema = z.object({
 })
 
 import type { ActionResult } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 export async function createAccountGroup(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -54,6 +57,8 @@ export async function updateAccountGroup(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -98,6 +103,8 @@ export async function updateAccountGroup(
 }
 
 export async function deleteAccountGroup(id: number): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }

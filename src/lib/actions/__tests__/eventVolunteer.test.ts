@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { setVolunteerView, regenerateVolunteerToken } from "@/lib/actions/eventAccess"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

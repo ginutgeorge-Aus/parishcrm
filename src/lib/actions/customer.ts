@@ -12,6 +12,7 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
 import type { ActionResult } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const LIST_PATH = "/accounting/customers"
 
@@ -41,6 +42,8 @@ function parseCustomer(formData: FormData): { data: { name: string; abn: string 
 
 /** Create a saved outside customer (ADMIN | PASTOR). */
 export async function createCustomer(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = parseCustomer(formData)
@@ -53,6 +56,8 @@ export async function createCustomer(_prev: ActionResult, formData: FormData): P
 
 /** Update a customer's details (ADMIN | PASTOR). Existing invoices keep their recipient snapshot. */
 export async function updateCustomer(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Customer not found" }
@@ -70,6 +75,8 @@ export async function updateCustomer(id: number, _prev: ActionResult, formData: 
 
 /** Activate/deactivate a customer. Customers are never hard-deleted (invoices reference them). */
 export async function setCustomerActive(id: number, isActive: boolean): Promise<{ error: string } | { success: string }> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Customer not found" }
@@ -86,6 +93,8 @@ export async function setCustomerActive(id: number, isActive: boolean): Promise<
 
 /** Quick-create from the invoice recipient picker; returns the new id + name. */
 export async function createCustomerInline(input: { name: string; email: string; address: string }): Promise<{ id: number; name: string } | { error: string }> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const f = new FormData()
@@ -100,6 +109,8 @@ export async function createCustomerInline(input: { name: string; email: string;
 
 /** List customers for accounting viewers; AUDITOR gets names only (contact fields null, never decrypted). */
 export async function listCustomers(opts: { includeInactive?: boolean } = {}): Promise<CustomerView[] | { error: string }> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   const role = session?.user?.role
   if (!canViewAccounting(role)) return { error: "Unauthorized" }
@@ -119,6 +130,7 @@ export async function listCustomers(opts: { includeInactive?: boolean } = {}): P
 
 /** Load one customer decrypted for the edit form (ADMIN | PASTOR). */
 export async function getCustomerForEdit(id: number): Promise<CustomerView | null> {
+  await assertFeature("invoices")
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role) || !isValidPgId(id)) return null
   const r = await prisma.customer.findUnique({ where: { id } })

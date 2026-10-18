@@ -192,6 +192,20 @@ describe("updateFamily", () => {
       expect(arg.where).toEqual({ id: 3, updatedAt: new Date("2026-01-01T00:00:00.000Z") })
     })
 
+    it("keeps stored dues when the dues field is absent (Subscription dues off)", async () => {
+      ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+      await expect(updateFamily(3, undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+      const arg = (prisma.family.updateMany as jest.Mock).mock.calls[0][0]
+      expect("monthlyDues" in arg.data).toBe(false)
+    })
+
+    it("clears dues when the field is submitted blank", async () => {
+      ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+      await expect(updateFamily(3, undefined, form({ ...VALID, monthlyDues: "" }))).rejects.toThrow("NEXT_REDIRECT")
+      const arg = (prisma.family.updateMany as jest.Mock).mock.calls[0][0]
+      expect(arg.data.monthlyDues).toBeNull()
+    })
+
     it("falls back to an id-only update when no updatedAt is submitted", async () => {
       ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
       await expect(updateFamily(3, undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")

@@ -38,10 +38,13 @@ export function FamilyForm({
   action,
   family,
   defaultDues,
+  showDues = true,
 }: Readonly<{
   action: (prev: ActionResult, formData: FormData) => Promise<ActionResult>
   family?: Family
   defaultDues?: number | null
+  /** False while Subscription dues is off: the field is omitted and the stored value kept. */
+  showDues?: boolean
 }>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
 
@@ -135,18 +138,20 @@ export function FamilyForm({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="monthlyDues">Monthly subscription dues</Label>
-        <Input
-          id="monthlyDues"
-          name="monthlyDues"
-          type="number"
-          min="0"
-          step="0.01"
-          defaultValue={family ? (family.monthlyDues != null ? String(family.monthlyDues) : "") : defaultDues != null ? String(defaultDues) : ""}
-          placeholder="Blank for non-members"
-        />
-      </div>
+      {showDues && (
+        <div className="space-y-2">
+          <Label htmlFor="monthlyDues">Monthly subscription dues</Label>
+          <Input
+            id="monthlyDues"
+            name="monthlyDues"
+            type="number"
+            min="0"
+            step="0.01"
+            defaultValue={family ? (family.monthlyDues != null ? String(family.monthlyDues) : "") : defaultDues != null ? String(defaultDues) : ""}
+            placeholder="Blank for non-members"
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="notes">Notes</Label>

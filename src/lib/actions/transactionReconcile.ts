@@ -9,11 +9,14 @@ import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 export async function toggleReconciled(
   id: number,
   expectedPaymentAccountId: number
 ): Promise<ActionResult> {
+  const off = await featureGuard("reconciliation")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -62,6 +65,8 @@ export async function reconcileMany(
   ids: number[],
   expectedPaymentAccountId: number
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("reconciliation")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { createEvent } from "@/lib/actions/event"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { auth } from "@/auth"

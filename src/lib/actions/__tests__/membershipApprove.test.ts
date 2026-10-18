@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { approveMembershipApplication, rejectMembershipApplication } from "@/lib/actions/membership"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

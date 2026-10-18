@@ -20,6 +20,7 @@ import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
 import { isValidPgId } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const ENTITY = "SundaySchoolClass"
 const CLASS_GONE = "Class not found"
@@ -116,6 +117,8 @@ export async function setAttendance(
   personId: number,
   status: AttendanceStatus | null,
 ): Promise<ActionResult> {
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const g = await rollGuard(classId, ymd)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
@@ -167,6 +170,8 @@ export async function setAttendance(
  * no session. canMarkRoll-gated.
  */
 export async function markUnmarkedPresent(classId: number, ymd: string): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const g = await rollGuard(classId, ymd)
   if ("error" in g) return { error: g.error }
   const date = ymdToDbDate(g.ymd)
@@ -206,6 +211,8 @@ async function markerGuard(classId: number, userId: number): Promise<EditorGuard
  * Duplicate = success (unique classId_userId).
  */
 export async function addRollMarker(classId: number, userId: number): Promise<ActionResult> {
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
   // findFirst so an archived (soft-deleted) user can't be assigned by id.
@@ -227,6 +234,8 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
 
 /** Remove a roll marker from a class (missing link = success). canEdit-gated. */
 export async function removeRollMarker(classId: number, userId: number): Promise<ActionResult> {
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
   const r = await withLiveClass(classId, (tx) => tx.sundaySchoolRollMarker.deleteMany({ where: { classId, userId } }))

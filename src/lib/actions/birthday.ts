@@ -16,8 +16,11 @@ import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { claimCelebrationSend, BIRTHDAY_ACTION } from "@/lib/celebrationClaim"
 import { deliverCelebration } from "@/lib/celebrationDeliver"
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 export async function sendBirthdayEmail(personId: number): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -121,6 +124,8 @@ async function sendBulkBirthdayEmail(
 export async function sendBirthdayEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!BIRTHDAY_WINDOWS.includes(windowDays as (typeof BIRTHDAY_WINDOWS)[number])) {

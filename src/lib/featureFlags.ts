@@ -47,6 +47,15 @@ export async function featureGuard(key: FeatureKey): Promise<{ error: string } |
   return (await isFeatureOn(key)) ? null : { error: FEATURE_OFF_MESSAGE }
 }
 
+/**
+ * Throwing guard for exported actions whose result has no `{ error }` shape
+ * (page-load readers, internal validators). Pages reach them only through a
+ * segment already gated by requireFeature, so this is defence in depth.
+ */
+export async function assertFeature(key: FeatureKey): Promise<void> {
+  if (!(await isFeatureOn(key))) throw new Error(FEATURE_OFF_MESSAGE)
+}
+
 /** Scheduler/cron wrapper: runs fn only when the feature is on. */
 export async function skipIfFeatureOff<T>(key: FeatureKey, fn: () => Promise<T>): Promise<T | FeatureOffSkip> {
   return (await isFeatureOn(key)) ? fn() : FEATURE_OFF_SKIP

@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 import { closeSession } from "@/lib/actions/pettyCashSession"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

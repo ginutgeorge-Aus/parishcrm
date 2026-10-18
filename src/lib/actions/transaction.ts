@@ -18,6 +18,7 @@ import { transactionListHref } from "@/lib/transactionFilters"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const BUSY = { error: "Couldn't save the transaction. Try again." }
 const GONE = { error: "A fund, payment account, family or person on this transaction was just removed. Reload and try again." }
@@ -48,6 +49,7 @@ export async function validateAccount(
   type: "INCOME" | "EXPENSE",
   options?: { allowInactive?: boolean }
 ): Promise<{ name: string } | null> {
+  await assertFeature("accounting")
   // Exported from a "use server" module ⇒ a directly callable server action, so
   // gate it like every other read helper (invariant). All internal callers
   // (createTransaction/updateTransaction, petty-cash receipt/expense) are already
@@ -102,6 +104,8 @@ export async function createTransaction(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -212,6 +216,8 @@ export async function updateTransaction(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -327,6 +333,8 @@ export async function updateTransaction(
 }
 
 export async function deleteTransaction(id: number): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

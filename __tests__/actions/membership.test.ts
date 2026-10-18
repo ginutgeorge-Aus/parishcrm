@@ -5,6 +5,7 @@
 // concatenate the new note, then RE-ENCRYPT — never store ciphertext+plaintext
 // unencrypted (which corrupts the old note and leaks the new PII in cleartext).
 
+jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn().mockResolvedValue(null), assertFeature: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), info: jest.fn() } }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))

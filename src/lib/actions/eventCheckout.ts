@@ -8,6 +8,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Public entry point for the optional Stripe event-payments flow: prices the
 // registration server-side (never trusting client-sent amounts), then stages
@@ -19,6 +20,8 @@ export async function startEventCheckout(
   slug: string,
   rawBody: unknown,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
+  const off = await featureGuard("events")
+  if (off) return { ok: false, status: 404, error: off.error }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }
@@ -93,6 +96,8 @@ export async function startExistingRegistrationCheckout(
   slug: string,
   publicToken: string,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
+  const off = await featureGuard("events")
+  if (off) return { ok: false, status: 404, error: off.error }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }

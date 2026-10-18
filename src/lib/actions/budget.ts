@@ -8,6 +8,7 @@ import { isAdmin, canAccessAccounting } from "@/lib/roleGuard"
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isValidPgId } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const MAX_BUDGET_AMOUNT = 99999999.99
 
@@ -59,6 +60,8 @@ export async function upsertBudgets(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("budget")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -123,6 +126,8 @@ export async function saveBudgetVarianceNote(
   accountId: number,
   note: string,
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("budget")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -149,6 +154,7 @@ export async function saveBudgetVarianceNote(
 export async function getPrevYearBudgets(
   year: number
 ): Promise<{ accountId: number; amount: string }[]> {
+  await assertFeature("budget")
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return []
   if (year < MIN_YEAR || year > MAX_YEAR) return []

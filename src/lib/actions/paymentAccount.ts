@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const NameKindSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(60),
@@ -28,6 +29,8 @@ export async function createPaymentAccount(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = NameKindSchema.safeParse(Object.fromEntries(formData))
@@ -53,6 +56,8 @@ export async function renamePaymentAccount(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
@@ -69,6 +74,8 @@ export async function renamePaymentAccount(
 }
 
 export async function setDefaultAccount(id: number): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
@@ -112,6 +119,8 @@ async function checkAccountActiveChange(
 }
 
 export async function setAccountActive(id: number, active: boolean): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }

@@ -22,6 +22,7 @@ import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
 import type { Gender, FamilyRole } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const MAX_SIGNATURE_LEN = 300_000 // ~225 KB of base64
 
@@ -43,6 +44,8 @@ type SubmitMembershipInput = { payload: unknown; signature: string; turnstileTok
 type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
 
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
+  const off = await featureGuard("memberships")
+  if (off) return off
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
@@ -123,6 +126,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname" }
 
 export async function findMembershipMatches(applicationId: number): Promise<MatchCandidate[]> {
+  await assertFeature("memberships")
   // Exported from a "use server" module → a directly-callable endpoint. Without
   // this gate any caller could enumerate families by guessing application ids
   // (IDOR). Staff-only, same guard as the review page that consumes it.
@@ -410,6 +414,8 @@ export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("memberships")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
 
@@ -451,6 +457,8 @@ export async function approveMembershipApplication(
 }
 
 export async function rejectMembershipApplication(id: number, note?: string): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("memberships")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
 
