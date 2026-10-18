@@ -15,16 +15,19 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
-jest.mock("@/lib/prisma", () => ({
-  prisma: {
+jest.mock("@/lib/prisma", () => {
+  const prisma: Record<string, unknown> = {
     account: { findUnique: jest.fn() },
     fund: { findUnique: jest.fn() },
     family: { findUnique: jest.fn() },
     person: { findUnique: jest.fn() },
     paymentAccount: { findUnique: jest.fn() },
     transaction: { findMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-  },
-}))
+  }
+  // Interactive transaction: run the callback against the same mocked client.
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  return { prisma }
+})
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -234,6 +237,89 @@ test("updateTransaction returns a concurrency error when the optimistic update m
     error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",
   })
   expect(mockLogAudit).not.toHaveBeenCalled()
+})
+
+// #291: the account-type check and the write share one Serializable transaction, so a concurrent
+// updateAccount retype (Serializable, counts transactions) can't commit between them.
+describe("account check serialized with the write", () => {
+  const p2034 = Object.assign(new Error("write conflict"), { code: "P2034" })
+  const p2003 = Object.assign(new Error("fk violation"), { code: "P2003" })
+  const BUSY = { error: "Couldn't save the transaction. Try again." }
+  const GONE = { error: "A fund, payment account, family or person on this transaction was just removed. Reload and try again." }
+  const txMock = () => prisma.$transaction as unknown as jest.Mock
+
+  it("createTransaction re-checks the account inside a Serializable transaction", async () => {
+    // Pre-check sees INCOME; by the time the transaction runs the account was retyped.
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "EXPENSE", isActive: true, name: "Offering" })
+    expect(await createTransaction(undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+    expect(txMock()).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("createTransaction retries a serialization conflict and succeeds", async () => {
+    txMock().mockRejectedValueOnce(p2034)
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(1)
+  })
+
+  it("createTransaction's retry re-validates the account against the committed state", async () => {
+    // Attempt 1 runs the body (account still INCOME), then loses the conflict; attempt 2 sees the retype.
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "EXPENSE", isActive: true, name: "Offering" })
+    txMock().mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+      await fn(prisma)
+      throw p2034
+    })
+    expect(await createTransaction(undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(txMock()).toHaveBeenCalledTimes(2)
+  })
+
+  it("createTransaction retries one FK violation (deleted account) and re-validates", async () => {
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce(null)
+    txMock().mockRejectedValueOnce(p2003)
+    expect(await createTransaction(undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(txMock()).toHaveBeenCalledTimes(2)
+  })
+
+  it("createTransaction reports a vanished non-account reference instead of retrying forever", async () => {
+    txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
+    expect(await createTransaction(undefined, validForm())).toEqual(GONE)
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("createTransaction gives up after repeated conflicts with a retry message", async () => {
+    txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
+    expect(await createTransaction(undefined, validForm())).toEqual(BUSY)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("createTransaction rethrows unrelated errors", async () => {
+    txMock().mockRejectedValueOnce(new Error("boom"))
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("boom")
+  })
+
+  it("updateTransaction re-checks the account inside a Serializable transaction", async () => {
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce({ type: "EXPENSE", isActive: true, name: "Offering" })
+    expect(await updateTransaction(1, undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+    expect(txMock()).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+  })
+
+  it("updateTransaction gives up after repeated conflicts with a retry message", async () => {
+    txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual(BUSY)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
 })
 
 // --- toggleReconciled / reconcileMany IDOR guard ---

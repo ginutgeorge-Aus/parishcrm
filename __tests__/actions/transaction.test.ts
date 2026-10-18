@@ -1,8 +1,8 @@
 /** @jest-environment node */
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/prisma", () => ({
-  prisma: {
+jest.mock("@/lib/prisma", () => {
+  const prisma: Record<string, unknown> = {
     transaction: {
       create: jest.fn(),
       update: jest.fn(),
@@ -24,8 +24,11 @@ jest.mock("@/lib/prisma", () => ({
     person: {
       findUnique: jest.fn(),
     },
-  },
-}))
+  }
+  // Interactive transaction: run the callback against the same mocked client.
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  return { prisma }
+})
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
