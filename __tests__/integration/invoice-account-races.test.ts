@@ -6,59 +6,27 @@
 // database (CI's `migrations` job); skipped in the normal `npm test` run.
 //
 // Each case fires the two conflicting actions concurrently, many times, and checks
-// the invariant afterwards (never "account retyped AND an invoice on it") plus
-// that neither action threw — a conflict must surface as a friendly error.
+// that exactly one side committed and the database matches the winner — a
+// conflict must surface as a friendly error, never a throw.
 
 jest.mock("server-only", () => ({}))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => {
-    throw new Error("NEXT_REDIRECT")
+    throw new MockRedirect()
   }),
 }))
 
+/** Thrown by the mocked `redirect`, which is how the actions report success. */
+class MockRedirect extends Error {}
+
 const RUN = process.env.INTEGRATION_DB === "1"
 const ROUNDS = 12
+// Real round-trips under contention: give CI headroom over Jest's 5s default.
+jest.setTimeout(60_000)
 
 type Outcome = { ok: true } | { error: string }
-
-/**
- * Settles a server action into ok/error. A redirect is how the actions report
- * success; any other thrown error fails the test.
- * @param p - the action's promise
- */
-async function settle(p: Promise<unknown>): Promise<Outcome> {
-  try {
-    const r = await p
-    return r && typeof r === "object" && "error" in r ? { error: String((r as { error: unknown }).error) } : { ok: true }
-  } catch (e) {
-    if (e instanceof Error && e.message === "NEXT_REDIRECT") return { ok: true }
-    throw e
-  }
-}
-
-/**
- * Builds a FormData from plain string fields.
- * @param o - field name → value
- */
-function fd(o: Record<string, string>): FormData {
-  const f = new FormData()
-  for (const [k, v] of Object.entries(o)) f.set(k, v)
-  return f
-}
-
-/**
- * A valid one-line draft invoice form posting to `accountId`.
- * @param accountId - income account id
- */
-function invoiceForm(accountId: number): FormData {
-  return fd({
-    recipientKind: "none", recipientId: "", recipientName: "Hall hire client", recipientEmail: "", recipientAddress: "",
-    issueDate: "2026-10-01", dueDate: "2026-10-15", accountId: String(accountId), fundId: "", notes: "",
-    lines: JSON.stringify([{ description: "Hall hire", qty: "1", unitPrice: "100.00", gst: false }]),
-  })
-}
 
 ;(RUN ? describe : describe.skip)("invoice vs account races (real Postgres)", () => {
   // Loaded lazily so the skipped run never touches Prisma or the env it needs.
@@ -66,8 +34,64 @@ function invoiceForm(accountId: number): FormData {
   let actions: typeof import("@/lib/actions/invoice") & typeof import("@/lib/actions/account")
   let incomeGroup: number
   let expenseGroup: number
-  const tag = Date.now().toString(36)
+  // Random suffix: parallel CI workers can share a millisecond.
+  const tag = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
   let seq = 0
+
+  /**
+   * Maps an action's return value to ok/error.
+   * @param result - what the action resolved to
+   */
+  function toOutcome(result: unknown): Outcome {
+    if (result && typeof result === "object" && "error" in result) return { error: String(result.error) }
+    return { ok: true }
+  }
+
+  /**
+   * Settles a server action into ok/error. A redirect is how the actions report
+   * success; any other thrown error fails the test.
+   * @param action - the action's promise
+   */
+  async function settle(action: Promise<unknown>): Promise<Outcome> {
+    try {
+      return toOutcome(await action)
+    } catch (err) {
+      if (err instanceof MockRedirect) return { ok: true }
+      throw err
+    }
+  }
+
+  /**
+   * Builds a FormData from plain string fields.
+   * @param fields - field name → value
+   */
+  function fd(fields: Record<string, string>): FormData {
+    const form = new FormData()
+    for (const [key, value] of Object.entries(fields)) form.set(key, value)
+    return form
+  }
+
+  /**
+   * A valid one-line draft invoice form posting to `accountId`.
+   * @param accountId - income account id
+   */
+  function invoiceForm(accountId: number): FormData {
+    return fd({
+      recipientKind: "none", recipientId: "", recipientName: "Hall hire client", recipientEmail: "", recipientAddress: "",
+      issueDate: "2026-10-01", dueDate: "2026-10-15", accountId: String(accountId), fundId: "", notes: "",
+      lines: JSON.stringify([{ description: "Hall hire", qty: "1", unitPrice: "100.00", gst: false }]),
+    })
+  }
+
+  /**
+   * Asserts exactly one of two raced actions committed, so a path that always
+   * errors (or both erroring) fails the test instead of passing vacuously.
+   * @param first - one side's outcome
+   * @param second - the other side's outcome
+   */
+  function expectExactlyOneOk(first: Outcome, second: Outcome) {
+    expect([first, second].filter((o) => "ok" in o)).toHaveLength(1)
+  }
 
   beforeAll(async () => {
     ;({ prisma } = await import("@/lib/prisma"))
@@ -88,8 +112,8 @@ function invoiceForm(accountId: number): FormData {
   /** Creates a fresh active INCOME account in the income group. */
   async function newIncomeAccount(): Promise<{ id: number; code: string }> {
     const code = `R${tag}${seq++}`.slice(0, 20)
-    const a = await prisma.account.create({ data: { code, name: `Race ${code}`, type: "INCOME", groupId: incomeGroup } })
-    return { id: a.id, code: a.code }
+    const account = await prisma.account.create({ data: { code, name: `Race ${code}`, type: "INCOME", groupId: incomeGroup } })
+    return { id: account.id, code: account.code }
   }
 
   /**
@@ -103,53 +127,57 @@ function invoiceForm(accountId: number): FormData {
   }
 
   /**
-   * Asserts the invariant: an account that ended up EXPENSE has no invoices.
+   * Asserts the database matches whichever side won a retype race: retype won →
+   * EXPENSE with no invoices; invoice write won → still INCOME with one invoice.
    * @param accountId - the raced account
+   * @param retypeWon - whether the retype committed
    */
-  async function expectNoInvoiceOnRetypedAccount(accountId: number) {
+  async function expectRetypeRaceState(accountId: number, retypeWon: boolean) {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: { type: true } })
     const invoices = await prisma.invoice.count({ where: { accountId } })
-    if (account?.type === "EXPENSE") expect(invoices).toBe(0)
+    expect({ type: account?.type, invoices }).toEqual(retypeWon ? { type: "EXPENSE", invoices: 0 } : { type: "INCOME", invoices: 1 })
   }
 
-  it("retype vs createInvoice: never both commit", async () => {
+  it("retype vs createInvoice: exactly one commits", async () => {
     for (let i = 0; i < ROUNDS; i++) {
       const acc = await newIncomeAccount()
-      const [r, c] = await Promise.all([settle(retype(acc)), settle(actions.createInvoice(undefined, invoiceForm(acc.id)))])
-      expect("ok" in r && "ok" in c).toBe(false)
-      await expectNoInvoiceOnRetypedAccount(acc.id)
+      const [retyped, created] = await Promise.all([
+        settle(retype(acc)),
+        settle(actions.createInvoice(undefined, invoiceForm(acc.id))),
+      ])
+      expectExactlyOneOk(retyped, created)
+      await expectRetypeRaceState(acc.id, "ok" in retyped)
     }
   })
 
-  it("retype vs updateInvoice moving a draft onto the account: never both commit", async () => {
+  it("retype vs updateInvoice moving a draft onto the account: exactly one commits", async () => {
     const home = await newIncomeAccount()
     for (let i = 0; i < ROUNDS; i++) {
       const created = await settle(actions.createInvoice(undefined, invoiceForm(home.id)))
       expect(created).toEqual({ ok: true })
       const draft = await prisma.invoice.findFirstOrThrow({ where: { accountId: home.id }, orderBy: { id: "desc" } })
       const target = await newIncomeAccount()
-      const [r, u] = await Promise.all([
+      const [retyped, moved] = await Promise.all([
         settle(retype(target)),
         settle(actions.updateInvoice(draft.id, undefined, invoiceForm(target.id))),
       ])
-      expect("ok" in r && "ok" in u).toBe(false)
-      await expectNoInvoiceOnRetypedAccount(target.id)
+      expectExactlyOneOk(retyped, moved)
+      await expectRetypeRaceState(target.id, "ok" in retyped)
     }
   })
 
-  it("deleteAccount vs createInvoice: a conflict is a friendly error, never a throw", async () => {
+  it("deleteAccount vs createInvoice: exactly one commits, a conflict is a friendly error", async () => {
     for (let i = 0; i < ROUNDS; i++) {
       const acc = await newIncomeAccount()
       // settle() rethrows anything but a redirect, so an unmapped P2003/P2034 fails here.
-      const [d, c] = await Promise.all([
+      const [deleted, created] = await Promise.all([
         settle(actions.deleteAccount(acc.id)),
         settle(actions.createInvoice(undefined, invoiceForm(acc.id))),
       ])
+      expectExactlyOneOk(deleted, created)
       const exists = await prisma.account.count({ where: { id: acc.id } })
       const invoices = await prisma.invoice.count({ where: { accountId: acc.id } })
-      if ("ok" in d) expect(exists).toBe(0)
-      if (!exists) expect(invoices).toBe(0)
-      if ("ok" in c) expect(exists).toBe(1)
+      expect({ exists, invoices }).toEqual("ok" in deleted ? { exists: 0, invoices: 0 } : { exists: 1, invoices: 1 })
     }
   })
 })
