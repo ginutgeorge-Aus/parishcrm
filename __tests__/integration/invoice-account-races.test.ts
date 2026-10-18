@@ -106,7 +106,13 @@ type Outcome = { ok: true } | { error: string }
   })
 
   afterAll(async () => {
-    await prisma?.$disconnect()
+    if (!prisma) return
+    // Best-effort cleanup so a reused local database stays tidy. The admin user stays: audit rows reference it.
+    const groupId = { in: [incomeGroup, expenseGroup].filter(Boolean) }
+    await prisma.invoice.deleteMany({ where: { account: { groupId } } })
+    await prisma.account.deleteMany({ where: { groupId } })
+    await prisma.accountGroup.deleteMany({ where: { id: groupId } })
+    await prisma.$disconnect()
   })
 
   /** Creates a fresh active INCOME account in the income group. */
