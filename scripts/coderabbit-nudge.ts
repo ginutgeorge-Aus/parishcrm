@@ -112,6 +112,86 @@ export function statusSaysReviewed(statuses: Status[]): boolean {
   return latest?.description === "Review completed"
 }
 
+/** Marker CodeRabbit puts in its summary when it auto-pauses a busy branch. */
+const PAUSED_MARKER = "review paused by coderabbit.ai"
+const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
+/**
+ * CodeRabbit's most recently updated paused note on the PR, if any.
+ * @param comments - issue comments on one PR, any order
+ */
+function latestPausedNote(comments: Comment[]): Comment | undefined {
+  return comments
+    .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
+    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
+}
+
+/**
+ * True when the paused note's "Last reviewed commit" is the head (any case).
+ * @param note - CodeRabbit's paused note
+ * @param headSha - the PR's head commit SHA
+ */
+function pausedAtHead(note: Comment, headSha: string): boolean {
+  const last = LAST_REVIEWED.exec(note.body)?.[1]
+  return last !== undefined && headSha.toLowerCase().startsWith(last.toLowerCase())
+}
+
+/**
+ * True when someone other than CodeRabbit posted the review command after `since`.
+ * @param comments - issue comments on one PR, any order
+ * @param since - time of CodeRabbit's first status on the head
+ */
+function nudgedSince(comments: Comment[], since: Date): boolean {
+  return comments.some(
+    (c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime(),
+  )
+}
+
+/**
+ * True when CodeRabbit auto-paused reviews on this PR ("branch under active
+ * development") and its last reviewed commit is not the head. A paused head still
+ * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
+ * forever. `@coderabbitai review` (one review) still works while paused, so the
+ * nudge keeps that command rather than `resume`, which would review every push.
+ * Each head gets at most one nudge: once a review command was posted after `since`
+ * (so it targeted this head), the PR isn't nudged again even if the paused note's
+ * commit stays stale. CodeRabbit edits that note while it handles the command
+ * (#275, #317), so a reply can't reliably be tied to it; without this cap the same
+ * head would be re-nudged every run. A new push resets this via `since`. Only the
+ * most recently updated paused note counts.
+ * @param comments - issue comments on one PR, any order
+ * @param headSha - the PR's head commit SHA
+ * @param since - time of CodeRabbit's first status on the head (≈ head push)
+ */
+export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
+  const note = latestPausedNote(comments)
+  return note !== undefined && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
+}
+
+/**
+ * Time of CodeRabbit's first commit status on the head, or the epoch when there is
+ * none. The first, not the latest: CodeRabbit posts a fresh status when it answers
+ * a nudge, which would otherwise move `since` past that nudge and re-nudge the head.
+ * @param statuses - commit statuses on the PR's head SHA, any order
+ */
+export function firstStatusAt(statuses: Status[]): Date {
+  const times = statuses.filter((s) => s.context === "CodeRabbit").map((s) => Date.parse(s.createdAt))
+  return new Date(times.length ? times.reduce((min, t) => Math.min(min, t)) : 0)
+}
+
+/**
+ * The per-PR selection rule: true when CodeRabbit hasn't reviewed the head. A
+ * CodeRabbit review on the head counts; otherwise a "Review completed" status
+ * counts only when no stale paused note says commits are still waiting.
+ * @param reviews - PR reviews, any order
+ * @param comments - issue comments on the PR, any order
+ * @param statuses - commit statuses on the head SHA, any order
+ * @param headSha - the PR's head commit SHA
+ */
+export function needsNudge(reviews: Review[], comments: Comment[], statuses: Status[], headSha: string): boolean {
+  if (isReviewed(reviews, comments, headSha)) return false
+  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, firstStatusAt(statuses)))
+}
+
 /**
  * CodeRabbit comments that aren't a review result: the instant "Review triggered"
  * ack, and the summary while it's edited to a "review in progress" placeholder.
@@ -242,12 +322,14 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    if (isReviewed(reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" })), comments, pr.headSha)) continue
-    const statuses = await gh<{ context: string; description: string | null; created_at: string }[]>(
-      `/repos/${REPO}/commits/${pr.headSha}/statuses`,
-    )
-    if (statusSaysReviewed(statuses.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at })))) continue
-    unreviewed.push(pr)
+    const reviewed = reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
+    if (isReviewed(reviewed, comments, pr.headSha)) continue
+    const statuses = (
+      await gh<{ context: string; description: string | null; created_at: string }[]>(
+        `/repos/${REPO}/commits/${pr.headSha}/statuses`,
+      )
+    ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+    if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
