@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import {
   isReviewed,
-  latestStatusAt,
+  firstStatusAt,
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
@@ -230,10 +230,28 @@ test("pausedBefore: auto-paused summary whose last reviewed commit is not the he
   assert.equal(pausedBefore([paused, oldNudge, at(BOT, "Review finished.", "2026-10-07T01:30:00Z")], head, since), true)
   // The nudge for this head is still unanswered.
   assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T01:30:00Z"), nudge], head, since), true)
+  // A pause note updated after the reply is a new pause: nudge again.
+  const repaused = { ...paused, updatedAt: "2026-10-07T04:00:00Z" }
+  assert.equal(pausedBefore([repaused, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), true)
+  // Head SHA case doesn't matter.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head.toUpperCase(), since), false)
 })
 
-test("latestStatusAt: newest CodeRabbit status time, epoch when none", () => {
+test("firstStatusAt: oldest CodeRabbit status time, epoch when none", () => {
   const st = (createdAt: string, context = "CodeRabbit") => ({ context, description: "Review completed", createdAt })
-  assert.equal(latestStatusAt([st("2026-10-12T06:00:00Z"), st("2026-10-12T05:00:00Z"), st("2026-10-12T07:00:00Z", "ci")]).toISOString(), "2026-10-12T06:00:00.000Z")
-  assert.equal(latestStatusAt([]).getTime(), 0)
+  assert.equal(firstStatusAt([st("2026-10-12T06:00:00Z"), st("2026-10-12T05:00:00Z"), st("2026-10-12T04:00:00Z", "ci")]).toISOString(), "2026-10-12T05:00:00.000Z")
+  assert.equal(firstStatusAt([]).getTime(), 0)
+})
+
+test("pausedBefore + firstStatusAt: a status posted when CodeRabbit answers the nudge doesn't re-arm it", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (createdAt: string) => ({ context: "CodeRabbit", description: "Review completed", createdAt })
+  const statuses = [st("2026-10-07T01:00:00Z"), st("2026-10-07T03:00:00Z")]
+  const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
+  const comments = [
+    comment({ user: BOT, body: PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"), updatedAt: "2026-10-07T01:00:00Z" }),
+    at("someone", "@coderabbitai review", "2026-10-07T02:00:00Z"),
+    at(BOT, "Review finished.", "2026-10-07T03:00:00Z"),
+  ]
+  assert.equal(pausedBefore(comments, head, firstStatusAt(statuses)), false)
 })

@@ -125,38 +125,40 @@ const COMMAND_DONE = /Review finished|Already reviewed/i
  * forever. `@coderabbitai review` (one review) still works while paused, so the
  * nudge keeps that command rather than `resume`, which would review every push.
  * A review command posted after `since` (so it targeted this head) that CodeRabbit
- * answered with "Review finished"/"Already reviewed" means this head was already
- * handled, so the PR isn't nudged again even if the paused note's commit stays
- * stale. Only the most recently updated paused note counts.
+ * answered with "Review finished"/"Already reviewed" — after both that command
+ * and the paused note's last update — means this head was already handled, so
+ * the PR isn't nudged again even if the paused note's commit stays stale. A pause
+ * note updated after the reply is a new pause and still counts. Only the most
+ * recently updated paused note counts.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
- * @param since - time of CodeRabbit's latest status on the head (≈ head push)
+ * @param since - time of CodeRabbit's first status on the head (≈ head push)
  */
 export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
-  const nudgeAt = Math.max(
-    -1,
-    ...comments
-      .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
-      .map((c) => Date.parse(c.createdAt)),
-  )
-  const answered =
-    nudgeAt >= 0 && comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > nudgeAt)
-  if (answered) return false
   const paused = comments
     .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
     .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
   if (!paused) return false
   const last = LAST_REVIEWED.exec(paused.body)?.[1]
-  return !last || !headSha.startsWith(last.toLowerCase())
+  if (last && headSha.toLowerCase().startsWith(last.toLowerCase())) return false
+  const nudgeAt = comments
+    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
+    .reduce((max, c) => Math.max(max, Date.parse(c.createdAt)), -1)
+  const answeredAfter = Math.max(nudgeAt, Date.parse(paused.updatedAt))
+  const answered =
+    nudgeAt >= 0 && comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > answeredAfter)
+  return !answered
 }
 
 /**
- * Time of CodeRabbit's latest commit status, or the epoch when there is none.
+ * Time of CodeRabbit's first commit status on the head, or the epoch when there is
+ * none. The first, not the latest: CodeRabbit posts a fresh status when it answers
+ * a nudge, which would otherwise move `since` past that nudge and re-nudge the head.
  * @param statuses - commit statuses on the PR's head SHA, any order
  */
-export function latestStatusAt(statuses: Status[]): Date {
+export function firstStatusAt(statuses: Status[]): Date {
   const times = statuses.filter((s) => s.context === "CodeRabbit").map((s) => Date.parse(s.createdAt))
-  return new Date(times.length ? Math.max(...times) : 0)
+  return new Date(times.length ? times.reduce((min, t) => Math.min(min, t)) : 0)
 }
 
 /**
@@ -295,7 +297,7 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
         `/repos/${REPO}/commits/${pr.headSha}/statuses`,
       )
     ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
-    if (statusSaysReviewed(statuses) && !pausedBefore(comments, pr.headSha, latestStatusAt(statuses))) continue
+    if (statusSaysReviewed(statuses) && !pausedBefore(comments, pr.headSha, firstStatusAt(statuses))) continue
     unreviewed.push(pr)
   }
 
