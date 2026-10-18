@@ -138,3 +138,33 @@ describe("PLPrintPage — shared query", () => {
     expect(screen.getByText(/\(Monthly\)/)).toBeInTheDocument()
   })
 })
+
+describe("PLPrintPage — monthly view", () => {
+  it("renders a subtotal for a multi-account group with one cell per month", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
+    mAccounts.mockResolvedValue([
+      accounts[0],
+      { ...accounts[1], group: accounts[0].group },
+    ])
+    mGroupBy.mockResolvedValue(groupByTotals)
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, accountId: 1, amount: dec("3000.00"), date: new Date("2025-08-01") },
+      { id: 2, accountId: 3, amount: dec("500.00"), date: new Date("2025-08-02") },
+    ])
+    render(await PLPrintPage(makeProps({ view: "monthly", year: "2025" })))
+    const subtotal = screen.getByText("Giving subtotal").closest("tr")
+    // Label cell + 12 months + total.
+    expect(subtotal?.querySelectorAll("td")).toHaveLength(14)
+    expect(subtotal).toHaveTextContent("3,500.00")
+  })
+
+  it("shows a message instead of an empty grid when the FY has no income or expenses", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "AUDITOR", id: "1" } })
+    mAccounts.mockResolvedValue(accounts)
+    mGroupBy.mockResolvedValue([])
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([])
+    render(await PLPrintPage(makeProps({ view: "monthly" })))
+    expect(screen.getByText("No income or expenses this financial year.")).toBeInTheDocument()
+    expect(screen.queryByRole("table")).toBeNull()
+  })
+})
