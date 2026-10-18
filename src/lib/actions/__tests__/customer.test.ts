@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { createCustomer, updateCustomer, setCustomerActive, createCustomerInline, listCustomers } from "@/lib/actions/customer"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

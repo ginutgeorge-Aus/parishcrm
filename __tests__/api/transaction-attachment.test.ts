@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/prisma", () => ({
   prisma: { transactionAttachment: { findUnique: jest.fn() } },
 }))

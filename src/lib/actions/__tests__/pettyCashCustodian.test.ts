@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { updateSessionCustodian } from "@/lib/actions/pettyCashSession"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

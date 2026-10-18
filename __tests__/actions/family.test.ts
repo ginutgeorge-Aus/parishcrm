@@ -1,5 +1,7 @@
 /** @jest-environment node */
+jest.mock("@/lib/membershipSettings", () => ({ getMembershipSettings: jest.fn().mockResolvedValue({ minDues: null }) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/prisma", () => {
   const prisma: Record<string, unknown> = {
     family: {

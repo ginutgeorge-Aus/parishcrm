@@ -16,6 +16,7 @@ import { assertUnlocked, ACCOUNTING_LOCK_DATE_KEY, isDateLocked } from "@/lib/ac
 import { SIGNED_MONEY_DECIMAL_RE, MIN_YEAR, MAX_YEAR, isP2034 } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const MAX_TX_ATTEMPTS = 3
 
@@ -44,6 +45,8 @@ export async function saveStatementBalance(
   statementDate: string,
   closingBalance: string
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("reconciliation")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

@@ -22,9 +22,20 @@ type Props = {
   idleTimeoutMinutes: number
   cardFeePercent: string
   cardFeeFixed: string
+  /** Membership Applications section (Membership forms on). Default true. */
+  showMembership?: boolean
+  /** Card Processing Fee section (Events on). Default true. */
+  showCardFee?: boolean
 }
 
-export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed }: Readonly<Props>) {
+/**
+ * General app settings: owner alert email, membership alert email, idle
+ * timeout and card fee. Feature-owned sections hide while their feature is off.
+ */
+export function AppSettingsForm({
+  ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed,
+  showMembership = true, showCardFee = true,
+}: Readonly<Props>) {
   const [state, formAction, isPending, keepOwner] = useKeepFormValues(upsertSetting)
   const [membershipState, membershipFormAction, isMembershipPending, keepMembership] = useKeepFormValues(upsertSetting)
   const [idleState, idleFormAction, isIdlePending] = useKeepFormValues(upsertSetting)
@@ -56,6 +67,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
           <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
         </form>
       </section>
+      {showMembership && (
       <section>
         <h3 className="text-base font-semibold text-foreground mb-1">Membership Applications</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -81,6 +93,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
           <Button type="submit" disabled={isMembershipPending}>{isMembershipPending ? "Saving…" : "Save"}</Button>
         </form>
       </section>
+      )}
       <section>
         <h3 className="text-base font-semibold text-foreground mb-1">Session Timeout</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -105,6 +118,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
           <Button type="submit" disabled={isIdlePending}>{isIdlePending ? "Saving…" : "Save"}</Button>
         </form>
       </section>
+      {showCardFee && (
       <section>
         <h3 className="text-base font-semibold text-foreground mb-1">Card Processing Fee</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -153,6 +167,7 @@ export function AppSettingsForm({ ownerNotificationEmail, membershipSecretaryEma
           </form>
         </div>
       </section>
+      )}
     </div>
   )
 }

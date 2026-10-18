@@ -4,6 +4,7 @@
  * arithmetic (sumCents/centsToNumber), not float reduce, to avoid IEEE-754 drift.
  */
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {

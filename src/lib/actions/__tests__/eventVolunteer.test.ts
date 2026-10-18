@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { setVolunteerView, regenerateVolunteerToken } from "@/lib/actions/eventAccess"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { event: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/featureFlags")
 const notFound = jest.fn(() => { throw new Error("NEXT_NOT_FOUND") })
 jest.mock("next/navigation", () => ({ notFound: () => notFound() }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: () => false }))
@@ -25,6 +26,7 @@ jest.mock("@/components/public-event/WaitlistForm", () => ({
 }))
 
 import { prisma } from "@/lib/prisma"
+import { requireFeature } from "@/lib/featureFlags"
 import PublicEventPage from "@/app/(public)/e/[slug]/page"
 
 const baseEvent = {
@@ -56,6 +58,13 @@ const baseEvent = {
 }
 
 beforeEach(() => jest.clearAllMocks())
+
+it("404s while Events is off, before the event lookup", async () => {
+  ;(requireFeature as jest.Mock).mockImplementationOnce(async () => notFound())
+  await expect(PublicEventPage({ params: Promise.resolve({ slug: "spring-fete" }) })).rejects.toThrow("NEXT_NOT_FOUND")
+  expect(requireFeature).toHaveBeenCalledWith("events")
+  expect(prisma.event.findUnique).not.toHaveBeenCalled()
+})
 
 it("shows the closed panel and hides the form + waitlist when registration is closed", async () => {
   ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(baseEvent)

@@ -17,6 +17,7 @@ import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
 import type { ActionResult } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 // --- Receipts ---
 
@@ -95,6 +96,8 @@ export async function createReceipt(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
@@ -192,6 +195,8 @@ export async function updateReceipt(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   // canAccessAccounting (ADMIN|PASTOR), matching createReceipt. Any editor may correct any
   // entry in an OPEN session — petty-cash sessions are collaborative and both
@@ -280,6 +285,8 @@ export async function updateReceipt(
 }
 
 export async function deleteReceipt(id: number): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const receipt = await prisma.pettyCashReceipt.findUnique({

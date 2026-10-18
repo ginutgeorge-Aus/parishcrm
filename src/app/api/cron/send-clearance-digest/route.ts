@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { bearerOk } from "@/lib/cronAuth"
 import { runClearanceDigestLocked } from "@/lib/clearanceDigest"
 import { sydneyMonthKey } from "@/lib/dates"
+import { cronFeatureSkip } from "@/lib/featureFlags"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -9,7 +10,9 @@ export const dynamic = "force-dynamic"
 /**
  * Manual / external trigger for the monthly clearance digest (the in-app
  * scheduler runs it on the 1st when CLEARANCE_DIGEST=true; this explicit call
- * needs no flag). Bearer-authed with CRON_SECRET. Shares the scheduler's lease
+ * needs no CLEARANCE_DIGEST flag). Bearer-authed with CRON_SECRET. While the
+ * Child-safety clearances feature is off, an authorised caller gets 200
+ * `{ skipped: "feature off" }` and nothing is sent. Shares the scheduler's lease
  * so runs never overlap. By default it respects the once-per-Sydney-month
  * guard: when this month's digest already went out it sends nothing and
  * returns 200 `{ status: "already-sent", month }`, so an external scheduler that
@@ -17,6 +20,8 @@ export const dynamic = "force-dynamic"
  * @param req authenticated POST request
  */
 export async function POST(req: Request) {
+  const off = await cronFeatureSkip(req.headers.get("authorization"), "clearances")
+  if (off) return off
   const secret = process.env.CRON_SECRET
   if (!secret) {
     console.error("[send-clearance-digest] CRON_SECRET unset — clearance digest endpoint is DISABLED")

@@ -9,6 +9,7 @@ import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
 import { CUID_ID_RE, parseRouteId } from "@/lib/validation"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const notFound = () => new NextResponse("Not found", { status: 404 })
 
@@ -24,6 +25,8 @@ export async function GET(
   req: NextRequest,
   props: { params: Promise<{ id: string; clearanceId: string }> },
 ) {
+  const off = await featureNotFound("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return notFound()
 

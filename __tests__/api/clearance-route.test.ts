@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/prisma", () => ({ prisma: { personClearance: { findUnique: jest.fn() } } }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))

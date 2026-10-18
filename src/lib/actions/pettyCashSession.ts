@@ -14,6 +14,7 @@ import { MONEY_DECIMAL_RE, isValidPgId, isRealCalendarDate } from "@/lib/validat
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 // --- Session ---
 
@@ -42,6 +43,8 @@ export async function createSession(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = CreateSessionSchema.safeParse(Object.fromEntries(formData))
@@ -85,6 +88,8 @@ export async function updateSessionCustodian(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -159,6 +164,7 @@ export type EnsureWeeklyResult = {
 // "FY always has at least one session" guarantee — every editor visit ensures
 // the current Sunday's session. See the design spec.
 export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
+  await assertFeature("pettyCash")
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { status: "not-editor" }
 
@@ -252,6 +258,8 @@ export async function closeSession(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const existing = await prisma.pettyCashSession.findUnique({
@@ -321,6 +329,8 @@ export async function closeSession(
 }
 
 export async function deleteSession(id: number): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }

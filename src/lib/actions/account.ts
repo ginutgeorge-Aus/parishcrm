@@ -22,6 +22,7 @@ const AccountSchema = z.object({
 })
 
 import type { ActionResult } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Next free code in the type's range (INCOME 4xxx, EXPENSE 5xxx):
 // max numeric code of that type + 1; non-numeric codes ignored.
@@ -42,6 +43,8 @@ export async function createAccount(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -81,6 +84,8 @@ export async function updateAccount(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -148,6 +153,8 @@ export async function updateAccount(
 
 /** Delete an unused account (ADMIN). The reference checks and the delete share one Serializable transaction. */
 export async function deleteAccount(id: number): Promise<ActionResult> {
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }

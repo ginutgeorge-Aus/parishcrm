@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 jest.mock("next/headers", () => ({ headers: jest.fn() }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: jest.fn() }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn() }))
@@ -11,7 +12,8 @@ jest.mock("@/lib/prisma", () => ({ prisma: {
   registration: { findFirst: jest.fn() },
 } }))
 
-import { startExistingRegistrationCheckout } from "../eventCheckout"
+import { startEventCheckout, startExistingRegistrationCheckout } from "../eventCheckout"
+import { featureGuard } from "@/lib/featureFlags"
 import { headers } from "next/headers"
 import { stripeConfigured } from "@/lib/stripe"
 import { rateLimit } from "@/lib/rateLimit"
@@ -79,4 +81,23 @@ it("400s when the registration settled or its prior checkout was paid mid-reques
   expect(await startExistingRegistrationCheckout("fete", "tok-42")).toEqual({
     ok: false, status: 400, error: "This registration is not awaiting payment",
   })
+})
+
+it.each([
+  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "tok-42")],
+  ["startEventCheckout", () => startEventCheckout("fete", {})],
+])("%s returns the public 'Event not found' 404 while Events is off (no admin wording)", async (_name, call) => {
+  ;(featureGuard as jest.Mock).mockResolvedValueOnce({ error: "This feature is turned off in Settings → Features." })
+  expect(await call()).toEqual({ ok: false, status: 404, error: "Event not found" })
+  expect(mCreate).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "tok-42")],
+  ["startEventCheckout", () => startEventCheckout("fete", {})],
+])("%s rate-limits before the feature read", async (_name, call) => {
+  mRate.mockReturnValueOnce(false)
+  ;(featureGuard as jest.Mock).mockClear()
+  expect(await call()).toMatchObject({ ok: false, status: 429 })
+  expect(featureGuard).not.toHaveBeenCalled()
 })

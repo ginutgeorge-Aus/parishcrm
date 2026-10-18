@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { sendBirthdayEmail, sendBirthdayEmailsBulk } from "@/lib/actions/birthday"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

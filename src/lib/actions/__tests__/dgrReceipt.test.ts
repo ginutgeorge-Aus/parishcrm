@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import {
   createDgrReceipt,
   updateDgrReceipt,

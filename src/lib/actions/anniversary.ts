@@ -17,10 +17,13 @@ import {
 import { claimCelebrationSend, ANNIVERSARY_ACTION } from "@/lib/celebrationClaim"
 import { deliverCelebration } from "@/lib/celebrationDeliver"
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const COUPLE = { in: ["HEAD", "SPOUSE"] as FamilyRoleLite[] }
 
 export async function sendAnniversaryEmail(familyId: number): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -75,6 +78,8 @@ export async function sendAnniversaryEmail(familyId: number): Promise<ActionResu
 export async function sendAnniversaryEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!ANNIVERSARY_WINDOWS.includes(windowDays as (typeof ANNIVERSARY_WINDOWS)[number])) return { error: "Invalid window" }

@@ -8,13 +8,16 @@ import { rateLimit } from "@/lib/rateLimit"
 import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
+import { featureGuard } from "@/lib/featureFlags"
 
-// Public entry point for the optional Stripe event-payments flow: prices the
-// registration server-side (never trusting client-sent amounts), then stages
-// a CheckoutSession row and starts a Stripe Checkout Session. Mirrors the
-// unauth `POST /api/events/[slug]/register` route's guards (rate limit, IP
-// trust, publish/past-event checks) since this is equally a public callable
-// endpoint despite being a server action rather than a route handler.
+/**
+ * Public entry point for the optional Stripe event-payments flow: prices the
+ * registration server-side (never trusting client-sent amounts), then stages
+ * a CheckoutSession row and starts a Stripe Checkout Session. Mirrors the
+ * unauth `POST /api/events/[slug]/register` route's guards (rate limit, IP
+ * trust, publish/past-event checks) since this is equally a public callable
+ * endpoint despite being a server action rather than a route handler.
+ */
 export async function startEventCheckout(
   slug: string,
   rawBody: unknown,
@@ -31,6 +34,8 @@ export async function startEventCheckout(
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
+  // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
+  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
 
   // Shared with createEventRegistration so both flows agree on ticket/capacity
   // data and the include shape can't silently drift between them.
@@ -83,12 +88,14 @@ export async function startEventCheckout(
   return withCurrencyGuard(() => createEventCheckoutSession(event, v.priced, origin))
 }
 
-// Pay-now-by-card for an EXISTING pending registration, reached from the
-// payment-reminder success page. Public callable (like startEventCheckout), so
-// it re-guards access itself: Stripe configured, rate-limited, event published +
-// online-payment enabled, and the registration must be event-scoped + PENDING +
-// non-free. No past-event / registration-closed gate: a registered attendee owes
-// the money regardless of the event date.
+/**
+ * Pay-now-by-card for an EXISTING pending registration, reached from the
+ * payment-reminder success page. Public callable (like startEventCheckout), so
+ * it re-guards access itself: Stripe configured, rate-limited, event published +
+ * online-payment enabled, and the registration must be event-scoped + PENDING +
+ * non-free. No past-event / registration-closed gate: a registered attendee owes
+ * the money regardless of the event date.
+ */
 export async function startExistingRegistrationCheckout(
   slug: string,
   publicToken: string,
@@ -103,6 +110,8 @@ export async function startExistingRegistrationCheckout(
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
+  // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
+  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
 
   const event = await prisma.event.findUnique({
     where: { slug },

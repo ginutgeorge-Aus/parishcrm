@@ -10,6 +10,7 @@ import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { isDemoMode, DEMO_IMPORT_MAX_BYTES } from "@/lib/demoMode"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // Cap the number of parsed rows before the dedup scan / per-row confirm inserts —
 // same resource-exhaustion class the families CSV import guards. A
@@ -150,6 +151,8 @@ async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
 }
 
 export async function POST(req: Request) {
+  const off = await featureNotFound("bankImport")
+  if (off) return off
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canAccessAccounting(session.user?.role)) {

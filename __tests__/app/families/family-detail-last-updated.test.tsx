@@ -3,6 +3,7 @@
 // the family detail page shows a "last updated by" line to editors only.
 // Asserts the gating — getFamilyLastUpdate runs for editors, not for VIEWER.
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {

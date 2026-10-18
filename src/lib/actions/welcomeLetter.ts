@@ -14,6 +14,7 @@ import { renderWelcomeLetterPdf } from "@/lib/pdf/WelcomeLetterPdf"
 import { sendWelcomeLetterEmail } from "@/lib/email"
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { featureGuard } from "@/lib/featureFlags"
 
 export type WelcomeLetterRecipient = { personId: number; name: string; email: string }
 export type DraftResult =
@@ -28,6 +29,8 @@ function todaySydney(): string {
 }
 
 export async function buildWelcomeLetterDraft(familyId: number): Promise<DraftResult> {
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(familyId) || familyId <= 0 || familyId > 2147483647) return { error: "Invalid family" }
@@ -84,6 +87,8 @@ export type SendWelcomeLetterInput = {
 }
 
 export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 

@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { createReceipt, updateReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense, updateExpense } from "@/lib/actions/pettyCashExpense"
 import { prisma } from "@/lib/prisma"

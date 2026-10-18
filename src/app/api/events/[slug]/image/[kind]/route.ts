@@ -5,12 +5,14 @@ import { canEdit } from "@/lib/roleGuard"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // Lowercase URL param → Prisma enum. Anything else 404s (no enumeration of kinds).
 const KIND_MAP = { banner: "BANNER", poster: "POSTER" } as const
 
 const notFound = () => new NextResponse("Not found", { status: 404 })
 
+/** Public banner/poster image for an event. Rate-limited per IP before any DB read; 404 while Events is off. */
 export async function GET(
   req: NextRequest,
   props: { params: Promise<{ slug: string; kind: string }> },
@@ -22,6 +24,8 @@ export async function GET(
   if (!rateLimit(`event-image:${ip}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
 
   const { slug, kind } = await props.params
   // Object.hasOwn (not `!mapped`) so inherited keys like "__proto__" /

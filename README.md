@@ -151,6 +151,7 @@ docs/                   topic docs + specs/plans
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
 - **Membership** — public application form, approval workflow, letters/receipts.
 - **Family self-update** — secure tokenised links let families review and update their own details.
+- **Choose your features** — turn on only what your church uses (Settings → Features); switched-off features are hidden and blocked, and their data is kept.
 - **Ops** — in-app bug/feature reporting, "What's New" changelog, audit log, admin-customisable email templates.
 
 Full per-feature guides (usage by role, internals, configuration) live in the **[documentation](https://ginutgeorge-aus.github.io/parishcrm/docs/)**.

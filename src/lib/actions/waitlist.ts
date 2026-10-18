@@ -7,12 +7,15 @@ import { canEdit } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { actorId } from "@/lib/actor"
 import type { ActionResult } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 export async function markWaitlistNotified(
   waitlistId: number,
   eventId: number,
   notified: boolean,
 ): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 

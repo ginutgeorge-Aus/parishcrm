@@ -1,9 +1,12 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { POST } from "@/app/api/events/[slug]/waitlist/route"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { NextRequest } from "next/server"
 import { verifyTurnstile } from "@/lib/turnstile"
+import { featureNotFound } from "@/lib/featureFlags"
+import { rateLimit } from "@/lib/rateLimit"
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -160,5 +163,21 @@ describe("POST /api/events/[slug]/waitlist", () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe("Registration for this event is closed.")
     expect(prisma.waitlist.create).not.toHaveBeenCalled()
+  })
+
+  it("throttles before the feature check: a rate-limited request never reads the DB", async () => {
+    ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
+    const res = await POST(req({}), ctx("camp"))
+    expect(res.status).toBe(429)
+    expect(featureNotFound).not.toHaveBeenCalled()
+    expect(prisma.event.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("returns a JSON 404 while Events is off, without the event lookup", async () => {
+    ;(featureNotFound as jest.Mock).mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }))
+    const res = await POST(req({}), ctx("camp"))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "Not found" })
+    expect(prisma.event.findUnique).not.toHaveBeenCalled()
   })
 })

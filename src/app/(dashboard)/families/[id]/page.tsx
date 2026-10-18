@@ -19,6 +19,7 @@ import { PersonMobileList } from "@/components/people/PersonMobileList"
 import { ArchiveFamilyButton } from "@/components/families/ArchiveFamilyButton"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { InviteFamilyButton } from "@/components/family-update/InviteFamilyButton"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 import { safeDecrypt } from "@/lib/crypto"
 import { fmtAUD, safeDobDate, sumCents, centsToNumber } from "@/lib/formatting"
 import { getFamilyLastUpdate } from "@/lib/actions/familyActivity"
@@ -120,7 +121,10 @@ function FamilyActionButtons({
   userCanEdit,
   userIsAdmin,
   primaryEmail,
+  canInvite,
 }: Readonly<{
+  /** False while Family self-updates is off: hides the invite button. */
+  canInvite: boolean
   familyId: number
   memberCount: number
   userCanEdit: boolean
@@ -135,7 +139,7 @@ function FamilyActionButtons({
           <Link href={`/families/${familyId}/edit`}>Edit</Link>
         </Button>
       )}
-      {userCanEdit && (
+      {userCanEdit && canInvite && (
         <InviteFamilyButton familyId={familyId} defaultEmail={primaryEmail} />
       )}
       {userIsAdmin && (
@@ -380,18 +384,19 @@ export default async function FamilyDetailPage(props: Readonly<{ params: Promise
 
   const userCanEdit = canEdit(session?.user?.role)
   const userIsAdmin = isAdmin(session?.user?.role)
+  const features = await getEnabledFeatures()
   // Editors-only audit line: when/by-whom the family or a member last changed.
   const lastUpdate = userCanEdit ? await getFamilyLastUpdate(family.id) : null
   // Giving is a read view — gate on read access (ADMIN|PASTOR|AUDITOR|OFFICE_ADMIN),
   // matching the standalone /families/[id]/giving page. Gating on canAccessAccounting
   // (mutation rights) wrongly hid the card from OFFICE_ADMIN/AUDITOR.
-  const userCanSeeGiving = canViewAccounting(session?.user?.role)
+  const userCanSeeGiving = canViewAccounting(session?.user?.role) && features.has("accounting")
   // The transaction edit route requires mutation rights — read-only accounting
   // roles see the description as plain text, not a link that bounces them.
   const userCanEditGiving = canAccessAccounting(session?.user?.role)
   const giving = await getFamilyGiving(family.id, userCanSeeGiving)
 
-  const pendingUpdate = userCanEdit
+  const pendingUpdate = userCanEdit && features.has("familyUpdates")
     ? await prisma.familyUpdateSubmission.findFirst({
         where: { familyId: family.id, status: "PENDING" },
         select: { id: true },
@@ -415,6 +420,7 @@ export default async function FamilyDetailPage(props: Readonly<{ params: Promise
           userCanEdit={userCanEdit}
           userIsAdmin={userIsAdmin}
           primaryEmail={primaryEmail}
+          canInvite={features.has("familyUpdates")}
         />
       </div>
 

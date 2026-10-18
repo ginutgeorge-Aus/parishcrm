@@ -20,8 +20,11 @@ import { toFloat } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 
 import type { ActionResult } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 export async function markPaid(registrationId: number, eventId: number): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -53,6 +56,8 @@ export async function markPaid(registrationId: number, eventId: number): Promise
 }
 
 export async function cancelRegistration(registrationId: number, eventId: number): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -83,6 +88,8 @@ export async function toggleAttendeeCheckIn(
   eventId: number,
   checkIn: boolean,
 ): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   // Editors keep full access; an EVENT_ORGANISER assigned to this specific
   // event may also check attendees in on the day — the whole
@@ -116,6 +123,8 @@ export async function toggleAttendeeCheckIn(
 // (ADMIN-only + unpublished-only) make it impossible to wipe real public
 // registrations — post-publish, cancelRegistration is the only removal path.
 export async function resetEventRegistrations(eventId: number): Promise<ActionResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(eventId)) return { error: "Invalid event" }
@@ -215,6 +224,8 @@ function coerceStoredQuestions(raw: unknown): CustomQuestion[] {
 // never ciphertext. Authz matches BOTH entry points of RegistrationsTable: staff
 // via canViewPeople and an assigned organiser via canManageEvent.
 export async function getRegistrationDetail(registrationId: number): Promise<RegistrationDetailResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   const notFound = { error: "Registration not found" }
   if (!session?.user) return notFound
@@ -374,6 +385,8 @@ export async function sendPaymentReminders(
   rows: ReminderRow[],
   message: string
 ): Promise<SendRemindersResult> {
+  const off = await featureGuard("events")
+  if (off) return off
   const session = await auth()
   const userId = Number.parseInt(session?.user?.id ?? "", 10)
   if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
@@ -434,6 +447,7 @@ export async function sendPaymentReminders(
 
 // registrationId -> ISO timestamp of the latest SUCCESS reminder, for PENDING regs only.
 export async function lastRemindedAtByRegistration(eventId: number): Promise<Record<number, string>> {
+  await assertFeature("events")
   // Exported from a "use server" module = a callable endpoint. Gate it the same
   // as sendPaymentReminders — without this any authenticated session could
   // enumerate reminder activity for an arbitrary event. Unauthorized → empty

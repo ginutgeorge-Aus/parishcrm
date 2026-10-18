@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: jest.fn() }))
 jest.mock("@/lib/eventRegistrationPricing", () => ({
   fetchEventWithTickets: jest.fn(),

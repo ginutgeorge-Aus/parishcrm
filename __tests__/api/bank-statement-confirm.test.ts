@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 import { POST } from "@/app/api/import/bank-statement/confirm/route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

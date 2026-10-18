@@ -1,6 +1,9 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { submitMembershipApplication } from "@/lib/actions/membership"
 import { prisma } from "@/lib/prisma"
+import { featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { membershipApplication: { create: jest.fn().mockResolvedValue({ id: 1 }) } } }))
 jest.mock("@/lib/turnstile", () => ({ verifyTurnstile: jest.fn().mockResolvedValue(true) }))
@@ -157,4 +160,17 @@ describe("stale overseas-field labels", () => {
     })
     expect(r).toEqual({ success: expect.any(String) })
   })
+})
+
+it("checks the honeypot before the feature (a bot never triggers the feature read)", async () => {
+  await submitMembershipApplication({ payload: validPayload, signature: sig, website: "bot" })
+  expect(featureGuard).not.toHaveBeenCalled()
+})
+
+it("returns a generic public message (not the admin wording) while Membership forms is off", async () => {
+  ;(featureGuard as jest.Mock).mockResolvedValueOnce({ error: "This feature is turned off. An admin can enable it in Settings → Features." })
+  const r = await submitMembershipApplication({ payload: validPayload, signature: sig })
+  expect(r).toEqual({ error: PUBLIC_FEATURE_OFF_MESSAGE })
+  expect(JSON.stringify(r)).not.toMatch(/Settings/)
+  expect(prisma.membershipApplication.create).not.toHaveBeenCalled()
 })

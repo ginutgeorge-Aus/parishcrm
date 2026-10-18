@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { createEvent } from "@/lib/actions/event"
 import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { auth } from "@/auth"

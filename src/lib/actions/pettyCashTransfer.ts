@@ -18,6 +18,7 @@ import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -61,6 +62,8 @@ export async function createTransfer(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = TransferSchema.safeParse(Object.fromEntries(formData))
@@ -147,6 +150,8 @@ export async function createTransfer(
 }
 
 export async function deleteTransfer(id: number): Promise<ActionResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const transfer = await prisma.pettyCashTransfer.findUnique({

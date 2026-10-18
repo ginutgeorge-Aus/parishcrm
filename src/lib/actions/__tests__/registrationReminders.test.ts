@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { sendPaymentReminders, lastRemindedAtByRegistration } from "@/lib/actions/registration"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

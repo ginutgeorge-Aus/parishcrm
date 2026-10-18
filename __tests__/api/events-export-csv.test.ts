@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -18,6 +19,7 @@ import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { isEventManager } from "@/lib/eventManager"
 import { NextRequest } from "next/server"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const mockAuth = auth as jest.Mock
 const mockFindUnique = prisma.event.findUnique as jest.Mock
@@ -202,5 +204,20 @@ describe("GET /api/events/[slug]/export-csv", () => {
     expect(lines).toHaveLength(3)
     expect(lines[1].endsWith(",")).toBe(true)
     expect(lines[2].endsWith(",")).toBe(true)
+  })
+
+  it("returns 404 while Events is off, without the event lookup", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "9901" } }) // fresh rate-limit bucket
+    ;(featureNotFound as jest.Mock).mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }))
+    const res = await GET(makeRequest(), makeProps("summer-fair"))
+    expect(res.status).toBe(404)
+    expect(mockFindUnique).not.toHaveBeenCalled()
+  })
+
+  it("checks auth before the feature: an anonymous caller gets 401 and no feature read", async () => {
+    mockAuth.mockResolvedValue(null)
+    const res = await GET(makeRequest(), makeProps("summer-fair"))
+    expect(res.status).toBe(401)
+    expect(featureNotFound).not.toHaveBeenCalled()
   })
 })

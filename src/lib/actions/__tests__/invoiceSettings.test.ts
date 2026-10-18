@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { updateInvoiceSettings } from "@/lib/actions/invoiceSettings"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { prisma } from "@/lib/prisma"

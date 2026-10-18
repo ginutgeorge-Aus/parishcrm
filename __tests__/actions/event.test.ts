@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { createEvent, updateEvent, deleteEvent, publishEvent, resyncEventsToWebsite } from "@/lib/actions/event"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

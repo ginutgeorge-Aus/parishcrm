@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { voidInvoice } from "@/lib/actions/invoiceVoid"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

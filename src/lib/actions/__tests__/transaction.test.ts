@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 import { createTransaction, updateTransaction } from "../transaction"
 import { toggleReconciled, reconcileMany } from "../transactionReconcile"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

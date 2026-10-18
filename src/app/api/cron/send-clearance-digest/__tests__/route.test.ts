@@ -1,5 +1,6 @@
 /** @jest-environment node */
 // src/app/api/cron/send-clearance-digest/__tests__/route.test.ts
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/clearanceDigest", () => ({ runClearanceDigestLocked: jest.fn() }))
 import { POST } from "../route"
 import { runClearanceDigestLocked } from "@/lib/clearanceDigest"

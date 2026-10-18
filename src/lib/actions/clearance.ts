@@ -16,6 +16,7 @@ import { ClearanceType } from "@/lib/generated/prisma/enums"
 import { BULK_VERIFY_MAX } from "@/lib/clearanceComplianceView"
 import { wwccPortalFields } from "@/lib/clearanceCompliance"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 // WWCC / Safe Ministry clearances on a person. Storage mirrors
 // TransactionAttachment (transactionAttachment.ts): the file is base64-encoded,
@@ -87,6 +88,8 @@ export async function upsertClearance(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(personId) || !CLEARANCE_TYPES.has(type)) return { error: "Not found" }
@@ -232,6 +235,8 @@ export async function verifyClearance(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -275,6 +280,8 @@ export async function verifyClearance(
 export async function unverifyClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -311,6 +318,8 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
 export async function deleteClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -357,6 +366,8 @@ export async function verifyClearancesBulk(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 

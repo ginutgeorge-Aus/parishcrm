@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { buildWelcomeLetterDraft, sendWelcomeLetter } from "@/lib/actions/welcomeLetter"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

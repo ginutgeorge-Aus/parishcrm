@@ -8,9 +8,12 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { isValidPgId } from "@/lib/validation"
 import { InvoiceStatus } from "@/lib/generated/prisma/enums"
+import { featureGuard } from "@/lib/featureFlags"
 
 /** Void a SENT invoice with a reason. The number stays used; PAID must be unmarked first. */
 export async function voidInvoice(id: number, reason: string): Promise<{ success: string } | { error: string }> {
+  const off = await featureGuard("invoices")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const r = typeof reason === "string" ? reason.trim() : ""

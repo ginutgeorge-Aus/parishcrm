@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { findMembershipMatches } from "@/lib/actions/membership"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

@@ -26,6 +26,7 @@ import {
 import { APP_LOCALE } from "@/lib/appConfig"
 import { parseRouteId } from "@/lib/validation"
 import { currentSchoolYear } from "@/lib/sundaySchool"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 import { PersonClearances } from "@/components/people/PersonClearances"
 import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "@/lib/clearanceView"
 import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
@@ -263,6 +264,7 @@ function GivingHistoryCard({
   )
 }
 
+/** Person detail page: profile, family, and cards for the enabled features the viewer may see. */
 export default async function PersonDetailPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
@@ -296,7 +298,9 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     const userId = actorId(session)
     void logAudit(userId, "VIEW_PASTORAL_NOTES", "Person", person.id)
   }
-  const userCanSeeGiving = canAccessAccounting(session?.user?.role)
+  // Off features drop their cards here too; the clearance and giving reads are skipped.
+  const features = await getEnabledFeatures()
+  const userCanSeeGiving = canAccessAccounting(session?.user?.role) && features.has("accounting")
   // Safeguarding card. Gate BEFORE querying/decrypting: AUDITOR/EVENT_ORGANISER
   // get nothing; VIEWER gets status badges only (buildClearanceCard strips the
   // rest). Never select the `document` blob here.
@@ -305,7 +309,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
   // Independent reads run together: clearances, the verify-portal URL (managers
   // only), and giving history (accounting roles only).
   const [clearanceRows, wwccVerifyUrl, givingTransactions] = await Promise.all([
-    canViewClearanceStatus(role)
+    canViewClearanceStatus(role) && features.has("clearances")
       ? prisma.personClearance.findMany({
           where: { personId: person.id },
           select: clearanceSelectFor(role),
@@ -326,7 +330,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         })
       : Promise.resolve([]),
   ])
-  const clearanceCard = buildClearanceCard({
+  const clearanceCard = !features.has("clearances") ? null : buildClearanceCard({
     role: session?.user?.role,
     personId: person.id,
     rows: clearanceRows,
@@ -387,7 +391,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         dob={dob}
         showPastoralNotes={showPastoralNotes}
         clearanceCard={clearanceCard}
-        sundaySchool={sundaySchoolOf(person.sundaySchoolEnrolments)}
+        sundaySchool={features.has("sundaySchool") ? sundaySchoolOf(person.sundaySchoolEnrolments) : null}
       />
 
       {userCanSeeGiving && (

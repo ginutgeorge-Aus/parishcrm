@@ -12,6 +12,7 @@ import { parseISODate } from "@/lib/formatting"
 import { endOfDayUTC, sydneyTodayYMD } from "@/lib/dates"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { TransactionType } from "@/lib/generated/prisma/enums"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const ID = /^\d+$/
 
@@ -120,6 +121,8 @@ function parseExportParams(sp: URLSearchParams): ExportParamsResult {
 }
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canViewAccounting(session.user.role)) {

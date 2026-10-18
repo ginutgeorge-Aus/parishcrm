@@ -8,6 +8,7 @@ import { toCents, type Money } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
 import { sydneyToday, sydneyTodayYMD, endOfDayUTC } from "@/lib/dates"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -26,6 +27,8 @@ function toYMD(d: Date): string {
 }
 
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("accounting")
+  if (off) return off
   const guard = await guardAccountingExport("balance-sheet")
   if (guard instanceof NextResponse) return guard
 

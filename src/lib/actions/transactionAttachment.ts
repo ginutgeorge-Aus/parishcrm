@@ -12,6 +12,7 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentType } from "@/lib/fileUpload"
+import { featureGuard } from "@/lib/featureFlags"
 
 // Receipt/invoice attachments for a transaction, mirroring Xero's
 // "attach files". Storage reuses the EventImage pattern — the bytes live in a
@@ -27,6 +28,7 @@ import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES, sanitizeFilename, sniffContentT
 // 5 MB blobs to a single row (storage DoS). 20 covers any real receipt set.
 const MAX_ATTACHMENTS_PER_TX = 20
 
+/** Attach a receipt file to a transaction. ADMIN/PASTOR (canAccessAccounting); blocked in demo mode and while Accounting is off. */
 export async function attachTransactionReceipt(
   transactionId: number,
   _prev: ActionResult,
@@ -34,6 +36,8 @@ export async function attachTransactionReceipt(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -95,9 +99,12 @@ export async function attachTransactionReceipt(
   revalidatePath(`/accounting/transactions/${transactionId}`)
 }
 
+/** Remove a receipt attachment. ADMIN/PASTOR (canAccessAccounting); blocked in demo mode and while Accounting is off. */
 export async function removeTransactionReceipt(attachmentId: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

@@ -2,6 +2,7 @@
 // event.ts imports `Prisma` as a VALUE (for Prisma.JsonNull) from the generated
 // client, which bootstraps the query engine at module load and crashes under
 // jsdom (no TextEncoder). Run this suite under node, same fix as event.test.ts.
+jest.mock("@/lib/featureFlags")
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

@@ -9,6 +9,9 @@ after first login. Environment variables provide fallback defaults for some
 of these fields until an admin saves a value in-app — see
 [Environment Variables](/parishcrm/docs/environment-variables/).
 
+To switch whole features on or off (Events, Accounting, Sunday School and
+so on), see [Choosing Features](/parishcrm/docs/choosing-features/).
+
 ## Using it
 
 Sign in as an `ADMIN` and open **Settings** from the sidebar. Each section

@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

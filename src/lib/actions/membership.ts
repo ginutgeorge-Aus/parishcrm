@@ -22,6 +22,8 @@ import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getLetterSettings } from "@/lib/letterSettings"
 import type { Gender, FamilyRole } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
+import { assertFeature, featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 const MAX_SIGNATURE_LEN = 300_000 // ~225 KB of base64
 
@@ -45,6 +47,8 @@ type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updated
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
+  // Public form: generic message, never the admin wording.
+  if (await featureGuard("memberships")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
   if (!input.signature?.startsWith("data:image/")) return { error: "Signature is required" }
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }
@@ -123,6 +127,7 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname" }
 
 export async function findMembershipMatches(applicationId: number): Promise<MatchCandidate[]> {
+  await assertFeature("memberships")
   // Exported from a "use server" module → a directly-callable endpoint. Without
   // this gate any caller could enumerate families by guessing application ids
   // (IDOR). Staff-only, same guard as the review page that consumes it.
@@ -406,10 +411,13 @@ function approvalErrorResult(e: unknown, attempt: number): ActionResultWithSucce
   return { error: "Another approval just used the same family — please try again." }
 }
 
+/** Approve a pending membership application by creating a family or merging into one. canEdit; Membership forms must be on. */
 export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("memberships")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
 
@@ -423,6 +431,9 @@ export async function approveMembershipApplication(
   const p = readPayload(app.payload as string)
   const reviewerId = actorId(session)
   const notes = buildNotesBlock(p, await getMembershipSettings())
+  // Recorded even while Subscription dues is off, on purpose: the public form
+  // still collects the amount, and turning the feature off keeps data (it is
+  // hidden, not erased), so switching dues back on shows what was agreed.
   const dues = app.monthlyDues ?? null
   const seeds = personSeeds(p)
   const marriageDate = p.spouse?.dateOfMarriage ? new Date(p.spouse.dateOfMarriage) : null
@@ -451,6 +462,8 @@ export async function approveMembershipApplication(
 }
 
 export async function rejectMembershipApplication(id: number, note?: string): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("memberships")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
 

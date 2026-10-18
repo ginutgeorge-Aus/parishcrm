@@ -7,6 +7,7 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
   EMAIL_TEMPLATE_KEYS,
   EMAIL_TEMPLATE_LABELS,
+  visibleEmailTemplateKeys,
   type EmailTemplateFields,
   type EmailTemplateKey,
 } from "@/lib/emailTemplates"
@@ -52,6 +53,21 @@ describe("EmailTemplatesSection", () => {
     await user.click(screen.getByRole("tab", { name: EMAIL_TEMPLATE_LABELS[second] }))
     expect(previewEmailTemplate).toHaveBeenCalledTimes(2)
     expect(previewEmailTemplate).toHaveBeenLastCalledWith(second, templates[second])
+  })
+})
+
+describe("feature-owned templates", () => {
+  it("shows only the given keys as tabs", () => {
+    render(<EmailTemplatesSection templates={templates} keys={["welcome", "receipt"]} />)
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      EMAIL_TEMPLATE_LABELS.welcome, EMAIL_TEMPLATE_LABELS.receipt,
+    ])
+  })
+
+  it("visibleEmailTemplateKeys drops templates whose feature is off and keeps core ones", () => {
+    expect(visibleEmailTemplateKeys(new Set())).toEqual(["welcome"])
+    expect(visibleEmailTemplateKeys(new Set(["receipts", "familyUpdates", "dgrReceipts"]))).toEqual([...EMAIL_TEMPLATE_KEYS])
+    expect(visibleEmailTemplateKeys(new Set(["dgrReceipts"]))).toEqual(["welcome", "dgrReceipt"])
   })
 })
 

@@ -8,6 +8,7 @@
 // and neither AUTH_URL nor APP_URL is set, so it needs its own env setup.
 // Mock style mirrors that file.
 
+jest.mock("@/lib/featureFlags")
 jest.mock("next/headers", () => ({
   headers: jest.fn(),
 }))

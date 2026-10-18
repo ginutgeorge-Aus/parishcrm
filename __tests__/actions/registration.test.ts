@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { markPaid, cancelRegistration, toggleAttendeeCheckIn, resetEventRegistrations } from "@/lib/actions/registration"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

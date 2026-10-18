@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 import { createFund, deleteFund, updateFund, validateFund } from "../fund"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

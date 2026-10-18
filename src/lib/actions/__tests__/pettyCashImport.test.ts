@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { commitImport } from "@/lib/actions/pettyCashImport"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

@@ -3,6 +3,7 @@ import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { createEventRegistration } from "@/lib/eventRegistration"
+import { featureNotFound } from "@/lib/featureFlags"
 
 // Reject oversized bodies before req.json() buffers them into the heap.
 // A legit registration payload is a few KB; this cap leaves generous headroom.
@@ -32,6 +33,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   if (!rateLimit(`register:${ip}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
 
   // Reject before parsing — don't buffer a multi-MB body to then fail Zod.
   if (exceedsBodyLimit(req, MAX_BODY_BYTES)) {

@@ -1,7 +1,9 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { POST } from "@/app/api/events/[slug]/register/route"
 import { prisma } from "@/lib/prisma"
 import { NextRequest } from "next/server"
+import { featureNotFound } from "@/lib/featureFlags"
 import { issueFormToken } from "@/lib/formToken"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 
@@ -1027,5 +1029,24 @@ describe("POST /api/events/[slug]/register — confirmation email", () => {
       { params: Promise.resolve({ slug: "harvest" }) }
     )
     expect(res.status).toBe(200)
+  })
+
+  it("returns a JSON 404 while Events is off, without the event lookup", async () => {
+    ;(featureNotFound as jest.Mock).mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }))
+    const body = { firstName: "A", lastName: "B", email: "a@b.com", tickets: {} }
+    const res = await POST(makeRequest(body, "10.77.77.77"), { params: Promise.resolve({ slug: "harvest" }) })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "Not found" })
+    expect(prisma.event.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("throttles before the feature check: the 11th request skips the feature lookup", async () => {
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(mockEvent)
+    const body = { firstName: "A", lastName: "B", email: "a@b.com", tickets: {} }
+    for (let i = 0; i < 10; i++) await POST(makeRequest(body, "10.66.66.66"), { params: Promise.resolve({ slug: "harvest" }) })
+    ;(featureNotFound as jest.Mock).mockClear()
+    const res = await POST(makeRequest(body, "10.66.66.66"), { params: Promise.resolve({ slug: "harvest" }) })
+    expect(res.status).toBe(429)
+    expect(featureNotFound).not.toHaveBeenCalled()
   })
 })

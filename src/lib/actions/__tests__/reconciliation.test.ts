@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 import { saveStatementBalance } from "../reconciliation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))

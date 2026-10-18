@@ -13,6 +13,7 @@ import {
   RECEIPT_SETTING_MAX_LENGTHS,
   type ReceiptSettingKey,
 } from "@/lib/receiptSettingsShared"
+import { featureGuardAny } from "@/lib/featureFlags"
 
 const KEY_SET = new Set<string>(RECEIPT_SETTING_KEYS)
 
@@ -27,11 +28,14 @@ const InputSchema = z
     "A value exceeds its maximum length"
   )
 
+/** Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off. */
 export async function updateReceiptSettings(
   input: Record<string, string>
 ): Promise<{ ok: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
 
@@ -54,9 +58,12 @@ export async function updateReceiptSettings(
   return { ok: true }
 }
 
+/** Reset receipt settings to defaults. ADMIN; blocked in demo mode and while both receipt features are off. */
 export async function resetReceiptSettings(): Promise<{ ok: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
 

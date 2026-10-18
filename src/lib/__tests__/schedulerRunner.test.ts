@@ -154,3 +154,71 @@ describe("startScheduler", () => {
     expect(j.reminders).toHaveBeenCalledTimes(2)
   })
 })
+
+describe("feature-off jobs", () => {
+  it("a feature-off skip is not the period's success, so the job runs once the feature is back on", async () => {
+    const s = initialState()
+    const off = jobs({ clearanceDigest: jest.fn(async () => ({ skipped: "feature off" })) })
+    await tick(s, off, new Date("2026-06-30T21:00:00Z")) // Wed 2026-07-01 07:00 AEST
+    expect(s.clearanceDigest.lastSuccessKey).toBeNull()
+    const on = jobs()
+    await tick(s, on, new Date("2026-06-30T21:30:00Z"))
+    expect(on.clearanceDigest).toHaveBeenCalledTimes(1)
+    expect(s.clearanceDigest.lastSuccessKey).toBe("2026-07")
+  })
+})
+
+describe("feature-off skips and the attempt cap", () => {
+  it("many skipped ticks don't use up the period's attempts", async () => {
+    const s = initialState()
+    const off = jobs({ clearanceDigest: jest.fn(async () => ({ skipped: "feature off" })) })
+    // Four half-hourly skips on the 1st (more than the 3-attempt cap).
+    for (const t of ["21:00", "21:30", "22:00", "22:30"]) await tick(s, off, new Date(`2026-06-30T${t}:00Z`))
+    expect(off.clearanceDigest).toHaveBeenCalledTimes(4)
+    const on = jobs()
+    await tick(s, on, new Date("2026-06-30T23:00:00Z"))
+    expect(on.clearanceDigest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("DEFAULT_JOBS feature gating", () => {
+  afterEach(() => jest.resetModules())
+
+  /** Loads DEFAULT_JOBS with every feature off and the sweeps mocked. */
+  async function loadOff() {
+    const sweeps = {
+      runReminderSweep: jest.fn(),
+      runCelebrationSweep: jest.fn(),
+      runClearanceDigest: jest.fn(),
+      sweepExpiredCheckouts: jest.fn(async () => ({ expired: 0 })),
+    }
+    jest.doMock("@/lib/featureFlags", () => ({
+      // Echo the key so each job's test can assert it is wired to the right feature.
+      skipIfFeatureOff: jest.fn(async (key: string) => ({ skipped: "feature off", key })),
+    }))
+    jest.doMock("@/lib/reminderSweep", () => ({ runReminderSweep: sweeps.runReminderSweep }))
+    jest.doMock("@/lib/celebrationSweep", () => ({ runCelebrationSweep: sweeps.runCelebrationSweep }))
+    jest.doMock("@/lib/clearanceDigest", () => ({ runClearanceDigest: sweeps.runClearanceDigest }))
+    jest.doMock("@/lib/checkoutSweep", () => ({ sweepExpiredCheckouts: sweeps.sweepExpiredCheckouts }))
+    const { DEFAULT_JOBS } = await import("@/lib/schedulerRunner")
+    return { DEFAULT_JOBS, sweeps }
+  }
+
+  it.each([
+    ["reminders", "events"],
+    ["celebrations", "celebrations"],
+    ["clearanceDigest", "clearances"],
+  ] as const)("%s skips while the %s feature is off", async (name, key) => {
+    const { DEFAULT_JOBS, sweeps } = await loadOff()
+    expect(await DEFAULT_JOBS[name](NOW)).toEqual({ skipped: "feature off", key })
+    expect(sweeps.runReminderSweep).not.toHaveBeenCalled()
+    expect(sweeps.runCelebrationSweep).not.toHaveBeenCalled()
+    expect(sweeps.runClearanceDigest).not.toHaveBeenCalled()
+  })
+
+  it("checkouts are never gated (they settle in-flight payments)", async () => {
+    const { DEFAULT_JOBS, sweeps } = await loadOff()
+    await DEFAULT_JOBS.checkouts(NOW)
+    expect(sweeps.sweepExpiredCheckouts).toHaveBeenCalled()
+  })
+})

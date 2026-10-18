@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { sendInvoice, markInvoiceSent, resendInvoice } from "@/lib/actions/invoiceSend"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

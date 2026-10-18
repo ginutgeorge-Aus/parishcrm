@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 import { markWaitlistNotified } from "@/lib/actions/waitlist"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

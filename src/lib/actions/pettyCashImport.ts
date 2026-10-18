@@ -22,6 +22,7 @@ import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber } from "@/lib/formatting"
 import { revalidatePath } from "next/cache"
 import { logAudit } from "@/lib/audit"
+import { featureGuard } from "@/lib/featureFlags"
 
 export interface ImportPreview {
   rows: ResolvedRow[]
@@ -34,6 +35,8 @@ export interface ImportPreview {
 export type PreviewResult = { error: string } | { preview: ImportPreview }
 
 export async function previewImport(formData: FormData): Promise<PreviewResult> {
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -289,9 +292,12 @@ async function insertImportExpenses(
   })
 }
 
+/** Commit a reviewed petty cash import. ADMIN; blocked in demo mode and while Petty cash is off. */
 export async function commitImport(formData: FormData): Promise<CommitResult> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

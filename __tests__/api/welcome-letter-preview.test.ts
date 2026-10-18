@@ -1,4 +1,5 @@
 /** @jest-environment node */
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/pdf/WelcomeLetterPdf", () => ({
   renderWelcomeLetterPdf: jest.fn(() => Promise.resolve(Buffer.from("PDF"))),
@@ -7,6 +8,7 @@ jest.mock("@/lib/pdf/WelcomeLetterPdf", () => ({
 import { auth } from "@/auth"
 import { renderWelcomeLetterPdf } from "@/lib/pdf/WelcomeLetterPdf"
 import { POST } from "@/app/api/welcome-letter/preview/route"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const mockAuth = auth as jest.Mock
 const mockRender = renderWelcomeLetterPdf as jest.Mock
@@ -44,6 +46,15 @@ function makeRequest(body: unknown, contentLength?: number) {
 beforeEach(() => jest.clearAllMocks())
 
 describe("POST /api/welcome-letter/preview", () => {
+  it("returns 404 without rendering while the welcome letter feature is off", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+    ;(featureNotFound as jest.Mock).mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }))
+    const res = await POST(makeRequest(validModel))
+    expect(res.status).toBe(404)
+    expect(featureNotFound).toHaveBeenCalledWith("welcomeLetter")
+    expect(mockRender).not.toHaveBeenCalled()
+  })
+
   it("returns 403 when unauthorized", async () => {
     mockAuth.mockResolvedValue({ user: { role: "VIEWER" } })
     const res = await POST(makeRequest(validModel))

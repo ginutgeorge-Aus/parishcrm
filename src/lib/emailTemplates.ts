@@ -1,6 +1,34 @@
+import type { FeatureKey } from "@/lib/features"
 export const EMAIL_TEMPLATE_KEYS = ["welcome", "familyUpdate", "receipt", "dgrReceipt"] as const
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number]
 export type EmailTemplateFields = { subject: string; intro: string; body: string; signoff: string }
+
+// Templates owned by a feature: hidden in Settings while it's off. Unlisted = core.
+const EMAIL_TEMPLATE_FEATURE: Partial<Record<EmailTemplateKey, FeatureKey>> = {
+  familyUpdate: "familyUpdates",
+  receipt: "receipts",
+  dgrReceipt: "dgrReceipts",
+}
+
+/**
+ * The feature owning a template, or undefined for a core template.
+ * @param key template key (unvalidated input is fine: unknown keys are core)
+ */
+export function emailTemplateFeature(key: string): FeatureKey | undefined {
+  return Object.hasOwn(EMAIL_TEMPLATE_FEATURE, key) ? EMAIL_TEMPLATE_FEATURE[key as EmailTemplateKey] : undefined
+}
+
+/**
+ * Template keys to show in Settings: core ones always, feature-owned ones only
+ * while their feature is on.
+ * @param enabled the enabled feature set
+ */
+export function visibleEmailTemplateKeys(enabled: ReadonlySet<FeatureKey>): EmailTemplateKey[] {
+  return EMAIL_TEMPLATE_KEYS.filter((k) => {
+    const feature = EMAIL_TEMPLATE_FEATURE[k]
+    return !feature || enabled.has(feature)
+  })
+}
 
 export const EMAIL_TEMPLATE_LABELS: Record<EmailTemplateKey, string> = {
   welcome: "Welcome / set password",

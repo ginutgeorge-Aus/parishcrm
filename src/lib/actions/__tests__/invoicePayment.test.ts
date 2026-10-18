@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 import { markInvoicePaid, unmarkInvoicePaid, listPaymentCandidates } from "@/lib/actions/invoicePayment"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"

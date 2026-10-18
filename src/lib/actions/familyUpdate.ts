@@ -18,6 +18,8 @@ import { rateLimit } from "@/lib/rateLimit"
 import { headers } from "next/headers"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 // Thrown inside the approval transaction when the atomic PENDING→APPROVED claim
 // matches 0 rows (a concurrent approval already won). Caught to return a clean
@@ -30,6 +32,8 @@ export async function sendFamilyUpdateInvite(
   familyId: number,
   email: string
 ): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -107,6 +111,8 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }
+  // Public form: generic message, never the admin wording.
+  if (await featureGuard("familyUpdates")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
   // Timing trap: reject missing/forged/too-fast/stale tokens.
   if (verifyFormToken(input.formToken, Date.now()) !== "ok") {
@@ -260,6 +266,8 @@ function mapApprovalError(e: unknown): string | undefined {
 }
 
 export async function approveFamilyUpdate(submissionId: number): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -325,6 +333,8 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
 }
 
 export async function rejectFamilyUpdate(submissionId: number, note?: string): Promise<ActionResultWithSuccess> {
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
 

@@ -12,6 +12,7 @@ import { ACCOUNTING_LOCK_DATE_KEY } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE, isRealCalendarDate } from "@/lib/validation"
 
 import type { ActionResultWithSuccess } from "./types"
+import { featureGuard } from "@/lib/featureFlags"
 
 const OpeningBalanceSchema = z.object({
   paymentAccountId: z.coerce.number().int().positive(),
@@ -35,12 +36,15 @@ const OpeningBalanceSchema = z.object({
     .transform((v) => new Date(v)),
 })
 
+/** Set a payment account's opening balance. ADMIN; blocked in demo mode and while Accounting is off. */
 export async function upsertOpeningBalance(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -83,12 +87,15 @@ const LockDateSchema = z.object({
   date: z.string().refine((v) => v === "" || isRealCalendarDate(v), "Date must be a valid YYYY-MM-DD date"),
 })
 
+/** Set or clear the accounting lock date. ADMIN; blocked in demo mode and while Accounting is off. */
 export async function setAccountingLockDate(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

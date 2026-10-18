@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 import {
   createPaymentAccount,
   renamePaymentAccount,

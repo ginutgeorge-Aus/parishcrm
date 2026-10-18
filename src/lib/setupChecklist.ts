@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { logger } from "@/lib/logger"
 import { getChurchSettingsFresh, missingChurchIdentity } from "@/lib/churchSettings"
 import type { UserRole } from "@/lib/generated/prisma/enums"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 
 /** One first-run setup step shown on the dashboard checklist. */
 export type SetupStep = {
@@ -45,6 +46,7 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
         where: { isActive: true, kind: "BANK" },
         select: { id: true },
       }),
+      getEnabledFeatures(),
     ])
   } catch (err) {
     // Name + Prisma error code only: the message can echo query values (PII).
@@ -55,7 +57,7 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
     })
     return null
   }
-  const [church, branding, person, account, paymentAccount] = rows
+  const [church, branding, person, account, paymentAccount, features] = rows
 
   const steps: SetupStep[] = [
     {
@@ -95,5 +97,9 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
     },
   ]
 
-  return steps.every((s) => s.done) ? null : steps
+  // The accounting steps link into /accounting, which 404s while Accounting is off.
+  const shown = features.has("accounting")
+    ? steps
+    : steps.filter((s) => s.id !== "categories" && s.id !== "paymentAccounts")
+  return shown.every((s) => s.done) ? null : shown
 }

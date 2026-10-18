@@ -10,6 +10,7 @@ import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { MINISTRY_ROLE_LABELS } from "@/lib/ministryRoles"
 import { loadComplianceRows, filterRows, capRows, type ComplianceCell } from "@/lib/clearanceCompliance"
 import { CLEARANCE_STATUS_LABELS, dmy, parseComplianceFilter } from "@/lib/clearanceComplianceView"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -31,6 +32,8 @@ function cells(c: ComplianceCell): string[] {
  * `escapeCsv` (formula-injection guard). Optional `?status=` mirrors the page.
  */
 export async function GET(req: NextRequest) {
+  const off = await featureNotFound("clearances")
+  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canManageClearances(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })

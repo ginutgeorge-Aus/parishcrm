@@ -9,8 +9,11 @@ import { renderDgrReceiptPdf } from "@/lib/pdf/DgrReceiptPdf"
 import { getChurchSettingsStrict } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import { parseRouteId } from "@/lib/validation"
+import { featureNotFound } from "@/lib/featureFlags"
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const off = await featureNotFound("dgrReceipts")
+  if (off) return off
   const params = await props.params
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

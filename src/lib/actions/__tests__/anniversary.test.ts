@@ -1,3 +1,4 @@
+jest.mock("@/lib/featureFlags")
 jest.mock("@/auth", () => ({ auth: jest.fn(async () => ({ user: { id: "1", role: "ADMIN" } })) }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {

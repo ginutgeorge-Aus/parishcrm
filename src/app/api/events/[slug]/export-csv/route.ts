@@ -10,7 +10,9 @@ import { toAnswerMap } from "@/lib/eventAnswers"
 import { logAudit } from "@/lib/audit"
 import { getClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
+import { featureNotFound } from "@/lib/featureFlags"
 
+/** Registrations CSV for one event: editors, or an assigned organiser. Rate-limited per user; 404 while Events is off. */
 export async function GET(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
   const session = await auth()
@@ -24,6 +26,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ slug: str
   if (!rateLimit(`export:event:${actorId(session)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
 
   // Look up by slug to match the [slug] route segment — the public register
   // endpoint under the same segment also resolves by slug. Next.js forbids
