@@ -11,6 +11,14 @@ const EMAIL_TEMPLATE_FEATURE: Partial<Record<EmailTemplateKey, FeatureKey>> = {
 }
 
 /**
+ * The feature owning a template, or undefined for a core template.
+ * @param key template key (unvalidated input is fine: unknown keys are core)
+ */
+export function emailTemplateFeature(key: string): FeatureKey | undefined {
+  return Object.hasOwn(EMAIL_TEMPLATE_FEATURE, key) ? EMAIL_TEMPLATE_FEATURE[key as EmailTemplateKey] : undefined
+}
+
+/**
  * Template keys to show in Settings: core ones always, feature-owned ones only
  * while their feature is on.
  * @param enabled the enabled feature set

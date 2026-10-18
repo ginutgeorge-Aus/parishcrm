@@ -41,6 +41,17 @@ const ACTION_FILES = fs.readdirSync(path.join(root, "src/lib/actions"))
   .map((f) => `src/lib/actions/${f}`)
   .filter((f) => /^"use server"/m.test(read(f)) && /featureGuard(Any)?\(|assertFeature\(/.test(read(f)))
 
+// Actions gated per input (the feature depends on an argument): call with a
+// feature-owned value.
+const templateForm = new FormData()
+templateForm.set("key", "receipt")
+const ARGS: Record<string, unknown[]> = {
+  "emailTemplates.ts:updateEmailTemplate": [undefined, templateForm],
+  "emailTemplates.ts:resetEmailTemplate": ["receipt"],
+  "emailTemplates.ts:previewEmailTemplate": ["receipt", {}],
+  "emailTemplates.ts:sendTestEmail": ["receipt", {}],
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   delete process.env.DEMO_MODE
@@ -73,7 +84,7 @@ describe.each(ACTION_FILES)("%s", (file) => {
     .map((m, i, all) => ({ name: m[1], body: src.slice(m.index, all[i + 1]?.index ?? src.length) }))
     // upsertSetting gates per key (needs a real FormData): settings.test.ts covers it.
     .filter(({ name }) => name !== "upsertSetting")
-    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|await (editor|editableClass|rollGuard|markerGuard)\(/.test(body))
+    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|await (editor|editableClass|rollGuard|markerGuard|templateFeatureGuard)\(/.test(body))
 
   it.each(fns.map((f) => [f.name, f.body]))("%s stops while its feature is off", async (name, body) => {
     const mod = await import(toModule(file))
@@ -81,7 +92,7 @@ describe.each(ACTION_FILES)("%s", (file) => {
     ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
     ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
     try {
-      const call = mod[name]() as Promise<unknown>
+      const call = mod[name](...(ARGS[`${path.basename(file)}:${name}`] ?? [])) as Promise<unknown>
       if (/assertFeature\(/.test(body) && !/featureGuard(Any)?\(/.test(body)) {
         await expect(call).rejects.toThrow(OFF.error)
       } else {

@@ -258,7 +258,7 @@ it("assertNotDemo runs before the feature check in every action and guard helper
       return starts.filter((m, i) => {
         const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
         const demo = body.indexOf("assertNotDemo(")
-        const feature = body.search(/featureGuard(Any)?\(|assertFeature\(/)
+        const feature = body.search(/[fF]eatureGuard\w*\(|assertFeature\(/)
         return demo !== -1 && feature !== -1 && feature < demo
       }).map((m) => `${f}:${m[1]}`)
     })

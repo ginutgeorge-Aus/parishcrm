@@ -13,6 +13,7 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
   EMAIL_TEMPLATE_KEYS,
   applyVars,
+  emailTemplateFeature,
   type EmailTemplateKey,
   type EmailTemplateFields,
 } from "@/lib/emailTemplates"
@@ -25,6 +26,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
 import type { ActionResultWithSuccess } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
+import { featureGuard } from "@/lib/featureFlags"
 
 const SAMPLE_APP_URL = process.env.AUTH_URL ?? "https://app.example.com"
 
@@ -119,9 +121,22 @@ async function renderTemplate(key: EmailTemplateKey, f: EmailTemplateFields): Pr
   )
 }
 
+/**
+ * Off-message while the feature owning `key` is off (familyUpdate, receipt,
+ * dgrReceipt); null for core templates. Call after assertNotDemo, before auth.
+ * @param key template key from the caller
+ */
+async function templateFeatureGuard(key: unknown): Promise<{ error: string } | null> {
+  const feature = typeof key === "string" ? emailTemplateFeature(key) : undefined
+  return feature ? featureGuard(feature) : null
+}
+
+/** Save a template from the Settings form. ADMIN; blocked in demo mode and while its feature is off. */
 export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await templateFeatureGuard(formData.get("key"))
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FieldsSchema.safeParse(Object.fromEntries(formData))
@@ -139,9 +154,12 @@ export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formDa
   return { success: "Template saved" }
 }
 
+/** Reset a template to its default. ADMIN; blocked in demo mode and while its feature is off. */
 export async function resetEmailTemplate(key: EmailTemplateKey): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!KEY_SET.has(key)) return { error: "Invalid template" }
@@ -157,10 +175,13 @@ export async function resetEmailTemplate(key: EmailTemplateKey): Promise<ActionR
   return { success: "Template reset to default" }
 }
 
+/** Render a draft with sample data. ADMIN; refused while the template's feature is off. */
 export async function previewEmailTemplate(
   key: EmailTemplateKey,
   draft: EmailTemplateFields,
 ): Promise<{ html: string } | { error: string }> {
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FieldsSchema.safeParse({ key, ...draft })
@@ -168,9 +189,12 @@ export async function previewEmailTemplate(
   return { html: await renderTemplate(key, draft) }
 }
 
+/** Send a draft to the signed-in admin. ADMIN; blocked in demo mode and while the template's feature is off. */
 export async function sendTestEmail(key: EmailTemplateKey, draft: EmailTemplateFields): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = FieldsSchema.safeParse({ key, ...draft })

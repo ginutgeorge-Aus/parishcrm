@@ -5,12 +5,16 @@ import {
   updateEmailTemplate,
   resetEmailTemplate,
   previewEmailTemplate,
+  sendTestEmail,
 } from "@/lib/actions/emailTemplates"
+import { featureGuard } from "@/lib/featureFlags"
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/featureFlags")
+jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: { emailTemplate: { findUnique: jest.fn(), upsert: jest.fn() } },
@@ -115,5 +119,53 @@ describe("previewEmailTemplate", () => {
 
     expect(result).toEqual({ html: expect.stringContaining("CUSTOM RECEIPT HEADING") })
     expect("html" in result && result.html).toContain("CUSTOM DONATION TOTAL")
+  })
+})
+
+describe("feature-owned templates are blocked while their feature is off", () => {
+  const OFF = { error: "This feature is turned off." }
+  const fields = { subject: "s", intro: "i", body: "b", signoff: "x" }
+  const form = (key: string) => {
+    const f = new FormData()
+    for (const [k, v] of Object.entries({ key, ...fields })) f.set(k, v)
+    return f
+  }
+  const calls = {
+    updateEmailTemplate: (key: string) => updateEmailTemplate(undefined, form(key)),
+    resetEmailTemplate: (key: string) => resetEmailTemplate(key as never),
+    previewEmailTemplate: (key: string) => previewEmailTemplate(key as never, fields),
+    sendTestEmail: (key: string) => sendTestEmail(key as never, fields),
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN", email: "admin@example.com" } })
+    delete process.env.DEMO_MODE
+  })
+
+  it.each(Object.entries(calls).flatMap(([name, call]) =>
+    ([["familyUpdate", "familyUpdates"], ["receipt", "receipts"], ["dgrReceipt", "dgrReceipts"]] as const)
+      .map(([key, feature]) => [name, key, feature, call] as const)))(
+    "%s(%s) returns the off message while %s is off, before auth or DB",
+    async (_name, key, feature, call) => {
+      ;(featureGuard as jest.Mock).mockResolvedValueOnce(OFF)
+      expect(await call(key)).toEqual(OFF)
+      expect(featureGuard).toHaveBeenCalledWith(feature)
+      expect(mockAuth).not.toHaveBeenCalled()
+      expect(mockUpsert).not.toHaveBeenCalled()
+    })
+
+  it("the core welcome template never checks a feature", async () => {
+    mockUpsert.mockResolvedValue({})
+    expect(await resetEmailTemplate("welcome")).toEqual({ success: "Template reset to default" })
+    expect(featureGuard).not.toHaveBeenCalled()
+  })
+
+  it("demo mode is checked before the feature", async () => {
+    process.env.DEMO_MODE = "true"
+    const res = await resetEmailTemplate("receipt")
+    expect(res).toMatchObject({ error: expect.any(String) })
+    expect(featureGuard).not.toHaveBeenCalled()
+    delete process.env.DEMO_MODE
   })
 })
