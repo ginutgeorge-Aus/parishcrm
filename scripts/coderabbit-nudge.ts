@@ -124,12 +124,13 @@ const COMMAND_DONE = /Review finished|Already reviewed/i
  * gets a "Review completed" status, so `statusSaysReviewed` alone would skip it
  * forever. `@coderabbitai review` (one review) still works while paused, so the
  * nudge keeps that command rather than `resume`, which would review every push.
- * A review command posted after `since` (so it targeted this head) that CodeRabbit
- * answered with "Review finished"/"Already reviewed" — after both that command
- * and the paused note's last update — means this head was already handled, so
- * the PR isn't nudged again even if the paused note's commit stays stale. A pause
- * note updated after the reply is a new pause and still counts. Only the most
- * recently updated paused note counts.
+ * A review command posted after `since` (so it targeted this head) counts as
+ * answered only when it came after the paused note's last update and CodeRabbit
+ * then replied "Review finished"/"Already reviewed". Either way the head gets at
+ * most one nudge: once a command for this head exists, the PR isn't nudged again
+ * even if the paused note's commit stays stale, so the hourly quota isn't spent
+ * re-nudging one head. A new push resets this via `since`. Only the most recently
+ * updated paused note counts.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
@@ -144,10 +145,12 @@ export function pausedBefore(comments: Comment[], headSha: string, since: Date):
   const nudgeAt = comments
     .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
     .reduce((max, c) => Math.max(max, Date.parse(c.createdAt)), -1)
-  const answeredAfter = Math.max(nudgeAt, Date.parse(paused.updatedAt))
   const answered =
-    nudgeAt >= 0 && comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > answeredAfter)
-  return !answered
+    nudgeAt > Date.parse(paused.updatedAt) &&
+    comments.some((c) => c.user === BOT && COMMAND_DONE.test(c.body) && Date.parse(c.updatedAt) > nudgeAt)
+  // At most one nudge per head: CodeRabbit edits the stale note while it handles the
+  // command (#275, #317), so an unanswered command must not re-arm the same head.
+  return !answered && nudgeAt < 0
 }
 
 /**
