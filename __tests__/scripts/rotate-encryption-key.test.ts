@@ -437,6 +437,11 @@ describe("FIELDS map", () => {
     // Invoices (OSS-20): customer contact + invoice recipient snapshot.
     customer: ["email", "phone", "address", "notes"],
     invoice: ["recipientEmail", "recipientAddress", "notes", "frozenPdf"],
+    // Orphans the model-qualified coverage guard surfaced (#323).
+    waitlist: ["email"],
+    familyUpdateInvite: ["email"],
+    checkoutSession: ["payload"],
+    attendee: ["answers"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible

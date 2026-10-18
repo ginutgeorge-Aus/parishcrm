@@ -12,7 +12,8 @@ import { InvoiceStatus, UserRole } from "@/lib/generated/prisma/enums"
 import { centsToDecimalString, computeInvoiceTotals, INVOICE_PAGE_SIZE, formatInvoiceCursor, invoiceCursorDate, parseInvoiceCursor, parseInvoiceDraft, type InvoiceCursor, type InvoiceDraftInput, type InvoiceLine } from "@/lib/invoice"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { Prisma } from "@/lib/generated/prisma/client"
-import { isP2003, isP2034, isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { isRealCalendarDate, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { serializableWrite as sharedSerializableWrite } from "@/lib/serializableWrite"
 import { toCents } from "@/lib/formatting"
 import { endOfDayUTC } from "@/lib/dates"
 import type { ActionResult } from "./types"
@@ -20,7 +21,6 @@ import type { ActionResult } from "./types"
 const INVOICES_PATH = "/accounting/invoices"
 const CHANGED = { error: "This invoice has changed. Reload and try again." }
 const BUSY = { error: "Couldn't save the invoice. Try again." }
-const MAX_TX_ATTEMPTS = 3
 
 export type InvoiceView = {
   id: number; invoiceNo: string | null; status: InvoiceStatus; personId: number | null; customerId: number | null
@@ -41,24 +41,13 @@ type InvoiceListRow = {
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10)
 
 /**
- * Run an invoice write that validates its account and inserts/updates in one Serializable transaction.
- *
- * Ordering vs `updateAccount` (retype) and `deleteAccount`: those run Serializable too, and read the invoices
- * that point at the account. This write reads the account (type/active) then writes an invoice. Each side reads
- * what the other writes, so Postgres sees a dependency cycle and aborts one of them (P2034) instead of letting
- * both commit — an invoice can never land on an account that was retyped or deleted in the same instant. The
- * loser (P2034, or an FK violation when the account vanished first) is retried: the re-run re-validates against
- * the committed state and returns the normal "Choose an active income account" message, or succeeds.
+ * Run an invoice write that validates its account and inserts/updates in one Serializable transaction, so a
+ * concurrent account retype/delete can't slip between (see {@link sharedSerializableWrite}). A retried conflict
+ * re-validates and returns the normal "Choose an active income account" message, or succeeds.
+ * @param fn - the validate-then-write body, run against the transaction client
  */
-async function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T | { error: string }> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    } catch (e) {
-      if (!isP2034(e) && !isP2003(e)) throw e
-      if (attempt >= MAX_TX_ATTEMPTS) return BUSY
-    }
-  }
+function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T | { error: string }> {
+  return sharedSerializableWrite(fn, BUSY)
 }
 
 /**

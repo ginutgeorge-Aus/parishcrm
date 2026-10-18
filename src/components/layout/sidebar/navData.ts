@@ -6,7 +6,11 @@ import {
   MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
 } from "lucide-react"
 
-export type NavItem = { href: string; label: string; icon: React.ElementType; show: boolean; badge?: number }
+// `badgeInformational` marks a count that is shown on the link but is not an
+// action item, so it stays out of the collapsed group header's pending total.
+export type NavItem = {
+  href: string; label: string; icon: React.ElementType; show: boolean; badge?: number; badgeInformational?: boolean
+}
 export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // `headless` groups render their links at the top level, with no collapsible
 // header — used for the always-visible primary sections.
@@ -101,19 +105,24 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/settings", label: "App Settings", icon: Settings2, show: isAdmin },
         { href: "/settings/audit-log", label: "Audit Log", icon: ShieldCheck, show: isAdmin },
         { href: "/settings/usage", label: "App Usage", icon: Activity, show: isAdmin },
-        { href: "/verify", label: "Release Checks", icon: ClipboardCheck, show: isAdmin, badge: verifyPending },
+        { href: "/verify", label: "Release Checks", icon: ClipboardCheck, show: isAdmin, badge: verifyPending, badgeInformational: true },
       ],
     },
   ]
 }
 
-/** Sum of badge counts on a group's visible links (shown on its header while collapsed). */
+/**
+ * Sum of actionable badge counts on a group's visible links (shown on its
+ * header while collapsed). Informational badges, such as unverified release
+ * checks, are left out so they don't drown real action items.
+ */
 export function pendingTotal(items: NavEntry[]): number {
   return flattenNavItems(items)
-    .filter((i) => i.show)
+    .filter((i) => i.show && !i.badgeInformational)
     .reduce((sum, i) => sum + (i.badge ?? 0), 0)
 }
 
+/** Flattens sub-labelled entries into one list of links. */
 export function flattenNavItems(items: NavEntry[]): NavItem[] {
   return items.flatMap((entry) => ("subLabel" in entry ? entry.items : [entry]))
 }
