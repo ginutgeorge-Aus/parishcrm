@@ -28,6 +28,7 @@ jest.mock("@/components/dashboard/MarriageAnniversaryWidget", () => ({ MarriageA
 jest.mock("@/components/dashboard/AnniversaryWidget", () => ({ AnniversaryWidget: () => null }))
 jest.mock("@/components/dashboard/WhatsNewFooter", () => ({ WhatsNewFooter: () => null }))
 jest.mock("@/components/dashboard/SetupChecklist", () => ({ SetupChecklist: () => null }))
+jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn() }))
 
 import { renderToStaticMarkup } from "react-dom/server"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
@@ -36,6 +37,8 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import DashboardPage from "@/app/(dashboard)/page"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
+import { getEnabledFeatures } from "@/lib/featureFlags"
+import { resolveFeatures } from "@/lib/features"
 
 const mockAuth = auth as jest.Mock
 const mockPersonFindMany = prisma.person.findMany as jest.Mock
@@ -58,7 +61,32 @@ function primeMocks() {
   ;(prisma.membershipApplication.count as jest.Mock).mockResolvedValue(0)
 }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  ;(getEnabledFeatures as jest.Mock).mockResolvedValue(resolveFeatures({}))
+})
+
+describe("DashboardPage feature toggles", () => {
+  it("skips the queries and sections of off features", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    ;(getEnabledFeatures as jest.Mock).mockResolvedValue(
+      resolveFeatures({ events: false, accounting: false, celebrations: false, familyUpdates: false, memberships: false }),
+    )
+    const html = renderToStaticMarkup(await DashboardPage())
+    expect(prisma.event.count).not.toHaveBeenCalled()
+    expect(prisma.transaction.aggregate).not.toHaveBeenCalled()
+    expect(prisma.transaction.groupBy).not.toHaveBeenCalled()
+    expect(prisma.pettyCashSession.count).not.toHaveBeenCalled()
+    expect(mockPersonFindMany).not.toHaveBeenCalled()
+    expect(prisma.familyUpdateSubmission.count).not.toHaveBeenCalled()
+    expect(prisma.membershipApplication.count).not.toHaveBeenCalled()
+    expect(html).not.toContain("Upcoming events")
+    expect(html).not.toContain("money-heading")
+    expect(html).not.toContain("people-heading")
+    expect(html).toContain("Members")
+  })
+})
 
 describe("DashboardPage", () => {
   it("redirects to /login when unauthenticated", async () => {

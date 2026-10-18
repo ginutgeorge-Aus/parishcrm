@@ -20,6 +20,7 @@ import { WhatsNewFooter } from "@/components/dashboard/WhatsNewFooter"
 import { SetupChecklist } from "@/components/dashboard/SetupChecklist"
 import { NeedsAttention } from "@/components/dashboard/NeedsAttention"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 import { buildAttentionItems, canHaveAttentionItems, toUnreconciledRows } from "@/lib/dashboardAttention"
 
 /**
@@ -31,6 +32,12 @@ export default async function DashboardPage() {
   const session = await auth()
   if (!session) redirect("/login")
   const role = session?.user?.role
+
+  // Off features skip their queries as well as their widgets.
+  const features = await getEnabledFeatures()
+  const showMoney = canViewAccounting(role) && features.has("accounting")
+  const showCelebrations = canViewPeople(role) && features.has("celebrations")
+  const showEvents = features.has("events")
 
   // Sydney wall-clock date, not the server's UTC clock — between UTC midnight
   // and ~11am AEST the server date is a day behind, skewing "last 30 days",
@@ -61,7 +68,7 @@ export default async function DashboardPage() {
   // Reports/dashboard show all accounts (incl. deactivated-with-history), not
   // just active ones — a deactivated account can still have a balance worth
   // showing until its history ages out.
-  const [accounts, openingBalances] = canViewAccounting(role)
+  const [accounts, openingBalances] = showMoney
     ? await Promise.all([getPaymentAccounts({ activeOnly: false }), prisma.accountOpeningBalance.findMany()])
     : [[], []]
 
@@ -87,7 +94,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     // People queries (incl. the DOB fetch + decrypt) only for roles that see
     // the people side — AUDITOR never renders them.
-    canViewPeople(role) ? prisma.person.findMany({
+    showCelebrations ? prisma.person.findMany({
       where: { dateOfBirth: { not: null }, archivedAt: null },
       // Safety net: cap fetch + decryption cost so this query doesn't
       // grow unbounded with membership. The widget only shows a 7-day window;
@@ -105,7 +112,7 @@ export default async function DashboardPage() {
         family: { select: { name: true } },
       },
     }) : Promise.resolve([]),
-    canViewPeople(role) ? prisma.family.findMany({
+    showCelebrations ? prisma.family.findMany({
       where: { marriageDate: { not: null }, archivedAt: null },
       // Safety net: cap fetch so this query doesn't grow unbounded with
       // the family count. The widget only shows the current month; a DB-level
@@ -129,17 +136,19 @@ export default async function DashboardPage() {
     canViewPeople(role) ? prisma.family.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }) : Promise.resolve(0),
     canViewPeople(role) ? prisma.person.count({ where: { createdAt: { gte: createdSince }, archivedAt: null } }) : Promise.resolve(0),
     // Only feeds the "Needs attention" row, which is ADMIN/PASTOR-only.
-    canAccessAccounting(role) ? prisma.pettyCashSession.count({ where: { status: "OPEN" } }) : Promise.resolve(0),
+    canAccessAccounting(role) && features.has("pettyCash") ? prisma.pettyCashSession.count({ where: { status: "OPEN" } }) : Promise.resolve(0),
     // Recurring events (date: null) happen within any 30-day window by
     // definition, so they count as upcoming alongside dated events.
-    prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } }),
-    canViewAccounting(role)
+    showEvents
+      ? prisma.event.count({ where: { isPublished: true, OR: [{ date: { gte: eventsFrom, lte: eventsTo } }, { kind: "recurring" }] } })
+      : Promise.resolve(0),
+    showMoney
       ? prisma.transaction.aggregate({
           where: { isGiving: true, type: "INCOME", date: { gte: startOfMonth, lt: startOfNextMonth } },
           _sum: { amount: true },
         })
       : Promise.resolve({ _sum: { amount: null } }),
-    canViewAccounting(role)
+    showMoney
       ? prisma.transaction.aggregate({
           where: { isGiving: true, type: "INCOME", date: { gte: sameMonthLastYear, lt: endSameMonthLastYear } },
           _sum: { amount: true },
@@ -165,16 +174,16 @@ export default async function DashboardPage() {
       : Promise.resolve([]),
 
     canViewPeople(role) ? prisma.person.count({ where: { archivedAt: null } }) : Promise.resolve(0),
-    canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
+    canEdit(role) && features.has("familyUpdates") ? countPendingFamilyUpdates() : Promise.resolve(0),
     // React-cached: shared with the layout's Sidebar badge.
-    canEdit(role) ? countPendingMemberships() : Promise.resolve(0),
+    canEdit(role) && features.has("memberships") ? countPendingMemberships() : Promise.resolve(0),
     // Unreconciled transactions per BANK account. CASH accounts are excluded:
     // their rows mirror petty-cash activity and are never reconciled, so
     // counting them would leave the row permanently uncleared. Deactivated
     // bank accounts stay in (the Reconciliation page lists them). Up to the
     // end of today (its default `to`), no opening-balance requirement. _min
     // date seeds the deep link's `from`.
-    canAccessAccounting(role)
+    canAccessAccounting(role) && features.has("reconciliation")
       ? prisma.transaction.groupBy({
           by: ["paymentAccountId"],
           where: { reconciled: false, paymentAccountRel: { kind: "BANK" }, date: { lte: endOfDayUTC(today) } },
@@ -271,7 +280,7 @@ export default async function DashboardPage() {
           },
         ]
       : []),
-    { label: "Upcoming events (30 days)", value: upcomingEventCount, href: "/events" },
+    ...(showEvents ? [{ label: "Upcoming events (30 days)", value: upcomingEventCount, href: "/events" }] : []),
   ]
 
   // Giving trend vs the same month last year — drives the arrow + colour. A
@@ -328,7 +337,7 @@ export default async function DashboardPage() {
       {canHaveAttentionItems(role) && <NeedsAttention items={attention} />}
 
       {/* Money — one primary figure (giving) + per-account balances */}
-      {canViewAccounting(role) && (
+      {showMoney && (
         <section aria-labelledby="money-heading" className="space-y-3">
           <h2 id="money-heading" className={sectionHeading}>Money</h2>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
@@ -374,7 +383,7 @@ export default async function DashboardPage() {
       )}
 
       {/* People — birthdays / anniversaries */}
-      {canViewPeople(role) && (
+      {showCelebrations && (
         <section aria-labelledby="people-heading" className="space-y-3">
           <h2 id="people-heading" className={sectionHeading}>People</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

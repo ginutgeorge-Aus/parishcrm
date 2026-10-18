@@ -1,4 +1,5 @@
 import { buildNavGroups, flattenNavItems, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
+import { resolveFeatures } from "@/lib/features"
 
 /** Items of the named group, failing loudly if the group is missing. */
 function groupItems(flags: NavFlags, label: string) {
@@ -100,4 +101,38 @@ it("pendingTotal leaves informational badges (unverified release checks) out of 
   const items = groupItems({ ...allTrueFlags, verifyPending: 7 }, "Settings")
   expect(flattenNavItems(items).find((i) => i.href === "/verify")?.badge).toBe(7)
   expect(pendingTotal(items)).toBe(0)
+})
+
+describe("feature toggles", () => {
+  const visible = (overrides: Parameters<typeof resolveFeatures>[0]) =>
+    buildNavGroups({ ...allTrueFlags, features: resolveFeatures(overrides) })
+      .flatMap((g) => flattenNavItems(g.items))
+      .filter((i) => i.show)
+      .map((i) => i.href)
+
+  it("all on shows everything plus the Features link", () => {
+    const hrefs = visible({})
+    expect(hrefs).toContain("/events")
+    expect(hrefs).toContain("/accounting/budget")
+    expect(hrefs).toContain("/settings/features")
+  })
+
+  it("hides events and budget when off", () => {
+    const hrefs = visible({ events: false, budget: false })
+    expect(hrefs).not.toContain("/events")
+    expect(hrefs).not.toContain("/accounting/budget")
+    expect(hrefs).toContain("/accounting/transactions")
+  })
+
+  it("accounting off hides the whole group", () => {
+    expect(visible({ accounting: false }).some((h) => h.startsWith("/accounting"))).toBe(false)
+  })
+
+  it("community features hide their own links", () => {
+    const hrefs = visible({ celebrations: false, sundaySchool: false, clearances: false, familyUpdates: false, memberships: false, welcomeLetter: false })
+    for (const h of ["/people/birthdays", "/people/anniversaries", "/sunday-school", "/people/clearances", "/families/updates", "/memberships", "/welcome-letter", "/accounting/dues"]) {
+      expect(hrefs).not.toContain(h)
+    }
+    expect(hrefs).toContain("/people")
+  })
 })

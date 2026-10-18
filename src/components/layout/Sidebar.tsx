@@ -13,6 +13,7 @@ import { canAccessAccounting, canViewAccounting, canEdit, canManageUsers, canVie
 import { buildNavGroups, flattenNavItems, type NavGroup } from "@/components/layout/sidebar/navData"
 import { SidebarGroup } from "@/components/layout/sidebar/SidebarGroup"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
+import type { FeatureKey } from "@/lib/features"
 
 const OPEN_GROUPS_KEY = "sidebar-open-groups"
 const RAIL_COLLAPSED_KEY = "sidebar-collapsed"
@@ -22,11 +23,14 @@ export function Sidebar({
   pendingUpdates = 0,
   verifyPending = 0,
   membershipPending = 0,
+  features,
 }: Readonly<{
   churchName: string
   pendingUpdates?: number
   verifyPending?: number
   membershipPending?: number
+  /** Enabled features (array: Sets don't cross the server→client boundary); omitted = all on. */
+  features?: FeatureKey[]
 }>) {
   const pathname = usePathname()
   const { data: session } = useSession()
@@ -39,13 +43,15 @@ export function Sidebar({
   const canUsers = canManageUsers(role)
   const canViewPeople = canViewPeopleRole(role)
 
+  const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])
+
   const groups: NavGroup[] = useMemo(
     () =>
       buildNavGroups({
         isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-        pendingUpdates, verifyPending, membershipPending,
+        pendingUpdates, verifyPending, membershipPending, features: featureSet,
       }),
-    [isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople, pendingUpdates, verifyPending, membershipPending]
+    [isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople, pendingUpdates, verifyPending, membershipPending, featureSet]
   )
 
   // Highlight only the single most-specific matching item, so a parent path

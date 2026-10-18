@@ -9,6 +9,7 @@ import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 
 /**
  * Number of verify checkpoints with no recorded result. Uses a DB-side
@@ -23,19 +24,20 @@ async function countUntestedCheckpoints(): Promise<number> {
 }
 
 export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [idleMinutes, session, { name: churchName }] = await Promise.all([
+  const [idleMinutes, session, { name: churchName }, features] = await Promise.all([
     getIdleTimeoutMinutes(),
     auth(),
     getChurchSettings(),
+    getEnabledFeatures(),
   ])
   const role = session?.user?.role
 
   const [pendingUpdates, verifyPending, membershipPending] = await Promise.all([
-    canEdit(role) ? countPendingFamilyUpdates() : Promise.resolve(0),
+    canEdit(role) && features.has("familyUpdates") ? countPendingFamilyUpdates() : Promise.resolve(0),
     isAdmin(role)
       ? countUntestedCheckpoints()
       : Promise.resolve(0),
-    canEdit(role)
+    canEdit(role) && features.has("memberships")
       ? countPendingMemberships()
       : Promise.resolve(0),
   ])
@@ -48,7 +50,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
         Skip to main content
       </a>
       <div className="flex flex-1">
-        <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} />
+        <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} />
         <main id="main-content" className="min-w-0 flex-1 bg-muted p-4 pt-16 md:p-8 md:pt-8">{children}</main>
       </div>
       <SiteFooter churchName={churchName} className="border-t bg-card px-8 py-3" />

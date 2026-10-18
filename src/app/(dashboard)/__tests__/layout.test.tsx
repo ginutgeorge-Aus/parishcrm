@@ -14,6 +14,9 @@ jest.mock("@/lib/pendingUpdates", () => ({
   countPendingFamilyUpdates: jest.fn().mockResolvedValue(0),
   countPendingMemberships: jest.fn().mockResolvedValue(0),
 }))
+jest.mock("@/lib/featureFlags", () => ({
+  getEnabledFeatures: jest.fn(async () => (await import("@/lib/features")).resolveFeatures({})),
+}))
 jest.mock("@/components/layout/Sidebar", () => ({ Sidebar: () => null }))
 jest.mock("@/components/SiteFooter", () => ({ SiteFooter: () => null }))
 jest.mock("@/components/auth/IdleTimeout", () => ({ IdleTimeout: () => null }))

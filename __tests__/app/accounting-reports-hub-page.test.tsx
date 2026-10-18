@@ -4,6 +4,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("REDIRECT") }),
 }))
+jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn() }))
 
 import { existsSync, readdirSync } from "node:fs"
 import path from "node:path"
@@ -11,10 +12,25 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import ReportsHubPage from "@/app/(dashboard)/accounting/reports/page"
+import { getEnabledFeatures } from "@/lib/featureFlags"
+import { resolveFeatures } from "@/lib/features"
 
 const mockAuth = auth as jest.Mock
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  ;(getEnabledFeatures as jest.Mock).mockResolvedValue(resolveFeatures({}))
+})
+
+it("hides cards of off sub-features", async () => {
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+  ;(getEnabledFeatures as jest.Mock).mockResolvedValue(resolveFeatures({ budget: false, reconciliation: false, dues: false }))
+  const html = renderToStaticMarkup(await ReportsHubPage())
+  expect(html).not.toContain("/accounting/reports/budget-vs-actual")
+  expect(html).not.toContain("/accounting/reports/reconciliation")
+  expect(html).not.toContain("/accounting/dues")
+  expect(html).toContain("/accounting/reports/pl")
+})
 
 it.each(["VIEWER", "EVENT_ORGANISER"])("redirects %s (no accounting view access)", async (role) => {
   mockAuth.mockResolvedValue({ user: { role, id: "1" } })
