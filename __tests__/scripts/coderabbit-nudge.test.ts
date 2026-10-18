@@ -2,9 +2,12 @@
 import assert from "node:assert/strict"
 import {
   isReviewed,
+  firstStatusAt,
+  needsNudge,
   nudgeInFlight,
   parseRateLimitReset,
   pendingReset,
+  pausedBefore,
   pickNext,
   statusSaysReviewed,
   waitForReset,
@@ -184,4 +187,111 @@ test("statusSaysReviewed: latest CodeRabbit status decides; rate limited or othe
   assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z"), st("Review rate limited", "2026-10-12T05:41:47Z")]), false)
   assert.equal(statusSaysReviewed([st("Review completed", "2026-10-12T05:00:00Z", "license/cla")]), false)
   assert.equal(statusSaysReviewed([]), false)
+})
+
+const PAUSED_BODY = (sha: string) => `<!-- This is an auto-generated comment: review paused by coderabbit.ai -->
+
+> [!NOTE]
+> ## Reviews paused
+>
+> It looks like this branch is under active development.
+>
+> - Last reviewed commit: ${sha}
+>
+<!-- end of auto-generated comment: review paused by coderabbit.ai -->`
+
+test("pausedBefore: auto-paused summary whose last reviewed commit is not the head", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const older = "ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"
+  const since = new Date("2026-10-07T01:00:00Z")
+  const paused = comment({ user: BOT, body: PAUSED_BODY(older) })
+  // Seen on #275: status "Review completed", but the summary says paused at an older commit.
+  assert.equal(pausedBefore([paused], head, since), true)
+  // Case of the marker doesn't matter.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(older).replaceAll("review paused", "Review Paused") })], head, since), true)
+  // Paused, but the last reviewed commit is the head: nothing left to review.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head, since), false)
+  // Paused note with no parseable commit: assume unreviewed commits wait.
+  assert.equal(pausedBefore([comment({ user: BOT, body: "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->" })], head, since), true)
+  // Only CodeRabbit's own comment counts.
+  assert.equal(pausedBefore([comment({ user: "someone", body: PAUSED_BODY(older) })], head, since), false)
+  assert.equal(pausedBefore([comment({ user: BOT, body: "No actionable comments were generated." })], head, since), false)
+  assert.equal(pausedBefore([], head, since), false)
+  // Only the most recently updated paused note counts (an older stale one doesn't).
+  const pausedAtHead = comment({ user: BOT, body: PAUSED_BODY(head), updatedAt: "2026-10-07T04:00:00Z" })
+  assert.equal(pausedBefore([pausedAtHead, { ...paused, updatedAt: "2026-10-07T02:00:00Z" }], head, since), false)
+  // This head was already nudged (and answered): don't nudge again while the note stays stale.
+  const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
+  const nudge = at("someone", "@coderabbitai review", "2026-10-07T02:00:00Z")
+  assert.equal(pausedBefore([paused, nudge, at(BOT, "✅ Action performed\n\nReview finished.", "2026-10-07T03:00:00Z")], head, since), false)
+  assert.equal(pausedBefore([paused, nudge, at(BOT, "Already reviewed the last commit.", "2026-10-07T03:00:00Z")], head, since), false)
+  // A reply alone, or a nudge from before this head's first status, doesn't use up this head's nudge.
+  assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), true)
+  const oldNudge = at("someone", "@coderabbitai review", "2026-10-07T00:30:00Z")
+  assert.equal(pausedBefore([paused, oldNudge, at(BOT, "Review finished.", "2026-10-07T01:30:00Z")], head, since), true)
+  // The nudge for this head is unanswered: still at most one nudge per head.
+  assert.equal(pausedBefore([paused, at(BOT, "Review finished.", "2026-10-07T01:30:00Z"), nudge], head, since), false)
+  // Real order (#275, #317): CodeRabbit edits the still-stale paused summary while
+  // handling the command, seconds before its reply's final edit. This head was
+  // already nudged once, so it isn't nudged again.
+  const editedMidReview = { ...paused, updatedAt: "2026-10-07T02:59:55Z" }
+  assert.equal(pausedBefore([editedMidReview, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), false)
+  // A pause note updated after the reply: same head, already nudged once — no repeat.
+  const repaused = { ...paused, updatedAt: "2026-10-07T04:00:00Z" }
+  assert.equal(pausedBefore([repaused, nudge, at(BOT, "Review finished.", "2026-10-07T03:00:00Z")], head, since), false)
+  // Head SHA case doesn't matter.
+  assert.equal(pausedBefore([comment({ user: BOT, body: PAUSED_BODY(head) })], head.toUpperCase(), since), false)
+})
+
+test("firstStatusAt: oldest CodeRabbit status time, epoch when none", () => {
+  const st = (createdAt: string, context = "CodeRabbit") => ({ context, description: "Review completed", createdAt })
+  assert.equal(firstStatusAt([st("2026-10-12T06:00:00Z"), st("2026-10-12T05:00:00Z"), st("2026-10-12T04:00:00Z", "ci")]).toISOString(), "2026-10-12T05:00:00.000Z")
+  assert.equal(firstStatusAt([]).getTime(), 0)
+})
+
+test("pausedBefore + firstStatusAt: a status posted when CodeRabbit answers the nudge doesn't re-arm it", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (createdAt: string) => ({ context: "CodeRabbit", description: "Review completed", createdAt })
+  const statuses = [st("2026-10-07T01:00:00Z"), st("2026-10-07T03:00:00Z")]
+  const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
+  const comments = [
+    comment({ user: BOT, body: PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"), updatedAt: "2026-10-07T01:00:00Z" }),
+    at("someone", "@coderabbitai review", "2026-10-07T02:00:00Z"),
+    at(BOT, "Review finished.", "2026-10-07T03:00:00Z"),
+  ]
+  assert.equal(pausedBefore(comments, head, firstStatusAt(statuses)), false)
+})
+
+test("needsNudge: PR selection — 'Review completed' status with a stale pause is still nudged", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (description: string, createdAt = "2026-10-07T01:00:00Z") => ({ context: "CodeRabbit", description, createdAt })
+  const stalePause = comment({ user: BOT, body: PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f") })
+  // Seen on #275: the status says reviewed, but the paused summary names an older commit.
+  assert.equal(needsNudge([], [stalePause], [st("Review completed")], head), true)
+  // Same status with no pause note: reviewed, skip.
+  assert.equal(needsNudge([], [], [st("Review completed")], head), false)
+  // Paused at the head: nothing left to review.
+  assert.equal(needsNudge([], [comment({ user: BOT, body: PAUSED_BODY(head) })], [st("Review completed")], head), false)
+  // A CodeRabbit review on the head wins over everything.
+  assert.equal(needsNudge([{ user: BOT, commitId: head, body: "Actionable comments posted: 0" }], [stalePause], [st("Review completed")], head), false)
+  // No review and no completed status: needs a nudge.
+  assert.equal(needsNudge([], [], [st("Review rate limited")], head), true)
+  assert.equal(needsNudge([], [], [], head), true)
+})
+
+test("needsNudge: at most one nudge per head SHA on a paused PR (#275/#317 comment order)", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (createdAt: string) => ({ context: "CodeRabbit", description: "Review completed", createdAt })
+  const at = (user: string, body: string, c: string, u = c) => comment({ user, body, createdAt: c, updatedAt: u })
+  const stale = "ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"
+  const nudge = at("someone", "@coderabbitai review", "2026-10-15T22:30:33Z")
+  const reply = at(BOT, "Review finished.", "2026-10-15T22:30:41Z", "2026-10-15T22:36:48Z")
+  // Pause note edited mid-review, still stale; the answer posts a fresh status too.
+  const note = at(BOT, PAUSED_BODY(stale), "2026-10-14T11:16:22Z", "2026-10-15T22:36:43Z")
+  const statuses = [st("2026-10-15T22:00:00Z"), st("2026-10-15T22:36:50Z")]
+  assert.equal(needsNudge([], [note, nudge, reply], statuses, head), false)
+  // Before any nudge for this head, the stale pause still gets its one nudge.
+  assert.equal(needsNudge([], [note], statuses, head), true)
+  // A new head (first status after that nudge) gets its own nudge.
+  assert.equal(needsNudge([], [note, nudge, reply], [st("2026-10-16T01:00:00Z")], `99aa${head.slice(4)}`), true)
 })
