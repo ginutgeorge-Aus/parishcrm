@@ -81,7 +81,7 @@ export function parseOverrides(raw: string | null | undefined): FeatureOverrides
  * Resolve which features are on: own override ?? default, AND parent on, AND
  * every `requires` on.
  */
-export function resolveFeatures(overrides: FeatureOverrides): Set<FeatureKey> {
+export function resolveFeatures(overrides: FeatureOverrides = {}): Set<FeatureKey> {
   const memo = new Map<FeatureKey, boolean>()
   const on = (key: FeatureKey): boolean => {
     const hit = memo.get(key)

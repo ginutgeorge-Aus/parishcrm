@@ -9,10 +9,15 @@ import { stripeConfigured } from "@/lib/stripe"
 import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { isRegistrationClosed } from "@/lib/eventClose"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { requireFeature } from "@/lib/featureFlags"
 
 type Props = { params: Promise<{ slug: string }> }
 
+/** Public event page: details plus the registration or waitlist form. 404 while Events is off. */
 export default async function PublicEventPage(props: Readonly<Props>) {
+  // Gated here, not by an e/ layout: the sibling success page must keep working
+  // so a payment in flight when Events is turned off still shows its confirmation.
+  await requireFeature("events")
   const params = await props.params;
   const event = await prisma.event.findUnique({
     where: { slug: params.slug },

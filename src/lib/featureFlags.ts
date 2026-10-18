@@ -40,7 +40,7 @@ export async function requireFeature(key: FeatureKey): Promise<void> {
   if (!(await isFeatureOn(key))) notFound()
 }
 
-/** Server Action guard: `{ error }` when off, else null. Call first, before auth/DB work. */
+/** Server Action guard: `{ error }` when off, else null. Call right after assertNotDemo (no DB read for a demo write), before auth/DB work. */
 export async function featureGuard(key: FeatureKey): Promise<{ error: string } | null> {
   return (await isFeatureOn(key)) ? null : { error: FEATURE_OFF_MESSAGE }
 }
@@ -64,9 +64,14 @@ export async function assertFeature(key: FeatureKey): Promise<void> {
   if (!(await isFeatureOn(key))) throw new Error(FEATURE_OFF_MESSAGE)
 }
 
-/** API route guard: a 404 response while the feature is off, else null. */
+/**
+ * API route guard: a JSON 404 `{ error: "Not found" }` while the feature is
+ * off, else null. JSON so public forms that parse the body before checking
+ * `res.ok` show a real message. Public routes call it after their rate limit,
+ * so throttled requests never reach the database.
+ */
 export async function featureNotFound(key: FeatureKey): Promise<Response | null> {
-  return (await isFeatureOn(key)) ? null : new Response("Not found", { status: 404 })
+  return (await isFeatureOn(key)) ? null : Response.json({ error: "Not found" }, { status: 404 })
 }
 
 /**

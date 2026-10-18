@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     event: { findUnique: jest.fn() },

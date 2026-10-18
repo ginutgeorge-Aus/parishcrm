@@ -13,6 +13,7 @@ import { GET } from "@/app/api/events/[slug]/image/[kind]/route"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { rateLimit } from "@/lib/rateLimit"
+import { featureNotFound } from "@/lib/featureFlags"
 
 const findFirst = prisma.eventImage.findFirst as jest.Mock
 const mockAuth = auth as jest.Mock
@@ -78,5 +79,20 @@ it("429s when the per-IP rate limit is exceeded, before touching the DB", async 
   mockRateLimit.mockReturnValueOnce(false)
   const res = await call("gala", "banner")
   expect(res.status).toBe(429)
+  expect(findFirst).not.toHaveBeenCalled()
+})
+
+it("throttles before the feature check: a rate-limited request never reads the DB", async () => {
+  mockRateLimit.mockReturnValueOnce(false)
+  const res = await call("gala", "banner")
+  expect(res.status).toBe(429)
+  expect(featureNotFound).not.toHaveBeenCalled()
+  expect(findFirst).not.toHaveBeenCalled()
+})
+
+it("404s while Events is off, without the image lookup", async () => {
+  ;(featureNotFound as jest.Mock).mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }))
+  const res = await call("gala", "banner")
+  expect(res.status).toBe(404)
   expect(findFirst).not.toHaveBeenCalled()
 })

@@ -15,7 +15,7 @@ import { ActivityFeed } from "@/components/settings/ActivityFeed"
 import { getBirthdayTemplate, getAnniversaryTemplate, getAutoEmailFlags } from "@/lib/actions/settings"
 import { EmailTemplatesSection } from "@/components/settings/EmailTemplatesSection"
 import { getEmailTemplate } from "@/lib/emailTemplateStore"
-import { EMAIL_TEMPLATE_KEYS, type EmailTemplateKey, type EmailTemplateFields } from "@/lib/emailTemplates"
+import { EMAIL_TEMPLATE_KEYS, visibleEmailTemplateKeys, type EmailTemplateKey, type EmailTemplateFields } from "@/lib/emailTemplates"
 import { getLetterSettings } from "@/lib/letterSettings"
 import { getMembershipSettings } from "@/lib/membershipSettings"
 import { getReceiptSettings } from "@/lib/receiptSettings"
@@ -27,6 +27,7 @@ import { getEnabledFeatures } from "@/lib/featureFlags"
 
 const GIT_SHA_DISPLAY_LENGTH = 7
 
+/** App Settings (ADMIN): church info, branding, email, and the sections of enabled features. */
 export default async function SettingsPage() {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
@@ -125,7 +126,7 @@ export default async function SettingsPage() {
               <AutoEmailToggles birthday={autoEmailFlags.birthday} anniversary={autoEmailFlags.anniversary} />
             </div>
           )}
-          <EmailTemplatesSection templates={emailTemplates} />
+          <EmailTemplatesSection templates={emailTemplates} keys={visibleEmailTemplateKeys(features)} />
         </section>
         {(on("welcomeLetter") || on("memberships")) && (
         <section id="members" aria-label="Members" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">

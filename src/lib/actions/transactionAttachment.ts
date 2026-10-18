@@ -28,15 +28,16 @@ import { featureGuard } from "@/lib/featureFlags"
 // 5 MB blobs to a single row (storage DoS). 20 covers any real receipt set.
 const MAX_ATTACHMENTS_PER_TX = 20
 
+/** Attach a receipt file to a transaction. ADMIN/PASTOR (canAccessAccounting); blocked in demo mode and while Accounting is off. */
 export async function attachTransactionReceipt(
   transactionId: number,
   _prev: ActionResult,
   formData: FormData,
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -98,11 +99,12 @@ export async function attachTransactionReceipt(
   revalidatePath(`/accounting/transactions/${transactionId}`)
 }
 
+/** Remove a receipt attachment. ADMIN/PASTOR (canAccessAccounting); blocked in demo mode and while Accounting is off. */
 export async function removeTransactionReceipt(attachmentId: number): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("accounting")
+  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
 

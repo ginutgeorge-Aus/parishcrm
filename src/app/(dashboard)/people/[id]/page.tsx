@@ -264,6 +264,7 @@ function GivingHistoryCard({
   )
 }
 
+/** Person detail page: profile, family, and cards for the enabled features the viewer may see. */
 export default async function PersonDetailPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const session = await auth()
@@ -297,7 +298,7 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
     const userId = actorId(session)
     void logAudit(userId, "VIEW_PASTORAL_NOTES", "Person", person.id)
   }
-  // Off features drop their cards (and skip their queries) here too.
+  // Off features drop their cards here too; the clearance and giving reads are skipped.
   const features = await getEnabledFeatures()
   const userCanSeeGiving = canAccessAccounting(session?.user?.role) && features.has("accounting")
   // Safeguarding card. Gate BEFORE querying/decrypting: AUDITOR/EVENT_ORGANISER

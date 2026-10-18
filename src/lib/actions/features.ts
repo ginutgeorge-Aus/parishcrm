@@ -16,9 +16,10 @@ import type { ActionResultWithSuccess } from "./types"
 
 const DEFAULTS = new Map(FEATURES.map((f) => [f.key, f.defaultOn]))
 
-// Strict object of known keys → boolean; rejects null, non-objects and unknown keys.
+// Strict object of every known key → boolean; rejects null, non-objects, unknown
+// keys and partial maps (an omitted key would otherwise reset to its default).
 const FeaturesInput = z.strictObject(
-  Object.fromEntries(FEATURES.map((f) => [f.key, z.boolean().optional()])),
+  Object.fromEntries(FEATURES.map((f) => [f.key, z.boolean()])),
 )
 
 /**
@@ -36,8 +37,8 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
   const parsed = FeaturesInput.safeParse(input)
   if (!parsed.success) return { error: "Invalid feature settings" }
   const next: FeatureOverrides = {}
-  for (const [k, v] of Object.entries(parsed.data) as [FeatureKey, boolean | undefined][]) {
-    if (v !== undefined && v !== DEFAULTS.get(k)) next[k] = v
+  for (const [k, v] of Object.entries(parsed.data) as [FeatureKey, boolean][]) {
+    if (v !== DEFAULTS.get(k)) next[k] = v
   }
   const value = JSON.stringify(next)
   const userId = actorId(session)

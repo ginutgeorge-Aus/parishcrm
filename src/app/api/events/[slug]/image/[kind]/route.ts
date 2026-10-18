@@ -12,12 +12,11 @@ const KIND_MAP = { banner: "BANNER", poster: "POSTER" } as const
 
 const notFound = () => new NextResponse("Not found", { status: 404 })
 
+/** Public banner/poster image for an event. Rate-limited per IP before any DB read; 404 while Events is off. */
 export async function GET(
   req: NextRequest,
   props: { params: Promise<{ slug: string; kind: string }> },
 ) {
-  const off = await featureNotFound("events")
-  if (off) return off
   // Unauthenticated (same public tier as register/waitlist) — throttle
   // before any DB work. Higher N than register/waitlist's 10/min since a
   // single page load can fan out to both banner + poster.
@@ -25,6 +24,8 @@ export async function GET(
   if (!rateLimit(`event-image:${ip}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
 
   const { slug, kind } = await props.params
   // Object.hasOwn (not `!mapped`) so inherited keys like "__proto__" /

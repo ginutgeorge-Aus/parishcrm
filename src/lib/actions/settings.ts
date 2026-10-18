@@ -20,6 +20,7 @@ import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
+import type { FeatureKey } from "@/lib/features"
 
 // Single source of truth for every key any settings action may write.
 const CHURCH_INFO_KEYS = ["churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite"] as const
@@ -39,6 +40,12 @@ const ALLOWED_KEYS = new Set<string>([
   ...ANNIVERSARY_TEMPLATE_KEYS,
   ...AUTO_EMAIL_KEYS,
   ...LETTER_SETTING_KEYS,
+])
+// Generic-path keys owned by a feature: upsertSetting refuses them while it's
+// off, matching the dedicated actions (updateAutoEmailFlags etc.).
+const KEY_FEATURE = new Map<string, FeatureKey>([
+  ...[...BIRTHDAY_TEMPLATE_KEYS, ...ANNIVERSARY_TEMPLATE_KEYS, ...AUTO_EMAIL_KEYS].map((k) => [k, "celebrations"] as const),
+  ["pettyCashDefaultCustodianId", "pettyCash"],
 ])
 const IDLE_TIMEOUT_OPTIONS = new Set(IDLE_TIMEOUT_OPTIONS_LIST.map(String))
 const EMAIL_KEYS = new Set(["ownerNotificationEmail", "churchEmail"])
@@ -133,6 +140,7 @@ function validateSettingValue(key: string, value: string): { error: string } | {
   return validateChurchInfoSettingValue(key, value)
 }
 
+/** Generic single-key settings write (allowlisted keys). ADMIN; a feature-owned key is refused while its feature is off. */
 export async function upsertSetting(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -144,6 +152,11 @@ export async function upsertSetting(_prev: ActionResultWithSuccess, formData: Fo
 
   const keyError = validateSettingKey(key)
   if (keyError) return { error: keyError }
+  const feature = KEY_FEATURE.get(key)
+  if (feature) {
+    const off = await featureGuard(feature)
+    if (off) return off
+  }
 
   const validated = validateSettingValue(key, rawValue)
   if ("error" in validated) return { error: validated.error }
@@ -256,11 +269,12 @@ const BirthdayTemplateSchema = z.object({
   birthdayEmailBody: z.string().min(1, "Body required").max(5000),
 })
 
+/** Save the birthday email template. ADMIN; Celebrations must be on. */
 export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -288,14 +302,16 @@ export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, for
   return { success: "Birthday email template saved" }
 }
 
-// Sends the CURRENT (possibly unsaved) draft to the signed-in admin, rendered
-// with sample data — mirrors emailTemplates.ts::sendTestEmail. Never touches
-// members or their consent.
+/**
+ * Sends the CURRENT (possibly unsaved) draft to the signed-in admin, rendered
+ * with sample data — mirrors emailTemplates.ts::sendTestEmail. Never touches
+ * members or their consent.
+ */
 export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -345,11 +361,12 @@ const AnniversaryTemplateSchema = z.object({
   anniversaryEmailBody: z.string().min(1, "Body required").max(5000),
 })
 
+/** Save the anniversary email template. ADMIN; Celebrations must be on. */
 export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -377,13 +394,15 @@ export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, 
   return { success: "Anniversary email template saved" }
 }
 
-// Sends the CURRENT (possibly unsaved) draft to the signed-in admin, rendered
-// with sample data — mirror of sendTestBirthdayEmail.
+/**
+ * Sends the CURRENT (possibly unsaved) draft to the signed-in admin, rendered
+ * with sample data — mirror of sendTestBirthdayEmail.
+ */
 export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -428,11 +447,12 @@ const AutoEmailSchema = z.object({
   autoAnniversaryEmail: z.string().optional().transform((v) => v === "on" || v === "true"),
 })
 
+/** Turn the automatic birthday/anniversary emails on or off. ADMIN; Celebrations must be on. */
 export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("celebrations")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -468,11 +488,12 @@ const PettyCashCustodianSchema = z.object({
     .transform((v) => (v === "" ? ("" as const) : Number.parseInt(v, 10))),
 })
 
+/** Set the default petty cash custodian. ADMIN; Petty cash must be on. */
 export async function updatePettyCashCustodian(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -533,14 +554,15 @@ const LetterSettingsSchema = z.object({
   bankBuildingFundLabel: z.string().max(120),
 })
 
+/** Save the welcome letter templates and fund labels. ADMIN; Welcome letter must be on. */
 export async function updateLetterSettings(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("welcomeLetter")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -581,16 +603,18 @@ const MembershipSettingsSchema = z.object({
   membershipArrivalDateLabel: z.string().trim().max(80, "Field labels must be 80 characters or fewer"),
 })
 
-// Membership toggles (OSS Phase 3 item 5). Not in ALLOWED_KEYS on purpose —
-// the generic upsertSetting path would otherwise write unvalidated values.
+/**
+ * Membership toggles (OSS Phase 3 item 5). Not in ALLOWED_KEYS on purpose —
+ * the generic upsertSetting path would otherwise write unvalidated values.
+ */
 export async function updateMembershipSettings(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("memberships")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 

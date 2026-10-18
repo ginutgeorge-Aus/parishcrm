@@ -33,8 +33,9 @@ A switched-off feature is **hidden and blocked**:
 - its actions refuse with "This feature is turned off. An admin can enable
   it in Settings → Features.";
 - its scheduled jobs (event reminders, celebration emails, the clearance
-  digest) skip. A skipped run doesn't count, so turning the feature back on
-  mid-day or mid-month still runs the job for that period.
+  digest) skip. A skipped run doesn't count; turning the feature back on
+  during that job's open window still runs it for the period. The clearance
+  digest's window is the first seven days of the Sydney month.
 
 **Your data is never deleted.** Switching a feature back on restores
 everything exactly as it was.

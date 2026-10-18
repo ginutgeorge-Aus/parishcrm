@@ -86,10 +86,10 @@ export async function upsertClearance(
   type: ClearanceType,
   formData: FormData,
 ): Promise<ActionResult> {
-  const off = await featureGuard("clearances")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(personId) || !CLEARANCE_TYPES.has(type)) return { error: "Not found" }
@@ -233,10 +233,10 @@ export async function verifyClearance(
   seenUpdatedAt: string,
   note?: string,
 ): Promise<ActionResult> {
-  const off = await featureGuard("clearances")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -278,10 +278,10 @@ export async function verifyClearance(
  * @param seenUpdatedAt ISO `updatedAt` of the row as rendered (required)
  */
 export async function unverifyClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
-  const off = await featureGuard("clearances")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -316,10 +316,10 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
  * @param seenUpdatedAt ISO `updatedAt` of the row as rendered (required)
  */
 export async function deleteClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
-  const off = await featureGuard("clearances")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 
@@ -364,10 +364,10 @@ export async function verifyClearancesBulk(
   items: { id: string; seenUpdatedAt: string; seenPersonUpdatedAt: string }[],
   note?: string,
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("clearances")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("clearances")
+  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
 

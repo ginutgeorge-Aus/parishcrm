@@ -27,14 +27,14 @@ const MAX_BODY_BYTES = 100 * 1024
  * unit-testable core in @/lib/eventRegistration and map its result to a response.
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
-  const off = await featureNotFound("events")
-  if (off) return off
   const params = await props.params
   const ip = getClientIp(req)
   // 10 requests per IP per minute via the shared in-memory limiter.
   if (!rateLimit(`register:${ip}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
 
   // Reject before parsing — don't buffer a multi-MB body to then fail Zod.
   if (exceedsBodyLimit(req, MAX_BODY_BYTES)) {

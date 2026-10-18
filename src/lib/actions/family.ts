@@ -13,6 +13,7 @@ import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
 import { getMembershipSettings } from "@/lib/membershipSettings"
+import { isFeatureOn } from "@/lib/featureFlags"
 
 // Upper bound on monthly subscription dues — sanity cap, not a business rule.
 const MAX_MONTHLY_DUES_DOLLARS = 100_000
@@ -62,6 +63,7 @@ import type { ActionResult } from "./types"
 // Definition lives in lib/familyFields.ts so approveFamilyUpdate can reuse it
 // without importing a non-async symbol from this "use server" module.
 
+/** Create a family from the new-family form. While Subscription dues is off, dues get the minimum-dues default. */
 export async function createFamily(
   _prev: ActionResult,
   formData: FormData
@@ -74,8 +76,9 @@ export async function createFamily(
 
   const createData = { ...parsed.data }
   // The dues field is hidden while Subscription dues is off: apply the same
-  // minimum-dues default the visible form would have prefilled.
-  if (!formData.has("monthlyDues")) {
+  // minimum-dues default the visible form would have prefilled. Checked
+  // server-side too, so a stale form can't set dues after the feature is off.
+  if (!formData.has("monthlyDues") || !(await isFeatureOn("dues"))) {
     const { minDues } = await getMembershipSettings()
     createData.monthlyDues = minDues == null ? null : minDues.toFixed(2)
   }
@@ -99,13 +102,14 @@ export async function createFamily(
     "FAMILY_CREATED",
     "Family",
     newId,
-    { monthlyDues: parsed.data.monthlyDues }
+    { monthlyDues: createData.monthlyDues }
   )
 
   revalidatePath("/families")
   redirect(`/families/${newId}`)
 }
 
+/** Update a family from the edit form, with an optimistic-concurrency check. Keeps stored dues while Subscription dues is off. */
 export async function updateFamily(
   id: number,
   _prev: ActionResult,
@@ -127,8 +131,9 @@ export async function updateFamily(
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const updateData: Partial<typeof parsed.data> = { ...parsed.data }
-  // The dues field is hidden while Subscription dues is off: keep the stored value.
-  if (!formData.has("monthlyDues")) delete updateData.monthlyDues
+  // The dues field is hidden while Subscription dues is off: keep the stored
+  // value. Checked server-side too, so a stale form can't overwrite it.
+  if (!formData.has("monthlyDues") || !(await isFeatureOn("dues"))) delete updateData.monthlyDues
   encryptFamilyFields(updateData)
 
   // Optimistic concurrency: see transaction.ts::updateTransaction.

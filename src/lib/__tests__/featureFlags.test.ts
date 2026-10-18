@@ -40,7 +40,10 @@ it("featureGuard returns error result when off, null when on", async () => {
 
 it("featureNotFound returns a 404 when off, null when on", async () => {
   stored({ events: false })
-  expect((await featureNotFound("events"))?.status).toBe(404)
+  const res = await featureNotFound("events")
+  expect(res?.status).toBe(404)
+  // JSON, so public forms that parse before checking res.ok get a message.
+  expect(await res?.json()).toEqual({ error: "Not found" })
   expect(await featureNotFound("budget")).toBeNull()
 })
 

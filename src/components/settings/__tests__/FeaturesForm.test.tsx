@@ -54,6 +54,31 @@ describe("FeaturesForm", () => {
     expect(Object.keys(sent)).toHaveLength(FEATURES.length)
   })
 
+  it("shows a retry message when the save request itself fails", async () => {
+    mockSave.mockRejectedValue(new Error("network down"))
+    render(<FeaturesForm initial={{}} />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(screen.getByText("Could not save features. Please try again.")).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled()
+  })
+
+  it("links the blocking reason and public-link warning to their switch", () => {
+    render(<FeaturesForm initial={{}} />)
+    fireEvent.click(screen.getByLabelText("Accounting"))
+    expect(screen.getByLabelText("Budget")).toHaveAccessibleDescription(expect.stringContaining("Needs Accounting"))
+    fireEvent.click(screen.getByLabelText("Events"))
+    const warning = screen.getByText(/registration links will stop working/)
+    expect(warning).toHaveAttribute("role", "status")
+    expect(screen.getByLabelText("Events")).toHaveAccessibleDescription(expect.stringContaining("registration links will stop working"))
+  })
+
+  it("renders without React key warnings", () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => {})
+    render(<FeaturesForm initial={{}} />)
+    expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
+    err.mockRestore()
+  })
+
   it("shows the welcome banner only when welcome", () => {
     const { rerender } = render(<FeaturesForm initial={{}} />)
     expect(screen.queryByText(/Pick what your church needs/)).not.toBeInTheDocument()

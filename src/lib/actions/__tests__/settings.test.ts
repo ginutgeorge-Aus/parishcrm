@@ -4,6 +4,7 @@ import { upsertSetting, updateMembershipSettings, updateLetterSettings } from "@
 import { updateTag } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { featureGuard } from "@/lib/featureFlags"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
@@ -80,6 +81,29 @@ describe("upsertSetting — membershipSecretaryEmail (multi-recipient)", () => {
     const res = await upsertSetting(undefined, fd("ownerNotificationEmail", "a@x.com, b@y.com"))
     expect(res).toEqual({ error: "Invalid email address" })
     expect(mockUpsert).not.toHaveBeenCalled()
+  })
+})
+
+describe("upsertSetting — feature-owned keys honour their feature", () => {
+  const OFF = { error: "This feature is turned off in Settings → Features." }
+
+  it.each([
+    ["autoBirthdayEmail", "true", "celebrations"],
+    ["autoAnniversaryEmail", "true", "celebrations"],
+    ["birthdayEmailSubject", "Happy birthday", "celebrations"],
+    ["anniversaryEmailBody", "Congrats", "celebrations"],
+    ["pettyCashDefaultCustodianId", "3", "pettyCash"],
+  ])("blocks %s while its feature is off", async (key, value, feature) => {
+    ;(featureGuard as jest.Mock).mockResolvedValueOnce(OFF)
+    expect(await upsertSetting(undefined, fd(key, value))).toEqual(OFF)
+    expect(featureGuard).toHaveBeenCalledWith(feature)
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it("does not check a feature for a core key", async () => {
+    await upsertSetting(undefined, fd("churchName", "Example Church"))
+    expect(featureGuard).not.toHaveBeenCalled()
+    expect(mockUpsert).toHaveBeenCalled()
   })
 })
 

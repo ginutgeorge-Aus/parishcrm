@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { FEATURES } from "@/lib/features"
 import { saveFeatures } from "@/lib/actions/features"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
@@ -51,6 +52,12 @@ describe("saveFeatures", () => {
     expect(tx).not.toHaveBeenCalled()
   })
 
+  it("rejects a partial map, so omitted keys can't silently reset to defaults", async () => {
+    mockSession("ADMIN")
+    expect(await saveFeatures({ events: false })).toEqual({ error: "Invalid feature settings" })
+    expect(tx).not.toHaveBeenCalled()
+  })
+
   it.each([null, [], "x", { events: "no" }])("rejects malformed input %p", async (input) => {
     mockSession("ADMIN")
     expect(await saveFeatures(input as never)).toEqual({ error: "Invalid feature settings" })
@@ -60,7 +67,8 @@ describe("saveFeatures", () => {
   it("stores only overrides differing from default, audits, clears onboarding flag", async () => {
     mockSession("ADMIN")
     findUnique.mockResolvedValue({ key: "features", value: '{"budget":false}' })
-    const res = await saveFeatures({ events: false, budget: true })
+    const all = Object.fromEntries(FEATURES.map((f) => [f.key, f.defaultOn]))
+    const res = await saveFeatures({ ...all, events: false, budget: true })
     expect(res).toEqual({ success: "Features saved" })
     expect(upsert).toHaveBeenCalledWith({
       where: { key: "features" },

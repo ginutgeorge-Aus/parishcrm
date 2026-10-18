@@ -30,13 +30,15 @@ const KEEP_HISTORY = "This child has left the class, so their mark can be change
 type RollGuard = { error: string } | { actor: number; ymd: string }
 
 /**
- * Shared guard for the two roll actions: demo block, signed in, valid id,
+ * Shared guard for the two roll actions: demo block, feature check, signed in, valid id,
  * canMarkRoll, live class, and a real past-or-today date inside the class year.
  * Module-private ("use server" exports must be async actions).
  */
 async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const session = await auth()
   if (!session?.user) return { error: "Unauthorized" }
   if (!isValidPgId(classId)) return { error: "Invalid class" }
@@ -117,8 +119,6 @@ export async function setAttendance(
   personId: number,
   status: AttendanceStatus | null,
 ): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await rollGuard(classId, ymd)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
@@ -170,8 +170,6 @@ export async function setAttendance(
  * no session. canMarkRoll-gated.
  */
 export async function markUnmarkedPresent(classId: number, ymd: string): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await rollGuard(classId, ymd)
   if ("error" in g) return { error: g.error }
   const date = ymdToDbDate(g.ymd)
@@ -194,10 +192,12 @@ export async function markUnmarkedPresent(classId: number, ymd: string): Promise
 
 type EditorGuard = { error: string } | { session: Session | null }
 
-/** Demo block, editor role, valid ids, live class — for roll-marker assignment. */
+/** Demo block, feature check, editor role, valid ids, live class — for roll-marker assignment. */
 async function markerGuard(classId: number, userId: number): Promise<EditorGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(classId) || !isValidPgId(userId)) return { error: "Invalid input" }
@@ -211,8 +211,6 @@ async function markerGuard(classId: number, userId: number): Promise<EditorGuard
  * Duplicate = success (unique classId_userId).
  */
 export async function addRollMarker(classId: number, userId: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
   // findFirst so an archived (soft-deleted) user can't be assigned by id.
@@ -234,8 +232,6 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
 
 /** Remove a roll marker from a class (missing link = success). canEdit-gated. */
 export async function removeRollMarker(classId: number, userId: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }
   const r = await withLiveClass(classId, (tx) => tx.sundaySchoolRollMarker.deleteMany({ where: { classId, userId } }))

@@ -11,6 +11,8 @@ import {
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
+import { isFeatureOn } from "@/lib/featureFlags"
+import { logAudit } from "@/lib/audit"
 
 // Locks in the guards family.ts fixed by hand with no regression net: the
 // canEdit/isAdmin role gates, the unique-constraint messaging (memberNo vs
@@ -20,6 +22,7 @@ import { revalidatePath } from "next/cache"
 // merge conflict / cascade-relink handling (//P2002).
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/membershipSettings", () => ({ getMembershipSettings: jest.fn().mockResolvedValue({ minDues: 80 }) }))
 jest.mock("@/lib/audit", () => ({
   logAudit: jest.fn().mockResolvedValue(undefined),
@@ -136,6 +139,22 @@ describe("createFamily", () => {
     expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBe("80.00")
   })
 
+  it("ignores a submitted dues amount while Subscription dues is off (stale form) and applies the default", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
+    ;(isFeatureOn as jest.Mock).mockResolvedValueOnce(false)
+    await expect(createFamily(undefined, form({ ...VALID, monthlyDues: "500" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(isFeatureOn).toHaveBeenCalledWith("dues")
+    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBe("80.00")
+  })
+
+  it("audits the dues actually written, not the absent form value", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
+    await expect(createFamily(undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_CREATED", "Family", 7, { monthlyDues: "80.00" })
+  })
+
   it("keeps a blank submitted dues field as no obligation", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
@@ -210,6 +229,15 @@ describe("updateFamily", () => {
     it("keeps stored dues when the dues field is absent (Subscription dues off)", async () => {
       ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
       await expect(updateFamily(3, undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
+      const arg = (prisma.family.updateMany as jest.Mock).mock.calls[0][0]
+      expect("monthlyDues" in arg.data).toBe(false)
+    })
+
+    it("keeps stored dues when a stale form submits an amount while Subscription dues is off", async () => {
+      ;(prisma.family.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+      ;(isFeatureOn as jest.Mock).mockResolvedValueOnce(false)
+      await expect(updateFamily(3, undefined, form({ ...VALID, monthlyDues: "500" }))).rejects.toThrow("NEXT_REDIRECT")
+      expect(isFeatureOn).toHaveBeenCalledWith("dues")
       const arg = (prisma.family.updateMany as jest.Mock).mock.calls[0][0]
       expect("monthlyDues" in arg.data).toBe(false)
     })

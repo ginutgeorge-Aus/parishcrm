@@ -1,5 +1,5 @@
 jest.mock("@/lib/featureFlags")
-import { sendFamilyUpdateInvite } from "@/lib/actions/familyUpdate"
+import { approveFamilyUpdate, rejectFamilyUpdate, sendFamilyUpdateInvite, submitFamilyUpdate } from "@/lib/actions/familyUpdate"
 import { prisma } from "@/lib/prisma"
 import { sendFamilyUpdateInviteEmail } from "@/lib/email"
 
@@ -93,7 +93,6 @@ describe("sendFamilyUpdateInvite", () => {
   })
 })
 
-import { submitFamilyUpdate } from "@/lib/actions/familyUpdate"
 
 const goodInput = {
   token: "rawtoken", ip: "1.2.3.4", website: "", formToken: "ts.sig",
@@ -210,7 +209,6 @@ describe("submitFamilyUpdate", () => {
   })
 })
 
-import { approveFamilyUpdate, rejectFamilyUpdate } from "@/lib/actions/familyUpdate"
 
 describe("approveFamilyUpdate", () => {
   const submission = {

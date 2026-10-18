@@ -410,6 +410,7 @@ function approvalErrorResult(e: unknown, attempt: number): ActionResultWithSucce
   return { error: "Another approval just used the same family — please try again." }
 }
 
+/** Approve a pending membership application by creating a family or merging into one. canEdit; Membership forms must be on. */
 export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
@@ -429,6 +430,9 @@ export async function approveMembershipApplication(
   const p = readPayload(app.payload as string)
   const reviewerId = actorId(session)
   const notes = buildNotesBlock(p, await getMembershipSettings())
+  // Recorded even while Subscription dues is off, on purpose: the public form
+  // still collects the amount, and turning the feature off keeps data (it is
+  // hidden, not erased), so switching dues back on shows what was agreed.
   const dues = app.monthlyDues ?? null
   const seeds = personSeeds(p)
   const marriageDate = p.spouse?.dateOfMarriage ? new Date(p.spouse.dateOfMarriage) : null

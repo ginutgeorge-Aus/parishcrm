@@ -96,9 +96,11 @@ async function notSoldOutResponse(
   return null
 }
 
-// Blind index dedupes joins without decrypting: email is stored with a random
-// IV so the ciphertext differs each time, but hmacEmail is deterministic. The
-// @@unique(eventId, ticketTypeId, emailHash) rejects a repeat join ( A1).
+/**
+ * Blind index dedupes joins without decrypting: email is stored with a random
+ * IV so the ciphertext differs each time, but hmacEmail is deterministic. The
+ * @@unique(eventId, ticketTypeId, emailHash) rejects a repeat join ( A1).
+ */
 async function createWaitlistEntry(
   eventId: number,
   ticketTypeId: number,
@@ -134,17 +136,17 @@ async function createWaitlistEntry(
  * fields (honeypot + signed timing token + optional CAPTCHA), not waitlist data.
  *
  * Responses: `200 { ok: true }` (also returned on a harmless repeat join) |
- * `400 { error: string }` | `404` (event/ticket type not found) | `413` (body
+ * `400 { error: string }` | `404` (event/ticket type not found, or Events turned off) | `413` (body
  * too large) | `429` (rate limited).
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
-  const off = await featureNotFound("events")
-  if (off) return off
   const params = await props.params
   const ip = getClientIp(req)
   if (!rateLimit(`waitlist:${ip}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
+  const off = await featureNotFound("events")
+  if (off) return off
   if (exceedsBodyLimit(req, MAX_BODY_BYTES)) {
     return NextResponse.json({ error: "Payload too large" }, { status: 413 })
   }

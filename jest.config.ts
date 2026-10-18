@@ -41,6 +41,7 @@ const config: Config = {
     "!src/lib/generated/**", // generated Prisma client
     "!src/components/ui/**", // shadcn primitives — not edited here
     "!src/**/*.d.ts",
+    "!src/**/__mocks__/**", // Jest manual mocks — test infrastructure
   ],
   // Floor set just under the 2026-06-23 baseline (stmts 63.2 / branches 57.8
   // / funcs 53.6 / lines 64.5). Ratchet upward as coverage improves.

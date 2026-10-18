@@ -193,7 +193,8 @@ describe("DEFAULT_JOBS feature gating", () => {
       sweepExpiredCheckouts: jest.fn(async () => ({ expired: 0 })),
     }
     jest.doMock("@/lib/featureFlags", () => ({
-      skipIfFeatureOff: jest.fn(async () => ({ skipped: "feature off" })),
+      // Echo the key so each job's test can assert it is wired to the right feature.
+      skipIfFeatureOff: jest.fn(async (key: string) => ({ skipped: "feature off", key })),
     }))
     jest.doMock("@/lib/reminderSweep", () => ({ runReminderSweep: sweeps.runReminderSweep }))
     jest.doMock("@/lib/celebrationSweep", () => ({ runCelebrationSweep: sweeps.runCelebrationSweep }))
@@ -203,9 +204,13 @@ describe("DEFAULT_JOBS feature gating", () => {
     return { DEFAULT_JOBS, sweeps }
   }
 
-  it.each(["reminders", "celebrations", "clearanceDigest"] as const)("%s skips while its feature is off", async (name) => {
+  it.each([
+    ["reminders", "events"],
+    ["celebrations", "celebrations"],
+    ["clearanceDigest", "clearances"],
+  ] as const)("%s skips while the %s feature is off", async (name, key) => {
     const { DEFAULT_JOBS, sweeps } = await loadOff()
-    expect(await DEFAULT_JOBS[name](NOW)).toEqual({ skipped: "feature off" })
+    expect(await DEFAULT_JOBS[name](NOW)).toEqual({ skipped: "feature off", key })
     expect(sweeps.runReminderSweep).not.toHaveBeenCalled()
     expect(sweeps.runCelebrationSweep).not.toHaveBeenCalled()
     expect(sweeps.runClearanceDigest).not.toHaveBeenCalled()

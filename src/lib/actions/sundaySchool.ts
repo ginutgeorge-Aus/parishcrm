@@ -29,17 +29,19 @@ const DUPLICATE_CLASS = "A class with this name and location already exists for 
 type Guard = { error: string } | { session: Session | null }
 type ClassGuard = { error: string } | { session: Session | null; cls: { id: number; year: number } }
 
-/** Demo block + editor role. Module-private ("use server" exports must be async actions). */
+/** Demo block, Sunday School feature check, editor role. Module-private ("use server" exports must be async actions). */
 async function editor(): Promise<Guard> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   return { session }
 }
 
 /**
- * Shared guard for actions on an existing class: demo block, editor role, valid
+ * Shared guard for actions on an existing class: demo block, feature check, editor role, valid
  * id, live (non-archived) class. Returns the session + class year, or an error.
  */
 async function editableClass(classId: number): Promise<ClassGuard> {
@@ -72,8 +74,6 @@ function children(n: number): string {
 
 /** Create a class in `year` (bound by the page); redirects to the new class. canEdit-gated. */
 export async function createClass(year: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editor()
   if ("error" in g) return { error: g.error }
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
@@ -106,8 +106,6 @@ export async function createClass(year: number, _prev: ActionResult, formData: F
 
 /** Edit a class's name, level and location (year is fixed). Redirects to the class. canEdit-gated. */
 export async function updateClass(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
   const form = parseClassForm(formData)
@@ -130,8 +128,6 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
 
 /** Archive (never delete) a class so enrolment/attendance history survives. canEdit-gated. */
 export async function archiveClass(id: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
   // Archived by someone else, or year locked, since editableClass(): no row changed, no audit.
@@ -174,8 +170,6 @@ async function withLiveClass(
  * every teacher is on the clearance compliance list. Duplicate = success.
  */
 export async function addTeacher(classId: number, personId: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
@@ -209,8 +203,6 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
 
 /** Remove a teacher from a class (missing link = success). canEdit-gated. */
 export async function removeTeacher(classId: number, personId: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
@@ -227,8 +219,6 @@ export async function removeTeacher(classId: number, personId: number): Promise<
  * elsewhere this year. canEdit-gated; ids deduped and capped.
  */
 export async function enrolChildren(classId: number, personIds: number[]): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!Array.isArray(personIds)) return { error: "Invalid person" }
@@ -287,8 +277,6 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
 
 /** Remove a child from a class (missing enrolment = success). canEdit-gated. */
 export async function unenrolChild(classId: number, personId: number): Promise<ActionResult> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
@@ -310,8 +298,6 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
  * and new ones wait until the copy commits.
  */
 export async function rolloverYear(fromYear: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const g = await editor()
   if ("error" in g) return { error: g.error }
   if (!Number.isInteger(fromYear) || fromYear < MIN_YEAR || fromYear >= MAX_YEAR) return { error: "Invalid school year" }
@@ -419,10 +405,10 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
  * Already locked returns an error and audits nothing.
  */
 export async function lockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
@@ -452,10 +438,10 @@ export async function lockSundaySchoolYear(year: number): Promise<ActionResultWi
  * audits nothing. Rolling the year over again re-locks it.
  */
 export async function unlockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }

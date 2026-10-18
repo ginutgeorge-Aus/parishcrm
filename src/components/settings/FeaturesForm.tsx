@@ -38,17 +38,24 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const [pending, startTransition] = useTransition()
   const effective = useMemo(() => resolveFeatures(state), [state])
 
+  /** Save the full on/off map; a transport failure shows a retry message. */
   const save = () => {
     setResult(null)
     startTransition(async () => {
-      const res = await saveFeatures(state)
-      setResult(res ?? { success: "Features saved" })
+      try {
+        const res = await saveFeatures(state)
+        startTransition(() => setResult(res ?? { success: "Features saved" }))
+      } catch {
+        startTransition(() => setResult({ error: "Could not save features. Please try again." }))
+      }
     })
   }
 
+  /** One feature's row: label, description, blocking reason / warning, switch. */
   const row = (def: FeatureDef) => {
     const blocker = blockedBy(def, effective)
     const id = `feature-${def.key}`
+    const descId = `${id}-desc`
     const warn = def.publicWarning && startOn.has(def.key) && !effective.has(def.key) && !blocker
     return (
       <li key={def.key} className={def.parent ? "pl-6" : undefined}>
@@ -57,13 +64,16 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
             <Label htmlFor={id} className={blocker ? "text-muted-foreground" : undefined}>
               {def.label}
             </Label>
-            <p className="text-sm text-muted-foreground">{def.description}</p>
-            {blocker && <p className="text-sm text-muted-foreground">Needs {blocker}</p>}
-            {warn && <p className="text-sm text-warning">{def.publicWarning}</p>}
+            <div id={descId}>
+              <p className="text-sm text-muted-foreground">{def.description}</p>
+              {blocker && <p className="text-sm text-muted-foreground">Needs {blocker}</p>}
+              {warn && <p role="status" className="text-sm text-warning">{def.publicWarning}</p>}
+            </div>
           </div>
           <Switch
             id={id}
             className="mt-1"
+            aria-describedby={descId}
             checked={effective.has(def.key)}
             disabled={pending || blocker !== null}
             onCheckedChange={(v) => setState((s) => ({ ...s, [def.key]: v }))}
@@ -85,7 +95,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
         Turning a feature off hides it and blocks it. Your data is kept, and switching it back on restores everything.
       </p>
       <ul className="divide-y divide-border">
-        {topLevel.map((top) => [
+        {topLevel.flatMap((top) => [
           row(top),
           ...FEATURES.filter((f) => f.parent === top.key).map(row),
         ])}

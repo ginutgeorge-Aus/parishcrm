@@ -13,7 +13,7 @@ const read = (file: string) => fs.readFileSync(path.join(process.cwd(), file), "
 const GUARDED_LAYOUTS: Record<string, string> = {
   "src/app/(dashboard)/events/layout.tsx": "events",
   "src/app/(organiser)/my-events/layout.tsx": "events",
-  "src/app/(public)/e/layout.tsx": "events",
+  "src/app/(public)/e/[slug]/crew/layout.tsx": "events",
   "src/app/(print)/events/layout.tsx": "events",
   "src/app/(dashboard)/memberships/layout.tsx": "memberships",
   "src/app/(print)/memberships/layout.tsx": "memberships",
@@ -149,9 +149,41 @@ it("maps only known feature keys", () => {
   }
 })
 
+// Pages gated in the page itself (a layout would also block a sibling that
+// must stay reachable, e.g. the public event success page after payment).
+const GUARDED_PAGES: Record<string, string> = {
+  "src/app/(public)/e/[slug]/page.tsx": "events",
+}
+
+it.each(Object.entries(GUARDED_PAGES))("%s calls requireFeature(%s)", (file, key) => {
+  expect(read(file)).toContain(`await requireFeature("${key}")`)
+})
+
+it("the public event success page stays reachable (in-flight payments must show their confirmation)", () => {
+  expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/layout.tsx"))).toBe(false)
+  expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/[slug]/layout.tsx"))).toBe(false)
+  expect(read("src/app/(public)/e/[slug]/success/page.tsx")).not.toMatch(/requireFeature/)
+})
+
 it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, key) => {
   expect(read(file)).toContain(`await requireFeature("${key}")`)
 })
+
+// Module-private guard helpers that run assertNotDemo then the feature check, so
+// an action calling one is gated. Each helper must itself guard (tested below).
+const GUARD_HELPERS: Record<string, string[]> = {
+  "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
+  "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
+}
+
+it.each(Object.entries(GUARD_HELPERS).flatMap(([file, fns]) => fns.map((fn) => [file, fn])))(
+  "%s: guard helper %s checks the feature (directly or via another helper)", (file, fn) => {
+    const src = read(file)
+    const start = src.indexOf(`async function ${fn}(`)
+    expect(start).toBeGreaterThan(-1)
+    const next = src.slice(start + 1).search(/\n(?:export )?(?:async )?function /)
+    expect(guards(src.slice(start, next === -1 ? undefined : start + 1 + next), GUARDED_ACTIONS[file], file)).toBe(true)
+  })
 
 it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", (file, key) => {
   const src = read(file)
@@ -160,17 +192,24 @@ it.each(Object.entries(GUARDED_ACTIONS))("%s: every exported action guards %s", 
   const unguarded = starts
     .filter((m, i) => {
       if (EXEMPT[file]?.includes(m[1])) return false
-      return !guards(src.slice(m.index, starts[i + 1]?.index ?? src.length), key)
+      return !guards(src.slice(m.index, starts[i + 1]?.index ?? src.length), key, file)
     })
     .map((m) => m[1])
   expect(unguarded).toEqual([])
 })
 
-/** True when a function body checks `key` (single, any-of, or throwing form). */
-function guards(body: string, key: string): boolean {
+/**
+ * True when a function body checks `key` (single, any-of, or throwing form),
+ * or calls one of the file's GUARD_HELPERS.
+ * @param body function source
+ * @param key feature key
+ * @param file source file, for its guard helpers
+ */
+function guards(body: string, key: string, file?: string): boolean {
   return body.includes(`featureGuard("${key}")`)
     || body.includes(`assertFeature("${key}")`)
     || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
+    || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => body.includes(`await ${h}(`)))
 }
 
 // Mixed files (core + feature-owned functions): function → feature.
@@ -205,4 +244,23 @@ it("every Server Action file in a feature area is mapped", () => {
     .map((f) => `${dir}/${f}`)
     .filter((f) => /^"use server"/m.test(read(f)) && !(f in GUARDED_ACTIONS))
   expect(unmapped).toEqual([])
+})
+
+it("assertNotDemo runs before the feature check in every action and guard helper (no DB read for a demo write)", () => {
+  const dir = "src/lib/actions"
+  const late = fs.readdirSync(path.join(process.cwd(), dir))
+    .filter((f) => f.endsWith(".ts"))
+    .flatMap((f) => {
+      const src = read(`${dir}/${f}`)
+      // Slice at every top-level function so a private helper's body isn't
+      // attributed to the export above it.
+      const starts = [...src.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)]
+      return starts.filter((m, i) => {
+        const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
+        const demo = body.indexOf("assertNotDemo(")
+        const feature = body.search(/featureGuard(Any)?\(|assertFeature\(/)
+        return demo !== -1 && feature !== -1 && feature < demo
+      }).map((m) => `${f}:${m[1]}`)
+    })
+  expect(late).toEqual([])
 })

@@ -10,18 +10,21 @@ import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
 
-// Public entry point for the optional Stripe event-payments flow: prices the
-// registration server-side (never trusting client-sent amounts), then stages
-// a CheckoutSession row and starts a Stripe Checkout Session. Mirrors the
-// unauth `POST /api/events/[slug]/register` route's guards (rate limit, IP
-// trust, publish/past-event checks) since this is equally a public callable
-// endpoint despite being a server action rather than a route handler.
+/**
+ * Public entry point for the optional Stripe event-payments flow: prices the
+ * registration server-side (never trusting client-sent amounts), then stages
+ * a CheckoutSession row and starts a Stripe Checkout Session. Mirrors the
+ * unauth `POST /api/events/[slug]/register` route's guards (rate limit, IP
+ * trust, publish/past-event checks) since this is equally a public callable
+ * endpoint despite being a server action rather than a route handler.
+ */
 export async function startEventCheckout(
   slug: string,
   rawBody: unknown,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
   const off = await featureGuard("events")
-  if (off) return { ok: false, status: 404, error: off.error }
+  // Public caller: same generic 404 as an unpublished event, not the admin wording.
+  if (off) return { ok: false, status: 404, error: "Event not found" }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }
@@ -86,18 +89,21 @@ export async function startEventCheckout(
   return withCurrencyGuard(() => createEventCheckoutSession(event, v.priced, origin))
 }
 
-// Pay-now-by-card for an EXISTING pending registration, reached from the
-// payment-reminder success page. Public callable (like startEventCheckout), so
-// it re-guards access itself: Stripe configured, rate-limited, event published +
-// online-payment enabled, and the registration must be event-scoped + PENDING +
-// non-free. No past-event / registration-closed gate: a registered attendee owes
-// the money regardless of the event date.
+/**
+ * Pay-now-by-card for an EXISTING pending registration, reached from the
+ * payment-reminder success page. Public callable (like startEventCheckout), so
+ * it re-guards access itself: Stripe configured, rate-limited, event published +
+ * online-payment enabled, and the registration must be event-scoped + PENDING +
+ * non-free. No past-event / registration-closed gate: a registered attendee owes
+ * the money regardless of the event date.
+ */
 export async function startExistingRegistrationCheckout(
   slug: string,
   publicToken: string,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
   const off = await featureGuard("events")
-  if (off) return { ok: false, status: 404, error: off.error }
+  // Public caller: same generic 404 as an unpublished event, not the admin wording.
+  if (off) return { ok: false, status: 404, error: "Event not found" }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }

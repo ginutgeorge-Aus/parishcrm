@@ -292,11 +292,12 @@ async function insertImportExpenses(
   })
 }
 
+/** Commit a reviewed petty cash import. ADMIN; blocked in demo mode and while Petty cash is off. */
 export async function commitImport(formData: FormData): Promise<CommitResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const demo = assertNotDemo()
   if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
 
