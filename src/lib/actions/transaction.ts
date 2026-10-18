@@ -20,6 +20,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
 
 const BUSY = { error: "Couldn't save the transaction. Try again." }
+const GONE = { error: "A fund, payment account, family or person on this transaction was just removed. Reload and try again." }
 
 // Report pages cache transaction-derived figures, so every transaction
 // mutation must invalidate them too — not just the list/index paths.
@@ -180,7 +181,7 @@ export async function createTransaction(
       },
     })
     return { created }
-  }, BUSY)
+  }, BUSY, GONE)
   if (!("created" in result)) return result
   const { created } = result
   await logAudit(actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
@@ -303,7 +304,7 @@ export async function updateTransaction(
         personId,
       },
     })
-  }, BUSY)
+  }, BUSY, GONE)
   if ("error" in result) return result
   if (result.count === 0) {
     return {
