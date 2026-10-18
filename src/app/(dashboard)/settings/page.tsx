@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
@@ -78,6 +79,11 @@ export default async function SettingsPage() {
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-6">App Settings</h2>
       <DemoNotice />
+      <p className="mb-4 text-sm">
+        <Link href="/settings/features" className="font-medium text-primary underline-offset-4 hover:underline">
+          Choose features →
+        </Link>
+      </p>
       <SettingsNav />
       <div className="space-y-12">
         <section id="general" aria-label="General" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
