@@ -132,27 +132,27 @@ describe("createFamily", () => {
     expect(data.address).toBe("enc:1 Church St")
   })
 
-  it("applies the minimum-dues default when the dues field is hidden (Subscription dues off)", async () => {
+  it("writes no dues when the dues field is hidden (Subscription dues off), never auto-filling minDues", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
     await expect(createFamily(undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
-    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBe("80.00")
+    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBeNull()
   })
 
-  it("ignores a submitted dues amount while Subscription dues is off (stale form) and applies the default", async () => {
+  it("ignores a submitted dues amount while Subscription dues is off (stale form) and writes no dues", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
     ;(isFeatureOn as jest.Mock).mockResolvedValueOnce(false)
     await expect(createFamily(undefined, form({ ...VALID, monthlyDues: "500" }))).rejects.toThrow("NEXT_REDIRECT")
     expect(isFeatureOn).toHaveBeenCalledWith("dues")
-    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBe("80.00")
+    expect((prisma.family.create as jest.Mock).mock.calls[0][0].data.monthlyDues).toBeNull()
   })
 
   it("audits the dues actually written, not the absent form value", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.create as jest.Mock).mockResolvedValue({ id: 7 })
     await expect(createFamily(undefined, form(VALID))).rejects.toThrow("NEXT_REDIRECT")
-    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_CREATED", "Family", 7, { monthlyDues: "80.00" })
+    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_CREATED", "Family", 7, { monthlyDues: null })
   })
 
   it("keeps a blank submitted dues field as no obligation", async () => {

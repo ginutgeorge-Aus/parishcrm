@@ -19,6 +19,7 @@ import { headers } from "next/headers"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 // Thrown inside the approval transaction when the atomic PENDING→APPROVED claim
 // matches 0 rows (a concurrent approval already won). Caught to return a clean
@@ -100,8 +101,6 @@ type SubmitInput = {
 class InviteNoLongerValid extends Error {}
 
 export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("familyUpdates")
-  if (off) return off
   // Honeypot: a real user never fills the hidden "website" field. Generic error.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
@@ -112,6 +111,8 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }
+  // Public form: generic message, never the admin wording.
+  if (await featureGuard("familyUpdates")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
   // Timing trap: reject missing/forged/too-fast/stale tokens.
   if (verifyFormToken(input.formToken, Date.now()) !== "ok") {

@@ -89,5 +89,15 @@ it.each([
 ])("%s returns the public 'Event not found' 404 while Events is off (no admin wording)", async (_name, call) => {
   ;(featureGuard as jest.Mock).mockResolvedValueOnce({ error: "This feature is turned off in Settings → Features." })
   expect(await call()).toEqual({ ok: false, status: 404, error: "Event not found" })
-  expect(mStripe).not.toHaveBeenCalled()
+  expect(mCreate).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "tok-42")],
+  ["startEventCheckout", () => startEventCheckout("fete", {})],
+])("%s rate-limits before the feature read", async (_name, call) => {
+  mRate.mockReturnValueOnce(false)
+  ;(featureGuard as jest.Mock).mockClear()
+  expect(await call()).toMatchObject({ ok: false, status: 429 })
+  expect(featureGuard).not.toHaveBeenCalled()
 })

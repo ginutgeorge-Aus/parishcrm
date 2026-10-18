@@ -29,7 +29,11 @@ jest.mock("@/components/DemoNotice", () => ({ DemoNotice: () => null }))
 function mockStub(name: string) {
   return { [name]: (p: { keys?: string[] }) => <i data-c={name}>{p.keys ? p.keys.join(",") : ""}</i> }
 }
-jest.mock("@/components/settings/AppSettingsForm", () => mockStub("AppSettingsForm"))
+jest.mock("@/components/settings/AppSettingsForm", () => ({
+  AppSettingsForm: (p: { showMembership: boolean; showCardFee: boolean }) => (
+    <i data-c="AppSettingsForm" data-membership={String(p.showMembership)} data-cardfee={String(p.showCardFee)} />
+  ),
+}))
 jest.mock("@/components/settings/BirthdayEmailForm", () => mockStub("BirthdayEmailForm"))
 jest.mock("@/components/settings/AnniversaryEmailForm", () => mockStub("AnniversaryEmailForm"))
 jest.mock("@/components/settings/AutoEmailToggles", () => mockStub("AutoEmailToggles"))
@@ -75,6 +79,7 @@ it("shows every feature-owned section and template while all features are on", a
   }
   expect(html).toContain("<nav>general,members,receipts</nav>")
   expect(html).toContain("welcome,familyUpdate,receipt,dgrReceipt")
+  expect(html).toContain('data-membership="true" data-cardfee="true"')
 })
 
 it("hides feature-owned sections, nav entries and templates while their features are off", async () => {
@@ -83,6 +88,7 @@ it("hides feature-owned sections, nav entries and templates while their features
     expect(html).not.toContain(`data-c="${c}"`)
   }
   expect(html).toContain('data-c="ChurchInfoForm"')
+  expect(html).toContain('data-membership="false" data-cardfee="false"')
   expect(html).toContain("<nav>general</nav>")
   expect(html).toMatch(/data-c="EmailTemplatesSection">welcome</)
 })

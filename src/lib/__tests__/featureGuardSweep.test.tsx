@@ -14,7 +14,8 @@ jest.mock("next/cache", () => ({
   revalidatePath: jest.fn(), revalidateTag: jest.fn(), updateTag: jest.fn(),
   unstable_cache: (fn: unknown) => fn,
 }))
-jest.mock("next/headers", () => ({ headers: jest.fn(), cookies: jest.fn() }))
+jest.mock("next/headers", () => ({ headers: jest.fn(async () => new Map()), cookies: jest.fn() }))
+jest.mock("@/lib/stripe", () => ({ stripeConfigured: () => true }))
 jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => { throw new Error("NEXT_NOT_FOUND") }),
   redirect: jest.fn(() => { throw new Error("NEXT_REDIRECT") }),
@@ -22,6 +23,7 @@ jest.mock("next/navigation", () => ({
 
 import { assertFeature, featureGuard, featureGuardAny, requireFeature } from "@/lib/featureFlags"
 import { notFound } from "next/navigation"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 const OFF = { error: "This feature is turned off." }
 const root = process.cwd()
@@ -50,7 +52,14 @@ const ARGS: Record<string, unknown[]> = {
   "emailTemplates.ts:resetEmailTemplate": ["receipt"],
   "emailTemplates.ts:previewEmailTemplate": ["receipt", {}],
   "emailTemplates.ts:sendTestEmail": ["receipt", {}],
+  // Public forms: honeypot/rate limit run first, so pass a clean input.
+  "membership.ts:submitMembershipApplication": [{ payload: {}, signature: "" }],
+  "familyUpdate.ts:submitFamilyUpdate": [{ token: "t", payload: {} }],
+  "eventCheckout.ts:startEventCheckout": ["fete", {}],
+  "eventCheckout.ts:startExistingRegistrationCheckout": ["fete", "tok"],
 }
+// Public actions answer anonymous callers without the admin wording.
+const PUBLIC_OFF = new Set(["membership.ts:submitMembershipApplication", "familyUpdate.ts:submitFamilyUpdate"])
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -98,8 +107,10 @@ describe.each(ACTION_FILES)("%s", (file) => {
       } else {
         const res = await call
         // Public checkout actions map the off result to a generic 404.
-        expect(res).toEqual(expect.objectContaining(
-          "ok" in (res as object) ? { ok: false, status: 404 } : OFF))
+        const expected = PUBLIC_OFF.has(`${path.basename(file)}:${name}`)
+          ? { error: PUBLIC_FEATURE_OFF_MESSAGE }
+          : "ok" in (res as object) ? { ok: false, status: 404 } : OFF
+        expect(res).toEqual(expect.objectContaining(expected))
       }
     } finally {
       ;(featureGuard as jest.Mock).mockResolvedValue(null)

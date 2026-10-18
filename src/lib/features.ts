@@ -8,6 +8,8 @@ export const FEATURES_ONBOARDING_KEY = "features.onboarding"
 export const FEATURE_OFF_SKIP = { skipped: "feature off" } as const
 export type FeatureOffSkip = typeof FEATURE_OFF_SKIP
 export const FEATURE_OFF_MESSAGE = "This feature is turned off. An admin can enable it in Settings → Features."
+/** Off message for anonymous callers of public forms: never names admin settings. */
+export const PUBLIC_FEATURE_OFF_MESSAGE = "This form is no longer available."
 
 export type FeatureKey =
   | "celebrations" | "clearances" | "familyUpdates" | "memberships" | "welcomeLetter"

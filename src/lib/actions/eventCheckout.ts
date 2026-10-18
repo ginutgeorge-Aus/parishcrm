@@ -22,9 +22,6 @@ export async function startEventCheckout(
   slug: string,
   rawBody: unknown,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
-  const off = await featureGuard("events")
-  // Public caller: same generic 404 as an unpublished event, not the admin wording.
-  if (off) return { ok: false, status: 404, error: "Event not found" }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }
@@ -37,6 +34,8 @@ export async function startEventCheckout(
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
+  // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
+  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
 
   // Shared with createEventRegistration so both flows agree on ticket/capacity
   // data and the include shape can't silently drift between them.
@@ -101,9 +100,6 @@ export async function startExistingRegistrationCheckout(
   slug: string,
   publicToken: string,
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
-  const off = await featureGuard("events")
-  // Public caller: same generic 404 as an unpublished event, not the admin wording.
-  if (off) return { ok: false, status: 404, error: "Event not found" }
   if (!stripeConfigured()) {
     return { ok: false, status: 400, error: "Online payment unavailable" }
   }
@@ -114,6 +110,8 @@ export async function startExistingRegistrationCheckout(
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
+  // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
+  if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
 
   const event = await prisma.event.findUnique({
     where: { slug },

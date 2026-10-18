@@ -31,7 +31,8 @@ A switched-off feature is **hidden and blocked**:
 - its sidebar links, dashboard tiles and settings sections disappear;
 - its pages, print pages and export links return "not found";
 - its actions refuse with "This feature is turned off. An admin can enable
-  it in Settings → Features.";
+  it in Settings → Features." Public forms (membership, family update, event
+  checkout) instead show a plain "no longer available" or "not found" message;
 - its scheduled jobs (event reminders, celebration emails, the clearance
   digest) skip. A skipped run doesn't count; turning the feature back on
   during that job's open window still runs it for the period. The clearance
@@ -39,6 +40,10 @@ A switched-off feature is **hidden and blocked**:
 
 **Your data is never deleted.** Switching a feature back on restores
 everything exactly as it was.
+
+Event organisers aren't left stuck when Events is off: their home page sends
+them to their Sunday School classes, or shows a short notice if Sunday School
+is off too.
 
 Card payments already in progress still settle when Events is off: the
 Stripe webhook and the checkout sweep keep running, so a family that was

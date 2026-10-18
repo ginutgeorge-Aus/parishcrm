@@ -93,6 +93,9 @@ describe("upsertSetting — feature-owned keys honour their feature", () => {
     ["birthdayEmailSubject", "Happy birthday", "celebrations"],
     ["anniversaryEmailBody", "Congrats", "celebrations"],
     ["pettyCashDefaultCustodianId", "3", "pettyCash"],
+    ["membershipSecretaryEmail", "secretary@example.org", "memberships"],
+    ["cardFeePercent", "1.5", "events"],
+    ["cardFeeFixed", "0.30", "events"],
   ])("blocks %s while its feature is off", async (key, value, feature) => {
     ;(featureGuard as jest.Mock).mockResolvedValueOnce(OFF)
     expect(await upsertSetting(undefined, fd(key, value))).toEqual(OFF)

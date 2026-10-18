@@ -23,6 +23,7 @@ import { getLetterSettings } from "@/lib/letterSettings"
 import type { Gender, FamilyRole } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
 const MAX_SIGNATURE_LEN = 300_000 // ~225 KB of base64
 
@@ -44,10 +45,10 @@ type SubmitMembershipInput = { payload: unknown; signature: string; turnstileTok
 type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
 
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
+  // Public form: generic message, never the admin wording.
+  if (await featureGuard("memberships")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
   if (!input.signature?.startsWith("data:image/")) return { error: "Signature is required" }
   if (input.signature.length > MAX_SIGNATURE_LEN) return { error: "Signature image too large" }

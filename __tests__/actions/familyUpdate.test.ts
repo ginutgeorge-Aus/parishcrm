@@ -30,6 +30,8 @@ jest.mock("next/headers", () => ({ headers: async () => new Map() }))
 import { auth } from "@/auth"
 import { verifyFormToken } from "@/lib/formToken"
 import { rateLimit } from "@/lib/rateLimit"
+import { featureGuard } from "@/lib/featureFlags"
+import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 const mockAuth = auth as jest.Mock
 
 beforeEach(() => {
@@ -108,6 +110,18 @@ describe("submitFamilyUpdate", () => {
   it("rejects when rate-limited", async () => {
     ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
     expect(await submitFamilyUpdate(goodInput)).toEqual({ error: "Too many requests" })
+  })
+  it("checks honeypot and rate limit before the feature", async () => {
+    ;(featureGuard as jest.Mock).mockClear()
+    await submitFamilyUpdate({ ...goodInput, website: "bot" })
+    ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
+    await submitFamilyUpdate(goodInput)
+    expect(featureGuard).not.toHaveBeenCalled()
+  })
+  it("returns a generic public message while Family updates is off", async () => {
+    ;(featureGuard as jest.Mock).mockResolvedValueOnce({ error: "This feature is turned off. An admin can enable it in Settings → Features." })
+    expect(await submitFamilyUpdate(goodInput)).toEqual({ error: PUBLIC_FEATURE_OFF_MESSAGE })
+    expect(prisma.familyUpdateInvite.findUnique).not.toHaveBeenCalled()
   })
   it("rejects a forged/expired timing token", async () => {
     ;(verifyFormToken as jest.Mock).mockReturnValueOnce("expired")

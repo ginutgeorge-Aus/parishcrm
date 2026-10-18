@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { isValidPgId, isP2002 } from "@/lib/validation"
 import type { ActionResult } from "./types"
+import { assertNotDemo } from "@/lib/demoMode"
+import { featureGuard } from "@/lib/featureFlags"
 
 // --- Service types ---
 
@@ -15,10 +17,15 @@ const ServiceTypeSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name is too long"),
 })
 
+/** Add a petty cash service type. ADMIN; blocked in demo mode and while Petty cash is off. */
 export async function createServiceType(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   const parsed = ServiceTypeSchema.safeParse(Object.fromEntries(formData))
@@ -37,7 +44,12 @@ export async function createServiceType(
   redirect("/accounting/petty-cash/service-types")
 }
 
+/** Flip a service type's active flag. ADMIN; blocked in demo mode and while Petty cash is off. */
 export async function toggleServiceTypeActive(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }
@@ -47,7 +59,12 @@ export async function toggleServiceTypeActive(id: number): Promise<ActionResult>
   revalidatePath("/accounting/petty-cash/service-types")
 }
 
+/** Delete an unused service type. ADMIN; blocked in demo mode and while Petty cash is off. */
 export async function deleteServiceType(id: number): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid ID" }

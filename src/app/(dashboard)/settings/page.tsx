@@ -111,6 +111,8 @@ export default async function SettingsPage() {
             idleTimeoutMinutes={Number.parseInt(get("SESSION_IDLE_TIMEOUT_MINUTES") || "60", 10) || 60}
             cardFeePercent={get("cardFeePercent") || "1.7"}
             cardFeeFixed={get("cardFeeFixed") || "0.30"}
+            showMembership={on("memberships")}
+            showCardFee={on("events")}
           />
         </section>
         <section id="branding" aria-label="Branding" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">

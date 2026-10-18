@@ -46,6 +46,13 @@ const ALLOWED_KEYS = new Set<string>([
 const KEY_FEATURE = new Map<string, FeatureKey>([
   ...[...BIRTHDAY_TEMPLATE_KEYS, ...ANNIVERSARY_TEMPLATE_KEYS, ...AUTO_EMAIL_KEYS].map((k) => [k, "celebrations"] as const),
   ["pettyCashDefaultCustodianId", "pettyCash"],
+  ["membershipSecretaryEmail", "memberships"],
+  // Card surcharge applies to event card payments.
+  ["cardFeePercent", "events"],
+  ["cardFeeFixed", "events"],
+  // Letter keys are also refused outright by validateSettingKey; mapped so the
+  // ownership is recorded in one place.
+  ...LETTER_SETTING_KEYS.map((k) => [k, "welcomeLetter"] as const),
 ])
 const IDLE_TIMEOUT_OPTIONS = new Set(IDLE_TIMEOUT_OPTIONS_LIST.map(String))
 const EMAIL_KEYS = new Set(["ownerNotificationEmail", "churchEmail"])

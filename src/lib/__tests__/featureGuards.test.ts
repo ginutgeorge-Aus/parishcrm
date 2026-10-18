@@ -12,7 +12,6 @@ const read = (file: string) => fs.readFileSync(path.join(process.cwd(), file), "
 // Segment layout → feature.
 const GUARDED_LAYOUTS: Record<string, string> = {
   "src/app/(dashboard)/events/layout.tsx": "events",
-  "src/app/(organiser)/my-events/layout.tsx": "events",
   "src/app/(public)/e/[slug]/crew/layout.tsx": "events",
   "src/app/(print)/events/layout.tsx": "events",
   "src/app/(dashboard)/memberships/layout.tsx": "memberships",
@@ -77,6 +76,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/pettyCashReceipt.ts": "pettyCash",
   "src/lib/actions/pettyCashSession.ts": "pettyCash",
   "src/lib/actions/pettyCashTransfer.ts": "pettyCash",
+  "src/lib/actions/serviceType.ts": "pettyCash",
   "src/lib/actions/budget.ts": "budget",
   "src/lib/actions/transaction.ts": "accounting",
   "src/lib/actions/transactionAttachment.ts": "accounting",
@@ -157,6 +157,13 @@ const GUARDED_PAGES: Record<string, string> = {
 
 it.each(Object.entries(GUARDED_PAGES))("%s calls requireFeature(%s)", (file, key) => {
   expect(read(file)).toContain(`await requireFeature("${key}")`)
+})
+
+it("the organiser home (/my-events) gates on events without a 404 dead end", () => {
+  // Organisers land here (middleware); its own test covers redirect/notice.
+  const src = read("src/app/(organiser)/my-events/layout.tsx")
+  expect(src).toContain('features.has("events")')
+  expect(src).not.toMatch(/requireFeature\(/)
 })
 
 it("the public event success page stays reachable (in-flight payments must show their confirmation)", () => {
@@ -244,6 +251,24 @@ it("every Server Action file in a feature area is mapped", () => {
     .map((f) => `${dir}/${f}`)
     .filter((f) => /^"use server"/m.test(read(f)) && !(f in GUARDED_ACTIONS))
   expect(unmapped).toEqual([])
+})
+
+// Action files deliberately not owned by one feature. Every "use server" file
+// must be classified (GUARDED_ACTIONS, GUARDED_FUNCTIONS, or here), so a new
+// file under a gated area can't ship unguarded by omission.
+const CORE_ACTIONS = new Set([
+  "auth.ts", "branding.ts", "checkpoint.ts", "family.ts", "features.ts", "feedback.ts", "passkey.ts",
+  "person.ts", "publicFeedback.ts", "session.ts", "setup.ts", "totp.ts", "trustedDevice.ts", "user.ts",
+  // Gated per template key (feature-owned templates only): emailTemplates.test.ts + the sweep.
+  "emailTemplates.ts",
+])
+
+it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
+  const dir = "src/lib/actions"
+  const unclassified = fs.readdirSync(path.join(process.cwd(), dir))
+    .filter((f) => f.endsWith(".ts") && /^"use server"/m.test(read(`${dir}/${f}`)))
+    .filter((f) => !(`${dir}/${f}` in GUARDED_ACTIONS) && !(`${dir}/${f}` in GUARDED_FUNCTIONS) && !CORE_ACTIONS.has(f))
+  expect(unclassified).toEqual([])
 })
 
 it("assertNotDemo runs before the feature check in every action and guard helper (no DB read for a demo write)", () => {

@@ -14,12 +14,14 @@ import { getAccountingLockDate } from "@/lib/accountingLock"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { InvoiceSettingsForm } from "@/components/accounting/InvoiceSettingsForm"
+import { getEnabledFeatures } from "@/lib/featureFlags"
 
+/** Accounting settings (ADMIN). Petty cash and invoice sections show only while their feature is on. */
 export default async function AccountingSettingsPage() {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) redirect("/")
 
-  const [balances, people, custodianId, lockDate, accounts, invoiceSettings] = await Promise.all([
+  const [balances, people, custodianId, lockDate, accounts, invoiceSettings, features] = await Promise.all([
     prisma.accountOpeningBalance.findMany(),
     prisma.person.findMany({
       where: { archivedAt: null },
@@ -31,6 +33,7 @@ export default async function AccountingSettingsPage() {
     getAccountingLockDate(),
     getPaymentAccounts(),
     getInvoiceSettings(),
+    getEnabledFeatures(),
   ])
 
   const balancesByAccountId = new Map(
@@ -65,6 +68,7 @@ export default async function AccountingSettingsPage() {
         <OpeningBalanceForm accounts={accounts} balancesByAccountId={balancesByAccountId} />
       </div>
 
+      {features.has("pettyCash") && (
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
           Petty Cash Auto-open
@@ -75,6 +79,7 @@ export default async function AccountingSettingsPage() {
         </p>
         <PettyCashCustodianForm people={allPeople} currentId={custodianId} />
       </div>
+      )}
 
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">Period Lock</h2>
@@ -95,6 +100,7 @@ export default async function AccountingSettingsPage() {
         <PaymentAccountsManager accounts={accounts} />
       </div>
 
+      {features.has("invoices") && (
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
           Invoices
@@ -105,6 +111,7 @@ export default async function AccountingSettingsPage() {
         </p>
         <InvoiceSettingsForm initial={invoiceSettings} />
       </div>
+      )}
 
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
