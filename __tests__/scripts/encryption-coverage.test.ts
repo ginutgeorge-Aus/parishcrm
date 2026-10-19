@@ -64,7 +64,7 @@ const ENCRYPT_FNS = new Set(["encrypt", "encryptBytes", "encryptOrNull"])
 // A Prisma delegate write method, e.g. the `create` of `prisma.waitlist.create(`.
 const WRITE_METHODS = new Set(["create", "createMany", "update", "updateMany", "upsert"])
 // A nested relation write (`attendees: { create: ... }`): rows there belong to the related model, not the call's.
-const NESTED_KEYS = new Set(["create", "createMany", "connectOrCreate", "upsert"])
+const NESTED_KEYS = new Set(["create", "createMany", "connectOrCreate", "upsert", "update", "updateMany"])
 // Prisma delegate names (camelCase model names), so a `.cache.update(` helper call is never taken for a model.
 const MODELS = new Set(
   [...fs.readFileSync(path.join(__dirname, "../../prisma/schema.prisma"), "utf8").matchAll(/^model\s+(\w+)/gm)]
@@ -121,29 +121,33 @@ function inNestedWrite(obj: ts.ObjectLiteralExpression, node: ts.Node): boolean 
 }
 
 /**
- * The Prisma model a call writes to, or null when it isn't a `<delegate>.<write>(` call on a model.
+ * The Prisma model a write-shaped call (`<delegate>.<write>(`) targets: its delegate name when that is a
+ * model, else null. Returns undefined when the call isn't write-shaped at all.
  * @param call - candidate call expression
  */
-function writeCallModel(call: ts.CallExpression): string | null {
+function writeCallModel(call: ts.CallExpression): string | null | undefined {
   const callee = call.expression
-  if (!ts.isPropertyAccessExpression(callee) || !WRITE_METHODS.has(callee.name.text)) return null
-  if (!ts.isPropertyAccessExpression(callee.expression)) return null
+  if (!ts.isPropertyAccessExpression(callee) || !WRITE_METHODS.has(callee.name.text)) return undefined
+  if (!ts.isPropertyAccessExpression(callee.expression)) return undefined
   const delegate = callee.expression.name.text
   return MODELS.has(delegate) ? delegate : null
 }
 
 /**
- * Model of the innermost Prisma write call whose arguments enclose `node`, or null when the
- * write isn't inside one, the delegate isn't a Prisma model, or it sits inside a nested relation
- * write (its model isn't the call's, and the relation name isn't a model name). A sibling key after
- * a closed nested write still resolves to the call's model.
+ * Model of the innermost write-shaped call whose arguments enclose `node`, or null when the write
+ * isn't inside one, that call's delegate isn't a Prisma model (it never falls through to an outer
+ * call), or it sits inside a nested relation write (its model isn't the call's, and the relation
+ * name isn't a model name). A sibling key after a closed nested write still resolves to the call's model.
  * @param node - the write's key node
  */
 function modelOf(node: ts.Node): string | null {
   for (let cur: ts.Node = node; cur.parent; cur = cur.parent) {
     const parent = cur.parent
     if (ts.isObjectLiteralExpression(cur) && ts.isPropertyAssignment(parent) && inNestedWrite(cur, node)) return null
-    if (ts.isCallExpression(parent) && cur !== parent.expression && writeCallModel(parent)) return writeCallModel(parent)
+    if (ts.isCallExpression(parent) && cur !== parent.expression) {
+      const model = writeCallModel(parent)
+      if (model !== undefined) return model
+    }
   }
   return null
 }
@@ -172,7 +176,8 @@ function siteOf(node: ts.Node, where: string): WriteSite | null {
  * @param where - label for the file, used in failure messages
  */
 export function findWriteSites(text: string, where = "<inline>"): WriteSite[] {
-  const sf = ts.createSourceFile("x.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const kind = where.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(where, text, ts.ScriptTarget.Latest, true, kind)
   const sites: WriteSite[] = []
   const visit = (node: ts.Node): void => {
     const site = siteOf(node, where)
@@ -241,6 +246,27 @@ describe("encryption coverage", () => {
   it("resolves a sibling key written after a closed nested relation write", () => {
     const text = "await prisma.registration.create({ data: { attendees: { create: [] }, email: encrypt(e) } })"
     expect(findWriteSites(text).map((s) => s.model)).toEqual(["registration"])
+  })
+
+  it("leaves an update-nested relation write unresolved", () => {
+    const text = "await tx.person.update({ where: { id }, data: { family: { update: { notes: encrypt(n) } }, mobile: encrypt(m) } })"
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["notes", null],
+      ["mobile", "person"],
+    ])
+  })
+
+  it("stops at the innermost write-shaped call even when its delegate isn't a model", () => {
+    const text = "await prisma.waitlist.create({ data: { email: encrypt(e), extra: this.cache.update({ notes: encrypt(n) }) } })"
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["email", "waitlist"],
+      ["notes", null],
+    ])
+  })
+
+  it("parses TSX only for .tsx files, defaulting inline text to TS", () => {
+    expect(findWriteSites("const a = <T,>(x: T) => ({ k: encrypt(x) })").map((s) => s.field)).toEqual(["k"])
+    expect(findWriteSites("const a = <div>{f({ k: encrypt(x) })}</div>", "x.tsx").map((s) => s.field)).toEqual(["k"])
   })
 
   it("ignores write-shaped calls on non-model delegates", () => {
