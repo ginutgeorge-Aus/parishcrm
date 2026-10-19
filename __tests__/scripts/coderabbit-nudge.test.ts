@@ -9,6 +9,7 @@ import {
   pendingReset,
   pausedBefore,
   pickNext,
+  runOnce,
   statusSaysReviewed,
   waitForReset,
   type Comment,
@@ -294,4 +295,64 @@ test("needsNudge: at most one nudge per head SHA on a paused PR (#275/#317 comme
   assert.equal(needsNudge([], [note], statuses, head), true)
   // A new head (first status after that nudge) gets its own nudge.
   assert.equal(needsNudge([], [note, nudge, reply], [st("2026-10-16T01:00:00Z")], `99aa${head.slice(4)}`), true)
+})
+
+test("needsNudge: stale pause + incomplete status is nudged once per head, not again (#341)", () => {
+  const head = "45d9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const st = (description: string, createdAt = "2026-10-15T22:00:00Z") => ({ context: "CodeRabbit", description, createdAt })
+  const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
+  const note = at(BOT, PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"), "2026-10-14T11:16:22Z")
+  const nudge = at("someone", "@coderabbitai review", "2026-10-15T22:30:00Z")
+  const limited = [st("Review rate limited")]
+  // Without a command for this head, the incomplete status still gets its nudge.
+  assert.equal(needsNudge([], [note], limited, head), true)
+  // With one already posted for this head, no second nudge even once nudgeInFlight has expired.
+  assert.equal(needsNudge([], [note, nudge], limited, head), false)
+  // A rate limit with no stale pause note is still retried.
+  assert.equal(needsNudge([], [nudge], limited, head), true)
+})
+
+/** Fake `gh` serving canned PR data per path; records POSTed comment bodies per PR. */
+function fakeGh(data: { prs: unknown[]; comments: Record<number, unknown[]>; statuses: Record<string, unknown[]> }) {
+  const posts: { path: string; body: unknown }[] = []
+  const api = (async (path: string, init?: { method: string; body: unknown }) => {
+    if (init) {
+      posts.push({ path, body: init.body })
+      return {}
+    }
+    if (path.endsWith("/pulls?state=open")) return data.prs
+    if (path.endsWith("/reviews")) return []
+    let m = path.match(/\/issues\/(\d+)\/comments$/)
+    if (m) return data.comments[Number(m[1])] ?? []
+    m = path.match(/\/commits\/([^/]+)\/statuses$/)
+    if (m) return data.statuses[m[1]] ?? []
+    throw new Error(`unexpected ${path}`)
+  }) as Parameters<typeof runOnce>[1]
+  return { api, posts }
+}
+
+test("runOnce: selects the PR with a completed status + stale pause; skips the one already nudged", async () => {
+  const logs = jest.spyOn(console, "log").mockImplementation(() => {})
+  const apiPr = (number: number, sha: string) => ({
+    number, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha },
+  })
+  const status = [{ context: "CodeRabbit", description: "Review completed", created_at: "2026-10-15T22:00:00Z" }]
+  const apiComment = (login: string, body: string, t: string) => ({ user: { login }, body, created_at: t, updated_at: t })
+  const paused = apiComment(BOT, PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"), "2026-10-14T00:00:00Z")
+  const { api, posts } = fakeGh({
+    prs: [apiPr(1, "aaa1111"), apiPr(2, "bbb2222"), apiPr(3, "ccc3333")],
+    comments: {
+      1: [paused], // stale pause, not yet nudged: selected
+      2: [paused, apiComment("someone", "@coderabbitai review", "2026-10-15T22:30:00Z"), apiComment(BOT, "Review finished.", "2026-10-15T22:31:00Z")], // already nudged
+      3: [], // completed, no pause: reviewed
+    },
+    statuses: { aaa1111: status, bbb2222: status, ccc3333: status },
+  })
+  try {
+    assert.equal(await runOnce(false, api, new Date("2026-10-16T00:00:00Z")), null)
+    assert.deepEqual(posts.map((p) => p.path.match(/issues\/(\d+)\//)?.[1]), ["1"])
+    assert.deepEqual(posts[0].body, { body: "@coderabbitai review" })
+  } finally {
+    logs.mockRestore()
+  }
 })
