@@ -13,9 +13,11 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { validateAccount } from "./transaction"
+import { accountMatches } from "@/lib/accountMatches"
+import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createReceiptEntry, revalidatePettyCashPaths, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
+import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -127,17 +129,23 @@ export async function createReceipt(
 
   let receiptId: number | undefined
   try {
-    await prisma.$transaction(async (tx) => {
+    // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
+    const result = await serializableWrite<{ error: string } | { id: number }>(async (tx) => {
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
-      receiptId = await createReceiptEntry(tx, {
-        sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: account.name,
+      const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME")
+      if (!fresh) return { error: "Invalid account" }
+      const id = await createReceiptEntry(tx, {
+        sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: fresh.name,
         amount: parsed.data.amount, personId: parsed.data.personId, serviceTypeId: parsed.data.serviceTypeId,
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null,
       })
-    })
+      return { id }
+    }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if ("error" in result) return result
+    receiptId = result.id
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e
@@ -191,6 +199,26 @@ async function validateReceiptServiceType(serviceTypeId: number | undefined): Pr
   return st?.isActive ? null : "Invalid service type"
 }
 
+/**
+ * Validate the account/fund/donor/service-type references of an edited receipt.
+ * Returns the first error message, or null when all are valid.
+ */
+async function validateEditRefs(data: {
+  accountId: number
+  fundId?: number | null
+  personId?: number
+  serviceTypeId?: number
+}): Promise<string | null> {
+  if (!(await validateAccount(data.accountId, "INCOME"))) return "Invalid account"
+  // allowInactive: editing a historical entry — a fund deactivated after the
+  // fact must remain valid.
+  if (data.fundId != null && !(await validateFund(data.fundId, { allowInactive: true })))
+    return "Invalid fund"
+  const donorError = await validateReceiptDonor(data.personId)
+  if (donorError) return donorError
+  return validateReceiptServiceType(data.serviceTypeId)
+}
+
 /** Edit a petty cash receipt. ADMIN/PASTOR only. */
 export async function updateReceipt(
   id: number,
@@ -211,26 +239,21 @@ export async function updateReceipt(
   const { receipt, sessionDate } = loaded
   const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const account = await validateAccount(parsed.data.accountId, "INCOME")
-  if (!account) return { error: "Invalid account" }
-  // allowInactive: editing a historical entry — a fund deactivated after the
-  // fact must remain valid.
-  if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId, { allowInactive: true })))
-    return { error: "Invalid fund" }
-  const donorError = await validateReceiptDonor(parsed.data.personId)
-  if (donorError) return { error: donorError }
-  const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
-  if (serviceTypeError) return { error: serviceTypeError }
+  const refError = await validateEditRefs(parsed.data)
+  if (refError) return { error: refError }
   // confirmDuplicate is a form-only flag (duplicate-confirmation), not a column —
   // strip it before spreading, or Prisma rejects the whole update.
   const { confirmDuplicate: _confirmDuplicate, ...receiptData } = parsed.data
   // Resolved once, not per row — see createReceipt above.
   const cashAccount = await getCashAccount()
   try {
-    await prisma.$transaction(async (tx) => {
+    // Account re-check + write share one Serializable transaction (see createReceipt).
+    const result = await serializableWrite<{ error: string } | null>(async (tx) => {
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, receipt.sessionId, "Cannot edit in closed session")
+      const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME")
+      if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashReceipt.update({
       where: { id },
       data: {
@@ -259,7 +282,7 @@ export async function updateReceipt(
         date: sessionDate,
         amount: parsed.data.amount,
         accountId: parsed.data.accountId,
-        description: encrypt(account.name),
+        description: encrypt(fresh.name),
         // Re-assert invariants on the mirror so an edit can't drift it off a
         // petty-cash INCOME row.
         type: "INCOME",
@@ -272,7 +295,9 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
-    })
+    return null
+    }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e

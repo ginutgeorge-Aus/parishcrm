@@ -16,6 +16,7 @@ import { validateFund } from "./fund"
 import { TransactionSchema, validateParties } from "./transactionValidation"
 import { transactionListHref } from "@/lib/transactionFilters"
 import { serializableWrite } from "@/lib/serializableWrite"
+import { accountMatches } from "@/lib/accountMatches"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
@@ -58,29 +59,6 @@ export async function validateAccount(
   if (!canAccessAccounting(session?.user?.role)) return null
   await assertFeature("accounting")
   return accountMatches(prisma, accountId, type, options)
-}
-
-/**
- * The account's name when it exists, has the expected type, and is active (unless `allowInactive`); else null.
- * Takes the client so createTransaction/updateTransaction can re-run it inside their Serializable write.
- * @param db - Prisma client or transaction client
- * @param accountId - Account id
- * @param type - required account type
- * @param options - allowInactive keeps a deactivated account valid (edits of historical rows)
- */
-async function accountMatches(
-  db: Prisma.TransactionClient,
-  accountId: number,
-  type: "INCOME" | "EXPENSE",
-  options?: { allowInactive?: boolean }
-): Promise<{ name: string } | null> {
-  const account = await db.account.findUnique({
-    where: { id: accountId },
-    select: { type: true, isActive: true, name: true },
-  })
-  if (account?.type !== type) return null
-  if (!options?.allowInactive && !account.isActive) return null
-  return { name: account.name }
 }
 
 // Manual transaction create/edit may only post against a BANK-kind payment
@@ -188,7 +166,7 @@ export async function createTransaction(
     })
     // Audit row commits (or rolls back) with the transaction row.
     await logAuditTx(tx, actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
-      amount: Number(parsed.data.amount),
+      amount: parsed.data.amount,
       type: parsed.data.type,
       accountId: parsed.data.accountId,
     })
@@ -316,7 +294,7 @@ export async function updateTransaction(
     // Audit row commits with the update; skipped when the optimistic guard matched nothing.
     if (updated.count > 0) {
       await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", id, {
-        amount: Number(parsed.data.amount),
+        amount: parsed.data.amount,
         type: parsed.data.type,
         accountId: parsed.data.accountId,
       })

@@ -146,7 +146,7 @@ test("updateTransaction rejects editing a reconciled row", async () => {
     error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before editing.",
   })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
 })
 
 test("updateTransaction rejects editing a petty-cash-linked row", async () => {
@@ -164,7 +164,7 @@ test("updateTransaction rejects editing a petty-cash-linked row", async () => {
     error: "Petty cash transactions cannot be edited here — edit via the petty cash session",
   })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
 })
 
 test("updateTransaction rejects when the row's stored date is in a locked period", async () => {
@@ -174,7 +174,7 @@ test("updateTransaction rejects when the row's stored date is in a locked period
   const r = await updateTransaction(1, undefined, validForm())
   expect(r).toEqual({ error: "This date is in a locked accounting period (on or before 2026-06-30)." })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
   // Only the stored-date check ran before the early return.
   expect(mockAssertUnlocked).toHaveBeenCalledTimes(1)
 })
@@ -186,7 +186,7 @@ test("updateTransaction rejects when the submitted (re-dated) date is in a locke
   const r = await updateTransaction(1, undefined, validForm({ date: "2026-08-01" }))
   expect(r).toEqual({ error: "This date is in a locked accounting period (on or before 2026-07-31)." })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
   expect(mockAssertUnlocked).toHaveBeenCalledTimes(2)
 })
 

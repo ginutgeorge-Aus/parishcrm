@@ -19,12 +19,15 @@ jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolve
 jest.mock("@/lib/retention", () => ({ retentionFloor: jest.fn(), retentionError: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/actions/transaction", () => ({ validateAccount: jest.fn() }))
+jest.mock("@/lib/accountMatches", () => ({ accountMatches: jest.fn().mockResolvedValue({ name: "Stationery" }) }))
 jest.mock("@/lib/actions/fund", () => ({ validateFund: jest.fn() }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/actions/pettyCashEntry", () => ({
   createExpenseEntry: jest.fn().mockResolvedValue(1),
   revalidatePettyCashPaths: jest.fn(),
   assertSessionOpenTx: jest.fn(),
+  PETTY_CASH_BUSY: { error: "busy" },
+  PETTY_CASH_GONE: { error: "gone" },
   SessionClosedError: class SessionClosedError extends Error {},
   RECONCILED_EDIT_ERROR: "recon-edit",
   RECONCILED_DELETE_ERROR: "recon-delete",

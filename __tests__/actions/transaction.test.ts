@@ -27,7 +27,8 @@ jest.mock("@/lib/prisma", () => {
     },
   }
   // Interactive transaction: run the callback against the same mocked client.
-  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) =>
+    fn(Object.assign(Object.create(prisma), { __isTx: true })))
   return { prisma, Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } } }
 })
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
@@ -320,8 +321,8 @@ describe("createTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockCreate.mockResolvedValue({ id: 11 })
     await createTransaction(undefined, fd(validTx))
-    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_CREATED", "Transaction", 11, {
-      amount: 500,
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_CREATED", "Transaction", 11, {
+      amount: "500",
       type: "INCOME",
       accountId: 4001,
     })
@@ -502,8 +503,8 @@ describe("updateTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd(validTx))
-    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_UPDATED", "Transaction", 1, {
-      amount: 500,
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_UPDATED", "Transaction", 1, {
+      amount: "500",
       type: "INCOME",
       accountId: 4001,
     })
@@ -531,7 +532,7 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 0 })
     const result = await updateTransaction(1, undefined, fd({ ...validTx, updatedAt: "2026-07-02T10:00:00.000Z" }))
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("pins the write to the row's read invoiceId so a concurrent payment link conflicts (no token)", async () => {
