@@ -46,7 +46,7 @@ jest.mock("@/lib/crypto", () => ({
   }),
 }))
 
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(), logAuditTx: jest.fn().mockResolvedValue() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(null), logAuditTx: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
