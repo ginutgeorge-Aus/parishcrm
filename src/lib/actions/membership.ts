@@ -10,6 +10,7 @@ import { actorId } from "@/lib/actor"
 import { encrypt, safeDecrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { dbRateLimit } from "@/lib/dbRateLimit"
+import { rateLimit } from "@/lib/rateLimit"
 import { sendMembershipNotificationEmail } from "@/lib/email"
 import { renderMembershipPdf } from "@/lib/pdf/MembershipPdf"
 import { logAudit } from "@/lib/audit"
@@ -44,7 +45,7 @@ type SubmitMembershipInput = { payload: unknown; signature: string; turnstileTok
 // rendered — the client swaps them in and keeps the applicant's typed data.
 type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
 
-/** Public membership form submit: honeypot → per-IP throttle → feature check (generic wording) → validation → Turnstile → per-email throttle. */
+/** Public membership form submit: honeypot → in-memory per-IP throttle → feature check (generic wording) → validation → Turnstile → per-IP and per-email DB quotas. */
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
@@ -53,9 +54,10 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   // a client cannot set its own, so we never trust input.ip for throttling.
   const xff = (await headers()).get("x-forwarded-for")
   const ip = xff?.split(",").at(-1)?.trim() || undefined
-  // Per-IP window (blocks a single host flooding many emails), before the
-  // feature read so an over-limit host never reaches the settings table.
-  if (!(await dbRateLimit(`membership:ip:${ip ?? "unknown"}`, 10, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
+  // Generous in-memory throttle before the feature read, so a flooding host
+  // never reaches the settings table. The real quotas below are spent only
+  // once a submission is valid and verified.
+  if (!rateLimit(`membership:pre:${ip ?? "unknown"}`, 30, 60_000)) return { error: "Too many submissions. Please try again later." }
   // Public form: generic message, never the admin wording.
   if (await featureGuard("memberships")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
@@ -85,8 +87,10 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   const ok = await verifyTurnstile(input.turnstileToken, ip)
   if (!ok) return { error: "Verification failed. Please try again." }
 
-  // Per-email window (blocks resubmitting the same identity); per-IP ran above.
+  // Two independent windows: per-IP (blocks a single host flooding many
+  // emails) and per-email (blocks resubmitting the same identity).
   const email = parsed.data.personal.email.toLowerCase()
+  if (!(await dbRateLimit(`membership:ip:${ip ?? "unknown"}`, 10, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
   if (!(await dbRateLimit(`membership:email:${email}`, 3, 60 * 60 * 1000))) return { error: "Too many submissions. Please try again later." }
 
   const p: MembershipPayload = {

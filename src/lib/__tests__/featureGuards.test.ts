@@ -287,8 +287,11 @@ const FEATURE_ONLY_HELPERS = new Set(["emailTemplates.ts:templateFeatureGuard"])
 // A real role/permission check (not just "is there a session"): a role
 // helper (isAdmin, canEdit, canEditOrOrganise, …) or a role comparison.
 // DB-backed per-entity authz (canManageEvent, canMarkRoll) may follow the
-// feature check, as long as a DB-free role check precedes it.
-const ROLE_CHECK = /\b(?:isAdmin|can[A-Z]\w*)\(|\.role\s*[!=]==|\brole\s*[!=]==/
+// feature check, as long as a DB-free role check precedes it; they never
+// count as that role check.
+const ROLE_CHECK = /\b(?:isAdmin|can(?!ManageEvent\b|MarkRoll\b)[A-Z]\w*)\(|\.role\s*[!=]==|\brole\s*[!=]==/
+const ACTION_AUTH = /await auth\(\)/
+const ACTION_FEATURE = /[fF]eatureGuard\w*\(|assertFeature\(/
 
 /**
  * Why `body` breaks demo → auth → role check → feature, or null when it doesn't.
@@ -327,9 +330,6 @@ function throttleThenFeature(body: string): { throttle: number; feature: number 
   return { throttle: indexFrom(body, /\b(?:db)?[rR]ateLimit\(/), feature: indexFrom(body, ACTION_FEATURE) }
 }
 
-const ACTION_AUTH = /await auth\(\)/
-const ACTION_FEATURE = /[fF]eatureGuard\w*\(|assertFeature\(/
-
 describe("orderViolation (fixtures)", () => {
   const fn = (...lines: string[]) => lines.join("\n")
   it("accepts demo → auth → role → feature", () => {
@@ -340,6 +340,11 @@ describe("orderViolation (fixtures)", () => {
     expect(orderViolation(fn("const session = await auth()",
       "if (!session?.user || !canEditOrOrganise(session.user.role)) return x", 'await featureGuard("events")',
       "if (!(await canManageEvent(1, 2, session.user.role))) return x"), ACTION_AUTH, ACTION_FEATURE)).toBeNull()
+  })
+  it("rejects a DB-backed check (canManageEvent) as the only check before the feature", () => {
+    expect(orderViolation(fn("const session = await auth()",
+      "if (!(await canManageEvent(1, 2, session?.user?.role))) return x", 'await featureGuard("events")'),
+    ACTION_AUTH, ACTION_FEATURE)).toBe("feature before role check")
   })
   it("rejects auth → session-null → feature → role", () => {
     expect(orderViolation(fn("const session = await auth()", "if (!session?.user) return x",
@@ -410,5 +415,10 @@ it.each(Object.keys(GUARDED_ROUTES).filter((f) => !PUBLIC_ROUTES.has(f) && !f.in
 
 it("guardAccountingExport authenticates and role-checks (export routes rely on it)", () => {
   const src = read("src/lib/reports/exportGuard.ts")
-  expect(src).toMatch(/await auth\(\)[\s\S]*canViewAccounting\(/)
+  // auth → 401 early return → canViewAccounting → 403 early return, before anything else.
+  expect(src).toMatch(new RegExp([
+    String.raw`const session = await auth\(\)\s*`,
+    String.raw`if \(!session\?\.user\) return [^\n]*status: 401[^\n]*\s*`,
+    String.raw`if \(!canViewAccounting\(session\.user\.role\)\) \{\s*return [^\n]*status: 403`,
+  ].join("")))
 })

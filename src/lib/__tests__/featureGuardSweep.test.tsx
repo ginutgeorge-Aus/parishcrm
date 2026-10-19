@@ -16,7 +16,6 @@ jest.mock("next/cache", () => ({
 }))
 jest.mock("next/headers", () => ({ headers: jest.fn(async () => new Map()), cookies: jest.fn() }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: () => true }))
-jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(async () => true) }))
 jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => { throw new Error("NEXT_NOT_FOUND") }),
   redirect: jest.fn(() => { throw new Error("NEXT_REDIRECT") }),
@@ -104,7 +103,7 @@ function featuresOff(): void {
 function featuresOnAgain(): void {
   ;(featureGuard as jest.Mock).mockResolvedValue(null)
   ;(featureGuardAny as jest.Mock).mockResolvedValue(null)
-  ;(assertFeature as jest.Mock).mockImplementation(async () => {})
+  ;(assertFeature as jest.Mock).mockReset() // resolves to nothing: on
   ;(auth as jest.Mock).mockReset()
 }
 
