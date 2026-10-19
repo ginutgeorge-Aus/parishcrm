@@ -101,8 +101,10 @@ async function loadFeatures(): Promise<Set<FeatureKey> | null> {
     const { prisma } = await import("@/lib/prisma")
     const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
     const on = resolveFeatures(parseOverrides(row?.value))
-    lastKnown = on
-    if (gen === generation) cache = { on, at: Date.now() }
+    if (gen === generation) {
+      lastKnown = on
+      cache = { on, at: Date.now() }
+    }
     return on
   } catch (err) {
     // Error class only: driver messages can echo query values.

@@ -153,6 +153,26 @@ describe("invalidateFeatureRouteCache", () => {
       errSpy.mockRestore()
     }
   })
+
+  it("a stale read cannot overwrite the last known fallback set", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      let release!: (v: unknown) => void
+      findUnique.mockReturnValueOnce(new Promise((r) => { release = r }))
+      const stale = getEnabledFeaturesCached()
+      await new Promise((r) => setImmediate(r))
+      invalidateFeatureRouteCache()
+      stored({})
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      release({ key: "features", value: JSON.stringify({ events: false }) })
+      await stale
+      invalidateFeatureRouteCache()
+      findUnique.mockRejectedValueOnce(new Error("db down"))
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
 })
 
 describe("read failures", () => {
