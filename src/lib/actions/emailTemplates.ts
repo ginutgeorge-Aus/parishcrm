@@ -123,7 +123,8 @@ async function renderTemplate(key: EmailTemplateKey, f: EmailTemplateFields): Pr
 
 /**
  * Off-message while the feature owning `key` is off (familyUpdate, receipt,
- * dgrReceipt); null for core templates. Call after assertNotDemo, before auth.
+ * dgrReceipt); null for core templates. Call after assertNotDemo and the auth +
+ * role check, so a non-admin never triggers the settings read.
  * @param key template key from the caller
  */
 async function templateFeatureGuard(key: unknown): Promise<{ error: string } | null> {

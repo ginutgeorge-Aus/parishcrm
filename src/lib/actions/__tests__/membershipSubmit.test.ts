@@ -174,3 +174,12 @@ it("returns a generic public message (not the admin wording) while Membership fo
   expect(JSON.stringify(r)).not.toMatch(/Settings/)
   expect(prisma.membershipApplication.create).not.toHaveBeenCalled()
 })
+
+it("throttles per IP before the feature check (an over-limit host never triggers the feature read)", async () => {
+  const { dbRateLimit } = await import("@/lib/dbRateLimit")
+  ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+  const r = await submitMembershipApplication({ payload: validPayload, signature: sig })
+  expect(r).toEqual({ error: "Too many submissions. Please try again later." })
+  expect(dbRateLimit).toHaveBeenCalledWith("membership:ip:203.0.113.9", 10, 60 * 60 * 1000)
+  expect(featureGuard).not.toHaveBeenCalled()
+})

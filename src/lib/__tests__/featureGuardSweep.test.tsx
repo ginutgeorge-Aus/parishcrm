@@ -16,6 +16,7 @@ jest.mock("next/cache", () => ({
 }))
 jest.mock("next/headers", () => ({ headers: jest.fn(async () => new Map()), cookies: jest.fn() }))
 jest.mock("@/lib/stripe", () => ({ stripeConfigured: () => true }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(async () => true) }))
 jest.mock("next/navigation", () => ({
   notFound: jest.fn(() => { throw new Error("NEXT_NOT_FOUND") }),
   redirect: jest.fn(() => { throw new Error("NEXT_REDIRECT") }),
@@ -92,6 +93,45 @@ describe.each(LAYOUTS)("%s", (file) => {
   })
 })
 
+/** Make every feature guard report "off". */
+function featuresOff(): void {
+  ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
+  ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
+  ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
+}
+
+/** Restore the manual mock's "every feature on" defaults and clear the session. */
+function featuresOnAgain(): void {
+  ;(featureGuard as jest.Mock).mockResolvedValue(null)
+  ;(featureGuardAny as jest.Mock).mockResolvedValue(null)
+  ;(assertFeature as jest.Mock).mockImplementation(async () => {})
+  ;(auth as jest.Mock).mockReset()
+}
+
+/**
+ * Call an action with its sweep arguments.
+ * @param file action file (repo-relative)
+ * @param name exported action name
+ */
+async function callAction(file: string, name: string): Promise<unknown> {
+  const mod = await import(toModule(file))
+  return mod[name](...(ARGS[`${path.basename(file)}:${name}`] ?? []))
+}
+
+/**
+ * What an action returns while its feature is off: the generic public message,
+ * a checkout 404, or the admin off message.
+ * @param id `file.ts:name`
+ * @param res the action's result
+ */
+function offResult(id: string, res: unknown): object {
+  if (PUBLIC_OFF.has(id)) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
+  return "ok" in (res as object) ? { ok: false, status: 404 } : OFF
+}
+
+/** True when the action only has the throwing guard (no `{ error }` result). */
+const throwsWhenOff = (body: string) => /assertFeature\(/.test(body) && !/featureGuard(Any)?\(/.test(body)
+
 describe.each(ACTION_FILES)("%s", (file) => {
   const src = read(file)
   const fns = [...src.matchAll(/^export async function (\w+)/gm)]
@@ -99,51 +139,25 @@ describe.each(ACTION_FILES)("%s", (file) => {
     // upsertSetting gates per key (needs a real FormData): settings.test.ts covers it.
     .filter(({ name }) => name !== "upsertSetting")
     .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|(?:await|return) (editor|editableClass|rollGuard|markerGuard|templateFeatureGuard|sendInvoiceGuarded)\(/.test(body))
+  afterEach(featuresOnAgain)
 
   it.each(fns.map((f) => [f.name, f.body]))("%s stops while its feature is off", async (name, body) => {
-    const mod = await import(toModule(file))
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
-    ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
-    ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
-    try {
-      const call = mod[name](...(ARGS[`${path.basename(file)}:${name}`] ?? [])) as Promise<unknown>
-      if (/assertFeature\(/.test(body) && !/featureGuard(Any)?\(/.test(body)) {
-        await expect(call).rejects.toThrow(OFF.error)
-      } else {
-        const res = await call
-        // Public checkout actions map the off result to a generic 404.
-        const expected = PUBLIC_OFF.has(`${path.basename(file)}:${name}`)
-          ? { error: PUBLIC_FEATURE_OFF_MESSAGE }
-          : "ok" in (res as object) ? { ok: false, status: 404 } : OFF
-        expect(res).toEqual(expect.objectContaining(expected))
-      }
-    } finally {
-      ;(featureGuard as jest.Mock).mockResolvedValue(null)
-      ;(featureGuardAny as jest.Mock).mockResolvedValue(null)
-      ;(assertFeature as jest.Mock).mockResolvedValue(undefined)
-      ;(auth as jest.Mock).mockReset()
+    featuresOff()
+    if (throwsWhenOff(body)) {
+      await expect(callAction(file, name)).rejects.toThrow(OFF.error)
+      return
     }
+    const res = await callAction(file, name)
+    expect(res).toEqual(expect.objectContaining(offResult(`${path.basename(file)}:${name}`, res)))
   })
 
   const authed = fns.filter((f) => !PUBLIC.has(`${path.basename(file)}:${f.name}`))
   if (authed.length) it.each(authed.map((f) => [f.name]))("%s rejects an anonymous caller before reading feature state", async (name) => {
-    const mod = await import(toModule(file))
     ;(auth as jest.Mock).mockResolvedValue(null)
-    ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
-    ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
-    ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
-    try {
-      const res = await Promise.resolve(mod[name](...(ARGS[`${path.basename(file)}:${name}`] ?? []))).catch((e: Error) => e)
-      expect(featureGuard).not.toHaveBeenCalled()
-      expect(featureGuardAny).not.toHaveBeenCalled()
-      expect(assertFeature).not.toHaveBeenCalled()
-      expect(isFeatureOn).not.toHaveBeenCalled()
-      expect(res instanceof Error ? res.message : JSON.stringify(res ?? null)).not.toContain(OFF.error)
-    } finally {
-      ;(featureGuard as jest.Mock).mockResolvedValue(null)
-      ;(featureGuardAny as jest.Mock).mockResolvedValue(null)
-      ;(assertFeature as jest.Mock).mockResolvedValue(undefined)
-    }
+    featuresOff()
+    const res = await callAction(file, name).catch((e: Error) => e)
+    for (const guard of [featureGuard, featureGuardAny, assertFeature, isFeatureOn]) expect(guard).not.toHaveBeenCalled()
+    expect(res instanceof Error ? res.message : JSON.stringify(res ?? null)).not.toContain(OFF.error)
   })
 })

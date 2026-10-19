@@ -297,15 +297,34 @@ const ROLE_CHECK = /\b(?:isAdmin|can[A-Z]\w*)\(|\.role\s*[!=]==|\brole\s*[!=]==/
  * @param featureCall regex for the feature check
  */
 function orderViolation(body: string, authCall: RegExp, featureCall: RegExp): string | null {
-  const feature = body.search(featureCall)
-  if (feature === -1) return null
-  const demo = body.indexOf("assertNotDemo(")
-  if (demo !== -1 && feature < demo) return "feature before demo"
-  const authAt = body.search(authCall)
-  if (authAt === -1 || feature < authAt) return "feature before auth"
-  const role = body.slice(authAt).search(ROLE_CHECK)
-  if (role === -1 || feature < authAt + role) return "feature before role check"
-  return null
+  const feature = indexFrom(body, featureCall)
+  if (feature === Infinity) return null
+  // A missing demo check is fine (-1); a missing auth or role check is not (Infinity).
+  const demo = body.includes("assertNotDemo(") ? indexFrom(body, /assertNotDemo\(/) : -1
+  const auth = indexFrom(body, authCall)
+  const role = indexFrom(body, ROLE_CHECK, auth)
+  const late = ([["demo", demo], ["auth", auth], ["role check", role]] as const).find(([, at]) => at > feature)
+  return late ? `feature before ${late[0]}` : null
+}
+
+/**
+ * Index of the first `re` match at or after `from`; Infinity when none.
+ * @param body source text
+ * @param re pattern to find
+ * @param from start offset (Infinity → none)
+ */
+function indexFrom(body: string, re: RegExp, from = 0): number {
+  if (from === Infinity) return Infinity
+  const i = body.slice(from).search(re)
+  return i === -1 ? Infinity : from + i
+}
+
+/**
+ * Public actions: index of the first throttle and of the feature check.
+ * @param body function source
+ */
+function throttleThenFeature(body: string): { throttle: number; feature: number } {
+  return { throttle: indexFrom(body, /\b(?:db)?[rR]ateLimit\(/), feature: indexFrom(body, ACTION_FEATURE) }
 }
 
 const ACTION_AUTH = /await auth\(\)/
@@ -353,6 +372,16 @@ it("demo → auth → role check → feature in every action and guard helper (n
       })
     })
   expect(bad).toEqual([])
+})
+
+it.each([...PUBLIC_ACTIONS])("public action %s throttles before the feature check", (id) => {
+  const [file, fn] = id.split(":")
+  const src = read(`src/lib/actions/${file}`)
+  const start = src.indexOf(`export async function ${fn}(`)
+  const next = src.indexOf("\nexport ", start + 1)
+  const { throttle, feature } = throttleThenFeature(src.slice(start, next === -1 ? undefined : next))
+  expect(feature).toBeLessThan(Infinity)
+  expect(throttle).toBeLessThan(feature)
 })
 
 // Public routes throttle → feature (anonymous by design); cron routes gate

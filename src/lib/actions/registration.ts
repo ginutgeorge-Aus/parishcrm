@@ -100,7 +100,7 @@ export async function toggleAttendeeCheckIn(
   if (!session?.user || !canEditOrOrganise(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("events")
   if (off) return off
-  if (!(await canManageEvent(Number.parseInt(session.user.id, 10), eventId, session.user.role))) {
+  if (!(await canManageEvent(actorId(session), eventId, session.user.role))) {
     return { error: "Unauthorized" }
   }
 
