@@ -146,14 +146,20 @@ describe("feature-owned templates are blocked while their feature is off", () =>
   it.each(Object.entries(calls).flatMap(([name, call]) =>
     ([["familyUpdate", "familyUpdates"], ["receipt", "receipts"], ["dgrReceipt", "dgrReceipts"]] as const)
       .map(([key, feature]) => [name, key, feature, call] as const)))(
-    "%s(%s) returns the off message while %s is off, before auth or DB",
+    "%s(%s) returns the off message while %s is off, after auth and before DB",
     async (_name, key, feature, call) => {
       ;(featureGuard as jest.Mock).mockResolvedValueOnce(OFF)
       expect(await call(key)).toEqual(OFF)
       expect(featureGuard).toHaveBeenCalledWith(feature)
-      expect(mockAuth).not.toHaveBeenCalled()
+      expect(mockAuth).toHaveBeenCalled()
       expect(mockUpsert).not.toHaveBeenCalled()
     })
+
+  it.each(Object.keys(calls))("%s rejects a non-admin before checking the feature", async (name) => {
+    mockAuth.mockResolvedValue({ user: { id: "2", role: "VIEWER" } })
+    expect(await calls[name as keyof typeof calls]("receipt")).toEqual({ error: "Unauthorized" })
+    expect(featureGuard).not.toHaveBeenCalled()
+  })
 
   it("the core welcome template never checks a feature", async () => {
     mockUpsert.mockResolvedValue({})

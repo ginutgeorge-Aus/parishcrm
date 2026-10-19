@@ -134,14 +134,15 @@ async function wasReceiptRecentlySent(transactionId: number, toEmail: string): P
   return recent.some((r) => safeDecrypt(r.sentTo).toLowerCase() === toEmail.toLowerCase())
 }
 
+/** Send single receipt. ADMIN/PASTOR only; the Giving receipts check runs after auth. */
 export async function sendSingleReceipt(
   transactionId: number,
   toEmail: string
 ): Promise<SingleReceiptResult> {
-  const off = await featureGuard("receipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("receipts")
+  if (off) return off
 
   if (!isValidEmail(toEmail)) return { error: "Invalid email address" }
 
@@ -199,13 +200,14 @@ export async function sendSingleReceipt(
   return { success: `Receipt sent to ${toEmail}` }
 }
 
+/** Send batch receipts. ADMIN/PASTOR only; the Giving receipts check runs after auth. */
 export async function sendBatchReceipts(
   rows: { transactionId: number; toEmail: string }[]
 ): Promise<BatchReceiptResult> {
-  const off = await featureGuard("receipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("receipts")
+  if (off) return off
   if (rows.length > MAX_RECEIPT_BATCH_SIZE) return { error: `Max ${MAX_RECEIPT_BATCH_SIZE} per batch` }
 
   const sentById = actorId(session)
@@ -335,18 +337,19 @@ export async function sendBatchReceipts(
   return { sent, failed, errors }
 }
 
+/** Fetch transactions for receipt. Accounting viewers only; the Giving receipts check runs after auth. */
 export async function fetchTransactionsForReceipt(
   from: string,
   to: string,
   accountId?: number
 ): Promise<FetchResult> {
-  const off = await featureGuard("receipts")
-  if (off) return off
   // Read path — AUDITOR is allowed (matches the canViewAccounting page guard on
   // /accounting/receipt-audit). The actual send actions stay canAccessAccounting
   // (ADMIN/PASTOR). Previously this read used the stricter mutate-guard.
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("receipts")
+  if (off) return off
 
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return { error: "Invalid date range" }

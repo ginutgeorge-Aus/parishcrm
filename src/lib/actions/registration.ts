@@ -22,11 +22,12 @@ import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
+/** Mark paid. Editors only; the Events check runs after auth. */
 export async function markPaid(registrationId: number, eventId: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
 
   const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true } })
   if (reg?.eventId !== eventId) return { error: "Registration not found" }
@@ -55,11 +56,12 @@ export async function markPaid(registrationId: number, eventId: number): Promise
   revalidatePath(`/events/${eventId}/registrations`)
 }
 
+/** Cancel registration. Editors only; the Events check runs after auth. */
 export async function cancelRegistration(registrationId: number, eventId: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
 
   const reg = await prisma.registration.findUnique({ where: { id: registrationId }, select: { eventId: true, paymentStatus: true } })
   if (reg?.eventId !== eventId) return { error: "Registration not found" }
@@ -83,13 +85,12 @@ export async function cancelRegistration(registrationId: number, eventId: number
   revalidatePath(`/events/${eventId}/registrations`)
 }
 
+/** Toggle attendee check in. Editors or the event's assigned organiser only; the Events check runs after auth. */
 export async function toggleAttendeeCheckIn(
   attendeeId: number,
   eventId: number,
   checkIn: boolean,
 ): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   // Editors keep full access; an EVENT_ORGANISER assigned to this specific
   // event may also check attendees in on the day — the whole
@@ -99,6 +100,8 @@ export async function toggleAttendeeCheckIn(
   if (!session?.user || !(await canManageEvent(Number.parseInt(session.user.id, 10), eventId, session.user.role))) {
     return { error: "Unauthorized" }
   }
+  const off = await featureGuard("events")
+  if (off) return off
 
   // IDOR: the attendee must belong to a registration of this event.
   const attendee = await prisma.attendee.findUnique({
@@ -122,11 +125,12 @@ export async function toggleAttendeeCheckIn(
 // after they test the public links + payment flow before sharing. Two guards
 // (ADMIN-only + unpublished-only) make it impossible to wipe real public
 // registrations — post-publish, cancelRegistration is the only removal path.
+/** Reset event registrations. ADMIN only; the Events check runs after auth. */
 export async function resetEventRegistrations(eventId: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(eventId)) return { error: "Invalid event" }
 
   const event = await prisma.event.findUnique({
@@ -223,9 +227,8 @@ function coerceStoredQuestions(raw: unknown): CustomQuestion[] {
 // Decrypts registrant PII + custom answers server-side and returns a plain DTO —
 // never ciphertext. Authz matches BOTH entry points of RegistrationsTable: staff
 // via canViewPeople and an assigned organiser via canManageEvent.
+/** Get registration detail. People viewers or the event's assigned organiser only; the Events check runs after auth. */
 export async function getRegistrationDetail(registrationId: number): Promise<RegistrationDetailResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   const notFound = { error: "Registration not found" }
   if (!session?.user) return notFound
@@ -243,6 +246,8 @@ export async function getRegistrationDetail(registrationId: number): Promise<Reg
     canViewPeople(session.user.role) ||
     (await canManageEvent(userId, probe.eventId, session.user.role))
   if (!allowed) return notFound   // generic — never leak existence to a denied caller
+  const off = await featureGuard("events")
+  if (off) return off
 
   const reg = await prisma.registration.findFirst({
     where: { id: registrationId },
@@ -380,18 +385,19 @@ async function sendOneReminder(
 // only ever a list of ids, never trusted for content. Each send writes its own
 // tracking row immediately (not a trailing createMany) so an interrupted batch
 // never loses a record of what was actually sent.
+/** Send payment reminders. Editors or the event's assigned organiser only; the Events check runs after auth. */
 export async function sendPaymentReminders(
   eventId: number,
   rows: ReminderRow[],
   message: string
 ): Promise<SendRemindersResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   const userId = Number.parseInt(session?.user?.id ?? "", 10)
   if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
     return { error: "Unauthorized" }
   }
+  const off = await featureGuard("events")
+  if (off) return off
   const text = reminderTextSchema.safeParse({ message })
   if (!text.success) return { error: text.error.issues[0].message }
   if (rows.length > MAX_REMINDER_BATCH_SIZE) return { error: `Max ${MAX_REMINDER_BATCH_SIZE} per batch` }
@@ -446,8 +452,8 @@ export async function sendPaymentReminders(
 }
 
 // registrationId -> ISO timestamp of the latest SUCCESS reminder, for PENDING regs only.
+/** Last reminded at by registration. Editors or the event's assigned organiser only; the Events check runs after auth. */
 export async function lastRemindedAtByRegistration(eventId: number): Promise<Record<number, string>> {
-  await assertFeature("events")
   // Exported from a "use server" module = a callable endpoint. Gate it the same
   // as sendPaymentReminders — without this any authenticated session could
   // enumerate reminder activity for an arbitrary event. Unauthorized → empty
@@ -457,6 +463,7 @@ export async function lastRemindedAtByRegistration(eventId: number): Promise<Rec
   if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
     return {}
   }
+  await assertFeature("events")
   const grouped = await prisma.paymentReminderSend.groupBy({
     by: ["registrationId"],
     where: { status: "SUCCESS", registration: { eventId, paymentStatus: "PENDING" } },

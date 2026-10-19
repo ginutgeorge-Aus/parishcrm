@@ -28,11 +28,12 @@ function todaySydney(): string {
   }).format(new Date())
 }
 
+/** Build welcome letter draft. Editors only; the Welcome letter check runs after auth. */
 export async function buildWelcomeLetterDraft(familyId: number): Promise<DraftResult> {
-  const off = await featureGuard("welcomeLetter")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
   if (!Number.isInteger(familyId) || familyId <= 0 || familyId > 2147483647) return { error: "Invalid family" }
 
   const family = await prisma.family.findUnique({
@@ -86,11 +87,12 @@ export type SendWelcomeLetterInput = {
   recipientPersonIds: number[]
 }
 
+/** Send welcome letter. Editors only; the Welcome letter check runs after auth. */
 export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("welcomeLetter")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
 
   const { familyId, model, recipientPersonIds } = input
   if (!Array.isArray(recipientPersonIds) || recipientPersonIds.length === 0) {

@@ -9,15 +9,16 @@ import { actorId } from "@/lib/actor"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
+/** Mark waitlist notified. Editors only; the Events check runs after auth. */
 export async function markWaitlistNotified(
   waitlistId: number,
   eventId: number,
   notified: boolean,
 ): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
 
   const row = await prisma.waitlist.findUnique({ where: { id: waitlistId }, select: { eventId: true } })
   if (row?.eventId !== eventId) return { error: "Waitlist entry not found" }

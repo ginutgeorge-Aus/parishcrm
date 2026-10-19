@@ -12,10 +12,10 @@ import { featureGuard } from "@/lib/featureFlags"
 
 /** Void a SENT invoice with a reason. The number stays used; PAID must be unmarked first. */
 export async function voidInvoice(id: number, reason: string): Promise<{ success: string } | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const r = typeof reason === "string" ? reason.trim() : ""
   if (!r) return { error: "Give a reason for voiding" }
   if (r.length > 500) return { error: "Reason must be 500 characters or fewer" }

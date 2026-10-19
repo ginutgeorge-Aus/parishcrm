@@ -23,14 +23,15 @@ const parseId = (v: string) => {
 // crafted attachment id can't dereference a blob outside the addressed row.
 // Same 200-vs-404 opacity as the event-image route — a non-accounting role
 // gets the identical 404 as a missing row, so it cannot probe existence.
+/** GET /api/accounting/transactions/[id]/attachments/[attachmentId]. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(
   req: NextRequest,
   props: { params: Promise<{ id: string; attachmentId: string }> },
 ) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return notFound()
+  const off = await featureNotFound("accounting")
+  if (off) return off
 
   // Each hit decrypts a blob + filename server-side — every sibling
   // export route caps per-user volume the same way; this one had no throttle.

@@ -24,10 +24,10 @@ export async function createServiceType(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const parsed = ServiceTypeSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const existing = await prisma.serviceType.findFirst({ where: { name: parsed.data.name } })
@@ -48,10 +48,10 @@ export async function createServiceType(
 export async function toggleServiceTypeActive(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const existing = await prisma.serviceType.findUnique({ where: { id } })
   if (!existing) return { error: "Service type not found" }
@@ -63,10 +63,10 @@ export async function toggleServiceTypeActive(id: number): Promise<ActionResult>
 export async function deleteServiceType(id: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const count = await prisma.pettyCashReceipt.count({ where: { serviceTypeId: id } })
   if (count > 0) return { error: `Cannot delete — ${count} receipt(s) use this service type` }

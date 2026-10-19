@@ -176,11 +176,12 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, k
   expect(read(file)).toContain(`await requireFeature("${key}")`)
 })
 
-// Module-private guard helpers that run assertNotDemo then the feature check, so
-// an action calling one is gated. Each helper must itself guard (tested below).
+// Module-private guard helpers that run assertNotDemo, auth, then the feature
+// check, so an action calling one is gated. Each helper must itself guard (tested below).
 const GUARD_HELPERS: Record<string, string[]> = {
   "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
   "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
+  "src/lib/actions/invoiceSend.ts": ["send"],
 }
 
 it.each(Object.entries(GUARD_HELPERS).flatMap(([file, fns]) => fns.map((fn) => [file, fn])))(
@@ -216,7 +217,7 @@ function guards(body: string, key: string, file?: string): boolean {
   return body.includes(`featureGuard("${key}")`)
     || body.includes(`assertFeature("${key}")`)
     || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
-    || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => body.includes(`await ${h}(`)))
+    || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => new RegExp(`(?:await|return) ${h}\\(`).test(body)))
 }
 
 // Mixed files (core + feature-owned functions): function → feature.
@@ -271,9 +272,21 @@ it("every Server Action file is classified (feature-owned, mixed, or core)", () 
   expect(unclassified).toEqual([])
 })
 
-it("assertNotDemo runs before the feature check in every action and guard helper (no DB read for a demo write)", () => {
+// Public (anonymous) actions: honeypot/rate limit → feature, generic wording.
+// Everything else must authenticate before the feature check.
+const PUBLIC_ACTIONS = new Set([
+  "membership.ts:submitMembershipApplication",
+  "familyUpdate.ts:submitFamilyUpdate",
+  "eventCheckout.ts:startEventCheckout",
+  "eventCheckout.ts:startExistingRegistrationCheckout",
+])
+
+// Feature-only helpers (no auth of their own): their callers are checked instead.
+const FEATURE_ONLY_HELPERS = new Set(["emailTemplates.ts:templateFeatureGuard"])
+
+it("demo → auth → feature in every action and guard helper (no DB read or admin wording before auth)", () => {
   const dir = "src/lib/actions"
-  const late = fs.readdirSync(path.join(process.cwd(), dir))
+  const bad = fs.readdirSync(path.join(process.cwd(), dir))
     .filter((f) => f.endsWith(".ts"))
     .flatMap((f) => {
       const src = read(`${dir}/${f}`)
@@ -281,11 +294,39 @@ it("assertNotDemo runs before the feature check in every action and guard helper
       // attributed to the export above it.
       const starts = [...src.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)]
       return starts.filter((m, i) => {
+        if (PUBLIC_ACTIONS.has(`${f}:${m[1]}`) || FEATURE_ONLY_HELPERS.has(`${f}:${m[1]}`)) return false
         const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
-        const demo = body.indexOf("assertNotDemo(")
         const feature = body.search(/[fF]eatureGuard\w*\(|assertFeature\(/)
-        return demo !== -1 && feature !== -1 && feature < demo
+        if (feature === -1) return false
+        const demo = body.indexOf("assertNotDemo(")
+        const authAt = body.indexOf("await auth()")
+        if (demo !== -1 && feature < demo) return true
+        if (authAt === -1 || feature < authAt) return true
+        // The role check (first `if (` after auth) must also precede the feature check.
+        const roleCheck = body.indexOf("if (", authAt)
+        return roleCheck !== -1 && feature < roleCheck
       }).map((m) => `${f}:${m[1]}`)
     })
-  expect(late).toEqual([])
+  expect(bad).toEqual([])
 })
+
+// Public routes throttle → feature (anonymous by design); cron routes gate
+// inside cronFeatureSkip (secret first). Every other gated route must sign in
+// and role-check before featureNotFound, so feature state never leaks pre-auth.
+const PUBLIC_ROUTES = new Set([
+  "src/app/api/events/[slug]/register/route.ts",
+  "src/app/api/events/[slug]/waitlist/route.ts",
+  "src/app/api/events/[slug]/image/[kind]/route.ts",
+])
+
+it.each(Object.keys(GUARDED_ROUTES).filter((f) => !PUBLIC_ROUTES.has(f) && !f.includes("/api/cron/")))(
+  "%s: every handler authenticates before featureNotFound", (file) => {
+    const src = read(file)
+    const starts = [...src.matchAll(/^export async function (GET|POST|PUT|PATCH|DELETE)\(/gm)]
+    for (const [i, m] of starts.entries()) {
+      const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
+      const authAt = body.search(/await auth\(\)|await guardAccountingExport\(/)
+      expect(authAt).toBeGreaterThan(-1)
+      expect(body.indexOf("featureNotFound(")).toBeGreaterThan(authAt)
+    }
+  })

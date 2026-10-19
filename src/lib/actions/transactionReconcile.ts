@@ -11,14 +11,15 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
+/** Toggle reconciled. ADMIN/PASTOR only; the Reconciliation check runs after auth. */
 export async function toggleReconciled(
   id: number,
   expectedPaymentAccountId: number
 ): Promise<ActionResult> {
-  const off = await featureGuard("reconciliation")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("reconciliation")
+  if (off) return off
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
@@ -65,10 +66,10 @@ export async function reconcileMany(
   ids: number[],
   expectedPaymentAccountId: number
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("reconciliation")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("reconciliation")
+  if (off) return off
 
   const parsed = ReconcileManySchema.safeParse({ ids })
   if (!parsed.success) return { error: "Invalid selection" }

@@ -96,15 +96,16 @@ async function isDuplicateExpense(
   )
 }
 
+/** Create expense. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function createExpense(
   sessionId: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const loaded = await loadOpenExpenseSession(sessionId)
   if (loaded.error !== undefined) return { error: loaded.error }
   const { existing, sessionDate } = loaded
@@ -182,13 +183,12 @@ export async function createExpense(
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
+/** Update expense. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function updateExpense(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   // canAccessAccounting (ADMIN|PASTOR), matching createExpense. Any editor may correct any
   // entry in an OPEN session — petty-cash sessions are collaborative and both
@@ -196,6 +196,8 @@ export async function updateExpense(
   // (every edit is audited and closed sessions are locked). Delete stays
   // ADMIN-only. By-design, not an IDOR (//AUDIT-033).
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const expense = await prisma.pettyCashExpense.findUnique({
     where: { id },
     include: {
@@ -271,11 +273,12 @@ export async function updateExpense(
   redirect(`/accounting/petty-cash/sessions/${expense.sessionId}`)
 }
 
+/** Delete expense. ADMIN only; the Petty cash check runs after auth. */
 export async function deleteExpense(id: number): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const expense = await prisma.pettyCashExpense.findUnique({
     where: { id },
     include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true } } },

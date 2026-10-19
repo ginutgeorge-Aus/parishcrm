@@ -22,11 +22,12 @@ export type VolunteerTokenResult = { error: string } | { token: string | null }
 
 // Enable → mint a token if none yet (idempotent: re-enabling keeps the link).
 // Disable → null the token so the shared link 404s. canEdit-gated.
+/** Set volunteer view. Editors only; the Events check runs after auth. */
 export async function setVolunteerView(id: number, enabled: boolean): Promise<VolunteerTokenResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   const existing = await prisma.event.findUnique({
@@ -43,11 +44,12 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
 }
 
 // Mint a fresh token, invalidating any previously-shared link. canEdit-gated.
+/** Regenerate volunteer token. Editors only; the Events check runs after auth. */
 export async function regenerateVolunteerToken(id: number): Promise<VolunteerTokenResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   const existing = await prisma.event.findUnique({ where: { id }, select: { id: true } })
@@ -63,11 +65,12 @@ export async function regenerateVolunteerToken(id: number): Promise<VolunteerTok
 // Assign / unassign an EVENT_ORGANISER to an event. canEdit-gated. Idempotent:
 // the unique (eventId,userId) makes a duplicate add a no-op via catch; remove
 // uses deleteMany so a missing link is a silent success.
+/** Add event manager. Editors only; the Events check runs after auth. */
 export async function addEventManager(eventId: number, userId: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(eventId) || !isValidPgId(userId)) return { error: "Invalid input" }
 
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } })
@@ -88,11 +91,12 @@ export async function addEventManager(eventId: number, userId: number): Promise<
   revalidatePath(`/events/${eventId}/registrations`)
 }
 
+/** Remove event manager. Editors only; the Events check runs after auth. */
 export async function removeEventManager(eventId: number, userId: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(eventId) || !isValidPgId(userId)) return { error: "Invalid input" }
 
   await prisma.eventManager.deleteMany({ where: { eventId, userId } })

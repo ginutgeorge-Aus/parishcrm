@@ -9,11 +9,12 @@ import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
+/** GET /api/accounting/reports/trial-balance/export-csv. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const guard = await guardAccountingExport("trial-balance")
   if (guard instanceof NextResponse) return guard
+  const off = await featureNotFound("accounting")
+  if (off) return off
 
   const year = fyYearParamOr400(req.nextUrl.searchParams)
   if (year instanceof NextResponse) return year

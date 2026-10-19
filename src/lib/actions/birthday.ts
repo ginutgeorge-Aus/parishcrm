@@ -18,11 +18,12 @@ import { deliverCelebration } from "@/lib/celebrationDeliver"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
+/** Send birthday email. Editors only; the Celebrations check runs after auth. */
 export async function sendBirthdayEmail(personId: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const person = await prisma.person.findUnique({
     where: { id: personId },
@@ -121,13 +122,14 @@ async function sendBulkBirthdayEmail(
   return (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) ? "sent" : "failed"
 }
 
+/** Send birthday emails bulk. Editors only; the Celebrations check runs after auth. */
 export async function sendBirthdayEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
   if (!BIRTHDAY_WINDOWS.includes(windowDays as (typeof BIRTHDAY_WINDOWS)[number])) {
     return { error: "Invalid window" }
   }

@@ -92,6 +92,8 @@ async function emailInvoice(id: number, settings?: InvoiceSettings): Promise<voi
 async function send(id: number, email: boolean): Promise<Result> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return CHANGED
   const uid = actorId(session)
   const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, recipientEmail: true } })
@@ -141,24 +143,20 @@ async function send(id: number, email: boolean): Promise<Result> {
 
 /** Number, freeze and email a DRAFT invoice. */
 export async function sendInvoice(id: number): Promise<Result> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   return send(id, true)
 }
 
 /** Number and freeze a DRAFT invoice without emailing (printed / delivered by hand). */
 export async function markInvoiceSent(id: number): Promise<Result> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   return send(id, false)
 }
 
 /** Re-email an already SENT invoice (same number, same frozen content). */
 export async function resendInvoice(id: number): Promise<Result> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Only sent invoices can be re-sent" }
   const row = await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, recipientEmail: true } })
   if (!row || row.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be re-sent" }

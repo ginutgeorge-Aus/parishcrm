@@ -32,11 +32,11 @@ function cells(c: ComplianceCell): string[] {
  * `escapeCsv` (formula-injection guard). Optional `?status=` mirrors the page.
  */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("clearances")
-  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canManageClearances(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  const off = await featureNotFound("clearances")
+  if (off) return off
   if (!rateLimit(`export:clearances:${actorId(session)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }

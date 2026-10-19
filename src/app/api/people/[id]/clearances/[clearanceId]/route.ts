@@ -25,10 +25,10 @@ export async function GET(
   req: NextRequest,
   props: { params: Promise<{ id: string; clearanceId: string }> },
 ) {
-  const off = await featureNotFound("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return notFound()
+  const off = await featureNotFound("clearances")
+  if (off) return off
 
   if (!rateLimit(`clearance:${actorId(session)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })

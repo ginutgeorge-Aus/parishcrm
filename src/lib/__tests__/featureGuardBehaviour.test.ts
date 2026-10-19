@@ -46,10 +46,25 @@ it("segment layout renders children while its feature is on", async () => {
   await expect(EventsLayout({ children: "page" })).resolves.toBe("page")
 })
 
-it("Server Action returns the off message before auth or DB work", async () => {
+it("Server Action returns the off message to an authorized caller, before DB work", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   expect(await publishEvent(1, true)).toEqual({ error: FEATURE_OFF_MESSAGE })
-  expect(auth).not.toHaveBeenCalled()
   expect(prisma.event.update).not.toHaveBeenCalled()
+})
+
+it("Server Action rejects an anonymous caller without reading feature state or showing the admin wording", async () => {
+  ;(auth as jest.Mock).mockResolvedValue(null)
+  const res = await publishEvent(1, true)
+  expect(res).toEqual({ error: "Unauthorized" })
+  expect(JSON.stringify(res)).not.toContain("Settings → Features")
+  expect(findUnique).not.toHaveBeenCalled()
+  expect(prisma.event.update).not.toHaveBeenCalled()
+})
+
+it("Server Action rejects an unauthorized role without reading feature state", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "2", role: "VIEWER" } })
+  expect(await publishEvent(1, true)).toEqual({ error: "Unauthorized" })
+  expect(findUnique).not.toHaveBeenCalled()
 })
 
 it("public API route returns a JSON 404 without its DB lookup while the feature is off", async () => {

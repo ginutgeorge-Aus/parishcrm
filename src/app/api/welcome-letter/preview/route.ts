@@ -45,11 +45,12 @@ const ModelSchema = z.object({
   }),
 })
 
+/** POST /api/welcome-letter/preview. Editors only; the Welcome letter check runs after auth. */
 export async function POST(req: Request) {
-  const off = await featureNotFound("welcomeLetter")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return new Response("Unauthorized", { status: 403 })
+  const off = await featureNotFound("welcomeLetter")
+  if (off) return off
 
   if (exceedsBodyLimit(req, MAX_BODY_BYTES)) return new Response("Payload too large", { status: 413 })
 

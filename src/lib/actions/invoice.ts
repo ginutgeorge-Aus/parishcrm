@@ -97,10 +97,10 @@ function toDraftData(d: InvoiceDraftInput, gstEnabled: boolean) {
 
 /** Create a DRAFT invoice (ADMIN | PASTOR). No number is allocated until it is sent. */
 export async function createInvoice(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const parsed = parseInvoiceDraft(formData)
   if ("error" in parsed) return parsed
   const { gstRegistered } = await getInvoiceSettings()
@@ -123,10 +123,10 @@ export async function createInvoice(_prev: ActionResult, formData: FormData): Pr
 
 /** Update a DRAFT invoice; sent/paid/void invoices are frozen. */
 export async function updateInvoice(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invoice not found" }
   const parsed = parseInvoiceDraft(formData)
   if ("error" in parsed) return parsed
@@ -158,10 +158,10 @@ export async function updateInvoice(id: number, _prev: ActionResult, formData: F
 
 /** Delete a DRAFT invoice. Numbered drafts (failed send) cannot be deleted — keeps the sequence gap-free. */
 export async function deleteDraftInvoice(id: number): Promise<{ error: string } | { success: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invoice not found" }
   const res = await prisma.invoice.deleteMany({ where: { id, status: InvoiceStatus.DRAFT, invoiceNo: null } })
   if (res.count === 0) return { error: "Only unnumbered draft invoices can be deleted" }
@@ -172,11 +172,11 @@ export async function deleteDraftInvoice(id: number): Promise<{ error: string } 
 
 /** Load one invoice for viewers; AUDITOR never receives decrypted contact details or notes. */
 export async function getInvoice(id: number): Promise<InvoiceView | null | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   const role = session?.user?.role
   if (!canViewAccounting(role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return null
   const r = await prisma.invoice.findUnique({
     where: { id },
@@ -217,10 +217,10 @@ function keysetWhere(c: InvoiceCursor, op: "lt" | "gt") {
  * `from` / `to` that isn't a real YYYY-MM-DD date (an Invalid Date would make Prisma throw).
  */
 export async function listInvoices(filter: InvoiceListFilter = {}): Promise<InvoicePage | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const issueDate: { gte?: Date; lte?: Date } = {}
   if (filter.from && isRealCalendarDate(filter.from)) issueDate.gte = new Date(filter.from)
   if (filter.to && isRealCalendarDate(filter.to)) issueDate.lte = new Date(filter.to)
@@ -258,10 +258,10 @@ export type InvoiceSummary = { outstandingCents: number; outstandingCount: numbe
 
 /** Outstanding (all SENT) plus paid and GST collected for invoices paid within [from, to] (cash basis), in cents. */
 export async function getInvoiceSummary(period: { from: string; to: string }): Promise<InvoiceSummary | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isRealCalendarDate(period?.from) || !isRealCalendarDate(period?.to) || period.from > period.to) return { error: "Invalid period" }
   const [outstanding, paid] = await Promise.all([
     prisma.invoice.aggregate({ where: { status: InvoiceStatus.SENT }, _sum: { total: true }, _count: { _all: true } }),
@@ -278,10 +278,10 @@ export async function getInvoiceSummary(period: { from: string; to: string }): P
 
 /** Prefill contact for the picker: a member's email + their family address, or a customer's saved details. */
 export async function getRecipientContact(kind: "person" | "customer", id: number): Promise<{ email: string; address: string } | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Not found" }
   if (kind === "person") {
     const p = await prisma.person.findUnique({

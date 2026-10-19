@@ -13,14 +13,15 @@ import { sydneyTodayYMD } from "@/lib/dates"
 import { parseRouteId } from "@/lib/validation"
 import { featureNotFound } from "@/lib/featureFlags"
 
+/** GET /api/accounting/reports/general-ledger/export-csv. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canViewAccounting(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const off = await featureNotFound("accounting")
+  if (off) return off
   // Each call decrypts up to 10k descriptions; cap per-user volume.
   if (!rateLimit(`export:gl:${actorId(session)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })

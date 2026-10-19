@@ -40,15 +40,16 @@ const Schema = z.object({
     .refine((v) => Math.abs(Number.parseFloat(v)) <= 99_999_999.99, "Amount too large"),
 })
 
+/** Save statement balance. ADMIN/PASTOR only; the Reconciliation check runs after auth. */
 export async function saveStatementBalance(
   paymentAccountId: number,
   statementDate: string,
   closingBalance: string
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("reconciliation")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("reconciliation")
+  if (off) return off
 
   const parsed = Schema.safeParse({ paymentAccountId, statementDate, closingBalance })
   if (!parsed.success) return { error: parsed.error.issues[0].message }

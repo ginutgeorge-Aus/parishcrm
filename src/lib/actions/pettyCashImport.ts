@@ -34,11 +34,12 @@ export interface ImportPreview {
 
 export type PreviewResult = { error: string } | { preview: ImportPreview }
 
+/** Preview import. ADMIN only; the Petty cash check runs after auth. */
 export async function previewImport(formData: FormData): Promise<PreviewResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
 
   const csvField = formData.get("csv")
   const csv = typeof csvField === "string" ? csvField : ""
@@ -296,10 +297,10 @@ async function insertImportExpenses(
 export async function commitImport(formData: FormData): Promise<CommitResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
 
   const custodianId = Number(formData.get("custodianId"))
   // isValidPgId bounds to int4 — an above-int4 value would otherwise reach

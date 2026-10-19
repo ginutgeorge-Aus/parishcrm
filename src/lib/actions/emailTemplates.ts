@@ -135,10 +135,10 @@ async function templateFeatureGuard(key: unknown): Promise<{ error: string } | n
 export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await templateFeatureGuard(formData.get("key"))
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await templateFeatureGuard(formData.get("key"))
+  if (off) return off
   const parsed = FieldsSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { key, subject, intro, body, signoff } = parsed.data
@@ -158,10 +158,10 @@ export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formDa
 export async function resetEmailTemplate(key: EmailTemplateKey): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await templateFeatureGuard(key)
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   if (!KEY_SET.has(key)) return { error: "Invalid template" }
   const def = DEFAULT_EMAIL_TEMPLATES[key]
   const updatedBy = actorId(session)
@@ -180,10 +180,10 @@ export async function previewEmailTemplate(
   key: EmailTemplateKey,
   draft: EmailTemplateFields,
 ): Promise<{ html: string } | { error: string }> {
-  const off = await templateFeatureGuard(key)
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   const parsed = FieldsSchema.safeParse({ key, ...draft })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   return { html: await renderTemplate(key, draft) }
@@ -193,10 +193,10 @@ export async function previewEmailTemplate(
 export async function sendTestEmail(key: EmailTemplateKey, draft: EmailTemplateFields): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await templateFeatureGuard(key)
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await templateFeatureGuard(key)
+  if (off) return off
   const parsed = FieldsSchema.safeParse({ key, ...draft })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const to = session!.user!.email

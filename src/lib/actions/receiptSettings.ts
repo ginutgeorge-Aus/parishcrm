@@ -34,10 +34,10 @@ export async function updateReceiptSettings(
 ): Promise<{ ok: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuardAny(["receipts", "dgrReceipts"])
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
+  if (off) return off
 
   const parsed = InputSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -62,10 +62,10 @@ export async function updateReceiptSettings(
 export async function resetReceiptSettings(): Promise<{ ok: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuardAny(["receipts", "dgrReceipts"])
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Not authorised" }
+  const off = await featureGuardAny(["receipts", "dgrReceipts"])
+  if (off) return off
 
   await prisma.appSetting.deleteMany({
     where: { key: { in: Array.from(RECEIPT_SETTING_KEYS) } },

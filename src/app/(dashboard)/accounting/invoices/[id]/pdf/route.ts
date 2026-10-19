@@ -10,13 +10,13 @@ import { featureNotFound } from "@/lib/featureFlags"
 
 /** Download an invoice PDF. Accounting viewers except AUDITOR (the PDF carries recipient contact details). */
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const off = await featureNotFound("invoices")
-  if (off) return off
   const params = await props.params
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const role = session.user.role
   if (!canViewAccounting(role) || role === UserRole.AUDITOR) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  const off = await featureNotFound("invoices")
+  if (off) return off
   const id = parseRouteId(params.id)
   if (id === null) return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
   let out: Awaited<ReturnType<typeof loadInvoicePdf>>

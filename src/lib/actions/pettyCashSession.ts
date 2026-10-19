@@ -39,14 +39,15 @@ const CreateSessionSchema = z.object({
     .refine((v) => Number.parseFloat(v) >= 0, "Opening balance must be non-negative"),
 })
 
+/** Create session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function createSession(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const parsed = CreateSessionSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
@@ -83,15 +84,16 @@ const UpdateCustodianSchema = z.object({
 
 // Correct the custodian on an existing session (open or closed) — the custodian
 // is metadata, not a dated ledger entry, so no accounting-lock check applies.
+/** Update session custodian. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function updateSessionCustodian(
   id: number,
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
 
   const parsed = UpdateCustodianSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -163,10 +165,11 @@ export type EnsureWeeklyResult = {
 // Idempotent: dedups on the canonical title. This also satisfies the
 // "FY always has at least one session" guarantee — every editor visit ensures
 // the current Sunday's session. See the design spec.
+/** Ensure weekly session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
-  await assertFeature("pettyCash")
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { status: "not-editor" }
+  await assertFeature("pettyCash")
 
   const custodianId = await getPettyCashDefaultCustodianId()
   if (custodianId === null) return { status: "skipped-no-custodian" }
@@ -253,15 +256,16 @@ const CloseSessionSchema = z.object({
     .refine((v) => v === undefined || toCents(v) >= 0, "Counted cash must be zero or more"),
 })
 
+/** Close session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
 export async function closeSession(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const existing = await prisma.pettyCashSession.findUnique({
     where: { id },
     include: {
@@ -328,11 +332,12 @@ export async function closeSession(
   redirect("/accounting/petty-cash")
 }
 
+/** Delete session. ADMIN only; the Petty cash check runs after auth. */
 export async function deleteSession(id: number): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const existing = await prisma.pettyCashSession.findUnique({
     where: { id },

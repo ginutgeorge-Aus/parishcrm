@@ -26,11 +26,12 @@ function toYMD(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
 }
 
+/** GET /api/accounting/reports/balance-sheet/export-csv. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const guard = await guardAccountingExport("balance-sheet")
   if (guard instanceof NextResponse) return guard
+  const off = await featureNotFound("accounting")
+  if (off) return off
 
   // A malformed ?date= used to silently fall back to today — the
   // caller has no way to tell their filter was ignored and is looking at the

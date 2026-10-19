@@ -21,11 +21,12 @@ import { featureGuard } from "@/lib/featureFlags"
 
 const COUPLE = { in: ["HEAD", "SPOUSE"] as FamilyRoleLite[] }
 
+/** Send anniversary email. Editors only; the Celebrations check runs after auth. */
 export async function sendAnniversaryEmail(familyId: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const family = await prisma.family.findUnique({
     where: { id: familyId },
@@ -75,13 +76,14 @@ export async function sendAnniversaryEmail(familyId: number): Promise<ActionResu
   return { success: `Anniversary email sent to ${coupleNames}` }
 }
 
+/** Send anniversary emails bulk. Editors only; the Celebrations check runs after auth. */
 export async function sendAnniversaryEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
   if (!ANNIVERSARY_WINDOWS.includes(windowDays as (typeof ANNIVERSARY_WINDOWS)[number])) return { error: "Invalid window" }
 
   const rows = await prisma.family.findMany({

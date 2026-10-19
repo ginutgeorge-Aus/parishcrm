@@ -42,10 +42,10 @@ function parseCustomer(formData: FormData): { data: { name: string; abn: string 
 
 /** Create a saved outside customer (ADMIN | PASTOR). */
 export async function createCustomer(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const parsed = parseCustomer(formData)
   if ("error" in parsed) return parsed
   const row = await prisma.customer.create({ data: parsed.data })
@@ -56,10 +56,10 @@ export async function createCustomer(_prev: ActionResult, formData: FormData): P
 
 /** Update a customer's details (ADMIN | PASTOR). Existing invoices keep their recipient snapshot. */
 export async function updateCustomer(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Customer not found" }
   const parsed = parseCustomer(formData)
   if ("error" in parsed) return parsed
@@ -75,10 +75,10 @@ export async function updateCustomer(id: number, _prev: ActionResult, formData: 
 
 /** Activate/deactivate a customer. Customers are never hard-deleted (invoices reference them). */
 export async function setCustomerActive(id: number, isActive: boolean): Promise<{ error: string } | { success: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Customer not found" }
   if (typeof isActive !== "boolean") return { error: "Invalid request" }
   try {
@@ -93,10 +93,10 @@ export async function setCustomerActive(id: number, isActive: boolean): Promise<
 
 /** Quick-create from the invoice recipient picker; returns the new id + name. */
 export async function createCustomerInline(input: { name: string; email: string; address: string }): Promise<{ id: number; name: string } | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const f = new FormData()
   f.set("name", input.name ?? ""); f.set("email", input.email ?? ""); f.set("address", input.address ?? "")
   const parsed = parseCustomer(f)
@@ -109,11 +109,11 @@ export async function createCustomerInline(input: { name: string; email: string;
 
 /** List customers for accounting viewers; AUDITOR gets names only (contact fields null, never decrypted). */
 export async function listCustomers(opts: { includeInactive?: boolean } = {}): Promise<CustomerView[] | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   const role = session?.user?.role
   if (!canViewAccounting(role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const rows = await prisma.customer.findMany({
     where: opts.includeInactive ? {} : { isActive: true },
     orderBy: { name: "asc" },
@@ -130,9 +130,10 @@ export async function listCustomers(opts: { includeInactive?: boolean } = {}): P
 
 /** Load one customer decrypted for the edit form (ADMIN | PASTOR). */
 export async function getCustomerForEdit(id: number): Promise<CustomerView | null> {
-  await assertFeature("invoices")
   const session = await auth()
-  if (!canAccessAccounting(session?.user?.role) || !isValidPgId(id)) return null
+  if (!canAccessAccounting(session?.user?.role)) return null
+  await assertFeature("invoices")
+  if (!isValidPgId(id)) return null
   const r = await prisma.customer.findUnique({ where: { id } })
   if (!r) return null
   return { id: r.id, name: r.name, abn: r.abn, isActive: r.isActive, email: decryptOrNull(r.email), phone: decryptOrNull(r.phone), address: decryptOrNull(r.address), notes: decryptOrNull(r.notes) }

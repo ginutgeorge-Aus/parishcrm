@@ -21,7 +21,9 @@ jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("NEXT_REDIRECT") }),
 }))
 
-import { assertFeature, featureGuard, featureGuardAny, requireFeature } from "@/lib/featureFlags"
+import { assertFeature, featureGuard, featureGuardAny, isFeatureOn, requireFeature } from "@/lib/featureFlags"
+import { auth } from "@/auth"
+import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
@@ -57,9 +59,22 @@ const ARGS: Record<string, unknown[]> = {
   "familyUpdate.ts:submitFamilyUpdate": [{ token: "t", payload: {} }],
   "eventCheckout.ts:startEventCheckout": ["fete", {}],
   "eventCheckout.ts:startExistingRegistrationCheckout": ["fete", "tok"],
+  // Feature check sits after full authz, which validates the class id first.
+  "sundaySchoolAttendance.ts:setAttendance": [1, "2026-01-04", 1, "PRESENT"],
+  "sundaySchoolAttendance.ts:markUnmarkedPresent": [1, "2026-01-04"],
+  // Authz probes the registration's event first.
+  "registration.ts:getRegistrationDetail": [1],
+}
+// Prisma reads an action makes during authz, before its feature check.
+const PRISMA: Record<string, Record<string, unknown>> = {
+  "registration.ts:getRegistrationDetail": { registration: { findUnique: jest.fn(async () => ({ eventId: 1 })) } },
 }
 // Public actions answer anonymous callers without the admin wording.
 const PUBLIC_OFF = new Set(["membership.ts:submitMembershipApplication", "familyUpdate.ts:submitFamilyUpdate"])
+// Public actions (no sign-in): throttle → feature, so the anonymous test skips them.
+const PUBLIC = new Set([...PUBLIC_OFF, "eventCheckout.ts:startEventCheckout", "eventCheckout.ts:startExistingRegistrationCheckout"])
+// Feature checks run after auth, so the off test signs in as an ADMIN.
+const ADMIN = { user: { id: "1", role: "ADMIN", email: "admin@example.com" } }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -97,6 +112,8 @@ describe.each(ACTION_FILES)("%s", (file) => {
 
   it.each(fns.map((f) => [f.name, f.body]))("%s stops while its feature is off", async (name, body) => {
     const mod = await import(toModule(file))
+    ;(auth as jest.Mock).mockResolvedValue(ADMIN)
+    Object.assign(prisma, PRISMA[`${path.basename(file)}:${name}`] ?? {})
     ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
     ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
     ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
@@ -112,6 +129,28 @@ describe.each(ACTION_FILES)("%s", (file) => {
           : "ok" in (res as object) ? { ok: false, status: 404 } : OFF
         expect(res).toEqual(expect.objectContaining(expected))
       }
+    } finally {
+      ;(featureGuard as jest.Mock).mockResolvedValue(null)
+      ;(featureGuardAny as jest.Mock).mockResolvedValue(null)
+      ;(assertFeature as jest.Mock).mockResolvedValue(undefined)
+      ;(auth as jest.Mock).mockReset()
+    }
+  })
+
+  const authed = fns.filter((f) => !PUBLIC.has(`${path.basename(file)}:${f.name}`))
+  if (authed.length) it.each(authed.map((f) => [f.name]))("%s rejects an anonymous caller before reading feature state", async (name) => {
+    const mod = await import(toModule(file))
+    ;(auth as jest.Mock).mockResolvedValue(null)
+    ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
+    ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
+    ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))
+    try {
+      const res = await Promise.resolve(mod[name](...(ARGS[`${path.basename(file)}:${name}`] ?? []))).catch((e: Error) => e)
+      expect(featureGuard).not.toHaveBeenCalled()
+      expect(featureGuardAny).not.toHaveBeenCalled()
+      expect(assertFeature).not.toHaveBeenCalled()
+      expect(isFeatureOn).not.toHaveBeenCalled()
+      expect(res instanceof Error ? res.message : JSON.stringify(res ?? null)).not.toContain(OFF.error)
     } finally {
       ;(featureGuard as jest.Mock).mockResolvedValue(null)
       ;(featureGuardAny as jest.Mock).mockResolvedValue(null)

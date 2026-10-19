@@ -33,10 +33,10 @@ type ClassGuard = { error: string } | { session: Session | null; cls: { id: numb
 async function editor(): Promise<Guard> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   return { session }
 }
 
@@ -407,10 +407,10 @@ export async function rolloverYear(fromYear: number): Promise<ActionResultWithSu
 export async function lockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
   if (year >= currentSchoolYear()) return { error: "Only a past school year can be locked" }
 
@@ -440,10 +440,10 @@ export async function lockSundaySchoolYear(year: number): Promise<ActionResultWi
 export async function unlockSundaySchoolYear(year: number): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid school year" }
 
   const { count } = await prisma.sundaySchoolYearLock.deleteMany({ where: { year } })

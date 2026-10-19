@@ -9,11 +9,12 @@ import { toCents, type Money } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
+/** GET /api/accounting/reports/budget-vs-actual/export-csv. Accounting viewers only; the Budget check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("budget")
-  if (off) return off
   const guard = await guardAccountingExport("budget-vs-actual")
   if (guard instanceof NextResponse) return guard
+  const off = await featureNotFound("budget")
+  if (off) return off
 
   const sp = req.nextUrl.searchParams
   const fyNow = currentFYYear()

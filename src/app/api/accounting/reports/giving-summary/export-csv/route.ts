@@ -10,9 +10,8 @@ import { currentFYYear } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
+/** GET /api/accounting/reports/giving-summary/export-csv. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   // Read-only accounting roles (ADMIN|PASTOR|AUDITOR|OFFICE_ADMIN) — matches
@@ -21,6 +20,8 @@ export async function GET(req: NextRequest) {
   if (!canViewAccounting(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const off = await featureNotFound("accounting")
+  if (off) return off
   // Each call decrypts one email per giving family; cap per-user volume.
   if (!rateLimit(`export:giving-summary:${actorId(session)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })

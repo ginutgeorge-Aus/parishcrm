@@ -126,13 +126,14 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 
 export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname" }
 
+/** Find membership matches. Editors only; the Membership forms check runs after auth. */
 export async function findMembershipMatches(applicationId: number): Promise<MatchCandidate[]> {
-  await assertFeature("memberships")
   // Exported from a "use server" module → a directly-callable endpoint. Without
   // this gate any caller could enumerate families by guessing application ids
   // (IDOR). Staff-only, same guard as the review page that consumes it.
   const session = await auth()
   if (!canEdit(session?.user?.role)) return []
+  await assertFeature("memberships")
 
   const app = await prisma.membershipApplication.findUnique({
     where: { id: applicationId },
@@ -416,10 +417,10 @@ export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
+  const off = await featureGuard("memberships")
+  if (off) return off
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) return { error: "Application not found" }
@@ -461,11 +462,12 @@ export async function approveMembershipApplication(
   return { success: "Application approved" }
 }
 
+/** Reject membership application. Editors only; the Membership forms check runs after auth. */
 export async function rejectMembershipApplication(id: number, note?: string): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
+  const off = await featureGuard("memberships")
+  if (off) return off
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) return { error: "Application not found" }

@@ -15,11 +15,12 @@ import { featureNotFound } from "@/lib/featureFlags"
 
 type Row = { id: number; type: string; group: { id: number; name: string; sortOrder: number } | null }
 
+/** GET /api/accounting/reports/cash-flow/export-csv. Accounting viewers only; the Accounting check runs after auth. */
 export async function GET(req: NextRequest) {
-  const off = await featureNotFound("accounting")
-  if (off) return off
   const guard = await guardAccountingExport("cash-flow")
   if (guard instanceof NextResponse) return guard
+  const off = await featureNotFound("accounting")
+  if (off) return off
 
   const year = fyYearParamOr400(req.nextUrl.searchParams)
   if (year instanceof NextResponse) return year

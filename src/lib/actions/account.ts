@@ -39,14 +39,15 @@ async function nextCode(type: "INCOME" | "EXPENSE"): Promise<string> {
   return String(max + 1)
 }
 
+/** Create account. ADMIN only; the Accounting check runs after auth. */
 export async function createAccount(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const parsed = AccountSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -79,15 +80,16 @@ export async function createAccount(
   redirect("/accounting/accounts")
 }
 
+/** Update account. ADMIN only; the Accounting check runs after auth. */
 export async function updateAccount(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
 
   const parsed = AccountSchema.safeParse(Object.fromEntries(formData))
@@ -153,10 +155,10 @@ export async function updateAccount(
 
 /** Delete an unused account (ADMIN). The reference checks and the delete share one Serializable transaction. */
 export async function deleteAccount(id: number): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
 
   // Counts + delete in one Serializable transaction, mirroring deleteFund. Without it an invoice saved against this
