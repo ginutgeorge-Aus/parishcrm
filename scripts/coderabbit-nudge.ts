@@ -170,12 +170,15 @@ export function pausedBefore(comments: Comment[], headSha: string, since: Date):
 /**
  * True when a stale paused note exists and this head already got its one nudge
  * (a review command posted after `since`). Applies whatever CodeRabbit's status says,
- * so an incomplete status (e.g. rate limited) can't re-nudge the same head.
+ * so an incomplete status (e.g. rate limited) can't re-nudge the same head. Never
+ * spent while the head has no CodeRabbit status yet (`since` is the epoch): a nudge
+ * on the PR then belongs to an older head.
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
  */
 export function pauseNudgeSpent(comments: Comment[], headSha: string, since: Date): boolean {
+  if (since.getTime() === 0) return false // no status on the head yet: any nudge was for an older head
   const note = latestPausedNote(comments)
   return note !== undefined && !pausedAtHead(note, headSha) && nudgedSince(comments, since)
 }
@@ -300,7 +303,7 @@ type ApiPr = {
   number: number
   draft: boolean
   updated_at: string
-  user: { login: string; type: string }
+  user: { login: string; type: string } | null
   labels: { name: string }[]
   head: { sha: string }
 }
@@ -314,8 +317,8 @@ async function listOpenPrs(api: typeof gh): Promise<Pr[]> {
   return raw.map((p) => ({
     number: p.number,
     draft: p.draft,
-    author: p.user.login,
-    authorIsBot: p.user.type === "Bot",
+    author: p.user?.login ?? "",
+    authorIsBot: p.user?.type === "Bot",
     labels: p.labels.map((l) => l.name),
     headSha: p.head.sha,
     updatedAt: p.updated_at,

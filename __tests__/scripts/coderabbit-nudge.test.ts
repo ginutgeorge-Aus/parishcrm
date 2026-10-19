@@ -312,6 +312,14 @@ test("needsNudge: stale pause + incomplete status is nudged once per head, not a
   assert.equal(needsNudge([], [nudge], limited, head), true)
 })
 
+test("needsNudge: a new push with no CodeRabbit status yet is nudged despite an older head's nudge", () => {
+  const head = "99aa9f15aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  const at = (user: string, body: string, t: string) => comment({ user, body, createdAt: t, updatedAt: t })
+  const note = at(BOT, PAUSED_BODY("ebb588116be4d254a3e3bd56c8994b66ab5d5e5f"), "2026-10-14T11:16:22Z")
+  const oldNudge = at("someone", "@coderabbitai review", "2026-10-15T22:30:00Z")
+  assert.equal(needsNudge([], [note, oldNudge], [], head), true)
+})
+
 /** Fake `gh` serving canned PR data per path; records POSTed comment bodies per PR. */
 function fakeGh(data: { prs: unknown[]; comments: Record<number, unknown[]>; statuses: Record<string, unknown[]> }) {
   const posts: { path: string; body: unknown }[] = []
