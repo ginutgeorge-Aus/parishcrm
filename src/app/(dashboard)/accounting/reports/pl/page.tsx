@@ -43,11 +43,11 @@ export default async function PLReportPage(props: Readonly<Props>) {
         <style nonce={nonce}>{`@media print { @page { size: landscape; } }`}</style>
       )}
 
-      <div className="flex items-center justify-between mb-6 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
         <h2 className="text-2xl font-semibold text-foreground">
           P&amp;L Report — FY {fyRangeLabel(year)}
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ViewToggle currentView={isMonthly ? "monthly" : "annual"} year={year} />
           <YearSelector currentYear={year} />
           <Button asChild variant="outline" size="sm">
