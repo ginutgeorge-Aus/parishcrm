@@ -2,6 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { FEATURE_KEYS } from "@/lib/features"
+import { featuresForPath } from "@/lib/featureRoutes"
 
 // Static coverage: every route segment and Server Action owned by a feature
 // must check that feature, so turning it off blocks it (not just hides it).
@@ -170,6 +171,12 @@ it("the public event success page stays reachable (in-flight payments must show 
   expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/layout.tsx"))).toBe(false)
   expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/[slug]/layout.tsx"))).toBe(false)
   expect(read("src/app/(public)/e/[slug]/success/page.tsx")).not.toMatch(/requireFeature/)
+})
+
+it.each(Object.entries(GUARDED_LAYOUTS))("%s is also gated by the middleware route map (%s)", (file, key) => {
+  // /src/app/(group)/a/[id]/b/layout.tsx -> /a/x/b (groups dropped, params filled)
+  const url = path.dirname(file).replace(/^src\/app/, "").replace(/\/\([^/]+\)/g, "").replace(/\[[^\]]+\]/g, "x")
+  expect(featuresForPath(url)).toContain(key)
 })
 
 it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, key) => {

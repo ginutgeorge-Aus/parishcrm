@@ -5,7 +5,11 @@ import Link from "next/link"
 import { LogOut } from "lucide-react"
 import { logout } from "@/lib/actions/session"
 
-export function OrganiserHeader() {
+/**
+ * Organiser top bar.
+ * @param showEvents false hides the Events link while the events feature is off
+ */
+export function OrganiserHeader({ showEvents = true }: Readonly<{ showEvents?: boolean }>) {
   return (
     <header className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
       <Link href="/my-events" className="flex items-center gap-2">
@@ -16,9 +20,11 @@ export function OrganiserHeader() {
         <span className="sr-only font-display text-lg font-semibold tracking-tight sm:not-sr-only">My Events</span>
       </Link>
       <nav className="flex items-center gap-1 text-sm">
-        <Link href="/my-events" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
-          Events
-        </Link>
+        {showEvents && (
+          <Link href="/my-events" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+            Events
+          </Link>
+        )}
         <Link href="/my-classes" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
           Classes
         </Link>

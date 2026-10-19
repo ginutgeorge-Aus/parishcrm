@@ -5,6 +5,7 @@ import { buildCsp, isPublicPath, SECURITY_HEADERS, EVENT_IMAGE_PATH } from "@/li
 import { loginRedirectPath } from "@/lib/safeNext"
 import { publicBodyTooLarge } from "@/lib/bodyLimit"
 import { isOrganiserAllowedPath } from "@/lib/organiserAccess"
+import { FEATURE_OFF_REWRITE_PATH, isFeatureRouteOff } from "@/lib/featureRoutes"
 import {
   getMaintenanceState,
   isMaintenanceBypassPath,
@@ -80,6 +81,20 @@ export default auth(async (req) => {
   // hand-typed /people or /accounting URL never renders.
   if (req.auth?.user?.role === "EVENT_ORGANISER" && !isOrganiserAllowedPath(pathname)) {
     return withSecurityHeaders(NextResponse.redirect(new URL("/my-events", req.nextUrl)), csp)
+  }
+
+  // Feature toggles by route prefix, AFTER the auth + organiser checks (so an
+  // anonymous caller never learns feature state; public paths have no auth step).
+  // Page navigations only (GET/HEAD, not /api): layouts don't re-render on
+  // client navigation within a segment, and Server Actions (POST) / API routes
+  // keep their own guards and wording. Rewrites to a path with no route so the
+  // normal 404 page renders.
+  if (
+    (req.method === "GET" || req.method === "HEAD") &&
+    !pathname.startsWith("/api/") &&
+    (await isFeatureRouteOff(pathname))
+  ) {
+    return withSecurityHeaders(NextResponse.rewrite(new URL(FEATURE_OFF_REWRITE_PATH, req.nextUrl)), csp)
   }
 
   // Set the nonce on the request headers so Next.js applies it to its own

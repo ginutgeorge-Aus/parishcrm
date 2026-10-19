@@ -13,6 +13,14 @@ const mockSave = saveFeatures as jest.Mock
 beforeEach(() => mockSave.mockReset())
 
 describe("FeaturesForm", () => {
+  // First on purpose: React logs a missing-key warning once per module instance.
+  it("renders without React key warnings", () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => {})
+    render(<FeaturesForm initial={{}} />)
+    expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
+    err.mockRestore()
+  })
+
   it("renders every feature with defaults applied", () => {
     render(<FeaturesForm initial={{ events: false }} />)
     for (const f of FEATURES) expect(screen.getByLabelText(f.label)).toBeInTheDocument()
@@ -70,13 +78,6 @@ describe("FeaturesForm", () => {
     const warning = screen.getByText(/registration links will stop working/)
     expect(warning).toHaveAttribute("role", "status")
     expect(screen.getByLabelText("Events")).toHaveAccessibleDescription(expect.stringContaining("registration links will stop working"))
-  })
-
-  it("renders without React key warnings", () => {
-    const err = jest.spyOn(console, "error").mockImplementation(() => {})
-    render(<FeaturesForm initial={{}} />)
-    expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
-    err.mockRestore()
   })
 
   it("shows the welcome banner only when welcome", () => {
