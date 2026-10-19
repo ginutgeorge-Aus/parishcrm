@@ -199,6 +199,26 @@ async function validateReceiptServiceType(serviceTypeId: number | undefined): Pr
   return st?.isActive ? null : "Invalid service type"
 }
 
+/**
+ * Validate the account/fund/donor/service-type references of an edited receipt.
+ * Returns the first error message, or null when all are valid.
+ */
+async function validateEditRefs(data: {
+  accountId: number
+  fundId?: number | null
+  personId?: number
+  serviceTypeId?: number
+}): Promise<string | null> {
+  if (!(await validateAccount(data.accountId, "INCOME"))) return "Invalid account"
+  // allowInactive: editing a historical entry — a fund deactivated after the
+  // fact must remain valid.
+  if (data.fundId != null && !(await validateFund(data.fundId, { allowInactive: true })))
+    return "Invalid fund"
+  const donorError = await validateReceiptDonor(data.personId)
+  if (donorError) return donorError
+  return validateReceiptServiceType(data.serviceTypeId)
+}
+
 /** Edit a petty cash receipt. ADMIN/PASTOR only. */
 export async function updateReceipt(
   id: number,
@@ -219,16 +239,8 @@ export async function updateReceipt(
   const { receipt, sessionDate } = loaded
   const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const account = await validateAccount(parsed.data.accountId, "INCOME")
-  if (!account) return { error: "Invalid account" }
-  // allowInactive: editing a historical entry — a fund deactivated after the
-  // fact must remain valid.
-  if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId, { allowInactive: true })))
-    return { error: "Invalid fund" }
-  const donorError = await validateReceiptDonor(parsed.data.personId)
-  if (donorError) return { error: donorError }
-  const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
-  if (serviceTypeError) return { error: serviceTypeError }
+  const refError = await validateEditRefs(parsed.data)
+  if (refError) return { error: refError }
   // confirmDuplicate is a form-only flag (duplicate-confirmation), not a column —
   // strip it before spreading, or Prisma rejects the whole update.
   const { confirmDuplicate: _confirmDuplicate, ...receiptData } = parsed.data
