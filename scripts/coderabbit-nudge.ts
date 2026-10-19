@@ -348,6 +348,9 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
       )
     ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
     if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
+    else if (pauseNudgeSpent(comments, pr.headSha, firstStatusAt(statuses))) {
+      console.log(`#${pr.number}: already nudged once on this head — waiting for the next push.`)
+    }
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
