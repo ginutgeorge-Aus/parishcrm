@@ -34,6 +34,11 @@ export const RECONCILED_EDIT_ERROR =
 export const RECONCILED_DELETE_ERROR =
   "This entry's ledger transaction is reconciled. Un-reconcile it on the Reconciliation page before deleting."
 
+// Results serializableWrite returns for the receipt/expense create/update actions when every attempt hit a
+// serialization conflict (BUSY) or a referenced fund/person/service type/account stayed missing (GONE).
+export const PETTY_CASH_BUSY = { error: "Couldn't save the entry. Try again." }
+export const PETTY_CASH_GONE = { error: "A fund, person, service type or account on this entry was just removed. Reload and try again." }
+
 // Thrown by assertSessionOpenTx inside a create/update write transaction and
 // caught just outside it, so a rolled-back write surfaces as a clean
 // ActionResult error (mirrors TransferError in pettyCashTransfer.ts).
