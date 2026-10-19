@@ -28,7 +28,7 @@ class AlreadyReviewedError extends Error {}
 
 const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000
 
-/** Send family update invite. Editors only; the Family updates check runs after auth. */
+/** Email a family an update-form invite. Editors only. */
 export async function sendFamilyUpdateInvite(
   familyId: number,
   email: string
@@ -266,7 +266,7 @@ function mapApprovalError(e: unknown): string | undefined {
   return undefined
 }
 
-/** Approve family update. Editors only; the Family updates check runs after auth. */
+/** Approve a submitted family update. Editors only. */
 export async function approveFamilyUpdate(submissionId: number): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -334,7 +334,7 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
   return { success: "Changes applied" }
 }
 
-/** Reject family update. Editors only; the Family updates check runs after auth. */
+/** Reject a submitted family update. Editors only. */
 export async function rejectFamilyUpdate(submissionId: number, note?: string): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }

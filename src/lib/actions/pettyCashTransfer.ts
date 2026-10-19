@@ -57,7 +57,7 @@ const TransferSchema = z.object({
   notes: z.string().max(1000).optional().transform((v) => v || undefined),
 })
 
-/** Create transfer. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Record a petty cash transfer. ADMIN/PASTOR only. */
 export async function createTransfer(
   sessionId: number,
   _prev: ActionResult,
@@ -150,7 +150,7 @@ export async function createTransfer(
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
-/** Delete transfer. ADMIN only; the Petty cash check runs after auth. */
+/** Delete a petty cash transfer. ADMIN only. */
 export async function deleteTransfer(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

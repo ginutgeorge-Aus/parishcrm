@@ -91,7 +91,7 @@ async function findDuplicateReceiptWarning(
     : null
 }
 
-/** Create receipt. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Record a petty cash receipt. ADMIN/PASTOR only. */
 export async function createReceipt(
   sessionId: number,
   _prev: ActionResult,
@@ -191,7 +191,7 @@ async function validateReceiptServiceType(serviceTypeId: number | undefined): Pr
   return st?.isActive ? null : "Invalid service type"
 }
 
-/** Update receipt. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Edit a petty cash receipt. ADMIN/PASTOR only. */
 export async function updateReceipt(
   id: number,
   _prev: ActionResult,
@@ -286,7 +286,7 @@ export async function updateReceipt(
   redirect(`/accounting/petty-cash/sessions/${receipt.sessionId}`)
 }
 
-/** Delete receipt. ADMIN only; the Petty cash check runs after auth. */
+/** Delete a petty cash receipt. ADMIN only. */
 export async function deleteReceipt(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

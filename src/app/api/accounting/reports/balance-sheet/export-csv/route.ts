@@ -26,7 +26,7 @@ function toYMD(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
 }
 
-/** GET /api/accounting/reports/balance-sheet/export-csv. Accounting viewers only; the Accounting check runs after auth. */
+/** GET /api/accounting/reports/balance-sheet/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
   const guard = await guardAccountingExport("balance-sheet")
   if (guard instanceof NextResponse) return guard

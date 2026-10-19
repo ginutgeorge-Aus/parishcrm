@@ -39,7 +39,7 @@ const CreateSessionSchema = z.object({
     .refine((v) => Number.parseFloat(v) >= 0, "Opening balance must be non-negative"),
 })
 
-/** Create session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Open a petty cash session. ADMIN/PASTOR only. */
 export async function createSession(
   _prev: ActionResult,
   formData: FormData
@@ -82,9 +82,10 @@ const UpdateCustodianSchema = z.object({
   custodianId: z.string().min(1, "Custodian is required").transform(Number),
 })
 
-// Correct the custodian on an existing session (open or closed) — the custodian
-// is metadata, not a dated ledger entry, so no accounting-lock check applies.
-/** Update session custodian. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/**
+ * Correct the custodian on an existing session (open or closed) — the custodian is metadata, not a
+ * dated ledger entry, so no accounting-lock check applies.
+ */
 export async function updateSessionCustodian(
   id: number,
   _prev: ActionResultWithSuccess,
@@ -158,14 +159,14 @@ export type EnsureWeeklyResult = {
   status: "created" | "exists" | "skipped-no-custodian" | "skipped-missing-custodian" | "not-editor"
 }
 
-// Lazy weekly auto-open. Called on every petty-cash page load; only editors
-// (ADMIN/PASTOR) mutate. Ensures a session for the most-recent Sunday (Sydney)
-// exists, creating one under the configured default custodian if not — seeded
-// with the prior session's closing cash-in-hand as its opening balance.
-// Idempotent: dedups on the canonical title. This also satisfies the
-// "FY always has at least one session" guarantee — every editor visit ensures
-// the current Sunday's session. See the design spec.
-/** Ensure weekly session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/**
+ * Lazy weekly auto-open. Called on every petty-cash page load; only editors (ADMIN/PASTOR) mutate.
+ * Ensures a session for the most-recent Sunday (Sydney) exists, creating one under the configured
+ * default custodian if not — seeded with the prior session's closing cash-in-hand as its opening
+ * balance. Idempotent: dedups on the canonical title. This also satisfies the "FY always has at
+ * least one session" guarantee — every editor visit ensures the current Sunday's session. See the
+ * design spec.
+ */
 export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { status: "not-editor" }
@@ -256,7 +257,7 @@ const CloseSessionSchema = z.object({
     .refine((v) => v === undefined || toCents(v) >= 0, "Counted cash must be zero or more"),
 })
 
-/** Close session. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Close a petty cash session. ADMIN/PASTOR only. */
 export async function closeSession(
   id: number,
   _prev: ActionResult,
@@ -332,7 +333,7 @@ export async function closeSession(
   redirect("/accounting/petty-cash")
 }
 
-/** Delete session. ADMIN only; the Petty cash check runs after auth. */
+/** Delete a petty cash session. ADMIN only. */
 export async function deleteSession(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

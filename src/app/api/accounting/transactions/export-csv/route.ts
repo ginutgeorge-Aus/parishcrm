@@ -120,7 +120,7 @@ function parseExportParams(sp: URLSearchParams): ExportParamsResult {
   return { ok: true, where, q: sp.get("q") ?? "" }
 }
 
-/** GET /api/accounting/transactions/export-csv. Accounting viewers only; the Accounting check runs after auth. */
+/** GET /api/accounting/transactions/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

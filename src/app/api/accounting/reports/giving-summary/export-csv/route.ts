@@ -10,7 +10,7 @@ import { currentFYYear } from "@/lib/fiscalYear"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
-/** GET /api/accounting/reports/giving-summary/export-csv. Accounting viewers only; the Accounting check runs after auth. */
+/** GET /api/accounting/reports/giving-summary/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

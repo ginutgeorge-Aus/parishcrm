@@ -5,7 +5,7 @@ import { auth } from "@/auth"
 import { paymentMethodOf } from "@/lib/paymentMethod"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { canEdit, isAdmin, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, isAdmin, canViewPeople, canEditOrOrganise } from "@/lib/roleGuard"
 import { canManageEvent } from "@/lib/eventManager"
 import { isValidPgId, isValidEmail } from "@/lib/validation"
 import { logAudit } from "@/lib/audit"
@@ -22,7 +22,7 @@ import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
-/** Mark paid. Editors only; the Events check runs after auth. */
+/** Mark a registration paid. Editors only. */
 export async function markPaid(registrationId: number, eventId: number): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -56,7 +56,7 @@ export async function markPaid(registrationId: number, eventId: number): Promise
   revalidatePath(`/events/${eventId}/registrations`)
 }
 
-/** Cancel registration. Editors only; the Events check runs after auth. */
+/** Cancel a registration. Editors only. */
 export async function cancelRegistration(registrationId: number, eventId: number): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -85,7 +85,7 @@ export async function cancelRegistration(registrationId: number, eventId: number
   revalidatePath(`/events/${eventId}/registrations`)
 }
 
-/** Toggle attendee check in. Editors or the event's assigned organiser only; the Events check runs after auth. */
+/** Check an attendee in or out. Editors or the event's assigned organiser only. */
 export async function toggleAttendeeCheckIn(
   attendeeId: number,
   eventId: number,
@@ -97,11 +97,12 @@ export async function toggleAttendeeCheckIn(
   // organiser-delegation feature exists to let a non-admin volunteer run
   // their event, and check-in is the one action day-of that only admins
   // could previously perform.
-  if (!session?.user || !(await canManageEvent(Number.parseInt(session.user.id, 10), eventId, session.user.role))) {
-    return { error: "Unauthorized" }
-  }
+  if (!session?.user || !canEditOrOrganise(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("events")
   if (off) return off
+  if (!(await canManageEvent(Number.parseInt(session.user.id, 10), eventId, session.user.role))) {
+    return { error: "Unauthorized" }
+  }
 
   // IDOR: the attendee must belong to a registration of this event.
   const attendee = await prisma.attendee.findUnique({
@@ -121,11 +122,12 @@ export async function toggleAttendeeCheckIn(
   revalidatePath(`/my-events/${eventId}/check-in`)
 }
 
-// Hard-delete all registrations for a DRAFT event, giving admins a clean slate
-// after they test the public links + payment flow before sharing. Two guards
-// (ADMIN-only + unpublished-only) make it impossible to wipe real public
-// registrations — post-publish, cancelRegistration is the only removal path.
-/** Reset event registrations. ADMIN only; the Events check runs after auth. */
+/**
+ * Hard-delete all registrations for a DRAFT event, giving admins a clean slate after they test the
+ * public links + payment flow before sharing. Two guards (ADMIN-only + unpublished-only) make it
+ * impossible to wipe real public registrations — post-publish, cancelRegistration is the only
+ * removal path.
+ */
 export async function resetEventRegistrations(eventId: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -223,15 +225,20 @@ function coerceStoredQuestions(raw: unknown): CustomQuestion[] {
   return out
 }
 
-// Read-only drill-down into one registration for the admin detail dialog.
-// Decrypts registrant PII + custom answers server-side and returns a plain DTO —
-// never ciphertext. Authz matches BOTH entry points of RegistrationsTable: staff
-// via canViewPeople and an assigned organiser via canManageEvent.
-/** Get registration detail. People viewers or the event's assigned organiser only; the Events check runs after auth. */
+/**
+ * Read-only drill-down into one registration for the admin detail dialog. Decrypts registrant PII +
+ * custom answers server-side and returns a plain DTO — never ciphertext. Authz matches BOTH entry
+ * points of RegistrationsTable: staff via canViewPeople and an assigned organiser via
+ * canManageEvent.
+ */
 export async function getRegistrationDetail(registrationId: number): Promise<RegistrationDetailResult> {
   const session = await auth()
   const notFound = { error: "Registration not found" }
   if (!session?.user) return notFound
+  const role = session.user.role
+  if (!canViewPeople(role) && !canEditOrOrganise(role)) return notFound
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(registrationId)) return notFound
 
   // Probe the parent event id first — authorize before fetching/decrypting PII.
@@ -246,8 +253,6 @@ export async function getRegistrationDetail(registrationId: number): Promise<Reg
     canViewPeople(session.user.role) ||
     (await canManageEvent(userId, probe.eventId, session.user.role))
   if (!allowed) return notFound   // generic — never leak existence to a denied caller
-  const off = await featureGuard("events")
-  if (off) return off
 
   const reg = await prisma.registration.findFirst({
     where: { id: registrationId },
@@ -380,12 +385,12 @@ async function sendOneReminder(
   return { ok: true }
 }
 
-// Bulk payment-reminder send for an event organiser/admin. Every attempt
-// is re-validated server-side (status/email/amount) — the client's selection is
-// only ever a list of ids, never trusted for content. Each send writes its own
-// tracking row immediately (not a trailing createMany) so an interrupted batch
-// never loses a record of what was actually sent.
-/** Send payment reminders. Editors or the event's assigned organiser only; the Events check runs after auth. */
+/**
+ * Bulk payment-reminder send for an event organiser/admin. Every attempt is re-validated
+ * server-side (status/email/amount) — the client's selection is only ever a list of ids, never
+ * trusted for content. Each send writes its own tracking row immediately (not a trailing
+ * createMany) so an interrupted batch never loses a record of what was actually sent.
+ */
 export async function sendPaymentReminders(
   eventId: number,
   rows: ReminderRow[],
@@ -393,11 +398,10 @@ export async function sendPaymentReminders(
 ): Promise<SendRemindersResult> {
   const session = await auth()
   const userId = Number.parseInt(session?.user?.id ?? "", 10)
-  if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
-    return { error: "Unauthorized" }
-  }
+  if (Number.isNaN(userId) || !canEditOrOrganise(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("events")
   if (off) return off
+  if (!(await canManageEvent(userId, eventId, session?.user?.role))) return { error: "Unauthorized" }
   const text = reminderTextSchema.safeParse({ message })
   if (!text.success) return { error: text.error.issues[0].message }
   if (rows.length > MAX_REMINDER_BATCH_SIZE) return { error: `Max ${MAX_REMINDER_BATCH_SIZE} per batch` }
@@ -451,8 +455,10 @@ export async function sendPaymentReminders(
   return { sent, failed, errors }
 }
 
-// registrationId -> ISO timestamp of the latest SUCCESS reminder, for PENDING regs only.
-/** Last reminded at by registration. Editors or the event's assigned organiser only; the Events check runs after auth. */
+/**
+ * registrationId -> ISO timestamp of the latest SUCCESS reminder, for PENDING regs only. Editors or
+ * the event's assigned organiser only.
+ */
 export async function lastRemindedAtByRegistration(eventId: number): Promise<Record<number, string>> {
   // Exported from a "use server" module = a callable endpoint. Gate it the same
   // as sendPaymentReminders — without this any authenticated session could
@@ -460,10 +466,9 @@ export async function lastRemindedAtByRegistration(eventId: number): Promise<Rec
   // (the calling pages are already access-gated, so legit callers pass).
   const session = await auth()
   const userId = Number.parseInt(session?.user?.id ?? "", 10)
-  if (Number.isNaN(userId) || !(await canManageEvent(userId, eventId, session?.user?.role))) {
-    return {}
-  }
+  if (Number.isNaN(userId) || !canEditOrOrganise(session?.user?.role)) return {}
   await assertFeature("events")
+  if (!(await canManageEvent(userId, eventId, session?.user?.role))) return {}
   const grouped = await prisma.paymentReminderSend.groupBy({
     by: ["registrationId"],
     where: { status: "SUCCESS", registration: { eventId, paymentStatus: "PENDING" } },

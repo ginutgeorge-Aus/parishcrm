@@ -107,7 +107,7 @@ function parseForm(formData: FormData): { data: ParsedForm } | { error: string }
   }
 }
 
-/** Create dgr receipt. ADMIN/PASTOR only; the DGR receipts check runs after auth. */
+/** Create a DGR receipt. ADMIN/PASTOR only. */
 export async function createDgrReceipt(
   _prev: { error: string } | undefined,
   formData: FormData
@@ -179,7 +179,7 @@ export async function createDgrReceipt(
   redirect(LIST_PATH)
 }
 
-/** Update dgr receipt. ADMIN/PASTOR only; the DGR receipts check runs after auth. */
+/** Update a DGR receipt. ADMIN/PASTOR only. */
 export async function updateDgrReceipt(
   id: number,
   _prev: { error: string } | undefined,
@@ -242,7 +242,7 @@ export async function updateDgrReceipt(
   redirect(LIST_PATH)
 }
 
-/** Delete dgr receipt. ADMIN/PASTOR only; the DGR receipts check runs after auth. */
+/** Delete a DGR receipt. ADMIN/PASTOR only. */
 export async function deleteDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -261,7 +261,7 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   return { success: "Receipt deleted." }
 }
 
-/** Send dgr receipt. ADMIN/PASTOR only; the DGR receipts check runs after auth. */
+/** Email a DGR receipt to the donor. ADMIN/PASTOR only. */
 export async function sendDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -350,10 +350,11 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   return { success: "Receipt emailed." }
 }
 
-// Fetch+decrypt a single donor's email on demand, so the new-receipt page never
-// has to ship the whole congregation's plaintext emails to the client (#PII). Gated
-// like every other mutation-adjacent action — accounting editors only.
-/** Get donor email. ADMIN/PASTOR only; the DGR receipts check runs after auth. */
+/**
+ * Fetch+decrypt a single donor's email on demand, so the new-receipt page never has to ship the
+ * whole congregation's plaintext emails to the client (#PII). Gated like every other
+ * mutation-adjacent action — accounting editors only.
+ */
 export async function getDonorEmail(personId: number): Promise<{ email: string | null } | { error: string }> {
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -375,7 +376,7 @@ export type DgrReceiptListRow = {
   sentAt: Date | null
 }
 
-/** List dgr receipts. Accounting viewers only; the DGR receipts check runs after auth. */
+/** List DGR receipts. Accounting viewers only. */
 export async function listDgrReceipts(
   fyEndYear?: number
 ): Promise<DgrReceiptListRow[] | { error: string }> {

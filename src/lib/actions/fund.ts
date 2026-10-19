@@ -22,7 +22,7 @@ function revalidateFunds() {
   revalidatePath("/accounting/reports/funds")
 }
 
-/** Create fund. ADMIN only; the Accounting check runs after auth. */
+/** Create a fund. ADMIN only. */
 export async function createFund(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -37,7 +37,7 @@ export async function createFund(_prev: ActionResult, formData: FormData): Promi
   redirect("/accounting/settings/funds")
 }
 
-/** Update fund. ADMIN only; the Accounting check runs after auth. */
+/** Update a fund. ADMIN only. */
 export async function updateFund(
   id: number,
   _prev: ActionResult,
@@ -63,7 +63,7 @@ export async function updateFund(
   redirect("/accounting/settings/funds")
 }
 
-/** Delete fund. ADMIN only; the Accounting check runs after auth. */
+/** Delete a fund. ADMIN only. */
 export async function deleteFund(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -106,14 +106,13 @@ export async function deleteFund(id: number): Promise<ActionResult> {
   revalidateFunds()
 }
 
-// Existence/active check for an entry's fundId. Exported "use server" fn ⇒
-// gate it (invariant). Create paths (default): reject a deactivated fund
-// — the entry forms only offer active funds via getActiveFunds, so this
-// closes the defense-in-depth gap where a crafted request could still tag a
-// NEW entry to an isActive: false fund. Update paths pass
-// `allowInactive: true` — existence-only, so editing a historical row whose
-// fund was later deactivated still validates.
-/** Validate fund. ADMIN/PASTOR only; the Accounting check runs after auth. */
+/**
+ * Existence/active check for an entry's fundId. Exported "use server" fn ⇒ gate it (invariant).
+ * Create paths (default): reject a deactivated fund — the entry forms only offer active funds via
+ * getActiveFunds, so this closes the defense-in-depth gap where a crafted request could still tag a
+ * NEW entry to an isActive: false fund. Update paths pass `allowInactive: true` — existence-only,
+ * so editing a historical row whose fund was later deactivated still validates. ADMIN/PASTOR only.
+ */
 export async function validateFund(
   fundId: number,
   options?: { allowInactive?: boolean }
@@ -130,7 +129,7 @@ export async function validateFund(
   return true
 }
 
-/** Get active funds. Accounting viewers only; the Accounting check runs after auth. */
+/** List active funds. Accounting viewers only. */
 export async function getActiveFunds(): Promise<{ id: number; name: string }[]> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return []

@@ -39,7 +39,7 @@ async function nextCode(type: "INCOME" | "EXPENSE"): Promise<string> {
   return String(max + 1)
 }
 
-/** Create account. ADMIN only; the Accounting check runs after auth. */
+/** Create a ledger account. ADMIN only. */
 export async function createAccount(
   _prev: ActionResult,
   formData: FormData
@@ -80,7 +80,7 @@ export async function createAccount(
   redirect("/accounting/accounts")
 }
 
-/** Update account. ADMIN only; the Accounting check runs after auth. */
+/** Update a ledger account. ADMIN only. */
 export async function updateAccount(
   id: number,
   _prev: ActionResult,

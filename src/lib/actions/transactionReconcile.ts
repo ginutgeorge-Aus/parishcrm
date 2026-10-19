@@ -11,7 +11,7 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
-/** Toggle reconciled. ADMIN/PASTOR only; the Reconciliation check runs after auth. */
+/** Flip a transaction's reconciled flag. ADMIN/PASTOR only. */
 export async function toggleReconciled(
   id: number,
   expectedPaymentAccountId: number

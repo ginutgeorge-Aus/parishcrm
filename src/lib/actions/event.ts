@@ -25,7 +25,7 @@ import {
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
-/** Create event. Editors only; the Events check runs after auth. */
+/** Create an event. Editors only. */
 export async function createEvent(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -77,7 +77,7 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
   redirect(`/events/${newEventId}/edit`)
 }
 
-/** Update event. Editors only; the Events check runs after auth. */
+/** Update an event. Editors only. */
 export async function updateEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -272,7 +272,7 @@ function deleteEventFailureResult(e: unknown): ActionResult {
   return { error: "Could not delete this event. Please try again." }
 }
 
-/** Delete event. ADMIN only; the Events check runs after auth. */
+/** Delete an event. ADMIN only. */
 export async function deleteEvent(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -320,7 +320,7 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   redirect("/events")
 }
 
-/** Publish event. Editors only; the Events check runs after auth. */
+/** Publish or unpublish an event. Editors only. */
 export async function publishEvent(id: number, publish: boolean): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -342,9 +342,10 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   revalidatePath("/events")
 }
 
-// Manually open/close public registration without unpublishing the event —
-// the event page stays live and shows a "registration closed" panel. canEdit-gated.
-/** Set registration closed. Editors only; the Events check runs after auth. */
+/**
+ * Manually open/close public registration without unpublishing the event — the event page stays
+ * live and shows a "registration closed" panel. canEdit-gated.
+ */
 export async function setRegistrationClosed(id: number, closed: boolean): Promise<ActionResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -364,8 +365,9 @@ export async function setRegistrationClosed(id: number, closed: boolean): Promis
   revalidatePath("/events")
 }
 
-// Backstop for missed webhooks: re-push every event to the website. ADMIN only.
-/** Resync events to website. ADMIN only; the Events check runs after auth. */
+/**
+ * Backstop for missed webhooks: re-push every event to the website. ADMIN only.
+ */
 export async function resyncEventsToWebsite(): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

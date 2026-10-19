@@ -34,7 +34,7 @@ export interface ImportPreview {
 
 export type PreviewResult = { error: string } | { preview: ImportPreview }
 
-/** Preview import. ADMIN only; the Petty cash check runs after auth. */
+/** Preview a petty cash spreadsheet import. ADMIN only. */
 export async function previewImport(formData: FormData): Promise<PreviewResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

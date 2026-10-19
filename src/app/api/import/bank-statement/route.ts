@@ -150,7 +150,7 @@ async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
     .map((r) => r.bankRef)
 }
 
-/** POST /api/import/bank-statement. ADMIN/PASTOR only; the Bank import check runs after auth. */
+/** POST /api/import/bank-statement. ADMIN/PASTOR only. */
 export async function POST(req: Request) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

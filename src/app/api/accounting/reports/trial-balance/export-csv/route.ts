@@ -9,7 +9,7 @@ import { loadFyAccountTotals } from "@/lib/reports/fyAccountTotals"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { featureNotFound } from "@/lib/featureFlags"
 
-/** GET /api/accounting/reports/trial-balance/export-csv. Accounting viewers only; the Accounting check runs after auth. */
+/** GET /api/accounting/reports/trial-balance/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
   const guard = await guardAccountingExport("trial-balance")
   if (guard instanceof NextResponse) return guard

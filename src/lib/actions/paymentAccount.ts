@@ -25,7 +25,7 @@ function revalidate() {
   revalidatePath("/")
 }
 
-/** Create payment account. ADMIN only; the Accounting check runs after auth. */
+/** Create a payment account. ADMIN only. */
 export async function createPaymentAccount(
   _prev: ActionResultWithSuccess,
   formData: FormData
@@ -52,7 +52,7 @@ export async function createPaymentAccount(
   return { success: "Account added" }
 }
 
-/** Rename payment account. ADMIN only; the Accounting check runs after auth. */
+/** Rename a payment account. ADMIN only. */
 export async function renamePaymentAccount(
   id: number,
   _prev: ActionResultWithSuccess,
@@ -75,7 +75,7 @@ export async function renamePaymentAccount(
   return { success: "Renamed" }
 }
 
-/** Set default account. ADMIN only; the Accounting check runs after auth. */
+/** Make a payment account the default. ADMIN only. */
 export async function setDefaultAccount(id: number): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
@@ -121,7 +121,7 @@ async function checkAccountActiveChange(
   return null
 }
 
-/** Set account active. ADMIN only; the Accounting check runs after auth. */
+/** Activate or deactivate a payment account. ADMIN only. */
 export async function setAccountActive(id: number, active: boolean): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

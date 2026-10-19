@@ -21,7 +21,7 @@ import { featureGuard } from "@/lib/featureFlags"
 
 const COUPLE = { in: ["HEAD", "SPOUSE"] as FamilyRoleLite[] }
 
-/** Send anniversary email. Editors only; the Celebrations check runs after auth. */
+/** Send one anniversary email. Editors only. */
 export async function sendAnniversaryEmail(familyId: number): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -76,7 +76,7 @@ export async function sendAnniversaryEmail(familyId: number): Promise<ActionResu
   return { success: `Anniversary email sent to ${coupleNames}` }
 }
 
-/** Send anniversary emails bulk. Editors only; the Celebrations check runs after auth. */
+/** Send anniversary emails in bulk. Editors only. */
 export async function sendAnniversaryEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {

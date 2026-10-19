@@ -56,7 +56,7 @@ function collectBudgetEntries(
   return { entries }
 }
 
-/** Upsert budgets. ADMIN only; the Budget check runs after auth. */
+/** Save a year's budget lines. ADMIN only. */
 export async function upsertBudgets(
   _prev: ActionResultWithSuccess,
   formData: FormData
@@ -122,7 +122,7 @@ export async function upsertBudgets(
 // (ADMIN | PASTOR); read access is gated on the report page (canViewAccounting).
 const MAX_NOTE_LEN = 1000
 
-/** Save budget variance note. ADMIN/PASTOR only; the Budget check runs after auth. */
+/** Save a budget-vs-actual variance note. ADMIN/PASTOR only. */
 export async function saveBudgetVarianceNote(
   year: number,
   accountId: number,
@@ -153,7 +153,7 @@ export async function saveBudgetVarianceNote(
   return { success: "Note saved" }
 }
 
-/** Get prev year budgets. ADMIN only; the Budget check runs after auth. */
+/** Load last year's budgets to copy forward. ADMIN only. */
 export async function getPrevYearBudgets(
   year: number
 ): Promise<{ accountId: number; amount: string }[]> {

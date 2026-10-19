@@ -181,7 +181,7 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, k
 const GUARD_HELPERS: Record<string, string[]> = {
   "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
   "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
-  "src/lib/actions/invoiceSend.ts": ["send"],
+  "src/lib/actions/invoiceSend.ts": ["sendInvoiceGuarded"],
 }
 
 it.each(Object.entries(GUARD_HELPERS).flatMap(([file, fns]) => fns.map((fn) => [file, fn])))(
@@ -284,7 +284,60 @@ const PUBLIC_ACTIONS = new Set([
 // Feature-only helpers (no auth of their own): their callers are checked instead.
 const FEATURE_ONLY_HELPERS = new Set(["emailTemplates.ts:templateFeatureGuard"])
 
-it("demo → auth → feature in every action and guard helper (no DB read or admin wording before auth)", () => {
+// A real role/permission check (not just "is there a session"): a role
+// helper (isAdmin, canEdit, canEditOrOrganise, …) or a role comparison.
+// DB-backed per-entity authz (canManageEvent, canMarkRoll) may follow the
+// feature check, as long as a DB-free role check precedes it.
+const ROLE_CHECK = /\b(?:isAdmin|can[A-Z]\w*)\(|\.role\s*[!=]==|\brole\s*[!=]==/
+
+/**
+ * Why `body` breaks demo → auth → role check → feature, or null when it doesn't.
+ * @param body function source containing a feature check
+ * @param authCall regex for the auth call (auth(), or a route's auth helper)
+ * @param featureCall regex for the feature check
+ */
+function orderViolation(body: string, authCall: RegExp, featureCall: RegExp): string | null {
+  const feature = body.search(featureCall)
+  if (feature === -1) return null
+  const demo = body.indexOf("assertNotDemo(")
+  if (demo !== -1 && feature < demo) return "feature before demo"
+  const authAt = body.search(authCall)
+  if (authAt === -1 || feature < authAt) return "feature before auth"
+  const role = body.slice(authAt).search(ROLE_CHECK)
+  if (role === -1 || feature < authAt + role) return "feature before role check"
+  return null
+}
+
+const ACTION_AUTH = /await auth\(\)/
+const ACTION_FEATURE = /[fF]eatureGuard\w*\(|assertFeature\(/
+
+describe("orderViolation (fixtures)", () => {
+  const fn = (...lines: string[]) => lines.join("\n")
+  it("accepts demo → auth → role → feature", () => {
+    expect(orderViolation(fn("assertNotDemo()", "const session = await auth()",
+      "if (!isAdmin(session?.user?.role)) return x", 'await featureGuard("events")'), ACTION_AUTH, ACTION_FEATURE)).toBeNull()
+  })
+  it("accepts auth → coarse role → feature → DB authz", () => {
+    expect(orderViolation(fn("const session = await auth()",
+      "if (!session?.user || !canEditOrOrganise(session.user.role)) return x", 'await featureGuard("events")',
+      "if (!(await canManageEvent(1, 2, session.user.role))) return x"), ACTION_AUTH, ACTION_FEATURE)).toBeNull()
+  })
+  it("rejects auth → session-null → feature → role", () => {
+    expect(orderViolation(fn("const session = await auth()", "if (!session?.user) return x",
+      'await featureGuard("events")', "if (!canEdit(session.user.role)) return x"), ACTION_AUTH, ACTION_FEATURE))
+      .toBe("feature before role check")
+  })
+  it("rejects feature → auth", () => {
+    expect(orderViolation(fn('await featureGuard("events")', "const session = await auth()",
+      "if (!canEdit(session?.user?.role)) return x"), ACTION_AUTH, ACTION_FEATURE)).toBe("feature before auth")
+  })
+  it("rejects feature → demo", () => {
+    expect(orderViolation(fn('await featureGuard("events")', "assertNotDemo()"), ACTION_AUTH, ACTION_FEATURE))
+      .toBe("feature before demo")
+  })
+})
+
+it("demo → auth → role check → feature in every action and guard helper (no settings read or admin wording before authz)", () => {
   const dir = "src/lib/actions"
   const bad = fs.readdirSync(path.join(process.cwd(), dir))
     .filter((f) => f.endsWith(".ts"))
@@ -293,19 +346,11 @@ it("demo → auth → feature in every action and guard helper (no DB read or ad
       // Slice at every top-level function so a private helper's body isn't
       // attributed to the export above it.
       const starts = [...src.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)]
-      return starts.filter((m, i) => {
-        if (PUBLIC_ACTIONS.has(`${f}:${m[1]}`) || FEATURE_ONLY_HELPERS.has(`${f}:${m[1]}`)) return false
-        const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
-        const feature = body.search(/[fF]eatureGuard\w*\(|assertFeature\(/)
-        if (feature === -1) return false
-        const demo = body.indexOf("assertNotDemo(")
-        const authAt = body.indexOf("await auth()")
-        if (demo !== -1 && feature < demo) return true
-        if (authAt === -1 || feature < authAt) return true
-        // The role check (first `if (` after auth) must also precede the feature check.
-        const roleCheck = body.indexOf("if (", authAt)
-        return roleCheck !== -1 && feature < roleCheck
-      }).map((m) => `${f}:${m[1]}`)
+      return starts.flatMap((m, i) => {
+        if (PUBLIC_ACTIONS.has(`${f}:${m[1]}`) || FEATURE_ONLY_HELPERS.has(`${f}:${m[1]}`)) return []
+        const why = orderViolation(src.slice(m.index, starts[i + 1]?.index ?? src.length), ACTION_AUTH, ACTION_FEATURE)
+        return why ? [`${f}:${m[1]}: ${why}`] : []
+      })
     })
   expect(bad).toEqual([])
 })
@@ -320,13 +365,21 @@ const PUBLIC_ROUTES = new Set([
 ])
 
 it.each(Object.keys(GUARDED_ROUTES).filter((f) => !PUBLIC_ROUTES.has(f) && !f.includes("/api/cron/")))(
-  "%s: every handler authenticates before featureNotFound", (file) => {
+  "%s: every handler authenticates and role-checks before featureNotFound", (file) => {
     const src = read(file)
     const starts = [...src.matchAll(/^export async function (GET|POST|PUT|PATCH|DELETE)\(/gm)]
-    for (const [i, m] of starts.entries()) {
-      const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
-      const authAt = body.search(/await auth\(\)|await guardAccountingExport\(/)
-      expect(authAt).toBeGreaterThan(-1)
-      expect(body.indexOf("featureNotFound(")).toBeGreaterThan(authAt)
-    }
+    const bad = starts.flatMap((m, i) => {
+      let body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
+      expect(body).toContain("featureNotFound(")
+      // guardAccountingExport does auth + canViewAccounting itself (exportGuard.ts).
+      body = body.replace(/await guardAccountingExport\(/, "await auth() && canViewAccounting(")
+      const why = orderViolation(body, ACTION_AUTH, /featureNotFound\(/)
+      return why ? [`${m[1]}: ${why}`] : []
+    })
+    expect(bad).toEqual([])
   })
+
+it("guardAccountingExport authenticates and role-checks (export routes rely on it)", () => {
+  const src = read("src/lib/reports/exportGuard.ts")
+  expect(src).toMatch(/await auth\(\)[\s\S]*canViewAccounting\(/)
+})

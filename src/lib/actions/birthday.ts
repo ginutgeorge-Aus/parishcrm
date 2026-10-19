@@ -18,7 +18,7 @@ import { deliverCelebration } from "@/lib/celebrationDeliver"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
-/** Send birthday email. Editors only; the Celebrations check runs after auth. */
+/** Send one birthday email. Editors only. */
 export async function sendBirthdayEmail(personId: number): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -122,7 +122,7 @@ async function sendBulkBirthdayEmail(
   return (await deliverCelebration(p.email, subject, html, text, p.id, BIRTHDAY_ACTION, sendDate)) ? "sent" : "failed"
 }
 
-/** Send birthday emails bulk. Editors only; the Celebrations check runs after auth. */
+/** Send birthday emails in bulk. Editors only. */
 export async function sendBirthdayEmailsBulk(
   windowDays: number,
 ): Promise<{ sent: number; skipped: number; failed: number } | { error: string }> {

@@ -134,7 +134,7 @@ async function wasReceiptRecentlySent(transactionId: number, toEmail: string): P
   return recent.some((r) => safeDecrypt(r.sentTo).toLowerCase() === toEmail.toLowerCase())
 }
 
-/** Send single receipt. ADMIN/PASTOR only; the Giving receipts check runs after auth. */
+/** Email one giving receipt. ADMIN/PASTOR only. */
 export async function sendSingleReceipt(
   transactionId: number,
   toEmail: string
@@ -200,7 +200,7 @@ export async function sendSingleReceipt(
   return { success: `Receipt sent to ${toEmail}` }
 }
 
-/** Send batch receipts. ADMIN/PASTOR only; the Giving receipts check runs after auth. */
+/** Email a batch of giving receipts. ADMIN/PASTOR only. */
 export async function sendBatchReceipts(
   rows: { transactionId: number; toEmail: string }[]
 ): Promise<BatchReceiptResult> {
@@ -337,7 +337,7 @@ export async function sendBatchReceipts(
   return { sent, failed, errors }
 }
 
-/** Fetch transactions for receipt. Accounting viewers only; the Giving receipts check runs after auth. */
+/** List giving transactions in a date range for receipting. Accounting viewers only. */
 export async function fetchTransactionsForReceipt(
   from: string,
   to: string,

@@ -40,7 +40,7 @@ const Schema = z.object({
     .refine((v) => Math.abs(Number.parseFloat(v)) <= 99_999_999.99, "Amount too large"),
 })
 
-/** Save statement balance. ADMIN/PASTOR only; the Reconciliation check runs after auth. */
+/** Save a bank statement balance for reconciliation. ADMIN/PASTOR only. */
 export async function saveStatementBalance(
   paymentAccountId: number,
   statementDate: string,

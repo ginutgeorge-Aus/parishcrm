@@ -28,7 +28,7 @@ function todaySydney(): string {
   }).format(new Date())
 }
 
-/** Build welcome letter draft. Editors only; the Welcome letter check runs after auth. */
+/** Build a welcome letter draft. Editors only. */
 export async function buildWelcomeLetterDraft(familyId: number): Promise<DraftResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
@@ -87,7 +87,7 @@ export type SendWelcomeLetterInput = {
   recipientPersonIds: number[]
 }
 
-/** Send welcome letter. Editors only; the Welcome letter check runs after auth. */
+/** Email a welcome letter. Editors only. */
 export async function sendWelcomeLetter(input: SendWelcomeLetterInput): Promise<ActionResultWithSuccess> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }

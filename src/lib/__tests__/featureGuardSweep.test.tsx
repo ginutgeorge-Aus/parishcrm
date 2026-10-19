@@ -23,7 +23,6 @@ jest.mock("next/navigation", () => ({
 
 import { assertFeature, featureGuard, featureGuardAny, isFeatureOn, requireFeature } from "@/lib/featureFlags"
 import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
 
@@ -59,15 +58,6 @@ const ARGS: Record<string, unknown[]> = {
   "familyUpdate.ts:submitFamilyUpdate": [{ token: "t", payload: {} }],
   "eventCheckout.ts:startEventCheckout": ["fete", {}],
   "eventCheckout.ts:startExistingRegistrationCheckout": ["fete", "tok"],
-  // Feature check sits after full authz, which validates the class id first.
-  "sundaySchoolAttendance.ts:setAttendance": [1, "2026-01-04", 1, "PRESENT"],
-  "sundaySchoolAttendance.ts:markUnmarkedPresent": [1, "2026-01-04"],
-  // Authz probes the registration's event first.
-  "registration.ts:getRegistrationDetail": [1],
-}
-// Prisma reads an action makes during authz, before its feature check.
-const PRISMA: Record<string, Record<string, unknown>> = {
-  "registration.ts:getRegistrationDetail": { registration: { findUnique: jest.fn(async () => ({ eventId: 1 })) } },
 }
 // Public actions answer anonymous callers without the admin wording.
 const PUBLIC_OFF = new Set(["membership.ts:submitMembershipApplication", "familyUpdate.ts:submitFamilyUpdate"])
@@ -108,12 +98,11 @@ describe.each(ACTION_FILES)("%s", (file) => {
     .map((m, i, all) => ({ name: m[1], body: src.slice(m.index, all[i + 1]?.index ?? src.length) }))
     // upsertSetting gates per key (needs a real FormData): settings.test.ts covers it.
     .filter(({ name }) => name !== "upsertSetting")
-    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|await (editor|editableClass|rollGuard|markerGuard|templateFeatureGuard)\(/.test(body))
+    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|(?:await|return) (editor|editableClass|rollGuard|markerGuard|templateFeatureGuard|sendInvoiceGuarded)\(/.test(body))
 
   it.each(fns.map((f) => [f.name, f.body]))("%s stops while its feature is off", async (name, body) => {
     const mod = await import(toModule(file))
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    Object.assign(prisma, PRISMA[`${path.basename(file)}:${name}`] ?? {})
     ;(featureGuard as jest.Mock).mockResolvedValue(OFF)
     ;(featureGuardAny as jest.Mock).mockResolvedValue(OFF)
     ;(assertFeature as jest.Mock).mockRejectedValue(new Error(OFF.error))

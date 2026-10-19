@@ -45,7 +45,7 @@ const ModelSchema = z.object({
   }),
 })
 
-/** POST /api/welcome-letter/preview. Editors only; the Welcome letter check runs after auth. */
+/** POST /api/welcome-letter/preview. Editors only. */
 export async function POST(req: Request) {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return new Response("Unauthorized", { status: 403 })

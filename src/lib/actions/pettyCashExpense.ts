@@ -96,7 +96,7 @@ async function isDuplicateExpense(
   )
 }
 
-/** Create expense. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Record a petty cash expense. ADMIN/PASTOR only. */
 export async function createExpense(
   sessionId: number,
   _prev: ActionResult,
@@ -183,7 +183,7 @@ export async function createExpense(
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
-/** Update expense. ADMIN/PASTOR only; the Petty cash check runs after auth. */
+/** Edit a petty cash expense. ADMIN/PASTOR only. */
 export async function updateExpense(
   id: number,
   _prev: ActionResult,
@@ -273,7 +273,7 @@ export async function updateExpense(
   redirect(`/accounting/petty-cash/sessions/${expense.sessionId}`)
 }
 
-/** Delete expense. ADMIN only; the Petty cash check runs after auth. */
+/** Delete a petty cash expense. ADMIN only. */
 export async function deleteExpense(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

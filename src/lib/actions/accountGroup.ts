@@ -18,7 +18,7 @@ const AccountGroupSchema = z.object({
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
-/** Create account group. ADMIN only; the Accounting check runs after auth. */
+/** Create an account group. ADMIN only. */
 export async function createAccountGroup(
   _prev: ActionResult,
   formData: FormData
@@ -53,7 +53,7 @@ export async function createAccountGroup(
   redirect("/accounting/accounts/groups")
 }
 
-/** Update account group. ADMIN only; the Accounting check runs after auth. */
+/** Update an account group. ADMIN only. */
 export async function updateAccountGroup(
   id: number,
   _prev: ActionResult,
@@ -104,7 +104,7 @@ export async function updateAccountGroup(
   redirect("/accounting/accounts/groups")
 }
 
-/** Delete account group. ADMIN only; the Accounting check runs after auth. */
+/** Delete an account group. ADMIN only. */
 export async function deleteAccountGroup(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

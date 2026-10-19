@@ -42,8 +42,9 @@ export async function requireFeature(key: FeatureKey): Promise<void> {
 
 /**
  * Server Action guard: `{ error }` when off, else null. Order: assertNotDemo →
- * auth + role check → this, so anonymous or unauthorized callers never trigger
- * the settings read or see the admin wording. Public actions: throttle → this.
+ * auth + DB-free role check → this → any per-entity DB authz (e.g.
+ * canManageEvent), so anonymous or wrong-role callers never trigger the
+ * settings read or see the admin wording. Public actions: throttle → this.
  */
 export async function featureGuard(key: FeatureKey): Promise<{ error: string } | null> {
   return (await isFeatureOn(key)) ? null : { error: FEATURE_OFF_MESSAGE }

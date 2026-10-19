@@ -9,7 +9,7 @@ import { actorId } from "@/lib/actor"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
-/** Mark waitlist notified. Editors only; the Events check runs after auth. */
+/** Mark a waitlist entry notified. Editors only. */
 export async function markWaitlistNotified(
   waitlistId: number,
   eventId: number,

@@ -11,7 +11,7 @@ import { getReceiptSettings } from "@/lib/receiptSettings"
 import { parseRouteId } from "@/lib/validation"
 import { featureNotFound } from "@/lib/featureFlags"
 
-/** GET /accounting/dgr-receipts/[id]/pdf. Accounting viewers only; the DGR receipts check runs after auth. */
+/** GET /accounting/dgr-receipts/[id]/pdf. Accounting viewers only. */
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const session = await auth()

@@ -61,6 +61,13 @@ it("Server Action rejects an anonymous caller without reading feature state or s
   expect(prisma.event.update).not.toHaveBeenCalled()
 })
 
+it("per-event DB authz runs only after the feature check (organiser, feature off)", async () => {
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "3", role: "EVENT_ORGANISER" } })
+  const { sendPaymentReminders } = await import("@/lib/actions/registration")
+  // prisma.eventManager is unmocked: reaching canManageEvent would throw.
+  expect(await sendPaymentReminders(1, [], "Hi")).toEqual({ error: FEATURE_OFF_MESSAGE })
+})
+
 it("Server Action rejects an unauthorized role without reading feature state", async () => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "2", role: "VIEWER" } })
   expect(await publishEvent(1, true)).toEqual({ error: "Unauthorized" })

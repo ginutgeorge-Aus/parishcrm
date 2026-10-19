@@ -41,10 +41,11 @@ function revalidateReports() {
 // a pathological number of coincidental matches.
 const DUPLICATE_CANDIDATE_CAP = 20
 
-// Shared with pettyCash.ts (receipt/expense account validation) — returns the
-// account's name (needed for entry records there) on success, or null if the
-// account doesn't exist, is inactive, or doesn't match the expected type.
-/** Validate account. ADMIN/PASTOR only; the Accounting check runs after auth. */
+/**
+ * Shared with pettyCash.ts (receipt/expense account validation) — returns the account's name
+ * (needed for entry records there) on success, or null if the account doesn't exist, is inactive,
+ * or doesn't match the expected type. ADMIN/PASTOR only.
+ */
 export async function validateAccount(
   accountId: number,
   type: "INCOME" | "EXPENSE",
@@ -101,7 +102,7 @@ async function validatePaymentAccount(
   return true
 }
 
-/** Create transaction. ADMIN/PASTOR only; the Accounting check runs after auth. */
+/** Create a transaction. ADMIN/PASTOR only. */
 export async function createTransaction(
   _prev: ActionResult,
   formData: FormData
@@ -213,7 +214,7 @@ function invoicePaymentChanged(
     || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
 }
 
-/** Update transaction. ADMIN/PASTOR only; the Accounting check runs after auth. */
+/** Update a transaction. ADMIN/PASTOR only. */
 export async function updateTransaction(
   id: number,
   _prev: ActionResult,
@@ -335,7 +336,7 @@ export async function updateTransaction(
   redirect(transactionListHref(typeof back === "string" ? back : null))
 }
 
-/** Delete transaction. ADMIN only; the Accounting check runs after auth. */
+/** Delete a transaction. ADMIN only. */
 export async function deleteTransaction(id: number): Promise<ActionResult> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }

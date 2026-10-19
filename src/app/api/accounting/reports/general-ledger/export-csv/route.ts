@@ -13,7 +13,7 @@ import { sydneyTodayYMD } from "@/lib/dates"
 import { parseRouteId } from "@/lib/validation"
 import { featureNotFound } from "@/lib/featureFlags"
 
-/** GET /api/accounting/reports/general-ledger/export-csv. Accounting viewers only; the Accounting check runs after auth. */
+/** GET /api/accounting/reports/general-ledger/export-csv. Accounting viewers only. */
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

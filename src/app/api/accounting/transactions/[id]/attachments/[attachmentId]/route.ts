@@ -18,12 +18,13 @@ const parseId = (v: string) => {
   return Number.isInteger(n) && n > 0 && n <= MAX_INT4 ? n : null
 }
 
-// Serve a transaction receipt attachment. Gated by canViewAccounting
-// (ADMIN/PASTOR/AUDITOR/OFFICE_ADMIN) and scoped to the parent transaction so a
-// crafted attachment id can't dereference a blob outside the addressed row.
-// Same 200-vs-404 opacity as the event-image route — a non-accounting role
-// gets the identical 404 as a missing row, so it cannot probe existence.
-/** GET /api/accounting/transactions/[id]/attachments/[attachmentId]. Accounting viewers only; the Accounting check runs after auth. */
+/**
+ * Serve a transaction receipt attachment. Gated by canViewAccounting
+ * (ADMIN/PASTOR/AUDITOR/OFFICE_ADMIN) and scoped to the parent transaction so a crafted attachment
+ * id can't dereference a blob outside the addressed row. Same 200-vs-404 opacity as the event-image
+ * route — a non-accounting role gets the identical 404 as a missing row, so it cannot probe
+ * existence.
+ */
 export async function GET(
   req: NextRequest,
   props: { params: Promise<{ id: string; attachmentId: string }> },
