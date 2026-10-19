@@ -82,21 +82,38 @@ function keyName(name: ts.PropertyName): string | null {
 }
 
 /**
- * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull (bare or as a member call such as
- * `crypto.encrypt(`), or a `Buffer.from(` wrapper of one.
- * @param node - expression to test
+ * The called function's name: the identifier of a bare call, or the property of a member call such as
+ * `crypto.encrypt(`.
+ * @param callee - the call's expression
  */
-function encryptCall(node: ts.Node): { blob: boolean } | null {
-  if (!ts.isCallExpression(node)) return null
-  const callee = node.expression
-  const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : ""
-  if (ENCRYPT_FNS.has(name)) return { blob: name === "encryptBytes" }
-  const isBufferFrom =
+function calleeName(callee: ts.Expression): string {
+  if (ts.isIdentifier(callee)) return callee.text
+  return ts.isPropertyAccessExpression(callee) ? callee.name.text : ""
+}
+
+/**
+ * Whether `callee` is exactly `Buffer.from`, checked structurally rather than by source text.
+ * @param callee - the call's expression
+ */
+function isBufferFrom(callee: ts.Expression): boolean {
+  return (
     ts.isPropertyAccessExpression(callee) &&
     ts.isIdentifier(callee.expression) &&
     callee.expression.text === "Buffer" &&
     callee.name.text === "from"
-  return isBufferFrom && node.arguments[0] && findEncrypt(node.arguments[0]) ? { blob: true } : null
+  )
+}
+
+/**
+ * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull (bare or as a member call), or a
+ * `Buffer.from(` wrapper of one.
+ * @param node - expression to test
+ */
+function encryptCall(node: ts.Node): { blob: boolean } | null {
+  if (!ts.isCallExpression(node)) return null
+  const name = calleeName(node.expression)
+  if (ENCRYPT_FNS.has(name)) return { blob: name === "encryptBytes" }
+  return isBufferFrom(node.expression) && node.arguments[0] && findEncrypt(node.arguments[0]) ? { blob: true } : null
 }
 
 /**
