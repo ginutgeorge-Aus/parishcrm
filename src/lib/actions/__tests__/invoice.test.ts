@@ -24,7 +24,7 @@ jest.mock("@/lib/prisma", () => {
     customer: { findUnique: jest.fn() },
   }
   prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
-  return { prisma }
+  return { prisma, Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } } }
 })
 
 const mockAuth = auth as jest.Mock

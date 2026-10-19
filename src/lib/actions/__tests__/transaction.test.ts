@@ -10,7 +10,7 @@ jest.mock("next/navigation", () => ({
   }),
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -27,16 +27,17 @@ jest.mock("@/lib/prisma", () => {
   }
   // Interactive transaction: run the callback against the same mocked client.
   prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
-  return { prisma }
+  return { prisma, Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } } }
 })
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { assertUnlocked } from "@/lib/accountingLock"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 const mockAuth = auth as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 
 function fd(o: Record<string, string>) {
   const f = new FormData()
@@ -237,7 +238,7 @@ test("updateTransaction returns a concurrency error when the optimistic update m
   expect(r).toEqual({
     error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",
   })
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
 })
 
 // #291: the account-type check and the write share one Serializable transaction, so a concurrent
@@ -293,13 +294,20 @@ describe("account check serialized with the write", () => {
     txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
     expect(await createTransaction(undefined, validForm())).toEqual(GONE)
     expect(txMock()).toHaveBeenCalledTimes(2)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("updateTransaction reports a vanished reference after one FK retry instead of retrying forever", async () => {
+    txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual(GONE)
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("createTransaction gives up after repeated conflicts with a retry message", async () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await createTransaction(undefined, validForm())).toEqual(BUSY)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("createTransaction rethrows unrelated errors", async () => {
@@ -319,7 +327,7 @@ describe("account check serialized with the write", () => {
   it("updateTransaction gives up after repeated conflicts with a retry message", async () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await updateTransaction(1, undefined, validForm())).toEqual(BUSY)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 })
 

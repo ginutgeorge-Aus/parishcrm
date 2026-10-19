@@ -1,5 +1,4 @@
-import { prisma } from "@/lib/prisma"
-import { Prisma } from "@/lib/generated/prisma/client"
+import { prisma, Prisma } from "@/lib/prisma"
 import { isP2003, isP2034 } from "@/lib/validation"
 
 const MAX_TX_ATTEMPTS = 3
