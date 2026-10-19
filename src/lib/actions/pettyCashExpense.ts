@@ -14,9 +14,11 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch } from "@/lib/validation"
 import { validateAccount } from "./transaction"
+import { accountMatches } from "@/lib/accountMatches"
+import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createExpenseEntry, revalidatePettyCashPaths, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
+import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -159,17 +161,23 @@ export async function createExpense(
 
   let expenseId: number | undefined
   try {
-    await prisma.$transaction(async (tx) => {
+    // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
+    const result = await serializableWrite<{ error: string } | { id: number }>(async (tx) => {
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
-      expenseId = await createExpenseEntry(tx, {
-        sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: account.name,
+      const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE")
+      if (!fresh) return { error: "Invalid account" }
+      const id = await createExpenseEntry(tx, {
+        sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: fresh.name,
         amount: parsed.data.amount, payee: parsed.data.payee, description: parsed.data.description,
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null,
       })
-    })
+      return { id }
+    }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if ("error" in result) return result
+    expenseId = result.id
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e
@@ -228,10 +236,13 @@ export async function updateExpense(
   // Resolved once, not per row — see createExpense above.
   const cashAccount = await getCashAccount()
   try {
-    await prisma.$transaction(async (tx) => {
+    // Account re-check + write share one Serializable transaction (see createExpense).
+    const result = await serializableWrite<{ error: string } | null>(async (tx) => {
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, expense.sessionId, "Cannot edit in closed session")
+      const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE")
+      if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashExpense.update({
       where: { id },
       data: {
@@ -251,7 +262,7 @@ export async function updateExpense(
         date: sessionDate,
         amount: parsed.data.amount,
         accountId: parsed.data.accountId,
-        description: encrypt(account.name),
+        description: encrypt(fresh.name),
         // Re-assert invariants on the mirror so an edit can't drift it off a
         // petty-cash EXPENSE row.
         type: "EXPENSE",
@@ -259,7 +270,9 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
-    })
+    return null
+    }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e

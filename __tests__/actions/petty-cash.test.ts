@@ -1789,3 +1789,89 @@ describe("createSession — duplicate title", () => {
     expect(res).toEqual({ error: expect.stringContaining("already exists") })
   })
 })
+
+// --- account check serialized with the receipt/expense write ---
+describe("petty-cash account check runs in the Serializable write", () => {
+  const receiptFd = { accountId: "1", amount: "250.00" }
+  const expenseFd = { payee: "Kmart", accountId: "4", amount: "20.00", description: "Paper" }
+  const openSession = { id: 5, status: "OPEN", title: "11-MAY-2026" }
+  const cases = [
+    {
+      name: "createReceipt",
+      type: "INCOME",
+      run: () => createReceipt(5, undefined, fd(receiptFd)),
+      setup: () => {
+        mockFindSession.mockResolvedValue(openSession)
+        mockCreateReceipt.mockResolvedValue({ id: 1, date: new Date("2026-05-11"), amount: 250, accountId: 1, sessionId: 5 })
+      },
+      write: () => mockCreateReceipt,
+    },
+    {
+      name: "updateReceipt",
+      type: "INCOME",
+      run: () => updateReceipt(1, undefined, fd(receiptFd)),
+      setup: () => mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: openSession }),
+      write: () => mockUpdateReceipt,
+    },
+    {
+      name: "createExpense",
+      type: "EXPENSE",
+      run: () => createExpense(5, undefined, fd(expenseFd)),
+      setup: () => {
+        mockFindSession.mockResolvedValue(openSession)
+        mockCreateExpense.mockResolvedValue({ id: 7, date: new Date("2026-05-11"), amount: 20, accountId: 4, sessionId: 5 })
+      },
+      write: () => mockCreateExpense,
+    },
+    {
+      name: "updateExpense",
+      type: "EXPENSE",
+      run: () => updateExpense(3, undefined, fd(expenseFd)),
+      setup: () => mockFindExpense.mockResolvedValue({ id: 3, sessionId: 5, session: openSession }),
+      write: () => mockUpdateExpense,
+    },
+  ] as const
+
+  beforeEach(() => mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } }))
+
+  describe.each(cases)("$name", (c) => {
+    it("runs the write in a Serializable transaction", async () => {
+      c.setup()
+      mockFindAccount.mockResolvedValue({ type: c.type, isActive: true, name: "Acct" })
+      await c.run()
+      expect(mockPrismaTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+      expect(c.write()).toHaveBeenCalled()
+    })
+
+    it("rejects without writing when the account is retyped between the outer check and the write", async () => {
+      c.setup()
+      mockFindAccount
+        .mockResolvedValueOnce({ type: c.type, isActive: true, name: "Acct" }) // outer validateAccount
+        .mockResolvedValue({ type: c.type === "INCOME" ? "EXPENSE" : "INCOME", isActive: true, name: "Acct" }) // in-tx re-check
+      const result = await c.run()
+      expect(result).toEqual({ error: "Invalid account" })
+      expect(c.write()).not.toHaveBeenCalled()
+      expect(mockCreateTransaction).not.toHaveBeenCalled()
+      expect(mockUpdateManyTransaction).not.toHaveBeenCalled()
+    })
+
+    it("retries once on a serialization conflict (P2034) then succeeds", async () => {
+      c.setup()
+      mockFindAccount.mockResolvedValue({ type: c.type, isActive: true, name: "Acct" })
+      mockPrismaTransaction.mockRejectedValueOnce({ code: "P2034" })
+      await c.run()
+      expect(mockPrismaTransaction).toHaveBeenCalledTimes(2)
+      expect(c.write()).toHaveBeenCalledTimes(1)
+    })
+
+    it("returns a retry error after repeated serialization conflicts", async () => {
+      c.setup()
+      mockFindAccount.mockResolvedValue({ type: c.type, isActive: true, name: "Acct" })
+      mockPrismaTransaction.mockRejectedValue({ code: "P2034" })
+      const result = await c.run()
+      expect(result).toEqual({ error: expect.stringContaining("Try again") })
+      expect(mockPrismaTransaction).toHaveBeenCalledTimes(3)
+      expect(c.write()).not.toHaveBeenCalled()
+    })
+  })
+})
