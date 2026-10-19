@@ -7,7 +7,7 @@ import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
   verifyRegistrationResponse,
-  type AuthenticatorTransportFuture,
+  type AuthenticatorTransport,
   type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialRequestOptionsJSON,
   type RegistrationResponseJSON,
@@ -109,7 +109,7 @@ export async function startPasskeyRegistration(
     userDisplayName: user.name,
     userID: new TextEncoder().encode(String(userId)),
     attestationType: "none",
-    excludeCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports as AuthenticatorTransportFuture[] })),
+    excludeCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports as AuthenticatorTransport[] })),
     authenticatorSelection: { residentKey: "required", userVerification: "required" },
   })
   const challengeId = await createChallenge(options.challenge, "register", userId)
