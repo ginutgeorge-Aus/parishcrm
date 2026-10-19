@@ -57,7 +57,7 @@ function walk(dir: string): string[] {
 // parens/brackets can never confuse it. A write is an object-literal key whose value calls
 // encrypt/encryptBytes/encryptOrNull (directly or inside a conditional/call/wrapper, but not inside a
 // nested object literal or block, which have their own keys), or a property assignment
-// `x.foo = encrypt(...)` (optionally wrapped in `Buffer.from(`).
+// `x.foo = <same value expressions>` (e.g. `x.foo = ok ? encrypt(...) : null`, optionally wrapped in `Buffer.from(`).
 // Not seen: keys assigned in a loop (`d[k] = encrypt(...)`, familyUpdate.ts / person.ts helpers), whose
 // fields are pinned by CANONICAL in rotate-encryption-key.test.ts instead.
 const ENCRYPT_FNS = new Set(["encrypt", "encryptBytes", "encryptOrNull"])
