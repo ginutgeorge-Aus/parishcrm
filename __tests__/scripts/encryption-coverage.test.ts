@@ -82,30 +82,34 @@ function keyName(name: ts.PropertyName): string | null {
 }
 
 /**
- * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull, or a `Buffer.from(` wrapper of one.
+ * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull (bare or as a member call such as
+ * `crypto.encrypt(`), or a `Buffer.from(` wrapper of one.
  * @param node - expression to test
- * @param direct - passed through to the wrapped argument's search
  */
-function encryptCall(node: ts.Node, direct: boolean): { blob: boolean } | null {
+function encryptCall(node: ts.Node): { blob: boolean } | null {
   if (!ts.isCallExpression(node)) return null
   const callee = node.expression
-  if (ts.isIdentifier(callee) && ENCRYPT_FNS.has(callee.text)) return { blob: callee.text === "encryptBytes" }
-  const isBufferFrom = ts.isPropertyAccessExpression(callee) && callee.getText() === "Buffer.from"
-  return isBufferFrom && node.arguments[0] && findEncrypt(node.arguments[0], direct) ? { blob: true } : null
+  const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : ""
+  if (ENCRYPT_FNS.has(name)) return { blob: name === "encryptBytes" }
+  const isBufferFrom =
+    ts.isPropertyAccessExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === "Buffer" &&
+    callee.name.text === "from"
+  return isBufferFrom && node.arguments[0] && findEncrypt(node.arguments[0]) ? { blob: true } : null
 }
 
 /**
- * The encrypt call a value expression reduces to, searching through conditionals, wrappers and call
- * arguments but not into nested object literals or blocks. `blob` is set for encryptBytes or a
- * `Buffer.from(` wrapper.
+ * The encrypt call a value expression reduces to, searching through conditionals, wrappers (parens,
+ * `as`, `!`) and call arguments but not into nested object literals or blocks. `blob` is set for
+ * encryptBytes or a `Buffer.from(` wrapper.
  * @param node - value expression
- * @param direct - only accept the expression itself or a `Buffer.from(` wrapper of it (assignments)
  */
-function findEncrypt(node: ts.Node, direct = false): { blob: boolean } | null {
-  const hit = encryptCall(node, direct)
+function findEncrypt(node: ts.Node): { blob: boolean } | null {
+  const hit = encryptCall(node)
   if (hit) return hit
-  if (direct || ts.isObjectLiteralExpression(node) || ts.isBlock(node)) return null
-  return ts.forEachChild(node, (child) => findEncrypt(child)) ?? null
+  if (ts.isObjectLiteralExpression(node) || ts.isBlock(node)) return null
+  return ts.forEachChild(node, findEncrypt) ?? null
 }
 
 /**
@@ -164,7 +168,7 @@ function siteOf(node: ts.Node, where: string): WriteSite | null {
     return field && enc ? { model: modelOf(node), field, blob: enc.blob, where } : null
   }
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left)) {
-    const enc = findEncrypt(node.right, true)
+    const enc = findEncrypt(node.right)
     return enc ? { model: modelOf(node), field: node.left.name.text, blob: enc.blob, where } : null
   }
   return null
@@ -178,6 +182,12 @@ function siteOf(node: ts.Node, where: string): WriteSite | null {
 export function findWriteSites(text: string, where = "<inline>"): WriteSite[] {
   const kind = where.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   const sf = ts.createSourceFile(where, text, ts.ScriptTarget.Latest, true, kind)
+  // The parser recovers from syntax errors without throwing; a file it can't parse would lose its write
+  // sites and the guard would pass vacuously, so fail loudly instead. (`parseDiagnostics` is internal API.)
+  const diagnostics = (sf as unknown as { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics
+  if (diagnostics.length) {
+    throw new Error(`${where}: parse error: ${ts.flattenDiagnosticMessageText(diagnostics[0].messageText, "\n")}`)
+  }
   const sites: WriteSite[] = []
   const visit = (node: ts.Node): void => {
     const site = siteOf(node, where)
@@ -265,8 +275,18 @@ describe("encryption coverage", () => {
   })
 
   it("parses TSX only for .tsx files, defaulting inline text to TS", () => {
-    expect(findWriteSites("const a = <T,>(x: T) => ({ k: encrypt(x) })").map((s) => s.field)).toEqual(["k"])
+    expect(findWriteSites("const a = <T>(x: T) => ({ k: encrypt(x) })").map((s) => s.field)).toEqual(["k"])
     expect(findWriteSites("const a = <div>{f({ k: encrypt(x) })}</div>", "x.tsx").map((s) => s.field)).toEqual(["k"])
+  })
+
+  it("throws on a file the parser cannot read instead of passing vacuously", () => {
+    expect(() => findWriteSites("const a = { k: encrypt(", "broken.ts")).toThrow(/broken\.ts: parse error/)
+  })
+
+  it("sees member-call encrypt, conditional assignments and wrapped values", () => {
+    const text = `const o = { a: crypto.encrypt(x), b: (encrypt(y) as string), c: encrypt(z)! }
+    row.d = ok ? encrypt(s) : null`
+    expect(findWriteSites(text).map((s) => s.field)).toEqual(["a", "b", "c", "d"])
   })
 
   it("ignores write-shaped calls on non-model delegates", () => {
