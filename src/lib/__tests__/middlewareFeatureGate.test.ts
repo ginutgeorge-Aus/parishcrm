@@ -25,15 +25,12 @@ import { isFeatureRouteOff } from "@/lib/featureRoutes"
 const off = isFeatureRouteOff as jest.Mock
 const run = middleware as unknown as (req: unknown) => Promise<NextResponse>
 
-function req(pathname: string, method = "GET", role = "ADMIN", user: boolean = true) {
-  const url = new URL(`http://localhost${pathname}`)
-  return {
-    method,
-    nextUrl: url,
-    headers: new Headers(),
-    auth: user ? { user: { role } } : null,
-  }
-}
+const req = (pathname: string, method = "GET", role = "ADMIN", user = true) => ({
+  method,
+  nextUrl: new URL(`http://localhost${pathname}`),
+  headers: new Headers(),
+  auth: user ? { user: { role } } : null,
+})
 
 const rewrittenTo = (res: NextResponse) => res.headers.get("x-middleware-rewrite")
 
@@ -44,6 +41,13 @@ describe("middleware feature gate", () => {
     const res = await run(req("/accounting/invoices"))
     expect(off).toHaveBeenCalledWith("/accounting/invoices")
     expect(rewrittenTo(res)).toContain("/_feature-off")
+  })
+
+  it("forwards the nonce and CSP request headers on the rewrite", async () => {
+    const res = await run(req("/events"))
+    expect(res.headers.get("x-middleware-request-x-nonce")).toBeTruthy()
+    expect(res.headers.get("x-middleware-request-content-security-policy")).toContain("nonce-")
+    expect(res.headers.get("Content-Security-Policy")).toContain("nonce-")
   })
 
   it("also gates HEAD", async () => {

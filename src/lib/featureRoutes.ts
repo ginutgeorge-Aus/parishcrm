@@ -23,6 +23,9 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
+  // Descendants only: /my-events itself is the organiser's home and renders its
+  // own fallback (layout.tsx) instead of a 404 while Events is off.
+  { match: /^\/my-events\/./, feature: "events" },
   prefix("/memberships", "memberships"),
   prefix("/membershipform", "memberships"),
   prefix("/sunday-school", "sundaySchool"),
@@ -51,11 +54,29 @@ const FEATURE_ROUTES: readonly Rule[] = [
 ]
 
 /**
+ * Canonical form of a request pathname for rule matching: percent-decoded (the
+ * router decodes, so `/%65vents` and `/events` reach the same page) with
+ * repeated slashes collapsed and no trailing slash. Malformed escapes keep the raw
+ * text (the router rejects those itself).
+ * @param pathname raw request pathname
+ */
+function normalisePath(pathname: string): string {
+  let decoded = pathname
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    // keep raw
+  }
+  const collapsed = decoded.replace(/\/{2,}/g, "/")
+  return collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : collapsed
+}
+
+/**
  * Features a page path depends on (empty when ungated).
- * @param pathname request pathname (trailing slash tolerated)
+ * @param pathname request pathname (percent-encoding, repeated and trailing slashes tolerated)
  */
 export function featuresForPath(pathname: string): FeatureKey[] {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
+  const path = normalisePath(pathname)
   return FEATURE_ROUTES.filter((r) => r.match.test(path)).map((r) => r.feature)
 }
 
@@ -63,30 +84,44 @@ export function featuresForPath(pathname: string): FeatureKey[] {
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
 const TTL_MS = 5_000
-let cache: { on: Set<FeatureKey>; at: number } | null = null
+let cache: { on: Set<FeatureKey> | null; at: number } | null = null
+let inflight: Promise<Set<FeatureKey> | null> | null = null
 
-/**
- * Enabled features for the middleware, cached 5s per process (every request
- * passes through it). Returns null on a read failure (fail open): a DB blip
- * must not 404 the whole app — layouts and actions still enforce per request.
- */
-export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
-  const now = Date.now()
-  if (cache && now - cache.at < TTL_MS) return cache.on
+/** One DB read; on failure logs, keeps serving the last known set (else null = fail open) and caches that for the TTL. */
+async function loadFeatures(): Promise<Set<FeatureKey> | null> {
   try {
     const { prisma } = await import("@/lib/prisma")
     const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
     const on = resolveFeatures(parseOverrides(row?.value))
-    cache = { on, at: now }
+    cache = { on, at: Date.now() }
     return on
-  } catch {
-    return null
+  } catch (err) {
+    console.error("[featureRoutes] feature settings read failed; using", cache?.on ? "last known set" : "fail-open", err instanceof Error ? err.message : "unknown error")
+    const on = cache?.on ?? null
+    cache = { on, at: Date.now() }
+    return on
   }
+}
+
+/**
+ * Enabled features for the middleware, cached 5s per process (every request
+ * passes through it). Concurrent callers share one read. On a read failure it
+ * serves the last known set, or null (fail open) if there is none: a DB blip
+ * must not 404 the whole app — layouts and actions still enforce per request.
+ * The failure result is cached for the TTL so an outage is not hammered.
+ */
+export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
+  if (cache && Date.now() - cache.at < TTL_MS) return cache.on
+  inflight ??= loadFeatures().finally(() => {
+    inflight = null
+  })
+  return inflight
 }
 
 /** Test hook: drop the cached feature set. */
 export function _resetFeatureRoutesCache(): void {
   cache = null
+  inflight = null
 }
 
 /**

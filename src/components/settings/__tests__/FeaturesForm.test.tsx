@@ -13,12 +13,20 @@ const mockSave = saveFeatures as jest.Mock
 beforeEach(() => mockSave.mockReset())
 
 describe("FeaturesForm", () => {
-  // First on purpose: React logs a missing-key warning once per module instance.
   it("renders without React key warnings", () => {
     const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
-    render(<FeaturesForm initial={{}} />)
-    expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
-    err.mockRestore()
+    try {
+      // Fresh module registry: React logs a missing-key warning once per instance,
+      // so an earlier test must not be able to make this pass vacuously.
+      jest.isolateModules(() => {
+        const { renderToString } = require("react-dom/server") as typeof import("react-dom/server")
+        const { FeaturesForm: Form } = require("@/components/settings/FeaturesForm") as typeof import("@/components/settings/FeaturesForm")
+        renderToString(<Form initial={{}} />)
+      })
+      expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
+    } finally {
+      err.mockRestore()
+    }
   })
 
   it("renders every feature with defaults applied", () => {

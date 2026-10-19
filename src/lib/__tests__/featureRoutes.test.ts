@@ -30,12 +30,17 @@ describe("featuresForPath", () => {
     ["/family/some-token", ["familyUpdates"]],
     ["/people/birthdays", ["celebrations"]],
     ["/petty-cash/sessions/3", ["pettyCash"]],
+    ["/my-events/5/registrations", ["events"]],
+    ["/%65vents", ["events"]],
+    ["/acc%6Funting/invoices", ["accounting", "invoices"]],
+    ["//accounting///invoices//", ["accounting", "invoices"]],
+    ["/events/%E0%A4%A", ["events"]],
   ])("%s", (p, keys) => {
     expect(featuresForPath(p).sort()).toEqual([...keys].sort())
   })
 
   it.each(["/", "/people", "/families", "/families/12", "/families/directory", "/e/summer", "/e/summer/success",
-    "/accounting-other", "/events-archive", "/settings/features", "/login"])("%s is ungated", (p) => {
+    "/accounting-other", "/events-archive", "/my-events", "/my-events/", "/settings/features", "/login"])("%s is ungated", (p) => {
     expect(featuresForPath(p)).toEqual([])
   })
 
@@ -100,15 +105,48 @@ it("serves the cache within the TTL and refetches after it", async () => {
   }
 })
 
-it("does not cache a failed read (fail open, then recovers)", async () => {
-  findUnique.mockRejectedValueOnce(new Error("db down"))
-  expect(await getEnabledFeaturesCached()).toBeNull()
-  stored({ events: false })
-  expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+describe("read failures", () => {
+  let errSpy: jest.SpyInstance
+  beforeEach(() => {
+    errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
+  })
+  afterEach(() => errSpy.mockRestore())
+
+  it("fails open, logs, and caches the failure for the TTL", async () => {
+    findUnique.mockRejectedValue(new Error("db down"))
+    expect(await getEnabledFeaturesCached()).toBeNull()
+    expect(await getEnabledFeaturesCached()).toBeNull()
+    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(errSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("serves the last known set when a refresh fails", async () => {
+    const now = jest.spyOn(Date, "now")
+    try {
+      stored({ events: false })
+      now.mockReturnValue(1_000_000)
+      await getEnabledFeaturesCached()
+      findUnique.mockRejectedValue("boom")
+      now.mockReturnValue(1_006_000)
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+      expect(errSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it("coalesces concurrent cold reads into one query", async () => {
+    stored({ events: false })
+    await Promise.all([getEnabledFeaturesCached(), getEnabledFeaturesCached(), getEnabledFeaturesCached()])
+    expect(findUnique).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("middleware wiring", () => {
-  const src = fs.readFileSync(path.join(process.cwd(), "src/middleware.ts"), "utf8")
+  let src = ""
+  beforeAll(() => {
+    src = fs.readFileSync(path.join(process.cwd(), "src/middleware.ts"), "utf8")
+  })
 
   it("checks the feature AFTER the login redirect and organiser confinement", () => {
     const feature = src.indexOf("isFeatureRouteOff(pathname)")
