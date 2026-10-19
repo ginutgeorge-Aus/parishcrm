@@ -296,25 +296,22 @@ async function gh<T>(path: string, init?: { method: string; body: unknown }): Pr
   return out as T
 }
 
-/**
- * Fetches state, decides, and posts at most one review command.
- * Returns the pending rate-limit reset when it skipped for that reason.
- * @param dryRun - print the decision instead of commenting
- * @param api - GitHub API caller (injectable for tests)
- * @param now - current time (injectable for tests)
- */
-export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = new Date()): Promise<Date | null> {
+type ApiPr = {
+  number: number
+  draft: boolean
+  updated_at: string
+  user: { login: string; type: string }
+  labels: { name: string }[]
+  head: { sha: string }
+}
 
-  type ApiPr = {
-    number: number
-    draft: boolean
-    updated_at: string
-    user: { login: string; type: string }
-    labels: { name: string }[]
-    head: { sha: string }
-  }
+/**
+ * Lists the open PRs in the shape the selection rules use.
+ * @param api - GitHub API caller
+ */
+async function listOpenPrs(api: typeof gh): Promise<Pr[]> {
   const raw = await api<ApiPr[]>(`/repos/${REPO}/pulls?state=open`)
-  const prs: Pr[] = raw.map((p) => ({
+  return raw.map((p) => ({
     number: p.number,
     draft: p.draft,
     author: p.user.login,
@@ -323,33 +320,69 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
     headSha: p.head.sha,
     updatedAt: p.updated_at,
   }))
+}
+
+/**
+ * Fetches a PR's issue comments in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param number - PR number
+ */
+async function fetchComments(api: typeof gh, number: number): Promise<Comment[]> {
+  const raw = await api<{ user: { login: string } | null; body: string; created_at: string; updated_at: string }[]>(
+    `/repos/${REPO}/issues/${number}/comments`,
+  )
+  return raw.map((c) => ({ user: c.user?.login ?? "", body: c.body ?? "", createdAt: c.created_at, updatedAt: c.updated_at }))
+}
+
+/**
+ * Fetches a PR's reviews in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param number - PR number
+ */
+async function fetchReviews(api: typeof gh, number: number): Promise<Review[]> {
+  const raw = await api<{ user: { login: string } | null; commit_id: string; body: string | null }[]>(
+    `/repos/${REPO}/pulls/${number}/reviews`,
+  )
+  return raw.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
+}
+
+/**
+ * Fetches the commit statuses on a head SHA in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param headSha - the PR's head commit SHA
+ */
+async function fetchStatuses(api: typeof gh, headSha: string): Promise<Status[]> {
+  const raw = await api<{ context: string; description: string | null; created_at: string }[]>(
+    `/repos/${REPO}/commits/${headSha}/statuses`,
+  )
+  return raw.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+}
+
+/**
+ * Fetches state, decides, and posts at most one review command.
+ * Returns the pending rate-limit reset when it skipped for that reason.
+ * @param dryRun - print the decision instead of commenting
+ * @param api - GitHub API caller (injectable for tests)
+ * @param now - current time (injectable for tests)
+ */
+export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = new Date()): Promise<Date | null> {
+  const prs = await listOpenPrs(api)
 
   const unreviewed: Pr[] = []
   const allComments: Comment[] = []
   for (const pr of prs) {
-    const reviews = await api<{ user: { login: string } | null; commit_id: string; body: string | null }[]>(
-      `/repos/${REPO}/pulls/${pr.number}/reviews`,
-    )
-    const comments = (
-      await api<{ user: { login: string } | null; body: string; created_at: string; updated_at: string }[]>(
-        `/repos/${REPO}/issues/${pr.number}/comments`,
-      )
-    ).map((c) => ({ user: c.user?.login ?? "", body: c.body ?? "", createdAt: c.created_at, updatedAt: c.updated_at }))
+    const reviewed = await fetchReviews(api, pr.number)
+    const comments = await fetchComments(api, pr.number)
     allComments.push(...comments)
     if (nudgeInFlight(comments, now)) {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    const reviewed = reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
     if (isReviewed(reviewed, comments, pr.headSha)) continue
-    const statuses = (
-      await api<{ context: string; description: string | null; created_at: string }[]>(
-        `/repos/${REPO}/commits/${pr.headSha}/statuses`,
-      )
-    ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+    const statuses = await fetchStatuses(api, pr.headSha)
     if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
     else if (pauseNudgeSpent(comments, pr.headSha, firstStatusAt(statuses))) {
-      console.log(`#${pr.number}: already nudged once on this head — waiting for the next push.`)
+      console.log(`#${pr.number}: already nudged once on this head — waiting for the next push.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
     }
   }
 

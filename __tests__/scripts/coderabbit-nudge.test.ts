@@ -315,24 +315,28 @@ test("needsNudge: stale pause + incomplete status is nudged once per head, not a
 /** Fake `gh` serving canned PR data per path; records POSTed comment bodies per PR. */
 function fakeGh(data: { prs: unknown[]; comments: Record<number, unknown[]>; statuses: Record<string, unknown[]> }) {
   const posts: { path: string; body: unknown }[] = []
-  const api = (async (path: string, init?: { method: string; body: unknown }) => {
+  const routes: [RegExp, (match: RegExpMatchArray) => unknown][] = [
+    [/\/pulls\?state=open$/, () => data.prs],
+    [/\/reviews$/, () => []],
+    [/\/issues\/(\d+)\/comments$/, (match) => data.comments[Number(match[1])] ?? []],
+    [/\/commits\/([^/]+)\/statuses$/, (match) => data.statuses[match[1]] ?? []],
+  ]
+  const api = ((path: string, init?: { method: string; body: unknown }) => {
     if (init) {
       posts.push({ path, body: init.body })
-      return {}
+      return Promise.resolve({})
     }
-    if (path.endsWith("/pulls?state=open")) return data.prs
-    if (path.endsWith("/reviews")) return []
-    let m = path.match(/\/issues\/(\d+)\/comments$/)
-    if (m) return data.comments[Number(m[1])] ?? []
-    m = path.match(/\/commits\/([^/]+)\/statuses$/)
-    if (m) return data.statuses[m[1]] ?? []
-    throw new Error(`unexpected ${path}`)
+    for (const [pattern, respond] of routes) {
+      const match = path.match(pattern)
+      if (match) return Promise.resolve(respond(match))
+    }
+    return Promise.reject(new Error(`unexpected ${path}`))
   }) as Parameters<typeof runOnce>[1]
   return { api, posts }
 }
 
 test("runOnce: selects the PR with a completed status + stale pause; skips the one already nudged", async () => {
-  const logs = jest.spyOn(console, "log").mockImplementation(() => {})
+  const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
   const apiPr = (number: number, sha: string) => ({
     number, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha },
   })
