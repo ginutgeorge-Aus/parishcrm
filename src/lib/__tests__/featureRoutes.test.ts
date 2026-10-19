@@ -37,12 +37,14 @@ describe("featuresForPath", () => {
     ["/acc%6Funting/invoices", ["accounting", "invoices"]],
     ["//accounting///invoices//", ["accounting", "invoices"]],
     ["/events/%E0%A4%A", ["events"]],
+    ["/my-events/5/registrations", ["events"]],
+    ["/my-events/5", ["events"]],
   ])("%s", (p, keys) => {
     expect(featuresForPath(p).sort()).toEqual([...keys].sort())
   })
 
   it.each(["/", "/people", "/families", "/families/12", "/families/directory", "/e/summer", "/e/summer/success",
-    "/accounting-other", "/events-archive", "/my-events", "/my-events/", "/my-events/5/registrations", "/settings/features", "/login"])("%s is ungated", (p) => {
+    "/accounting-other", "/events-archive", "/my-events", "/my-events/", "/settings/features", "/login"])("%s is ungated", (p) => {
     expect(featuresForPath(p)).toEqual([])
   })
 
@@ -166,6 +168,21 @@ describe("read failures", () => {
     expect(await getEnabledFeaturesCached()).toBeNull()
     expect(findUnique).toHaveBeenCalledTimes(1)
     expect(errSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("logs the error class, never the driver message", async () => {
+    findUnique.mockRejectedValue(new Error("secret query value"))
+    await getEnabledFeaturesCached()
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret query value")
+    expect(errSpy.mock.calls[0]).toContain("Error")
+  })
+
+  it("keeps serving the previous set when a read fails right after invalidation", async () => {
+    stored({ events: false })
+    await getEnabledFeaturesCached()
+    invalidateFeatureRouteCache()
+    findUnique.mockRejectedValue(new Error("db down"))
+    expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
   })
 
   it("serves the last known set when a refresh fails", async () => {

@@ -23,8 +23,10 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
-  // /my-events is deliberately NOT here: its layout guards the whole subtree and
-  // falls back (redirect to /my-classes or a notice) instead of a 404 dead end.
+  // The exact /my-events home is deliberately NOT gated: its layout falls back
+  // (redirect to /my-classes or a notice) instead of a 404 dead end. Everything
+  // beneath it is, since that layout stays mounted on client navigation.
+  { match: /^\/my-events\/[^/]/, feature: "events" },
   prefix("/memberships", "memberships"),
   prefix("/membershipform", "memberships"),
   prefix("/sunday-school", "sundaySchool"),
@@ -68,7 +70,7 @@ function normalisePath(pathname: string): string {
       return seg
     }
   })
-  return "/" + segments.join("/")
+  return `/${segments.join("/")}`
 }
 
 /**
@@ -85,6 +87,9 @@ export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
 const TTL_MS = 5_000
 let cache: { on: Set<FeatureKey> | null; at: number } | null = null
+// Last successfully read set. Survives invalidation so a read failure right after
+// a save still serves the previous set instead of failing open.
+let lastKnown: Set<FeatureKey> | null = null
 let inflight: Promise<Set<FeatureKey> | null> | null = null
 // Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data.
 let generation = 0
@@ -96,11 +101,13 @@ async function loadFeatures(): Promise<Set<FeatureKey> | null> {
     const { prisma } = await import("@/lib/prisma")
     const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
     const on = resolveFeatures(parseOverrides(row?.value))
+    lastKnown = on
     if (gen === generation) cache = { on, at: Date.now() }
     return on
   } catch (err) {
-    console.error("[featureRoutes] feature settings read failed; using", cache?.on ? "last known set" : "fail-open", err instanceof Error ? err.message : "unknown error")
-    const on = cache?.on ?? null
+    // Error class only: driver messages can echo query values.
+    console.error("[featureRoutes] feature settings read failed; using", lastKnown ? "last known set" : "fail-open", err instanceof Error ? err.name : "UnknownError")
+    const on = lastKnown
     if (gen === generation) cache = { on, at: Date.now() }
     return on
   }
@@ -126,8 +133,10 @@ export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null
 
 /**
  * Drop this process's cached feature set so the next request re-reads it.
- * Called by `saveFeatures` (same Node process as the middleware), so an admin
- * sees a change immediately. Other processes still converge within the TTL.
+ * Called by `saveFeatures`. Only effective when the middleware shares this
+ * module instance (dev, single bundle); a production build may bundle the
+ * middleware separately, in which case it converges within the TTL instead.
+ * The last known set is kept as the read-failure fallback.
  */
 export function invalidateFeatureRouteCache(): void {
   generation++
@@ -135,9 +144,10 @@ export function invalidateFeatureRouteCache(): void {
   inflight = null
 }
 
-/** Test hook: drop the cached feature set. */
+/** Test hook: drop the cached and last-known feature sets. */
 export function _resetFeatureRoutesCache(): void {
   invalidateFeatureRouteCache()
+  lastKnown = null
 }
 
 /**

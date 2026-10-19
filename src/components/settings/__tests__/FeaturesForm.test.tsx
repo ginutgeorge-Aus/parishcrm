@@ -22,12 +22,12 @@ describe("FeaturesForm", () => {
       // assertion pass vacuously.
       const renderFresh = (build: (React: typeof import("react")) => React.ReactElement) =>
         jest.isolateModules(() => {
-          const R = require("react") as typeof import("react")
+          const react = require("react") as typeof import("react")
           const { createRoot } = require("react-dom/client") as typeof import("react-dom/client")
           const { flushSync } = require("react-dom") as typeof import("react-dom")
           // Detached container + own root: nothing leaks into the document other tests query.
           const root = createRoot(document.createElement("div"))
-          flushSync(() => root.render(build(R)))
+          flushSync(() => root.render(build(react)))
           flushSync(() => root.unmount())
         })
       // Control: a deliberately key-less list MUST trigger the warning in this setup.
