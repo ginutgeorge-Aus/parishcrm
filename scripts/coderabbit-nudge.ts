@@ -168,6 +168,22 @@ export function pausedBefore(comments: Comment[], headSha: string, since: Date):
 }
 
 /**
+ * True when a stale paused note exists and this head already got its one nudge
+ * (a review command posted after `since`). Applies whatever CodeRabbit's status says,
+ * so an incomplete status (e.g. rate limited) can't re-nudge the same head. Never
+ * spent while the head has no CodeRabbit status yet (`since` is the epoch): a nudge
+ * on the PR then belongs to an older head.
+ * @param comments - issue comments on one PR, any order
+ * @param headSha - the PR's head commit SHA
+ * @param since - time of CodeRabbit's first status on the head (≈ head push)
+ */
+export function pauseNudgeSpent(comments: Comment[], headSha: string, since: Date): boolean {
+  if (since.getTime() === 0) return false // no status on the head yet: any nudge was for an older head
+  const note = latestPausedNote(comments)
+  return note !== undefined && !pausedAtHead(note, headSha) && nudgedSince(comments, since)
+}
+
+/**
  * Time of CodeRabbit's first commit status on the head, or the epoch when there is
  * none. The first, not the latest: CodeRabbit posts a fresh status when it answers
  * a nudge, which would otherwise move `since` past that nudge and re-nudge the head.
@@ -181,7 +197,9 @@ export function firstStatusAt(statuses: Status[]): Date {
 /**
  * The per-PR selection rule: true when CodeRabbit hasn't reviewed the head. A
  * CodeRabbit review on the head counts; otherwise a "Review completed" status
- * counts only when no stale paused note says commits are still waiting.
+ * counts only when no stale paused note says commits are still waiting. A stale-paused
+ * head gets at most one nudge whatever the status says (a rate-limited command is not
+ * retried until the next push, #341).
  * @param reviews - PR reviews, any order
  * @param comments - issue comments on the PR, any order
  * @param statuses - commit statuses on the head SHA, any order
@@ -189,7 +207,9 @@ export function firstStatusAt(statuses: Status[]): Date {
  */
 export function needsNudge(reviews: Review[], comments: Comment[], statuses: Status[], headSha: string): boolean {
   if (isReviewed(reviews, comments, headSha)) return false
-  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, firstStatusAt(statuses)))
+  const since = firstStatusAt(statuses)
+  if (pauseNudgeSpent(comments, headSha, since)) return false
+  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, since))
 }
 
 /**
@@ -279,57 +299,94 @@ async function gh<T>(path: string, init?: { method: string; body: unknown }): Pr
   return out as T
 }
 
-/**
- * Fetches state, decides, and posts at most one review command.
- * Returns the pending rate-limit reset when it skipped for that reason.
- * @param dryRun - print the decision instead of commenting
- */
-async function runOnce(dryRun: boolean): Promise<Date | null> {
-  const now = new Date()
+type ApiPr = {
+  number: number
+  draft: boolean
+  updated_at: string
+  user: { login: string; type: string } | null
+  labels: { name: string }[]
+  head: { sha: string }
+}
 
-  type ApiPr = {
-    number: number
-    draft: boolean
-    updated_at: string
-    user: { login: string; type: string }
-    labels: { name: string }[]
-    head: { sha: string }
-  }
-  const raw = await gh<ApiPr[]>(`/repos/${REPO}/pulls?state=open`)
-  const prs: Pr[] = raw.map((p) => ({
+/**
+ * Lists the open PRs in the shape the selection rules use.
+ * @param api - GitHub API caller
+ */
+async function listOpenPrs(api: typeof gh): Promise<Pr[]> {
+  const raw = await api<ApiPr[]>(`/repos/${REPO}/pulls?state=open`)
+  return raw.map((p) => ({
     number: p.number,
     draft: p.draft,
-    author: p.user.login,
-    authorIsBot: p.user.type === "Bot",
+    author: p.user?.login ?? "",
+    authorIsBot: p.user?.type === "Bot",
     labels: p.labels.map((l) => l.name),
     headSha: p.head.sha,
     updatedAt: p.updated_at,
   }))
+}
+
+/**
+ * Fetches a PR's issue comments in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param number - PR number
+ */
+async function fetchComments(api: typeof gh, number: number): Promise<Comment[]> {
+  const raw = await api<{ user: { login: string } | null; body: string; created_at: string; updated_at: string }[]>(
+    `/repos/${REPO}/issues/${number}/comments`,
+  )
+  return raw.map((c) => ({ user: c.user?.login ?? "", body: c.body ?? "", createdAt: c.created_at, updatedAt: c.updated_at }))
+}
+
+/**
+ * Fetches a PR's reviews in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param number - PR number
+ */
+async function fetchReviews(api: typeof gh, number: number): Promise<Review[]> {
+  const raw = await api<{ user: { login: string } | null; commit_id: string; body: string | null }[]>(
+    `/repos/${REPO}/pulls/${number}/reviews`,
+  )
+  return raw.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
+}
+
+/**
+ * Fetches the commit statuses on a head SHA in the shape the selection rules use.
+ * @param api - GitHub API caller
+ * @param headSha - the PR's head commit SHA
+ */
+async function fetchStatuses(api: typeof gh, headSha: string): Promise<Status[]> {
+  const raw = await api<{ context: string; description: string | null; created_at: string }[]>(
+    `/repos/${REPO}/commits/${headSha}/statuses`,
+  )
+  return raw.map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+}
+
+/**
+ * Fetches state, decides, and posts at most one review command.
+ * Returns the pending rate-limit reset when it skipped for that reason.
+ * @param dryRun - print the decision instead of commenting
+ * @param api - GitHub API caller (injectable for tests)
+ * @param now - current time (injectable for tests)
+ */
+export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = new Date()): Promise<Date | null> {
+  const prs = await listOpenPrs(api)
 
   const unreviewed: Pr[] = []
   const allComments: Comment[] = []
   for (const pr of prs) {
-    const reviews = await gh<{ user: { login: string } | null; commit_id: string; body: string | null }[]>(
-      `/repos/${REPO}/pulls/${pr.number}/reviews`,
-    )
-    const comments = (
-      await gh<{ user: { login: string } | null; body: string; created_at: string; updated_at: string }[]>(
-        `/repos/${REPO}/issues/${pr.number}/comments`,
-      )
-    ).map((c) => ({ user: c.user?.login ?? "", body: c.body ?? "", createdAt: c.created_at, updatedAt: c.updated_at }))
+    const reviewed = await fetchReviews(api, pr.number)
+    const comments = await fetchComments(api, pr.number)
     allComments.push(...comments)
     if (nudgeInFlight(comments, now)) {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
-    const reviewed = reviews.map((r) => ({ user: r.user?.login ?? "", commitId: r.commit_id, body: r.body ?? "" }))
     if (isReviewed(reviewed, comments, pr.headSha)) continue
-    const statuses = (
-      await gh<{ context: string; description: string | null; created_at: string }[]>(
-        `/repos/${REPO}/commits/${pr.headSha}/statuses`,
-      )
-    ).map((st) => ({ context: st.context, description: st.description ?? "", createdAt: st.created_at }))
+    const statuses = await fetchStatuses(api, pr.headSha)
     if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
+    else if (pauseNudgeSpent(comments, pr.headSha, firstStatusAt(statuses))) {
+      console.log(`#${pr.number}: already nudged once on this head — waiting for the next push.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
+    }
   }
 
   console.log(`Open PRs: ${prs.length}, unreviewed at head: ${unreviewed.map((p) => `#${p.number}`).join(" ") || "none"}`)
@@ -347,7 +404,7 @@ async function runOnce(dryRun: boolean): Promise<Date | null> {
     console.log(`[dry-run] would comment "${COMMAND}" on #${next.number} (${next.author})`)
     return null
   }
-  await gh(`/repos/${REPO}/issues/${next.number}/comments`, { method: "POST", body: { body: COMMAND } })
+  await api(`/repos/${REPO}/issues/${next.number}/comments`, { method: "POST", body: { body: COMMAND } })
   console.log(`Posted "${COMMAND}" on #${next.number} (${next.author}).`)
   return null
 }
