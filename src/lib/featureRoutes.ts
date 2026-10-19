@@ -20,7 +20,7 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 })
 
 /** Every matching rule must be on: a child path inherits its parents' gates. */
-export const FEATURE_ROUTES: readonly Rule[] = [
+const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
   prefix("/memberships", "memberships"),
