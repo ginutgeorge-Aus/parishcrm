@@ -17,7 +17,6 @@ import { TransactionSchema, validateParties } from "./transactionValidation"
 import { transactionListHref } from "@/lib/transactionFilters"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { accountMatches } from "@/lib/accountMatches"
-import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 

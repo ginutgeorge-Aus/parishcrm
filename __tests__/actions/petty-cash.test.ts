@@ -1867,7 +1867,7 @@ describe("petty-cash account check runs in the Serializable write", () => {
     it("returns a retry error after repeated serialization conflicts", async () => {
       c.setup()
       mockFindAccount.mockResolvedValue({ type: c.type, isActive: true, name: "Acct" })
-      mockPrismaTransaction.mockRejectedValue({ code: "P2034" })
+      for (let i = 0; i < 3; i++) mockPrismaTransaction.mockRejectedValueOnce({ code: "P2034" })
       const result = await c.run()
       expect(result).toEqual({ error: expect.stringContaining("Try again") })
       expect(mockPrismaTransaction).toHaveBeenCalledTimes(3)
