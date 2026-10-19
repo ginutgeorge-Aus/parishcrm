@@ -83,6 +83,30 @@ it("caches the feature set between calls", async () => {
   expect(findUnique).toHaveBeenCalledTimes(1)
 })
 
+it("serves the cache within the TTL and refetches after it", async () => {
+  const now = jest.spyOn(Date, "now")
+  try {
+    stored({ events: false })
+    now.mockReturnValue(1_000_000)
+    await getEnabledFeaturesCached()
+    now.mockReturnValue(1_004_999)
+    await getEnabledFeaturesCached()
+    expect(findUnique).toHaveBeenCalledTimes(1)
+    now.mockReturnValue(1_005_000)
+    await getEnabledFeaturesCached()
+    expect(findUnique).toHaveBeenCalledTimes(2)
+  } finally {
+    now.mockRestore()
+  }
+})
+
+it("does not cache a failed read (fail open, then recovers)", async () => {
+  findUnique.mockRejectedValueOnce(new Error("db down"))
+  expect(await getEnabledFeaturesCached()).toBeNull()
+  stored({ events: false })
+  expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+})
+
 describe("middleware wiring", () => {
   const src = fs.readFileSync(path.join(process.cwd(), "src/middleware.ts"), "utf8")
 

@@ -15,7 +15,7 @@ beforeEach(() => mockSave.mockReset())
 describe("FeaturesForm", () => {
   // First on purpose: React logs a missing-key warning once per module instance.
   it("renders without React key warnings", () => {
-    const err = jest.spyOn(console, "error").mockImplementation(() => {})
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
     render(<FeaturesForm initial={{}} />)
     expect(err.mock.calls.flat().join(" ")).not.toMatch(/unique "key"/)
     err.mockRestore()
