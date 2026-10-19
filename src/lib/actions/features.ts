@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
+import { invalidateFeatureRouteCache } from "@/lib/featureRoutes"
 import { readRawOverrides } from "@/lib/featureFlags"
 import {
   FEATURES, FEATURES_ONBOARDING_KEY, FEATURES_SETTING_KEY, type FeatureKey, type FeatureOverrides,
@@ -56,6 +57,8 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
       after: next,
     })
   })
+  // Middleware shares this process: drop its 5s cache now (other processes converge within the TTL).
+  invalidateFeatureRouteCache()
   revalidatePath("/", "layout")
   return { success: "Features saved" }
 }

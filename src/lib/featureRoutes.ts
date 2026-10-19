@@ -23,9 +23,8 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
-  // Descendants only: /my-events itself is the organiser's home and renders its
-  // own fallback (layout.tsx) instead of a 404 while Events is off.
-  { match: /^\/my-events\/./, feature: "events" },
+  // /my-events is deliberately NOT here: its layout guards the whole subtree and
+  // falls back (redirect to /my-classes or a notice) instead of a 404 dead end.
   prefix("/memberships", "memberships"),
   prefix("/membershipform", "memberships"),
   prefix("/sunday-school", "sundaySchool"),
@@ -54,21 +53,22 @@ const FEATURE_ROUTES: readonly Rule[] = [
 ]
 
 /**
- * Canonical form of a request pathname for rule matching: percent-decoded (the
- * router decodes, so `/%65vents` and `/events` reach the same page) with
- * repeated slashes collapsed and no trailing slash. Malformed escapes keep the raw
- * text (the router rejects those itself).
+ * Canonical form of a request pathname for rule matching: each segment
+ * percent-decoded on its own (the router decodes, so `/%65vents` and `/events`
+ * reach the same page), empty segments dropped (repeated/trailing slashes). A
+ * malformed escape keeps only that segment raw. An encoded slash (`%2F`) stays
+ * inside its segment instead of becoming a path separator.
  * @param pathname raw request pathname
  */
 function normalisePath(pathname: string): string {
-  let decoded = pathname
-  try {
-    decoded = decodeURIComponent(pathname)
-  } catch {
-    // keep raw
-  }
-  const collapsed = decoded.replace(/\/{2,}/g, "/")
-  return collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : collapsed
+  const segments = pathname.split("/").filter(Boolean).map((seg) => {
+    try {
+      return decodeURIComponent(seg).replace(/\//g, "%2F")
+    } catch {
+      return seg
+    }
+  })
+  return "/" + segments.join("/")
 }
 
 /**
@@ -86,19 +86,22 @@ export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 const TTL_MS = 5_000
 let cache: { on: Set<FeatureKey> | null; at: number } | null = null
 let inflight: Promise<Set<FeatureKey> | null> | null = null
+// Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data.
+let generation = 0
 
 /** One DB read; on failure logs, keeps serving the last known set (else null = fail open) and caches that for the TTL. */
 async function loadFeatures(): Promise<Set<FeatureKey> | null> {
+  const gen = generation
   try {
     const { prisma } = await import("@/lib/prisma")
     const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
     const on = resolveFeatures(parseOverrides(row?.value))
-    cache = { on, at: Date.now() }
+    if (gen === generation) cache = { on, at: Date.now() }
     return on
   } catch (err) {
     console.error("[featureRoutes] feature settings read failed; using", cache?.on ? "last known set" : "fail-open", err instanceof Error ? err.message : "unknown error")
     const on = cache?.on ?? null
-    cache = { on, at: Date.now() }
+    if (gen === generation) cache = { on, at: Date.now() }
     return on
   }
 }
@@ -112,16 +115,29 @@ async function loadFeatures(): Promise<Set<FeatureKey> | null> {
  */
 export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.on
-  inflight ??= loadFeatures().finally(() => {
-    inflight = null
-  })
+  if (!inflight) {
+    const read: Promise<Set<FeatureKey> | null> = loadFeatures().finally(() => {
+      if (inflight === read) inflight = null
+    })
+    inflight = read
+  }
   return inflight
+}
+
+/**
+ * Drop this process's cached feature set so the next request re-reads it.
+ * Called by `saveFeatures` (same Node process as the middleware), so an admin
+ * sees a change immediately. Other processes still converge within the TTL.
+ */
+export function invalidateFeatureRouteCache(): void {
+  generation++
+  cache = null
+  inflight = null
 }
 
 /** Test hook: drop the cached feature set. */
 export function _resetFeatureRoutesCache(): void {
-  cache = null
-  inflight = null
+  invalidateFeatureRouteCache()
 }
 
 /**

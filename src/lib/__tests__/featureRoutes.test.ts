@@ -6,7 +6,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn()
 
 import { prisma } from "@/lib/prisma"
 import {
-  _resetFeatureRoutesCache, featuresForPath, getEnabledFeaturesCached, isFeatureRouteOff,
+  _resetFeatureRoutesCache, featuresForPath, getEnabledFeaturesCached, invalidateFeatureRouteCache, isFeatureRouteOff,
 } from "@/lib/featureRoutes"
 import { FEATURE_KEYS } from "@/lib/features"
 
@@ -30,7 +30,9 @@ describe("featuresForPath", () => {
     ["/family/some-token", ["familyUpdates"]],
     ["/people/birthdays", ["celebrations"]],
     ["/petty-cash/sessions/3", ["pettyCash"]],
-    ["/my-events/5/registrations", ["events"]],
+    ["/events/%E0%A4%A/x", ["events"]],
+    ["/%65vents/5/%ZZ", ["events"]],
+    ["/events/a%2Fb", ["events"]],
     ["/%65vents", ["events"]],
     ["/acc%6Funting/invoices", ["accounting", "invoices"]],
     ["//accounting///invoices//", ["accounting", "invoices"]],
@@ -40,8 +42,14 @@ describe("featuresForPath", () => {
   })
 
   it.each(["/", "/people", "/families", "/families/12", "/families/directory", "/e/summer", "/e/summer/success",
-    "/accounting-other", "/events-archive", "/my-events", "/my-events/", "/settings/features", "/login"])("%s is ungated", (p) => {
+    "/accounting-other", "/events-archive", "/my-events", "/my-events/", "/my-events/5/registrations", "/settings/features", "/login"])("%s is ungated", (p) => {
     expect(featuresForPath(p)).toEqual([])
+  })
+
+  it("keeps an encoded slash inside its segment (no new separator)", () => {
+    expect(featuresForPath("/accounting%2Finvoices")).toEqual([])
+    expect(featuresForPath("/x%2Fevents")).toEqual([])
+    expect(featuresForPath("/%2Fevents")).toEqual([])
   })
 
   it("gates every feature that owns a page route", () => {
@@ -103,6 +111,46 @@ it("serves the cache within the TTL and refetches after it", async () => {
   } finally {
     now.mockRestore()
   }
+})
+
+describe("invalidateFeatureRouteCache", () => {
+  it("makes the next call re-read the settings", async () => {
+    stored({ events: false })
+    expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+    stored({})
+    invalidateFeatureRouteCache()
+    expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+    expect(findUnique).toHaveBeenCalledTimes(2)
+  })
+
+  it("a read started before invalidation cannot repopulate the cache with stale data", async () => {
+    let release!: (v: unknown) => void
+    findUnique.mockReturnValueOnce(new Promise((r) => { release = r }))
+    const stale = getEnabledFeaturesCached()
+    await new Promise((r) => setImmediate(r))
+    invalidateFeatureRouteCache()
+    stored({})
+    release({ key: "features", value: JSON.stringify({ events: false }) })
+    expect((await stale)?.has("events")).toBe(false)
+    expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+  })
+
+  it("a stale failed read does not poison the cache either", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      let fail!: (e: unknown) => void
+      findUnique.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+      const stale = getEnabledFeaturesCached()
+      await new Promise((r) => setImmediate(r))
+      invalidateFeatureRouteCache()
+      stored({ events: false })
+      fail(new Error("db down"))
+      expect(await stale).toBeNull()
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
 })
 
 describe("read failures", () => {

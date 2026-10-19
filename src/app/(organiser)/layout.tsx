@@ -15,12 +15,15 @@ export default async function OrganiserLayout({ children }: Readonly<{ children:
   if (!session) redirect("/login")
   if (!isEventOrganiser(session.user.role) && !canEdit(session.user.role)) redirect("/")
 
-  const { name: churchName } = await getChurchSettings()
-  const showEvents = await isFeatureOn("events")
+  const [{ name: churchName }, showEvents, showClasses] = await Promise.all([
+    getChurchSettings(),
+    isFeatureOn("events"),
+    isFeatureOn("sundaySchool"),
+  ])
 
   return (
     <div className="flex min-h-[100dvh] flex-col">
-      <OrganiserHeader showEvents={showEvents} />
+      <OrganiserHeader showEvents={showEvents} showClasses={showClasses} />
       <main className="min-w-0 flex-1 bg-muted p-4 md:p-8">{children}</main>
       <SiteFooter churchName={churchName} className="border-t bg-card px-8 py-3" />
     </div>

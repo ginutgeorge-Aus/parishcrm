@@ -18,3 +18,9 @@ it("hides the Events link while the events feature is off", () => {
   expect(screen.queryByRole("link", { name: "Events" })).not.toBeInTheDocument()
   expect(screen.getByRole("link", { name: "Classes" })).toBeInTheDocument()
 })
+
+it("hides the Classes link while Sunday School is off", () => {
+  render(<OrganiserHeader showClasses={false} />)
+  expect(screen.queryByRole("link", { name: "Classes" })).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument()
+})

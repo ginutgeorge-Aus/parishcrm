@@ -8,8 +8,9 @@ import { logout } from "@/lib/actions/session"
 /**
  * Organiser top bar.
  * @param showEvents false hides the Events link while the events feature is off
+ * @param showClasses false hides the Classes link while Sunday School is off
  */
-export function OrganiserHeader({ showEvents = true }: Readonly<{ showEvents?: boolean }>) {
+export function OrganiserHeader({ showEvents = true, showClasses = true }: Readonly<{ showEvents?: boolean; showClasses?: boolean }>) {
   return (
     <header className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
       <Link href="/my-events" className="flex items-center gap-2">
@@ -25,9 +26,11 @@ export function OrganiserHeader({ showEvents = true }: Readonly<{ showEvents?: b
             Events
           </Link>
         )}
-        <Link href="/my-classes" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
-          Classes
-        </Link>
+        {showClasses && (
+          <Link href="/my-classes" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+            Classes
+          </Link>
+        )}
         <button
           onClick={() => logout()}
           aria-label="Sign out"

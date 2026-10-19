@@ -14,7 +14,8 @@ more on.
 Sign in as an `ADMIN` and open **Settings → Features** from the sidebar (or
 the **Choose features →** link at the top of App Settings). Flip the
 switches you want and press **Save**. The change applies to every user
-straight away.
+straight away: the menu and the page addresses themselves switch over as soon
+as you save (other servers, if you run several, follow within a few seconds).
 
 Accounting features sit indented under **Accounting**. While Accounting is
 off they are greyed out with "Needs Accounting", and **Subscription dues**
@@ -45,7 +46,8 @@ everything exactly as it was.
 
 Event organisers aren't left stuck when Events is off: their home page sends
 them to their Sunday School classes, or shows a short notice if Sunday School
-is off too.
+is off too. The organiser menu hides the Events and Classes links when their
+feature is off.
 
 Card payments already in progress still settle when Events is off: the
 Stripe webhook and the checkout sweep keep running, so a family that was
