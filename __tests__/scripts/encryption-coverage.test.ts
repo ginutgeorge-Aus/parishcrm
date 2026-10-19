@@ -82,6 +82,19 @@ function keyName(name: ts.PropertyName): string | null {
 }
 
 /**
+ * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull, or a `Buffer.from(` wrapper of one.
+ * @param node - expression to test
+ * @param direct - passed through to the wrapped argument's search
+ */
+function encryptCall(node: ts.Node, direct: boolean): { blob: boolean } | null {
+  if (!ts.isCallExpression(node)) return null
+  const callee = node.expression
+  if (ts.isIdentifier(callee) && ENCRYPT_FNS.has(callee.text)) return { blob: callee.text === "encryptBytes" }
+  const isBufferFrom = ts.isPropertyAccessExpression(callee) && callee.getText() === "Buffer.from"
+  return isBufferFrom && node.arguments[0] && findEncrypt(node.arguments[0], direct) ? { blob: true } : null
+}
+
+/**
  * The encrypt call a value expression reduces to, searching through conditionals, wrappers and call
  * arguments but not into nested object literals or blocks. `blob` is set for encryptBytes or a
  * `Buffer.from(` wrapper.
@@ -89,16 +102,34 @@ function keyName(name: ts.PropertyName): string | null {
  * @param direct - only accept the expression itself or a `Buffer.from(` wrapper of it (assignments)
  */
 function findEncrypt(node: ts.Node, direct = false): { blob: boolean } | null {
-  if (ts.isCallExpression(node)) {
-    if (ts.isIdentifier(node.expression) && ENCRYPT_FNS.has(node.expression.text)) {
-      return { blob: node.expression.text === "encryptBytes" }
-    }
-    if (ts.isPropertyAccessExpression(node.expression) && node.expression.getText() === "Buffer.from") {
-      if (node.arguments[0] && findEncrypt(node.arguments[0], direct)) return { blob: true }
-    }
-  }
+  const hit = encryptCall(node, direct)
+  if (hit) return hit
   if (direct || ts.isObjectLiteralExpression(node) || ts.isBlock(node)) return null
-  return ts.forEachChild(node, (c) => findEncrypt(c)) ?? null
+  return ts.forEachChild(node, (child) => findEncrypt(child)) ?? null
+}
+
+/**
+ * Whether `node` sits inside a nested relation write (`attendees: { create: ... }`) of the object literal `obj`.
+ * @param obj - object literal on the path from `node` upwards
+ * @param node - the write's key node
+ */
+function inNestedWrite(obj: ts.ObjectLiteralExpression, node: ts.Node): boolean {
+  return obj.properties.some(
+    (prop) =>
+      ts.isPropertyAssignment(prop) && NESTED_KEYS.has(keyName(prop.name) ?? "") && prop.pos <= node.pos && node.end <= prop.end,
+  )
+}
+
+/**
+ * The Prisma model a call writes to, or null when it isn't a `<delegate>.<write>(` call on a model.
+ * @param call - candidate call expression
+ */
+function writeCallModel(call: ts.CallExpression): string | null {
+  const callee = call.expression
+  if (!ts.isPropertyAccessExpression(callee) || !WRITE_METHODS.has(callee.name.text)) return null
+  if (!ts.isPropertyAccessExpression(callee.expression)) return null
+  const delegate = callee.expression.name.text
+  return MODELS.has(delegate) ? delegate : null
 }
 
 /**
@@ -111,19 +142,26 @@ function findEncrypt(node: ts.Node, direct = false): { blob: boolean } | null {
 function modelOf(node: ts.Node): string | null {
   for (let cur: ts.Node = node; cur.parent; cur = cur.parent) {
     const parent = cur.parent
-    if (ts.isObjectLiteralExpression(cur) && ts.isPropertyAssignment(parent)) {
-      const inNested = cur.properties.some(
-        (p) => ts.isPropertyAssignment(p) && NESTED_KEYS.has(keyName(p.name) ?? "") && p.pos <= node.pos && node.end <= p.end,
-      )
-      if (inNested) return null
-    }
-    if (ts.isCallExpression(parent) && cur !== parent.expression) {
-      const f = parent.expression
-      if (ts.isPropertyAccessExpression(f) && WRITE_METHODS.has(f.name.text) && ts.isPropertyAccessExpression(f.expression)) {
-        const delegate = f.expression.name.text
-        return MODELS.has(delegate) ? delegate : null
-      }
-    }
+    if (ts.isObjectLiteralExpression(cur) && ts.isPropertyAssignment(parent) && inNestedWrite(cur, node)) return null
+    if (ts.isCallExpression(parent) && cur !== parent.expression && writeCallModel(parent)) return writeCallModel(parent)
+  }
+  return null
+}
+
+/**
+ * The write site `node` is, if it is an encrypted property assignment or `x.foo = encrypt(...)`.
+ * @param node - any AST node
+ * @param where - label for the file
+ */
+function siteOf(node: ts.Node, where: string): WriteSite | null {
+  if (ts.isPropertyAssignment(node)) {
+    const field = keyName(node.name)
+    const enc = field && findEncrypt(node.initializer)
+    return field && enc ? { model: modelOf(node), field, blob: enc.blob, where } : null
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left)) {
+    const enc = findEncrypt(node.right, true)
+    return enc ? { model: modelOf(node), field: node.left.name.text, blob: enc.blob, where } : null
   }
   return null
 }
@@ -137,18 +175,8 @@ export function findWriteSites(text: string, where = "<inline>"): WriteSite[] {
   const sf = ts.createSourceFile("x.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const sites: WriteSite[] = []
   const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node)) {
-      const field = keyName(node.name)
-      const enc = field && findEncrypt(node.initializer)
-      if (field && enc) sites.push({ model: modelOf(node), field, blob: enc.blob, where })
-    } else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isPropertyAccessExpression(node.left)
-    ) {
-      const enc = findEncrypt(node.right, true)
-      if (enc) sites.push({ model: modelOf(node), field: node.left.name.text, blob: enc.blob, where })
-    }
+    const site = siteOf(node, where)
+    if (site) sites.push(site)
     ts.forEachChild(node, visit)
   }
   visit(sf)
@@ -255,7 +283,7 @@ describe("encryption coverage", () => {
   it("is not thrown off by brackets in strings, templates or comments before a write", () => {
     const text = [
       "await prisma.waitlist.create({",
-      '  data: { note: "unbalanced ) ] }", label: `x ${"}"} (`, /* ) ) */ email: encrypt(e) },',
+      '  data: { note: "unbalanced ) ] }", label: `x $' + '{"}"} (`, /* ) ) */ email: encrypt(e) },',
       "  // stray ( [ {",
       "})",
       "await tx.invoice.update({ data: { notes: encrypt(n) } })",
