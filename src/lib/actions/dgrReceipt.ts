@@ -107,14 +107,15 @@ function parseForm(formData: FormData): { data: ParsedForm } | { error: string }
   }
 }
 
+/** Create a DGR receipt. ADMIN/PASTOR only. */
 export async function createDgrReceipt(
   _prev: { error: string } | undefined,
   formData: FormData
 ): Promise<{ error: string } | undefined> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   const uid = actorId(session)
 
   const parsed = parseForm(formData)
@@ -178,15 +179,16 @@ export async function createDgrReceipt(
   redirect(LIST_PATH)
 }
 
+/** Update a DGR receipt. ADMIN/PASTOR only. */
 export async function updateDgrReceipt(
   id: number,
   _prev: { error: string } | undefined,
   formData: FormData
 ): Promise<{ error: string } | undefined> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const uid = actorId(session)
 
@@ -240,11 +242,12 @@ export async function updateDgrReceipt(
   redirect(LIST_PATH)
 }
 
+/** Delete a DGR receipt. ADMIN/PASTOR only. */
 export async function deleteDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const uid = actorId(session)
 
@@ -258,11 +261,12 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   return { success: "Receipt deleted." }
 }
 
+/** Email a DGR receipt to the donor. ADMIN/PASTOR only. */
 export async function sendDgrReceipt(id: number): Promise<{ error: string } | { success: string }> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const uid = actorId(session)
 
@@ -346,14 +350,16 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   return { success: "Receipt emailed." }
 }
 
-// Fetch+decrypt a single donor's email on demand, so the new-receipt page never
-// has to ship the whole congregation's plaintext emails to the client (#PII). Gated
-// like every other mutation-adjacent action — accounting editors only.
+/**
+ * Fetch+decrypt a single donor's email on demand, so the new-receipt page never has to ship the
+ * whole congregation's plaintext emails to the client (#PII). Gated like every other
+ * mutation-adjacent action — accounting editors only.
+ */
 export async function getDonorEmail(personId: number): Promise<{ email: string | null } | { error: string }> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
   if (!Number.isInteger(personId) || personId <= 0) return { error: "Invalid person." }
   const person = await prisma.person.findUnique({ where: { id: personId }, select: { email: true } })
   if (!person) return { error: "Person not found." }
@@ -370,13 +376,14 @@ export type DgrReceiptListRow = {
   sentAt: Date | null
 }
 
+/** List DGR receipts. Accounting viewers only. */
 export async function listDgrReceipts(
   fyEndYear?: number
 ): Promise<DgrReceiptListRow[] | { error: string }> {
-  const off = await featureGuard("dgrReceipts")
-  if (off) return off
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("dgrReceipts")
+  if (off) return off
 
   const rows = await prisma.dgrReceipt.findMany({
     where: fyEndYear ? { fyEndYear } : {},

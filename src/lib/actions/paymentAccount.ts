@@ -25,14 +25,15 @@ function revalidate() {
   revalidatePath("/")
 }
 
+/** Create a payment account. ADMIN only. */
 export async function createPaymentAccount(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   const parsed = NameKindSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { name, kind } = parsed.data
@@ -51,15 +52,16 @@ export async function createPaymentAccount(
   return { success: "Account added" }
 }
 
+/** Rename a payment account. ADMIN only. */
 export async function renamePaymentAccount(
   id: number,
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
   const parsed = NameSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -73,11 +75,12 @@ export async function renamePaymentAccount(
   return { success: "Renamed" }
 }
 
+/** Make a payment account the default. ADMIN only. */
 export async function setDefaultAccount(id: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
   const acct = await prisma.paymentAccount.findUnique({ where: { id } })
   if (!acct) return { error: "Account not found" }
@@ -118,11 +121,12 @@ async function checkAccountActiveChange(
   return null
 }
 
+/** Activate or deactivate a payment account. ADMIN only. */
 export async function setAccountActive(id: number, active: boolean): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!Number.isInteger(id) || id <= 0) return { error: "Invalid account" }
   const acct = await prisma.paymentAccount.findUnique({ where: { id } })
   if (!acct) return { error: "Account not found" }

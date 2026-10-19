@@ -28,14 +28,15 @@ class AlreadyReviewedError extends Error {}
 
 const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000
 
+/** Email a family an update-form invite. Editors only. */
 export async function sendFamilyUpdateInvite(
   familyId: number,
   email: string
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("familyUpdates")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
 
   const family = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, name: true } })
   if (!family) return { error: "Family not found" }
@@ -265,11 +266,12 @@ function mapApprovalError(e: unknown): string | undefined {
   return undefined
 }
 
+/** Approve a submitted family update. Editors only. */
 export async function approveFamilyUpdate(submissionId: number): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("familyUpdates")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
 
   const submission = await prisma.familyUpdateSubmission.findUnique({
     where: { id: submissionId },
@@ -332,11 +334,12 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
   return { success: "Changes applied" }
 }
 
+/** Reject a submitted family update. Editors only. */
 export async function rejectFamilyUpdate(submissionId: number, note?: string): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("familyUpdates")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("familyUpdates")
+  if (off) return off
 
   const submission = await prisma.familyUpdateSubmission.findUnique({ where: { id: submissionId } })
   if (!submission) return { error: "Submission not found" }

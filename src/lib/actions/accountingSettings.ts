@@ -43,10 +43,10 @@ export async function upsertOpeningBalance(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const parsed = OpeningBalanceSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -94,10 +94,10 @@ export async function setAccountingLockDate(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const parsed = LockDateSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }

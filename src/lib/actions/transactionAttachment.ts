@@ -36,10 +36,10 @@ export async function attachTransactionReceipt(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   if (!isValidPgId(transactionId)) return { error: "Not found" }
 
@@ -103,10 +103,10 @@ export async function attachTransactionReceipt(
 export async function removeTransactionReceipt(attachmentId: number): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   if (!isValidPgId(attachmentId)) return { error: "Not found" }
 

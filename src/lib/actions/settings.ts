@@ -280,10 +280,10 @@ const BirthdayTemplateSchema = z.object({
 export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const parsed = BirthdayTemplateSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -317,10 +317,10 @@ export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, for
 export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const parsed = BirthdayTemplateSchema.safeParse({ birthdayEmailSubject: draft.subject, birthdayEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -372,10 +372,10 @@ const AnniversaryTemplateSchema = z.object({
 export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const parsed = AnniversaryTemplateSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -408,10 +408,10 @@ export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, 
 export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const parsed = AnniversaryTemplateSchema.safeParse({ anniversaryEmailSubject: draft.subject, anniversaryEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -458,10 +458,10 @@ const AutoEmailSchema = z.object({
 export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("celebrations")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("celebrations")
+  if (off) return off
 
   const parsed = AutoEmailSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -499,10 +499,10 @@ const PettyCashCustodianSchema = z.object({
 export async function updatePettyCashCustodian(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
 
   const parsed = PettyCashCustodianSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -568,10 +568,10 @@ export async function updateLetterSettings(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("welcomeLetter")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("welcomeLetter")
+  if (off) return off
 
   const parsed = LetterSettingsSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -620,10 +620,10 @@ export async function updateMembershipSettings(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("memberships")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("memberships")
+  if (off) return off
 
   const parsed = MembershipSettingsSchema.safeParse({
     membershipParishFields: formData.get("membershipParishFields") ?? undefined,

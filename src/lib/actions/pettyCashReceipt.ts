@@ -91,15 +91,16 @@ async function findDuplicateReceiptWarning(
     : null
 }
 
+/** Record a petty cash receipt. ADMIN/PASTOR only. */
 export async function createReceipt(
   sessionId: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
   if (!existing) return { error: "Session not found" }
   if (existing.status === "CLOSED") return { error: "Session is closed" }
@@ -190,13 +191,12 @@ async function validateReceiptServiceType(serviceTypeId: number | undefined): Pr
   return st?.isActive ? null : "Invalid service type"
 }
 
+/** Edit a petty cash receipt. ADMIN/PASTOR only. */
 export async function updateReceipt(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   // canAccessAccounting (ADMIN|PASTOR), matching createReceipt. Any editor may correct any
   // entry in an OPEN session — petty-cash sessions are collaborative and both
@@ -204,6 +204,8 @@ export async function updateReceipt(
   // (every edit is audited and closed sessions are locked). Delete stays
   // ADMIN-only. By-design, not an IDOR (//AUDIT-033).
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const loaded = await loadEditableReceipt(id)
   if (loaded.error !== undefined) return { error: loaded.error }
   const { receipt, sessionDate } = loaded
@@ -284,11 +286,12 @@ export async function updateReceipt(
   redirect(`/accounting/petty-cash/sessions/${receipt.sessionId}`)
 }
 
+/** Delete a petty cash receipt. ADMIN only. */
 export async function deleteReceipt(id: number): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const receipt = await prisma.pettyCashReceipt.findUnique({
     where: { id },
     include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true } } },

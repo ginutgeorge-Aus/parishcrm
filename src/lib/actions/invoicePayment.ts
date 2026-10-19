@@ -146,10 +146,10 @@ async function sendPaidEmail(inv: SentInvoice, paidAt: Date): Promise<string | u
 
 /** Mark a SENT invoice paid by linking an existing income transaction or creating one; optionally email the recipient. */
 export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise<{ success: string; warning?: string } | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, omit: { frozenPdf: true } }) : null
   if (!inv) return { error: "Invoice not found" }
   if (inv.status !== InvoiceStatus.SENT) return { error: "Only sent invoices can be marked paid" }
@@ -172,10 +172,10 @@ export async function markInvoicePaid(id: number, input: MarkPaidInput): Promise
 
 /** Undo a payment link: PAID → SENT. The transaction stays in the ledger, just unlinked. */
 export async function unmarkInvoicePaid(id: number): Promise<{ success: string } | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, select: { status: true, invoiceNo: true, paidAt: true } }) : null
   if (inv?.status !== InvoiceStatus.PAID) return { error: "Only paid invoices can be unmarked" }
   // The paid date drives the GST-collected figure, so a locked period's payment stays put.
@@ -200,10 +200,10 @@ export async function unmarkInvoicePaid(id: number): Promise<{ success: string }
  * issue and outside the locked period. No PII returned.
  */
 export async function listPaymentCandidates(id: number): Promise<PaymentCandidate[] | { error: string }> {
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   const inv = isValidPgId(id) ? await prisma.invoice.findUnique({ where: { id }, select: { status: true, total: true, issueDate: true } }) : null
   if (!inv) return { error: "Invoice not found" }
   if (inv.status !== InvoiceStatus.SENT) return []

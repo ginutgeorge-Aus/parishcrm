@@ -14,7 +14,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { UserRole, type AttendanceStatus } from "@/lib/generated/prisma/enums"
-import { canEdit } from "@/lib/roleGuard"
+import { canEdit, canEditOrOrganise } from "@/lib/roleGuard"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
 import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
@@ -37,10 +37,10 @@ type RollGuard = { error: string } | { actor: number; ymd: string }
 async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
+  const session = await auth()
+  if (!session?.user || !canEditOrOrganise(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
-  const session = await auth()
-  if (!session?.user) return { error: "Unauthorized" }
   if (!isValidPgId(classId)) return { error: "Invalid class" }
   const actor = actorId(session)
   if (!(await canMarkRoll(actor, classId, session.user.role))) return { error: "Unauthorized" }
@@ -196,10 +196,10 @@ type EditorGuard = { error: string } | { session: Session | null }
 async function markerGuard(classId: number, userId: number): Promise<EditorGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("sundaySchool")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("sundaySchool")
+  if (off) return off
   if (!isValidPgId(classId) || !isValidPgId(userId)) return { error: "Invalid input" }
   const cls = await prisma.sundaySchoolClass.findFirst({ where: { id: classId, archivedAt: null }, select: { id: true } })
   if (!cls) return { error: CLASS_GONE }

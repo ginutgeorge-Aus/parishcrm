@@ -17,10 +17,10 @@ export async function updateInvoiceSettings(input: {
 }): Promise<{ ok: true } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("invoices")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("invoices")
+  if (off) return off
   if (typeof input.gstRegistered !== "boolean" || typeof input.paymentDetails !== "string") return { error: "Invalid settings" }
   const paymentDetails = input.paymentDetails.trim()
   if (paymentDetails.length > INVOICE_PAYMENT_DETAILS_MAX) {

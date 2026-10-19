@@ -25,11 +25,12 @@ import {
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
+/** Create an event. Editors only. */
 export async function createEvent(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
 
   const result = parseEventForm(formData)
   if ("error" in result) return { error: result.error }
@@ -76,11 +77,12 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
   redirect(`/events/${newEventId}/edit`)
 }
 
+/** Update an event. Editors only. */
 export async function updateEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   const result = parseEventForm(formData)
@@ -270,11 +272,12 @@ function deleteEventFailureResult(e: unknown): ActionResult {
   return { error: "Could not delete this event. Please try again." }
 }
 
+/** Delete an event. ADMIN only. */
 export async function deleteEvent(id: number): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   // Existence check — also keeps syncEventDeletion from firing for
@@ -317,11 +320,12 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   redirect("/events")
 }
 
+/** Publish or unpublish an event. Editors only. */
 export async function publishEvent(id: number, publish: boolean): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   // Select the slug so the public event page can be revalidated too — publish
@@ -338,13 +342,15 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   revalidatePath("/events")
 }
 
-// Manually open/close public registration without unpublishing the event —
-// the event page stays live and shows a "registration closed" panel. canEdit-gated.
+/**
+ * Manually open/close public registration without unpublishing the event — the event page stays
+ * live and shows a "registration closed" panel. canEdit-gated.
+ */
 export async function setRegistrationClosed(id: number, closed: boolean): Promise<ActionResult> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
   // Select the slug so the public event page can be revalidated too — closing
@@ -359,12 +365,14 @@ export async function setRegistrationClosed(id: number, closed: boolean): Promis
   revalidatePath("/events")
 }
 
-// Backstop for missed webhooks: re-push every event to the website. ADMIN only.
+/**
+ * Backstop for missed webhooks: re-push every event to the website. ADMIN only.
+ */
 export async function resyncEventsToWebsite(): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("events")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
 
   const { synced, failed, truncated, disabled } = await resyncAllEvents()
   if (disabled) return { error: "Website sync is not configured — nothing was sent." }

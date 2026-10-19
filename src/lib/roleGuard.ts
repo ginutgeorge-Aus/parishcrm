@@ -73,3 +73,12 @@ export function canViewClearanceStatus(role: UserRole | undefined): boolean {
 export function isEventOrganiser(role: UserRole | undefined): boolean {
   return role === UserRole.EVENT_ORGANISER
 }
+
+/**
+ * Coarse, DB-free role pre-check for actions an editor or an assigned
+ * organiser may run. The per-event/class assignment is checked separately.
+ * @param role the caller's role
+ */
+export function canEditOrOrganise(role: UserRole | undefined): boolean {
+  return canEdit(role) || isEventOrganiser(role)
+}

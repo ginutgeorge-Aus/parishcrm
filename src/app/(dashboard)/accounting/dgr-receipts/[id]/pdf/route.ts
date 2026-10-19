@@ -11,15 +11,16 @@ import { getReceiptSettings } from "@/lib/receiptSettings"
 import { parseRouteId } from "@/lib/validation"
 import { featureNotFound } from "@/lib/featureFlags"
 
+/** GET /accounting/dgr-receipts/[id]/pdf. Accounting viewers only. */
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const off = await featureNotFound("dgrReceipts")
-  if (off) return off
   const params = await props.params
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canViewAccounting(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const off = await featureNotFound("dgrReceipts")
+  if (off) return off
 
   const id = parseRouteId(params.id)
   if (id === null) {

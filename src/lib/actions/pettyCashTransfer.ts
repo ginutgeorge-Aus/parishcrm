@@ -57,15 +57,16 @@ const TransferSchema = z.object({
   notes: z.string().max(1000).optional().transform((v) => v || undefined),
 })
 
+/** Record a petty cash transfer. ADMIN/PASTOR only. */
 export async function createTransfer(
   sessionId: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const parsed = TransferSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const transferLockError = await assertUnlocked(parsed.data.date)
@@ -149,11 +150,12 @@ export async function createTransfer(
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
+/** Delete a petty cash transfer. ADMIN only. */
 export async function deleteTransfer(id: number): Promise<ActionResult> {
-  const off = await featureGuard("pettyCash")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("pettyCash")
+  if (off) return off
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
     include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true } } },

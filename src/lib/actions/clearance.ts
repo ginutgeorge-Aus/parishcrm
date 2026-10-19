@@ -88,10 +88,10 @@ export async function upsertClearance(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("clearances")
+  if (off) return off
   if (!isValidPgId(personId) || !CLEARANCE_TYPES.has(type)) return { error: "Not found" }
 
   const numberRaw = String(formData.get("number") ?? "").trim()
@@ -235,10 +235,10 @@ export async function verifyClearance(
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("clearances")
+  if (off) return off
 
   const trimmed = (note ?? "").trim()
   if (trimmed.length > MAX_NOTE_LEN) return { error: `Note must be ${MAX_NOTE_LEN} characters or fewer.` }
@@ -280,10 +280,10 @@ export async function verifyClearance(
 export async function unverifyClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("clearances")
+  if (off) return off
 
   const seenAt = parseSeenUpdatedAt(seenUpdatedAt)
   if (!seenAt) return { error: STALE_ERROR }
@@ -318,10 +318,10 @@ export async function unverifyClearance(clearanceId: string, seenUpdatedAt: stri
 export async function deleteClearance(clearanceId: string, seenUpdatedAt: string): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("clearances")
+  if (off) return off
 
   const seenAt = parseSeenUpdatedAt(seenUpdatedAt)
   if (!seenAt) return { error: STALE_ERROR }
@@ -366,10 +366,10 @@ export async function verifyClearancesBulk(
 ): Promise<ActionResultWithSuccess> {
   const demo = assertNotDemo()
   if (demo) return demo
-  const off = await featureGuard("clearances")
-  if (off) return off
   const session = await auth()
   if (!canManageClearances(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("clearances")
+  if (off) return off
 
   if (!Array.isArray(items) || items.length === 0) return { error: "Select at least one clearance" }
   if (items.length > BULK_VERIFY_MAX) return { error: `Select at most ${BULK_VERIFY_MAX} clearances at a time` }

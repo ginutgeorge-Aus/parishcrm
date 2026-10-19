@@ -4,10 +4,12 @@ import { submitMembershipApplication } from "@/lib/actions/membership"
 import { prisma } from "@/lib/prisma"
 import { featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
+import { rateLimit } from "@/lib/rateLimit"
 
 jest.mock("@/lib/prisma", () => ({ prisma: { membershipApplication: { create: jest.fn().mockResolvedValue({ id: 1 }) } } }))
 jest.mock("@/lib/turnstile", () => ({ verifyTurnstile: jest.fn().mockResolvedValue(true) }))
 jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue(true) }))
+jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn().mockReturnValue(true) }))
 jest.mock("@/lib/email", () => ({ sendMembershipNotificationEmail: jest.fn().mockResolvedValue(undefined) }))
 // pdfkit is heavy and irrelevant to the action's validation logic; stub the
 // renderer so the fire-and-forget PDF build doesn't run real pdfkit in tests.
@@ -173,4 +175,21 @@ it("returns a generic public message (not the admin wording) while Membership fo
   expect(r).toEqual({ error: PUBLIC_FEATURE_OFF_MESSAGE })
   expect(JSON.stringify(r)).not.toMatch(/Settings/)
   expect(prisma.membershipApplication.create).not.toHaveBeenCalled()
+})
+
+it("throttles per IP in memory before the feature check (an over-limit host never triggers the feature read)", async () => {
+  ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
+  const result = await submitMembershipApplication({ payload: validPayload, signature: sig })
+  expect(result).toEqual({ error: "Too many submissions. Please try again later." })
+  expect(rateLimit).toHaveBeenCalledWith("membership:pre:203.0.113.9", 30, 60_000)
+  expect(featureGuard).not.toHaveBeenCalled()
+  const { dbRateLimit } = await import("@/lib/dbRateLimit")
+  expect(dbRateLimit).not.toHaveBeenCalled()
+})
+
+it("spends the per-IP DB quota only after validation and Turnstile", async () => {
+  const { dbRateLimit } = await import("@/lib/dbRateLimit")
+  const result = await submitMembershipApplication({ payload: validPayload, signature: "" })
+  expect(result).toEqual({ error: "Signature is required" })
+  expect(dbRateLimit).not.toHaveBeenCalled()
 })

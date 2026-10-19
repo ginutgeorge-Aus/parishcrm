@@ -150,14 +150,15 @@ async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
     .map((r) => r.bankRef)
 }
 
+/** POST /api/import/bank-statement. ADMIN/PASTOR only. */
 export async function POST(req: Request) {
-  const off = await featureNotFound("bankImport")
-  if (off) return off
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!canAccessAccounting(session.user?.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const off = await featureNotFound("bankImport")
+  if (off) return off
 
   if (!rateLimit(`import:bank:${actorId(session)}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })

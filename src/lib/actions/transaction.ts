@@ -41,21 +41,23 @@ function revalidateReports() {
 // a pathological number of coincidental matches.
 const DUPLICATE_CANDIDATE_CAP = 20
 
-// Shared with pettyCash.ts (receipt/expense account validation) — returns the
-// account's name (needed for entry records there) on success, or null if the
-// account doesn't exist, is inactive, or doesn't match the expected type.
+/**
+ * Shared with pettyCash.ts (receipt/expense account validation) — returns the account's name
+ * (needed for entry records there) on success, or null if the account doesn't exist, is inactive,
+ * or doesn't match the expected type. ADMIN/PASTOR only.
+ */
 export async function validateAccount(
   accountId: number,
   type: "INCOME" | "EXPENSE",
   options?: { allowInactive?: boolean }
 ): Promise<{ name: string } | null> {
-  await assertFeature("accounting")
   // Exported from a "use server" module ⇒ a directly callable server action, so
   // gate it like every other read helper (invariant). All internal callers
   // (createTransaction/updateTransaction, petty-cash receipt/expense) are already
   // canAccessAccounting-gated, so this only blocks direct unauthenticated calls.
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return null
+  await assertFeature("accounting")
   return accountMatches(prisma, accountId, type, options)
 }
 
@@ -100,14 +102,15 @@ async function validatePaymentAccount(
   return true
 }
 
+/** Create a transaction. ADMIN/PASTOR only. */
 export async function createTransaction(
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const parsed = TransactionSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -211,15 +214,16 @@ function invoicePaymentChanged(
     || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
 }
 
+/** Update a transaction. ADMIN/PASTOR only. */
 export async function updateTransaction(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
@@ -332,11 +336,12 @@ export async function updateTransaction(
   redirect(transactionListHref(typeof back === "string" ? back : null))
 }
 
+/** Delete a transaction. ADMIN only. */
 export async function deleteTransaction(id: number): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
 
   const existing = await prisma.transaction.findUnique({
     where: { id },

@@ -10,6 +10,7 @@ import { actorId } from "@/lib/actor"
 import { encrypt, safeDecrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { dbRateLimit } from "@/lib/dbRateLimit"
+import { rateLimit } from "@/lib/rateLimit"
 import { sendMembershipNotificationEmail } from "@/lib/email"
 import { renderMembershipPdf } from "@/lib/pdf/MembershipPdf"
 import { logAudit } from "@/lib/audit"
@@ -44,9 +45,19 @@ type SubmitMembershipInput = { payload: unknown; signature: string; turnstileTok
 // rendered — the client swaps them in and keeps the applicant's typed data.
 type SubmitMembershipResult = ActionResultWithSuccess | { error: string; updatedLabels: FieldLabels }
 
+/** Public membership form submit: honeypot → in-memory per-IP throttle → feature check (generic wording) → validation → Turnstile → per-IP and per-email DB quotas. */
 export async function submitMembershipApplication(input: SubmitMembershipInput): Promise<SubmitMembershipResult> {
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
+
+  // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
+  // a client cannot set its own, so we never trust input.ip for throttling.
+  const xff = (await headers()).get("x-forwarded-for")
+  const ip = xff?.split(",").at(-1)?.trim() || undefined
+  // Generous in-memory throttle before the feature read, so a flooding host
+  // never reaches the settings table. The real quotas below are spent only
+  // once a submission is valid and verified.
+  if (!rateLimit(`membership:pre:${ip ?? "unknown"}`, 30, 60_000)) return { error: "Too many submissions. Please try again later." }
   // Public form: generic message, never the admin wording.
   if (await featureGuard("memberships")) return { error: PUBLIC_FEATURE_OFF_MESSAGE }
 
@@ -72,11 +83,6 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   if (shown && (shown.homeAddress !== currentLabels.homeAddress || shown.arrivalDate !== currentLabels.arrivalDate)) {
     return { error: "This form was updated while you were filling it in. Please check your answers and submit again.", updatedLabels: currentLabels }
   }
-
-  // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
-  // a client cannot set its own, so we never trust input.ip for throttling.
-  const xff = (await headers()).get("x-forwarded-for")
-  const ip = xff?.split(",").at(-1)?.trim() || undefined
 
   const ok = await verifyTurnstile(input.turnstileToken, ip)
   if (!ok) return { error: "Verification failed. Please try again." }
@@ -126,13 +132,14 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 
 export type MatchCandidate = { familyId: number; familyName: string; reason: "email" | "mobile" | "surname" }
 
+/** Find existing families matching a membership application. Editors only. */
 export async function findMembershipMatches(applicationId: number): Promise<MatchCandidate[]> {
-  await assertFeature("memberships")
   // Exported from a "use server" module → a directly-callable endpoint. Without
   // this gate any caller could enumerate families by guessing application ids
   // (IDOR). Staff-only, same guard as the review page that consumes it.
   const session = await auth()
   if (!canEdit(session?.user?.role)) return []
+  await assertFeature("memberships")
 
   const app = await prisma.membershipApplication.findUnique({
     where: { id: applicationId },
@@ -416,10 +423,10 @@ export async function approveMembershipApplication(
   id: number,
   opts: { mode: "create" } | { mode: "merge"; familyId: number },
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
+  const off = await featureGuard("memberships")
+  if (off) return off
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) return { error: "Application not found" }
@@ -461,11 +468,12 @@ export async function approveMembershipApplication(
   return { success: "Application approved" }
 }
 
+/** Reject a membership application. Editors only. */
 export async function rejectMembershipApplication(id: number, note?: string): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("memberships")
-  if (off) return off
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Not authorized" }
+  const off = await featureGuard("memberships")
+  if (off) return off
 
   const app = await prisma.membershipApplication.findUnique({ where: { id } })
   if (!app) return { error: "Application not found" }

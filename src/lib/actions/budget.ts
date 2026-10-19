@@ -56,14 +56,15 @@ function collectBudgetEntries(
   return { entries }
 }
 
+/** Save a year's budget lines. ADMIN only. */
 export async function upsertBudgets(
   _prev: ActionResultWithSuccess,
   formData: FormData
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("budget")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("budget")
+  if (off) return off
 
   const yearStr = formData.get("year") as string
   const year = Number.parseInt(yearStr, 10)
@@ -121,15 +122,16 @@ export async function upsertBudgets(
 // (ADMIN | PASTOR); read access is gated on the report page (canViewAccounting).
 const MAX_NOTE_LEN = 1000
 
+/** Save a budget-vs-actual variance note. ADMIN/PASTOR only. */
 export async function saveBudgetVarianceNote(
   year: number,
   accountId: number,
   note: string,
 ): Promise<ActionResultWithSuccess> {
-  const off = await featureGuard("budget")
-  if (off) return off
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("budget")
+  if (off) return off
 
   if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR) return { error: "Invalid year" }
   // accountId maps to a PG int4 column — a value past its max would reach
@@ -151,12 +153,13 @@ export async function saveBudgetVarianceNote(
   return { success: "Note saved" }
 }
 
+/** Load last year's budgets to copy forward. ADMIN only. */
 export async function getPrevYearBudgets(
   year: number
 ): Promise<{ accountId: number; amount: string }[]> {
-  await assertFeature("budget")
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return []
+  await assertFeature("budget")
   if (year < MIN_YEAR || year > MAX_YEAR) return []
 
   const rows = await prisma.budget.findMany({

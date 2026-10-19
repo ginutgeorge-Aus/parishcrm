@@ -22,11 +22,12 @@ function revalidateFunds() {
   revalidatePath("/accounting/reports/funds")
 }
 
+/** Create a fund. ADMIN only. */
 export async function createFund(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   const parsed = FundSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const existing = await prisma.fund.findUnique({ where: { name: parsed.data.name } })
@@ -36,15 +37,16 @@ export async function createFund(_prev: ActionResult, formData: FormData): Promi
   redirect("/accounting/settings/funds")
 }
 
+/** Update a fund. ADMIN only. */
 export async function updateFund(
   id: number,
   _prev: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const parsed = FundSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -61,11 +63,12 @@ export async function updateFund(
   redirect("/accounting/settings/funds")
 }
 
+/** Delete a fund. ADMIN only. */
 export async function deleteFund(id: number): Promise<ActionResult> {
-  const off = await featureGuard("accounting")
-  if (off) return off
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("accounting")
+  if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid ID" }
   const fund = await prisma.fund.findUnique({ where: { id } })
   if (!fund) return { error: "Fund not found" }
@@ -103,20 +106,20 @@ export async function deleteFund(id: number): Promise<ActionResult> {
   revalidateFunds()
 }
 
-// Existence/active check for an entry's fundId. Exported "use server" fn ⇒
-// gate it (invariant). Create paths (default): reject a deactivated fund
-// — the entry forms only offer active funds via getActiveFunds, so this
-// closes the defense-in-depth gap where a crafted request could still tag a
-// NEW entry to an isActive: false fund. Update paths pass
-// `allowInactive: true` — existence-only, so editing a historical row whose
-// fund was later deactivated still validates.
+/**
+ * Existence/active check for an entry's fundId. Exported "use server" fn ⇒ gate it (invariant).
+ * Create paths (default): reject a deactivated fund — the entry forms only offer active funds via
+ * getActiveFunds, so this closes the defense-in-depth gap where a crafted request could still tag a
+ * NEW entry to an isActive: false fund. Update paths pass `allowInactive: true` — existence-only,
+ * so editing a historical row whose fund was later deactivated still validates. ADMIN/PASTOR only.
+ */
 export async function validateFund(
   fundId: number,
   options?: { allowInactive?: boolean }
 ): Promise<boolean> {
-  await assertFeature("accounting")
   const session = await auth()
   if (!canAccessAccounting(session?.user?.role)) return false
+  await assertFeature("accounting")
   const fund = await prisma.fund.findUnique({
     where: { id: fundId },
     select: { id: true, isActive: true },
@@ -126,10 +129,11 @@ export async function validateFund(
   return true
 }
 
+/** List active funds. Accounting viewers only. */
 export async function getActiveFunds(): Promise<{ id: number; name: string }[]> {
-  await assertFeature("accounting")
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return []
+  await assertFeature("accounting")
   return prisma.fund.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],

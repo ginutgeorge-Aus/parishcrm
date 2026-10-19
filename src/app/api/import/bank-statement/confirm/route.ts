@@ -10,12 +10,12 @@ import { confirmBankImport } from "@/lib/bankImportConfirm"
 import { isDemoMode, DEMO_ERROR } from "@/lib/demoMode"
 import { featureNotFound } from "@/lib/featureFlags"
 
-// Thin transport wrapper: auth/role gate + per-user rate limit + body-size
-// cap + parse, then delegate the full validation/insert pipeline to the reusable,
-// unit-testable core in @/lib/bankImportConfirm, and log the audit trail.
+/**
+ * Thin transport wrapper: auth/role gate + per-user rate limit + body-size cap + parse, then
+ * delegate the full validation/insert pipeline to the reusable, unit-testable core in
+ * @/lib/bankImportConfirm, and log the audit trail.
+ */
 export async function POST(req: Request) {
-  const off = await featureNotFound("bankImport")
-  if (off) return off
   // Live demo: preview works, committing rows does not.
   if (isDemoMode()) return NextResponse.json({ error: DEMO_ERROR }, { status: 403 })
 
@@ -24,6 +24,8 @@ export async function POST(req: Request) {
   if (!canAccessAccounting(session.user?.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
+  const off = await featureNotFound("bankImport")
+  if (off) return off
   // The confirm step does the actual inserts (up to 1000 rows). Rate-limit it
   // separately from the upload step — a lower cap since each call is far more
   // expensive.

@@ -176,11 +176,12 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, k
   expect(read(file)).toContain(`await requireFeature("${key}")`)
 })
 
-// Module-private guard helpers that run assertNotDemo then the feature check, so
-// an action calling one is gated. Each helper must itself guard (tested below).
+// Module-private guard helpers that run assertNotDemo, auth, then the feature
+// check, so an action calling one is gated. Each helper must itself guard (tested below).
 const GUARD_HELPERS: Record<string, string[]> = {
   "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
   "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
+  "src/lib/actions/invoiceSend.ts": ["sendInvoiceGuarded"],
 }
 
 it.each(Object.entries(GUARD_HELPERS).flatMap(([file, fns]) => fns.map((fn) => [file, fn])))(
@@ -216,7 +217,7 @@ function guards(body: string, key: string, file?: string): boolean {
   return body.includes(`featureGuard("${key}")`)
     || body.includes(`assertFeature("${key}")`)
     || new RegExp(`featureGuardAny\\(\\[[^\\]]*"${key}"`).test(body)
-    || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => body.includes(`await ${h}(`)))
+    || (file !== undefined && (GUARD_HELPERS[file] ?? []).some((h) => new RegExp(`(?:await|return) ${h}\\(`).test(body)))
 }
 
 // Mixed files (core + feature-owned functions): function → feature.
@@ -271,21 +272,153 @@ it("every Server Action file is classified (feature-owned, mixed, or core)", () 
   expect(unclassified).toEqual([])
 })
 
-it("assertNotDemo runs before the feature check in every action and guard helper (no DB read for a demo write)", () => {
+// Public (anonymous) actions: honeypot/rate limit → feature, generic wording.
+// Everything else must authenticate before the feature check.
+const PUBLIC_ACTIONS = new Set([
+  "membership.ts:submitMembershipApplication",
+  "familyUpdate.ts:submitFamilyUpdate",
+  "eventCheckout.ts:startEventCheckout",
+  "eventCheckout.ts:startExistingRegistrationCheckout",
+])
+
+// Feature-only helpers (no auth of their own): their callers are checked instead.
+const FEATURE_ONLY_HELPERS = new Set(["emailTemplates.ts:templateFeatureGuard"])
+
+// A real role/permission check (not just "is there a session"): a role
+// helper (isAdmin, canEdit, canEditOrOrganise, …) or a role comparison.
+// DB-backed per-entity authz (canManageEvent, canMarkRoll) may follow the
+// feature check, as long as a DB-free role check precedes it; they never
+// count as that role check.
+const ROLE_CHECK = /\b(?:isAdmin|can(?!ManageEvent\b|MarkRoll\b)[A-Z]\w*)\(|\.role\s*[!=]==|\brole\s*[!=]==/
+const ACTION_AUTH = /await auth\(\)/
+const ACTION_FEATURE = /[fF]eatureGuard\w*\(|assertFeature\(/
+
+/**
+ * Why `body` breaks demo → auth → role check → feature, or null when it doesn't.
+ * @param body function source containing a feature check
+ * @param authCall regex for the auth call (auth(), or a route's auth helper)
+ * @param featureCall regex for the feature check
+ */
+function orderViolation(body: string, authCall: RegExp, featureCall: RegExp): string | null {
+  const feature = indexFrom(body, featureCall)
+  if (feature === Infinity) return null
+  // A missing demo check is fine (-1); a missing auth or role check is not (Infinity).
+  const demo = body.includes("assertNotDemo(") ? indexFrom(body, /assertNotDemo\(/) : -1
+  const auth = indexFrom(body, authCall)
+  const role = indexFrom(body, ROLE_CHECK, auth)
+  const late = ([["demo", demo], ["auth", auth], ["role check", role]] as const).find(([, at]) => at > feature)
+  return late ? `feature before ${late[0]}` : null
+}
+
+/**
+ * Index of the first `re` match at or after `from`; Infinity when none.
+ * @param body source text
+ * @param re pattern to find
+ * @param from start offset (Infinity → none)
+ */
+function indexFrom(body: string, re: RegExp, from = 0): number {
+  if (from === Infinity) return Infinity
+  const i = body.slice(from).search(re)
+  return i === -1 ? Infinity : from + i
+}
+
+/**
+ * Public actions: index of the first throttle and of the feature check.
+ * @param body function source
+ */
+function throttleThenFeature(body: string): { throttle: number; feature: number } {
+  return { throttle: indexFrom(body, /\b(?:db)?[rR]ateLimit\(/), feature: indexFrom(body, ACTION_FEATURE) }
+}
+
+describe("orderViolation (fixtures)", () => {
+  const fn = (...lines: string[]) => lines.join("\n")
+  it("accepts demo → auth → role → feature", () => {
+    expect(orderViolation(fn("assertNotDemo()", "const session = await auth()",
+      "if (!isAdmin(session?.user?.role)) return x", 'await featureGuard("events")'), ACTION_AUTH, ACTION_FEATURE)).toBeNull()
+  })
+  it("accepts auth → coarse role → feature → DB authz", () => {
+    expect(orderViolation(fn("const session = await auth()",
+      "if (!session?.user || !canEditOrOrganise(session.user.role)) return x", 'await featureGuard("events")',
+      "if (!(await canManageEvent(1, 2, session.user.role))) return x"), ACTION_AUTH, ACTION_FEATURE)).toBeNull()
+  })
+  it("rejects a DB-backed check (canManageEvent) as the only check before the feature", () => {
+    expect(orderViolation(fn("const session = await auth()",
+      "if (!(await canManageEvent(1, 2, session?.user?.role))) return x", 'await featureGuard("events")'),
+    ACTION_AUTH, ACTION_FEATURE)).toBe("feature before role check")
+  })
+  it("rejects auth → session-null → feature → role", () => {
+    expect(orderViolation(fn("const session = await auth()", "if (!session?.user) return x",
+      'await featureGuard("events")', "if (!canEdit(session.user.role)) return x"), ACTION_AUTH, ACTION_FEATURE))
+      .toBe("feature before role check")
+  })
+  it("rejects feature → auth", () => {
+    expect(orderViolation(fn('await featureGuard("events")', "const session = await auth()",
+      "if (!canEdit(session?.user?.role)) return x"), ACTION_AUTH, ACTION_FEATURE)).toBe("feature before auth")
+  })
+  it("rejects feature → demo", () => {
+    expect(orderViolation(fn('await featureGuard("events")', "assertNotDemo()"), ACTION_AUTH, ACTION_FEATURE))
+      .toBe("feature before demo")
+  })
+})
+
+it("demo → auth → role check → feature in every action and guard helper (no settings read or admin wording before authz)", () => {
   const dir = "src/lib/actions"
-  const late = fs.readdirSync(path.join(process.cwd(), dir))
+  const bad = fs.readdirSync(path.join(process.cwd(), dir))
     .filter((f) => f.endsWith(".ts"))
     .flatMap((f) => {
       const src = read(`${dir}/${f}`)
       // Slice at every top-level function so a private helper's body isn't
       // attributed to the export above it.
       const starts = [...src.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)]
-      return starts.filter((m, i) => {
-        const body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
-        const demo = body.indexOf("assertNotDemo(")
-        const feature = body.search(/[fF]eatureGuard\w*\(|assertFeature\(/)
-        return demo !== -1 && feature !== -1 && feature < demo
-      }).map((m) => `${f}:${m[1]}`)
+      return starts.flatMap((m, i) => {
+        if (PUBLIC_ACTIONS.has(`${f}:${m[1]}`) || FEATURE_ONLY_HELPERS.has(`${f}:${m[1]}`)) return []
+        const why = orderViolation(src.slice(m.index, starts[i + 1]?.index ?? src.length), ACTION_AUTH, ACTION_FEATURE)
+        return why ? [`${f}:${m[1]}: ${why}`] : []
+      })
     })
-  expect(late).toEqual([])
+  expect(bad).toEqual([])
+})
+
+it.each([...PUBLIC_ACTIONS])("public action %s throttles before the feature check", (id) => {
+  const [file, fn] = id.split(":")
+  const src = read(`src/lib/actions/${file}`)
+  const start = src.indexOf(`export async function ${fn}(`)
+  const next = src.indexOf("\nexport ", start + 1)
+  const { throttle, feature } = throttleThenFeature(src.slice(start, next === -1 ? undefined : next))
+  expect(feature).toBeLessThan(Infinity)
+  expect(throttle).toBeLessThan(feature)
+})
+
+// Public routes throttle → feature (anonymous by design); cron routes gate
+// inside cronFeatureSkip (secret first). Every other gated route must sign in
+// and role-check before featureNotFound, so feature state never leaks pre-auth.
+const PUBLIC_ROUTES = new Set([
+  "src/app/api/events/[slug]/register/route.ts",
+  "src/app/api/events/[slug]/waitlist/route.ts",
+  "src/app/api/events/[slug]/image/[kind]/route.ts",
+])
+
+it.each(Object.keys(GUARDED_ROUTES).filter((f) => !PUBLIC_ROUTES.has(f) && !f.includes("/api/cron/")))(
+  "%s: every handler authenticates and role-checks before featureNotFound", (file) => {
+    const src = read(file)
+    const starts = [...src.matchAll(/^export async function (GET|POST|PUT|PATCH|DELETE)\(/gm)]
+    const bad = starts.flatMap((m, i) => {
+      let body = src.slice(m.index, starts[i + 1]?.index ?? src.length)
+      expect(body).toContain("featureNotFound(")
+      // guardAccountingExport does auth + canViewAccounting itself (exportGuard.ts).
+      body = body.replace(/await guardAccountingExport\(/, "await auth() && canViewAccounting(")
+      const why = orderViolation(body, ACTION_AUTH, /featureNotFound\(/)
+      return why ? [`${m[1]}: ${why}`] : []
+    })
+    expect(bad).toEqual([])
+  })
+
+it("guardAccountingExport authenticates and role-checks (export routes rely on it)", () => {
+  const src = read("src/lib/reports/exportGuard.ts")
+  // auth → 401 early return → canViewAccounting → 403 early return, before anything else.
+  expect(src).toMatch(new RegExp([
+    String.raw`const session = await auth\(\)\s*`,
+    String.raw`if \(!session\?\.user\) return [^\n]*status: 401[^\n]*\s*`,
+    String.raw`if \(!canViewAccounting\(session\.user\.role\)\) \{\s*return [^\n]*status: 403`,
+  ].join("")))
 })
