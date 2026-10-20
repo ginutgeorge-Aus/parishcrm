@@ -4,10 +4,14 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { canEdit } from "@/lib/roleGuard"
 import { formatSydneyDate } from "@/lib/dates"
+import { eventsOffFallback } from "./eventsOffFallback"
 
 export default async function MyEventsPage() {
   const session = await auth()
   if (!session) redirect("/login")
+  // The layout's own check doesn't rerun on client navigation back here.
+  const fallback = await eventsOffFallback()
+  if (fallback) return fallback
   const userId = Number.parseInt(session.user.id, 10)
 
   // Editors see nothing special here (they use the main dashboard); organisers

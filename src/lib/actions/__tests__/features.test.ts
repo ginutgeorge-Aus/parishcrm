@@ -5,11 +5,13 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
+import { invalidateFeatureRouteCache } from "@/lib/featureRoutes"
 
 jest.mock("server-only", () => ({}))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
+jest.mock("@/lib/featureRoutes", () => ({ invalidateFeatureRouteCache: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
   const p = {
@@ -82,6 +84,7 @@ describe("saveFeatures", () => {
       after: { events: false },
     })
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout")
+    expect(invalidateFeatureRouteCache).toHaveBeenCalledTimes(1)
   })
 
   it("blocked in demo mode before auth", async () => {

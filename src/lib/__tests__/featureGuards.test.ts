@@ -2,6 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { FEATURE_KEYS } from "@/lib/features"
+import { featuresForPath } from "@/lib/featureRoutes"
 
 // Static coverage: every route segment and Server Action owned by a feature
 // must check that feature, so turning it off blocks it (not just hides it).
@@ -161,15 +162,26 @@ it.each(Object.entries(GUARDED_PAGES))("%s calls requireFeature(%s)", (file, key
 
 it("the organiser home (/my-events) gates on events without a 404 dead end", () => {
   // Organisers land here (middleware); its own test covers redirect/notice.
-  const src = read("src/app/(organiser)/my-events/layout.tsx")
-  expect(src).toContain('features.has("events")')
-  expect(src).not.toMatch(/requireFeature\(/)
+  // Layout and page share one fallback: client navigation back to /my-events
+  // re-renders only the page.
+  for (const f of ["layout.tsx", "page.tsx"]) {
+    const src = read(`src/app/(organiser)/my-events/${f}`)
+    expect(src).toContain("eventsOffFallback()")
+    expect(src).not.toMatch(/requireFeature\(/)
+  }
+  expect(read("src/app/(organiser)/my-events/eventsOffFallback.tsx")).toContain('features.has("events")')
 })
 
 it("the public event success page stays reachable (in-flight payments must show their confirmation)", () => {
   expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/layout.tsx"))).toBe(false)
   expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/[slug]/layout.tsx"))).toBe(false)
   expect(read("src/app/(public)/e/[slug]/success/page.tsx")).not.toMatch(/requireFeature/)
+})
+
+it.each(Object.entries(GUARDED_LAYOUTS))("%s is also gated by the middleware route map (%s)", (file, key) => {
+  // /src/app/(group)/a/[id]/b/layout.tsx -> /a/x/b (groups dropped, params filled)
+  const url = path.dirname(file).replace(/^src\/app/, "").replace(/\/\([^/]+\)/g, "").replace(/\[[^\]]+\]/g, "x")
+  expect(featuresForPath(url)).toContain(key)
 })
 
 it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, key) => {

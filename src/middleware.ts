@@ -5,6 +5,7 @@ import { buildCsp, isPublicPath, SECURITY_HEADERS, EVENT_IMAGE_PATH } from "@/li
 import { loginRedirectPath } from "@/lib/safeNext"
 import { publicBodyTooLarge } from "@/lib/bodyLimit"
 import { isOrganiserAllowedPath } from "@/lib/organiserAccess"
+import { FEATURE_OFF_REWRITE_PATH, featureOffRedirect, isFeatureRouteOff } from "@/lib/featureRoutes"
 import {
   getMaintenanceState,
   isMaintenanceBypassPath,
@@ -90,6 +91,27 @@ export default auth(async (req) => {
   // Pathname only (no query string — matches the URL-redaction rule) so the
   // dashboard layout can record an aggregate route-view counter ( Phase 3).
   requestHeaders.set("x-pathname", req.nextUrl.pathname)
+
+  // Feature toggles by route prefix, AFTER the auth + organiser checks (so an
+  // anonymous caller never learns feature state; public paths have no auth step).
+  // Page navigations only (GET/HEAD, not /api): layouts don't re-render on
+  // client navigation within a segment, and Server Actions (POST) / API routes
+  // keep their own guards and wording. Rewrites to a path with no route so the
+  // normal 404 page renders, except paths with a fallback (`/my-events/*` →
+  // `/my-events`), which redirect there instead. The rewrite forwards the same nonce/CSP request
+  // headers as the normal path, or the 404 page's scripts would be CSP-blocked.
+  if (
+    (req.method === "GET" || req.method === "HEAD") &&
+    !pathname.startsWith("/api/") &&
+    (await isFeatureRouteOff(pathname))
+  ) {
+    const fallback = featureOffRedirect(pathname)
+    if (fallback) return withSecurityHeaders(NextResponse.redirect(new URL(fallback, req.nextUrl)), csp)
+    return withSecurityHeaders(
+      NextResponse.rewrite(new URL(FEATURE_OFF_REWRITE_PATH, req.nextUrl), { request: { headers: requestHeaders } }),
+      csp,
+    )
+  }
 
   const res = withSecurityHeaders(NextResponse.next({ request: { headers: requestHeaders } }), csp)
   // The public event-image route is embedded cross-origin by the external
