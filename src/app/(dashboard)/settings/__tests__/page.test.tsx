@@ -98,3 +98,11 @@ it("shows the members section with only the enabled half", async () => {
   expect(html).toContain('data-c="MembershipSettingsForm"')
   expect(html).not.toContain('data-c="LetterSettingsForm"')
 })
+
+it.each([
+  ["memberships", "true", "false"],
+  ["events", "false", "true"],
+])("passes membership/card-fee flags independently (only %s on)", async (key, membership, cardFee) => {
+  const html = await renderWith(resolveFeatures({ ...allOff, [key]: true }))
+  expect(html).toContain(`data-membership="${membership}" data-cardfee="${cardFee}"`)
+})

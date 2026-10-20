@@ -13,8 +13,10 @@ more on.
 
 Sign in as an `ADMIN` and open **Settings → Features** from the sidebar (or
 the **Choose features →** link at the top of App Settings). Flip the
-switches you want and press **Save**. The change applies to every user
-straight away.
+switches you want and press **Save**. The change applies to every user:
+pages of a switched-off feature are blocked within a few seconds of saving.
+Someone who already has the app open may need to refresh before the menu
+links disappear.
 
 Accounting features sit indented under **Accounting**. While Accounting is
 off they are greyed out with "Needs Accounting", and **Subscription dues**
@@ -29,7 +31,9 @@ core and can't be switched off.
 A switched-off feature is **hidden and blocked**:
 
 - its sidebar links, dashboard tiles and settings sections disappear;
-- its pages, print pages and export links return "not found";
+- its pages, print pages and export links return "not found". This also
+  applies to someone who already has one of the feature's pages open: their
+  next click inside it shows "not found" (within a few seconds of the switch);
 - its actions refuse with "This feature is turned off. An admin can enable
   it in Settings → Features." Public forms (membership, family update, event
   checkout) instead show a plain "no longer available" or "not found" message;
@@ -43,7 +47,8 @@ everything exactly as it was.
 
 Event organisers aren't left stuck when Events is off: their home page sends
 them to their Sunday School classes, or shows a short notice if Sunday School
-is off too.
+is off too. The organiser menu hides the Events and Classes links when their
+feature is off.
 
 Card payments already in progress still settle when Events is off: the
 Stripe webhook and the checkout sweep keep running, so a family that was
