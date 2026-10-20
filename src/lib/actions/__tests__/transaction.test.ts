@@ -10,7 +10,7 @@ jest.mock("next/navigation", () => ({
   }),
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -33,10 +33,11 @@ jest.mock("@/lib/prisma", () => {
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { assertUnlocked } from "@/lib/accountingLock"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 const mockAuth = auth as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 
 function fd(o: Record<string, string>) {
   const f = new FormData()
@@ -237,7 +238,7 @@ test("updateTransaction returns a concurrency error when the optimistic update m
   expect(r).toEqual({
     error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",
   })
-  expect(mockLogAudit).not.toHaveBeenCalled()
+  expect(mockLogAuditTx).not.toHaveBeenCalled()
 })
 
 // #291: the account-type check and the write share one Serializable transaction, so a concurrent
@@ -293,13 +294,13 @@ describe("account check serialized with the write", () => {
     txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
     expect(await createTransaction(undefined, validForm())).toEqual(GONE)
     expect(txMock()).toHaveBeenCalledTimes(2)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("createTransaction gives up after repeated conflicts with a retry message", async () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await createTransaction(undefined, validForm())).toEqual(BUSY)
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("createTransaction rethrows unrelated errors", async () => {
@@ -319,7 +320,46 @@ describe("account check serialized with the write", () => {
   it("updateTransaction gives up after repeated conflicts with a retry message", async () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await updateTransaction(1, undefined, validForm())).toEqual(BUSY)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("updateTransaction retries one FK violation (deleted account) and re-validates", async () => {
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce(null)
+    txMock().mockRejectedValueOnce(p2003)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(txMock()).toHaveBeenCalledTimes(2)
+  })
+
+  it("updateTransaction reports a vanished non-account reference instead of retrying forever", async () => {
+    txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual(GONE)
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+})
+
+// #334: the audit row commits with the write — written on the tx client, so a failed
+// audit insert rolls the transaction back instead of leaving an unaudited change.
+describe("audit row written inside the transaction", () => {
+  const audit = { amount: 100, type: "INCOME", accountId: 2 }
+
+  it("createTransaction audits via logAuditTx on the tx client", async () => {
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_CREATED", "Transaction", 1, audit)
     expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("updateTransaction audits via logAuditTx on the tx client", async () => {
+    await expect(updateTransaction(1, undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_UPDATED", "Transaction", 1, audit)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("createTransaction fails when the audit insert fails (no unaudited row)", async () => {
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("audit down")
   })
 })
 
