@@ -23,7 +23,7 @@ test("a submit that resolves after close+reopen does not clobber the new draft",
   let resolveSubmit: (v: unknown) => void = () => {}
   mockSubmit.mockImplementation(() => new Promise((r) => { resolveSubmit = r }))
 
-  render(<FeedbackDialog />)
+  render(<TooltipProvider><FeedbackDialog /></TooltipProvider>)
   fireEvent.click(screen.getByRole("button", { name: "Feedback" })) // open (BUG default)
 
   fireEvent.change(screen.getByLabelText(/what were you doing/i), { target: { value: "editing" } })
@@ -46,10 +46,10 @@ test("a submit that resolves after close+reopen does not clobber the new draft",
   expect(screen.getByText("Send Feedback")).toBeInTheDocument() // still open
 })
 
-test("collapsed variant still renders a Feedback trigger, icon-only with a tooltip", () => {
+test("renders an icon-only Feedback trigger with a tooltip", () => {
   render(
     <TooltipProvider>
-      <FeedbackDialog collapsed />
+      <FeedbackDialog />
     </TooltipProvider>
   )
   const trigger = screen.getByRole("button", { name: "Feedback" })
@@ -63,7 +63,7 @@ test("collapsed variant still renders a Feedback trigger, icon-only with a toolt
 test("Submit is disabled after a successful report so a double-click can't file a duplicate", async () => {
   mockSubmit.mockResolvedValue({ success: "Report filed" })
 
-  render(<FeedbackDialog />)
+  render(<TooltipProvider><FeedbackDialog /></TooltipProvider>)
   fireEvent.click(screen.getByRole("button", { name: "Feedback" }))
   fireEvent.change(screen.getByLabelText(/what were you doing/i), { target: { value: "editing" } })
   fireEvent.change(screen.getByLabelText(/what did you expect/i), { target: { value: "save" } })

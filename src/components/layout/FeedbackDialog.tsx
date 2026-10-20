@@ -37,7 +37,8 @@ function captureClientContext() {
   }
 }
 
-export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boolean }>) {
+/** Feedback icon button (top bar) opening the bug/feature/idea dialog. Needs a TooltipProvider ancestor. */
+export function FeedbackDialog() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<FeedbackType>("BUG")
@@ -114,28 +115,16 @@ export function FeedbackDialog({ collapsed = false }: Readonly<{ collapsed?: boo
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      {collapsed ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DialogTrigger asChild>
-              <button
-                aria-label="Feedback"
-                className="flex items-center justify-center w-full px-2 py-2 rounded-md text-sm text-primary-foreground/70 hover:bg-white/10 hover:text-primary-foreground transition-colors"
-              >
-                <MessageSquarePlus className="w-4 h-4" />
-              </button>
-            </DialogTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="right">Feedback</TooltipContent>
-        </Tooltip>
-      ) : (
-        <DialogTrigger asChild>
-          <button className="flex items-center gap-3 px-3 py-2 w-full rounded-md text-sm text-primary-foreground/70 hover:bg-white/10 hover:text-primary-foreground transition-colors">
-            <MessageSquarePlus className="w-4 h-4" />
-            Feedback
-          </button>
-        </DialogTrigger>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="icon" aria-label="Feedback">
+              <MessageSquarePlus aria-hidden="true" />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Feedback</TooltipContent>
+      </Tooltip>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Send Feedback</DialogTitle>

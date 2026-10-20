@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react"
 import { Sidebar } from "@/components/layout/Sidebar"
+import { ShellProvider } from "@/components/layout/ShellContext"
 
 jest.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -23,6 +24,7 @@ jest.mock("@/lib/actions/feedback", () => ({
 test("sidebar shows the configured church name / alt text", () => {
   const { container } = render(
     <Sidebar churchName="Demo Church" pendingUpdates={0} verifyPending={0} membershipPending={0} />,
+    { wrapper: ShellProvider },
   )
   expect(container.innerHTML).toContain("Demo Church")
   expect(container.innerHTML).not.toMatch(/Example Church/i)

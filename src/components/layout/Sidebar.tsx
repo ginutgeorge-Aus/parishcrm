@@ -1,11 +1,12 @@
 "use client"
 
-import { useId, useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { Menu, X, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { X, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useShell } from "@/components/layout/ShellContext"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { canAccessAccounting, canViewAccounting, canEdit, canManageUsers, canViewPeople as canViewPeopleRole, isAdmin as isAdminRole } from "@/lib/roleGuard"
 import { buildNavGroups, flattenNavItems, type NavGroup } from "@/components/layout/sidebar/navData"
@@ -164,10 +165,8 @@ export function Sidebar({
     })
   }
 
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const { mobileOpen, setMobileOpen, menuButtonRef, drawerId } = useShell()
   const drawerRef = useRef<HTMLDivElement>(null)
-  const drawerId = useId()
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const wasOpenRef = useRef(false)
 
@@ -283,27 +282,6 @@ export function Sidebar({
 
   return (
     <TooltipProvider>
-      {/* Mobile top bar */}
-      <div className="md:hidden print:hidden fixed top-0 left-0 right-0 h-14 bg-primary text-primary-foreground flex items-center px-4 z-40 border-b border-border">
-        <button
-          ref={menuButtonRef}
-          onClick={() => setMobileOpen(true)}
-          className="-ml-2.5 p-2.5 text-muted-foreground hover:text-foreground"
-          aria-label="Open menu"
-          aria-expanded={mobileOpen}
-          aria-controls={drawerId}
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode */}
-        <span className="ml-2 flex items-center rounded bg-white p-0.5">
-          <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-9 w-auto" unoptimized />
-        </span>
-        <span className="ml-2.5 min-w-0 truncate font-display text-lg font-semibold tracking-tight text-primary-foreground">
-          {churchName}
-        </span>
-      </div>
-
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
