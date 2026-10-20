@@ -46,7 +46,8 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
         await logout()
       } catch (err) {
         unstable_rethrow(err)
-        setSignOutFailed(true)
+        // Updates after an await leave the transition; re-enter it.
+        startTransition(() => setSignOutFailed(true))
       }
     })
   }
@@ -56,7 +57,7 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
       // Expanded, the visible name + role is the accessible name; collapsed shows only the initial.
       aria-label={collapsed ? `Account menu${name ? `: ${name}` : ""}` : undefined}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex w-full items-center gap-3 rounded-lg text-left text-sm transition-colors hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
         collapsed ? "justify-center p-1.5" : "px-2 py-2"
       )}
     >

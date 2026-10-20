@@ -65,12 +65,14 @@ it("lets a successful sign-out's redirect through instead of reporting a failure
   mockRethrow.mockImplementation((e: unknown) => { throw e })
   renderMenu()
   fireEvent.keyDown(screen.getByRole("button", { name: /demo admin/i }), { key: "Enter" })
-  // The rethrown redirect may escape startTransition through the awaited act() scope.
+  // The rethrown redirect escapes startTransition and surfaces from the awaited act() scope.
+  let thrown: unknown
   try {
     await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
   } catch (e) {
-    if (e !== redirectErr) throw e
+    thrown = e
   }
+  expect(thrown).toBe(redirectErr)
   expect(mockRethrow).toHaveBeenCalledWith(redirectErr)
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 })
