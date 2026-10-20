@@ -181,7 +181,7 @@ export function Sidebar({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [mobileOpen])
+  }, [mobileOpen, setMobileOpen])
 
   // Focus management: move focus into the drawer on open, restore it to
   // the trigger button on close, so keyboard users aren't dropped back at the
@@ -193,7 +193,7 @@ export function Sidebar({
       menuButtonRef.current?.focus()
     }
     wasOpenRef.current = mobileOpen
-  }, [mobileOpen])
+  }, [mobileOpen, menuButtonRef])
 
   // Trap Tab/Shift+Tab within the drawer while open, and mark the main content
   // region `inert` so background controls aren't reachable — required for a
