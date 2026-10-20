@@ -9,6 +9,8 @@ The dashboard is the authenticated home page (`/`) — a role-aware overview wit
 
 **Nav:** the app's landing page after login — no separate menu entry needed.
 
+**Navigation:** the top bar carries a **New** menu (Person, Family, Event, Transaction — only the entries your role can create, and only for features that are switched on), a Feedback button, a notifications bell (family updates and membership forms waiting for review, with a dot when something is pending) and, for admins, a Settings shortcut. The sidebar groups pages under Community, Accounting and Settings; open your name at the bottom of the sidebar for My Account, Help and Sign out. On a phone the top bar's menu button opens the sidebar as a drawer.
+
 What's shown, top to bottom:
 - **Title + stats strip**: a "Welcome back" heading with one slim line of numbers (the upcoming-events label links to `/events`) — total families (and how many are active), total members, families/people added in the last 30 days, and upcoming events in the next 30 days. Member figures only show for roles that can view people; the events count shows for everyone.
 - **Finish setting up checklist** (`ADMIN` only, first run): a card under the stats strip listing the setup steps still to do — church name, address and ABN, the church logo, people, income and expense categories, a bank account — each linking to the page where it's done, with an "N of 5 done" progress bar. It disappears once every step is complete (and comes back if a step is undone).
