@@ -27,8 +27,9 @@ Files: `src/components/layout/Sidebar.tsx`, `sidebar/SidebarGroup.tsx`, `sidebar
   text-primary-foreground`. Every `white/10`, `primary-foreground/*` class swaps to semantic
   tokens (`border-border`, `text-muted-foreground`, `hover:bg-muted`). Dark mode then follows the
   existing dark card token.
-- **Header:** logo (expanded) or crest (rail) sits directly on the card — the white wrapper box and
-  its `no-restricted-syntax` suppressions go. Collapse button stays at the top right.
+- **Header:** logo (expanded) or crest (rail) keeps its white backing box (the artwork needs it in
+  dark mode) but loses the shadow; on the light card it reads as part of the surface. Collapse
+  button stays at the top right.
 - **Active item:** `rounded-lg bg-primary/10 text-primary font-medium`. The gold left border
   (`border-l-2 border-gold`) is removed.
 - **Idle item:** `text-muted-foreground hover:bg-muted hover:text-foreground`, `rounded-lg`,
@@ -82,8 +83,8 @@ column: `<div className="flex min-w-0 flex-1 flex-col"><TopBar/><main/></div>`.
 - **Mobile (< md):** this bar replaces the coloured mobile header in `Sidebar.tsx`. Left:
   hamburger (still controls the drawer — the drawer state moves to a small context
   `ShellProvider` in `src/components/layout/ShellContext.tsx` so TopBar and Sidebar share it),
-  crest, church name. Right: "+" icon-only quick-add, bell. Feedback moves into the quick-add
-  menu below a separator at this width; Settings stays reachable through the drawer.
+  crest, church name (truncated). Right: "+" icon-only quick-add, bell, feedback. Settings icon is
+  hidden below md (reachable through the drawer).
 - `main` loses its mobile `pt-16` (the bar is now in normal flow, not fixed).
 
 ## 3. Recommendations folded in
@@ -91,8 +92,8 @@ column: `<div className="flex min-w-0 flex-1 flex-col"><TopBar/><main/></div>`.
 - User chip menu (above) — matches MoneyMatter's footer and frees the Settings group from
   My Account/Help clutter later.
 - Quick-add menu built from a pure role+feature function, so it can't drift from page guards.
-- Semantic tokens only in the shell — removes the five `no-restricted-syntax` suppressions for
-  white logo boxes.
+- Semantic tokens everywhere in the shell except the logo/crest white backing (kept for dark-mode
+  artwork contrast).
 
 Follow-up issues to file (not this PR): global search (cmdk is already a dependency),
 light/dark/system theme switch in the user chip menu.
