@@ -998,13 +998,7 @@ git add website README.md
 git commit -m "docs: top bar and sidebar user menu"
 ```
 
-- [ ] **Step 5: File follow-up issues and add to board**
-
-```bash
-gh issue create --title "feat: global search in top bar (cmdk)" --body "Follow-up to the app shell redesign. Search people/families from the top bar; cmdk is already a dependency."
-gh issue create --title "feat: light/dark/system theme switch in user menu" --body "Follow-up to the app shell redesign. Dark mode currently follows the OS only."
-```
-Add each to the board: `gh project item-add 3 --owner ginutgeorge-Aus --url <issue-url>`.
+- [ ] **Step 5: Follow-ups already on board as drafts (OSS-316 search, OSS-317 theme) — no public issues without PO OK**
 
 - [ ] **Step 6: Push and open PR**
 
