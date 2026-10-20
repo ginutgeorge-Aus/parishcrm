@@ -58,3 +58,15 @@ it("gives an informational badge a neutral tone, not the amber action colour", (
   )
   expect(screen.getByRole("link").querySelector(".bg-warning")).toBeNull()
 })
+
+it("marks the active link with the primary pill, not a gold border", () => {
+  render(
+    <TooltipProvider>
+      <SidebarLink item={item} active={true} collapsed={false} onNavigate={() => {}} />
+    </TooltipProvider>
+  )
+  const link = screen.getByRole("link")
+  expect(link).toHaveAttribute("aria-current", "page")
+  expect(link).toHaveClass("bg-primary/10", "text-primary")
+  expect(link).not.toHaveClass("border-gold")
+})

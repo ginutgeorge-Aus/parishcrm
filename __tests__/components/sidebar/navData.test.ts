@@ -136,3 +136,9 @@ describe("feature toggles", () => {
     expect(hrefs).toContain("/people")
   })
 })
+
+it("gives every collapsible group a header icon", () => {
+  for (const g of buildNavGroups(allTrueFlags)) {
+    if (!g.headless) expect(g.icon).toBeDefined()
+  }
+})

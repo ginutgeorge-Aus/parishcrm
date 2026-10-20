@@ -17,8 +17,8 @@ export function SidebarLink({
   const { href, label, icon: Icon, badge, badgeInformational } = item
   // Amber means "needs action"; informational counts get a neutral tone so a
   // long-lived one (unverified release checks) doesn't read as an alert.
-  const dotTone = badgeInformational ? "bg-primary-foreground/60" : "bg-warning"
-  const pillTone = badgeInformational ? "bg-white/15 text-primary-foreground" : "bg-warning text-warning-foreground"
+  const dotTone = badgeInformational ? "bg-muted-foreground" : "bg-warning"
+  const pillTone = badgeInformational ? "bg-muted text-muted-foreground" : "bg-warning text-warning-foreground"
 
   const link = (
     <Link
@@ -27,11 +27,11 @@ export function SidebarLink({
       aria-label={collapsed ? (badge ? `${label} (${badge})` : label) : undefined}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-3 rounded-md text-sm transition-colors border-l-2",
+        "flex items-center gap-3 rounded-lg text-sm transition-colors",
         collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
         active
-          ? "border-gold bg-white/10 font-medium text-gold"
-          : "border-transparent text-primary-foreground/70 hover:bg-white/10 hover:text-primary-foreground"
+          ? "bg-primary/10 font-medium text-primary"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >
       <span className="relative shrink-0">

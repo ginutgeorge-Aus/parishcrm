@@ -4,7 +4,7 @@ import {
   CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  ToggleRight,
+  ToggleRight, Church, Calculator, Settings,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 
@@ -16,7 +16,8 @@ export type NavItem = {
 export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // `headless` groups render their links at the top level, with no collapsible
 // header — used for the always-visible primary sections.
-export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean }
+// `icon` is shown on collapsible group headers; headless groups have none.
+export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; icon?: React.ElementType }
 
 export type NavFlags = {
   isAccounting: boolean
@@ -57,6 +58,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Community",
+      icon: Church,
       items: [
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople && on("celebrations") },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople && on("celebrations") },
@@ -69,6 +71,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Accounting",
+      icon: Calculator,
       items: [
         {
           subLabel: "Books",
@@ -103,6 +106,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
     },
     {
       label: "Settings",
+      icon: Settings,
       items: [
         { href: "/account", label: "My Account", icon: MonitorSmartphone, show: true },
         { href: "/reports", label: "My Feedback", icon: MessagesSquare, show: true },
