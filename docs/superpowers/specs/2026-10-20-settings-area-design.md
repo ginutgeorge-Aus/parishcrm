@@ -57,9 +57,13 @@ All under `src/app/(dashboard)/settings/`, sharing `settings/layout.tsx`.
   `/accounting/settings/funds/:path*` → `/settings/accounting/funds/:path*`.
 - Old anchors in `src/lib/setupChecklist.ts`: `/settings#general` → `/settings`,
   `/settings#branding` → `/settings/branding`. Grep for any other `#<section>` links.
-- `revalidatePath("/accounting/settings…")` calls in `src/lib/actions/{accountingSettings,
-  paymentAccount,fund,invoiceSettings,settings}.ts` move to the new paths. Links in
-  reconciliation, reports, petty cash and dashboard pages update to the new routes.
+- `revalidatePath("/accounting/settings…")` calls move to the page that now owns the setting:
+  `upsertOpeningBalance` → `/settings/accounting`; `setAccountingLockDate` →
+  `/settings/accounting/period-lock`; payment-account actions → `/settings/accounting/accounts`;
+  fund actions → `/settings/accounting/funds`; `updateInvoiceSettings` →
+  `/settings/accounting/invoices`; `updatePettyCashCustodian` → `/settings/accounting/petty-cash`.
+  Existing dependent invalidations (dashboard, reports, transaction pages) stay as they are.
+  Links in reconciliation, reports, petty cash and dashboard pages update to the new routes.
 - `navData.ts`: "App Settings" → `/settings`, "Accounting Settings" → `/settings/accounting`;
   "Features", "Audit Log", "App Usage" leave the sidebar (now tabs). The most-specific-match rule
   keeps one item active.
@@ -109,15 +113,16 @@ Markup-only changes; actions, validation, `useKeepFormValues` and `FormFeedback`
 - **Managers/lists** (`PaymentAccountsManager`, funds list, `ActivityFeed`, audit log): rendered
   full width inside the card body, not as rows.
 - **Unsaved edits:** forms with dirty state register with a small `useUnsavedGuard(dirty)` hook
-  that sets `beforeunload` and intercepts in-app tab clicks in `SettingsTabs` with a confirm
-  ("Discard unsaved changes?"). Dirty state comes from the form's existing values-vs-initial
+  that sets `beforeunload`. `SettingsTabs` sends both desktop link clicks and mobile `Select`
+  changes through one `confirmLeave(href)` handler that asks "Discard unsaved changes?" before
+  `router.push`, so neither path skips the guard. Dirty state comes from the form's existing values-vs-initial
   comparison; add one where missing.
 
 ## 7. Testing
 
 - `settingsTabs.test.ts`: tab list per feature combination; group order; hidden tabs.
 - `SettingsTabs.test.tsx`: active tab for nested paths; mobile select navigates; dirty guard
-  confirms.
+  confirms on both a desktop link click and a mobile select change.
 - Per-page tests: non-admin redirect; feature-off tab redirects to `/settings`; existing form
   tests updated for new markup (by role/label, not class).
 - `next.config` redirects asserted in a unit test of the exported `redirects()` list.
