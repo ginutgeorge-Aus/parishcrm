@@ -51,8 +51,9 @@ describe("middleware feature gate", () => {
 
   it("forwards the nonce and CSP request headers on the rewrite", async () => {
     const res = await run(req("/events"))
-    expect(res.headers.get("x-middleware-request-x-nonce")).toBeTruthy()
-    expect(res.headers.get("x-middleware-request-content-security-policy")).toContain("nonce-")
+    const nonce = res.headers.get("x-middleware-request-x-nonce")
+    expect(nonce).toMatch(/^[A-Za-z0-9+/=_-]{16,}$/)
+    expect(res.headers.get("x-middleware-request-content-security-policy")).toContain(`'nonce-${nonce}'`)
     expect(res.headers.get("Content-Security-Policy")).toContain("nonce-")
   })
 
