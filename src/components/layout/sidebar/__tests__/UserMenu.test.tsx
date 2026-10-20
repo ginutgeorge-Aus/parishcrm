@@ -2,8 +2,12 @@ import { act, render, screen, fireEvent } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { UserMenu, formatRole } from "../UserMenu"
 import { logout } from "@/lib/actions/session"
+import { unstable_rethrow } from "next/navigation"
 
 jest.mock("@/lib/actions/session", () => ({ logout: jest.fn() }))
+jest.mock("next/navigation", () => ({ unstable_rethrow: jest.fn() }))
+const mockRethrow = unstable_rethrow as jest.Mock
+beforeEach(() => mockRethrow.mockReset())
 jest.mock("next-auth/react", () => ({
   useSession: () => ({ data: { user: { name: "Demo Admin", role: "OFFICE_ADMIN" } } }),
 }))
@@ -53,4 +57,30 @@ it("says so when sign out fails instead of failing silently", async () => {
   fireEvent.keyDown(screen.getByRole("button", { name: /demo admin/i }), { key: "Enter" })
   await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
   expect(screen.getByRole("alert")).toHaveTextContent("Sign out failed. Try again.")
+})
+
+it("lets a successful sign-out's redirect through instead of reporting a failure", async () => {
+  const redirectErr = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/login;307;" })
+  ;(logout as jest.Mock).mockRejectedValueOnce(redirectErr)
+  mockRethrow.mockImplementation((e: unknown) => { throw e })
+  renderMenu()
+  fireEvent.keyDown(screen.getByRole("button", { name: /demo admin/i }), { key: "Enter" })
+  // The rethrown redirect may escape startTransition through the awaited act() scope.
+  try {
+    await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
+  } catch (e) {
+    if (e !== redirectErr) throw e
+  }
+  expect(mockRethrow).toHaveBeenCalledWith(redirectErr)
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+})
+
+it("shows a visible sign-out failure on the collapsed rail", async () => {
+  ;(logout as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+  renderMenu(true)
+  fireEvent.keyDown(screen.getByRole("button", { name: "Account menu: Demo Admin" }), { key: "Enter" })
+  await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
+  const alert = screen.getByRole("alert")
+  expect(alert).toHaveTextContent("Sign out failed")
+  expect(alert).not.toHaveClass("sr-only")
 })

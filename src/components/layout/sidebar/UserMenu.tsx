@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useTransition } from "react"
 import Link from "next/link"
+import { unstable_rethrow } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { ChevronsUpDown, HelpCircle, LogOut, MonitorSmartphone } from "lucide-react"
 import { logout } from "@/lib/actions/session"
@@ -31,15 +32,23 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
   const role = formatRole(session?.user?.role)
   const initial = (name.trim()[0] ?? "?").toUpperCase()
   const [signOutFailed, setSignOutFailed] = useState(false)
+  const [, startTransition] = useTransition()
 
-  /** Signs out; logout() rethrows when the session revoke fails, so say so instead of failing silently. */
-  async function signOut() {
+  /**
+   * Signs out. A successful logout() rejects with Next's redirect control-flow
+   * error — let it through so navigation happens; a genuine failure (session
+   * revoke failed) shows inline instead of failing silently.
+   */
+  function signOut() {
     setSignOutFailed(false)
-    try {
-      await logout()
-    } catch {
-      setSignOutFailed(true)
-    }
+    startTransition(async () => {
+      try {
+        await logout()
+      } catch (err) {
+        unstable_rethrow(err)
+        setSignOutFailed(true)
+      }
+    })
   }
 
   const trigger = (
@@ -84,14 +93,14 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
           <Link href="/help" onClick={onNavigate}><HelpCircle aria-hidden="true" />Help</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void signOut()}>
+        <DropdownMenuItem onSelect={signOut}>
           <LogOut aria-hidden="true" />Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
     {signOutFailed && (
-      <p role="alert" className={collapsed ? "sr-only" : "px-2 pt-1 text-xs text-destructive"}>
-        Sign out failed. Try again.
+      <p role="alert" className={collapsed ? "pt-1 text-center text-[10px] leading-tight text-destructive" : "px-2 pt-1 text-xs text-destructive"}>
+        {collapsed ? "Sign out failed" : "Sign out failed. Try again."}
       </p>
     )}
     </>
