@@ -16,6 +16,7 @@ import { useShell } from "@/components/layout/ShellContext"
 import { buildQuickAddItems } from "@/components/layout/topbar/quickAdd"
 import { isAdmin } from "@/lib/roleGuard"
 import type { FeatureKey } from "@/lib/features"
+import type { UserRole } from "@/lib/generated/prisma/enums"
 
 /**
  * Sticky bar above page content: hamburger + crest + church name on mobile,
@@ -24,18 +25,21 @@ import type { FeatureKey } from "@/lib/features"
  */
 export function TopBar({
   churchName,
+  role: serverRole,
   pendingUpdates = 0,
   membershipPending = 0,
   features,
 }: Readonly<{
   churchName: string
+  /** Server-known role, so admin/quick-add controls render on first paint; falls back to the client session. */
+  role?: UserRole
   pendingUpdates?: number
   membershipPending?: number
   /** Enabled features (array: Sets don't cross the server→client boundary); omitted = all on. */
   features?: FeatureKey[]
 }>) {
   const { data: session } = useSession()
-  const role = session?.user?.role
+  const role = serverRole ?? session?.user?.role
   const { mobileOpen, setMobileOpen, menuButtonRef, drawerId } = useShell()
 
   const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])

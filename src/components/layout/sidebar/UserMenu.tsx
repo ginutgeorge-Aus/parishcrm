@@ -5,25 +5,26 @@ import { useSession } from "next-auth/react"
 import { ChevronsUpDown, HelpCircle, LogOut, MonitorSmartphone } from "lucide-react"
 import { logout } from "@/lib/actions/session"
 import { cn } from "@/lib/utils"
+import { ROLE_LABELS } from "@/lib/roleLabels"
+import type { UserRole } from "@/lib/generated/prisma/enums"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
-/** "OFFICE_ADMIN" → "Office admin"; undefined → "". */
+/** Display label for a role (same as the Users page); undefined → "". */
 export function formatRole(role?: string): string {
   if (!role) return ""
-  const words = role.toLowerCase().split("_")
-  return [words[0][0].toUpperCase() + words[0].slice(1), ...words.slice(1)].join(" ")
+  return ROLE_LABELS[role as UserRole] ?? role
 }
 
 /**
  * Sidebar footer chip (avatar, name, role) opening a menu with My Account,
  * Help and Sign out. On the collapsed rail only the avatar shows, with a
- * tooltip.
+ * tooltip. `onNavigate` runs when a link item is picked (closes the mobile drawer).
  */
-export function UserMenu({ collapsed }: Readonly<{ collapsed: boolean }>) {
+export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolean; onNavigate?: () => void }>) {
   const { data: session } = useSession()
   const name = session?.user?.name ?? ""
   const role = formatRole(session?.user?.role)
@@ -63,10 +64,10 @@ export function UserMenu({ collapsed }: Readonly<{ collapsed: boolean }>) {
       <DropdownMenuContent side={collapsed ? "right" : "top"} align="start" className="w-56">
         {name ? <DropdownMenuLabel className="truncate">{name}</DropdownMenuLabel> : null}
         <DropdownMenuItem asChild>
-          <Link href="/account"><MonitorSmartphone aria-hidden="true" />My Account</Link>
+          <Link href="/account" onClick={onNavigate}><MonitorSmartphone aria-hidden="true" />My Account</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/help"><HelpCircle aria-hidden="true" />Help</Link>
+          <Link href="/help" onClick={onNavigate}><HelpCircle aria-hidden="true" />Help</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => logout()}>

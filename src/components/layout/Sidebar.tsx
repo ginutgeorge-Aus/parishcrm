@@ -195,11 +195,11 @@ export function Sidebar({
     wasOpenRef.current = mobileOpen
   }, [mobileOpen, menuButtonRef])
 
-  // Trap Tab/Shift+Tab within the drawer while open, and mark the main content
-  // region `inert` so background controls aren't reachable — required for a
+  // Trap Tab/Shift+Tab within the drawer while open, and mark the content
+  // column (top bar + main) `inert` so background controls aren't reachable — required for a
   // `role="dialog" aria-modal="true"` per the WAI-ARIA APG.
   useEffect(() => {
-    const mainEl = document.getElementById("main-content")
+    const mainEl = document.getElementById("shell-content") ?? document.getElementById("main-content")
     if (!mobileOpen) {
       mainEl?.removeAttribute("inert")
       return
@@ -269,7 +269,7 @@ export function Sidebar({
               })}
         </nav>
         <div className="px-2 py-3 border-t border-border">
-          <UserMenu collapsed={collapsed} />
+          <UserMenu collapsed={collapsed} onNavigate={() => setMobileOpen(false)} />
           {!collapsed && (
             <p className="px-2 pt-2 text-xs text-muted-foreground">
               {process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}

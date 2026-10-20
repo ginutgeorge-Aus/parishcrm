@@ -54,8 +54,8 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       <ShellProvider>
         <div className="flex flex-1">
           <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopBar churchName={churchName} pendingUpdates={pendingUpdates} membershipPending={membershipPending} features={[...features]} />
+          <div id="shell-content" className="flex min-w-0 flex-1 flex-col">
+            <TopBar churchName={churchName} role={role} pendingUpdates={pendingUpdates} membershipPending={membershipPending} features={[...features]} />
             <main id="main-content" className="min-w-0 flex-1 bg-muted p-4 md:p-8">{children}</main>
           </div>
         </div>

@@ -61,3 +61,12 @@ it("hamburger toggles the shared drawer state", () => {
   fireEvent.click(menu)
   expect(menu).toHaveAttribute("aria-expanded", "true")
 })
+
+// The server passes the role so admin controls render on first paint, before
+// the client session has loaded.
+it("uses the server role while the client session is still loading", () => {
+  mockRole = undefined
+  renderBar({ role: "ADMIN" })
+  expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument()
+})
