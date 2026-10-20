@@ -343,7 +343,7 @@ describe("account check serialized with the write", () => {
 // #334: the audit row commits with the write — written on the tx client, so a failed
 // audit insert rolls the transaction back instead of leaving an unaudited change.
 describe("audit row written inside the transaction", () => {
-  const audit = { amount: 100, type: "INCOME", accountId: 2 }
+  const audit = { amount: "100.00", type: "INCOME", accountId: 2 }
   // A client distinct from `prisma` (same mocked delegates), so the assertions can only
   // pass when the audit runs inside the $transaction callback on its tx client.
   const tx = { ...prisma }

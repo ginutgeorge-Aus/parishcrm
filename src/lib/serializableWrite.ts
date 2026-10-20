@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma"
+// Value import from the generated client, not the @/lib/prisma re-export: tests that
+// mock @/lib/prisma as `{ prisma }` would otherwise lose the isolation-level enum.
 import { Prisma } from "@/lib/generated/prisma/client"
 import { isP2003, isP2034 } from "@/lib/validation"
 
