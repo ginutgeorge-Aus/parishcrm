@@ -127,55 +127,88 @@ test("updateExpense rejects an invalid fundId, passing allowInactive", async () 
 // #350: editing a historical entry whose account was deactivated later must still
 // pass both account checks (pre-tx and in-tx); create keeps rejecting inactive ones.
 describe("update paths accept a deactivated account (allowInactive)", () => {
-  // The in-tx accountMatches is stubbed to null so the write body stops right after it.
-  const tx = { pettyCashSession: { updateMany: jest.fn(async () => ({ count: 1 })) } }
+  const tx = {
+    pettyCashSession: { updateMany: jest.fn(async () => ({ count: 1 })) },
+    pettyCashReceipt: { update: jest.fn() },
+    pettyCashExpense: { update: jest.fn() },
+    person: { findUnique: jest.fn() },
+    transaction: { updateMany: jest.fn() },
+  }
   const editable = {
     id: 1,
     sessionId: 1,
     session: { id: 1, status: "OPEN", title: "01-JUL-2026" },
     transaction: null,
   }
+  const openSession = {
+    id: 1,
+    status: "OPEN",
+    title: "01-JUL-2026",
+    openingBalance: "1000.00",
+    receipts: [],
+    expenses: [],
+    transfers: [],
+  }
+  const receiptForm = () => fd({ accountId: "1", amount: "10.00" })
+  const expenseForm = () => fd({ payee: "Vendor", accountId: "1", amount: "10.00", description: "desc" })
 
   beforeEach(() => {
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx))
-    mockAccountMatches.mockResolvedValue(null)
+    // The in-tx check on a now-inactive account: passes only when allowInactive is forwarded.
+    mockAccountMatches.mockImplementation(async (_t, _id, _type, opts?: { allowInactive?: boolean }) =>
+      opts?.allowInactive ? { name: "Retired Account" } : null
+    )
   })
 
-  test("updateReceipt passes allowInactive to both account checks", async () => {
+  test("updateReceipt saves the edit and its ledger mirror", async () => {
     mockReceiptFind.mockResolvedValue(editable)
 
-    await updateReceipt(1, undefined, fd({ accountId: "1", amount: "10.00" }))
+    expect(await updateReceipt(1, undefined, receiptForm())).toBeUndefined()
 
     expect(mockValidateAccount).toHaveBeenCalledWith(1, "INCOME", { allowInactive: true })
     expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "INCOME", { allowInactive: true })
+    expect(tx.pettyCashReceipt.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }))
+    expect(tx.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pettyCashReceiptId: 1 }, data: expect.objectContaining({ accountId: 1 }) })
+    )
   })
 
-  test("updateExpense passes allowInactive to both account checks", async () => {
+  test("updateExpense saves the edit and its ledger mirror", async () => {
     mockExpenseFind.mockResolvedValue(editable)
 
-    await updateExpense(1, undefined, fd({ payee: "Vendor", accountId: "1", amount: "10.00", description: "desc" }))
+    expect(await updateExpense(1, undefined, expenseForm())).toBeUndefined()
 
     expect(mockValidateAccount).toHaveBeenCalledWith(1, "EXPENSE", { allowInactive: true })
     expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "EXPENSE", { allowInactive: true })
+    expect(tx.pettyCashExpense.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }))
+    expect(tx.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pettyCashExpenseId: 1 }, data: expect.objectContaining({ accountId: 1 }) })
+    )
   })
 
-  test("createReceipt still checks the account without allowInactive", async () => {
-    mockSessionFind.mockResolvedValue({ id: 1, status: "OPEN", title: "01-JUL-2026" })
-    mockValidateAccount.mockResolvedValue(null) // inactive → rejected
+  test("updateReceipt still rejects an account that is gone or retyped", async () => {
+    mockReceiptFind.mockResolvedValue(editable)
+    mockAccountMatches.mockResolvedValue(null)
 
-    const res = await createReceipt(1, undefined, fd({ accountId: "1", amount: "10.00" }))
+    expect(await updateReceipt(1, undefined, receiptForm())).toEqual({ error: "Invalid account" })
+    expect(tx.pettyCashReceipt.update).not.toHaveBeenCalled()
+  })
 
-    expect(res).toEqual({ error: "Invalid account" })
+  test("createReceipt checks the account without allowInactive, before and inside the tx", async () => {
+    mockSessionFind.mockResolvedValue(openSession)
+
+    expect(await createReceipt(1, undefined, receiptForm())).toEqual({ error: "Invalid account" })
+
     expect(mockValidateAccount).toHaveBeenCalledWith(1, "INCOME")
+    expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "INCOME")
   })
 
-  test("createExpense still checks the account without allowInactive", async () => {
-    mockSessionFind.mockResolvedValue({ id: 1, status: "OPEN", title: "01-JUL-2026" })
-    mockValidateAccount.mockResolvedValue(null) // inactive → rejected
+  test("createExpense checks the account without allowInactive, before and inside the tx", async () => {
+    mockSessionFind.mockResolvedValue(openSession)
 
-    const res = await createExpense(1, undefined, fd({ payee: "Vendor", accountId: "1", amount: "10.00", description: "desc" }))
+    expect(await createExpense(1, undefined, expenseForm())).toEqual({ error: "Invalid account" })
 
-    expect(res).toEqual({ error: "Invalid account" })
     expect(mockValidateAccount).toHaveBeenCalledWith(1, "EXPENSE")
+    expect(mockAccountMatches).toHaveBeenCalledWith(tx, 1, "EXPENSE")
   })
 })

@@ -344,20 +344,30 @@ describe("account check serialized with the write", () => {
 // audit insert rolls the transaction back instead of leaving an unaudited change.
 describe("audit row written inside the transaction", () => {
   const audit = { amount: 100, type: "INCOME", accountId: 2 }
+  // A client distinct from `prisma` (same mocked delegates), so the assertions can only
+  // pass when the audit runs inside the $transaction callback on its tx client.
+  const tx = { ...prisma }
+  const runInTx = () =>
+    (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce((fn: (t: unknown) => unknown) => fn(tx))
 
   it("createTransaction audits via logAuditTx on the tx client", async () => {
+    runInTx()
     await expect(createTransaction(undefined, validForm())).rejects.toThrow("REDIRECT")
-    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_CREATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(tx, 1, "TRANSACTION_CREATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx.mock.calls[0][0]).not.toBe(prisma)
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
   it("updateTransaction audits via logAuditTx on the tx client", async () => {
+    runInTx()
     await expect(updateTransaction(1, undefined, validForm())).rejects.toThrow("REDIRECT")
-    expect(mockLogAuditTx).toHaveBeenCalledWith(prisma, 1, "TRANSACTION_UPDATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(tx, 1, "TRANSACTION_UPDATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx.mock.calls[0][0]).not.toBe(prisma)
     expect(mockLogAudit).not.toHaveBeenCalled()
   })
 
-  it("createTransaction fails when the audit insert fails (no unaudited row)", async () => {
+  it("createTransaction propagates an audit insert failure out of the transaction", async () => {
+    runInTx()
     mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
     await expect(createTransaction(undefined, validForm())).rejects.toThrow("audit down")
   })
