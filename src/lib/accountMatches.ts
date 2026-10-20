@@ -19,7 +19,7 @@ export async function accountMatches(
     where: { id: accountId },
     select: { type: true, isActive: true, name: true },
   })
-  if (account?.type !== type) return null
+  if (!account || account.type !== type) return null
   if (!options?.allowInactive && !account.isActive) return null
   return { name: account.name }
 }
