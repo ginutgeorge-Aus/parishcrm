@@ -17,10 +17,11 @@ jest.mock("@/lib/maintenance", () => ({
 jest.mock("@/lib/featureRoutes", () => ({
   FEATURE_OFF_REWRITE_PATH: "/_feature-off",
   isFeatureRouteOff: jest.fn(),
+  featureOffRedirect: jest.fn(),
 }))
 
 import middleware from "@/middleware"
-import { isFeatureRouteOff } from "@/lib/featureRoutes"
+import { featureOffRedirect, isFeatureRouteOff } from "@/lib/featureRoutes"
 
 const off = isFeatureRouteOff as jest.Mock
 const run = middleware as unknown as (req: unknown) => Promise<NextResponse>
@@ -34,7 +35,12 @@ const req = (pathname: string, method = "GET", role = "ADMIN", user = true) => (
 
 const rewrittenTo = (res: NextResponse) => res.headers.get("x-middleware-rewrite")
 
-beforeEach(() => off.mockReset().mockResolvedValue(true))
+const fallback = featureOffRedirect as jest.Mock
+
+beforeEach(() => {
+  off.mockReset().mockResolvedValue(true)
+  fallback.mockReset().mockReturnValue(null)
+})
 
 describe("middleware feature gate", () => {
   it("rewrites a GET to a feature that is off to the 404 path", async () => {
@@ -47,6 +53,15 @@ describe("middleware feature gate", () => {
     const res = await run(req("/events"))
     expect(res.headers.get("x-middleware-request-x-nonce")).toBeTruthy()
     expect(res.headers.get("x-middleware-request-content-security-policy")).toContain("nonce-")
+    expect(res.headers.get("Content-Security-Policy")).toContain("nonce-")
+  })
+
+  it("redirects to the fallback path instead of a 404 when the route has one", async () => {
+    fallback.mockReturnValue("/my-events")
+    const res = await run(req("/my-events/42/check-in", "GET", "EVENT_ORGANISER"))
+    expect(rewrittenTo(res)).toBeNull()
+    expect(res.status).toBe(307)
+    expect(new URL(res.headers.get("location")!).pathname).toBe("/my-events")
     expect(res.headers.get("Content-Security-Policy")).toContain("nonce-")
   })
 

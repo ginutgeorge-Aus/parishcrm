@@ -6,7 +6,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn()
 
 import { prisma } from "@/lib/prisma"
 import {
-  _resetFeatureRoutesCache, featuresForPath, getEnabledFeaturesCached, invalidateFeatureRouteCache, isFeatureRouteOff,
+  _resetFeatureRoutesCache, featureOffRedirect, featuresForPath, getEnabledFeaturesCached, invalidateFeatureRouteCache, isFeatureRouteOff,
 } from "@/lib/featureRoutes"
 import { FEATURE_KEYS } from "@/lib/features"
 
@@ -60,6 +60,20 @@ describe("featuresForPath", () => {
       "/accounting/import", "/accounting/dues", "/accounting/send-receipts", "/accounting/dgr-receipts",
       "/accounting/invoices", "/accounting/budget"].flatMap(featuresForPath))
     expect([...FEATURE_KEYS].filter((k) => !covered.has(k))).toEqual([])
+  })
+})
+
+describe("featureOffRedirect", () => {
+  it.each([
+    ["/my-events/42/check-in", "/my-events"],
+    ["/my-events/5", "/my-events"],
+    ["/%6Dy-events/5", "/my-events"],
+  ])("%s falls back to %s", (p, to) => {
+    expect(featureOffRedirect(p)).toBe(to)
+  })
+
+  it.each(["/events", "/accounting/invoices", "/my-events", "/my-classes"])("%s has no fallback (404)", (p) => {
+    expect(featureOffRedirect(p)).toBeNull()
   })
 })
 

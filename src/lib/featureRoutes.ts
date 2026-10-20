@@ -82,6 +82,17 @@ export function featuresForPath(pathname: string): FeatureKey[] {
   return FEATURE_ROUTES.filter((r) => r.match.test(path)).map((r) => r.feature)
 }
 
+/**
+ * Where a blocked path sends the caller instead of the 404, or null for the 404.
+ * `/my-events/*` goes back to the `/my-events` home, whose layout redirects an
+ * organiser to `/my-classes` or shows the events-off notice, so a bookmarked or
+ * emailed event link is not a dead end.
+ * @param pathname request pathname (same normalisation as `featuresForPath`)
+ */
+export function featureOffRedirect(pathname: string): string | null {
+  return /^\/my-events\/[^/]/.test(normalisePath(pathname)) ? "/my-events" : null
+}
+
 /** Path the middleware rewrites a blocked request to: no such route, so the app 404 renders. */
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
