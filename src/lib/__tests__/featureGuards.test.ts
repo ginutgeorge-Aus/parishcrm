@@ -162,9 +162,14 @@ it.each(Object.entries(GUARDED_PAGES))("%s calls requireFeature(%s)", (file, key
 
 it("the organiser home (/my-events) gates on events without a 404 dead end", () => {
   // Organisers land here (middleware); its own test covers redirect/notice.
-  const src = read("src/app/(organiser)/my-events/layout.tsx")
-  expect(src).toContain('features.has("events")')
-  expect(src).not.toMatch(/requireFeature\(/)
+  // Layout and page share one fallback: client navigation back to /my-events
+  // re-renders only the page.
+  for (const f of ["layout.tsx", "page.tsx"]) {
+    const src = read(`src/app/(organiser)/my-events/${f}`)
+    expect(src).toContain("eventsOffFallback()")
+    expect(src).not.toMatch(/requireFeature\(/)
+  }
+  expect(read("src/app/(organiser)/my-events/eventsOffFallback.tsx")).toContain('features.has("events")')
 })
 
 it("the public event success page stays reachable (in-flight payments must show their confirmation)", () => {

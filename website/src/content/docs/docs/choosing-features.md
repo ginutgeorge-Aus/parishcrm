@@ -13,9 +13,10 @@ more on.
 
 Sign in as an `ADMIN` and open **Settings → Features** from the sidebar (or
 the **Choose features →** link at the top of App Settings). Flip the
-switches you want and press **Save**. The change applies to every user
-straight away: the menu and the page addresses themselves switch over within
-a few seconds of saving.
+switches you want and press **Save**. The change applies to every user:
+pages of a switched-off feature are blocked within a few seconds of saving.
+Someone who already has the app open may need to refresh before the menu
+links disappear.
 
 Accounting features sit indented under **Accounting**. While Accounting is
 off they are greyed out with "Needs Accounting", and **Subscription dues**
