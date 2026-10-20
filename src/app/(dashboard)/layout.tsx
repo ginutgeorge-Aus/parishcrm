@@ -1,4 +1,6 @@
 import { Sidebar } from "@/components/layout/Sidebar"
+import { TopBar } from "@/components/layout/TopBar"
+import { ShellProvider } from "@/components/layout/ShellContext"
 import { SiteFooter } from "@/components/SiteFooter"
 import { IdleTimeout } from "@/components/auth/IdleTimeout"
 import { getIdleTimeoutMinutes } from "@/lib/actions/settings"
@@ -49,10 +51,15 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       >
         Skip to main content
       </a>
-      <div className="flex flex-1">
-        <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} />
-        <main id="main-content" className="min-w-0 flex-1 bg-muted p-4 pt-16 md:p-8 md:pt-8">{children}</main>
-      </div>
+      <ShellProvider>
+        <div className="flex flex-1">
+          <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar churchName={churchName} pendingUpdates={pendingUpdates} membershipPending={membershipPending} features={[...features]} />
+            <main id="main-content" className="min-w-0 flex-1 bg-muted p-4 md:p-8">{children}</main>
+          </div>
+        </div>
+      </ShellProvider>
       <SiteFooter churchName={churchName} className="border-t bg-card px-8 py-3" />
       <IdleTimeout idleMinutes={session?.remember ? REMEMBERED_IDLE_MINUTES : idleMinutes} />
     </div>

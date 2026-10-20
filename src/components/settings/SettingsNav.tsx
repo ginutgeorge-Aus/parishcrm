@@ -20,7 +20,7 @@ export function SettingsNav({ items = SETTINGS_NAV_ITEMS }: Readonly<{ items?: r
   return (
     <nav
       aria-label="Settings sections"
-      className="sticky top-14 z-10 -mx-1 md:top-0 mb-6 overflow-x-auto border-b border-border bg-background px-1 py-2"
+      className="sticky top-14 z-10 -mx-1 mb-6 overflow-x-auto border-b border-border bg-background px-1 py-2"
     >
       <ul className="flex gap-1 whitespace-nowrap">
         {items.map((item) => (

@@ -18,25 +18,30 @@ jest.mock("@/lib/featureFlags", () => ({
   getEnabledFeatures: jest.fn(async () => (await import("@/lib/features")).resolveFeatures({})),
 }))
 jest.mock("@/components/layout/Sidebar", () => ({ Sidebar: () => null }))
+jest.mock("@/components/layout/TopBar", () => ({ TopBar: () => null }))
+jest.mock("@/components/layout/ShellContext", () => ({ ShellProvider: ({ children }: { children: React.ReactNode }) => children }))
 jest.mock("@/components/SiteFooter", () => ({ SiteFooter: () => null }))
 jest.mock("@/components/auth/IdleTimeout", () => ({ IdleTimeout: () => null }))
 
 import DashboardLayout from "../layout"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 
-/**
- * Walks the returned React element tree and returns the props of the Sidebar element.
- */
-function sidebarProps(tree: unknown): Record<string, unknown> | undefined {
+/** Depth-first search of the element tree for the first element whose props pass `match`. */
+function findProps(tree: unknown, match: (p: Record<string, unknown>) => boolean): Record<string, unknown> | undefined {
   const el = tree as { props?: Record<string, unknown> } | null
   if (!el || typeof el !== "object") return undefined
-  if (el.props && "verifyPending" in el.props) return el.props
+  if (el.props && match(el.props)) return el.props
   const kids = el.props?.children
   for (const k of Array.isArray(kids) ? kids : [kids]) {
-    const found = sidebarProps(k)
+    const found = findProps(k, match)
     if (found) return found
   }
   return undefined
+}
+
+/** Props of the Sidebar element (the only one carrying `verifyPending`). */
+function sidebarProps(tree: unknown): Record<string, unknown> | undefined {
+  return findProps(tree, (p) => "verifyPending" in p)
 }
 
 describe("DashboardLayout verify badge", () => {
@@ -90,5 +95,18 @@ describe("DashboardLayout idle timeout", () => {
   it("uses the 7-day sliding window for a remembered session", async () => {
     mockAuth.mockResolvedValue({ user: { role: "VIEWER" }, remember: true })
     expect(idleProps(await DashboardLayout({ children: null }))?.idleMinutes).toBe(7 * 24 * 60)
+  })
+})
+
+describe("DashboardLayout top bar", () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it("passes the pending counts and church name to the top bar", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+    mockGroupBy.mockResolvedValue([])
+    const tree = await DashboardLayout({ children: null })
+    const top = findProps(tree, (p) => "churchName" in p && !("verifyPending" in p))
+    expect(top).toMatchObject({ churchName: "Test Church", pendingUpdates: 0, membershipPending: 0 })
+    expect(Array.isArray(top?.features)).toBe(true)
   })
 })

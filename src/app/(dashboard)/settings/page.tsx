@@ -96,7 +96,7 @@ export default async function SettingsPage() {
       </p>
       <SettingsNav items={SETTINGS_NAV_ITEMS.filter((i) => sectionShown[i.id] ?? true)} />
       <div className="space-y-12">
-        <section id="general" aria-label="General" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
+        <section id="general" aria-label="General" className="scroll-mt-32 space-y-10 max-w-lg">
           <ChurchInfoForm
             churchName={get("churchName") || (process.env.CHURCH_NAME ?? "")}
             churchAddress={get("churchAddress") || (process.env.CHURCH_ADDRESS ?? "")}
@@ -115,10 +115,10 @@ export default async function SettingsPage() {
             showCardFee={on("events")}
           />
         </section>
-        <section id="branding" aria-label="Branding" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">
+        <section id="branding" aria-label="Branding" className="scroll-mt-32 max-w-lg">
           <BrandingForm />
         </section>
-        <section id="email" aria-label="Email" className="scroll-mt-32 md:scroll-mt-16 space-y-10">
+        <section id="email" aria-label="Email" className="scroll-mt-32 space-y-10">
           {on("celebrations") && (
             <div className="space-y-10 max-w-lg">
               <BirthdayEmailForm subject={birthdayTpl.subject} body={birthdayTpl.body} />
@@ -131,18 +131,18 @@ export default async function SettingsPage() {
           <EmailTemplatesSection templates={emailTemplates} keys={visibleEmailTemplateKeys(features)} />
         </section>
         {(on("welcomeLetter") || on("memberships")) && (
-        <section id="members" aria-label="Members" className="scroll-mt-32 md:scroll-mt-16 space-y-10 max-w-lg">
+        <section id="members" aria-label="Members" className="scroll-mt-32 space-y-10 max-w-lg">
           {on("welcomeLetter") && <LetterSettingsForm settings={letterSettings} />}
           {on("welcomeLetter") && on("memberships") && <hr className="border-border" />}
           {on("memberships") && <MembershipSettingsForm settings={membershipSettings} />}
         </section>
         )}
         {(on("receipts") || on("dgrReceipts")) && (
-          <section id="receipts" aria-label="Receipts" className="scroll-mt-32 md:scroll-mt-16">
+          <section id="receipts" aria-label="Receipts" className="scroll-mt-32">
             <ReceiptSettingsSection settings={receiptSettings} />
           </section>
         )}
-        <section id="security" aria-label="Security" className="scroll-mt-32 md:scroll-mt-16 max-w-lg">
+        <section id="security" aria-label="Security" className="scroll-mt-32 max-w-lg">
           <ActivityFeed
             isAdmin
             auditEntries={auditEntries}
