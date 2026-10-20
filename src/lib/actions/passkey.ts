@@ -7,7 +7,6 @@ import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
   verifyRegistrationResponse,
-  type AuthenticatorTransport,
   type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialRequestOptionsJSON,
   type RegistrationResponseJSON,
@@ -36,6 +35,11 @@ const NOT_VERIFIED = { error: "Passkey could not be verified" } as const
 const RATE_LIMITED = { error: "Too many attempts. Try again in 15 minutes." } as const
 const REAUTH_FAILED = { error: "Incorrect password" } as const
 const AT_CAP = { error: `You can register up to ${MAX_PASSKEYS_PER_USER} passkeys` } as const
+
+// EdDSA, ES256, RS256. Pinned so registration doesn't follow the library's
+// runtime-dependent default (v14 offers ML-DSA-44 first when this Node can
+// verify it): a key the next runtime can't verify would lock its owner out.
+const PASSKEY_ALGORITHM_IDS = [-8, -7, -257]
 
 // Every management action acts on the session user only — no userId argument,
 // so there is no IDOR surface. Admin revoke lives in user.ts::revokeUserPasskeys.
@@ -109,7 +113,8 @@ export async function startPasskeyRegistration(
     userDisplayName: user.name,
     userID: new TextEncoder().encode(String(userId)),
     attestationType: "none",
-    excludeCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports as AuthenticatorTransport[] })),
+    supportedAlgorithmIDs: PASSKEY_ALGORITHM_IDS,
+    excludeCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports })),
     authenticatorSelection: { residentKey: "required", userVerification: "required" },
   })
   const challengeId = await createChallenge(options.challenge, "register", userId)
@@ -140,6 +145,7 @@ export async function finishPasskeyRegistration(
       expectedOrigin: rp.origin,
       expectedRPID: rp.rpID,
       requireUserVerification: true,
+      supportedAlgorithmIDs: PASSKEY_ALGORITHM_IDS,
     })
   } catch {
     return NOT_VERIFIED

@@ -15,7 +15,7 @@ import { auditIpFromHeaders } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
-import { verifyAuthenticationResponse, type AuthenticationResponseJSON, type AuthenticatorTransport } from "@simplewebauthn/server"
+import { verifyAuthenticationResponse, type AuthenticationResponseJSON } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
 // bcrypt hash (cost 12, matching the real hash cost used at
@@ -238,7 +238,7 @@ export async function authorizePasskey(
         id: passkey.credentialId,
         publicKey: new Uint8Array(passkey.publicKey),
         counter: Number(passkey.counter),
-        transports: passkey.transports as AuthenticatorTransport[],
+        transports: passkey.transports,
       },
     })
   } catch {
