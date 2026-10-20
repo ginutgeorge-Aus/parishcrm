@@ -164,9 +164,9 @@ export async function createTransaction(
         personId,
       },
     })
-    // Audit on the tx client so row + audit commit (or roll back) together.
+    // Audit row commits (or rolls back) with the transaction row.
     await logAuditTx(tx, actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
-      amount: Number(parsed.data.amount),
+      amount: parsed.data.amount,
       type: parsed.data.type,
       accountId: parsed.data.accountId,
     })
@@ -291,10 +291,10 @@ export async function updateTransaction(
         personId,
       },
     })
-    // Audit on the tx client so row + audit commit (or roll back) together.
+    // Audit row commits with the update; skipped when the optimistic guard matched nothing.
     if (updated.count > 0) {
       await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", id, {
-        amount: Number(parsed.data.amount),
+        amount: parsed.data.amount,
         type: parsed.data.type,
         accountId: parsed.data.accountId,
       })
