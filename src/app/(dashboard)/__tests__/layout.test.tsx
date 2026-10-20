@@ -25,6 +25,7 @@ jest.mock("@/components/auth/IdleTimeout", () => ({ IdleTimeout: () => null }))
 
 import DashboardLayout from "../layout"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
+import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 
 /** Depth-first search of the element tree for the first element whose props pass `match`. */
 function findProps(tree: unknown, match: (p: Record<string, unknown>) => boolean): Record<string, unknown> | undefined {
@@ -104,9 +105,12 @@ describe("DashboardLayout top bar", () => {
   it("passes the pending counts and church name to the top bar", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
     mockGroupBy.mockResolvedValue([])
+    // Distinct non-zero counts, so swapping the two props would fail.
+    ;(countPendingFamilyUpdates as jest.Mock).mockResolvedValueOnce(3)
+    ;(countPendingMemberships as jest.Mock).mockResolvedValueOnce(5)
     const tree = await DashboardLayout({ children: null })
     const top = findProps(tree, (p) => "churchName" in p && !("verifyPending" in p))
-    expect(top).toMatchObject({ churchName: "Test Church", pendingUpdates: 0, membershipPending: 0 })
+    expect(top).toMatchObject({ churchName: "Test Church", role: "ADMIN", pendingUpdates: 3, membershipPending: 5 })
     expect(Array.isArray(top?.features)).toBe(true)
   })
 })

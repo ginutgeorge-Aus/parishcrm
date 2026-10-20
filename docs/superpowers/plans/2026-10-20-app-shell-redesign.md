@@ -607,6 +607,8 @@ export function useShell(): Shell {
 
 - [ ] **Step 2: Sidebar uses the context and drops its mobile header**
 
+(`useShell` throws without a provider and the layout mounts `ShellProvider` only in Task 5, so this task's Sidebar tests wrap the render in `<ShellProvider>`.)
+
 In `Sidebar.tsx`:
 - Remove `Menu` from the lucide import; add `import { useShell } from "@/components/layout/ShellContext"`.
 - Replace `const [mobileOpen, setMobileOpen] = useState(false)`, `const drawerId = useId()` and `const menuButtonRef = useRef<HTMLButtonElement>(null)` with `const { mobileOpen, setMobileOpen, menuButtonRef, drawerId } = useShell()`. Drop `useId` from the react import if now unused.
@@ -689,9 +691,10 @@ it("bell shows an all-caught-up state with no counts", () => {
 it("shows the Settings link to admins only", () => {
   renderBar()
   expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings")
+  cleanup()
   mockRole = "PASTOR"
   renderBar()
-  expect(screen.getAllByRole("link", { name: "Settings" })).toHaveLength(1)
+  expect(screen.queryByRole("link", { name: "Settings" })).toBeNull()
 })
 
 it("hamburger toggles the shared drawer state", () => {

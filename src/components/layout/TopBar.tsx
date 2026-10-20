@@ -104,7 +104,7 @@ export function TopBar({
                   >
                     <Bell aria-hidden="true" />
                     {pending > 0 ? (
-                      <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive" aria-hidden="true" />
+                      <span data-testid="bell-dot" className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive" aria-hidden="true" />
                     ) : null}
                   </Button>
                 </DropdownMenuTrigger>

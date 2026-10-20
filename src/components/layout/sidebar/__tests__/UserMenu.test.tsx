@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react"
+import { act, render, screen, fireEvent } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { UserMenu, formatRole } from "../UserMenu"
 import { logout } from "@/lib/actions/session"
@@ -18,7 +18,9 @@ it("formats roles for display", () => {
 
 it("shows name and role on the chip and opens a menu with account, help and sign out", () => {
   renderMenu()
-  const trigger = screen.getByRole("button", { name: /account menu/i })
+  // Expanded, the visible name + role is the accessible name (no aria-label override).
+  const trigger = screen.getByRole("button", { name: /demo admin office admin/i })
+  expect(trigger).not.toHaveAttribute("aria-label")
   expect(trigger).toHaveTextContent("Demo Admin")
   expect(trigger).toHaveTextContent("Office Admin")
   fireEvent.keyDown(trigger, { key: "Enter" })
@@ -30,17 +32,25 @@ it("shows name and role on the chip and opens a menu with account, help and sign
 
 it("shows only the avatar when collapsed", () => {
   renderMenu(true)
-  const trigger = screen.getByRole("button", { name: /account menu/i })
+  const trigger = screen.getByRole("button", { name: "Account menu: Demo Admin" })
   expect(trigger).not.toHaveTextContent("Demo Admin")
-  expect(trigger).toHaveTextContent("D")
+  expect(trigger).toHaveTextContent(/^D$/)
 })
 
 // Picking a link from the mobile drawer's menu must close the drawer, or it
 // stays open (and the page inert) over the new route.
-it("calls onNavigate when My Account or Help is picked", () => {
+it.each([/my account/i, /help/i])("calls onNavigate when %s is picked", (item) => {
   const onNavigate = jest.fn()
   renderMenu(false, onNavigate)
-  fireEvent.keyDown(screen.getByRole("button", { name: /account menu/i }), { key: "Enter" })
-  fireEvent.click(screen.getByRole("menuitem", { name: /my account/i }))
+  fireEvent.keyDown(screen.getByRole("button", { name: /demo admin/i }), { key: "Enter" })
+  fireEvent.click(screen.getByRole("menuitem", { name: item }))
   expect(onNavigate).toHaveBeenCalledTimes(1)
+})
+
+it("says so when sign out fails instead of failing silently", async () => {
+  ;(logout as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+  renderMenu()
+  fireEvent.keyDown(screen.getByRole("button", { name: /demo admin/i }), { key: "Enter" })
+  await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
+  expect(screen.getByRole("alert")).toHaveTextContent("Sign out failed. Try again.")
 })

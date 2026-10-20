@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react"
+import { cleanup, render, screen, fireEvent } from "@testing-library/react"
 import { TopBar } from "../TopBar"
 import { ShellProvider } from "../ShellContext"
 import type { FeatureKey } from "@/lib/features"
@@ -35,6 +35,7 @@ it("drops entries for features that are off", () => {
 it("bell shows a dot and links only the non-zero counts", () => {
   renderBar({ pendingUpdates: 2, membershipPending: 0 })
   const bell = screen.getByRole("button", { name: "Notifications (2 pending)" })
+  expect(bell.querySelector('[data-testid="bell-dot"]')).not.toBeNull()
   fireEvent.keyDown(bell, { key: "Enter" })
   expect(screen.getByRole("menuitem", { name: /family updates/i })).toHaveAttribute("href", "/families/updates")
   expect(screen.queryByRole("menuitem", { name: /membership forms/i })).toBeNull()
@@ -42,16 +43,19 @@ it("bell shows a dot and links only the non-zero counts", () => {
 
 it("bell shows an all-caught-up state with no counts", () => {
   renderBar()
-  fireEvent.keyDown(screen.getByRole("button", { name: "Notifications" }), { key: "Enter" })
+  const bell = screen.getByRole("button", { name: "Notifications" })
+  expect(bell.querySelector('[data-testid="bell-dot"]')).toBeNull()
+  fireEvent.keyDown(bell, { key: "Enter" })
   expect(screen.getByText(/all caught up/i)).toBeInTheDocument()
 })
 
 it("shows the Settings link to admins only", () => {
   renderBar()
   expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings")
+  cleanup()
   mockRole = "PASTOR"
   renderBar()
-  expect(screen.getAllByRole("link", { name: "Settings" })).toHaveLength(1)
+  expect(screen.queryByRole("link", { name: "Settings" })).toBeNull()
 })
 
 it("hamburger toggles the shared drawer state", () => {

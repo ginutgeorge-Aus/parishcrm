@@ -22,10 +22,12 @@ const ACTIVE: Record<AttendanceStatus, string> = {
  * optimistically (tap the active status again to clear) and reverts if the
  * server refuses. "Mark unmarked present" fills every unmarked child at once.
  * Read-only mode shows statuses as text (VIEWER, archived class).
+ * `underTopBar` offsets the sticky toolbar below the dashboard's 56px top bar;
+ * the organiser shell has no sticky bar, so it pins to the top there.
  */
 export function RollList({
-  classId, date, today, rows, readOnly, dateHrefBase,
-}: Readonly<{ classId: number; date: string; today: string; rows: RollRow[]; readOnly: boolean; dateHrefBase: string }>) {
+  classId, date, today, rows, readOnly, dateHrefBase, underTopBar = false,
+}: Readonly<{ classId: number; date: string; today: string; rows: RollRow[]; readOnly: boolean; dateHrefBase: string; underTopBar?: boolean }>) {
   const router = useRouter()
   const [state, setState] = useState<Record<number, Status>>(() => Object.fromEntries(rows.map(r => [r.personId, r.status])))
   const [query, setQuery] = useState("")
@@ -145,7 +147,7 @@ export function RollList({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="sticky top-14 z-10 flex flex-col gap-2 bg-muted pb-2 pt-1">
+      <div className={`sticky ${underTopBar ? "top-14" : "top-0"} z-10 flex flex-col gap-2 bg-muted pb-2 pt-1`}>
         <div className="flex flex-wrap items-center gap-3">
           <Input
             type="date"

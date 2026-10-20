@@ -11,12 +11,13 @@ import { RollList } from "@/components/sunday-school/RollList"
 /**
  * Server-rendered body shared by the staff (`/sunday-school/[id]/roll`) and organiser
  * (`/my-classes/[id]/roll`) roll pages. Callers gate access and decide
- * `canMark`; this validates `?date=`, loads the roll and renders it. A past
+ * `canMark`; this validates `?date=`, loads the roll and renders it.
+ * `underTopBar` is true on the staff page, which sits under the sticky top bar. A past
  * year's class with no date opens on its last day instead of erroring.
  */
 export async function renderRollView({
-  classId, rawDate, canMark, hrefBase, backHref, backLabel,
-}: Readonly<{ classId: number; rawDate: string | undefined; canMark: boolean; hrefBase: string; backHref: string; backLabel: string }>) {
+  classId, rawDate, canMark, hrefBase, backHref, backLabel, underTopBar = false,
+}: Readonly<{ classId: number; rawDate: string | undefined; canMark: boolean; hrefBase: string; backHref: string; backLabel: string; underTopBar?: boolean }>) {
   const cls = await prisma.sundaySchoolClass.findUnique({ where: { id: classId }, select: { year: true, name: true } })
   if (!cls) notFound()
   // A rolled-over year's roll is read-only (setAttendance refuses it too).
@@ -47,6 +48,7 @@ export async function renderRollView({
           rows={roll.rows}
           readOnly={roll.cls.archived || locked || !canMark}
           dateHrefBase={hrefBase}
+          underTopBar={underTopBar}
         />
       ) : (
         <div className="space-y-3">

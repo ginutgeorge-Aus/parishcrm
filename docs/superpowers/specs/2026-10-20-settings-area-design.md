@@ -27,7 +27,7 @@ All under `src/app/(dashboard)/settings/`, sharing `settings/layout.tsx`.
 | Church | General | `/settings` | `ChurchInfoForm`, `AppSettingsForm` | always |
 | | Branding | `/settings/branding` | `BrandingForm` | always |
 | | Email | `/settings/email` | birthday/anniversary forms, `AutoEmailToggles` (feature `celebrations`), `EmailTemplatesSection` | always |
-| | Members | `/settings/members` | `LetterSettingsForm`, `MembershipSettingsForm` | `welcomeLetter` or `memberships` |
+| | Members | `/settings/members` | `LetterSettingsForm` (only when `welcomeLetter`), `MembershipSettingsForm` (only when `memberships`) | `welcomeLetter` or `memberships` |
 | | Receipts | `/settings/receipts` | `ReceiptSettingsSection` | `receipts` or `dgrReceipts` |
 | | Features | `/settings/features` | `FeaturesForm` (page exists) | always |
 | Accounting | Opening Balances | `/settings/accounting` | `OpeningBalanceForm` | always |
@@ -112,18 +112,23 @@ Markup-only changes; actions, validation, `useKeepFormValues` and `FormFeedback`
   semantics.
 - **Managers/lists** (`PaymentAccountsManager`, funds list, `ActivityFeed`, audit log): rendered
   full width inside the card body, not as rows.
-- **Unsaved edits:** forms with dirty state register with a small `useUnsavedGuard(dirty)` hook
-  that sets `beforeunload`. `SettingsTabs` sends both desktop link clicks and mobile `Select`
+- **Unsaved edits:** `settings/layout.tsx` wraps tabs and page in an `UnsavedChangesProvider`
+  (client context holding a set of dirty form ids). Forms with dirty state call
+  `useUnsavedGuard(dirty)`, which registers/unregisters its id there and sets `beforeunload` while
+  any form is dirty. `SettingsTabs` reads the provider's `hasUnsaved()` and sends both desktop link clicks and mobile `Select`
   changes through one `confirmLeave(href)` handler that asks "Discard unsaved changes?" before
   `router.push`, so neither path skips the guard. Dirty state comes from the form's existing values-vs-initial
-  comparison; add one where missing.
+  comparison; add one where missing. Known limit: sidebar/top-bar links and browser back/forward
+  inside the app are client navigations the guard does not intercept (only a full unload gets
+  `beforeunload`); accepted, since every form saves explicitly and losing an edit is recoverable.
 
 ## 7. Testing
 
 - `settingsTabs.test.ts`: tab list per feature combination; group order; hidden tabs.
 - `SettingsTabs.test.tsx`: active tab for nested paths; mobile select navigates; dirty guard
   confirms on both a desktop link click and a mobile select change.
-- Per-page tests: non-admin redirect; feature-off tab redirects to `/settings`; existing form
+- Per-page tests: non-admin redirect; feature-off tab redirects to `/settings`; Members tab renders
+  only the form whose own feature is on; existing form
   tests updated for new markup (by role/label, not class).
 - `next.config` redirects asserted in a unit test of the exported `redirects()` list.
 - Move existing `accounting/settings/__tests__` and `settings/__tests__` with their pages.

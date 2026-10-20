@@ -36,7 +36,7 @@ Files: `src/components/layout/Sidebar.tsx`, `sidebar/SidebarGroup.tsx`, `sidebar
   `py-2`.
 - **Group header:** a full-size row like a link — icon, label in normal case (`text-sm`), chevron
   on the right (`ChevronRight` rotating 90° when open, `motion-reduce` respected). `NavGroup` gains
-  a required `icon` for non-headless groups: Community → `Users`, Accounting → `Landmark`,
+  a required `icon` for non-headless groups: Community → `Church`, Accounting → `Calculator`,
   Settings → `Settings`. A group containing the active page shows `text-foreground font-medium`
   (not the pill — the pill marks only the active link).
 - **Sub-items:** the open panel is indented with a guide line: `ml-[1.125rem] border-l
@@ -68,7 +68,7 @@ column: `<div className="flex min-w-0 flex-1 flex-col"><TopBar/><main/></div>`.
   | Person | `/people/new` | `canEdit(role)` |
   | Family | `/families/new` | `canEdit(role)` |
   | Event | `/events/new` | `canEdit(role)` and feature `events` |
-  | Transaction | `/accounting/transactions/new` | `canAccessAccounting(role)` |
+  | Transaction | `/accounting/transactions/new` | `canAccessAccounting(role)` and feature `accounting` |
 
   No entries → button not rendered (VIEWER, AUDITOR).
 - **Right — icon buttons** (`variant="outline" size="icon"`, each with `aria-label` and tooltip):

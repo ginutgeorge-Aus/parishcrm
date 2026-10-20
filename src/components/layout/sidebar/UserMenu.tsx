@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
 import { ChevronsUpDown, HelpCircle, LogOut, MonitorSmartphone } from "lucide-react"
@@ -29,10 +30,22 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
   const name = session?.user?.name ?? ""
   const role = formatRole(session?.user?.role)
   const initial = (name.trim()[0] ?? "?").toUpperCase()
+  const [signOutFailed, setSignOutFailed] = useState(false)
+
+  /** Signs out; logout() rethrows when the session revoke fails, so say so instead of failing silently. */
+  async function signOut() {
+    setSignOutFailed(false)
+    try {
+      await logout()
+    } catch {
+      setSignOutFailed(true)
+    }
+  }
 
   const trigger = (
     <DropdownMenuTrigger
-      aria-label="Account menu"
+      // Expanded, the visible name + role is the accessible name; collapsed shows only the initial.
+      aria-label={collapsed ? `Account menu${name ? `: ${name}` : ""}` : undefined}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         collapsed ? "justify-center p-1.5" : "px-2 py-2"
@@ -54,6 +67,7 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
   )
 
   return (
+    <>
     <DropdownMenu>
       {collapsed ? (
         <Tooltip>
@@ -70,10 +84,16 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
           <Link href="/help" onClick={onNavigate}><HelpCircle aria-hidden="true" />Help</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => logout()}>
+        <DropdownMenuItem onSelect={() => void signOut()}>
           <LogOut aria-hidden="true" />Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    {signOutFailed && (
+      <p role="alert" className={collapsed ? "sr-only" : "px-2 pt-1 text-xs text-destructive"}>
+        Sign out failed. Try again.
+      </p>
+    )}
+    </>
   )
 }
