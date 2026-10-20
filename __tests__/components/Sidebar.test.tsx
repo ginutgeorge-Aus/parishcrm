@@ -4,11 +4,6 @@ import { Sidebar } from "@/components/layout/Sidebar"
 let mockPathname = "/"
 jest.mock("next/navigation", () => ({ usePathname: () => mockPathname }))
 jest.mock("@/lib/actions/session", () => ({ logout: jest.fn() }))
-jest.mock("@/components/layout/FeedbackDialog", () => ({
-  FeedbackDialog: ({ collapsed }: { collapsed?: boolean }) => (
-    <button aria-label="Feedback">{collapsed ? null : "Feedback"}</button>
-  ),
-}))
 
 // `undefined` reproduces a cold reload where useSession() has no hydrated
 // session yet, so no role-gated item is visible on first render.
@@ -80,11 +75,11 @@ it("collapsing to icon-only rail removes desktop link labels and persists the ch
   expect(window.localStorage.getItem("sidebar-collapsed")).toBe("true")
 })
 
-it("keeps a Feedback trigger rendered when the desktop rail is collapsed", () => {
+it("keeps the account menu reachable when the desktop rail is collapsed", () => {
   mockRole = "ADMIN"
   render(<Sidebar churchName="Example Church" />)
   fireEvent.click(screen.getByRole("button", { name: /collapse sidebar/i }))
-  expect(screen.getAllByRole("button", { name: "Feedback" }).length).toBeGreaterThan(0)
+  expect(screen.getAllByRole("button", { name: /account menu/i }).length).toBeGreaterThan(0)
 })
 
 it("restores collapsed rail state from localStorage on mount", () => {
