@@ -69,7 +69,8 @@ function snapshot(form: HTMLFormElement): string {
  * Dirty tracking for an uncontrolled `<form>`: compares current values to the
  * values when the form mounted. A submit re-baselines (optimistic). A remount
  * (the forms' `key` changes after revalidation) takes a fresh baseline.
- * Attach `ref` to the `<form>`.
+ * Attach `ref` to the `<form>`. If the form unmounts while this host stays
+ * mounted, its cleanup clears the dirty flag so the guard is released.
  * @returns the ref callback to attach to the form, and the current dirty flag
  */
 export function useFormDirty(): { ref: (form: HTMLFormElement | null) => void | (() => void); dirty: boolean } {
@@ -91,6 +92,7 @@ export function useFormDirty(): { ref: (form: HTMLFormElement | null) => void | 
       form.removeEventListener("input", check)
       form.removeEventListener("change", check)
       form.removeEventListener("submit", saved)
+      setDirty(false)
     }
   }, [])
   return { ref, dirty }

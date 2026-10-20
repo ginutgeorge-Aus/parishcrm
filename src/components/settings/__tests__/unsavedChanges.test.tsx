@@ -41,13 +41,22 @@ it("tracks registered dirty state and clears it on unmount", () => {
   unmount()
 })
 
-it("sets beforeunload only while dirty", () => {
+it("sets beforeunload only while dirty and removes it when clean or unmounted", () => {
   const add = jest.spyOn(window, "addEventListener")
-  const { rerender } = render(<UnsavedChangesProvider><Guarded dirty={false} /></UnsavedChangesProvider>)
+  const remove = jest.spyOn(window, "removeEventListener")
+  const { rerender, unmount } = render(<UnsavedChangesProvider><Guarded dirty={false} /></UnsavedChangesProvider>)
   expect(add).not.toHaveBeenCalledWith("beforeunload", expect.any(Function))
   rerender(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
   expect(add).toHaveBeenCalledWith("beforeunload", expect.any(Function))
+  expect(remove).not.toHaveBeenCalledWith("beforeunload", expect.any(Function))
+  rerender(<UnsavedChangesProvider><Guarded dirty={false} /></UnsavedChangesProvider>)
+  expect(remove).toHaveBeenCalledWith("beforeunload", expect.any(Function))
+  rerender(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+  remove.mockClear()
+  unmount()
+  expect(remove).toHaveBeenCalledWith("beforeunload", expect.any(Function))
   add.mockRestore()
+  remove.mockRestore()
 })
 
 it("useFormDirty: dirty after an edit, clean when reverted or submitted", () => {
@@ -62,6 +71,24 @@ it("useFormDirty: dirty after an edit, clean when reverted or submitted", () => 
   fireEvent.input(input, { target: { value: "c" } })
   act(() => { fireEvent.submit(input.closest("form")!) })
   expect(screen.getByText("clean")).toBeInTheDocument()
+})
+
+/** A host that keeps its hook mounted while the form inside it comes and goes. */
+function ConditionalForm({ show }: Readonly<{ show: boolean }>) {
+  const { ref } = useFormDirty()
+  return show ? (
+    <form ref={ref}>
+      <input aria-label="Name" name="name" defaultValue="a" />
+    </form>
+  ) : null
+}
+
+it("clears dirty when the form unmounts while its host stays mounted", () => {
+  const { rerender } = render(<UnsavedChangesProvider><Probe /><ConditionalForm show /></UnsavedChangesProvider>)
+  fireEvent.input(screen.getByLabelText("Name"), { target: { value: "b" } })
+  expect(probe()).toBe(true)
+  rerender(<UnsavedChangesProvider><Probe /><ConditionalForm show={false} /></UnsavedChangesProvider>)
+  expect(probe()).toBe(false)
 })
 
 it("works without a provider (hasUnsaved is false)", () => {
