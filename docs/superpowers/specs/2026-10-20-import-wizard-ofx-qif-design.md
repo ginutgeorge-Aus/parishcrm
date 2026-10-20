@@ -73,8 +73,10 @@ Both implement the existing `BankStatementParser` contract and output `ParseResu
 
 - bankRef formats (fit the existing `acct_date_amount_desc_suffix` shape):
   - OFX: `OFX_<acct>_<yyyymmdd>_<amount>_<desc>_<fitid>`
-  - QIF: `QIF_<acct>_<yyyymmdd>_<amount>_<desc>_<n>` where `acct` = last 4 of the chosen
-    `PaymentAccount` mapping (or its id) and `n` = occurrence index of identical lines in the file.
+  - QIF: `QIF_<acct>_<yyyymmdd>_<amount>_<desc>_<n>` where `acct` = `PA<paymentAccountId>` of
+    the chosen account (QIF has no account number) and `n` = occurrence index of identical lines in
+    the file. QIF exact-key dedup therefore only matches other QIF imports; cross-format overlap is
+    caught by the possible-duplicate flag below.
 - `contentKeyFromBankRef` prefix regex extended to `ANZ|ANZTR|OFX|QIF`, so exact content-key dedup
   works across all formats at both upload flag time and commit recheck (`bankImportConfirm.ts`).
 - New **possible duplicate** soft flag at upload: same account + date + amount as an existing
