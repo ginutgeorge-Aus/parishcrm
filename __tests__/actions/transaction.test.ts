@@ -27,8 +27,9 @@ jest.mock("@/lib/prisma", () => {
     },
   }
   // Interactive transaction: run the callback against the same mocked client.
-  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
-  return { prisma }
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) =>
+    fn(Object.assign(Object.create(prisma), { __isTx: true })))
+  return { prisma, Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } } }
 })
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
@@ -46,10 +47,7 @@ jest.mock("@/lib/crypto", () => ({
   }),
 }))
 
-jest.mock("@/lib/audit", () => ({
-  logAudit: jest.fn().mockResolvedValue(undefined),
-  logAuditTx: jest.fn().mockResolvedValue(undefined),
-}))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(null), logAuditTx: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
@@ -323,8 +321,8 @@ describe("createTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockCreate.mockResolvedValue({ id: 11 })
     await createTransaction(undefined, fd(validTx))
-    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_CREATED", "Transaction", 11, {
-      amount: 500,
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_CREATED", "Transaction", 11, {
+      amount: "500",
       type: "INCOME",
       accountId: 4001,
     })
@@ -505,8 +503,8 @@ describe("updateTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd(validTx))
-    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_UPDATED", "Transaction", 1, {
-      amount: 500,
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_UPDATED", "Transaction", 1, {
+      amount: "500",
       type: "INCOME",
       accountId: 4001,
     })

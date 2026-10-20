@@ -146,6 +146,8 @@ describe("startPasskeyRegistration", () => {
       rpName: "Demo Church",
       userName: "admin@example.com",
       attestationType: "none",
+      // Pinned, not v14's runtime-dependent default (ML-DSA-44 first when supported).
+      supportedAlgorithmIDs: [-8, -7, -257],
       excludeCredentials: [{ id: "old-cred", transports: ["usb"] }],
       authenticatorSelection: { residentKey: "required", userVerification: "required" },
     }))
@@ -189,6 +191,7 @@ describe("finishPasskeyRegistration", () => {
       expectedOrigin: RP.origin,
       expectedRPID: RP.rpID,
       requireUserVerification: true,
+      supportedAlgorithmIDs: [-8, -7, -257],
     })
     const data = pk.create.mock.calls[0][0].data
     expect(data).toMatchObject({ userId: 7, credentialId: "cred-1", counter: BigInt(0), transports: ["internal"], name: "Phone", backedUp: true })
