@@ -7,7 +7,7 @@
 // from the actual write sites, so a brand-new `encrypt(...)` call site can be
 // added without either turning red.
 //
-// This test closes that gap: it greps every encrypt() write target out of the
+// This test closes that gap: it scans every encrypt() write target out of the
 // source tree and asserts each one is covered by the rotation FIELDS map (or an
 // explicit allowlist). Add a new encrypted field without updating FIELDS → this
 // fails CI.
@@ -25,6 +25,7 @@
 
 import * as fs from "fs"
 import * as path from "path"
+import ts from "typescript"
 
 const SRC = path.join(__dirname, "../../src")
 
@@ -52,82 +53,173 @@ function walk(dir: string): string[] {
   return out
 }
 
-// An object-literal key (after `{`, `,` or `(`) whose value calls encrypt/encryptBytes/encryptOrNull before the
-// next top-level `,` `;` `{` `}` — so `foo: encrypt(x)`, `foo: x ? encrypt(x) : null` (even across lines),
-// `foo: ok(a, b) ? encrypt(x) : null` (commas inside one level of parens are skipped),
-// `foo: Buffer.from(encrypt(x))` and `foo: encryptOrNull(x)` — or a property assignment `x.foo = encrypt(`
-// (optionally wrapped in `Buffer.from(`).
+// The scanner walks the TypeScript AST, so comments, strings, templates and arbitrarily nested
+// parens/brackets can never confuse it. A write is an object-literal key whose value calls
+// encrypt/encryptBytes/encryptOrNull (directly or inside a conditional/call/wrapper, but not inside a
+// nested object literal or block, which have their own keys), or a property assignment
+// `x.foo = <same value expressions>` (e.g. `x.foo = ok ? encrypt(...) : null`, optionally wrapped in `Buffer.from(`).
 // Not seen: keys assigned in a loop (`d[k] = encrypt(...)`, familyUpdate.ts / person.ts helpers), whose
 // fields are pinned by CANONICAL in rotate-encryption-key.test.ts instead.
-export const WRITE_RE =
-  /(?:^|[{,(])\s*(\w+)\s*:((?:[^,;{}()]|\([^()]*\)|\()*?)\b(encrypt|encryptBytes|encryptOrNull)\(|\.(\w+)\s*=\s*(Buffer\.from\(\s*)?(encrypt|encryptBytes|encryptOrNull)\(/gm
-// A Prisma delegate write call, e.g. `prisma.waitlist.create(` or `tx.invoice.updateMany(`.
-const CALL_RE = /\.(\w+)\.(?:create|createMany|update|updateMany|upsert)\(/g
+const ENCRYPT_FNS = new Set(["encrypt", "encryptBytes", "encryptOrNull"])
+// A Prisma delegate write method, e.g. the `create` of `prisma.waitlist.create(`.
+const WRITE_METHODS = new Set(["create", "createMany", "update", "updateMany", "upsert"])
 // A nested relation write (`attendees: { create: ... }`): rows there belong to the related model, not the call's.
-const NESTED_RE = /\b\w+\s*:\s*\{\s*(?:create|createMany|connectOrCreate|upsert)\s*:/g
+const NESTED_KEYS = new Set(["create", "createMany", "connectOrCreate", "upsert", "update", "updateMany"])
 // Prisma delegate names (camelCase model names), so a `.cache.update(` helper call is never taken for a model.
 const MODELS = new Set(
   [...fs.readFileSync(path.join(__dirname, "../../prisma/schema.prisma"), "utf8").matchAll(/^model\s+(\w+)/gm)]
     .map((m) => m[1][0].toLowerCase() + m[1].slice(1)),
 )
 
-/**
- * True when the bracket opened at `open` is still unclosed at `pos`.
- * @param text - file source
- * @param open - offset of the opening bracket
- * @param pos - offset to test
- */
-function encloses(text: string, open: number, pos: number): boolean {
-  let depth = 0
-  for (let i = open; i < pos; i++) {
-    const ch = text[i]
-    if (ch === "(" || ch === "{" || ch === "[") depth++
-    else if (ch === ")" || ch === "}" || ch === "]") depth--
-    if (depth === 0) return false
-  }
-  return depth > 0
-}
-
 type WriteSite = { model: string | null; field: string; blob: boolean; where: string }
 
 /**
- * Model of the innermost Prisma write call whose argument list still encloses
- * `pos`, or null when the write isn't inside one, the delegate isn't a Prisma
- * model, or it sits inside a nested relation write (its model isn't the call's,
- * and the relation name isn't a model name). A sibling key after a closed nested
- * write still resolves to the call's model.
- * @param text - file source
- * @param pos - offset of the encrypted field's key
+ * Name of a property key node when it is a plain identifier or string literal.
+ * @param name - property name node
  */
-export function enclosingModel(text: string, pos: number): string | null {
-  let model: string | null = null
-  for (const call of text.matchAll(CALL_RE)) {
-    const open = call.index + call[0].length - 1
-    if (open >= pos) break
-    if (!encloses(text, open, pos)) continue
-    const inNested = [...text.slice(open, pos).matchAll(NESTED_RE)].some((nested) =>
-      encloses(text, open + nested.index + nested[0].indexOf("{"), pos),
-    )
-    model = inNested || !MODELS.has(call[1]) ? null : call[1]
+function keyName(name: ts.PropertyName): string | null {
+  return ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null
+}
+
+/**
+ * The called function's name: the identifier of a bare call, or the property of a member call such as
+ * `crypto.encrypt(`.
+ * @param callee - the call's expression
+ */
+function calleeName(callee: ts.Expression): string {
+  if (ts.isIdentifier(callee)) return callee.text
+  return ts.isPropertyAccessExpression(callee) ? callee.name.text : ""
+}
+
+/**
+ * Whether `callee` is exactly `Buffer.from`, checked structurally rather than by source text.
+ * @param callee - the call's expression
+ */
+function isBufferFrom(callee: ts.Expression): boolean {
+  return (
+    ts.isPropertyAccessExpression(callee) &&
+    ts.isIdentifier(callee.expression) &&
+    callee.expression.text === "Buffer" &&
+    callee.name.text === "from"
+  )
+}
+
+/**
+ * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull (bare or as a member call), or a
+ * `Buffer.from(` wrapper of one.
+ * @param node - expression to test
+ */
+function encryptCall(node: ts.Node): { blob: boolean } | null {
+  if (!ts.isCallExpression(node)) return null
+  const name = calleeName(node.expression)
+  if (ENCRYPT_FNS.has(name)) return { blob: name === "encryptBytes" }
+  return isBufferFrom(node.expression) && node.arguments[0] && findEncrypt(node.arguments[0]) ? { blob: true } : null
+}
+
+/**
+ * The encrypt call a value expression reduces to, searching through conditionals, wrappers (parens,
+ * `as`, `!`) and call arguments but not into nested object literals or blocks. `blob` is set for
+ * encryptBytes or a `Buffer.from(` wrapper.
+ * @param node - value expression
+ */
+function findEncrypt(node: ts.Node): { blob: boolean } | null {
+  const hit = encryptCall(node)
+  if (hit) return hit
+  if (ts.isObjectLiteralExpression(node) || ts.isBlock(node)) return null
+  return ts.forEachChild(node, findEncrypt) ?? null
+}
+
+/**
+ * Whether `node` sits inside a nested relation write (`attendees: { create: ... }`) of the object literal `obj`.
+ * @param obj - object literal on the path from `node` upwards
+ * @param node - the write's key node
+ */
+function inNestedWrite(obj: ts.ObjectLiteralExpression, node: ts.Node): boolean {
+  return obj.properties.some(
+    (prop) =>
+      ts.isPropertyAssignment(prop) && NESTED_KEYS.has(keyName(prop.name) ?? "") && prop.pos <= node.pos && node.end <= prop.end,
+  )
+}
+
+/**
+ * The Prisma model a write-shaped call (`<delegate>.<write>(`) targets: its delegate name when that is a
+ * model, else null. Returns undefined when the call isn't write-shaped at all.
+ * @param call - candidate call expression
+ */
+function writeCallModel(call: ts.CallExpression): string | null | undefined {
+  const callee = call.expression
+  if (!ts.isPropertyAccessExpression(callee) || !WRITE_METHODS.has(callee.name.text)) return undefined
+  if (!ts.isPropertyAccessExpression(callee.expression)) return undefined
+  const delegate = callee.expression.name.text
+  return MODELS.has(delegate) ? delegate : null
+}
+
+/**
+ * Model of the innermost write-shaped call whose arguments enclose `node`, or null when the write
+ * isn't inside one, that call's delegate isn't a Prisma model (it never falls through to an outer
+ * call), or it sits inside a nested relation write (its model isn't the call's, and the relation
+ * name isn't a model name). A sibling key after a closed nested write still resolves to the call's model.
+ * @param node - the write's key node
+ */
+function modelOf(node: ts.Node): string | null {
+  for (let cur: ts.Node = node; cur.parent; cur = cur.parent) {
+    const parent = cur.parent
+    if (ts.isObjectLiteralExpression(cur) && ts.isPropertyAssignment(parent) && inNestedWrite(cur, node)) return null
+    if (ts.isCallExpression(parent) && cur !== parent.expression) {
+      const model = writeCallModel(parent)
+      if (model !== undefined) return model
+    }
   }
-  return model
+  return null
+}
+
+/**
+ * The write site `node` is, if it is an encrypted property assignment or `x.foo = encrypt(...)`.
+ * @param node - any AST node
+ * @param where - label for the file
+ */
+function siteOf(node: ts.Node, where: string): WriteSite | null {
+  if (ts.isPropertyAssignment(node)) {
+    const field = keyName(node.name)
+    const enc = field && findEncrypt(node.initializer)
+    return field && enc ? { model: modelOf(node), field, blob: enc.blob, where } : null
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left)) {
+    const enc = findEncrypt(node.right)
+    return enc ? { model: modelOf(node), field: node.left.name.text, blob: enc.blob, where } : null
+  }
+  return null
+}
+
+/**
+ * Every encrypt() write target in `text`, with its model when the call site shows it.
+ * @param text - file source
+ * @param where - label for the file, used in failure messages
+ */
+export function findWriteSites(text: string, where = "<inline>"): WriteSite[] {
+  const kind = where.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(where, text, ts.ScriptTarget.Latest, true, kind)
+  // The parser recovers from syntax errors without throwing; a file it can't parse would lose its write
+  // sites and the guard would pass vacuously, so fail loudly instead. (`parseDiagnostics` is internal API.)
+  const diagnostics = (sf as unknown as { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics
+  if (diagnostics.length) {
+    throw new Error(`${where}: parse error: ${ts.flattenDiagnosticMessageText(diagnostics[0].messageText, "\n")}`)
+  }
+  const sites: WriteSite[] = []
+  const visit = (node: ts.Node): void => {
+    const site = siteOf(node, where)
+    if (site) sites.push(site)
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return sites
 }
 
 /**
  * Every encrypt() write target in `src`, with its model when the call site shows it.
  */
 function encryptedWriteSites(): WriteSite[] {
-  const sites: WriteSite[] = []
-  for (const file of walk(SRC)) {
-    const text = fs.readFileSync(file, "utf8")
-    for (const m of text.matchAll(WRITE_RE)) {
-      const field = m[1] ?? m[4]
-      const blob = m[3] === "encryptBytes" || m[6] === "encryptBytes" || !!m[5] || /Buffer\.from\(\s*$/.test(m[2] ?? "")
-      const pos = m.index + m[0].indexOf(field)
-      sites.push({ model: enclosingModel(text, pos), field, blob, where: path.relative(SRC, file) })
-    }
-  }
-  return sites
+  return walk(SRC).flatMap((file) => findWriteSites(fs.readFileSync(file, "utf8"), path.relative(SRC, file)))
 }
 
 describe("encryption coverage", () => {
@@ -138,8 +230,8 @@ describe("encryption coverage", () => {
     const anyBlob = new Set(Object.values(BLOB_FIELDS).flat())
 
     const sites = encryptedWriteSites()
-    // Sanity: the grep must actually find write sites, and resolve models for
-    // many of them, else a bad regex would vacuously pass and the guard would be dead.
+    // Sanity: the scan must actually find write sites, and resolve models for
+    // many of them, else a broken scanner would vacuously pass and the guard would be dead.
     expect(sites.length).toBeGreaterThan(30)
     expect(sites.filter((s) => s.model).length).toBeGreaterThan(20)
 
@@ -166,28 +258,61 @@ describe("encryption coverage", () => {
     const text = `await prisma.waitlist.create({ data: { email: encrypt(e), meta: { a: 1 } } })
       await tx.invoice.update({ where: { id }, data: { notes: encrypt(n) } })
       const data = { mobile: encrypt(m) }`
-    expect(enclosingModel(text, text.indexOf("email:"))).toBe("waitlist")
-    expect(enclosingModel(text, text.indexOf("notes:"))).toBe("invoice")
-    expect(enclosingModel(text, text.indexOf("mobile:"))).toBeNull()
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["email", "waitlist"],
+      ["notes", "invoice"],
+      ["mobile", null],
+    ])
   })
 
   it("leaves a nested relation write unresolved (its model isn't the outer call's)", () => {
     const text = "await tx.registrationItem.create({ data: { qty: 1, attendees: { create: rows.map((r) => ({ answers: encrypt(a) })) } } })"
-    expect(enclosingModel(text, text.indexOf("answers:"))).toBeNull()
+    expect(findWriteSites(text).map((s) => s.model)).toEqual([null])
   })
 
   it("resolves a sibling key written after a closed nested relation write", () => {
     const text = "await prisma.registration.create({ data: { attendees: { create: [] }, email: encrypt(e) } })"
-    expect(enclosingModel(text, text.indexOf("email:"))).toBe("registration")
+    expect(findWriteSites(text).map((s) => s.model)).toEqual(["registration"])
+  })
+
+  it("leaves an update-nested relation write unresolved", () => {
+    const text = "await tx.person.update({ where: { id }, data: { family: { update: { notes: encrypt(n) } }, mobile: encrypt(m) } })"
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["notes", null],
+      ["mobile", "person"],
+    ])
+  })
+
+  it("stops at the innermost write-shaped call even when its delegate isn't a model", () => {
+    const text = "await prisma.waitlist.create({ data: { email: encrypt(e), extra: this.cache.update({ notes: encrypt(n) }) } })"
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["email", "waitlist"],
+      ["notes", null],
+    ])
+  })
+
+  it("parses TSX only for .tsx files, defaulting inline text to TS", () => {
+    expect(findWriteSites("const a = <T>(x: T) => ({ k: encrypt(x) })").map((s) => s.field)).toEqual(["k"])
+    expect(findWriteSites("const a = <div>{f({ k: encrypt(x) })}</div>", "x.tsx").map((s) => s.field)).toEqual(["k"])
+  })
+
+  it("throws on a file the parser cannot read instead of passing vacuously", () => {
+    expect(() => findWriteSites("const a = { k: encrypt(", "broken.ts")).toThrow(/broken\.ts: parse error/)
+  })
+
+  it("sees member-call encrypt, conditional assignments and wrapped values", () => {
+    const text = `const o = { a: crypto.encrypt(x), b: (encrypt(y) as string), c: encrypt(z)! }
+    row.d = ok ? encrypt(s) : null`
+    expect(findWriteSites(text).map((s) => s.field)).toEqual(["a", "b", "c", "d"])
   })
 
   it("ignores write-shaped calls on non-model delegates", () => {
     const text = "await this.cache.update({ notes: encrypt(n) })"
-    expect(enclosingModel(text, text.indexOf("notes:"))).toBeNull()
+    expect(findWriteSites(text).map((s) => s.model)).toEqual([null])
   })
 
   it("matches conditional, wrapper and blob writes, not ternary branches", () => {
-    const text = `{
+    const text = `const o = {
       notes: x ? encrypt(x) : null,
       contact: isAllowed(user, event) ? encrypt(c) : null,
       answers: list[idx]
@@ -201,11 +326,7 @@ describe("encryption coverage", () => {
     const v = ok ? null : encrypt(y)
     row.secret = encrypt(s)
     row.file = Buffer.from(encrypt(f))`
-    const found = [...text.matchAll(WRITE_RE)].map((m) => ({
-      field: m[1] ?? m[4],
-      blob: m[3] === "encryptBytes" || m[6] === "encryptBytes" || !!m[5] || /Buffer\.from\(\s*$/.test(m[2] ?? ""),
-    }))
-    expect(found).toEqual([
+    expect(findWriteSites(text).map(({ field, blob }) => ({ field, blob }))).toEqual([
       { field: "notes", blob: false },
       { field: "contact", blob: false },
       { field: "answers", blob: false },
@@ -215,5 +336,29 @@ describe("encryption coverage", () => {
       { field: "secret", blob: false },
       { field: "file", blob: true },
     ])
+  })
+
+  it("matches a conditional whose condition nests parens more than one level deep", () => {
+    const text = "const d = { secret: canUse(user, lookup(team)) ? encrypt(v) : null }"
+    expect(findWriteSites(text).map((s) => s.field)).toEqual(["secret"])
+  })
+
+  it("is not thrown off by brackets in strings, templates or comments before a write", () => {
+    const text = [
+      "await prisma.waitlist.create({",
+      '  data: { note: "unbalanced ) ] }", label: `x $' + '{"}"} (`, /* ) ) */ email: encrypt(e) },',
+      "  // stray ( [ {",
+      "})",
+      "await tx.invoice.update({ data: { notes: encrypt(n) } })",
+    ].join("\n")
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["email", "waitlist"],
+      ["notes", "invoice"],
+    ])
+  })
+
+  it("ignores encrypt-shaped text in comments and strings", () => {
+    const text = '// foo: encrypt(x)\nconst s = "bar: encrypt(y)"\nconst t = `baz: encrypt(z)`'
+    expect(findWriteSites(text)).toEqual([])
   })
 })

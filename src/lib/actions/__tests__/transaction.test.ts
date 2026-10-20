@@ -27,7 +27,7 @@ jest.mock("@/lib/prisma", () => {
   }
   // Interactive transaction: run the callback against the same mocked client.
   prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
-  return { prisma, Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } } }
+  return { prisma }
 })
 
 import { auth } from "@/auth"
@@ -146,7 +146,7 @@ test("updateTransaction rejects editing a reconciled row", async () => {
     error: "This transaction is reconciled. Un-reconcile it on the Reconciliation page before editing.",
   })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAuditTx).not.toHaveBeenCalled()
+  expect(mockLogAudit).not.toHaveBeenCalled()
 })
 
 test("updateTransaction rejects editing a petty-cash-linked row", async () => {
@@ -164,7 +164,7 @@ test("updateTransaction rejects editing a petty-cash-linked row", async () => {
     error: "Petty cash transactions cannot be edited here — edit via the petty cash session",
   })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAuditTx).not.toHaveBeenCalled()
+  expect(mockLogAudit).not.toHaveBeenCalled()
 })
 
 test("updateTransaction rejects when the row's stored date is in a locked period", async () => {
@@ -174,7 +174,7 @@ test("updateTransaction rejects when the row's stored date is in a locked period
   const r = await updateTransaction(1, undefined, validForm())
   expect(r).toEqual({ error: "This date is in a locked accounting period (on or before 2026-06-30)." })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAuditTx).not.toHaveBeenCalled()
+  expect(mockLogAudit).not.toHaveBeenCalled()
   // Only the stored-date check ran before the early return.
   expect(mockAssertUnlocked).toHaveBeenCalledTimes(1)
 })
@@ -186,7 +186,7 @@ test("updateTransaction rejects when the submitted (re-dated) date is in a locke
   const r = await updateTransaction(1, undefined, validForm({ date: "2026-08-01" }))
   expect(r).toEqual({ error: "This date is in a locked accounting period (on or before 2026-07-31)." })
   expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
-  expect(mockLogAuditTx).not.toHaveBeenCalled()
+  expect(mockLogAudit).not.toHaveBeenCalled()
   expect(mockAssertUnlocked).toHaveBeenCalledTimes(2)
 })
 
@@ -297,13 +297,6 @@ describe("account check serialized with the write", () => {
     expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
-  it("updateTransaction reports a vanished reference after one FK retry instead of retrying forever", async () => {
-    txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
-    expect(await updateTransaction(1, undefined, validForm())).toEqual(GONE)
-    expect(txMock()).toHaveBeenCalledTimes(2)
-    expect(mockLogAuditTx).not.toHaveBeenCalled()
-  })
-
   it("createTransaction gives up after repeated conflicts with a retry message", async () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await createTransaction(undefined, validForm())).toEqual(BUSY)
@@ -328,6 +321,55 @@ describe("account check serialized with the write", () => {
     txMock().mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
     expect(await updateTransaction(1, undefined, validForm())).toEqual(BUSY)
     expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("updateTransaction retries one FK violation (deleted account) and re-validates", async () => {
+    ;(prisma.account.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ type: "INCOME", isActive: true, name: "Offering" })
+      .mockResolvedValueOnce(null)
+    txMock().mockRejectedValueOnce(p2003)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual({ error: "Invalid category" })
+    expect(txMock()).toHaveBeenCalledTimes(2)
+  })
+
+  it("updateTransaction reports a vanished non-account reference instead of retrying forever", async () => {
+    txMock().mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
+    expect(await updateTransaction(1, undefined, validForm())).toEqual(GONE)
+    expect(txMock()).toHaveBeenCalledTimes(2)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+})
+
+// #334: the audit row commits with the write — written on the tx client, so a failed
+// audit insert rolls the transaction back instead of leaving an unaudited change.
+describe("audit row written inside the transaction", () => {
+  const audit = { amount: "100.00", type: "INCOME", accountId: 2 }
+  // A client distinct from `prisma` (same mocked delegates), so the assertions can only
+  // pass when the audit runs inside the $transaction callback on its tx client.
+  const tx = { ...prisma }
+  const runInTx = () =>
+    (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce((fn: (t: unknown) => unknown) => fn(tx))
+
+  it("createTransaction audits via logAuditTx on the tx client", async () => {
+    runInTx()
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(mockLogAuditTx).toHaveBeenCalledWith(tx, 1, "TRANSACTION_CREATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx.mock.calls[0][0]).not.toBe(prisma)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("updateTransaction audits via logAuditTx on the tx client", async () => {
+    runInTx()
+    await expect(updateTransaction(1, undefined, validForm())).rejects.toThrow("REDIRECT")
+    expect(mockLogAuditTx).toHaveBeenCalledWith(tx, 1, "TRANSACTION_UPDATED", "Transaction", 1, audit)
+    expect(mockLogAuditTx.mock.calls[0][0]).not.toBe(prisma)
+    expect(mockLogAudit).not.toHaveBeenCalled()
+  })
+
+  it("createTransaction propagates an audit insert failure out of the transaction", async () => {
+    runInTx()
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    await expect(createTransaction(undefined, validForm())).rejects.toThrow("audit down")
   })
 })
 

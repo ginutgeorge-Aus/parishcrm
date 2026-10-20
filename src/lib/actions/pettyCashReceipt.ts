@@ -209,9 +209,9 @@ async function validateEditRefs(data: {
   personId?: number
   serviceTypeId?: number
 }): Promise<string | null> {
-  if (!(await validateAccount(data.accountId, "INCOME"))) return "Invalid account"
-  // allowInactive: editing a historical entry — a fund deactivated after the
-  // fact must remain valid.
+  // allowInactive: editing a historical entry — an account or fund deactivated
+  // after the fact must remain valid.
+  if (!(await validateAccount(data.accountId, "INCOME", { allowInactive: true }))) return "Invalid account"
   if (data.fundId != null && !(await validateFund(data.fundId, { allowInactive: true })))
     return "Invalid fund"
   const donorError = await validateReceiptDonor(data.personId)
@@ -252,7 +252,7 @@ export async function updateReceipt(
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, receipt.sessionId, "Cannot edit in closed session")
-      const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME")
+      const fresh = await accountMatches(tx, parsed.data.accountId, "INCOME", { allowInactive: true })
       if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashReceipt.update({
       where: { id },
