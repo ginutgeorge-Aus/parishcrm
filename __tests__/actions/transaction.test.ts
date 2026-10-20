@@ -46,11 +46,14 @@ jest.mock("@/lib/crypto", () => ({
   }),
 }))
 
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({
+  logAudit: jest.fn().mockResolvedValue(undefined),
+  logAuditTx: jest.fn().mockResolvedValue(undefined),
+}))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -73,6 +76,7 @@ const mockPersonFindUnique = prisma.person.findUnique as jest.Mock
 const mockRevalidate = revalidatePath as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
 
 function fd(fields: Record<string, string>) {
@@ -319,7 +323,7 @@ describe("createTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockCreate.mockResolvedValue({ id: 11 })
     await createTransaction(undefined, fd(validTx))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "TRANSACTION_CREATED", "Transaction", 11, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_CREATED", "Transaction", 11, {
       amount: 500,
       type: "INCOME",
       accountId: 4001,
@@ -501,7 +505,7 @@ describe("updateTransaction", () => {
     mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     await updateTransaction(1, undefined, fd(validTx))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "TRANSACTION_UPDATED", "Transaction", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_UPDATED", "Transaction", 1, {
       amount: 500,
       type: "INCOME",
       accountId: 4001,
@@ -530,7 +534,7 @@ describe("updateTransaction", () => {
     mockUpdateMany.mockResolvedValue({ count: 0 })
     const result = await updateTransaction(1, undefined, fd({ ...validTx, updatedAt: "2026-07-02T10:00:00.000Z" }))
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
   })
 
   it("pins the write to the row's read invoiceId so a concurrent payment link conflicts (no token)", async () => {
