@@ -222,10 +222,10 @@ export async function updateExpense(
   if (lockError) return { error: lockError }
   const parsed = ExpenseSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const account = await validateAccount(parsed.data.accountId, "EXPENSE")
+  // allowInactive: editing a historical entry — an account or fund deactivated
+  // after the fact must remain valid.
+  const account = await validateAccount(parsed.data.accountId, "EXPENSE", { allowInactive: true })
   if (!account) return { error: "Invalid account" }
-  // allowInactive: editing a historical entry — a fund deactivated after the
-  // fact must remain valid.
   if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId, { allowInactive: true })))
     return { error: "Invalid fund" }
   // confirmDuplicate/confirmNegative are form-only flags — strip
@@ -241,7 +241,7 @@ export async function updateExpense(
       // Re-assert OPEN inside the tx — a concurrent close must not let an edit
       // land in a now-closed session.
       await assertSessionOpenTx(tx, expense.sessionId, "Cannot edit in closed session")
-      const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE")
+      const fresh = await accountMatches(tx, parsed.data.accountId, "EXPENSE", { allowInactive: true })
       if (!fresh) return { error: "Invalid account" }
       await tx.pettyCashExpense.update({
       where: { id },
