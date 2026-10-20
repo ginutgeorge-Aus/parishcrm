@@ -7,7 +7,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
@@ -164,15 +164,15 @@ export async function createTransaction(
         personId,
       },
     })
+    // Audit on the tx client so row + audit commit (or roll back) together.
+    await logAuditTx(tx, actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
+      amount: Number(parsed.data.amount),
+      type: parsed.data.type,
+      accountId: parsed.data.accountId,
+    })
     return { created }
   }, BUSY, GONE)
   if (!("created" in result)) return result
-  const { created } = result
-  await logAudit(actorId(session), "TRANSACTION_CREATED", "Transaction", created.id, {
-    amount: Number(parsed.data.amount),
-    type: parsed.data.type,
-    accountId: parsed.data.accountId,
-  })
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
   revalidateReports()
@@ -278,7 +278,7 @@ export async function updateTransaction(
   const seenAt = parseOptimisticUpdatedAt(formData)
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
     if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
-    return tx.transaction.updateMany({
+    const updated = await tx.transaction.updateMany({
       where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
       data: {
         ...rest,
@@ -291,6 +291,15 @@ export async function updateTransaction(
         personId,
       },
     })
+    // Audit on the tx client so row + audit commit (or roll back) together.
+    if (updated.count > 0) {
+      await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", id, {
+        amount: Number(parsed.data.amount),
+        type: parsed.data.type,
+        accountId: parsed.data.accountId,
+      })
+    }
+    return updated
   }, BUSY, GONE)
   if ("error" in result) return result
   if (result.count === 0) {
@@ -298,11 +307,6 @@ export async function updateTransaction(
       error: "This transaction was changed by someone else since you opened it. Reload the page and reapply your edit.",
     }
   }
-  await logAudit(actorId(session), "TRANSACTION_UPDATED", "Transaction", id, {
-    amount: Number(parsed.data.amount),
-    type: parsed.data.type,
-    accountId: parsed.data.accountId,
-  })
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
   revalidateReports()
