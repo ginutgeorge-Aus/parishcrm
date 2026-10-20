@@ -80,7 +80,7 @@ export function TopBar({
                 <span className="hidden md:inline">New</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" collisionPadding={8}>
               {quickAdd.map(({ href, label, icon: Icon }) => (
                 <DropdownMenuItem key={href} asChild>
                   <Link href={href}><Icon aria-hidden="true" />{label}</Link>
@@ -111,7 +111,7 @@ export function TopBar({
               </TooltipTrigger>
               <TooltipContent side="bottom">Notifications</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuContent align="end" collisionPadding={8} className="w-64">
               <DropdownMenuLabel>Needs attention</DropdownMenuLabel>
               {notices.length === 0 ? (
                 <p className="px-2 py-3 text-sm text-muted-foreground">You&apos;re all caught up.</p>
