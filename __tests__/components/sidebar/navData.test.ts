@@ -1,4 +1,4 @@
-import { buildNavGroups, flattenNavItems, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
+import { attentionItems, buildNavGroups, featureOn, flattenNavItems, navFlagsFor, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
 import { resolveFeatures } from "@/lib/features"
 
 /** Items of the named group, failing loudly if the group is missing. */
@@ -141,4 +141,23 @@ it("gives every collapsible group a header icon", () => {
   for (const g of buildNavGroups(allTrueFlags)) {
     if (!g.headless) expect(g.icon).toBeDefined()
   }
+})
+
+describe("navFlagsFor / featureOn / attentionItems (#366)", () => {
+  it("derives role flags and defaults counts to zero", () => {
+    expect(navFlagsFor("OFFICE_ADMIN")).toMatchObject({
+      isEditor: true, isAccounting: false, isAccountingViewer: true, isAdmin: false, pendingUpdates: 0,
+    })
+    expect(navFlagsFor(undefined)).toMatchObject({ isEditor: false, canViewPeople: false })
+  })
+
+  it("treats omitted features as all on", () => {
+    expect(featureOn(undefined, "events")).toBe(true)
+    expect(featureOn(new Set(["accounting"]), "events")).toBe(false)
+  })
+
+  it("lists visible actionable badges only", () => {
+    const groups = buildNavGroups(navFlagsFor("ADMIN", { pendingUpdates: 2, membershipPending: 0, verifyPending: 5 }))
+    expect(attentionItems(groups).map((i) => [i.href, i.badge])).toEqual([["/families/updates", 2]])
+  })
 })

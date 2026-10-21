@@ -7,6 +7,8 @@ import {
   ToggleRight, Church, Calculator, Settings,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
+import type { UserRole } from "@/lib/generated/prisma/enums"
+import { canAccessAccounting, canEdit, canManageUsers, canViewAccounting, canViewPeople, isAdmin } from "@/lib/roleGuard"
 
 // `badgeInformational` marks a count that is shown on the link but is not an
 // action item, so it stays out of the collapsed group header's pending total.
@@ -33,13 +35,41 @@ export type NavFlags = {
   features?: ReadonlySet<FeatureKey>
 }
 
+/** True when feature `k` is enabled; `features` omitted = all on. */
+export function featureOn(features: ReadonlySet<FeatureKey> | undefined, k: FeatureKey): boolean {
+  return !features || features.has(k)
+}
+
+/**
+ * Nav flags for a role. One source for the sidebar, the top-bar bell and the
+ * quick-add menu, so their role gates can't drift apart.
+ */
+export function navFlagsFor(
+  role: UserRole | undefined,
+  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending">> = {},
+  features?: ReadonlySet<FeatureKey>,
+): NavFlags {
+  return {
+    isAccounting: canAccessAccounting(role),
+    isAccountingViewer: canViewAccounting(role),
+    isAdmin: isAdmin(role),
+    isEditor: canEdit(role),
+    canUsers: canManageUsers(role),
+    canViewPeople: canViewPeople(role),
+    pendingUpdates: counts.pendingUpdates ?? 0,
+    verifyPending: counts.verifyPending ?? 0,
+    membershipPending: counts.membershipPending ?? 0,
+    features,
+  }
+}
+
 /** Sidebar groups for the viewer's role, badge counts and enabled features. */
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
     pendingUpdates, verifyPending, membershipPending, features,
   } = flags
-  const on = (k: FeatureKey) => !features || features.has(k)
+  const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
 
   // Every link has its own icon (asserted by the navData tests) so the
@@ -137,4 +167,14 @@ export function pendingTotal(items: NavEntry[]): number {
 /** Flattens sub-labelled entries into one list of links. */
 export function flattenNavItems(items: NavEntry[]): NavItem[] {
   return items.flatMap((entry) => ("subLabel" in entry ? entry.items : [entry]))
+}
+
+/**
+ * Visible links with a pending actionable count (the top-bar bell's list).
+ * Informational badges, such as unverified release checks, are left out.
+ */
+export function attentionItems(groups: NavGroup[]): NavItem[] {
+  return groups
+    .flatMap((g) => flattenNavItems(g.items))
+    .filter((i) => i.show && !i.badgeInformational && (i.badge ?? 0) > 0)
 }
