@@ -83,6 +83,9 @@ it("shows a visible sign-out failure on the collapsed rail", async () => {
   fireEvent.keyDown(screen.getByRole("button", { name: "Account menu: Demo Admin" }), { key: "Enter" })
   await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i })) })
   const alert = screen.getByRole("alert")
-  expect(alert).toHaveTextContent("Sign out failed")
+  // Collapsed rail is 64px wide: a compact icon is visible, the full message is screen-reader text.
+  expect(alert).toHaveTextContent("Sign out failed. Try again.")
   expect(alert).not.toHaveClass("sr-only")
+  expect(alert).toHaveAttribute("title", "Sign out failed. Try again.")
+  expect(alert.querySelector("svg")).not.toBeNull()
 })

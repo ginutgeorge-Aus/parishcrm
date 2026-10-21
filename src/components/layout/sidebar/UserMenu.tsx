@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import Link from "next/link"
 import { unstable_rethrow } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { ChevronsUpDown, HelpCircle, LogOut, MonitorSmartphone } from "lucide-react"
+import { ChevronsUpDown, CircleAlert, HelpCircle, LogOut, MonitorSmartphone } from "lucide-react"
 import { logout } from "@/lib/actions/session"
 import { cn } from "@/lib/utils"
 import { ROLE_LABELS } from "@/lib/roleLabels"
@@ -99,11 +99,15 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    {signOutFailed && (
-      <p role="alert" className={collapsed ? "pt-1 text-center text-[10px] leading-tight text-destructive" : "px-2 pt-1 text-xs text-destructive"}>
-        {collapsed ? "Sign out failed" : "Sign out failed. Try again."}
+    {signOutFailed && (collapsed ? (
+      // 64px rail: a compact icon stays visible; the full message is screen-reader text + tooltip.
+      <p role="alert" title="Sign out failed. Try again." className="flex justify-center pt-1 text-destructive">
+        <CircleAlert className="size-4" aria-hidden="true" />
+        <span className="sr-only">Sign out failed. Try again.</span>
       </p>
-    )}
+    ) : (
+      <p role="alert" className="px-2 pt-1 text-xs text-destructive">Sign out failed. Try again.</p>
+    ))}
     </>
   )
 }
