@@ -36,14 +36,14 @@ export function LetterSettingsForm({ settings }: Readonly<{ settings: LetterSett
         description="Bank accounts, default signer and wording of the new-member welcome letter."
         footer={<Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save welcome letter settings"}</Button>}
       >
-        <SettingsSubgroup title="General fund account">
+        <SettingsSubgroup title={settings.general.fundLabel}>
           {field("bankGeneralFundLabel", "Fund label", settings.general.fundLabel)}
           {field("bankGeneralBank", "Bank", settings.general.bank)}
           {field("bankGeneralBsb", "BSB", settings.general.bsb)}
           {field("bankGeneralAccount", "Account Number", settings.general.account)}
           {field("bankGeneralAccountName", "Account Name", settings.general.accountName)}
         </SettingsSubgroup>
-        <SettingsSubgroup title="Building fund account" description="Tax deductible.">
+        <SettingsSubgroup title={settings.building.fundLabel} description="Tax deductible.">
           {field("bankBuildingFundLabel", "Fund label", settings.building.fundLabel)}
           {field("bankBuildingBank", "Bank", settings.building.bank)}
           {field("bankBuildingBsb", "BSB", settings.building.bsb)}

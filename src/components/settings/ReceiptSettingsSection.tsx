@@ -106,7 +106,7 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
     return {}
   }
 
-  const dirty = JSON.stringify(fields) !== JSON.stringify(settings)
+  const dirty = JSON.stringify(fields) !== settingsJson
   useUnsavedGuard(dirty)
 
   return (

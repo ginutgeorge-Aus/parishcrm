@@ -117,19 +117,22 @@ export function AppSettingsForm({
         label="Idle timeout"
         htmlFor="idle-timeout"
         description="Automatically sign out inactive users after this period."
-        control={(keep) => (
+        control={(keep) => {
+          const value = keep("value", String(idleTimeoutMinutes))
           // Keyed: a select's default only applies on mount, so remount to show the kept choice after the form reset
-          <Select key={keep("value", String(idleTimeoutMinutes))} name="value" defaultValue={keep("value", String(idleTimeoutMinutes))}>
-            <SelectTrigger id="idle-timeout" className="w-full md:w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {IDLE_TIMEOUT_OPTIONS_LIST.map((m) => (
-                <SelectItem key={m} value={String(m)}>{m} minutes</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+          return (
+            <Select key={value} name="value" defaultValue={value}>
+              <SelectTrigger id="idle-timeout" className="w-full md:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {IDLE_TIMEOUT_OPTIONS_LIST.map((m) => (
+                  <SelectItem key={m} value={String(m)}>{m} minutes</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )
+        }}
       />
       {showCardFee && (
         <>
