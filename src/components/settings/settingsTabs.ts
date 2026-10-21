@@ -1,6 +1,6 @@
 import type { FeatureKey } from "@/lib/features"
 
-export type SettingsTab = Readonly<{ href: string; label: string }>
+type SettingsTab = Readonly<{ href: string; label: string }>
 export type SettingsTabGroup = Readonly<{ label: string; tabs: readonly SettingsTab[] }>
 
 /** A tab, shown only when one of `anyOf` is on (always shown when omitted). */
