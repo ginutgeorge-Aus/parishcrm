@@ -1,4 +1,7 @@
-import { FEATURES_SETTING_KEY, parseOverrides, resolveFeatures, type FeatureKey } from "@/lib/features"
+import { FEATURES_SETTING_KEY, parseStoredOverrides, resolveFeatures, type FeatureKey } from "@/lib/features"
+import {
+  getSettingsSnapshot, invalidateSettingsSnapshot, settingsGeneration, type SettingsSnapshot,
+} from "@/lib/settingsSnapshot"
 
 /**
  * Route → feature map for the middleware gate. Mirrors the segment layouts'
@@ -7,7 +10,7 @@ import { FEATURES_SETTING_KEY, parseOverrides, resolveFeatures, type FeatureKey 
  * segment (which never re-renders its layout) is blocked too.
  * No DB import at module top, so it loads in tests/scripts without a DB.
  */
-type Rule = { match: RegExp; feature: FeatureKey }
+export type Rule = { match: RegExp; feature: FeatureKey }
 
 /**
  * Rule matching `p` and everything beneath it.
@@ -20,7 +23,7 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 })
 
 /** Every matching rule must be on: a child path inherits its parents' gates. */
-const FEATURE_ROUTES: readonly Rule[] = [
+export const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
   // The exact /my-events home is deliberately NOT gated: its layout falls back
@@ -97,32 +100,34 @@ export function featureOffRedirect(pathname: string): string | null {
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
 const TTL_MS = 5_000
-let cache: { on: Set<FeatureKey> | null; at: number } | null = null
 // Last successfully read set. Survives invalidation so a read failure right after
 // a save still serves the previous set instead of failing open.
 let lastKnown: Set<FeatureKey> | null = null
+// A failed read, cached for the TTL so an outage is not hammered.
+let failedAt: number | null = null
+// Parsed set per snapshot object, so a cached snapshot is parsed (and warned about) once.
+let parsed: { snap: SettingsSnapshot; on: Set<FeatureKey> } | null = null
 let inflight: Promise<Set<FeatureKey> | null> | null = null
-// Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data.
-let generation = 0
 
-/** One DB read; on failure logs, keeps serving the last known set (else null = fail open) and caches that for the TTL. */
+/** One read via the shared snapshot; on failure logs and serves the last known set (else null = fail open). */
 async function loadFeatures(): Promise<Set<FeatureKey> | null> {
-  const gen = generation
+  const gen = settingsGeneration()
   try {
-    const { prisma } = await import("@/lib/prisma")
-    const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
-    const on = resolveFeatures(parseOverrides(row?.value))
-    if (gen === generation) {
+    const snap = await getSettingsSnapshot()
+    const on = parsed?.snap === snap
+      ? parsed.on
+      : resolveFeatures(parseStoredOverrides(snap[FEATURES_SETTING_KEY]))
+    if (gen === settingsGeneration()) {
+      parsed = { snap, on }
       lastKnown = on
-      cache = { on, at: Date.now() }
+      failedAt = null
     }
     return on
   } catch (err) {
     // Error class only: driver messages can echo query values.
     console.error("[featureRoutes] feature settings read failed; using", lastKnown ? "last known set" : "fail-open", err instanceof Error ? err.name : "UnknownError")
-    const on = lastKnown
-    if (gen === generation) cache = { on, at: Date.now() }
-    return on
+    if (gen === settingsGeneration()) failedAt = Date.now()
+    return lastKnown
   }
 }
 
@@ -134,7 +139,7 @@ async function loadFeatures(): Promise<Set<FeatureKey> | null> {
  * The failure result is cached for the TTL so an outage is not hammered.
  */
 export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.on
+  if (failedAt !== null && Date.now() - failedAt < TTL_MS) return lastKnown
   if (!inflight) {
     const read: Promise<Set<FeatureKey> | null> = loadFeatures().finally(() => {
       if (inflight === read) inflight = null
@@ -145,15 +150,15 @@ export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null
 }
 
 /**
- * Drop this process's cached feature set so the next request re-reads it.
+ * Drop this process's cached settings so the next request re-reads them.
  * Called by `saveFeatures`. Only effective when the middleware shares this
  * module instance (dev, single bundle); a production build may bundle the
  * middleware separately, in which case it converges within the TTL instead.
  * The last known set is kept as the read-failure fallback.
  */
 export function invalidateFeatureRouteCache(): void {
-  generation++
-  cache = null
+  invalidateSettingsSnapshot()
+  failedAt = null
   inflight = null
 }
 
@@ -161,6 +166,7 @@ export function invalidateFeatureRouteCache(): void {
 export function _resetFeatureRoutesCache(): void {
   invalidateFeatureRouteCache()
   lastKnown = null
+  parsed = null
 }
 
 /**

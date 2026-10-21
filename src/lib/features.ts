@@ -80,6 +80,19 @@ export function parseOverrides(raw: string | null | undefined): FeatureOverrides
 }
 
 /**
+ * `parseOverrides` for a stored row value, warning when a non-empty value
+ * yields nothing usable (corrupt JSON) so the fallback to defaults is visible.
+ * @param raw stored `features` setting value
+ */
+export function parseStoredOverrides(raw: string | null | undefined): FeatureOverrides {
+  const overrides = parseOverrides(raw)
+  if (raw && Object.keys(overrides).length === 0 && raw.trim() !== "{}") {
+    console.warn("[features] unreadable 'features' setting — using defaults")
+  }
+  return overrides
+}
+
+/**
  * Resolve which features are on: own override ?? default, AND parent on, AND
  * every `requires` on.
  */

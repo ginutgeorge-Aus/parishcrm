@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { bearerOk } from "@/lib/cronAuth"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, FEATURE_OFF_SKIP, type FeatureOffSkip, parseOverrides, resolveFeatures,
+  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, FEATURE_OFF_SKIP, type FeatureOffSkip, parseStoredOverrides, resolveFeatures,
   type FeatureKey, type FeatureOverrides,
 } from "@/lib/features"
 
@@ -19,11 +19,7 @@ export async function readRawOverrides(
   db: Pick<Prisma.TransactionClient, "appSetting"> = prisma,
 ): Promise<FeatureOverrides> {
   const row = await db.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
-  const overrides = parseOverrides(row?.value)
-  if (row?.value && Object.keys(overrides).length === 0 && row.value.trim() !== "{}") {
-    console.warn("[features] unreadable 'features' setting — using defaults")
-  }
-  return overrides
+  return parseStoredOverrides(row?.value)
 }
 
 /** Enabled feature set, read once per request. */

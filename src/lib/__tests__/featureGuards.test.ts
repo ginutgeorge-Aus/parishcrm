@@ -2,7 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { FEATURE_KEYS } from "@/lib/features"
-import { featuresForPath } from "@/lib/featureRoutes"
+import { FEATURE_ROUTES, featuresForPath } from "@/lib/featureRoutes"
 
 // Static coverage: every route segment and Server Action owned by a feature
 // must check that feature, so turning it off blocks it (not just hides it).
@@ -178,11 +178,29 @@ it("the public event success page stays reachable (in-flight payments must show 
   expect(read("src/app/(public)/e/[slug]/success/page.tsx")).not.toMatch(/requireFeature/)
 })
 
+/**
+ * Public URL a segment layout serves: /src/app/(group)/a/[id]/b/layout.tsx -> /a/x/b
+ * (groups dropped, params filled).
+ * @param file layout path
+ */
+const layoutUrl = (file: string): string =>
+  path.dirname(file).replace(/^src\/app/, "").replace(/\/\([^/]+\)/g, "").replace(/\[[^\]]+\]/g, "x")
+
 it.each(Object.entries(GUARDED_LAYOUTS))("%s is also gated by the middleware route map (%s)", (file, key) => {
-  // /src/app/(group)/a/[id]/b/layout.tsx -> /a/x/b (groups dropped, params filled)
-  const url = path.dirname(file).replace(/^src\/app/, "").replace(/\/\([^/]+\)/g, "").replace(/\[[^\]]+\]/g, "x")
-  expect(featuresForPath(url)).toContain(key)
+  expect(featuresForPath(layoutUrl(file))).toContain(key)
 })
+
+// Gates enforced outside a layout's requireFeature, as a sample URL -> feature.
+// /my-events/* runs eventsOffFallback in its layout (a notice/redirect, not a 404).
+const NON_LAYOUT_GATES: Record<string, string> = {
+  "/my-events/x": "events",
+}
+
+it.each(FEATURE_ROUTES.map((r) => [String(r.match), r] as const))(
+  "middleware rule %s is backed by a guarded layout (a stale or mistyped prefix would 404 a live route)", (_name, rule) => {
+    const urls = [...Object.entries(GUARDED_LAYOUTS).map(([f, k]) => [layoutUrl(f), k] as const), ...Object.entries(NON_LAYOUT_GATES)]
+    expect(urls.some(([url, key]) => key === rule.feature && rule.match.test(url))).toBe(true)
+  })
 
 it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, key) => {
   expect(read(file)).toContain(`await requireFeature("${key}")`)

@@ -1,4 +1,5 @@
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
+import { getSettingsSnapshot, invalidateSettingsSnapshot, MAINTENANCE_SETTING_KEY } from "@/lib/settingsSnapshot"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export type MaintenanceState = {
@@ -7,7 +8,7 @@ export type MaintenanceState = {
   message: string | null
 }
 
-export const MAINTENANCE_KEY = "maintenance"
+export const MAINTENANCE_KEY = MAINTENANCE_SETTING_KEY
 
 const DISABLED: MaintenanceState = { enabled: false, backAt: null, message: null }
 
@@ -112,27 +113,20 @@ export function renderMaintenanceHtml(
 </html>`
 }
 
-let cache: { state: MaintenanceState; at: number } | null = null
-const TTL_MS = 5_000
-
+/**
+ * Current maintenance state via the shared 5s settings snapshot (one query
+ * with the feature flags). Fails open: a DB blip must never lock everyone out,
+ * and a failure is not cached, so the next request retries.
+ */
 export async function getMaintenanceState(): Promise<MaintenanceState> {
-  const now = Date.now()
-  if (cache && now - cache.at < TTL_MS) return cache.state
   try {
-    // Deferred import: @/lib/prisma is `server-only`, so a top-level import makes
-    // this module unloadable from scripts/set-maintenance.ts. Inside the try so an
-    // import failure also fails open (never 500 every request).
-    const { prisma } = await import("@/lib/prisma")
-    const row = await prisma.appSetting.findUnique({ where: { key: MAINTENANCE_KEY } })
-    const state = parseMaintenanceValue(row?.value)
-    cache = { state, at: now }
-    return state
+    return parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_KEY])
   } catch {
-    // Fail-open: a DB blip must never lock everyone out.
     return { ...DISABLED }
   }
 }
 
+/** Test hook: drop the cached settings snapshot. */
 export function _resetMaintenanceCache(): void {
-  cache = null
+  invalidateSettingsSnapshot()
 }

@@ -10,13 +10,13 @@ import {
 import { prisma } from "@/lib/prisma"
 
 jest.mock("@/lib/prisma", () => ({
-  prisma: { appSetting: { findUnique: jest.fn() } },
+  prisma: { appSetting: { findMany: jest.fn() } },
 }))
 
-const findUnique = prisma.appSetting.findUnique as jest.Mock
+const findMany = prisma.appSetting.findMany as jest.Mock
 
 beforeEach(() => {
-  findUnique.mockReset()
+  findMany.mockReset()
   _resetMaintenanceCache()
 })
 
@@ -147,19 +147,33 @@ describe("isMaintenanceBypassPath", () => {
 
 describe("getMaintenanceState", () => {
   it("reads and parses the AppSetting row", async () => {
-    findUnique.mockResolvedValue({ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":null}' })
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":null}' }])
     expect((await getMaintenanceState()).enabled).toBe(true)
   })
 
   it("fails open (disabled) when the DB throws", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+    findMany.mockRejectedValue(new Error("db down"))
     expect(await getMaintenanceState()).toEqual({ enabled: false, backAt: null, message: null })
   })
 
   it("caches within the TTL (one query for two rapid reads)", async () => {
-    findUnique.mockResolvedValue({ key: "maintenance", value: '{"enabled":true}' })
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
     await getMaintenanceState()
     await getMaintenanceState()
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("reads maintenance and features in one query", async () => {
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }, { key: "features", value: "{}" }])
+    await getMaintenanceState()
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(findMany.mock.calls[0][0].where.key.in).toEqual(expect.arrayContaining(["maintenance", "features"]))
+  })
+
+  it("does not cache a failure (the next request retries)", async () => {
+    findMany.mockRejectedValueOnce(new Error("db down"))
+    await getMaintenanceState()
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
+    expect((await getMaintenanceState()).enabled).toBe(true)
   })
 })
