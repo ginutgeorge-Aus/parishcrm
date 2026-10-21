@@ -11,6 +11,9 @@ import { actorId } from "@/lib/actor"
  *
  * Returns null when there is no session user id, the user is gone or archived,
  * or it has no email.
+ *
+ * @public Kept exported: the crm-no-session-user-email semgrep rule points
+ * callers here, though today only testSendRecipient uses it.
  */
 export async function actorEmail(session: Session | null): Promise<string | null> {
   if (!session?.user?.id) return null
