@@ -15,7 +15,7 @@ jest.mock("@/lib/actions/settings", () => ({
 // be driven in jsdom (same pattern as BudgetForm.test.tsx).
 jest.mock("@/components/ui/select", () => ({
   Select: ({ name, defaultValue, children }: any) => (
-    <select name={name} defaultValue={defaultValue} aria-label="Idle timeout">{children}</select>
+    <select name={name} defaultValue={defaultValue} aria-label="Idle timeout" data-default-value={defaultValue}>{children}</select>
   ),
   SelectTrigger: () => null,
   SelectValue: () => null,
@@ -66,7 +66,11 @@ describe("settings forms keep typed values when the action returns an error", ()
     const select = screen.getByLabelText("Idle timeout")
     fireEvent.click(select.closest("form")!.querySelector("button[type=submit]")!)
     expect(await screen.findByText("Save failed")).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByLabelText("Idle timeout")).toHaveValue("120"))
+    await waitFor(() => {
+      const kept = screen.getByLabelText("Idle timeout")
+      expect(kept).toHaveAttribute("data-default-value", "120")
+      expect(kept).toHaveValue("120")
+    })
   })
 
   it("MembershipSettingsForm drops typed values after a later success", async () => {
