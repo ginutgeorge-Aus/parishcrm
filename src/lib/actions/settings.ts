@@ -305,7 +305,7 @@ export async function updateBirthdayTemplate(_prev: ActionResultWithSuccess, for
   const userId = actorId(session)
   await logAudit(userId, "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 
-  revalidatePath("/settings")
+  revalidatePath("/settings/email")
   return { success: "Birthday email template saved" }
 }
 
@@ -397,7 +397,7 @@ export async function updateAnniversaryTemplate(_prev: ActionResultWithSuccess, 
   const userId = actorId(session)
   await logAudit(userId, "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 
-  revalidatePath("/settings")
+  revalidatePath("/settings/email")
   return { success: "Anniversary email template saved" }
 }
 
@@ -482,7 +482,7 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
 
   await logAudit(actorId(session), "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 
-  revalidatePath("/settings")
+  revalidatePath("/settings/email")
   return { success: "Automated email settings saved" }
 }
 
@@ -592,7 +592,7 @@ export async function updateLetterSettings(
 
   // Immediate expiry — the next welcome-letter draft must use the copy just saved.
   updateTag("letter-settings")
-  revalidatePath("/settings")
+  revalidatePath("/settings/members")
   return { success: "Welcome letter settings saved" }
 }
 
@@ -647,7 +647,7 @@ export async function updateMembershipSettings(
   // updateTag (not SWR revalidateTag) — the submit action enforces minDues, so a
   // raised floor must apply to the very next application, not after a refresh.
   updateTag("membership-settings")
-  revalidatePath("/settings")
+  revalidatePath("/settings/members")
   revalidatePath("/membershipform")
   return { success: "Membership settings saved" }
 }

@@ -3,6 +3,8 @@
 import { useState, useTransition, type ChangeEvent, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { SettingsCard } from "./ui/SettingsCard"
+import { SettingsRow } from "./ui/SettingsRow"
 import { uploadBranding, resetBranding } from "@/lib/actions/branding"
 
 // Raster only — the upload action rejects SVG (stored-XSS via same-origin serve).
@@ -27,6 +29,7 @@ const SLOTS: { param: string; label: string; hint: string }[] = [
   { param: "letterhead", label: "Letterhead", hint: "PDF banner across receipts + letters (wide PNG)" },
 ]
 
+/** Branding card: one row per image slot, each uploaded or reset on its own. */
 export function BrandingForm() {
   const [pending, start] = useTransition()
   const [msg, setMsg] = useState<Record<string, { error?: string; success?: string }>>({})
@@ -74,18 +77,15 @@ export function BrandingForm() {
   }
 
   return (
-    <section>
-      <h3 className="text-base font-semibold text-foreground mb-1">Branding</h3>
-      <p className="text-sm text-muted-foreground mb-4">
-        Upload your church&rsquo;s images. Each replaces the built-in placeholder everywhere it appears:
-        the login screen, sidebar, public pages, browser tab, and PDF letterheads. Reset restores
-        the neutral default.
-      </p>
-      <div className="space-y-6">
-        {SLOTS.map((s) => {
-          const m = msg[s.param]
-          return (
-            <div key={s.param} className="flex items-start gap-4">
+    <SettingsCard
+      title="Branding"
+      description="Upload your church’s images. Each replaces the built-in placeholder everywhere it appears: the login screen, sidebar, public pages, browser tab, and PDF letterheads. Reset restores the neutral default."
+    >
+      {SLOTS.map((s) => {
+        const m = msg[s.param]
+        return (
+          <SettingsRow key={s.param} label={s.label} description={s.hint}>
+            <div className="flex items-start gap-4">
               {/* Plain <img>: the source is a dynamic, sometimes-SVG API route that next/image can't optimise. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -94,12 +94,7 @@ export function BrandingForm() {
                 className="h-12 w-12 shrink-0 rounded border border-border bg-muted object-contain"
               />
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-foreground">{s.label}</div>
-                <div className="text-xs text-muted-foreground">{s.hint}</div>
-                <form
-                  className="mt-2 flex flex-wrap items-center gap-2"
-                  onSubmit={(e) => submit(s.param, e)}
-                >
+                <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => submit(s.param, e)}>
                   <input
                     type="file"
                     name="file"
@@ -123,9 +118,9 @@ export function BrandingForm() {
                 <FormFeedback state={m} className="mt-1 text-xs" />
               </div>
             </div>
-          )
-        })}
-      </div>
-    </section>
+          </SettingsRow>
+        )
+      })}
+    </SettingsCard>
   )
 }

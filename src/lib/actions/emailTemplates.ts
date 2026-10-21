@@ -151,7 +151,7 @@ export async function updateEmailTemplate(_prev: ActionResultWithSuccess, formDa
   })
   // Log the key only — template values can be long; never log raw values.
   await logAudit(updatedBy, "SETTING_UPDATED", "EmailTemplate", undefined, { template: key })
-  revalidatePath("/settings")
+  revalidatePath("/settings/email")
   return { success: "Template saved" }
 }
 
@@ -172,7 +172,7 @@ export async function resetEmailTemplate(key: EmailTemplateKey): Promise<ActionR
     update: { ...def, updatedBy },
   })
   await logAudit(updatedBy, "SETTING_UPDATED", "EmailTemplate", undefined, { template: key, reset: true })
-  revalidatePath("/settings")
+  revalidatePath("/settings/email")
   return { success: "Template reset to default" }
 }
 

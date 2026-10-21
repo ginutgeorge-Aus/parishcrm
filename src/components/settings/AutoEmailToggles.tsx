@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react"
 import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import { updateAutoEmailFlags } from "@/lib/actions/settings"
+import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsSubgroup } from "./ui/SettingsSubgroup"
 
 type Flags = { birthday: boolean; anniversary: boolean }
 
@@ -11,6 +12,11 @@ type Flags = { birthday: boolean; anniversary: boolean }
 // FormData in a plain form. Rather than shadow it with a hidden input, toggle
 // optimistically and call the server action with a JS-built FormData (mirrors
 // the app's optimistic inline-toggle pattern). On error we revert the switch.
+/**
+ * Instant-save switches for the daily blessing-email jobs; reverts on error.
+ * @param props.birthday birthday emails currently on
+ * @param props.anniversary anniversary emails currently on
+ */
 export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
   const [flags, setFlags] = useState<Flags>({ birthday, anniversary })
   const [pending, startTransition] = useTransition()
@@ -35,41 +41,31 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
   }
 
   return (
-    <div className="max-w-lg space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-foreground mb-1">Automated blessing emails</h3>
-        <p className="text-sm text-muted-foreground">
-          When on, a daily job emails each member their birthday or anniversary blessing automatically —
-          consent-gated, using the templates above. Leave off to send manually from the People pages.
-        </p>
-      </div>
+    <SettingsSubgroup
+      title="Automated blessing emails"
+      description="When on, a daily job emails each member their birthday or anniversary blessing automatically, consent-gated, using the templates below. Leave off to send manually from the People pages."
+    >
       {message && (
-        <p role="status" aria-live="polite" className="text-sm">
+        <p role="status" aria-live="polite" className="py-3 text-sm">
           {message}
         </p>
       )}
-      <div className="flex items-center justify-between gap-4">
-        <Label htmlFor="autoBirthdayEmail" className="font-normal">
-          Send birthday blessings automatically
-        </Label>
+      <SettingsRow label="Send birthday blessings automatically" htmlFor="autoBirthdayEmail">
         <Switch
           id="autoBirthdayEmail"
           checked={flags.birthday}
           disabled={pending}
           onCheckedChange={(v) => save({ ...flags, birthday: v })}
         />
-      </div>
-      <div className="flex items-center justify-between gap-4">
-        <Label htmlFor="autoAnniversaryEmail" className="font-normal">
-          Send anniversary blessings automatically
-        </Label>
+      </SettingsRow>
+      <SettingsRow label="Send anniversary blessings automatically" htmlFor="autoAnniversaryEmail">
         <Switch
           id="autoAnniversaryEmail"
           checked={flags.anniversary}
           disabled={pending}
           onCheckedChange={(v) => save({ ...flags, anniversary: v })}
         />
-      </div>
-    </div>
+      </SettingsRow>
+    </SettingsSubgroup>
   )
 }

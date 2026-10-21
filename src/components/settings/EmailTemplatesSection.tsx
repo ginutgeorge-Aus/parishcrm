@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmailTemplateForm } from "./EmailTemplateForm"
+import { SettingsCard } from "./ui/SettingsCard"
 import {
   EMAIL_TEMPLATE_KEYS,
   EMAIL_TEMPLATE_LABELS,
@@ -24,8 +25,8 @@ export function EmailTemplatesSection({
 }>) {
   const [tab, setTab] = useState<EmailTemplateKey>(keys[0] ?? EMAIL_TEMPLATE_KEYS[0])
   return (
-    <div>
-      <h3 className="text-base font-semibold text-foreground mb-1">Email Templates</h3>
+    <SettingsCard title="Email templates" description="Wording of the emails ParishCRM sends. Pick a template to edit it.">
+      <div className="py-5">
       <Tabs value={tab} onValueChange={(v) => setTab(v as EmailTemplateKey)}>
         <TabsList>
           {keys.map((k) => (
@@ -38,6 +39,7 @@ export function EmailTemplatesSection({
           </TabsContent>
         ))}
       </Tabs>
-    </div>
+      </div>
+    </SettingsCard>
   )
 }

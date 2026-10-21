@@ -15,6 +15,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+import { useUnsavedGuard } from "./unsavedChanges"
+import { SettingsCard } from "./ui/SettingsCard"
+import { SettingsRow } from "./ui/SettingsRow"
 
 // Maps each editable ReceiptSettings field to its AppSetting key (what the
 // server actions expect) plus display metadata.
@@ -49,6 +52,10 @@ const FIELDS: FieldConfig[] = [
   },
 ]
 
+/**
+ * Tax receipt wording card. Saves via the footer button; warns about unsaved edits.
+ * @param props.settings the stored receipt settings
+ */
 export function ReceiptSettingsSection({ settings }: Readonly<{ settings: ReceiptSettings }>) {
   const [fields, setFields] = useState<ReceiptSettings>(settings)
   const [feedback, setFeedback] = useState<{ error?: string; success?: string } | undefined>()
@@ -82,44 +89,15 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
     return {}
   }
 
+  const dirty = JSON.stringify(fields) !== JSON.stringify(settings)
+  useUnsavedGuard(dirty)
+
   return (
-    <div>
-      <h3 className="text-base font-semibold text-foreground mb-1">Tax Receipt</h3>
-      <p className="text-sm text-muted-foreground mb-4">
-        Wording used on tax-deductible donation receipts (PDF and email).
-      </p>
-      <div className="space-y-4 max-w-lg">
-        {FIELDS.map((f) => (
-          <div key={f.settingKey}>
-            <Label htmlFor={f.settingKey}>{f.label}</Label>
-            {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
-            {f.multiline ? (
-              <Textarea
-                id={f.settingKey}
-                value={fields[f.key]}
-                rows={f.rows}
-                maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
-                disabled={pending}
-                onChange={set(f.key)}
-                className="mt-1"
-              />
-            ) : (
-              <Input
-                id={f.settingKey}
-                value={fields[f.key]}
-                maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
-                disabled={pending}
-                onChange={set(f.key)}
-                className="mt-1"
-              />
-            )}
-          </div>
-        ))}
-        <FormFeedback state={feedback} />
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={save} disabled={pending}>
-            {pending ? "Saving…" : "Save"}
-          </Button>
+    <SettingsCard
+      title="Tax receipt"
+      description="Wording used on tax-deductible donation receipts (PDF and email)."
+      footer={
+        <div className="flex flex-wrap justify-end gap-2">
           <DeleteConfirmButton
             onConfirm={resetAll}
             disabled={pending}
@@ -132,8 +110,40 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
             confirmLabel="Reset"
             pendingLabel="Resetting…"
           />
+          <Button type="button" onClick={save} disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </Button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {FIELDS.map((f) =>
+        f.multiline ? (
+          <div key={f.settingKey} className="space-y-2 py-5">
+            <Label htmlFor={f.settingKey}>{f.label}</Label>
+            {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+            <Textarea
+              id={f.settingKey}
+              value={fields[f.key]}
+              rows={f.rows}
+              maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
+              disabled={pending}
+              onChange={set(f.key)}
+            />
+          </div>
+        ) : (
+          <SettingsRow key={f.settingKey} label={f.label} htmlFor={f.settingKey} description={f.hint}>
+            <Input
+              id={f.settingKey}
+              value={fields[f.key]}
+              maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
+              disabled={pending}
+              onChange={set(f.key)}
+              className="md:w-80"
+            />
+          </SettingsRow>
+        ),
+      )}
+      <FormFeedback state={feedback} />
+    </SettingsCard>
   )
 }

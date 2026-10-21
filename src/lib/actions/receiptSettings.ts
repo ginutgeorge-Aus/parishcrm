@@ -54,7 +54,7 @@ export async function updateReceiptSettings(
   await logAudit(actorId(session), "RECEIPT_SETTINGS_UPDATED", "AppSetting", undefined, {
     keys: Object.keys(parsed.data),
   })
-  revalidatePath("/settings")
+  revalidatePath("/settings/receipts")
   return { ok: true }
 }
 
@@ -73,6 +73,6 @@ export async function resetReceiptSettings(): Promise<{ ok: true } | { error: st
   await logAudit(actorId(session), "RECEIPT_SETTINGS_RESET", "AppSetting", undefined, {
     keys: RECEIPT_SETTING_KEYS,
   })
-  revalidatePath("/settings")
+  revalidatePath("/settings/receipts")
   return { ok: true }
 }

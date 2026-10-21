@@ -2,9 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { useUnsavedGuard } from "./unsavedChanges"
+import { SettingsCard } from "./ui/SettingsCard"
+import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsSubgroup } from "./ui/SettingsSubgroup"
 import { saveFeatures } from "@/lib/actions/features"
 import {
   FEATURES, featureDef, resolveFeatures, type FeatureDef, type FeatureKey, type FeatureOverrides,
@@ -37,6 +40,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const [result, setResult] = useState<{ error?: string; success?: string } | null>(null)
   const [pending, startTransition] = useTransition()
   const effective = useMemo(() => resolveFeatures(state), [state])
+  useUnsavedGuard(JSON.stringify(state) !== JSON.stringify(start))
 
   /** Save the full on/off map; a transport failure shows a retry message. */
   const save = () => {
@@ -58,28 +62,26 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
     const descId = `${id}-desc`
     const warn = def.publicWarning && startOn.has(def.key) && !effective.has(def.key) && !blocker
     return (
-      <li key={def.key} className={def.parent ? "pl-6" : undefined}>
-        <div className="flex min-h-11 items-start justify-between gap-4 py-2">
-          <div className="min-w-0">
-            <Label htmlFor={id} className={blocker ? "text-muted-foreground" : undefined}>
-              {def.label}
-            </Label>
-            <div id={descId}>
-              <p className="text-sm text-muted-foreground">{def.description}</p>
-              {blocker && <p className="text-sm text-muted-foreground">Needs {blocker}</p>}
-              {warn && <p role="status" className="text-sm text-warning">{def.publicWarning}</p>}
-            </div>
-          </div>
-          <Switch
-            id={id}
-            className="mt-1"
-            aria-describedby={descId}
-            checked={effective.has(def.key)}
-            disabled={pending || blocker !== null}
-            onCheckedChange={(v) => setState((s) => ({ ...s, [def.key]: v }))}
-          />
-        </div>
-      </li>
+      <SettingsRow
+        key={def.key}
+        label={<span className={blocker ? "text-muted-foreground" : undefined}>{def.label}</span>}
+        htmlFor={id}
+        description={
+          <span id={descId} className="block">
+            <span className="block">{def.description}</span>
+            {blocker && <span className="block">Needs {blocker}</span>}
+            {warn && <span role="status" className="block text-warning">{def.publicWarning}</span>}
+          </span>
+        }
+      >
+        <Switch
+          id={id}
+          aria-describedby={descId}
+          checked={effective.has(def.key)}
+          disabled={pending || blocker !== null}
+          onCheckedChange={(v) => setState((s) => ({ ...s, [def.key]: v }))}
+        />
+      </SettingsRow>
     )
   }
 
@@ -91,21 +93,26 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
           Pick what your church needs. You can change this any time in Settings → Features.
         </p>
       )}
-      <p className="text-sm text-muted-foreground">
-        Turning a feature off hides it and blocks it. Your data is kept, and switching it back on restores everything.
-      </p>
-      <ul className="divide-y divide-border">
-        {topLevel.flatMap((top) => [
-          row(top),
-          ...FEATURES.filter((f) => f.parent === top.key).map(row),
-        ])}
-      </ul>
-      <div className="flex flex-wrap items-center gap-4">
-        <Button type="button" onClick={save} disabled={pending} className="min-h-11 w-full sm:w-auto">
-          Save
-        </Button>
+      <SettingsCard
+        title="Features"
+        description="Choose which parts of ParishCRM your church uses. Turning a feature off hides it and blocks it. Your data is kept, and switching it back on restores everything."
+        footer={
+          <Button type="button" onClick={save} disabled={pending} className="min-h-11 w-full sm:w-auto">
+            Save
+          </Button>
+        }
+      >
+        {topLevel.flatMap((top) => {
+          const children = FEATURES.filter((f) => f.parent === top.key)
+          return [
+            row(top),
+            ...(children.length > 0
+              ? [<SettingsSubgroup key={`${top.key}-children`} title={`${top.label} options`}>{children.map(row)}</SettingsSubgroup>]
+              : []),
+          ]
+        })}
         <FormFeedback state={result} />
-      </div>
+      </SettingsCard>
     </div>
   )
 }
