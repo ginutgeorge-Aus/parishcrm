@@ -25,8 +25,8 @@ describe("buildSettingsTabs", () => {
   })
 
   it("hides Members and Receipts when their features are off", () => {
-    expect(hrefs(on("events"))).not.toEqual(expect.arrayContaining(["/settings/members"]))
-    expect(hrefs(on("events"))).not.toEqual(expect.arrayContaining(["/settings/receipts"]))
+    expect(hrefs(on("events"))).not.toContain("/settings/members")
+    expect(hrefs(on("events"))).not.toContain("/settings/receipts")
   })
 })
 

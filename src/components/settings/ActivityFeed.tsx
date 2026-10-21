@@ -38,52 +38,52 @@ function timeAgo(date: Date): string {
 export function ActivityFeed({ isAdmin, auditEntries, registrations }: Readonly<ActivityFeedProps>) {
   return (
     <div className="space-y-4">
-        {isAdmin && auditEntries.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-              System Activity
-            </p>
-            <ul className="space-y-1">
-              {auditEntries.map((entry) => (
-                <li key={entry.id} className="flex justify-between text-sm">
-                  <span className="min-w-0 truncate">
-                    <span className="font-medium">{entry.user?.name ?? "System"}</span>
-                    {" — "}
-                    {entry.action}
-                    {` (${entry.resourceType}${entry.resourceId != null ? ` #${entry.resourceId}` : ""})`}
-                  </span>
-                  <span className="text-muted-foreground text-xs ml-4 shrink-0">
-                    {timeAgo(entry.createdAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
+      {isAdmin && auditEntries.length > 0 && (
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            Recent Registrations
+            System Activity
           </p>
-          {registrations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent registrations.</p>
-          ) : (
-            <ul className="space-y-1">
-              {registrations.map((reg) => (
-                <li key={reg.id} className="flex justify-between text-sm">
-                  <span>
-                    {reg.firstName} {reg.lastName}
-                    {" — "}
-                    <span className="text-muted-foreground">{reg.event.title}</span>
-                  </span>
-                  <span className="text-muted-foreground text-xs ml-4 shrink-0">
-                    {timeAgo(reg.createdAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul className="space-y-1">
+            {auditEntries.map((entry) => (
+              <li key={entry.id} className="flex justify-between text-sm">
+                <span className="min-w-0 truncate">
+                  <span className="font-medium">{entry.user?.name ?? "System"}</span>
+                  {" — "}
+                  {entry.action}
+                  {` (${entry.resourceType}${entry.resourceId != null ? ` #${entry.resourceId}` : ""})`}
+                </span>
+                <span className="text-muted-foreground text-xs ml-4 shrink-0">
+                  {timeAgo(entry.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
+
+      <div>
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+          Recent Registrations
+        </p>
+        {registrations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No recent registrations.</p>
+        ) : (
+          <ul className="space-y-1">
+            {registrations.map((reg) => (
+              <li key={reg.id} className="flex justify-between text-sm">
+                <span>
+                  {reg.firstName} {reg.lastName}
+                  {" — "}
+                  <span className="text-muted-foreground">{reg.event.title}</span>
+                </span>
+                <span className="text-muted-foreground text-xs ml-4 shrink-0">
+                  {timeAgo(reg.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }

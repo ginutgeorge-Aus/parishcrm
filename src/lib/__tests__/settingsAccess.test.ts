@@ -16,7 +16,7 @@ beforeEach(() => {
 
 it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER", undefined])("redirects role %s to /", async (role) => {
   mockAuth.mockResolvedValue(role ? { user: { role } } : null)
-  await expect(requireSettingsTab("/settings")).rejects.toThrow("NEXT_REDIRECT /")
+  await expect(requireSettingsTab("/settings")).rejects.toThrow(/^NEXT_REDIRECT \/$/)
 })
 
 it("redirects a feature-off tab to /settings", async () => {

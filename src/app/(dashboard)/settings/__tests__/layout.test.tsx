@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 
-jest.mock("next/navigation", () => ({ redirect: jest.fn(() => { throw new Error("NEXT_REDIRECT") }) }))
+jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn().mockResolvedValue(new Set(["memberships"])) }))
 jest.mock("@/components/DemoNotice", () => ({ DemoNotice: () => null }))
@@ -17,7 +17,7 @@ const mockAuth = auth as unknown as jest.Mock
 
 it("redirects non-admins", async () => {
   mockAuth.mockResolvedValue({ user: { role: "PASTOR" } })
-  await expect(SettingsLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT")
+  await expect(SettingsLayout({ children: null })).rejects.toThrow(/^NEXT_REDIRECT \/$/)
 })
 
 it("renders the heading, the feature-filtered tabs and the page", async () => {

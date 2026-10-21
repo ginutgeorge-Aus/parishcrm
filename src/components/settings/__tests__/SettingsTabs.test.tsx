@@ -40,6 +40,7 @@ function Dirty() {
   return null
 }
 
+/** The "Settings sections" navigation landmark rendered by SettingsTabs. */
 const nav = () => screen.getByRole("navigation", { name: "Settings sections" })
 
 beforeEach(() => {
