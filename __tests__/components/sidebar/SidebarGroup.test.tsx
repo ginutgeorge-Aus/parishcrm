@@ -96,3 +96,11 @@ it("leaves informational badges out of the collapsed header total", () => {
   })
   expect(screen.getByRole("button", { name: "Settings 1 pending" })).toBeInTheDocument()
 })
+
+it("indents the open panel with a guide line and rotates the chevron", () => {
+  renderGroup(true)
+  const button = screen.getByRole("button", { name: /accounting/i })
+  const panel = document.getElementById(button.getAttribute("aria-controls")!)!
+  expect(panel).toHaveClass("border-l")
+  expect(button.querySelector("svg.rotate-90")).not.toBeNull()
+})

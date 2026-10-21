@@ -1,14 +1,12 @@
 import { render, screen, fireEvent } from "@testing-library/react"
 import { Sidebar } from "@/components/layout/Sidebar"
+import { ShellProvider } from "@/components/layout/ShellContext"
+import { TopBar } from "@/components/layout/TopBar"
 
 let mockPathname = "/"
 jest.mock("next/navigation", () => ({ usePathname: () => mockPathname }))
 jest.mock("@/lib/actions/session", () => ({ logout: jest.fn() }))
-jest.mock("@/components/layout/FeedbackDialog", () => ({
-  FeedbackDialog: ({ collapsed }: { collapsed?: boolean }) => (
-    <button aria-label="Feedback">{collapsed ? null : "Feedback"}</button>
-  ),
-}))
+jest.mock("@/lib/actions/feedback", () => ({ submitFeedback: jest.fn() }))
 
 // `undefined` reproduces a cold reload where useSession() has no hydrated
 // session yet, so no role-gated item is visible on first render.
@@ -26,7 +24,7 @@ afterEach(() => {
 it("shows Family Updates with a badge for editors", () => {
   mockRole = "ADMIN"
   mockPathname = "/families/updates" // opens its Community group
-  render(<Sidebar churchName="Example Church" pendingUpdates={4} />)
+  render(<Sidebar churchName="Example Church" pendingUpdates={4} />, { wrapper: ShellProvider })
   // Sidebar renders both a mobile and a desktop nav, so the item appears twice.
   const links = screen.getAllByRole("link", { name: /family updates/i })
   expect(links.length).toBeGreaterThan(0)
@@ -36,20 +34,20 @@ it("shows Family Updates with a badge for editors", () => {
 
 it("hides Family Updates for viewers", () => {
   mockRole = "VIEWER"
-  render(<Sidebar churchName="Example Church" pendingUpdates={4} />)
+  render(<Sidebar churchName="Example Church" pendingUpdates={4} />, { wrapper: ShellProvider })
   expect(screen.queryAllByRole("link", { name: /family updates/i })).toHaveLength(0)
 })
 
 it("shows the pending count on the collapsed Community header", () => {
   mockRole = "ADMIN"
-  render(<Sidebar churchName="Example Church" pendingUpdates={4} membershipPending={3} />)
+  render(<Sidebar churchName="Example Church" pendingUpdates={4} membershipPending={3} />, { wrapper: ShellProvider })
   expect(screen.getAllByRole("button", { name: "Community 7 pending" }).length).toBeGreaterThan(0)
 })
 
 it("groups Accounting items under Books/Billing & Receipts/Admin sub-headers", () => {
   mockRole = "ADMIN"
   mockPathname = "/accounting"
-  render(<Sidebar churchName="Example Church" />)
+  render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   expect(screen.getAllByText("Books").length).toBeGreaterThan(0)
   expect(screen.getAllByText("Billing & Receipts").length).toBeGreaterThan(0)
   expect(screen.getAllByText("Admin").length).toBeGreaterThan(0)
@@ -58,7 +56,7 @@ it("groups Accounting items under Books/Billing & Receipts/Admin sub-headers", (
 it("highlights the Reports hub link on an individual report page", () => {
   mockRole = "ADMIN"
   mockPathname = "/accounting/reports/pl"
-  render(<Sidebar churchName="Example Church" />)
+  render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   const current = screen.getAllByRole("link", { current: "page" })
   expect(current.length).toBeGreaterThan(0)
   for (const link of current) expect(link).toHaveAttribute("href", "/accounting/reports")
@@ -66,7 +64,7 @@ it("highlights the Reports hub link on an individual report page", () => {
 
 it("collapsing to icon-only rail removes desktop link labels and persists the choice", () => {
   mockRole = "ADMIN"
-  render(<Sidebar churchName="Example Church" />)
+  render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   // Mobile drawer is aria-hidden/inert at rest, so only the desktop link is
   // in the accessible tree while expanded.
   expect(screen.getAllByRole("link", { name: /^dashboard$/i })).toHaveLength(1)
@@ -80,17 +78,17 @@ it("collapsing to icon-only rail removes desktop link labels and persists the ch
   expect(window.localStorage.getItem("sidebar-collapsed")).toBe("true")
 })
 
-it("keeps a Feedback trigger rendered when the desktop rail is collapsed", () => {
+it("keeps the account menu reachable when the desktop rail is collapsed", () => {
   mockRole = "ADMIN"
-  render(<Sidebar churchName="Example Church" />)
+  render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   fireEvent.click(screen.getByRole("button", { name: /collapse sidebar/i }))
-  expect(screen.getAllByRole("button", { name: "Feedback" }).length).toBeGreaterThan(0)
+  expect(screen.getAllByRole("button", { name: /account menu/i }).length).toBeGreaterThan(0)
 })
 
 it("restores collapsed rail state from localStorage on mount", () => {
   window.localStorage.setItem("sidebar-collapsed", "true")
   mockRole = "ADMIN"
-  render(<Sidebar churchName="Example Church" />)
+  render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   const collapsedLink = screen.getByRole("link", { name: /^dashboard$/i })
   expect(collapsedLink).not.toHaveTextContent("Dashboard")
 })
@@ -102,7 +100,7 @@ it("restores collapsed rail state from localStorage on mount", () => {
 it("auto-expands the active group after the session resolves on a cold reload", () => {
   mockPathname = "/accounting/transactions"
   mockRole = undefined // first render: session still loading
-  const { rerender } = render(<Sidebar churchName="Example Church" />)
+  const { rerender } = render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
 
   // Session resolves to an ADMIN — role-gated Accounting items become visible.
   mockRole = "ADMIN"
@@ -114,7 +112,7 @@ it("auto-expands the active group after the session resolves on a cold reload", 
 
 it("renders unique, resolvable aria-controls ids even though nav renders twice", () => {
   mockRole = "ADMIN"
-  const { container } = render(<Sidebar churchName="Example Church" />)
+  const { container } = render(<Sidebar churchName="Example Church" />, { wrapper: ShellProvider })
   const ids = Array.from(container.querySelectorAll("[id]")).map((el) => el.id)
   expect(new Set(ids).size).toBe(ids.length)
   for (const btn of Array.from(container.querySelectorAll("button[aria-controls]"))) {
@@ -124,7 +122,7 @@ it("renders unique, resolvable aria-controls ids even though nav renders twice",
 })
 
 it("Escape already handled by an open dialog does not also close the mobile drawer", () => {
-  render(<Sidebar churchName="Example Church" />)
+  render(<><TopBar churchName="Example Church" /><Sidebar churchName="Example Church" /></>, { wrapper: ShellProvider })
   fireEvent.click(screen.getByRole("button", { name: "Open menu" }))
   const handled = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
   handled.preventDefault()

@@ -9,7 +9,7 @@ The app has two separate "report something" widgets — one for logged-in staff,
 
 ### Staff (logged-in) feedback
 
-1. Click **Feedback** at the bottom of the sidebar (any authenticated role).
+1. Click the speech-bubble **Feedback** button in the top bar (any authenticated role).
 2. Choose a type — **Bug**, **Feature**, or **Idea** — and fill in the guided prompts (for a bug: what you were doing / what you expected / what happened; for feature or idea: your request, and optionally why it helps).
 3. Submit. On success you're told which GitHub issue number it became.
 4. Track your own submissions and their live status (Open / Resolved / Won't-fix) under **My Feedback** (`/reports`), reachable from the Help page or directly.

@@ -1,18 +1,18 @@
 "use client"
 
-import { useId, useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { logout } from "@/lib/actions/session"
-import { Menu, X, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { X, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { FeedbackDialog } from "@/components/layout/FeedbackDialog"
+import { useShell } from "@/components/layout/ShellContext"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { canAccessAccounting, canViewAccounting, canEdit, canManageUsers, canViewPeople as canViewPeopleRole, isAdmin as isAdminRole } from "@/lib/roleGuard"
 import { buildNavGroups, flattenNavItems, type NavGroup } from "@/components/layout/sidebar/navData"
 import { SidebarGroup } from "@/components/layout/sidebar/SidebarGroup"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
+import { UserMenu } from "@/components/layout/sidebar/UserMenu"
 import type { FeatureKey } from "@/lib/features"
 
 const OPEN_GROUPS_KEY = "sidebar-open-groups"
@@ -165,10 +165,8 @@ export function Sidebar({
     })
   }
 
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const { mobileOpen, setMobileOpen, menuButtonRef, drawerId } = useShell()
   const drawerRef = useRef<HTMLDivElement>(null)
-  const drawerId = useId()
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const wasOpenRef = useRef(false)
 
@@ -183,7 +181,7 @@ export function Sidebar({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [mobileOpen])
+  }, [mobileOpen, setMobileOpen])
 
   // Focus management: move focus into the drawer on open, restore it to
   // the trigger button on close, so keyboard users aren't dropped back at the
@@ -195,13 +193,13 @@ export function Sidebar({
       menuButtonRef.current?.focus()
     }
     wasOpenRef.current = mobileOpen
-  }, [mobileOpen])
+  }, [mobileOpen, menuButtonRef])
 
-  // Trap Tab/Shift+Tab within the drawer while open, and mark the main content
-  // region `inert` so background controls aren't reachable — required for a
+  // Trap Tab/Shift+Tab within the drawer while open, and mark the content
+  // column (top bar + main) `inert` so background controls aren't reachable — required for a
   // `role="dialog" aria-modal="true"` per the WAI-ARIA APG.
   useEffect(() => {
-    const mainEl = document.getElementById("main-content")
+    const mainEl = document.getElementById("shell-content") ?? document.getElementById("main-content")
     if (!mobileOpen) {
       mainEl?.removeAttribute("inert")
       return
@@ -270,54 +268,20 @@ export function Sidebar({
                 )
               })}
         </nav>
-        <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
-          <FeedbackDialog collapsed={collapsed} />
-          <button
-            onClick={() => logout()}
-            aria-label="Sign out"
-            className={cn(
-              "flex items-center gap-3 w-full rounded-md text-sm text-primary-foreground/70 hover:bg-white/10 hover:text-primary-foreground transition-colors",
-              collapsed ? "justify-center px-2 py-2" : "px-3 py-2"
-            )}
-          >
-            <LogOut className="w-4 h-4" />
-            {!collapsed && "Sign out"}
-          </button>
-        </div>
-        {!collapsed && (
-          <div className="px-6 py-3 border-t border-white/10">
-            <p className="text-xs text-primary-foreground/60">
+        <div className="px-2 py-3 border-t border-border">
+          <UserMenu collapsed={collapsed} onNavigate={() => setMobileOpen(false)} />
+          {!collapsed && (
+            <p className="px-2 pt-2 text-xs text-muted-foreground">
               {process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
             </p>
-          </div>
-        )}
+          )}
+        </div>
       </>
     )
   }
 
   return (
     <TooltipProvider>
-      {/* Mobile top bar */}
-      <div className="md:hidden print:hidden fixed top-0 left-0 right-0 h-14 bg-primary text-primary-foreground flex items-center px-4 z-40 border-b border-white/10">
-        <button
-          ref={menuButtonRef}
-          onClick={() => setMobileOpen(true)}
-          className="-ml-2.5 p-2.5 text-primary-foreground/60 hover:text-primary-foreground"
-          aria-label="Open menu"
-          aria-expanded={mobileOpen}
-          aria-controls={drawerId}
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: crest artwork, must stay white in dark mode */}
-        <span className="ml-2 flex items-center rounded bg-white p-0.5">
-          <Image src="/api/branding/crest" alt="" width={128} height={145} className="h-9 w-auto" unoptimized />
-        </span>
-        <span className="ml-2.5 min-w-0 truncate font-display text-lg font-semibold tracking-tight text-primary-foreground">
-          {churchName}
-        </span>
-      </div>
-
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
@@ -340,19 +304,19 @@ export function Sidebar({
         aria-hidden={!mobileOpen}
         inert={!mobileOpen}
         className={cn(
-          "md:hidden fixed top-0 left-0 h-full w-56 bg-primary text-primary-foreground flex flex-col z-50 transition-transform duration-200 motion-reduce:transition-none",
+          "md:hidden fixed top-0 left-0 h-full w-56 bg-card text-foreground border-r border-border flex flex-col z-50 transition-transform duration-200 motion-reduce:transition-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="px-4 py-4 border-b border-white/10 flex items-start justify-between">
+        <div className="px-4 py-4 border-b border-border flex items-start justify-between">
           {/* eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: logo artwork, must stay white in dark mode */}
-          <span className="rounded-lg bg-white p-2 shadow-sm">
+          <span className="rounded-lg bg-white p-2">
             <Image src="/api/branding/logo" alt={churchName} width={512} height={466} className="h-24 w-auto" priority unoptimized />
           </span>
           <button
             ref={closeButtonRef}
             onClick={() => setMobileOpen(false)}
-            className="-mr-2 p-2 text-primary-foreground/60 hover:text-primary-foreground"
+            className="-mr-2 p-2 text-muted-foreground hover:text-foreground"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
@@ -364,13 +328,13 @@ export function Sidebar({
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden md:flex print:hidden min-h-screen bg-primary text-primary-foreground flex-col transition-[width] duration-200",
+          "hidden md:flex print:hidden min-h-screen bg-card text-foreground border-r border-border flex-col transition-[width] duration-200",
           railCollapsed ? "w-16" : "w-56"
         )}
       >
         <div
           className={cn(
-            "border-b border-white/10",
+            "border-b border-border",
             railCollapsed
               ? "px-2 py-3 flex flex-col items-center gap-2"
               : "px-4 py-4 flex items-start justify-between"
@@ -383,14 +347,14 @@ export function Sidebar({
             </span>
           ) : (
             // eslint-disable-next-line no-restricted-syntax -- white backdrop is intentional: logo artwork, must stay white in dark mode
-            <span className="rounded-lg bg-white p-2 shadow-sm">
+            <span className="rounded-lg bg-white p-2">
               <Image src="/api/branding/logo" alt={churchName} width={512} height={466} className="h-24 w-auto" priority unoptimized />
             </span>
           )}
           <button
             onClick={toggleRail}
             aria-label={railCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="text-primary-foreground/60 hover:text-primary-foreground"
+            className="text-muted-foreground hover:text-foreground"
           >
             {railCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
           </button>

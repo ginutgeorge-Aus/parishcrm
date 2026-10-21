@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { ROLE_LABELS } from "@/lib/roleLabels"
 import Link from "next/link"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -31,14 +32,7 @@ const roleVariant: Record<UserRole, "default" | "secondary" | "outline"> = {
   EVENT_ORGANISER: "outline",
 }
 
-const roleLabel: Record<UserRole, string> = {
-  ADMIN: "Admin",
-  PASTOR: "Pastor",
-  VIEWER: "Viewer",
-  AUDITOR: "Auditor",
-  OFFICE_ADMIN: "Office Admin",
-  EVENT_ORGANISER: "Event Organiser",
-}
+const roleLabel = ROLE_LABELS
 
 /**
  * Row action buttons shared by the mobile card list and the desktop table.

@@ -15,15 +15,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { ActionResult } from "@/lib/actions/types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { isAdmin } from "@/lib/roleGuard"
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  [UserRole.ADMIN]: "Admin",
-  [UserRole.PASTOR]: "Pastor",
-  [UserRole.VIEWER]: "Viewer",
-  [UserRole.AUDITOR]: "Auditor",
-  [UserRole.OFFICE_ADMIN]: "Office Admin",
-  [UserRole.EVENT_ORGANISER]: "Event Organiser",
-}
+import { ROLE_LABELS } from "@/lib/roleLabels"
 
 type User = { id: number; name: string; email: string; role: UserRole }
 

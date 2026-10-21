@@ -27,5 +27,6 @@ export default async function ClassRollPage(props: Readonly<Props>) {
     hrefBase: `/sunday-school/${id}/roll`,
     backHref: `/sunday-school/${id}`,
     backLabel: "Class",
+    underTopBar: true,
   })
 }

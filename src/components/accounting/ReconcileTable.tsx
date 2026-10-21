@@ -84,7 +84,7 @@ export function ReconcileTable({
   return (
     <div>
       {userCanEdit && scopedSelected.size > 0 && (
-        <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-xs">
+        <div className="sticky top-14 z-10 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-xs">
           <span className="text-sm font-medium">
             {scopedSelected.size} selected
           </span>
