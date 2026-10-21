@@ -15,21 +15,31 @@ export {
   type ReceiptSettings,
 }
 
+/**
+ * Strict reader: stored values with a per-field fallback to defaults on
+ * missing/blank, but a DB error throws. For callers that must not mistake
+ * defaults for what is stored (e.g. reporting back after a save).
+ * @returns the effective receipt settings
+ */
+export async function readReceiptSettings(): Promise<ReceiptSettings> {
+  const out: ReceiptSettings = { ...DEFAULT_RECEIPT_SETTINGS }
+  const rows = await prisma.appSetting.findMany({
+    where: { key: { in: RECEIPT_SETTING_KEYS as unknown as string[] } },
+  })
+  for (const row of rows) {
+    const field = KEY_TO_FIELD[row.key as ReceiptSettingKey]
+    if (field && row.value?.trim()) out[field] = row.value
+  }
+  return out
+}
+
 // Auth-free reader (no "use server"/auth) so the PDF route + email path import
 // it without pulling next-auth into node tests. Per-field fallback to defaults
 // on missing/blank/error — a receipt send never breaks on a fresh/errored DB.
 export async function getReceiptSettings(): Promise<ReceiptSettings> {
-  const out: ReceiptSettings = { ...DEFAULT_RECEIPT_SETTINGS }
   try {
-    const rows = await prisma.appSetting.findMany({
-      where: { key: { in: RECEIPT_SETTING_KEYS as unknown as string[] } },
-    })
-    for (const row of rows) {
-      const field = KEY_TO_FIELD[row.key as ReceiptSettingKey]
-      if (field && row.value?.trim()) out[field] = row.value
-    }
+    return await readReceiptSettings()
   } catch {
     return { ...DEFAULT_RECEIPT_SETTINGS }
   }
-  return out
 }

@@ -60,6 +60,16 @@ describe("ReceiptSettingsSection", () => {
     expect(cleanEvent.defaultPrevented).toBe(false)
   })
 
+  it("keeps the typed values when the save returns no settings", async () => {
+    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
+    render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "RCPT" } })
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/saved/i))
+    expect(prefix.value).toBe("RCPT")
+  })
+
   it("shows the error message when save fails", async () => {
     ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ error: "Not authorised" })
     render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)

@@ -81,8 +81,9 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
       for (const f of FIELDS) payload[f.settingKey] = fields[f.key]
       const r = await updateReceiptSettings(payload)
       // Adopt the effective saved values (a blank field reads back as its default)
-      // so the form is clean even when the revalidated props are unchanged.
-      if ("ok" in r) setFields(r.settings)
+      // so the form is clean even when the revalidated props are unchanged. No
+      // settings (post-save read failed) → keep the fields as typed.
+      if ("ok" in r && r.settings) setFields(r.settings)
       setFeedback("ok" in r ? { success: "Saved." } : { error: r.error })
     })
   }

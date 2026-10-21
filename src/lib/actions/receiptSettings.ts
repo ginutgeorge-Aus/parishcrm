@@ -14,7 +14,7 @@ import {
   type ReceiptSettingKey,
   type ReceiptSettings,
 } from "@/lib/receiptSettingsShared"
-import { getReceiptSettings } from "@/lib/receiptSettings"
+import { readReceiptSettings } from "@/lib/receiptSettings"
 import { featureGuardAny } from "@/lib/featureFlags"
 
 const KEY_SET = new Set<string>(RECEIPT_SETTING_KEYS)
@@ -34,11 +34,12 @@ const InputSchema = z
  * Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off.
  * @param input AppSetting key → value for the receipt keys being saved
  * @returns `{ ok, settings }` with the effective settings as readers now see
- *   them (a blank field reads back as its default), or `{ error }`
+ *   them (a blank field reads back as its default); `settings` is omitted when
+ *   that post-save read fails, so defaults are never reported as saved. `{ error }` on failure.
  */
 export async function updateReceiptSettings(
   input: Record<string, string>
-): Promise<{ ok: true; settings: ReceiptSettings } | { error: string }> {
+): Promise<{ ok: true; settings?: ReceiptSettings } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -62,7 +63,9 @@ export async function updateReceiptSettings(
     keys: Object.keys(parsed.data),
   })
   revalidatePath("/settings/receipts")
-  return { ok: true, settings: await getReceiptSettings() }
+  // The write committed; a failed re-read must not hand defaults back as "saved".
+  const settings = await readReceiptSettings().catch(() => undefined)
+  return settings ? { ok: true, settings } : { ok: true }
 }
 
 /** Reset receipt settings to defaults. ADMIN; blocked in demo mode and while both receipt features are off. */
