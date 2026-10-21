@@ -23,7 +23,7 @@ export function SettingsRow({
         )}
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
-      <div className="w-full md:w-auto md:shrink-0">{children}</div>
+      <div className="w-full md:w-auto md:min-w-0 md:shrink [&_input]:max-w-full [&_textarea]:max-w-full">{children}</div>
     </div>
   )
 }

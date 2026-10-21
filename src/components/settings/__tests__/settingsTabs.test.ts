@@ -1,4 +1,4 @@
-import { activeSettingsHref, buildSettingsTabs, isSettingsTabVisible } from "../settingsTabs"
+import { activeSettingsHref, buildSettingsTabs, isSettingsTabVisible, type SettingsTabHref } from "../settingsTabs"
 import type { FeatureKey } from "@/lib/features"
 
 const on = (...keys: FeatureKey[]) => new Set<FeatureKey>(keys)
@@ -33,7 +33,7 @@ describe("buildSettingsTabs", () => {
 describe("isSettingsTabVisible", () => {
   it("is false for a feature-off tab and for unknown hrefs", () => {
     expect(isSettingsTabVisible("/settings/members", on())).toBe(false)
-    expect(isSettingsTabVisible("/settings/nope", on())).toBe(false)
+    expect(isSettingsTabVisible("/settings/nope" as SettingsTabHref, on())).toBe(false)
   })
   it("is true for a shown tab", () => {
     expect(isSettingsTabVisible("/settings/members", on("memberships"))).toBe(true)

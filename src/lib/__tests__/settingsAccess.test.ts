@@ -1,3 +1,4 @@
+/** @jest-environment node */
 jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn() }))
@@ -14,7 +15,7 @@ beforeEach(() => {
   mockFeatures.mockResolvedValue(new Set())
 })
 
-it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER", undefined])("redirects role %s to /", async (role) => {
+it.each(["PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER", undefined])("redirects role %s to /", async (role) => {
   mockAuth.mockResolvedValue(role ? { user: { role } } : null)
   await expect(requireSettingsTab("/settings")).rejects.toThrow(/^NEXT_REDIRECT \/$/)
 })

@@ -80,6 +80,15 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
       const payload: Record<string, string> = {}
       for (const f of FIELDS) payload[f.settingKey] = fields[f.key]
       const r = await updateReceiptSettings(payload)
+      if ("ok" in r) {
+        // The server reader maps a blank field back to its default, so show (and
+        // baseline against) that effective value even when revalidated props are unchanged.
+        setFields((cur) => {
+          const next = { ...cur }
+          for (const f of FIELDS) if (!next[f.key].trim()) next[f.key] = DEFAULT_RECEIPT_SETTINGS[f.key]
+          return next
+        })
+      }
       setFeedback("ok" in r ? { success: "Saved." } : { error: r.error })
     })
   }

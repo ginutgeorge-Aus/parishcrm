@@ -1,3 +1,4 @@
+/** @jest-environment node */
 // src/app/(dashboard)/settings/usage/__tests__/page.test.tsx
 /** @jest-environment node */
 import UsagePage from "../page"

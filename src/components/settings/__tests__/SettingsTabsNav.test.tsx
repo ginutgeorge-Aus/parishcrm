@@ -3,6 +3,7 @@
  */
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { SettingsTabs } from "../SettingsTabs"
+import type { SettingsTabGroup } from "../settingsTabs"
 import { UnsavedChangesProvider, useUnsavedGuard } from "../unsavedChanges"
 
 const push = jest.fn()
@@ -32,7 +33,7 @@ jest.mock("@/components/ui/select", () => {
   }
 })
 
-const groups = [
+const groups: SettingsTabGroup[] = [
   { label: "Church", tabs: [{ href: "/settings", label: "General" }, { href: "/settings/branding", label: "Branding" }] },
   { label: "System", tabs: [{ href: "/settings/audit-log", label: "Audit Log" }] },
 ]

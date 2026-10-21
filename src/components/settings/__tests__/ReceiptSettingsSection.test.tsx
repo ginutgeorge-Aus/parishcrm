@@ -46,6 +46,20 @@ describe("ReceiptSettingsSection", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/saved/i))
   })
 
+  it("shows the default and stays clean after saving a blank field", async () => {
+    render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "" } })
+    const dirtyEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() => expect(prefix.value).toBe(DEFAULT_RECEIPT_SETTINGS.numberPrefix))
+    const cleanEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(cleanEvent)
+    expect(cleanEvent.defaultPrevented).toBe(false)
+  })
+
   it("shows the error message when save fails", async () => {
     ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ error: "Not authorised" })
     render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)

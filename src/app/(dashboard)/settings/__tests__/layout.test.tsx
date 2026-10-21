@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))

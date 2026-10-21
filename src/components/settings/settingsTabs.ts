@@ -1,6 +1,19 @@
 import type { FeatureKey } from "@/lib/features"
 
-type SettingsTab = Readonly<{ href: string; label: string }>
+/** Every settings tab route; a typo or rename fails to compile where it is used. */
+export type SettingsTabHref =
+  | "/settings"
+  | "/settings/branding"
+  | "/settings/email"
+  | "/settings/members"
+  | "/settings/receipts"
+  | "/settings/features"
+  | "/settings/security"
+  | "/settings/audit-log"
+  | "/settings/usage"
+  | "/settings/about"
+
+type SettingsTab = Readonly<{ href: SettingsTabHref; label: string }>
 export type SettingsTabGroup = Readonly<{ label: string; tabs: readonly SettingsTab[] }>
 
 /** A tab, shown only when one of `anyOf` is on (always shown when omitted). */
@@ -58,7 +71,7 @@ export function buildSettingsTabs(features: ReadonlySet<FeatureKey>): SettingsTa
  * @param href tab href exactly as defined (e.g. "/settings/members")
  * @param features enabled features
  */
-export function isSettingsTabVisible(href: string, features: ReadonlySet<FeatureKey>): boolean {
+export function isSettingsTabVisible(href: SettingsTabHref, features: ReadonlySet<FeatureKey>): boolean {
   return buildSettingsTabs(features).some((g) => g.tabs.some((t) => t.href === href))
 }
 
