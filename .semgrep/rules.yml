@@ -123,6 +123,9 @@ rules:
           - pattern: $S!.user!.email
           - pattern: $S!.user.email
           - pattern: $S?.user!.email
+          - pattern: $S?.user.email
+          - pattern: $S.user!.email
+          - pattern: $S!.user?.email
       - metavariable-regex:
           metavariable: $S
-          regex: ^session$
+          regex: ^(session|auth)$
