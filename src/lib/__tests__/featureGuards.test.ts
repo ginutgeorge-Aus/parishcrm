@@ -452,3 +452,20 @@ it("guardAccountingExport authenticates and role-checks (export routes rely on i
     String.raw`if \(!canViewAccounting\(session\.user\.role\)\) \{\s*return [^\n]*status: 403`,
   ].join("")))
 })
+
+it("no middleware rule 404s a page outside a guarded layout (over-broad prefix)", () => {
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name === "page.tsx" ? [`${dir}/${e.name}`] : [])
+  const layoutDirs = Object.entries(GUARDED_LAYOUTS).map(([f, k]) => [path.dirname(f), k] as const)
+  const stray = walk("src/app").flatMap((file) => {
+    const dir = path.dirname(file)
+    const url = layoutUrl(`${dir}/page.tsx`)
+    const allowed = new Set<string>([
+      ...layoutDirs.filter(([d]) => dir === d || dir.startsWith(`${d}/`)).map(([, k]) => k),
+      ...Object.entries(NON_LAYOUT_GATES).filter(([u]) => url.startsWith(u.replace(/x$/, ""))).map(([, k]) => k),
+    ])
+    return featuresForPath(url).filter((k) => !allowed.has(k)).map((k) => `${url} -> ${k}`)
+  })
+  expect(stray).toEqual([])
+})

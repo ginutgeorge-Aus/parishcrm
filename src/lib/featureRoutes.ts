@@ -99,74 +99,70 @@ export function featureOffRedirect(pathname: string): string | null {
 /** Path the middleware rewrites a blocked request to: no such route, so the app 404 renders. */
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
-const TTL_MS = 5_000
-// Last successfully read set. Survives invalidation so a read failure right after
+// Last successfully resolved set. Survives invalidation so a read failure right after
 // a save still serves the previous set instead of failing open.
 let lastKnown: Set<FeatureKey> | null = null
-// A failed read, cached for the TTL so an outage is not hammered.
-let failedAt: number | null = null
-// Parsed set per snapshot object, so a cached snapshot is parsed (and warned about) once.
-let parsed: { snap: SettingsSnapshot; on: Set<FeatureKey> } | null = null
-let inflight: Promise<Set<FeatureKey> | null> | null = null
+// Resolved set per distinct stored value: a bad value is parsed (and warned about) once, not per refresh.
+let resolved: { raw: string | null; on: Set<FeatureKey> } | null = null
 
-/** One read via the shared snapshot; on failure logs and serves the last known set (else null = fail open). */
-async function loadFeatures(): Promise<Set<FeatureKey> | null> {
-  const gen = settingsGeneration()
+/**
+ * Resolve the stored features value, memoised by the raw string. A throw while
+ * parsing a successfully read value is not a DB failure: fall back to the
+ * registry defaults (memoised, logged once) instead of failing open forever.
+ * @param raw stored `features` setting value
+ */
+function resolveStored(raw: string | null): Set<FeatureKey> {
+  if (resolved && resolved.raw === raw) return resolved.on
+  let on: Set<FeatureKey>
   try {
-    const snap = await getSettingsSnapshot()
-    const on = parsed?.snap === snap
-      ? parsed.on
-      : resolveFeatures(parseStoredOverrides(snap[FEATURES_SETTING_KEY]))
-    if (gen === settingsGeneration()) {
-      parsed = { snap, on }
-      lastKnown = on
-      failedAt = null
-    }
-    return on
+    on = resolveFeatures(parseStoredOverrides(raw))
   } catch (err) {
-    // Error class only: driver messages can echo query values.
-    console.error("[featureRoutes] feature settings read failed; using", lastKnown ? "last known set" : "fail-open", err instanceof Error ? err.name : "UnknownError")
-    if (gen === settingsGeneration()) failedAt = Date.now()
-    return lastKnown
+    console.error("[featureRoutes] stored features value unusable; using defaults", err instanceof Error ? err.name : "UnknownError")
+    on = resolveFeatures({})
   }
+  resolved = { raw, on }
+  return on
 }
 
 /**
- * Enabled features for the middleware, cached 5s per process (every request
- * passes through it). Concurrent callers share one read. On a read failure it
- * serves the last known set, or null (fail open) if there is none: a DB blip
- * must not 404 the whole app — layouts and actions still enforce per request.
- * The failure result is cached for the TTL so an outage is not hammered.
+ * Enabled features for the middleware, via the shared 5s settings snapshot
+ * (every request passes through it). On a read failure it serves the last
+ * known set, or null (fail open) if there is none: a DB blip must not 404 the
+ * whole app — layouts and actions still enforce per request. The snapshot
+ * caches the failure briefly so an outage is not hammered.
  */
 export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
-  if (failedAt !== null && Date.now() - failedAt < TTL_MS) return lastKnown
-  if (!inflight) {
-    const read: Promise<Set<FeatureKey> | null> = loadFeatures().finally(() => {
-      if (inflight === read) inflight = null
-    })
-    inflight = read
+  const gen = settingsGeneration()
+  let snap: SettingsSnapshot
+  try {
+    snap = await getSettingsSnapshot()
+  } catch {
+    return lastKnown // the snapshot already logged the failure
   }
-  return inflight
+  const on = resolveStored(snap[FEATURES_SETTING_KEY])
+  // A read that started before an invalidation must not overwrite the fallback set.
+  if (gen === settingsGeneration()) lastKnown = on
+  return on
 }
 
 /**
  * Drop this process's cached settings so the next request re-reads them.
- * Called by `saveFeatures`. Only effective when the middleware shares this
- * module instance (dev, single bundle); a production build may bundle the
- * middleware separately, in which case it converges within the TTL instead.
- * The last known set is kept as the read-failure fallback.
+ * Called by `saveFeatures`. The settings snapshot is shared, so this also
+ * drops the cached maintenance flag (harmless: one extra read). Only effective
+ * when the middleware shares this module instance (dev, single bundle); a
+ * production build may bundle the middleware separately, in which case it
+ * converges within the TTL instead. The last known set is kept as the
+ * read-failure fallback.
  */
 export function invalidateFeatureRouteCache(): void {
   invalidateSettingsSnapshot()
-  failedAt = null
-  inflight = null
 }
 
-/** Test hook: drop the cached and last-known feature sets. */
+/** Test hook: drop every cached state (snapshot, failure, resolved and last-known sets). */
 export function _resetFeatureRoutesCache(): void {
-  invalidateFeatureRouteCache()
+  invalidateSettingsSnapshot()
   lastKnown = null
-  parsed = null
+  resolved = null
 }
 
 /**

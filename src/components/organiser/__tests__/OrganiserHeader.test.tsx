@@ -30,13 +30,8 @@ it("brands as My Events linking to /my-events while Events is on", () => {
   expect(screen.getByRole("link", { name: "My Events" })).toHaveAttribute("href", "/my-events")
 })
 
-it("brands as My Classes linking to /my-classes while Events is off", () => {
-  render(<OrganiserHeader showEvents={false} />)
+it("brands with the home resolved by the layout", () => {
+  render(<OrganiserHeader showEvents={false} home={{ href: "/my-classes", label: "My Classes" }} />)
   expect(screen.getByRole("link", { name: "My Classes" })).toHaveAttribute("href", "/my-classes")
   expect(screen.queryByRole("link", { name: "My Events" })).not.toBeInTheDocument()
-})
-
-it("keeps the My Events brand when both features are off (no classes to link to)", () => {
-  render(<OrganiserHeader showEvents={false} showClasses={false} />)
-  expect(screen.getByRole("link", { name: "My Events" })).toHaveAttribute("href", "/my-events")
 })

@@ -170,10 +170,21 @@ describe("getMaintenanceState", () => {
     expect(findMany.mock.calls[0][0].where.key.in).toEqual(expect.arrayContaining(["maintenance", "features"]))
   })
 
-  it("does not cache a failure (the next request retries)", async () => {
-    findMany.mockRejectedValueOnce(new Error("db down"))
-    await getMaintenanceState()
-    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
-    expect((await getMaintenanceState()).enabled).toBe(true)
+  it("caches a failure briefly (an outage is not re-queried per request), then retries", async () => {
+    const now = jest.spyOn(Date, "now")
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      now.mockReturnValue(1_000_000)
+      findMany.mockRejectedValue(new Error("db down"))
+      expect((await getMaintenanceState()).enabled).toBe(false)
+      expect((await getMaintenanceState()).enabled).toBe(false)
+      expect(findMany).toHaveBeenCalledTimes(1)
+      findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
+      now.mockReturnValue(1_002_000)
+      expect((await getMaintenanceState()).enabled).toBe(true)
+    } finally {
+      now.mockRestore()
+      err.mockRestore()
+    }
   })
 })

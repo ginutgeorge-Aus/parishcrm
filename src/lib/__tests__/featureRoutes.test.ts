@@ -100,8 +100,10 @@ describe("isFeatureRouteOff", () => {
   })
 
   it("fails open when the read throws", async () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
     findMany.mockRejectedValue(new Error("db down"))
     expect(await isFeatureRouteOff("/events/5")).toBe(false)
+    err.mockRestore()
   })
 })
 
@@ -253,14 +255,34 @@ describe("shared settings snapshot", () => {
     expect(findMany).toHaveBeenCalledTimes(1)
   })
 
-  it("warns once when the stored features value is unreadable, then uses defaults", async () => {
+  it("warns once per distinct unreadable features value, across snapshot refreshes", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined)
+    const now = jest.spyOn(Date, "now")
     try {
       findMany.mockResolvedValue([{ key: "features", value: "not json" }])
+      now.mockReturnValue(1_000_000)
       expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      now.mockReturnValue(1_006_000) // snapshot expired: a second read of the same bad value
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      expect(findMany).toHaveBeenCalledTimes(2)
       expect(warn).toHaveBeenCalledTimes(1)
     } finally {
       warn.mockRestore()
+      now.mockRestore()
+    }
+  })
+
+  it("a throw while resolving a successfully read value falls back to defaults once (not fail-open forever)", async () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      // A non-string value makes the parse step throw (raw.trim) on a read that succeeded.
+      findMany.mockResolvedValue([{ key: "features", value: 5 }])
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      expect(findMany).toHaveBeenCalledTimes(1)
+      expect(err).toHaveBeenCalledTimes(1)
+    } finally {
+      err.mockRestore()
     }
   })
 })
