@@ -46,8 +46,7 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
         await logout()
       } catch (err) {
         unstable_rethrow(err)
-        // Updates after an await leave the transition; re-enter it.
-        startTransition(() => setSignOutFailed(true))
+        setSignOutFailed(true)
       }
     })
   }
