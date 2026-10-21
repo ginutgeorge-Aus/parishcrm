@@ -122,7 +122,7 @@ describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
     const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
-    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(res).toEqual({ error: "Couldn't look up your email address — try again" })
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
@@ -130,7 +130,7 @@ describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
     const res = await sendTestAnniversaryEmail({ subject: "Anniversary {names}", body: "{years} years for {names}" })
-    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(res).toEqual({ error: "Couldn't look up your email address — try again" })
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
