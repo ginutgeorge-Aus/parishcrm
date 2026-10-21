@@ -160,4 +160,11 @@ describe("navFlagsFor / featureOn / attentionItems (#366)", () => {
     const groups = buildNavGroups(navFlagsFor("ADMIN", { pendingUpdates: 2, membershipPending: 0, verifyPending: 5 }))
     expect(attentionItems(groups).map((i) => [i.href, i.badge])).toEqual([["/families/updates", 2]])
   })
+
+  it("drops an actionable badge on a hidden link", () => {
+    // Memberships off hides its link, though its count is still non-zero.
+    const features = resolveFeatures({ memberships: false })
+    const groups = buildNavGroups(navFlagsFor("ADMIN", { pendingUpdates: 2, membershipPending: 4 }, features))
+    expect(attentionItems(groups).map((i) => i.href)).toEqual(["/families/updates"])
+  })
 })
