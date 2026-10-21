@@ -104,8 +104,9 @@ emails, plus on/off toggles for each.
 
 ### General: App Settings
 
-- **Login notification email** — receives an alert on failed login attempts;
-  blank disables it.
+- **Notification email address** — receives failed-login alerts, public
+  feedback-widget messages, email-delivery-failure alerts and Stripe payment
+  alerts; blank disables them.
 - **Membership secretary email** — where public membership-form
   notifications go (see `MEMBERSHIP_SECRETARY_EMAIL` fallback).
 - **Session idle timeout** — minutes of inactivity before a session expires.

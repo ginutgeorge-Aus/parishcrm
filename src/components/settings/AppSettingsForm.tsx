@@ -82,7 +82,7 @@ export function AppSettingsForm({
         settingKey="ownerNotificationEmail"
         label="Notification email address"
         htmlFor="owner-email"
-        description="Receive an email whenever a failed login attempt is recorded. Leave blank to disable notifications."
+        description="Receives failed-login alerts, public feedback messages, email-delivery-failure alerts and Stripe payment alerts. Leave blank to disable notifications."
         control={(keep) => (
           <Input
             id="owner-email"
