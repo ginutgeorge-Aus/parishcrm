@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
-import { Bell, Inbox, Menu, Plus, Settings, UserPlus } from "lucide-react"
+import { Bell, Menu, Plus, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -14,6 +14,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { FeedbackDialog } from "@/components/layout/FeedbackDialog"
 import { useShell } from "@/components/layout/ShellContext"
 import { buildQuickAddItems } from "@/components/layout/topbar/quickAdd"
+import { attentionItems, buildNavGroups, navFlagsFor } from "@/components/layout/sidebar/navData"
+import { useMenuTooltip } from "@/components/layout/useMenuTooltip"
 import { isAdmin } from "@/lib/roleGuard"
 import type { FeatureKey } from "@/lib/features"
 import type { UserRole } from "@/lib/generated/prisma/enums"
@@ -45,11 +47,13 @@ export function TopBar({
   const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])
   const quickAdd = useMemo(() => buildQuickAddItems(role, featureSet), [role, featureSet])
 
-  const notices = [
-    { href: "/families/updates", label: "Family Updates", icon: Inbox, count: pendingUpdates },
-    { href: "/memberships", label: "Membership Forms", icon: UserPlus, count: membershipPending },
-  ].filter((n) => n.count > 0)
-  const pending = notices.reduce((sum, n) => sum + n.count, 0)
+  // Bell entries are the sidebar's badged links, so role and feature gates match.
+  const notices = useMemo(
+    () => attentionItems(buildNavGroups(navFlagsFor(role, { pendingUpdates, membershipPending }, featureSet))),
+    [role, pendingUpdates, membershipPending, featureSet]
+  )
+  const pending = notices.reduce((sum, n) => sum + (n.badge ?? 0), 0)
+  const bellTip = useMenuTooltip()
 
   return (
     <TooltipProvider>
@@ -93,7 +97,7 @@ export function TopBar({
         <div className={quickAdd.length > 0 ? "flex items-center gap-2 md:ml-auto" : "ml-auto flex items-center gap-2"}>
           <FeedbackDialog />
           <DropdownMenu>
-            <Tooltip>
+            <Tooltip {...bellTip.tooltip}>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -111,12 +115,12 @@ export function TopBar({
               </TooltipTrigger>
               <TooltipContent side="bottom">Notifications</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" collisionPadding={8} className="w-64">
+            <DropdownMenuContent align="end" collisionPadding={8} className="w-64" {...bellTip.menuContent}>
               <DropdownMenuLabel>Needs attention</DropdownMenuLabel>
               {notices.length === 0 ? (
                 <p className="px-2 py-3 text-sm text-muted-foreground">You&apos;re all caught up.</p>
               ) : (
-                notices.map(({ href, label, icon: Icon, count }) => (
+                notices.map(({ href, label, icon: Icon, badge: count }) => (
                   <DropdownMenuItem key={href} asChild>
                     <Link href={href}>
                       <Icon aria-hidden="true" />
