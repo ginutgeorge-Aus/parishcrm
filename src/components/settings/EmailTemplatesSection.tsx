@@ -28,11 +28,14 @@ export function EmailTemplatesSection({
     <SettingsCard title="Email templates" description="Wording of the emails ParishCRM sends. Pick a template to edit it.">
       <div className="py-5">
       <Tabs value={tab} onValueChange={(v) => setTab(v as EmailTemplateKey)}>
-        <TabsList>
-          {keys.map((k) => (
-            <TabsTrigger key={k} value={k}>{EMAIL_TEMPLATE_LABELS[k]}</TabsTrigger>
-          ))}
-        </TabsList>
+        {/* Template tabs are wider than a phone; scroll them in place, not the page. */}
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <TabsList>
+            {keys.map((k) => (
+              <TabsTrigger key={k} value={k}>{EMAIL_TEMPLATE_LABELS[k]}</TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
         {keys.map((k) => (
           <TabsContent key={k} value={k} forceMount className="mt-4 data-[state=inactive]:hidden">
             <EmailTemplateForm templateKey={k} initial={templates[k]} active={tab === k} />
