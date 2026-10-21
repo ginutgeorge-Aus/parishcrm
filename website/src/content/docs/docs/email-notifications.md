@@ -60,7 +60,7 @@ Event reminders and birthday/anniversary emails are sent by the app's in-process
 
 ### Customizable templates
 
-Three of the emails (welcome, family-update invite, receipt) plus the birthday/anniversary blessings have their subject/intro/body/signoff text stored as editable `EmailTemplate` rows, changeable by an `ADMIN` under **Settings → Email Templates** / **Settings → Birthday & Anniversary emails**. Unknown `{tokens}` in admin-edited text are left as-is rather than silently blanked, so a typo is visible. These templates are boilerplate copy only — no PII is stored in them, and structural content (links, the receipt's line-item table) is always sourced from real typed data, never from the admin's free text. Each template tab keeps its unsaved edits while you switch between tabs, and the preview renders as soon as the tab loads; tax-receipt wording reset under **Settings → Tax Receipt** asks for confirmation first.
+Three of the emails (welcome, family-update invite, receipt) plus the birthday/anniversary blessings have their subject/intro/body/signoff text stored as editable `EmailTemplate` rows, changeable by an `ADMIN` under **App Settings → Email**. Unknown `{tokens}` in admin-edited text are left as-is rather than silently blanked, so a typo is visible. These templates are boilerplate copy only — no PII is stored in them, and structural content (links, the receipt's line-item table) is always sourced from real typed data, never from the admin's free text. Each template tab keeps its unsaved edits while you switch between tabs, and the preview renders as soon as the tab loads; tax-receipt wording reset under **App Settings → Receipts** asks for confirmation first.
 
 ## Configuration
 
@@ -73,4 +73,4 @@ Three of the emails (welcome, family-update invite, receipt) plus the birthday/a
 | `MEMBERSHIP_SECRETARY_EMAIL` | Fallback destination for the "new membership application" notification. Precedence: an `ADMIN`-set Settings value, then this env var, then `GMAIL_USER`. |
 | `E2E_MOCK_EMAIL=true` | Test-only: swaps in an in-memory stub transport (logs the recipient only, never subject/body) so end-to-end tests don't need real SMTP. Inert in production. |
 
-`ownerNotificationEmail` and `membershipSecretaryEmail` are set under **Settings → App Settings** (`ADMIN` only), not as env vars, for a live deployment — the env vars above are fallbacks/first-boot defaults.
+`ownerNotificationEmail` and `membershipSecretaryEmail` are set under **App Settings → General** (`ADMIN` only), not as env vars, for a live deployment — the env vars above are fallbacks/first-boot defaults.

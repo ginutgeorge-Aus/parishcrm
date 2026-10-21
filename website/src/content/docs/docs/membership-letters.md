@@ -36,8 +36,8 @@ Two print/PDF surfaces round out the membership workflow: a formatted copy of a 
 
 ## Configuration
 
-Both letterhead and letter defaults are set under **App Settings** (`/settings`, `ADMIN` only):
+Both letterhead and letter defaults are set under **App Settings** (`ADMIN` only):
 
-- **Letter Settings** section: bank account details (bank/BSB/account/name) for the general and building funds, signer name/title (used on both the welcome letter and the "FOR OFFICE USE ONLY" line on the printed application form), and the intro/contributions/closing paragraph templates.
-- **Church Information** section: church name, address, ABN/registration number, email, website — used on both the membership-form letterhead image and the print header.
-- The membership-form letterhead itself is served from `/api/branding/letterhead`, configured via the **Branding** section of Settings.
+- **Members** tab (`/settings/members`), Letter Settings card: bank account details (bank/BSB/account/name) for the general and building funds, signer name/title (used on both the welcome letter and the "FOR OFFICE USE ONLY" line on the printed application form), and the intro/contributions/closing paragraph templates.
+- **General** tab (`/settings`), Church Information card: church name, address, ABN/registration number, email, website — used on both the membership-form letterhead image and the print header.
+- The membership-form letterhead itself is served from `/api/branding/letterhead`, configured on the **Branding** tab (`/settings/branding`).

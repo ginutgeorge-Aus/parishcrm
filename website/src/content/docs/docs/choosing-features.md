@@ -1,18 +1,17 @@
 ---
 title: "Choosing Features"
-description: "Settings → Features (ADMIN only) lets a church turn on just the parts of ParishCRM it uses. Switched-off features are hidden and blocked; their data is kept."
+description: "App Settings → Features (ADMIN only) lets a church turn on just the parts of ParishCRM it uses. Switched-off features are hidden and blocked; their data is kept."
 ---
 
 ParishCRM ships many modules. A small church that only wants a member
 directory doesn't need events, accounting or Sunday School cluttering the
-sidebar. **Settings → Features** (`/settings/features`, `ADMIN` role only)
+sidebar. **App Settings → Features** (`/settings/features`, `ADMIN` role only)
 lets you tick the features your church uses and come back later to switch
 more on.
 
 ## Using it
 
-Sign in as an `ADMIN` and open **Settings → Features** from the sidebar (or
-the **Choose features →** link at the top of App Settings). Flip the
+Sign in as an `ADMIN` and open **App Settings** from the sidebar, then the **Features** tab. Flip the
 switches you want and press **Save**. The change applies to every user:
 pages of a switched-off feature are blocked within a few seconds of saving.
 Someone who already has the app open may need to refresh before the menu
@@ -35,7 +34,7 @@ A switched-off feature is **hidden and blocked**:
   applies to someone who already has one of the feature's pages open: their
   next click inside it shows "not found" (within a few seconds of the switch);
 - its actions refuse with "This feature is turned off. An admin can enable
-  it in Settings → Features." Public forms (membership, family update, event
+  it in App Settings → Features." Public forms (membership, family update, event
   checkout) instead show a plain "no longer available" or "not found" message;
 - its scheduled jobs (event reminders, celebration emails, the clearance
   digest) skip. A skipped run doesn't count; turning the feature back on

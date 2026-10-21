@@ -1,10 +1,10 @@
 import {
   Users, User, UserCog, LayoutDashboard, Upload,
   BookOpen, ArrowLeftRight, Landmark, PiggyBank, BarChart2, Activity,
-  CalendarDays, Wallet, ReceiptText, Settings2, ShieldCheck, BadgeCheck, Send, History,
+  CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  ToggleRight, Church, Calculator, Settings,
+  Church, Calculator, Settings,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 
@@ -114,8 +114,6 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/import", label: "Import CSV", icon: Upload, show: isAdmin },
         { href: "/users", label: "Users", icon: UserCog, show: canUsers },
         { href: "/settings", label: "App Settings", icon: Settings2, show: isAdmin },
-        { href: "/settings/features", label: "Features", icon: ToggleRight, show: isAdmin },
-        { href: "/settings/audit-log", label: "Audit Log", icon: ShieldCheck, show: isAdmin },
         { href: "/settings/usage", label: "App Usage", icon: Activity, show: isAdmin },
         { href: "/verify", label: "Release Checks", icon: ClipboardCheck, show: isAdmin, badge: verifyPending, badgeInformational: true },
       ],
