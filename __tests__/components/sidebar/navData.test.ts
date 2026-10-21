@@ -117,6 +117,7 @@ describe("feature toggles", () => {
     expect(hrefs).toContain("/settings")
     expect(hrefs).not.toContain("/settings/features")
     expect(hrefs).not.toContain("/settings/audit-log")
+    expect(hrefs).not.toContain("/settings/usage")
   })
 
   it("hides events and budget when off", () => {
