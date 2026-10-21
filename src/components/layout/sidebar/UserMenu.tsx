@@ -52,10 +52,11 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
     })
   }
 
+  const accountLabel = name ? `Account menu: ${name}` : "Account menu"
   const trigger = (
     <DropdownMenuTrigger
       // Expanded, the visible name + role is the accessible name; collapsed shows only the initial.
-      aria-label={collapsed ? `Account menu${name ? `: ${name}` : ""}` : undefined}
+      aria-label={collapsed ? accountLabel : undefined}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg text-left text-sm transition-colors hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
         collapsed ? "justify-center p-1.5" : "px-2 py-2"
