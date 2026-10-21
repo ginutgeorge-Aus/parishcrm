@@ -14,6 +14,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useMenuTooltip } from "@/components/layout/useMenuTooltip"
 
 /** Display label for a role (same as the Users page); undefined → "". */
 export function formatRole(role?: string): string {
@@ -32,6 +33,7 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
   const role = formatRole(session?.user?.role)
   const initial = (name.trim()[0] ?? "?").toUpperCase()
   const [signOutFailed, setSignOutFailed] = useState(false)
+  const tip = useMenuTooltip()
   const [, startTransition] = useTransition()
 
   /**
@@ -80,12 +82,12 @@ export function UserMenu({ collapsed, onNavigate }: Readonly<{ collapsed: boolea
     <>
     <DropdownMenu>
       {collapsed ? (
-        <Tooltip>
+        <Tooltip {...tip.tooltip}>
           <TooltipTrigger asChild>{trigger}</TooltipTrigger>
           <TooltipContent side="right">{name || "Account"}</TooltipContent>
         </Tooltip>
       ) : trigger}
-      <DropdownMenuContent side={collapsed ? "right" : "top"} align="start" className="w-56">
+      <DropdownMenuContent side={collapsed ? "right" : "top"} align="start" className="w-56" {...tip.menuContent}>
         {name ? <DropdownMenuLabel className="truncate">{name}</DropdownMenuLabel> : null}
         <DropdownMenuItem asChild>
           <Link href="/account" onClick={onNavigate}><MonitorSmartphone aria-hidden="true" />My Account</Link>
