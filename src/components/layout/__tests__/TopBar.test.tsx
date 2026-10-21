@@ -41,6 +41,21 @@ it("bell shows a dot and links only the non-zero counts", () => {
   expect(screen.queryByRole("menuitem", { name: /membership forms/i })).toBeNull()
 })
 
+// Bell entries come from the sidebar's badged links, so they share its gates (#366).
+it("bell drops a count whose feature is off", () => {
+  renderBar({ pendingUpdates: 2, membershipPending: 3, features: ["memberships"] as FeatureKey[] })
+  const bell = screen.getByRole("button", { name: "Notifications (3 pending)" })
+  fireEvent.keyDown(bell, { key: "Enter" })
+  expect(screen.getByRole("menuitem", { name: /membership forms/i })).toHaveAttribute("href", "/memberships")
+  expect(screen.queryByRole("menuitem", { name: /family updates/i })).toBeNull()
+})
+
+it("bell drops counts the role can't act on", () => {
+  mockRole = "VIEWER"
+  renderBar({ pendingUpdates: 2 })
+  expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument()
+})
+
 it("bell shows an all-caught-up state with no counts", () => {
   renderBar()
   const bell = screen.getByRole("button", { name: "Notifications" })
