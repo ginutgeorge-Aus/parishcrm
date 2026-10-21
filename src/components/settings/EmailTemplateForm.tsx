@@ -119,7 +119,7 @@ export function EmailTemplateForm({
   return (
     <div>
       <form ref={ref} action={action} className="divide-y divide-border">
-        <input type="hidden" name="key" value={templateKey} />
+        <input type="hidden" name="key" value={templateKey} hidden />
         <div className="flex flex-wrap gap-1 py-4 text-xs">
           <span className="text-muted-foreground">Variables:</span>
           {EMAIL_TEMPLATE_VARS[templateKey].map((v) => (
@@ -163,7 +163,7 @@ export function EmailTemplateForm({
             />
           </div>
         ) : (
-          <input type="hidden" name="body" value={fields.body} />
+          <input type="hidden" name="body" value={fields.body} hidden />
         )}
         <div className="space-y-2 py-5">
           <Label htmlFor={id("signoff")}>Sign-off / footer</Label>

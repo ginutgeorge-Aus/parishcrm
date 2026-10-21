@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { MembershipSettingsForm } from "../MembershipSettingsForm"
 import { ChurchInfoForm } from "../ChurchInfoForm"
 import { AppSettingsForm } from "../AppSettingsForm"
@@ -63,8 +63,9 @@ describe("settings forms keep typed values when the action returns an error", ()
     ;(upsertSetting as jest.Mock).mockResolvedValue({ error: "Save failed" })
     render(<AppSettingsForm ownerNotificationEmail="" membershipSecretaryEmail="" idleTimeoutMinutes={30} cardFeePercent="1.7" cardFeeFixed="0.30" />)
     fireEvent.change(screen.getByLabelText("Idle timeout"), { target: { value: "120" } })
-    const select = screen.getByLabelText("Idle timeout")
-    fireEvent.click(select.closest("form")!.querySelector("button[type=submit]")!)
+    const form = screen.getByLabelText("Idle timeout").closest("form")
+    if (!form) throw new Error("idle-timeout select is not inside a form")
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }))
     expect(await screen.findByText("Save failed")).toBeInTheDocument()
     await waitFor(() => {
       const kept = screen.getByLabelText("Idle timeout")
