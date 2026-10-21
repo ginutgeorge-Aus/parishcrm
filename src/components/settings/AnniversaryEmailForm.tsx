@@ -25,7 +25,7 @@ export function AnniversaryEmailForm({
   body: string
 }>) {
   const [state, formAction, isPending] = useActionState(updateAnniversaryTemplate, undefined)
-  const { ref } = useFormDirty()
+  const { ref } = useFormDirty(state)
   const [subject, setSubject] = useState(initialSubject)
   const [body, setBody] = useState(initialBody)
   const [testPending, startTest] = useTransition()

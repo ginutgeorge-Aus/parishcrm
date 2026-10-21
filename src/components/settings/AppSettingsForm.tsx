@@ -51,7 +51,7 @@ function SettingRow({
   control: (keep: KeepFn) => React.ReactNode
 }>) {
   const [state, formAction, isPending, keep] = useKeepFormValues(upsertSetting)
-  const { ref } = useFormDirty()
+  const { ref } = useFormDirty(state)
   return (
     <form ref={ref} action={formAction}>
       <input type="hidden" name="key" value={settingKey} />
@@ -119,7 +119,7 @@ export function AppSettingsForm({
         description="Automatically sign out inactive users after this period."
         control={() => (
           <Select name="value" defaultValue={String(idleTimeoutMinutes)}>
-            <SelectTrigger id="idle-timeout" className="md:w-40">
+            <SelectTrigger id="idle-timeout" className="w-full md:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

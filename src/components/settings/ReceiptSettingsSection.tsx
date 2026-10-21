@@ -58,6 +58,14 @@ const FIELDS: FieldConfig[] = [
  */
 export function ReceiptSettingsSection({ settings }: Readonly<{ settings: ReceiptSettings }>) {
   const [fields, setFields] = useState<ReceiptSettings>(settings)
+  // After a save/reset revalidates, adopt the stored values (a blank field comes
+  // back as its default) so the form is clean against what was actually saved.
+  const settingsJson = JSON.stringify(settings)
+  const [seenSettings, setSeenSettings] = useState(settingsJson)
+  if (settingsJson !== seenSettings) {
+    setSeenSettings(settingsJson)
+    setFields(settings)
+  }
   const [feedback, setFeedback] = useState<{ error?: string; success?: string } | undefined>()
   const [pending, startTransition] = useTransition()
 

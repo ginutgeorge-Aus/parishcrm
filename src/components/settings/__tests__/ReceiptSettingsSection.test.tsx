@@ -91,4 +91,15 @@ describe("ReceiptSettingsSection", () => {
     await waitFor(() => expect(resetReceiptSettings).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(prefix.value).toBe(DEFAULT_RECEIPT_SETTINGS.numberPrefix))
   })
+
+  it("adopts revalidated settings (blank saved as default) so the form is clean", () => {
+    const { rerender } = render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "" } })
+    expect(prefix.value).toBe("")
+    rerender(<ReceiptSettingsSection settings={{ ...DEFAULT_RECEIPT_SETTINGS }} />)
+    expect(prefix.value).toBe("")
+    rerender(<ReceiptSettingsSection settings={{ ...DEFAULT_RECEIPT_SETTINGS, numberPrefix: "NEW" }} />)
+    expect(prefix.value).toBe("NEW")
+  })
 })

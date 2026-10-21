@@ -16,7 +16,7 @@ import { SettingsRow } from "./ui/SettingsRow"
  */
 export function MembershipSettingsForm({ settings }: Readonly<{ settings: MembershipSettings }>) {
   const [state, formAction, isPending, keep, keepChecked] = useKeepFormValues(updateMembershipSettings)
-  const { ref } = useFormDirty()
+  const { ref } = useFormDirty(state)
 
   return (
     // key remounts the uncontrolled inputs (and the dirty baseline) when revalidated props change

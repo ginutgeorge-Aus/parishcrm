@@ -19,7 +19,7 @@ import { SettingsSubgroup } from "./ui/SettingsSubgroup"
  */
 export function LetterSettingsForm({ settings }: Readonly<{ settings: LetterSettings }>) {
   const [state, formAction, isPending, keep] = useKeepFormValues(updateLetterSettings)
-  const { ref } = useFormDirty()
+  const { ref } = useFormDirty(state)
 
   /** One single-line text setting as a row. */
   const field = (name: string, label: string, def: string) => (

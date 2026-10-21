@@ -34,7 +34,7 @@ A switched-off feature is **hidden and blocked**:
   applies to someone who already has one of the feature's pages open: their
   next click inside it shows "not found" (within a few seconds of the switch);
 - its actions refuse with "This feature is turned off. An admin can enable
-  it in App Settings → Features." Public forms (membership, family update, event
+  it in Settings → Features." Public forms (membership, family update, event
   checkout) instead show a plain "no longer available" or "not found" message;
 - its scheduled jobs (event reminders, celebration emails, the clearance
   digest) skip. A skipped run doesn't count; turning the feature back on

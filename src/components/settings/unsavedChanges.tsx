@@ -67,15 +67,17 @@ function snapshot(form: HTMLFormElement): string {
 
 /**
  * Dirty tracking for an uncontrolled `<form>`: compares current values to the
- * values when the form mounted. A submit re-baselines (optimistic). A remount
- * (the forms' `key` changes after revalidation) takes a fresh baseline.
+ * values when the form mounted. Each new non-error `result` (the form action's
+ * return value) re-baselines after React commits it, so a rejected save stays
+ * dirty. A remount takes a fresh baseline.
  * Attach `ref` to the `<form>`. If the form unmounts while this host stays
  * mounted, its cleanup clears the dirty flag so the guard is released.
  * Call `rebaseline()` after changing values in code (no input/change event),
  * once React has committed them, e.g. from an effect.
+ * @param result latest form-action result; undefined before the first submit
  * @returns the ref callback to attach to the form, the current dirty flag, and `rebaseline`
  */
-export function useFormDirty(): {
+export function useFormDirty(result?: Readonly<{ error?: string | null; success?: string | null }> | null): {
   ref: (form: HTMLFormElement | null) => void | (() => void)
   dirty: boolean
   rebaseline: () => void
@@ -84,23 +86,23 @@ export function useFormDirty(): {
   useUnsavedGuard(dirty)
   const rebaselineRef = useRef<() => void>(() => {})
   const rebaseline = useCallback(() => rebaselineRef.current(), [])
+  useEffect(() => {
+    if (result && !result.error) rebaselineRef.current()
+  }, [result])
   const ref = useCallback((form: HTMLFormElement | null) => {
     if (!form) return
     let initial = snapshot(form)
     setDirty(false)
     const check = () => setDirty(snapshot(form) !== initial)
-    const saved = () => {
+    form.addEventListener("input", check)
+    form.addEventListener("change", check)
+    rebaselineRef.current = () => {
       initial = snapshot(form)
       setDirty(false)
     }
-    form.addEventListener("input", check)
-    form.addEventListener("change", check)
-    form.addEventListener("submit", saved)
-    rebaselineRef.current = saved
     return () => {
       form.removeEventListener("input", check)
       form.removeEventListener("change", check)
-      form.removeEventListener("submit", saved)
       rebaselineRef.current = () => {}
       setDirty(false)
     }

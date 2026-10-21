@@ -21,8 +21,8 @@ function Guarded({ dirty }: { dirty: boolean }) {
   return null
 }
 /** A plain form using useFormDirty. */
-function DirtyForm() {
-  const { ref, dirty } = useFormDirty()
+function DirtyForm({ result }: Readonly<{ result?: { error?: string; success?: string } }>) {
+  const { ref, dirty } = useFormDirty(result)
   return (
     <form ref={ref} onSubmit={(e) => e.preventDefault()}>
       <input aria-label="Name" name="name" defaultValue="a" />
@@ -60,7 +60,7 @@ it("sets beforeunload only while dirty and removes it when clean or unmounted", 
   remove.mockRestore()
 })
 
-it("useFormDirty: dirty after an edit, clean when reverted or submitted", () => {
+it("useFormDirty: dirty after an edit, clean when reverted", () => {
   render(<UnsavedChangesProvider><Probe /><DirtyForm /></UnsavedChangesProvider>)
   const input = screen.getByLabelText("Name")
   expect(screen.getByText("clean")).toBeInTheDocument()
@@ -69,9 +69,25 @@ it("useFormDirty: dirty after an edit, clean when reverted or submitted", () => 
   expect(probe()).toBe(true)
   fireEvent.input(input, { target: { value: "a" } })
   expect(screen.getByText("clean")).toBeInTheDocument()
+})
+
+it("useFormDirty: only a successful result re-baselines; submit and errors keep it dirty", () => {
+  const ui = (result?: { error?: string; success?: string }) => (
+    <UnsavedChangesProvider><Probe /><DirtyForm result={result} /></UnsavedChangesProvider>
+  )
+  const { rerender } = render(ui())
+  const input = screen.getByLabelText("Name")
   fireEvent.input(input, { target: { value: "c" } })
   act(() => { fireEvent.submit(input.closest("form")!) })
+  expect(screen.getByText("dirty")).toBeInTheDocument()
+  rerender(ui({ error: "Invalid" }))
+  expect(screen.getByText("dirty")).toBeInTheDocument()
+  expect(probe()).toBe(true)
+  rerender(ui({ success: "Saved" }))
   expect(screen.getByText("clean")).toBeInTheDocument()
+  expect(probe()).toBe(false)
+  fireEvent.input(input, { target: { value: "a" } })
+  expect(screen.getByText("dirty")).toBeInTheDocument()
 })
 
 /** A controlled form whose "Reset" sets the value in code, then re-baselines. */

@@ -24,7 +24,7 @@ type Props = {
  */
 export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEmail, churchWebsite }: Readonly<Props>) {
   const [state, formAction, isPending, keep] = useKeepFormValues(updateChurchInfo)
-  const { ref } = useFormDirty()
+  const { ref } = useFormDirty(state)
 
   return (
     // key remounts the uncontrolled inputs (and the dirty baseline) when revalidated props change

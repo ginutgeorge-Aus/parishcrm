@@ -34,7 +34,6 @@ export function EmailTemplateForm({
   /** False while this form sits in a hidden (force-mounted) tab. */
   active?: boolean
 }>) {
-  const { ref, rebaseline } = useFormDirty()
   const [msg, setMsg] = useState<string>("")
   const [state, action, saving] = useActionState(
     /** Clears any lingering test-send/preview message, then saves. */
@@ -44,6 +43,7 @@ export function EmailTemplateForm({
     },
     undefined
   )
+  const { ref, rebaseline } = useFormDirty(state)
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
   const previewGeneration = useRef(0)

@@ -1,3 +1,6 @@
+/**
+ * @jest-environment jsdom
+ */
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { SettingsTabs } from "../SettingsTabs"
 import { UnsavedChangesProvider, useUnsavedGuard } from "../unsavedChanges"
@@ -95,6 +98,7 @@ describe("dirty guard", () => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
       within(nav()).getByRole("link", { name: "Branding" }).dispatchEvent(event)
       expect(confirm).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
     },
   )
 

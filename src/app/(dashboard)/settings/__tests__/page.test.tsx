@@ -28,10 +28,13 @@ it("propagates the guard's redirect", async () => {
   await expect(GeneralSettingsPage()).rejects.toThrow("NEXT_REDIRECT")
 })
 
-it("renders church info and app settings, gating membership and card fee", async () => {
-  mockRequire.mockResolvedValue({ features: new Set(["memberships"]) })
+it.each([
+  [["memberships"], true, false],
+  [["events"], false, true],
+])("renders church info and app settings; features %j gate membership/card fee", async (features, membership, cardFee) => {
+  mockRequire.mockResolvedValue({ features: new Set(features) })
   const html = renderToStaticMarkup(await GeneralSettingsPage())
   expect(html).toContain('data-c="ChurchInfoForm"')
-  expect(html).toContain("&quot;showMembership&quot;:true")
-  expect(html).toContain("&quot;showCardFee&quot;:false")
+  expect(html).toContain(`&quot;showMembership&quot;:${membership}`)
+  expect(html).toContain(`&quot;showCardFee&quot;:${cardFee}`)
 })

@@ -1442,7 +1442,7 @@ Check `node_modules/next/dist/docs/` for the `redirects` config page before writ
 
 Delete `src/app/(dashboard)/accounting/settings/` entirely. Update every link listed above to its new tab: reconciliation/report "set up payment accounts" links → `/settings/accounting/accounts`; opening-balance prompts → `/settings/accounting`; petty-cash page custodian link → `/settings/accounting/petty-cash`; dashboard link → match its text (opening balances → `/settings/accounting`). `navData.ts:102` → `/settings/accounting`, and keep its `show: isAdmin && acct`. `setupChecklist.ts:95` → `/settings/accounting/accounts`. `__tests__/components/sidebar/SidebarGroup.test.tsx:16` is a fixture string: leave it.
 
-`grep -rn "accounting/settings" src website` must print nothing.
+`grep -rn "accounting/settings" src website/src --include=*.ts --include=*.tsx` must print nothing (the website docs page keeps its intentional redirect note).
 
 - [ ] **Step 3: Run**: `npm test -- --testPathPatterns="redirects|setupChecklist|navData|Sidebar|reconciliation|balance-sheet|cash-flow|petty-cash|dashboard"`. Expect PASS. Then `npm run lint`.
 - [ ] **Step 4: Commit**: `feat(settings): redirect and remove /accounting/settings`

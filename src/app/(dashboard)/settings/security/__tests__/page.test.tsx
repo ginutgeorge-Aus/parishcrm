@@ -46,5 +46,5 @@ it("renders ActivityFeed as admin with the fetched rows", async () => {
   expect(html).toContain('data-c="ActivityFeed"')
   expect(html).toContain("&quot;isAdmin&quot;:true")
   expect(html).toContain("USER_CREATED")
-  expect(html).toContain("Jo")
+  expect(html).toContain("&quot;firstName&quot;:&quot;Jo&quot;")
 })

@@ -20,7 +20,7 @@ it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER", undefined])("redirects role %s to /
 })
 
 it("redirects a feature-off tab to /settings", async () => {
-  await expect(requireSettingsTab("/settings/members")).rejects.toThrow("NEXT_REDIRECT /settings")
+  await expect(requireSettingsTab("/settings/members")).rejects.toThrow(/^NEXT_REDIRECT \/settings$/)
 })
 
 it("returns the features for a visible tab", async () => {

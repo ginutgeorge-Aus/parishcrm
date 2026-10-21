@@ -41,8 +41,8 @@ tab's URL sends you back to General.
 Each form saves independently. If you edit a field and then switch settings
 tab (a tab link or the mobile picker), the app asks
 **"Discard unsaved changes?"** first. Reloading or closing the browser tab
-also asks before discarding. Links outside Settings (such as the sidebar) do
-not ask yet, so save before leaving.
+also asks before discarding. Links outside Settings (such as the sidebar) and the
+browser Back/Forward buttons do not ask yet, so save before leaving.
 
 ### General: Church Information
 
