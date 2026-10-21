@@ -202,4 +202,11 @@ describe("sendTestEmail", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
     expect(sendEmail).not.toHaveBeenCalled()
   })
+  it("returns the configuration error when the recipient lookup fails", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+    const res = await sendTestEmail("welcome", { subject: "s", intro: "i", body: "b", signoff: "x" })
+    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
 })

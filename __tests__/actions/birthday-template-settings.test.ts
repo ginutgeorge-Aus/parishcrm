@@ -118,6 +118,14 @@ describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "ANNIVERSARY_EMAIL_TEST_SENT", "AppSetting", undefined)
   })
 
+  it("returns a clean error when the birthday recipient lookup throws", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+    const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
+    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
   it("returns a clean error when the recipient lookup throws", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
