@@ -119,10 +119,10 @@ const LAST_REVIEWED = /Last reviewed commit:\s*([0-9a-f]{7,40})/i
  * CodeRabbit's most recently updated paused note on the PR, if any.
  * @param comments - issue comments on one PR, any order
  */
-function latestPausedNote(comments: Comment[]): Comment | undefined {
+function latestPausedNote(comments: Comment[]): Comment | null {
   return comments
     .filter((c) => c.user === BOT && c.body.toLowerCase().includes(PAUSED_MARKER))
-    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0]
+    .sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt))[0] ?? null
 }
 
 /**
@@ -161,10 +161,15 @@ function nudgedSince(comments: Comment[], since: Date): boolean {
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
+ * @param note - the latest paused note (null = none), when the caller already has it (#349)
  */
-export function pausedBefore(comments: Comment[], headSha: string, since: Date): boolean {
-  const note = latestPausedNote(comments)
-  return note !== undefined && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
+export function pausedBefore(
+  comments: Comment[],
+  headSha: string,
+  since: Date,
+  note: Comment | null = latestPausedNote(comments),
+): boolean {
+  return note !== null && !pausedAtHead(note, headSha) && !nudgedSince(comments, since)
 }
 
 /**
@@ -176,11 +181,16 @@ export function pausedBefore(comments: Comment[], headSha: string, since: Date):
  * @param comments - issue comments on one PR, any order
  * @param headSha - the PR's head commit SHA
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
+ * @param note - the latest paused note (null = none), when the caller already has it (#349)
  */
-export function pauseNudgeSpent(comments: Comment[], headSha: string, since: Date): boolean {
+export function pauseNudgeSpent(
+  comments: Comment[],
+  headSha: string,
+  since: Date,
+  note: Comment | null = latestPausedNote(comments),
+): boolean {
   if (since.getTime() === 0) return false // no status on the head yet: any nudge was for an older head
-  const note = latestPausedNote(comments)
-  return note !== undefined && !pausedAtHead(note, headSha) && nudgedSince(comments, since)
+  return note !== null && !pausedAtHead(note, headSha) && nudgedSince(comments, since)
 }
 
 /**
@@ -232,8 +242,9 @@ export function nudgeRefused(comments: Comment[], since: Date): boolean {
 export function needsNudge(reviews: Review[], comments: Comment[], statuses: Status[], headSha: string): boolean {
   if (isReviewed(reviews, comments, headSha)) return false
   const since = firstStatusAt(statuses)
-  if (pauseNudgeSpent(comments, headSha, since) || nudgeRefused(comments, since)) return false
-  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, since))
+  const note = latestPausedNote(comments)
+  if (pauseNudgeSpent(comments, headSha, since, note) || nudgeRefused(comments, since)) return false
+  return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, since, note))
 }
 
 /**
