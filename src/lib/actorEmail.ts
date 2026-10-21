@@ -9,10 +9,11 @@ import { actorId } from "@/lib/actor"
  * `session.user.email` is always undefined. Never read it; resolve the
  * address here by the session's user id instead.
  *
- * Call only after a role guard has confirmed an authenticated session.
- * Returns null when the user row is gone or has no email.
+ * Returns null when there is no session user id, the user row is gone, or it
+ * has no email.
  */
 export async function actorEmail(session: Session | null): Promise<string | null> {
+  if (!session?.user?.id) return null
   const user = await prisma.user.findUnique({ where: { id: actorId(session) }, select: { email: true } })
   return user?.email || null
 }

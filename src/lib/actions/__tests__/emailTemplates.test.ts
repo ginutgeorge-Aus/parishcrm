@@ -194,4 +194,12 @@ describe("sendTestEmail", () => {
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 1 }, select: { email: true } })
     expect((sendEmail as jest.Mock).mock.calls[0][0]).toBe("admin@example.com")
   })
+
+  it("returns the no-email error, not a throw, for a session without a user id", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+    const res = await sendTestEmail("welcome", { subject: "s", intro: "i", body: "b", signoff: "x" })
+    expect(res).toEqual({ error: "Your account has no email address" })
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
 })
