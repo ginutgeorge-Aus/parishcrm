@@ -1,9 +1,8 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
 import { Suspense } from "react"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { isAdmin } from "@/lib/roleGuard"
+import { requireSettingsTab } from "@/lib/settingsAccess"
+import { SettingsCard } from "@/components/settings/ui/SettingsCard"
 import { AuditLogFilters } from "@/components/settings/AuditLogFilters"
 import { buildCreatedAtFilter } from "@/lib/auditLogFilter"
 import { Button } from "@/components/ui/button"
@@ -24,10 +23,10 @@ type Props = {
   searchParams: Promise<{ action?: string; from?: string; to?: string; page?: string }>
 }
 
+/** Settings → Audit Log: filterable, paginated, read-only list of security-relevant actions. */
 export default async function AuditLogPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
-  const session = await auth()
-  if (!isAdmin(session?.user?.role)) redirect("/")
+  await requireSettingsTab("/settings/audit-log")
 
   const rawPage = Number.parseInt(searchParams.page ?? "1", 10)
   const page = Number.isSafeInteger(rawPage) ? Math.min(Math.max(1, rawPage), MAX_PAGE) : 1
@@ -66,12 +65,8 @@ export default async function AuditLogPage(props: Readonly<Props>) {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-semibold text-foreground">Audit Log</h2>
-      <p className="text-sm text-muted-foreground">
-        Security-relevant actions. Read-only. {total} total entries.
-      </p>
-
+    <SettingsCard title="Audit Log" description={`Security-relevant actions. Read-only. ${total} total entries.`}>
+      <div className="space-y-4 py-5">
       <Suspense>
         <AuditLogFilters />
       </Suspense>
@@ -168,6 +163,7 @@ export default async function AuditLogPage(props: Readonly<Props>) {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </SettingsCard>
   )
 }

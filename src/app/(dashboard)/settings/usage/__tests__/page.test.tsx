@@ -1,34 +1,30 @@
 // src/app/(dashboard)/settings/usage/__tests__/page.test.tsx
 /** @jest-environment node */
 import UsagePage from "../page"
-import { auth } from "@/auth"
+import { requireSettingsTab } from "@/lib/settingsAccess"
 import { getUsageSummary } from "@/lib/usage"
 import { renderToStaticMarkup } from "react-dom/server"
 
-jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/usage", () => ({ getUsageSummary: jest.fn() }))
 jest.mock("@/lib/routeViews", () => ({
   getTopRoutes: jest.fn().mockResolvedValue([{ route: "/reports", count: 40 }]),
 }))
-jest.mock("next/navigation", () => ({
-  redirect: jest.fn(() => {
-    throw new Error("REDIRECT")
-  }),
-}))
 
-const mockAuth = auth as jest.Mock
+const mockRequire = requireSettingsTab as jest.Mock
 const mockSummary = getUsageSummary as jest.Mock
 
 describe("UsagePage", () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it("redirects a non-admin", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    await expect(UsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT")
+  it("guards with its own tab href and propagates the redirect", async () => {
+    mockRequire.mockRejectedValue(new Error("NEXT_REDIRECT"))
+    await expect(UsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT")
+    expect(mockRequire).toHaveBeenCalledWith("/settings/usage")
   })
 
   it("renders adoption + dormant for an admin", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    mockRequire.mockResolvedValue({ features: new Set() })
     mockSummary.mockResolvedValue({
       days: 30,
       adoption: [{ resourceType: "Event", count: 9 }],

@@ -1,5 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
 type AuditEntry = {
   id: number
   action: string
@@ -25,6 +23,7 @@ type ActivityFeedProps = {
   registrations: RecentRegistration[]
 }
 
+/** Compact relative time ("5m ago") for a past date. */
 function timeAgo(date: Date): string {
   const diffMs = Date.now() - date.getTime()
   const diffMins = Math.floor(diffMs / 60_000)
@@ -35,13 +34,10 @@ function timeAgo(date: Date): string {
   return `${Math.floor(diffHours / 24)}d ago`
 }
 
+/** Recent audit entries (admins only) and registrations, as plain lists for the Security card. */
 export function ActivityFeed({ isAdmin, auditEntries, registrations }: Readonly<ActivityFeedProps>) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Recent Activity</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="space-y-4">
         {isAdmin && auditEntries.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -88,7 +84,6 @@ export function ActivityFeed({ isAdmin, auditEntries, registrations }: Readonly<
             </ul>
           )}
         </div>
-      </CardContent>
-    </Card>
+    </div>
   )
 }
