@@ -194,12 +194,36 @@ export function firstStatusAt(statuses: Status[]): Date {
   return new Date(times.length ? times.reduce((min, t) => Math.min(min, t)) : 0)
 }
 
+/** CodeRabbit's reply when it won't act on a review command for this PR (#364). */
+const REFUSED = /Review skipped/i
+
+/**
+ * True when CodeRabbit answered the latest review command on this head with
+ * "Review skipped" (e.g. a Dependabot PR). Nudging again only gets the same reply
+ * and spends quota, so the head waits for the next push. A rate-limited reply
+ * ("Action not completed … rate limited") doesn't count: that one is retried.
+ * @param comments - issue comments on one PR, any order
+ * @param since - time of CodeRabbit's first status on the head (≈ head push)
+ */
+export function nudgeRefused(comments: Comment[], since: Date): boolean {
+  if (since.getTime() === 0) return false // no status on the head yet: any refusal was for an older head
+  const nudges = comments
+    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
+    .map((c) => Date.parse(c.createdAt))
+  if (!nudges.length) return false
+  const lastNudge = nudges.reduce((max, t) => Math.max(max, t))
+  // updatedAt too: CodeRabbit may answer by editing an older comment.
+  return comments.some(
+    (c) => c.user === BOT && Math.max(Date.parse(c.createdAt), Date.parse(c.updatedAt)) >= lastNudge && REFUSED.test(c.body),
+  )
+}
+
 /**
  * The per-PR selection rule: true when CodeRabbit hasn't reviewed the head. A
  * CodeRabbit review on the head counts; otherwise a "Review completed" status
  * counts only when no stale paused note says commits are still waiting. A stale-paused
  * head gets at most one nudge whatever the status says (a rate-limited command is not
- * retried until the next push, #341).
+ * retried until the next push, #341), and a head CodeRabbit refused gets none (#364).
  * @param reviews - PR reviews, any order
  * @param comments - issue comments on the PR, any order
  * @param statuses - commit statuses on the head SHA, any order
@@ -208,7 +232,7 @@ export function firstStatusAt(statuses: Status[]): Date {
 export function needsNudge(reviews: Review[], comments: Comment[], statuses: Status[], headSha: string): boolean {
   if (isReviewed(reviews, comments, headSha)) return false
   const since = firstStatusAt(statuses)
-  if (pauseNudgeSpent(comments, headSha, since)) return false
+  if (pauseNudgeSpent(comments, headSha, since) || nudgeRefused(comments, since)) return false
   return !(statusSaysReviewed(statuses) && !pausedBefore(comments, headSha, since))
 }
 
@@ -239,15 +263,16 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
 }
 
 /**
- * Orders unreviewed PRs: `review-next` label, then humans, then bots; most recently
- * updated first, so active work beats stale PRs.
- * Drafts and `no-coderabbit` PRs are dropped.
+ * Orders unreviewed PRs: `review-next` label first, then most recently updated, so
+ * active work beats stale PRs. Drafts, `no-coderabbit` PRs and bot PRs (Dependabot,
+ * Renovate: CodeRabbit skips them, #364) are dropped; `review-next` opts a bot PR in.
  * @param prs - open PRs that CodeRabbit has not reviewed at head
  */
 export function pickNext(prs: Pr[]): Pr | null {
-  const rank = (p: Pr) => (p.labels.includes("review-next") ? 0 : p.authorIsBot ? 2 : 1)
+  const rank = (p: Pr) => (p.labels.includes("review-next") ? 0 : 1)
   const eligible = prs
     .filter((p) => !p.draft && !p.labels.includes("no-coderabbit"))
+    .filter((p) => !p.authorIsBot || p.labels.includes("review-next"))
     .sort((a, b) => rank(a) - rank(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
   return eligible[0] ?? null
 }
