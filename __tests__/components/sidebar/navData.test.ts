@@ -1,4 +1,5 @@
-import { attentionItems, buildNavGroups, featureOn, flattenNavItems, navFlagsFor, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
+import { featureOn, navFlagsFor, type NavFlags } from "@/components/layout/navGates"
+import { attentionItems, buildNavGroups, flattenNavItems, pendingTotal } from "@/components/layout/sidebar/navData"
 import { resolveFeatures } from "@/lib/features"
 
 /** Items of the named group, failing loudly if the group is missing. */
