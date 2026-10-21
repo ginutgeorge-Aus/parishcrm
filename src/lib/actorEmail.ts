@@ -9,9 +9,8 @@ import { actorId } from "@/lib/actor"
  * `session.user.email` is always undefined. Never read it; resolve the
  * address here by the session's user id instead.
  *
- * * Returns null when there is no session user id, the user is gone or archived,
- * or it
- * has no email.
+ * Returns null when there is no session user id, the user is gone or archived,
+ * or it has no email.
  */
 export async function actorEmail(session: Session | null): Promise<string | null> {
   if (!session?.user?.id) return null
