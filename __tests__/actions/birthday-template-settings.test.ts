@@ -6,6 +6,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     appSetting: { upsert: jest.fn(), findMany: jest.fn() },
+    user: { findUnique: jest.fn() },
   },
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
@@ -66,24 +67,37 @@ describe("getBirthdayTemplate", () => {
 })
 
 describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ email: "admin@x.org" })
+  })
 
   it("rejects non-admin without sending", async () => {
-    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "PASTOR", id: "2", email: "p@x.org" } })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "PASTOR", id: "2" } })
     const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
     expect(res).toEqual({ error: "Unauthorized" })
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
+  // Real sessions carry no email: the jwt callback strips it (#369).
+  it("sends to the DB email of the session's user", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
+    expect(res).toEqual({ success: "Test birthday email sent to admin@x.org" })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 1, archivedAt: null }, select: { email: true } })
+    expect((sendEmail as jest.Mock).mock.calls[0][0]).toBe("admin@x.org")
+  })
+
   it("errors when the admin account has no email", async () => {
-    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1", email: null } })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ email: "" })
     const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
     expect(res).toEqual({ error: "Your account has no email address" })
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
   it("sends a rendered birthday sample to the admin and audits", async () => {
-    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1", email: "admin@x.org" } })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     const res = await sendTestBirthdayEmail({ subject: "Happy Birthday {firstName}", body: "Bless {them}, {firstName}" })
     expect(res).toEqual({ success: "Test birthday email sent to admin@x.org" })
     const [to, subject, html, text] = (sendEmail as jest.Mock).mock.calls[0]
@@ -95,7 +109,7 @@ describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
   })
 
   it("sends a rendered anniversary sample to the admin and audits", async () => {
-    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1", email: "admin@x.org" } })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     const res = await sendTestAnniversaryEmail({ subject: "Anniversary {names}", body: "{years} years for {names}" })
     expect(res).toEqual({ success: "Test anniversary email sent to admin@x.org" })
     const [, subject, , text] = (sendEmail as jest.Mock).mock.calls[0]
@@ -104,8 +118,24 @@ describe("sendTestBirthdayEmail / sendTestAnniversaryEmail", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "ANNIVERSARY_EMAIL_TEST_SENT", "AppSetting", undefined)
   })
 
+  it("returns a clean error when the birthday recipient lookup throws", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+    const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
+    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  it("returns a clean error when the recipient lookup throws", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(prisma.user.findUnique as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+    const res = await sendTestAnniversaryEmail({ subject: "Anniversary {names}", body: "{years} years for {names}" })
+    expect(res).toEqual({ error: "Failed to send test email — check email configuration" })
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
   it("returns a clean error when delivery throws", async () => {
-    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1", email: "admin@x.org" } })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp down"))
     const res = await sendTestBirthdayEmail({ subject: "Hi {firstName}", body: "Bless {them}" })
     expect(res).toEqual({ error: "Failed to send test email — check email configuration" })

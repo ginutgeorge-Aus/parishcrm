@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
+import { actorEmail } from "@/lib/actorEmail"
 import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
@@ -325,15 +326,16 @@ export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<Ac
   const parsed = BirthdayTemplateSchema.safeParse({ birthdayEmailSubject: draft.subject, birthdayEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const to = session!.user!.email
-  if (!to) return { error: "Your account has no email address" }
-
   const { name: churchName } = await getChurchSettings()
   const { subject, html, text } = renderBirthdayEmail(
     { subject: parsed.data.birthdayEmailSubject, body: parsed.data.birthdayEmailBody },
     { firstName: "Sample Member", ...pronouns(null), churchName },
   )
+  let to: string | null
   try {
+    // Inside the try: the DB lookup can fail where the old session read couldn't.
+    to = await actorEmail(session)
+    if (!to) return { error: "Your account has no email address" }
     await sendEmail(to, `[TEST] ${subject}`, html, text)
   } catch {
     return { error: "Failed to send test email — check email configuration" }
@@ -416,15 +418,16 @@ export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Prom
   const parsed = AnniversaryTemplateSchema.safeParse({ anniversaryEmailSubject: draft.subject, anniversaryEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const to = session!.user!.email
-  if (!to) return { error: "Your account has no email address" }
-
   const { name: churchName } = await getChurchSettings()
   const { subject, html, text } = renderAnniversaryEmail(
     { subject: parsed.data.anniversaryEmailSubject, body: parsed.data.anniversaryEmailBody },
     { names: "Alex & Sam Sample", years: "25", churchName },
   )
+  let to: string | null
   try {
+    // Inside the try: the DB lookup can fail where the old session read couldn't.
+    to = await actorEmail(session)
+    if (!to) return { error: "Your account has no email address" }
     await sendEmail(to, `[TEST] ${subject}`, html, text)
   } catch {
     return { error: "Failed to send test email — check email configuration" }

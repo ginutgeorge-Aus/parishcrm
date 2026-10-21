@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
+import { actorEmail } from "@/lib/actorEmail"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import {
@@ -200,12 +201,14 @@ export async function sendTestEmail(key: EmailTemplateKey, draft: EmailTemplateF
   if (off) return off
   const parsed = FieldsSchema.safeParse({ key, ...draft })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const to = session!.user!.email
-  if (!to) return { error: "Your account has no email address" }
   const html = await renderTemplate(key, draft)
   const { name: churchName } = await getChurchSettings()
   const v = sampleVars(key, churchName)
+  let to: string | null
   try {
+    // Inside the try: the DB lookup can fail where the old session read couldn't.
+    to = await actorEmail(session)
+    if (!to) return { error: "Your account has no email address" }
     await sendEmail(to, `[TEST] ${applyVars(draft.subject, v)}`, html, html.replace(/<[^>]+>/g, " "))
   } catch {
     return { error: "Failed to send test email — check email configuration" }
