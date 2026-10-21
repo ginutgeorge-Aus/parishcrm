@@ -8,8 +8,7 @@ import { X, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useShell } from "@/components/layout/ShellContext"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { canAccessAccounting, canViewAccounting, canEdit, canManageUsers, canViewPeople as canViewPeopleRole, isAdmin as isAdminRole } from "@/lib/roleGuard"
-import { buildNavGroups, flattenNavItems, type NavGroup } from "@/components/layout/sidebar/navData"
+import { buildNavGroups, flattenNavItems, navFlagsFor, type NavGroup } from "@/components/layout/sidebar/navData"
 import { SidebarGroup } from "@/components/layout/sidebar/SidebarGroup"
 import { SidebarLink } from "@/components/layout/sidebar/SidebarLink"
 import { UserMenu } from "@/components/layout/sidebar/UserMenu"
@@ -36,22 +35,11 @@ export function Sidebar({
   const { data: session } = useSession()
   const role = session?.user?.role
 
-  const isAccounting = canAccessAccounting(role)
-  const isAccountingViewer = canViewAccounting(role)
-  const isAdmin = isAdminRole(role)
-  const isEditor = canEdit(role)
-  const canUsers = canManageUsers(role)
-  const canViewPeople = canViewPeopleRole(role)
-
   const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])
 
   const groups: NavGroup[] = useMemo(
-    () =>
-      buildNavGroups({
-        isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-        pendingUpdates, verifyPending, membershipPending, features: featureSet,
-      }),
-    [isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople, pendingUpdates, verifyPending, membershipPending, featureSet]
+    () => buildNavGroups(navFlagsFor(role, { pendingUpdates, verifyPending, membershipPending }, featureSet)),
+    [role, pendingUpdates, verifyPending, membershipPending, featureSet]
   )
 
   // Highlight only the single most-specific matching item, so a parent path
