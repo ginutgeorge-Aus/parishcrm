@@ -24,7 +24,7 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
     }),
     [],
   )
-  return <UnsavedContext.Provider value={value}>{children}</UnsavedContext.Provider>
+  return <UnsavedContext value={value}>{children}</UnsavedContext>
 }
 
 /**
