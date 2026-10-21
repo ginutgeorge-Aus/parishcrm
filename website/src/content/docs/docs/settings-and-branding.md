@@ -1,9 +1,9 @@
 ---
 title: "Settings & Branding"
-description: "The Settings page (/settings, ADMIN role only) is where a church configures its identity, look, letters, and a handful of app-wide behaviours after first…"
+description: "The Settings area (/settings, ADMIN role only) is where a church configures its identity, look, letters, and a handful of app-wide behaviours after first…"
 ---
 
-The Settings page (`/settings`, `ADMIN` role only) is where a church
+The Settings area (`/settings`, `ADMIN` role only) is where a church
 configures its identity, look, letters, and a handful of app-wide behaviours
 after first login. Environment variables provide fallback defaults for some
 of these fields until an admin saves a value in-app — see
@@ -100,7 +100,7 @@ Options for the public membership application form:
 Subject and body templates for automated birthday and wedding-anniversary
 emails, plus on/off toggles for each.
 
-### General: app settings
+### General: App Settings
 
 - **Login notification email** — receives an alert on failed login attempts;
   blank disables it.

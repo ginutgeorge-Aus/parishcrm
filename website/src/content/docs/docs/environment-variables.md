@@ -41,7 +41,7 @@ fallbacks used until an admin fills in the Settings form (see below).
 
 ## Church identity (fallbacks)
 
-Used until an ADMIN fills in **Settings → Church Information**, which then
+Used until an ADMIN fills in **Settings → General**, which then
 takes precedence.
 
 | Variable | Purpose |
