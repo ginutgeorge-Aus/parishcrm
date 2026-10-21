@@ -34,7 +34,7 @@ export function EmailTemplateForm({
   /** False while this form sits in a hidden (force-mounted) tab. */
   active?: boolean
 }>) {
-  const { ref } = useFormDirty()
+  const { ref, rebaseline } = useFormDirty()
   const [msg, setMsg] = useState<string>("")
   const [state, action, saving] = useActionState(
     /** Clears any lingering test-send/preview message, then saves. */
@@ -48,6 +48,12 @@ export function EmailTemplateForm({
   const [preview, setPreview] = useState<string>("")
   const previewGeneration = useRef(0)
   const [pending, start] = useTransition()
+  // Bumped by a successful Reset; the effect re-baselines dirty tracking once
+  // the default values are committed (setting them in code fires no input event).
+  const [resetGen, setResetGen] = useState(0)
+  useEffect(() => {
+    if (resetGen) rebaseline()
+  }, [resetGen, rebaseline])
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
   // show defaults while a slower Save later clobbers them in the DB.
@@ -96,6 +102,7 @@ export function EmailTemplateForm({
         // drop the stale preview so a later Save can't overwrite defaults.
         setFields(DEFAULT_EMAIL_TEMPLATES[templateKey])
         setPreview("")
+        setResetGen((g) => g + 1)
       }
       setMsg(r && "success" in r ? r.success : r?.error ?? "")
     })

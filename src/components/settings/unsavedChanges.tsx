@@ -71,11 +71,19 @@ function snapshot(form: HTMLFormElement): string {
  * (the forms' `key` changes after revalidation) takes a fresh baseline.
  * Attach `ref` to the `<form>`. If the form unmounts while this host stays
  * mounted, its cleanup clears the dirty flag so the guard is released.
- * @returns the ref callback to attach to the form, and the current dirty flag
+ * Call `rebaseline()` after changing values in code (no input/change event),
+ * once React has committed them, e.g. from an effect.
+ * @returns the ref callback to attach to the form, the current dirty flag, and `rebaseline`
  */
-export function useFormDirty(): { ref: (form: HTMLFormElement | null) => void | (() => void); dirty: boolean } {
+export function useFormDirty(): {
+  ref: (form: HTMLFormElement | null) => void | (() => void)
+  dirty: boolean
+  rebaseline: () => void
+} {
   const [dirty, setDirty] = useState(false)
   useUnsavedGuard(dirty)
+  const rebaselineRef = useRef<() => void>(() => {})
+  const rebaseline = useCallback(() => rebaselineRef.current(), [])
   const ref = useCallback((form: HTMLFormElement | null) => {
     if (!form) return
     let initial = snapshot(form)
@@ -88,12 +96,14 @@ export function useFormDirty(): { ref: (form: HTMLFormElement | null) => void | 
     form.addEventListener("input", check)
     form.addEventListener("change", check)
     form.addEventListener("submit", saved)
+    rebaselineRef.current = saved
     return () => {
       form.removeEventListener("input", check)
       form.removeEventListener("change", check)
       form.removeEventListener("submit", saved)
+      rebaselineRef.current = () => {}
       setDirty(false)
     }
   }, [])
-  return { ref, dirty }
+  return { ref, dirty, rebaseline }
 }

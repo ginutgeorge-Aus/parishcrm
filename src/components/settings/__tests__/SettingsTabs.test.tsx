@@ -88,6 +88,16 @@ describe("dirty guard", () => {
     expect(push).toHaveBeenCalledWith("/settings/audit-log")
   })
 
+  it.each([{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { button: 1 }])(
+    "does not ask (or block) a new-tab click %o",
+    (init) => {
+      render(<UnsavedChangesProvider><SettingsTabs groups={groups} /><Dirty /></UnsavedChangesProvider>)
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
+      within(nav()).getByRole("link", { name: "Branding" }).dispatchEvent(event)
+      expect(confirm).not.toHaveBeenCalled()
+    },
+  )
+
   it("does not ask when nothing is dirty", () => {
     render(<UnsavedChangesProvider><SettingsTabs groups={groups} /></UnsavedChangesProvider>)
     within(nav()).getByRole("link", { name: "Branding" }).click()

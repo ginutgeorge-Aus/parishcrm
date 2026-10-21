@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import { useEffect } from "react"
+import * as React from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { UnsavedChangesProvider, useFormDirty, useUnsavedChanges, useUnsavedGuard } from "../unsavedChanges"
 
@@ -70,6 +71,36 @@ it("useFormDirty: dirty after an edit, clean when reverted or submitted", () => 
   expect(screen.getByText("clean")).toBeInTheDocument()
   fireEvent.input(input, { target: { value: "c" } })
   act(() => { fireEvent.submit(input.closest("form")!) })
+  expect(screen.getByText("clean")).toBeInTheDocument()
+})
+
+/** A controlled form whose "Reset" sets the value in code, then re-baselines. */
+function ResettableForm() {
+  const { ref, dirty, rebaseline } = useFormDirty()
+  const [value, setValue] = React.useState("a")
+  const [gen, setGen] = React.useState(0)
+  React.useEffect(() => {
+    if (gen) rebaseline()
+  }, [gen, rebaseline])
+  return (
+    <form ref={ref}>
+      <input aria-label="Name" name="name" value={value} onChange={(e) => setValue(e.target.value)} />
+      <button type="button" onClick={() => { setValue("z"); setGen((g) => g + 1) }}>Reset</button>
+      <output>{dirty ? "dirty" : "clean"}</output>
+    </form>
+  )
+}
+
+it("rebaseline: a code-set reset clears dirty and becomes the new baseline", () => {
+  render(<UnsavedChangesProvider><Probe /><ResettableForm /></UnsavedChangesProvider>)
+  const input = screen.getByLabelText("Name")
+  fireEvent.change(input, { target: { value: "b" } })
+  expect(probe()).toBe(true)
+  fireEvent.click(screen.getByText("Reset"))
+  expect(screen.getByText("clean")).toBeInTheDocument()
+  expect(probe()).toBe(false)
+  fireEvent.change(input, { target: { value: "y" } })
+  fireEvent.change(input, { target: { value: "z" } })
   expect(screen.getByText("clean")).toBeInTheDocument()
 })
 

@@ -45,7 +45,7 @@ export default async function UsagePage(props: Readonly<Props>) {
         </div>
 
         <section>
-          <h2 className="mb-2 text-lg font-medium">Feature adoption</h2>
+          <h3 className="mb-2 text-lg font-medium">Feature adoption</h3>
           <Table aria-label="Feature adoption">
             <TableHeader>
               <TableRow>
@@ -65,7 +65,7 @@ export default async function UsagePage(props: Readonly<Props>) {
         </section>
 
         <section>
-          <h2 className="mb-2 text-lg font-medium">Activity trend (12 weeks)</h2>
+          <h3 className="mb-2 text-lg font-medium">Activity trend (12 weeks)</h3>
           <div className="flex items-end gap-1 h-24">
             {s.weeklyTrend.map((w) => (
               <div key={w.label} className="flex-1 bg-primary/70 rounded-t" role="img" aria-label={`${w.label}: ${w.count} actions`} style={{ height: `${(w.count / maxTrend) * 100}%` }} title={`${w.label}: ${w.count}`} />
@@ -74,7 +74,7 @@ export default async function UsagePage(props: Readonly<Props>) {
         </section>
 
         <section>
-          <h2 className="mb-2 text-lg font-medium">Most-viewed pages ({days} days)</h2>
+          <h3 className="mb-2 text-lg font-medium">Most-viewed pages ({days} days)</h3>
           {topRoutes.length === 0 ? (
             <p className="text-sm text-muted-foreground">No page views recorded yet.</p>
           ) : (
@@ -90,7 +90,7 @@ export default async function UsagePage(props: Readonly<Props>) {
         </section>
 
         <section>
-          <h2 className="mb-2 text-lg font-medium">Dormant features</h2>
+          <h3 className="mb-2 text-lg font-medium">Dormant features</h3>
           {s.dormant.length === 0 ? (
             <p className="text-sm text-muted-foreground">Every tracked feature saw activity.</p>
           ) : (

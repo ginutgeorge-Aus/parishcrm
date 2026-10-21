@@ -28,6 +28,8 @@ export function SettingsTabs({ groups }: Readonly<{ groups: readonly SettingsTab
    */
   const confirmLeave = (href: string, event?: React.MouseEvent) => {
     if (href === active) return
+    // Modified/non-primary clicks open a new tab; this page (and its edits) stays.
+    if (event && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return
     if (hasUnsaved() && !window.confirm(DISCARD_PROMPT)) {
       event?.preventDefault()
       return
