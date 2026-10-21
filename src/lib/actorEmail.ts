@@ -17,3 +17,19 @@ export async function actorEmail(session: Session | null): Promise<string | null
   const user = await prisma.user.findUnique({ where: { id: actorId(session), archivedAt: null }, select: { email: true } })
   return user?.email || null
 }
+
+/**
+ * Resolve the actor's address as the recipient of a settings test send (#379).
+ *
+ * The lookup gets its own catch so a DB failure reports a lookup problem
+ * rather than the caller's "check email configuration" send error.
+ */
+export async function testSendRecipient(session: Session | null): Promise<{ to: string } | { error: string }> {
+  let to: string | null
+  try {
+    to = await actorEmail(session)
+  } catch {
+    return { error: "Couldn't look up your email address — try again" }
+  }
+  return to ? { to } : { error: "Your account has no email address" }
+}

@@ -128,4 +128,7 @@ rules:
           - pattern: $S!.user?.email
       - metavariable-regex:
           metavariable: $S
-          regex: ^(session|auth)$
+          # A bare or member `session`/`auth` (ctx.session, req.auth), any
+          # *Session name, or an inline auth() call. Plain receivers like
+          # row.user.email (DB reads) stay out (#378).
+          regex: ^(.*[.?!])?(session|auth)!?$|^.*Session!?$|^.*\bauth\(\)\)?$
