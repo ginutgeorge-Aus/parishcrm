@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
+import { actorEmail } from "@/lib/actorEmail"
 import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
@@ -325,7 +326,7 @@ export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<Ac
   const parsed = BirthdayTemplateSchema.safeParse({ birthdayEmailSubject: draft.subject, birthdayEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const to = session!.user!.email
+  const to = await actorEmail(session)
   if (!to) return { error: "Your account has no email address" }
 
   const { name: churchName } = await getChurchSettings()
@@ -416,7 +417,7 @@ export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Prom
   const parsed = AnniversaryTemplateSchema.safeParse({ anniversaryEmailSubject: draft.subject, anniversaryEmailBody: draft.body })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const to = session!.user!.email
+  const to = await actorEmail(session)
   if (!to) return { error: "Your account has no email address" }
 
   const { name: churchName } = await getChurchSettings()

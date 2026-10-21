@@ -11,13 +11,17 @@ import { featureGuard } from "@/lib/featureFlags"
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { sendEmail } from "@/lib/email"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
-  prisma: { emailTemplate: { findUnique: jest.fn(), upsert: jest.fn() } },
+  prisma: {
+    emailTemplate: { findUnique: jest.fn(), upsert: jest.fn() },
+    user: { findUnique: jest.fn(async () => ({ email: "admin@example.com" })) },
+  },
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({
@@ -139,7 +143,7 @@ describe("feature-owned templates are blocked while their feature is off", () =>
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN", email: "admin@example.com" } })
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     delete process.env.DEMO_MODE
   })
 
@@ -173,5 +177,21 @@ describe("feature-owned templates are blocked while their feature is off", () =>
     expect(res).toMatchObject({ error: expect.any(String) })
     expect(featureGuard).not.toHaveBeenCalled()
     delete process.env.DEMO_MODE
+  })
+})
+
+describe("sendTestEmail", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.DEMO_MODE
+  })
+
+  // Real sessions carry no email: the jwt callback strips it (#369).
+  it("sends to the DB email of the session's user", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    const res = await sendTestEmail("welcome", { subject: "s", intro: "i", body: "b", signoff: "x" })
+    expect(res).toEqual({ success: "Test email sent to admin@example.com" })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 1 }, select: { email: true } })
+    expect((sendEmail as jest.Mock).mock.calls[0][0]).toBe("admin@example.com")
   })
 })

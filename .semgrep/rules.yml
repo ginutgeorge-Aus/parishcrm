@@ -104,3 +104,25 @@ rules:
       - pattern: '"P2034" == $E.code'
       - pattern: '"P2034" !== $E.code'
       - pattern: '"P2034" != $E.code'
+
+  - id: crm-no-session-user-email
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      session.user.email is always undefined: the jwt callback in src/auth.ts strips
+      email from the token (#369). Resolve the signed-in user's address from the DB
+      with actorEmail(session) from @/lib/actorEmail.
+    paths:
+      exclude:
+        - "**/__tests__/**"
+    patterns:
+      - pattern-either:
+          - pattern: $S.user.email
+          - pattern: $S.user?.email
+          - pattern: $S?.user?.email
+          - pattern: $S!.user!.email
+          - pattern: $S!.user.email
+          - pattern: $S?.user!.email
+      - metavariable-regex:
+          metavariable: $S
+          regex: ^session$
