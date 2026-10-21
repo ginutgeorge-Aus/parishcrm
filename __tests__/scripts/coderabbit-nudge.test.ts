@@ -188,6 +188,15 @@ test("needsNudge: no re-nudge after CodeRabbit skipped the head's nudge (#364)",
   // A skip from before this head's first status belongs to an older head.
   const newHead = [{ context: "CodeRabbit", description: "Review skipped", createdAt: "2026-10-20T09:00:00Z" }]
   assert.equal(needsNudge([], [nudge, skipped], newHead, "abc"), true)
+  // A head with no CodeRabbit status yet can't inherit an older head's skip.
+  assert.equal(needsNudge([], [nudge, skipped], [], "abc"), true)
+})
+
+test("needsNudge: a skip edited into an older CodeRabbit comment counts (#364)", () => {
+  const status = [{ context: "CodeRabbit", description: "Review skipped", createdAt: "2026-10-20T08:00:00Z" }]
+  const nudge = comment({ body: "@coderabbitai review", createdAt: "2026-10-20T08:23:00Z" })
+  const edited = comment({ user: BOT, body: "## Review skipped", createdAt: "2026-10-19T08:00:00Z", updatedAt: "2026-10-20T08:24:00Z" })
+  assert.equal(needsNudge([], [nudge, edited], status, "abc"), false)
 })
 
 test("needsNudge: a rate-limited reply is not a refusal (#364)", () => {

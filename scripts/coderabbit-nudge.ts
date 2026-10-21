@@ -206,12 +206,16 @@ const REFUSED = /Review skipped/i
  * @param since - time of CodeRabbit's first status on the head (≈ head push)
  */
 export function nudgeRefused(comments: Comment[], since: Date): boolean {
+  if (since.getTime() === 0) return false // no status on the head yet: any refusal was for an older head
   const nudges = comments
     .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
     .map((c) => Date.parse(c.createdAt))
   if (!nudges.length) return false
-  const lastNudge = Math.max(...nudges)
-  return comments.some((c) => c.user === BOT && Date.parse(c.createdAt) >= lastNudge && REFUSED.test(c.body))
+  const lastNudge = nudges.reduce((max, t) => Math.max(max, t))
+  // updatedAt too: CodeRabbit may answer by editing an older comment.
+  return comments.some(
+    (c) => c.user === BOT && Math.max(Date.parse(c.createdAt), Date.parse(c.updatedAt)) >= lastNudge && REFUSED.test(c.body),
+  )
 }
 
 /**
