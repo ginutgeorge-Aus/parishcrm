@@ -11,6 +11,18 @@ jest.mock("@/lib/actions/settings", () => ({
   updateLetterSettings: jest.fn(),
 }))
 
+// Render the shadcn Select as a native <select> so the idle-timeout choice can
+// be driven in jsdom (same pattern as BudgetForm.test.tsx).
+jest.mock("@/components/ui/select", () => ({
+  Select: ({ name, defaultValue, children }: any) => (
+    <select name={name} defaultValue={defaultValue} aria-label="Idle timeout">{children}</select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: any) => <>{children}</>,
+  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
+}))
+
 describe("settings forms keep typed values when the action returns an error", () => {
   it("MembershipSettingsForm keeps rejected dues and checkbox state", async () => {
     ;(updateMembershipSettings as jest.Mock).mockResolvedValue({ error: "Max 2 decimals" })
@@ -45,6 +57,16 @@ describe("settings forms keep typed values when the action returns an error", ()
     fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0])
     expect(await screen.findByText("Invalid email address")).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText("Notification email address")).toHaveValue("typed@example.com"))
+  })
+
+  it("AppSettingsForm keeps the rejected idle-timeout choice", async () => {
+    ;(upsertSetting as jest.Mock).mockResolvedValue({ error: "Save failed" })
+    render(<AppSettingsForm ownerNotificationEmail="" membershipSecretaryEmail="" idleTimeoutMinutes={30} cardFeePercent="1.7" cardFeeFixed="0.30" />)
+    fireEvent.change(screen.getByLabelText("Idle timeout"), { target: { value: "120" } })
+    const select = screen.getByLabelText("Idle timeout")
+    fireEvent.click(select.closest("form")!.querySelector("button[type=submit]")!)
+    expect(await screen.findByText("Save failed")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText("Idle timeout")).toHaveValue("120"))
   })
 
   it("MembershipSettingsForm drops typed values after a later success", async () => {

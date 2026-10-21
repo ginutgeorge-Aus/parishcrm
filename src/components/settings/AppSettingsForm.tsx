@@ -117,8 +117,9 @@ export function AppSettingsForm({
         label="Idle timeout"
         htmlFor="idle-timeout"
         description="Automatically sign out inactive users after this period."
-        control={() => (
-          <Select name="value" defaultValue={String(idleTimeoutMinutes)}>
+        control={(keep) => (
+          // Keyed: a select's default only applies on mount, so remount to show the kept choice after the form reset
+          <Select key={keep("value", String(idleTimeoutMinutes))} name="value" defaultValue={keep("value", String(idleTimeoutMinutes))}>
             <SelectTrigger id="idle-timeout" className="w-full md:w-40">
               <SelectValue />
             </SelectTrigger>
