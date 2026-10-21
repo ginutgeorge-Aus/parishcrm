@@ -142,3 +142,65 @@ it("works without a provider (hasUnsaved is false)", () => {
   render(<Probe />)
   expect(probe()).toBe(false)
 })
+
+it("beforeunload while dirty cancels and sets the legacy returnValue", () => {
+  render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+  const event = new Event("beforeunload", { cancelable: true })
+  // jsdom's Event.returnValue is the boolean legacy flag; capture the raw write instead.
+  const writes: unknown[] = []
+  Object.defineProperty(event, "returnValue", { set: (v) => writes.push(v) })
+  window.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(true)
+  expect(writes).toEqual([""])
+})
+
+describe("link-click guard", () => {
+  const confirm = jest.spyOn(window, "confirm")
+  afterEach(() => confirm.mockReset())
+
+  /**
+   * Renders a dirty provider with links outside the settings tab list (as the sidebar is),
+   * clicks the named one, and returns the click event.
+   */
+  function clickLink(name: string, init: MouseEventInit = {}, dirty = true): MouseEvent {
+    render(
+      <UnsavedChangesProvider>
+        <Guarded dirty={dirty} />
+        <a href="/elsewhere">People</a>
+        <a href="/elsewhere" target="_blank">New tab</a>
+        <a href="https://example.com/x">External</a>
+        <a href="#top">Hash</a>
+      </UnsavedChangesProvider>,
+    )
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
+    screen.getByRole("link", { name }).dispatchEvent(event)
+    return event
+  }
+
+  it("asks before a sidebar-style link leaves the page, and Cancel blocks it", () => {
+    confirm.mockReturnValue(false)
+    const event = clickLink("People")
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?")
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it("lets the click through on OK", () => {
+    confirm.mockReturnValue(true)
+    expect(clickLink("People").defaultPrevented).toBe(false)
+  })
+
+  it.each(["New tab", "External", "Hash"])("does not ask for the %s link", (name) => {
+    expect(clickLink(name).defaultPrevented).toBe(false)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it("does not ask for a modified click", () => {
+    clickLink("People", { ctrlKey: true })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it("does not ask when clean", () => {
+    clickLink("People", {}, false)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+})

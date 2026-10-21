@@ -1,5 +1,5 @@
-import { DetailPageSkeleton } from "@/components/shared/DetailPageSkeleton"
+import { SettingsCardSkeleton } from "@/components/settings/ui/SettingsCardSkeleton"
 
 export default function Loading() {
-  return <DetailPageSkeleton rows={8} />
+  return <SettingsCardSkeleton />
 }

@@ -38,11 +38,11 @@ and **Receipts** only when Receipts or DGR Receipts is on (see
 [Choosing Features](/parishcrm/docs/choosing-features/)). Opening a hidden
 tab's URL sends you back to General.
 
-Each form saves independently. If you edit a field and then switch settings
-tab (a tab link or the mobile picker), the app asks
-**"Discard unsaved changes?"** first. Reloading or closing the browser tab
-also asks before discarding. Links outside Settings (such as the sidebar) and the
-browser Back/Forward buttons do not ask yet, so save before leaving.
+Each form saves independently. If you edit a field and then leave the page by
+any link (a settings tab, the mobile picker, the sidebar or the top bar), the
+app asks **"Discard unsaved changes?"** first. Reloading or closing the browser
+tab also asks before discarding. The browser Back/Forward buttons do not ask
+yet, so save before going back.
 
 ### General: Church Information
 

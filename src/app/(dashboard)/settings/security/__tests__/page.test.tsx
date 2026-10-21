@@ -42,10 +42,9 @@ it("queries the latest 10 audit entries and 5 registrations", async () => {
   expect(mockReg).toHaveBeenCalledWith(expect.objectContaining({ take: 5, orderBy: { createdAt: "desc" } }))
 })
 
-it("renders ActivityFeed as admin with the fetched rows", async () => {
+it("renders ActivityFeed with the fetched rows", async () => {
   const html = renderToStaticMarkup(await SecuritySettingsPage())
   expect(html).toContain('data-c="ActivityFeed"')
-  expect(html).toContain("&quot;isAdmin&quot;:true")
   expect(html).toContain("USER_CREATED")
   expect(html).toContain("&quot;firstName&quot;:&quot;Jo&quot;")
 })

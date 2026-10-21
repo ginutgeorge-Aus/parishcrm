@@ -37,55 +37,49 @@ describe("ActivityFeed", () => {
   beforeEach(() => jest.useFakeTimers({ now: NOW }))
   afterEach(() => jest.useRealTimers())
 
-  it("shows System Activity section for admin", () => {
-    render(<ActivityFeed isAdmin auditEntries={auditEntries} registrations={registrations} />)
+  it("shows System Activity section with audit entries", () => {
+    render(<ActivityFeed auditEntries={auditEntries} registrations={registrations} />)
     expect(screen.getByText("System Activity")).toBeInTheDocument()
     expect(screen.getByText(/USER_CREATED/)).toBeInTheDocument()
     expect(screen.getByText(/Admin User/)).toBeInTheDocument()
   })
 
-  it("hides System Activity section for non-admin", () => {
-    render(<ActivityFeed isAdmin={false} auditEntries={auditEntries} registrations={registrations} />)
-    expect(screen.queryByText("System Activity")).not.toBeInTheDocument()
-    expect(screen.queryByText(/USER_CREATED/)).not.toBeInTheDocument()
-  })
-
-  it("shows Recent Registrations for all roles", () => {
-    render(<ActivityFeed isAdmin={false} auditEntries={[]} registrations={registrations} />)
+  it("shows Recent Registrations", () => {
+    render(<ActivityFeed auditEntries={[]} registrations={registrations} />)
     expect(screen.getByText("Recent Registrations")).toBeInTheDocument()
     expect(screen.getByText(/John Smith/)).toBeInTheDocument()
     expect(screen.getByText(/Easter Service/)).toBeInTheDocument()
   })
 
   it("shows empty state when no registrations", () => {
-    render(<ActivityFeed isAdmin={false} auditEntries={[]} registrations={[]} />)
+    render(<ActivityFeed auditEntries={[]} registrations={[]} />)
     expect(screen.getByText("No recent registrations.")).toBeInTheDocument()
   })
 
   it("shows resource ID in audit entry when present", () => {
-    render(<ActivityFeed isAdmin auditEntries={auditEntries} registrations={[]} />)
+    render(<ActivityFeed auditEntries={auditEntries} registrations={[]} />)
     expect(screen.getByText(/User #42/)).toBeInTheDocument()
   })
 
   it("omits resource ID in audit entry when null", () => {
     const entries = [{ ...auditEntries[0], resourceId: null }]
-    render(<ActivityFeed isAdmin auditEntries={entries} registrations={[]} />)
+    render(<ActivityFeed auditEntries={entries} registrations={[]} />)
     expect(screen.queryByText(/#\d/)).not.toBeInTheDocument()
   })
 
-  it("hides System Activity section when admin but no audit entries", () => {
-    render(<ActivityFeed isAdmin auditEntries={[]} registrations={registrations} />)
+  it("hides System Activity section when there are no audit entries", () => {
+    render(<ActivityFeed auditEntries={[]} registrations={registrations} />)
     expect(screen.queryByText("System Activity")).not.toBeInTheDocument()
   })
 
   it("renders relative timestamp on registration entries", () => {
-    render(<ActivityFeed isAdmin={false} auditEntries={[]} registrations={registrations} />)
+    render(<ActivityFeed auditEntries={[]} registrations={registrations} />)
     expect(screen.getByText(/\d+(m|h|d) ago/)).toBeInTheDocument()
   })
 
   it("renders System as fallback when audit entry user name is null", () => {
     const entries = [{ ...auditEntries[0], user: { name: null } }]
-    render(<ActivityFeed isAdmin auditEntries={entries} registrations={[]} />)
+    render(<ActivityFeed auditEntries={entries} registrations={[]} />)
     expect(screen.getByText("System", { exact: true })).toBeInTheDocument()
   })
 })

@@ -12,7 +12,9 @@ import {
   RECEIPT_SETTING_KEYS,
   RECEIPT_SETTING_MAX_LENGTHS,
   type ReceiptSettingKey,
+  type ReceiptSettings,
 } from "@/lib/receiptSettingsShared"
+import { getReceiptSettings } from "@/lib/receiptSettings"
 import { featureGuardAny } from "@/lib/featureFlags"
 
 const KEY_SET = new Set<string>(RECEIPT_SETTING_KEYS)
@@ -28,10 +30,15 @@ const InputSchema = z
     "A value exceeds its maximum length"
   )
 
-/** Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off. */
+/**
+ * Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off.
+ * @param input AppSetting key → value for the receipt keys being saved
+ * @returns `{ ok, settings }` with the effective settings as readers now see
+ *   them (a blank field reads back as its default), or `{ error }`
+ */
 export async function updateReceiptSettings(
   input: Record<string, string>
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true; settings: ReceiptSettings } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -55,7 +62,7 @@ export async function updateReceiptSettings(
     keys: Object.keys(parsed.data),
   })
   revalidatePath("/settings/receipts")
-  return { ok: true }
+  return { ok: true, settings: await getReceiptSettings() }
 }
 
 /** Reset receipt settings to defaults. ADMIN; blocked in demo mode and while both receipt features are off. */

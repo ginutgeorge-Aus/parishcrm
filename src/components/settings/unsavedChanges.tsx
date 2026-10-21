@@ -8,12 +8,45 @@ type Registry = Readonly<{ set: (id: string, dirty: boolean) => void; hasUnsaved
 const UnsavedContext = createContext<Registry | null>(null)
 
 /**
- * Holds which settings forms on the current page have unsaved edits, so the
- * tab list can confirm before navigating away.
+ * Whether a click on `anchor` would client-navigate away from this page: a
+ * plain primary click on a same-origin link to another path or query.
+ * Modified clicks, new-window/download links and in-page hashes keep this page.
+ * @param e the click
+ * @param anchor the clicked link
+ * @returns true when the click leaves the current page in this tab
+ */
+function leavesPage(e: MouseEvent, anchor: HTMLAnchorElement): boolean {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false
+  if ((anchor.target && anchor.target !== "_self") || anchor.hasAttribute("download")) return false
+  const url = new URL(anchor.href, window.location.href)
+  // Cross-origin links do a full page load, which `beforeunload` already guards.
+  if (url.origin !== window.location.origin) return false
+  return url.pathname !== window.location.pathname || url.search !== window.location.search
+}
+
+/**
+ * Holds which settings forms on the current page have unsaved edits. While any
+ * is dirty, a click on any link that leaves the page (tab list, sidebar, top
+ * bar, in-page links) asks before navigating. It listens in the document
+ * capture phase so a cancel stops Next's `<Link>` handler too. Browser
+ * Back/Forward is not intercepted.
  * @param props.children settings tabs + page
  */
 export function UnsavedChangesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const dirtyIds = useRef(new Set<string>())
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (dirtyIds.current.size === 0 || e.defaultPrevented) return
+      const anchor = (e.target as Element | null)?.closest?.("a[href]")
+      if (!(anchor instanceof HTMLAnchorElement) || !leavesPage(e, anchor)) return
+      if (!window.confirm(DISCARD_PROMPT)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [])
   const value = useMemo<Registry>(
     () => ({
       set: (id, dirty) => {
@@ -50,7 +83,11 @@ export function useUnsavedGuard(dirty: boolean): void {
   }, [ctx, id, dirty])
   useEffect(() => {
     if (!dirty) return
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault()
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Legacy browsers (Chrome < 119, older Safari) only prompt when returnValue is set.
+      e.returnValue = ""
+    }
     window.addEventListener("beforeunload", onBeforeUnload)
     return () => window.removeEventListener("beforeunload", onBeforeUnload)
   }, [dirty])

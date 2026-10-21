@@ -18,7 +18,6 @@ type RecentRegistration = {
 }
 
 type ActivityFeedProps = {
-  isAdmin: boolean
   auditEntries: AuditEntry[]
   registrations: RecentRegistration[]
 }
@@ -34,11 +33,11 @@ function timeAgo(date: Date): string {
   return `${Math.floor(diffHours / 24)}d ago`
 }
 
-/** Recent audit entries (admins only) and registrations, as plain lists for the Security card. */
-export function ActivityFeed({ isAdmin, auditEntries, registrations }: Readonly<ActivityFeedProps>) {
+/** Recent audit entries and registrations, as plain lists for the admin-only Security card. */
+export function ActivityFeed({ auditEntries, registrations }: Readonly<ActivityFeedProps>) {
   return (
     <div className="space-y-4">
-      {isAdmin && auditEntries.length > 0 && (
+      {auditEntries.length > 0 && (
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
             System Activity

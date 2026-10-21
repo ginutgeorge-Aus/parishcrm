@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
-import { useFormDirty } from "./unsavedChanges"
+import { useUnsavedGuard } from "./unsavedChanges"
 import { SettingsRow } from "./ui/SettingsRow"
 
 /**
@@ -43,17 +43,20 @@ export function EmailTemplateForm({
     },
     undefined
   )
-  const { ref, rebaseline } = useFormDirty(state)
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
+  // Last persisted values: dirty = fields differ from them.
+  const [saved, setSaved] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
   const previewGeneration = useRef(0)
   const [pending, start] = useTransition()
-  // Bumped by a successful Reset; the effect re-baselines dirty tracking once
-  // the default values are committed (setting them in code fires no input event).
-  const [resetGen, setResetGen] = useState(0)
-  useEffect(() => {
-    if (resetGen) rebaseline()
-  }, [resetGen, rebaseline])
+  // A successful Save persisted the fields that were submitted; adopt them as saved.
+  const [seenState, setSeenState] = useState(state)
+  const [submitted, setSubmitted] = useState<EmailTemplateFields>(initial)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state && "success" in state) setSaved(submitted)
+  }
+  useUnsavedGuard(JSON.stringify(fields) !== JSON.stringify(saved))
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
   // show defaults while a slower Save later clobbers them in the DB.
@@ -101,8 +104,8 @@ export function EmailTemplateForm({
         // Reset persisted the defaults server-side; sync the controlled fields and
         // drop the stale preview so a later Save can't overwrite defaults.
         setFields(DEFAULT_EMAIL_TEMPLATES[templateKey])
+        setSaved(DEFAULT_EMAIL_TEMPLATES[templateKey])
         setPreview("")
-        setResetGen((g) => g + 1)
       }
       setMsg(r && "success" in r ? r.success : r?.error ?? "")
     })
@@ -118,8 +121,8 @@ export function EmailTemplateForm({
   const id = (f: string) => `${templateKey}-${f}`
   return (
     <div>
-      <form ref={ref} action={action} className="divide-y divide-border">
-        <input type="hidden" name="key" value={templateKey} hidden />
+      <form action={action} onSubmit={() => setSubmitted(fields)} className="divide-y divide-border">
+        <input type="hidden" name="key" value={templateKey} />
         <div className="flex flex-wrap gap-1 py-4 text-xs">
           <span className="text-muted-foreground">Variables:</span>
           {EMAIL_TEMPLATE_VARS[templateKey].map((v) => (
@@ -163,7 +166,7 @@ export function EmailTemplateForm({
             />
           </div>
         ) : (
-          <input type="hidden" name="body" value={fields.body} hidden />
+          <input type="hidden" name="body" value={fields.body} />
         )}
         <div className="space-y-2 py-5">
           <Label htmlFor={id("signoff")}>Sign-off / footer</Label>

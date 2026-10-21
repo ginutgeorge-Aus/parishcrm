@@ -21,7 +21,7 @@ export default async function SecuritySettingsPage() {
   return (
     <SettingsCard title="Security" description="Recent changes and registrations across the app.">
       <div className="py-5">
-        <ActivityFeed isAdmin auditEntries={auditEntries} registrations={registrations} />
+        <ActivityFeed auditEntries={auditEntries} registrations={registrations} />
       </div>
     </SettingsCard>
   )

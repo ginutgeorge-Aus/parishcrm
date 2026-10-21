@@ -21,7 +21,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: {} }))
 describe("ReceiptSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
+    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true, settings: DEFAULT_RECEIPT_SETTINGS })
     ;(resetReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
   })
 

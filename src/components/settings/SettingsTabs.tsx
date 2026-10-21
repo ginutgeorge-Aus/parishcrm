@@ -9,8 +9,8 @@ import { DISCARD_PROMPT, useUnsavedChanges } from "./unsavedChanges"
 
 /**
  * Settings area tab list: a sticky grouped list on md+, a full-width Select
- * below md. Both paths go through one `confirmLeave`, so unsaved edits are
- * never dropped silently.
+ * below md. Desktop links are guarded by `UnsavedChangesProvider`'s link-click
+ * listener; the Select has no link, so it confirms itself in `confirmLeave`.
  * @param props.groups visible tab groups (from `buildSettingsTabs`)
  * @returns the mobile Select and the desktop nav
  */
@@ -21,26 +21,19 @@ export function SettingsTabs({ groups }: Readonly<{ groups: readonly SettingsTab
   const active = activeSettingsHref(pathname, groups.flatMap((g) => g.tabs.map((t) => t.href)))
 
   /**
-   * Confirms leaving the current tab if a form is dirty. With an event (link
-   * click) it cancels the click on "Cancel"; without one (Select) it pushes.
+   * Mobile Select change: confirms leaving if a form is dirty, then pushes.
    * @param href target tab
-   * @param event the link click, when navigating by link
    */
-  const confirmLeave = (href: string, event?: React.MouseEvent) => {
+  const confirmLeave = (href: string) => {
     if (href === active) return
-    // Modified/non-primary clicks open a new tab; this page (and its edits) stays.
-    if (event && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return
-    if (hasUnsaved() && !window.confirm(DISCARD_PROMPT)) {
-      event?.preventDefault()
-      return
-    }
-    if (!event) router.push(href)
+    if (hasUnsaved() && !window.confirm(DISCARD_PROMPT)) return
+    router.push(href)
   }
 
   return (
     <>
       <div className="md:hidden">
-        <Select value={active ?? undefined} onValueChange={(href) => confirmLeave(href)}>
+        <Select value={active ?? undefined} onValueChange={confirmLeave}>
           <SelectTrigger aria-label="Settings section" className="w-full">
             <SelectValue placeholder="Settings section" />
           </SelectTrigger>
@@ -68,7 +61,6 @@ export function SettingsTabs({ groups }: Readonly<{ groups: readonly SettingsTab
                     <Link
                       href={t.href}
                       aria-current={isActive ? "page" : undefined}
-                      onClick={(e) => confirmLeave(t.href, e)}
                       className={cn(
                         "block rounded-md px-3 py-2 text-sm",
                         isActive ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
