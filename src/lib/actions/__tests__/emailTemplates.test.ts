@@ -191,7 +191,7 @@ describe("sendTestEmail", () => {
     mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     const res = await sendTestEmail("welcome", { subject: "s", intro: "i", body: "b", signoff: "x" })
     expect(res).toEqual({ success: "Test email sent to admin@example.com" })
-    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 1 }, select: { email: true } })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 1, archivedAt: null }, select: { email: true } })
     expect((sendEmail as jest.Mock).mock.calls[0][0]).toBe("admin@example.com")
   })
 
