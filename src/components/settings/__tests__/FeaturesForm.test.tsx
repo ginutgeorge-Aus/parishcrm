@@ -5,6 +5,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { FeaturesForm } from "@/components/settings/FeaturesForm"
 import { saveFeatures } from "@/lib/actions/features"
 import { FEATURES } from "@/lib/features"
+import { UnsavedChangesProvider, useUnsavedChanges } from "@/components/settings/unsavedChanges"
 
 jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn() }))
 
@@ -108,5 +109,19 @@ describe("FeaturesForm", () => {
     expect(screen.queryByText(/Pick what your church needs/)).not.toBeInTheDocument()
     rerender(<FeaturesForm initial={{}} welcome />)
     expect(screen.getByText(/Pick what your church needs/)).toBeInTheDocument()
+  })
+
+  it("is clean on mount, dirty after a change, clean again when reverted", () => {
+    let hasUnsaved = () => true
+    function Probe() {
+      hasUnsaved = useUnsavedChanges().hasUnsaved
+      return null
+    }
+    render(<UnsavedChangesProvider><Probe /><FeaturesForm initial={{ budget: false }} /></UnsavedChangesProvider>)
+    expect(hasUnsaved()).toBe(false)
+    fireEvent.click(screen.getByLabelText("Accounting"))
+    expect(hasUnsaved()).toBe(true)
+    fireEvent.click(screen.getByLabelText("Accounting"))
+    expect(hasUnsaved()).toBe(false)
   })
 })
