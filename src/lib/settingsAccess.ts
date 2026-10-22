@@ -26,7 +26,8 @@ export async function requireSettingsTab<T = undefined>(
 ): Promise<{ features: Set<FeatureKey>; data: T }> {
   const session = await getSettingsSession()
   if (!isAdmin(session?.user?.role)) redirect("/")
-  const pending = load?.()
+  // Deferred via a promise so a synchronous throw from `load` is also held until after the redirect check.
+  const pending = load ? Promise.resolve().then(load) : undefined
   // Redirect wins over a load error; the rejection is re-raised below if the tab is visible.
   pending?.catch(() => {})
   const features = await getEnabledFeatures()
