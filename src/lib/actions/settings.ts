@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { actorEmail } from "@/lib/actorEmail"
+import { testSendRecipient } from "@/lib/actorEmail"
 import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
@@ -331,11 +331,10 @@ export async function sendTestBirthdayEmail(draft: BirthdayTemplate): Promise<Ac
     { subject: parsed.data.birthdayEmailSubject, body: parsed.data.birthdayEmailBody },
     { firstName: "Sample Member", ...pronouns(null), churchName },
   )
-  let to: string | null
+  const recipient = await testSendRecipient(session)
+  if ("error" in recipient) return recipient
+  const { to } = recipient
   try {
-    // Inside the try: the DB lookup can fail where the old session read couldn't.
-    to = await actorEmail(session)
-    if (!to) return { error: "Your account has no email address" }
     await sendEmail(to, `[TEST] ${subject}`, html, text)
   } catch {
     return { error: "Failed to send test email — check email configuration" }
@@ -423,11 +422,10 @@ export async function sendTestAnniversaryEmail(draft: AnniversaryTemplate): Prom
     { subject: parsed.data.anniversaryEmailSubject, body: parsed.data.anniversaryEmailBody },
     { names: "Alex & Sam Sample", years: "25", churchName },
   )
-  let to: string | null
+  const recipient = await testSendRecipient(session)
+  if ("error" in recipient) return recipient
+  const { to } = recipient
   try {
-    // Inside the try: the DB lookup can fail where the old session read couldn't.
-    to = await actorEmail(session)
-    if (!to) return { error: "Your account has no email address" }
     await sendEmail(to, `[TEST] ${subject}`, html, text)
   } catch {
     return { error: "Failed to send test email — check email configuration" }

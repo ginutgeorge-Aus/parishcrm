@@ -1,5 +1,5 @@
 import { User, Users, CalendarDays, ArrowLeftRight } from "lucide-react"
-import { featureOn, navFlagsFor } from "@/components/layout/sidebar/navData"
+import { featureOn, navFlagsFor } from "@/components/layout/navGates"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 import type { FeatureKey } from "@/lib/features"
 

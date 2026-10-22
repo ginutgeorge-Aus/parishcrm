@@ -7,8 +7,7 @@ import {
   Church, Calculator, Settings,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
-import type { UserRole } from "@/lib/generated/prisma/enums"
-import { canAccessAccounting, canEdit, canManageUsers, canViewAccounting, canViewPeople, isAdmin } from "@/lib/roleGuard"
+import { featureOn, type NavFlags } from "@/components/layout/navGates"
 
 // `badgeInformational` marks a count that is shown on the link but is not an
 // action item, so it stays out of the collapsed group header's pending total.
@@ -20,48 +19,6 @@ export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // header — used for the always-visible primary sections.
 // `icon` is shown on collapsible group headers; headless groups have none.
 export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; icon?: React.ElementType }
-
-export type NavFlags = {
-  isAccounting: boolean
-  isAccountingViewer: boolean
-  isAdmin: boolean
-  isEditor: boolean
-  canUsers: boolean
-  canViewPeople: boolean
-  pendingUpdates: number
-  verifyPending: number
-  membershipPending: number
-  /** Enabled features; omitted = all on. Off features drop their links. */
-  features?: ReadonlySet<FeatureKey>
-}
-
-/** True when feature `k` is enabled; `features` omitted = all on. */
-export function featureOn(features: ReadonlySet<FeatureKey> | undefined, k: FeatureKey): boolean {
-  return !features || features.has(k)
-}
-
-/**
- * Nav flags for a role. One source for the sidebar, the top-bar bell and the
- * quick-add menu, so their role gates can't drift apart.
- */
-export function navFlagsFor(
-  role: UserRole | undefined,
-  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending">> = {},
-  features?: ReadonlySet<FeatureKey>,
-): NavFlags {
-  return {
-    isAccounting: canAccessAccounting(role),
-    isAccountingViewer: canViewAccounting(role),
-    isAdmin: isAdmin(role),
-    isEditor: canEdit(role),
-    canUsers: canManageUsers(role),
-    canViewPeople: canViewPeople(role),
-    pendingUpdates: counts.pendingUpdates ?? 0,
-    verifyPending: counts.verifyPending ?? 0,
-    membershipPending: counts.membershipPending ?? 0,
-    features,
-  }
-}
 
 /** Sidebar groups for the viewer's role, badge counts and enabled features. */
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
