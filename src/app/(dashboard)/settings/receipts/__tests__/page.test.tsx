@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -35,7 +35,8 @@ it("propagates the guard's redirect", async () => {
 
 it("renders the receipt section with the stored settings", async () => {
   allow(new Set(["receipts"]))
-  const html = renderToStaticMarkup(await ReceiptSettingsPage())
-  expect(html).toContain('data-c="ReceiptSettingsSection"')
-  expect(html).toContain("&quot;marker&quot;:&quot;r&quot;")
+  const { container } = render(await ReceiptSettingsPage())
+  const section = container.querySelector('[data-c="ReceiptSettingsSection"]')
+  expect(section).toBeInTheDocument()
+  expect(section).toHaveTextContent('"marker":"r"')
 })

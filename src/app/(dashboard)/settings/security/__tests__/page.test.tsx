@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -49,8 +49,9 @@ it("queries the latest 10 audit entries and 5 registrations", async () => {
 })
 
 it("renders ActivityFeed with the fetched rows", async () => {
-  const html = renderToStaticMarkup(await SecuritySettingsPage())
-  expect(html).toContain('data-c="ActivityFeed"')
-  expect(html).toContain("USER_CREATED")
-  expect(html).toContain("&quot;firstName&quot;:&quot;Jo&quot;")
+  const { container } = render(await SecuritySettingsPage())
+  const feed = container.querySelector('[data-c="ActivityFeed"]')
+  expect(feed).toBeInTheDocument()
+  expect(feed).toHaveTextContent("USER_CREATED")
+  expect(feed).toHaveTextContent('"firstName":"Jo"')
 })

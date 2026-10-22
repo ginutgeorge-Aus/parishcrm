@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -36,7 +36,7 @@ it("propagates the guard's redirect", async () => {
 })
 
 it("renders inside the Audit Log card", async () => {
-  const html = renderToStaticMarkup(await AuditLogPage({ searchParams: Promise.resolve({}) }))
-  expect(html).toContain('aria-label="Audit Log"')
-  expect(html).toContain("No audit log entries found.")
+  render(await AuditLogPage({ searchParams: Promise.resolve({}) }))
+  expect(screen.getByLabelText("Audit Log")).toBeInTheDocument()
+  expect(screen.getAllByText("No audit log entries found.").length).toBeGreaterThan(0)
 })

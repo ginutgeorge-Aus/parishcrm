@@ -1,10 +1,9 @@
-/** @jest-environment node */
 // src/app/(dashboard)/settings/usage/__tests__/page.test.tsx
-/** @jest-environment node */
+/** @jest-environment jsdom */
 import UsagePage from "../page"
 import { requireSettingsTab } from "@/lib/settingsAccess"
 import { getUsageSummary } from "@/lib/usage"
-import { renderToStaticMarkup } from "react-dom/server"
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/usage", () => ({ getUsageSummary: jest.fn() }))
@@ -40,9 +39,9 @@ describe("UsagePage", () => {
       weeklyTrend: [{ label: "2026-08-01", count: 5 }],
       dormant: ["Budget"],
     })
-    const html = renderToStaticMarkup(await UsagePage({ searchParams: Promise.resolve({}) }))
-    expect(html).toContain("Event")
-    expect(html).toContain("Budget")
-    expect(html).toContain("/reports")
+    const { container } = render(await UsagePage({ searchParams: Promise.resolve({}) }))
+    expect(container).toHaveTextContent("Event")
+    expect(container).toHaveTextContent("Budget")
+    expect(container).toHaveTextContent("/reports")
   })
 })

@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -41,13 +41,15 @@ it("propagates the guard's redirect before reading settings", async () => {
 it("passes the stored overrides and welcome flag to the form", async () => {
   allow(new Set())
   ;(readRawOverrides as jest.Mock).mockResolvedValue({ events: false })
-  const html = renderToStaticMarkup(await page("1"))
-  expect(html).toContain("&quot;initial&quot;:{&quot;events&quot;:false}")
-  expect(html).toContain("&quot;welcome&quot;:true")
+  const { container } = render(await page("1"))
+  const form = container.querySelector('[data-c="FeaturesForm"]')
+  expect(form).toHaveTextContent('"initial":{"events":false}')
+  expect(form).toHaveTextContent('"welcome":true')
 })
 
 it("defaults welcome to false", async () => {
   allow(new Set())
   ;(readRawOverrides as jest.Mock).mockResolvedValue({})
-  expect(renderToStaticMarkup(await page())).toContain("&quot;welcome&quot;:false")
+  const { container } = render(await page())
+  expect(container.querySelector('[data-c="FeaturesForm"]')).toHaveTextContent('"welcome":false')
 })

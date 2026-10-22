@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -40,8 +40,9 @@ it.each([
   [["events"], false, true],
 ])("renders church info and app settings; features %j gate membership/card fee", async (features, membership, cardFee) => {
   allow(new Set(features))
-  const html = renderToStaticMarkup(await GeneralSettingsPage())
-  expect(html).toContain('data-c="ChurchInfoForm"')
-  expect(html).toContain(`&quot;showMembership&quot;:${membership}`)
-  expect(html).toContain(`&quot;showCardFee&quot;:${cardFee}`)
+  const { container } = render(await GeneralSettingsPage())
+  expect(container.querySelector('[data-c="ChurchInfoForm"]')).toBeInTheDocument()
+  const settings = container.querySelector('[data-c="AppSettingsForm"]')
+  expect(settings).toHaveTextContent(`"showMembership":${membership}`)
+  expect(settings).toHaveTextContent(`"showCardFee":${cardFee}`)
 })
