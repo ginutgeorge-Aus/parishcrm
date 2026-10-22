@@ -56,7 +56,7 @@ export function Sidebar({
       ),
     [groups, pathname]
   )
-  const isItemActive = (href: string) => href !== "" && href === active
+  const isItemActive = (href: string) => href === active
 
   const groupContainsActive = (group: NavGroup) =>
     flattenNavItems(group.items).some((item) => item.show && isItemActive(item.href))

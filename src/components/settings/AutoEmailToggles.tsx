@@ -27,8 +27,8 @@ function ToggleRow({
       htmlFor={id}
       description={
         on
-          ? `${noun} emails are sent automatically each day.`
-          : `${noun} emails are not sent automatically.`
+          ? `Automatic ${noun.toLowerCase()} emails are on (sent by the daily job).`
+          : `Automatic ${noun.toLowerCase()} emails are off.`
       }
     >
       <div className="flex items-center gap-3">

@@ -21,10 +21,10 @@ describe("AutoEmailToggles", () => {
   it("states each toggle's on/off state in text, not just the switch position", () => {
     render(<AutoEmailToggles birthday={false} anniversary={true} />)
     expect(screen.getByLabelText("Send birthday blessings automatically")).toHaveAccessibleDescription(
-      "Birthday emails are not sent automatically.",
+      "Automatic birthday emails are off.",
     )
     expect(screen.getByLabelText("Send anniversary blessings automatically")).toHaveAccessibleDescription(
-      "Anniversary emails are sent automatically each day.",
+      "Automatic anniversary emails are on (sent by the daily job).",
     )
     expect(screen.getByText("Off")).toBeInTheDocument()
     expect(screen.getByText("On")).toBeInTheDocument()
