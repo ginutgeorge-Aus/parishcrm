@@ -16,7 +16,7 @@ import { APP_CURRENCY } from "@/lib/appConfig"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 
 type Props = {
   ownerNotificationEmail: string
@@ -86,6 +86,7 @@ export function AppSettingsForm({
         control={(keep) => (
           <Input
             id="owner-email"
+            aria-describedby={settingsDescId("owner-email")}
             name="value"
             type="email"
             defaultValue={keep("value", ownerNotificationEmail)}
@@ -103,6 +104,7 @@ export function AppSettingsForm({
           control={(keep) => (
             <Input
               id="membership-email"
+              aria-describedby={settingsDescId("membership-email")}
               name="value"
               type="text"
               defaultValue={keep("value", membershipSecretaryEmail)}
@@ -122,7 +124,7 @@ export function AppSettingsForm({
           // Keyed: a select's default only applies on mount, so remount to show the kept choice after the form reset
           return (
             <Select key={value} name="value" defaultValue={value}>
-              <SelectTrigger id="idle-timeout" className="w-full md:w-40">
+              <SelectTrigger id="idle-timeout" aria-describedby={settingsDescId("idle-timeout")} className="w-full md:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -144,6 +146,7 @@ export function AppSettingsForm({
             control={(keep) => (
               <Input
                 id="card-fee-percent"
+                aria-describedby={settingsDescId("card-fee-percent")}
                 name="value"
                 type="number"
                 step="0.01"
@@ -163,6 +166,7 @@ export function AppSettingsForm({
             control={(keep) => (
               <Input
                 id="card-fee-fixed"
+                aria-describedby={settingsDescId("card-fee-fixed")}
                 name="value"
                 type="number"
                 step="0.01"

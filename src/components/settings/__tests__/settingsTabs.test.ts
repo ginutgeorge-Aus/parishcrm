@@ -1,4 +1,4 @@
-import { activeSettingsHref, buildSettingsTabs, isSettingsTabVisible, type SettingsTabHref } from "../settingsTabs"
+import { buildSettingsTabs, isSettingsTabVisible, type SettingsTabHref } from "../settingsTabs"
 import type { FeatureKey } from "@/lib/features"
 
 const on = (...keys: FeatureKey[]) => new Set<FeatureKey>(keys)
@@ -38,17 +38,4 @@ describe("isSettingsTabVisible", () => {
   it("is true for a shown tab", () => {
     expect(isSettingsTabVisible("/settings/members", on("memberships"))).toBe(true)
   })
-})
-
-describe("activeSettingsHref", () => {
-  const all = ["/settings", "/settings/branding", "/settings/audit-log"]
-  it("matches exactly", () => expect(activeSettingsHref("/settings", all)).toBe("/settings"))
-  it("picks the longest separator-bounded prefix", () => {
-    expect(activeSettingsHref("/settings/branding", all)).toBe("/settings/branding")
-    expect(activeSettingsHref("/settings/audit-log/123", all)).toBe("/settings/audit-log")
-  })
-  it("does not match a non-separator prefix", () => {
-    expect(activeSettingsHref("/settings/brandingx", ["/settings/branding"])).toBeNull()
-  })
-  it("returns null outside the area", () => expect(activeSettingsHref("/users", all)).toBeNull())
 })

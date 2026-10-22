@@ -8,7 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 
 /**
  * Public membership form options card.
@@ -45,6 +45,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
         >
           <Input
             id="membershipMinDues"
+            aria-describedby={settingsDescId("membershipMinDues")}
             name="membershipMinDues"
             inputMode="decimal"
             maxLength={20}

@@ -4,7 +4,8 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { activeSettingsHref, type SettingsTabGroup } from "./settingsTabs"
+import { activeHref } from "@/components/layout/activeHref"
+import type { SettingsTabGroup } from "./settingsTabs"
 import { DISCARD_PROMPT, useUnsavedChanges } from "./unsavedChanges"
 
 /**
@@ -18,7 +19,7 @@ export function SettingsTabs({ groups }: Readonly<{ groups: readonly SettingsTab
   const pathname = usePathname()
   const router = useRouter()
   const { hasUnsaved } = useUnsavedChanges()
-  const active = activeSettingsHref(pathname, groups.flatMap((g) => g.tabs.map((t) => t.href)))
+  const active = activeHref(pathname, groups.flatMap((g) => g.tabs.map((t) => t.href)))
 
   /**
    * Mobile Select change: confirms leaving if a form is dirty, then pushes.

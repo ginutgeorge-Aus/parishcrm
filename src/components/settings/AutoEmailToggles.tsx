@@ -3,10 +3,44 @@
 import { useState, useTransition } from "react"
 import { Switch } from "@/components/ui/switch"
 import { updateAutoEmailFlags } from "@/lib/actions/settings"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 import { SettingsSubgroup } from "./ui/SettingsSubgroup"
 
 type Flags = { birthday: boolean; anniversary: boolean }
+
+/**
+ * One switch row whose current state reads as text (visible On/Off badge and a
+ * status description), not just the switch position.
+ * @param props.id switch id
+ * @param props.label row label
+ * @param props.noun "Birthday" / "Anniversary", for the status line
+ * @param props.on current state
+ * @param props.pending a save is in flight
+ * @param props.onChange called with the new state
+ */
+function ToggleRow({
+  id, label, noun, on, pending, onChange,
+}: Readonly<{ id: string; label: string; noun: string; on: boolean; pending: boolean; onChange: (v: boolean) => void }>) {
+  return (
+    <SettingsRow
+      label={label}
+      htmlFor={id}
+      description={
+        on
+          ? `Automatic ${noun.toLowerCase()} emails are on (sent by the daily job).`
+          : `Automatic ${noun.toLowerCase()} emails are off.`
+      }
+    >
+      <div className="flex items-center gap-3">
+        <Switch id={id} aria-describedby={settingsDescId(id)} checked={on} disabled={pending} onCheckedChange={onChange} />
+        {/* The switch already announces its state; this is the at-a-glance label. */}
+        <span aria-hidden="true" className={on ? "w-7 text-sm font-medium text-foreground" : "w-7 text-sm text-muted-foreground"}>
+          {on ? "On" : "Off"}
+        </span>
+      </div>
+    </SettingsRow>
+  )
+}
 
 // A Radix Switch renders a <button role="switch">, which does NOT post to
 // FormData in a plain form. Rather than shadow it with a hidden input, toggle
@@ -50,22 +84,22 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
           {message}
         </p>
       )}
-      <SettingsRow label="Send birthday blessings automatically" htmlFor="autoBirthdayEmail">
-        <Switch
-          id="autoBirthdayEmail"
-          checked={flags.birthday}
-          disabled={pending}
-          onCheckedChange={(v) => save({ ...flags, birthday: v })}
-        />
-      </SettingsRow>
-      <SettingsRow label="Send anniversary blessings automatically" htmlFor="autoAnniversaryEmail">
-        <Switch
-          id="autoAnniversaryEmail"
-          checked={flags.anniversary}
-          disabled={pending}
-          onCheckedChange={(v) => save({ ...flags, anniversary: v })}
-        />
-      </SettingsRow>
+      <ToggleRow
+        id="autoBirthdayEmail"
+        label="Send birthday blessings automatically"
+        noun="Birthday"
+        on={flags.birthday}
+        pending={pending}
+        onChange={(v) => save({ ...flags, birthday: v })}
+      />
+      <ToggleRow
+        id="autoAnniversaryEmail"
+        label="Send anniversary blessings automatically"
+        noun="Anniversary"
+        on={flags.anniversary}
+        pending={pending}
+        onChange={(v) => save({ ...flags, anniversary: v })}
+      />
     </SettingsSubgroup>
   )
 }
