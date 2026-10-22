@@ -32,9 +32,9 @@ export function SettingsRow({
           <p className="text-sm font-medium text-foreground">{label}</p>
         )}
         {description && (
-          <p id={htmlFor ? settingsDescId(htmlFor) : undefined} className="mt-1 text-sm text-muted-foreground">
+          <div id={htmlFor ? settingsDescId(htmlFor) : undefined} className="mt-1 text-sm text-muted-foreground">
             {description}
-          </p>
+          </div>
         )}
       </div>
       <div className="w-full md:w-auto md:min-w-0 md:shrink [&_input]:max-w-full [&_textarea]:max-w-full">{children}</div>

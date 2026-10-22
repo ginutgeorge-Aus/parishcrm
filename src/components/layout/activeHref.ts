@@ -10,6 +10,7 @@
 export function activeHref(pathname: string, hrefs: readonly string[]): string | null {
   let best: string | null = null
   for (const h of hrefs) {
+    if (!h) continue
     const hit = h === "/" ? pathname === "/" : pathname === h || pathname.startsWith(`${h}/`)
     if (hit && (best === null || h.length > best.length)) best = h
   }

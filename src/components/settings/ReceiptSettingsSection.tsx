@@ -132,9 +132,14 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
         f.multiline ? (
           <div key={f.settingKey} className="space-y-2 py-5">
             <Label htmlFor={f.settingKey}>{f.label}</Label>
-            {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+            {f.hint && (
+              <p id={settingsDescId(f.settingKey)} className="text-xs text-muted-foreground">
+                {f.hint}
+              </p>
+            )}
             <Textarea
               id={f.settingKey}
+              aria-describedby={f.hint ? settingsDescId(f.settingKey) : undefined}
               value={fields[f.key]}
               rows={f.rows}
               maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
