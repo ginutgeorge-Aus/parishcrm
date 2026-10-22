@@ -116,7 +116,7 @@ export function renderMaintenanceHtml(
 /**
  * Current maintenance state via the shared 5s settings snapshot (one query
  * with the feature flags). Fails open: a DB blip must never lock everyone out,
- * and a failure is not cached, so the next request retries.
+ * and the snapshot caches a failure for only 2s, so requests retry soon after.
  */
 export async function getMaintenanceState(): Promise<MaintenanceState> {
   try {
