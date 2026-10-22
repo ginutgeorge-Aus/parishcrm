@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react"
 import { LetterSettingsForm } from "@/components/settings/LetterSettingsForm"
 import type { BankAccount, LetterSettings } from "@/lib/letterSettings"
@@ -22,6 +23,6 @@ describe("LetterSettingsForm", () => {
     render(<LetterSettingsForm settings={settings} />)
     expect(screen.getByText("Parish Offertory")).toBeInTheDocument()
     expect(screen.getByText("Church Extension Fund")).toBeInTheDocument()
-    expect(screen.queryByText("Building fund account")).not.toBeInTheDocument()
+    expect(screen.getAllByLabelText("Fund label")).toHaveLength(2)
   })
 })

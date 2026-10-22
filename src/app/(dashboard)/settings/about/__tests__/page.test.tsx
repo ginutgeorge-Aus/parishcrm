@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -27,14 +27,14 @@ it("guards with its own tab href", async () => {
 it("shows version and a 7-char build sha", async () => {
   process.env.NEXT_PUBLIC_APP_VERSION = "v1.10.0"
   process.env.NEXT_PUBLIC_GIT_SHA = "abcdef1234"
-  const html = renderToStaticMarkup(await AboutSettingsPage())
-  expect(html).toContain("v1.10.0")
-  expect(html).toContain("abcdef1")
-  expect(html).not.toContain("abcdef12")
+  const { container } = render(await AboutSettingsPage())
+  expect(container).toHaveTextContent("v1.10.0")
+  expect(container).toHaveTextContent("abcdef1")
+  expect(container).not.toHaveTextContent("abcdef12")
 })
 
 it("falls back to dev and hides the Build row", async () => {
-  const html = renderToStaticMarkup(await AboutSettingsPage())
-  expect(html).toContain("dev")
-  expect(html).not.toContain("Build")
+  const { container } = render(await AboutSettingsPage())
+  expect(container).toHaveTextContent("dev")
+  expect(container).not.toHaveTextContent("Build")
 })

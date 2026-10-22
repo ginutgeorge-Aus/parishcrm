@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -11,17 +11,23 @@ import { prisma } from "@/lib/prisma"
 import AuditLogPage from "../page"
 
 const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockRequire.mockResolvedValue({ features: new Set() })
+  allow(new Set())
   ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([])
   ;(prisma.auditLog.count as jest.Mock).mockResolvedValue(0)
 })
 
 it("guards with its own tab href", async () => {
   await AuditLogPage({ searchParams: Promise.resolve({}) })
-  expect(mockRequire).toHaveBeenCalledWith("/settings/audit-log")
+  expect(mockRequire).toHaveBeenCalledWith("/settings/audit-log", expect.any(Function))
 })
 
 it("propagates the guard's redirect", async () => {
@@ -30,7 +36,7 @@ it("propagates the guard's redirect", async () => {
 })
 
 it("renders inside the Audit Log card", async () => {
-  const html = renderToStaticMarkup(await AuditLogPage({ searchParams: Promise.resolve({}) }))
-  expect(html).toContain('aria-label="Audit Log"')
-  expect(html).toContain("No audit log entries found.")
+  render(await AuditLogPage({ searchParams: Promise.resolve({}) }))
+  expect(screen.getByLabelText("Audit Log")).toBeInTheDocument()
+  expect(screen.getAllByText("No audit log entries found.").length).toBeGreaterThan(0)
 })

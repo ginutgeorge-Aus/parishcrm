@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -31,14 +31,14 @@ it("propagates the guard's redirect", async () => {
 
 it("renders only the letter form when only welcomeLetter is on", async () => {
   mockRequire.mockResolvedValue({ features: new Set(["welcomeLetter"]) })
-  const html = renderToStaticMarkup(await MembersSettingsPage())
-  expect(html).toContain('data-c="LetterSettingsForm"')
-  expect(html).not.toContain('data-c="MembershipSettingsForm"')
+  const { container } = render(await MembersSettingsPage())
+  expect(container.querySelector('[data-c="LetterSettingsForm"]')).toBeInTheDocument()
+  expect(container.querySelector('[data-c="MembershipSettingsForm"]')).not.toBeInTheDocument()
 })
 
 it("renders only the membership form when only memberships is on", async () => {
   mockRequire.mockResolvedValue({ features: new Set(["memberships"]) })
-  const html = renderToStaticMarkup(await MembersSettingsPage())
-  expect(html).toContain('data-c="MembershipSettingsForm"')
-  expect(html).not.toContain('data-c="LetterSettingsForm"')
+  const { container } = render(await MembersSettingsPage())
+  expect(container.querySelector('[data-c="MembershipSettingsForm"]')).toBeInTheDocument()
+  expect(container.querySelector('[data-c="LetterSettingsForm"]')).not.toBeInTheDocument()
 })

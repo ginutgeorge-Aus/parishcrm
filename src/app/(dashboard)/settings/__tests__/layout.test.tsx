@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render, screen } from "@testing-library/react"
 
 jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -23,10 +23,10 @@ it("redirects non-admins", async () => {
 
 it("renders the heading, the feature-filtered tabs and the page", async () => {
   mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
-  const html = renderToStaticMarkup(await SettingsLayout({ children: <p>page</p> }))
-  expect(html).toContain("<h1")
-  expect(html).toContain("Settings")
-  expect(html).toContain("/settings/members")
-  expect(html).not.toContain("/settings/receipts")
-  expect(html).toContain("<p>page</p>")
+  const { container } = render(await SettingsLayout({ children: <p>page</p> }))
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings")
+  const tabs = container.querySelector('[data-c="tabs"]')
+  expect(tabs).toHaveTextContent("/settings/members")
+  expect(tabs).not.toHaveTextContent("/settings/receipts")
+  expect(screen.getByText("page").tagName).toBe("P")
 })

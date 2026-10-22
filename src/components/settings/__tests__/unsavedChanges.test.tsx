@@ -71,14 +71,14 @@ it("useFormDirty: dirty after an edit, clean when reverted", () => {
   expect(screen.getByText("clean")).toBeInTheDocument()
 })
 
-it("useFormDirty: only a successful result re-baselines; submit and errors keep it dirty", () => {
+it("useFormDirty: only a successful result re-baselines; submit and errors keep it dirty", async () => {
   const ui = (result?: { error?: string; success?: string }) => (
     <UnsavedChangesProvider><Probe /><DirtyForm result={result} /></UnsavedChangesProvider>
   )
   const { rerender } = render(ui())
   const input = screen.getByLabelText("Name")
   fireEvent.input(input, { target: { value: "c" } })
-  act(() => { fireEvent.submit(input.closest("form")!) })
+  await act(async () => { fireEvent.submit(input.closest("form")!) })
   expect(screen.getByText("dirty")).toBeInTheDocument()
   rerender(ui({ error: "Invalid" }))
   expect(screen.getByText("dirty")).toBeInTheDocument()

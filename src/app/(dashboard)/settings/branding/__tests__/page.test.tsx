@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -28,5 +28,6 @@ it("propagates the guard's redirect", async () => {
 
 it("renders the branding form", async () => {
   mockRequire.mockResolvedValue({ features: new Set() })
-  expect(renderToStaticMarkup(await BrandingSettingsPage())).toContain('data-c="BrandingForm"')
+  const { container } = render(await BrandingSettingsPage())
+  expect(container.querySelector('[data-c="BrandingForm"]')).toBeInTheDocument()
 })

@@ -5,8 +5,9 @@ import { SettingsCard } from "@/components/settings/ui/SettingsCard"
 
 /** Settings → Security: recent audit entries and registrations. */
 export default async function SecuritySettingsPage() {
-  await requireSettingsTab("/settings/security")
-  const [auditEntries, registrations] = await Promise.all([
+  const {
+    data: [auditEntries, registrations],
+  } = await requireSettingsTab("/settings/security", () => Promise.all([
     prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -17,7 +18,7 @@ export default async function SecuritySettingsPage() {
       take: 5,
       select: { id: true, firstName: true, lastName: true, createdAt: true, event: { select: { title: true } } },
     }),
-  ])
+  ]))
   return (
     <SettingsCard title="Security" description="Recent changes and registrations across the app.">
       <div className="py-5">

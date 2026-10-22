@@ -16,11 +16,11 @@ type Props = { searchParams: Promise<{ days?: string }> }
 
 /** Settings → App Usage: audit-log-derived adoption, trend, top pages and dormant features. */
 export default async function UsagePage(props: Readonly<Props>) {
-  await requireSettingsTab("/settings/usage")
-
   const { days: daysParam } = await props.searchParams
   const days = daysParam === "90" ? 90 : 30
-  const [s, topRoutes] = await Promise.all([getUsageSummary(days), getTopRoutes(days)])
+  const {
+    data: [s, topRoutes],
+  } = await requireSettingsTab("/settings/usage", () => Promise.all([getUsageSummary(days), getTopRoutes(days)]))
   const maxTrend = Math.max(1, ...s.weeklyTrend.map((w) => w.count))
 
   return (

@@ -1,5 +1,5 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
@@ -41,19 +41,20 @@ it("propagates the guard's redirect", async () => {
 
 it("renders blessing emails when celebrations is on", async () => {
   mockRequire.mockResolvedValue({ features: new Set(["celebrations"]) })
-  const html = renderToStaticMarkup(await EmailSettingsPage())
+  const { container } = render(await EmailSettingsPage())
   for (const c of ["BirthdayEmailForm", "AnniversaryEmailForm", "AutoEmailToggles", "EmailTemplatesSection"]) {
-    expect(html).toContain(`data-c="${c}"`)
+    expect(container.querySelector(`[data-c="${c}"]`)).toBeInTheDocument()
   }
 })
 
 it("renders only the templates when celebrations is off, with the visible keys", async () => {
   const features = new Set<FeatureKey>()
   mockRequire.mockResolvedValue({ features })
-  const html = renderToStaticMarkup(await EmailSettingsPage())
+  const { container } = render(await EmailSettingsPage())
   for (const c of ["BirthdayEmailForm", "AnniversaryEmailForm", "AutoEmailToggles"]) {
-    expect(html).not.toContain(`data-c="${c}"`)
+    expect(container.querySelector(`[data-c="${c}"]`)).not.toBeInTheDocument()
   }
-  expect(html).toContain('data-c="EmailTemplatesSection"')
-  expect(html).toContain(JSON.stringify({ keys: visibleEmailTemplateKeys(features) }).slice(1, -1).replace(/"/g, "&quot;"))
+  const section = container.querySelector('[data-c="EmailTemplatesSection"]')
+  expect(section).toBeInTheDocument()
+  expect(section).toHaveTextContent(JSON.stringify({ keys: visibleEmailTemplateKeys(features) }).slice(1, -1), { normalizeWhitespace: false })
 })

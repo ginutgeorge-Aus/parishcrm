@@ -8,7 +8,9 @@ type Props = Readonly<{ searchParams: Promise<{ welcome?: string }> }>
 
 /** Settings → Features: ADMIN picks which features this church uses. */
 export default async function FeaturesPage({ searchParams }: Props) {
-  await requireSettingsTab("/settings/features")
-  const [{ welcome }, initial] = await Promise.all([searchParams, readRawOverrides()])
+  const [{ welcome }, { data: initial }] = await Promise.all([
+    searchParams,
+    requireSettingsTab("/settings/features", readRawOverrides),
+  ])
   return <FeaturesForm initial={initial} welcome={welcome === "1"} />
 }

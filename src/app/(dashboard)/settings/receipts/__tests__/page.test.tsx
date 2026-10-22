@@ -1,9 +1,15 @@
-/** @jest-environment node */
-import { renderToStaticMarkup } from "react-dom/server"
+/** @jest-environment jsdom */
+import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
 const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 
 /** Stub component that prints its name and JSON props. */
 function stub(name: string) {
@@ -17,9 +23,9 @@ jest.mock("@/components/settings/ReceiptSettingsSection", () => stub("ReceiptSet
 import ReceiptSettingsPage from "@/app/(dashboard)/settings/receipts/page"
 
 it("guards with its own tab href", async () => {
-  mockRequire.mockResolvedValue({ features: new Set() })
+  allow(new Set())
   await ReceiptSettingsPage()
-  expect(mockRequire).toHaveBeenCalledWith("/settings/receipts")
+  expect(mockRequire).toHaveBeenCalledWith("/settings/receipts", expect.any(Function))
 })
 
 it("propagates the guard's redirect", async () => {
@@ -28,8 +34,9 @@ it("propagates the guard's redirect", async () => {
 })
 
 it("renders the receipt section with the stored settings", async () => {
-  mockRequire.mockResolvedValue({ features: new Set(["receipts"]) })
-  const html = renderToStaticMarkup(await ReceiptSettingsPage())
-  expect(html).toContain('data-c="ReceiptSettingsSection"')
-  expect(html).toContain("&quot;marker&quot;:&quot;r&quot;")
+  allow(new Set(["receipts"]))
+  const { container } = render(await ReceiptSettingsPage())
+  const section = container.querySelector('[data-c="ReceiptSettingsSection"]')
+  expect(section).toBeInTheDocument()
+  expect(section).toHaveTextContent('"marker":"r"')
 })
