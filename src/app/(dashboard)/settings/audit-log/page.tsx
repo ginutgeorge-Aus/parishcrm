@@ -1,9 +1,8 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
 import { Suspense } from "react"
-import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { isAdmin } from "@/lib/roleGuard"
+import { requireSettingsTab } from "@/lib/settingsAccess"
+import { SettingsCard } from "@/components/settings/ui/SettingsCard"
 import { AuditLogFilters } from "@/components/settings/AuditLogFilters"
 import { buildCreatedAtFilter } from "@/lib/auditLogFilter"
 import { Button } from "@/components/ui/button"
@@ -24,10 +23,10 @@ type Props = {
   searchParams: Promise<{ action?: string; from?: string; to?: string; page?: string }>
 }
 
+/** Settings → Audit Log: filterable, paginated, read-only list of security-relevant actions. */
 export default async function AuditLogPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
-  const session = await auth()
-  if (!isAdmin(session?.user?.role)) redirect("/")
+  await requireSettingsTab("/settings/audit-log")
 
   const rawPage = Number.parseInt(searchParams.page ?? "1", 10)
   const page = Number.isSafeInteger(rawPage) ? Math.min(Math.max(1, rawPage), MAX_PAGE) : 1
@@ -66,108 +65,105 @@ export default async function AuditLogPage(props: Readonly<Props>) {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-semibold text-foreground">Audit Log</h2>
-      <p className="text-sm text-muted-foreground">
-        Security-relevant actions. Read-only. {total} total entries.
-      </p>
+    <SettingsCard title="Audit Log" description={`Security-relevant actions. Read-only. ${total} total entries.`}>
+      <div className="space-y-4 py-5">
+        <Suspense>
+          <AuditLogFilters />
+        </Suspense>
 
-      <Suspense>
-        <AuditLogFilters />
-      </Suspense>
-
-      <div className="hidden md:block overflow-x-auto">
-        <Table aria-label="Audit log">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>User</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Resource</TableHead>
-              <TableHead>ID</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>Details</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {logs.map((log) => (
-              <TableRow key={log.id}>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {log.createdAt.toLocaleString(APP_LOCALE)}
-                </TableCell>
-                <TableCell>{log.user?.name ?? "System"}</TableCell>
-                <TableCell className="font-mono text-xs">{log.action}</TableCell>
-                <TableCell>{log.resourceType}</TableCell>
-                <TableCell className="max-w-48 whitespace-normal break-all text-muted-foreground">{log.resourceId ?? "Not available"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{log.ip ?? "Not available"}</TableCell>
-                <TableCell className="max-w-xs text-xs text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
-                  {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
-                </TableCell>
-              </TableRow>
-            ))}
-            {logs.length === 0 && (
+        <div className="hidden md:block overflow-x-auto">
+          <Table aria-label="Audit log">
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  No audit log entries found.
-                </TableCell>
+                <TableHead>Time</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Resource</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead>IP</TableHead>
+                <TableHead>Details</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <ul className="space-y-2 md:hidden">
-        {logs.map((log) => (
-          <li key={log.id} className="min-w-0 rounded-lg border bg-card p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {log.user?.name ?? "System"} <span className="font-mono text-xs font-normal">{log.action}</span>
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {log.createdAt.toLocaleString(APP_LOCALE)}
-                </p>
-              </div>
-            </div>
-            {/* JSON/ids have no spaces — let them wrap so the card can't force horizontal page scroll. */}
-            <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-              {log.resourceType} · ID {log.resourceId ?? "Not available"} · IP {log.ip ?? "Not available"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-              {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
-            </p>
-          </li>
-        ))}
-        {logs.length === 0 && (
-          <li className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
-            No audit log entries found.
-          </li>
-        )}
-      </ul>
-
-      {totalPages > 1 && (
-        <div className="flex items-center gap-2 text-sm">
-          {page > 1 ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={pageHref(page - 1)}>Previous</Link>
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" disabled>
-              Previous
-            </Button>
-          )}
-          <span>Page {page} of {totalPages}</span>
-          {page < Math.min(totalPages, MAX_PAGE) ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={pageHref(page + 1)}>Next</Link>
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" disabled>
-              Next
-            </Button>
-          )}
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {log.createdAt.toLocaleString(APP_LOCALE)}
+                  </TableCell>
+                  <TableCell>{log.user?.name ?? "System"}</TableCell>
+                  <TableCell className="font-mono text-xs">{log.action}</TableCell>
+                  <TableCell>{log.resourceType}</TableCell>
+                  <TableCell className="max-w-48 whitespace-normal break-all text-muted-foreground">{log.resourceId ?? "Not available"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{log.ip ?? "Not available"}</TableCell>
+                  <TableCell className="max-w-xs text-xs text-muted-foreground whitespace-normal [overflow-wrap:anywhere]">
+                    {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {logs.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    No audit log entries found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
-      )}
-    </div>
+
+        <ul className="space-y-2 md:hidden">
+          {logs.map((log) => (
+            <li key={log.id} className="min-w-0 rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {log.user?.name ?? "System"} <span className="font-mono text-xs font-normal">{log.action}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {log.createdAt.toLocaleString(APP_LOCALE)}
+                  </p>
+                </div>
+              </div>
+              {/* JSON/ids have no spaces — let them wrap so the card can't force horizontal page scroll. */}
+              <p className="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {log.resourceType} · ID {log.resourceId ?? "Not available"} · IP {log.ip ?? "Not available"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {log.metadata ? JSON.stringify(log.metadata) : "Not available"}
+              </p>
+            </li>
+          ))}
+          {logs.length === 0 && (
+            <li className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
+              No audit log entries found.
+            </li>
+          )}
+        </ul>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2 text-sm">
+            {page > 1 ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={pageHref(page - 1)}>Previous</Link>
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" disabled>
+                Previous
+              </Button>
+            )}
+            <span>Page {page} of {totalPages}</span>
+            {page < Math.min(totalPages, MAX_PAGE) ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={pageHref(page + 1)}>Next</Link>
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" disabled>
+                Next
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </SettingsCard>
   )
 }

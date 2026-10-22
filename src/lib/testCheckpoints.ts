@@ -52,7 +52,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
     area: "Settings",
     title: "Customisable email templates",
     steps:
-      "Settings → Email Templates → edit the welcome template's wording → check the live preview updates → click send-test-to-me and confirm the email arrives → Reset to default and confirm it reverts.",
+      "Settings → Email → edit the welcome template's wording → check the live preview updates → click send-test-to-me and confirm the email arrives → Reset to default and confirm it reverts.",
   },
   {
     id: "v1.19.0-event-capacity-cancelled",

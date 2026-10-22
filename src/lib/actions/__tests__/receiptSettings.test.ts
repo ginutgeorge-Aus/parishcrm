@@ -8,9 +8,13 @@ jest.mock("@/lib/prisma", () => ({
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("@/lib/receiptSettings", () => ({
+  readReceiptSettings: jest.fn(async () => ({ numberPrefix: "RCPT" })),
+}))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { readReceiptSettings } from "@/lib/receiptSettings"
 import {
   updateReceiptSettings,
   resetReceiptSettings,
@@ -48,8 +52,16 @@ it("rejects an over-long legal text", async () => {
 it("upserts allowlisted keys for an admin", async () => {
   asRole("ADMIN")
   const r = await updateReceiptSettings({ receiptNumberPrefix: "RCPT", receiptDocumentTitle: "TAX RECEIPT" })
-  expect(r).toEqual({ ok: true })
+  // Returns the effective settings re-read after the write, so the form can adopt them.
+  expect(r).toEqual({ ok: true, settings: { numberPrefix: "RCPT" } })
   expect(prisma.appSetting.upsert).toHaveBeenCalledTimes(2)
+})
+
+it("omits settings (never reports defaults as saved) when the post-save read fails", async () => {
+  asRole("ADMIN")
+  ;(readReceiptSettings as jest.Mock).mockRejectedValueOnce(new Error("db down"))
+  const r = await updateReceiptSettings({ receiptNumberPrefix: "RCPT" })
+  expect(r).toEqual({ ok: true })
 })
 
 it("updates multiple settings in one transaction", async () => {

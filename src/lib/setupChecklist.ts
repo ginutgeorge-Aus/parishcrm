@@ -64,14 +64,14 @@ export async function getSetupChecklist(role: UserRole | undefined): Promise<Set
       id: "church",
       title: "Add your church details",
       description: "Your church's name, address and ABN, used on receipts, emails and letters.",
-      href: "/settings#general",
+      href: "/settings",
       done: missingChurchIdentity(church).length === 0,
     },
     {
       id: "branding",
       title: "Upload your logo",
       description: "Your logo on the login screen and sidebar; a letterhead for receipts.",
-      href: "/settings#branding",
+      href: "/settings/branding",
       done: branding !== null,
     },
     {

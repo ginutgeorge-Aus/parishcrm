@@ -12,7 +12,9 @@ import {
   RECEIPT_SETTING_KEYS,
   RECEIPT_SETTING_MAX_LENGTHS,
   type ReceiptSettingKey,
+  type ReceiptSettings,
 } from "@/lib/receiptSettingsShared"
+import { readReceiptSettings } from "@/lib/receiptSettings"
 import { featureGuardAny } from "@/lib/featureFlags"
 
 const KEY_SET = new Set<string>(RECEIPT_SETTING_KEYS)
@@ -28,10 +30,16 @@ const InputSchema = z
     "A value exceeds its maximum length"
   )
 
-/** Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off. */
+/**
+ * Save receipt settings. ADMIN; blocked in demo mode and while both receipt features are off.
+ * @param input AppSetting key → value for the receipt keys being saved
+ * @returns `{ ok, settings }` with the effective settings as readers now see
+ *   them (a blank field reads back as its default); `settings` is omitted when
+ *   that post-save read fails, so defaults are never reported as saved. `{ error }` on failure.
+ */
 export async function updateReceiptSettings(
   input: Record<string, string>
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true; settings?: ReceiptSettings } | { error: string }> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -54,8 +62,10 @@ export async function updateReceiptSettings(
   await logAudit(actorId(session), "RECEIPT_SETTINGS_UPDATED", "AppSetting", undefined, {
     keys: Object.keys(parsed.data),
   })
-  revalidatePath("/settings")
-  return { ok: true }
+  revalidatePath("/settings/receipts")
+  // The write committed; a failed re-read must not hand defaults back as "saved".
+  const settings = await readReceiptSettings().catch(() => undefined)
+  return settings ? { ok: true, settings } : { ok: true }
 }
 
 /** Reset receipt settings to defaults. ADMIN; blocked in demo mode and while both receipt features are off. */
@@ -73,6 +83,6 @@ export async function resetReceiptSettings(): Promise<{ ok: true } | { error: st
   await logAudit(actorId(session), "RECEIPT_SETTINGS_RESET", "AppSetting", undefined, {
     keys: RECEIPT_SETTING_KEYS,
   })
-  revalidatePath("/settings")
+  revalidatePath("/settings/receipts")
   return { ok: true }
 }

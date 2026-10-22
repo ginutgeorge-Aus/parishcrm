@@ -70,4 +70,4 @@ Every accounting mutation — and every read of donor-identifying data (receipt 
 | `APP_TIMEZONE` | IANA timezone used to derive "today" and the FY boundary (default `Australia/Sydney`) |
 | `APP_CURRENCY` | ISO-4217 currency code used for formatting (default `AUD`) |
 | `APP_LOCALE` | BCP-47 locale for money/date formatting (default `en-AU`) |
-| `CHURCH_NAME`, `CHURCH_ADDRESS`, `CHURCH_ABN`, `CHURCH_WEBSITE` | Fallback parish identity used on receipts/reports until an ADMIN fills in Settings → Church Information, which then takes precedence |
+| `CHURCH_NAME`, `CHURCH_ADDRESS`, `CHURCH_ABN`, `CHURCH_WEBSITE` | Fallback parish identity used on receipts/reports until an ADMIN fills in App Settings → General, which then takes precedence |

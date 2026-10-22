@@ -1,5 +1,5 @@
-import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton"
+import { SettingsCardSkeleton } from "@/components/settings/ui/SettingsCardSkeleton"
 
 export default function Loading() {
-  return <ListPageSkeleton />
+  return <SettingsCardSkeleton />
 }

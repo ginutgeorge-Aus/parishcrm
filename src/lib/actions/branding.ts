@@ -75,7 +75,7 @@ export async function uploadBranding(param: string, formData: FormData): Promise
     update: { bytes, mimeType: "image/png", width, height },
   })
   await logAudit(actorId(session), "BRANDING_UPLOAD", "BrandingAsset", undefined, { slot })
-  revalidatePath("/settings")
+  revalidatePath("/settings/branding")
   return { success: "Branding updated." }
 }
 
@@ -96,6 +96,6 @@ export async function resetBranding(param: string): Promise<ActionResultWithSucc
     if ((e as { code?: unknown })?.code !== "P2025") throw e
   }
   await logAudit(actorId(session), "BRANDING_RESET", "BrandingAsset", undefined, { slot })
-  revalidatePath("/settings")
+  revalidatePath("/settings/branding")
   return { success: "Reset to default." }
 }

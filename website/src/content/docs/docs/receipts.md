@@ -48,7 +48,7 @@ A DGR receipt's financial year is set once at creation and can't be changed afte
 
 ### Church identity and receipt wording
 
-The parish name/address/ABN/email shown on both receipt types comes from Settings → Church Information (`AppSetting`), falling back to the `CHURCH_*` environment defaults until an ADMIN fills that in. The DGR receipt's document title, total-label wording, legal/tax-deductibility paragraph, and the "covered period" sentence are all editable per install in Settings, with a receipt numbering prefix (default `DGR`) — so the exact statutory wording for a given country/region can be customised without a code change.
+The parish name/address/ABN/email shown on both receipt types comes from App Settings → General (`AppSetting`), falling back to the `CHURCH_*` environment defaults until an ADMIN fills that in. The DGR receipt's document title, total-label wording, legal/tax-deductibility paragraph, and the "covered period" sentence are all editable per install under App Settings → Receipts, with a receipt numbering prefix (default `DGR`) — so the exact statutory wording for a given country/region can be customised without a code change.
 
 ## Configuration
 

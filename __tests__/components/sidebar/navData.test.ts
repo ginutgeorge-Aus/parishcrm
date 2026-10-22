@@ -111,11 +111,14 @@ describe("feature toggles", () => {
       .filter((i) => i.show)
       .map((i) => i.href)
 
-  it("all on shows everything plus the Features link", () => {
+  it("all on shows everything; settings tabs live under App Settings, not the sidebar", () => {
     const hrefs = visible({})
     expect(hrefs).toContain("/events")
     expect(hrefs).toContain("/accounting/budget")
-    expect(hrefs).toContain("/settings/features")
+    expect(hrefs).toContain("/settings")
+    expect(hrefs).not.toContain("/settings/features")
+    expect(hrefs).not.toContain("/settings/audit-log")
+    expect(hrefs).not.toContain("/settings/usage")
   })
 
   it("hides events and budget when off", () => {

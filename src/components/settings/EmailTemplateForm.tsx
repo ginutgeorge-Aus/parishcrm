@@ -11,9 +11,19 @@ import {
 import { DEFAULT_EMAIL_TEMPLATES, EMAIL_TEMPLATE_VARS, type EmailTemplateKey, type EmailTemplateFields } from "@/lib/emailTemplates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
+import { useUnsavedGuard } from "./unsavedChanges"
+import { SettingsRow } from "./ui/SettingsRow"
 
+/**
+ * Editor for one email template (subject, intro, body, sign-off) with preview,
+ * test-send and reset. Rows sit in the parent card; the preview is below.
+ * @param props.templateKey which template
+ * @param props.initial stored (or default) fields
+ * @param props.active false while this form sits in a hidden (force-mounted) tab
+ */
 export function EmailTemplateForm({
   templateKey,
   initial,
@@ -34,9 +44,19 @@ export function EmailTemplateForm({
     undefined
   )
   const [fields, setFields] = useState<EmailTemplateFields>(initial)
+  // Last persisted values: dirty = fields differ from them.
+  const [saved, setSaved] = useState<EmailTemplateFields>(initial)
   const [preview, setPreview] = useState<string>("")
   const previewGeneration = useRef(0)
   const [pending, start] = useTransition()
+  // A successful Save persisted the fields that were submitted; adopt them as saved.
+  const [seenState, setSeenState] = useState(state)
+  const [submitted, setSubmitted] = useState<EmailTemplateFields>(initial)
+  if (state !== seenState) {
+    setSeenState(state)
+    if (state && "success" in state) setSaved(submitted)
+  }
+  useUnsavedGuard(JSON.stringify(fields) !== JSON.stringify(saved))
   // Save (useActionState) and Preview/Test/Reset (useTransition) are independent
   // pending states; treat any in-flight write as busy so Reset can't resolve and
   // show defaults while a slower Save later clobbers them in the DB.
@@ -75,6 +95,7 @@ export function EmailTemplateForm({
       if ("error" in r) setMsg(r.error)
     })
   }
+  /** Restores the stored defaults server-side and syncs the form to them. */
   function onReset() {
     previewGeneration.current += 1
     start(async () => {
@@ -83,11 +104,13 @@ export function EmailTemplateForm({
         // Reset persisted the defaults server-side; sync the controlled fields and
         // drop the stale preview so a later Save can't overwrite defaults.
         setFields(DEFAULT_EMAIL_TEMPLATES[templateKey])
+        setSaved(DEFAULT_EMAIL_TEMPLATES[templateKey])
         setPreview("")
       }
       setMsg(r && "success" in r ? r.success : r?.error ?? "")
     })
   }
+  /** Sends the current (possibly unsaved) fields to the signed-in admin. */
   function onTest() {
     start(async () => {
       const r = await sendTestEmail(templateKey, fields)
@@ -95,77 +118,80 @@ export function EmailTemplateForm({
     })
   }
 
+  const id = (f: string) => `${templateKey}-${f}`
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <form action={action} className="space-y-3">
+    <div>
+      <form action={action} onSubmit={() => setSubmitted(fields)} className="divide-y divide-border">
         <input type="hidden" name="key" value={templateKey} />
-        <div className="flex flex-wrap gap-1 text-xs">
+        <div className="flex flex-wrap gap-1 py-4 text-xs">
           <span className="text-muted-foreground">Variables:</span>
           {EMAIL_TEMPLATE_VARS[templateKey].map((v) => (
             <code key={v} className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{v}</code>
           ))}
         </div>
-        <label className="block text-sm font-medium">
-          Subject
+        <SettingsRow label="Subject" htmlFor={id("subject")}>
           <Input
+            id={id("subject")}
             name="subject"
             value={fields.subject}
             onChange={set("subject")}
             maxLength={200}
             disabled={busy}
-            className="mt-1"
+            className="md:w-80"
           />
-        </label>
-        <label className="block text-sm font-medium">
-          Intro
+        </SettingsRow>
+        <div className="space-y-2 py-5">
+          <Label htmlFor={id("intro")}>Intro</Label>
           <Textarea
+            id={id("intro")}
             name="intro"
             value={fields.intro}
             onChange={set("intro")}
             maxLength={5000}
             rows={2}
             disabled={busy}
-            className="mt-1"
           />
-        </label>
+        </div>
         {showBody ? (
-          <label className="block text-sm font-medium">
-            Body
+          <div className="space-y-2 py-5">
+            <Label htmlFor={id("body")}>Body</Label>
             <Textarea
+              id={id("body")}
               name="body"
               value={fields.body}
               onChange={set("body")}
               maxLength={5000}
               rows={4}
               disabled={busy}
-              className="mt-1"
             />
-          </label>
+          </div>
         ) : (
           <input type="hidden" name="body" value={fields.body} />
         )}
-        <label className="block text-sm font-medium">
-          Sign-off / footer
+        <div className="space-y-2 py-5">
+          <Label htmlFor={id("signoff")}>Sign-off / footer</Label>
           <Textarea
+            id={id("signoff")}
             name="signoff"
             value={fields.signoff}
             onChange={set("signoff")}
             maxLength={5000}
             rows={3}
             disabled={busy}
-            className="mt-1"
           />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={busy}>Save</Button>
-          <Button type="button" variant="outline" onClick={refreshPreview} disabled={busy}>Preview</Button>
-          <Button type="button" variant="outline" onClick={onTest} disabled={busy}>Send test to me</Button>
-          <Button type="button" variant="ghost" onClick={onReset} disabled={busy}>Reset to default</Button>
         </div>
-        <FormFeedback state={state} />
-        {msg ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{msg}</p> : null}
+        <div className="space-y-3 py-4">
+          <FormFeedback state={state} />
+          {msg ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{msg}</p> : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onReset} disabled={busy}>Reset to default</Button>
+            <Button type="button" variant="outline" onClick={onTest} disabled={busy}>Send test to me</Button>
+            <Button type="button" variant="outline" onClick={refreshPreview} disabled={busy}>Preview</Button>
+            <Button type="submit" disabled={busy}>Save</Button>
+          </div>
+        </div>
       </form>
-      <div className="rounded border bg-muted/30 p-2">
+      <div className="mt-2 rounded border bg-muted/30 p-2">
         <p className="mb-1 text-xs text-muted-foreground">Preview (sample data)</p>
         <iframe title="Email preview" srcDoc={preview} sandbox="" className="h-[480px] w-full rounded bg-card" />
       </div>
