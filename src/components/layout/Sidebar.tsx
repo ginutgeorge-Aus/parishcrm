@@ -8,6 +8,7 @@ import { X, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useShell } from "@/components/layout/ShellContext"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { activeHref } from "@/components/layout/activeHref"
 import { navFlagsFor } from "@/components/layout/navGates"
 import { buildNavGroups, flattenNavItems, type NavGroup } from "@/components/layout/sidebar/navData"
 import { SidebarGroup } from "@/components/layout/sidebar/SidebarGroup"
@@ -47,15 +48,15 @@ export function Sidebar({
   // ("/people", "/accounting", "/settings") no longer lights up alongside its
   // children on sub-pages. A path matches an item on an exact hit or a
   // separator-bounded prefix; the longest such href wins.
-  const activeHref = useMemo(() => {
-    const pathMatches = (href: string) =>
-      href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/")
-    return groups
-      .flatMap((g) => flattenNavItems(g.items).filter((i) => i.show).map((i) => i.href))
-      .filter(pathMatches)
-      .reduce((best, h) => (h.length > best.length ? h : best), "")
-  }, [groups, pathname])
-  const isItemActive = (href: string) => href !== "" && href === activeHref
+  const active = useMemo(
+    () =>
+      activeHref(
+        pathname,
+        groups.flatMap((g) => flattenNavItems(g.items).filter((i) => i.show).map((i) => i.href))
+      ),
+    [groups, pathname]
+  )
+  const isItemActive = (href: string) => href !== "" && href === active
 
   const groupContainsActive = (group: NavGroup) =>
     flattenNavItems(group.items).some((item) => item.show && isItemActive(item.href))

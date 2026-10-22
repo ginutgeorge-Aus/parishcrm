@@ -18,7 +18,12 @@ const UnsavedContext = createContext<Registry | null>(null)
 function leavesPage(e: MouseEvent, anchor: HTMLAnchorElement): boolean {
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false
   if ((anchor.target && anchor.target !== "_self") || anchor.hasAttribute("download")) return false
-  const url = new URL(anchor.href, window.location.href)
+  let url: URL
+  try {
+    url = new URL(anchor.href, window.location.href)
+  } catch {
+    return false // malformed href: let the browser handle it, never throw from the capture listener
+  }
   // Cross-origin links do a full page load, which `beforeunload` already guards.
   if (url.origin !== window.location.origin) return false
   return url.pathname !== window.location.pathname || url.search !== window.location.search

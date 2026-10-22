@@ -17,7 +17,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { useUnsavedGuard } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 
 // Maps each editable ReceiptSettings field to its AppSetting key (what the
 // server actions expect) plus display metadata.
@@ -146,6 +146,7 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
           <SettingsRow key={f.settingKey} label={f.label} htmlFor={f.settingKey} description={f.hint}>
             <Input
               id={f.settingKey}
+              aria-describedby={f.hint ? settingsDescId(f.settingKey) : undefined}
               value={fields[f.key]}
               maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
               disabled={pending}

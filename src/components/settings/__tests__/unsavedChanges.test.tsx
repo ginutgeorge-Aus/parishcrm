@@ -155,8 +155,9 @@ it("beforeunload while dirty cancels and sets the legacy returnValue", () => {
 })
 
 describe("link-click guard", () => {
-  const confirm = jest.spyOn(window, "confirm")
-  afterEach(() => confirm.mockReset())
+  let confirm: jest.SpyInstance<boolean, [message?: string]>
+  beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
+  afterEach(() => confirm.mockRestore())
 
   /**
    * Renders a dirty provider with links outside the settings tab list (as the sidebar is),
@@ -170,6 +171,7 @@ describe("link-click guard", () => {
         <a href="/elsewhere" target="_blank">New tab</a>
         <a href="https://example.com/x">External</a>
         <a href="#top">Hash</a>
+        <a href="http://[">Malformed</a>
       </UnsavedChangesProvider>,
     )
     const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init })
@@ -189,7 +191,7 @@ describe("link-click guard", () => {
     expect(clickLink("People").defaultPrevented).toBe(false)
   })
 
-  it.each(["New tab", "External", "Hash"])("does not ask for the %s link", (name) => {
+  it.each(["New tab", "External", "Hash", "Malformed"])("does not ask for the %s link", (name) => {
     expect(clickLink(name).defaultPrevented).toBe(false)
     expect(confirm).not.toHaveBeenCalled()
   })

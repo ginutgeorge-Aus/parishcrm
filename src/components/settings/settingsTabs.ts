@@ -74,19 +74,3 @@ export function buildSettingsTabs(features: ReadonlySet<FeatureKey>): SettingsTa
 export function isSettingsTabVisible(href: SettingsTabHref, features: ReadonlySet<FeatureKey>): boolean {
   return buildSettingsTabs(features).some((g) => g.tabs.some((t) => t.href === href))
 }
-
-/**
- * The tab href to highlight: the longest href that equals `pathname` or is a
- * "/"-bounded prefix of it (same rule as the sidebar), so nested pages such as
- * "/settings/audit-log/123" highlight their parent tab.
- * @param pathname current pathname
- * @param hrefs candidate tab hrefs
- */
-export function activeSettingsHref(pathname: string, hrefs: readonly string[]): string | null {
-  let best: string | null = null
-  for (const h of hrefs) {
-    const hit = pathname === h || pathname.startsWith(`${h}/`)
-    if (hit && (best === null || h.length > best.length)) best = h
-  }
-  return best
-}

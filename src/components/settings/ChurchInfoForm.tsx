@@ -7,7 +7,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 
 type Props = {
@@ -90,6 +90,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
         >
           <Input
             id="church-website"
+            aria-describedby={settingsDescId("church-website")}
             name="churchWebsite"
             type="url"
             defaultValue={keep("churchWebsite", churchWebsite)}
