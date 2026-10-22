@@ -100,7 +100,9 @@ Options for the public membership application form:
 ### Email tab: Birthday / Anniversary emails
 
 Subject and body templates for automated birthday and wedding-anniversary
-emails, plus on/off toggles for each.
+emails, plus on/off toggles for each. Each toggle shows its current state as
+text (**On** / **Off**) with a line saying whether those emails go out
+automatically each day.
 
 ### General: App Settings
 
