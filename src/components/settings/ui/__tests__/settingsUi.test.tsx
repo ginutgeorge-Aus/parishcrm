@@ -3,7 +3,7 @@
  */
 import { render, screen } from "@testing-library/react"
 import { SettingsCard } from "@/components/settings/ui/SettingsCard"
-import { SettingsRow } from "@/components/settings/ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "@/components/settings/ui/SettingsRow"
 import { SettingsSubgroup } from "@/components/settings/ui/SettingsSubgroup"
 
 it("SettingsCard renders a labelled section with title, description, body and footer", () => {
@@ -27,6 +27,15 @@ it("SettingsRow associates its label with the control", () => {
   render(<SettingsRow label="Church name" description="On receipts" htmlFor="n"><input id="n" /></SettingsRow>)
   expect(screen.getByLabelText("Church name")).toBeInTheDocument()
   expect(screen.getByText("On receipts")).toBeInTheDocument()
+})
+
+it("SettingsRow gives the description an id the control can describe itself with", () => {
+  render(
+    <SettingsRow label="Website" description="Shown on forms" htmlFor="w">
+      <input id="w" aria-describedby={settingsDescId("w")} />
+    </SettingsRow>,
+  )
+  expect(screen.getByLabelText("Website")).toHaveAccessibleDescription("Shown on forms")
 })
 
 it("SettingsSubgroup renders its heading and rows", () => {

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { useUnsavedGuard } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 import { SettingsSubgroup } from "./ui/SettingsSubgroup"
 import { saveFeatures } from "@/lib/actions/features"
 import {
@@ -59,7 +59,6 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const row = (def: FeatureDef) => {
     const blocker = blockedBy(def, effective)
     const id = `feature-${def.key}`
-    const descId = `${id}-desc`
     const warn = def.publicWarning && startOn.has(def.key) && !effective.has(def.key) && !blocker
     return (
       <SettingsRow
@@ -67,7 +66,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
         label={<span className={blocker ? "text-muted-foreground" : undefined}>{def.label}</span>}
         htmlFor={id}
         description={
-          <span id={descId} className="block">
+          <span className="block">
             <span className="block">{def.description}</span>
             {blocker && <span className="block">Needs {blocker}</span>}
             {warn && <span role="status" className="block text-warning">{def.publicWarning}</span>}
@@ -76,7 +75,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
       >
         <Switch
           id={id}
-          aria-describedby={descId}
+          aria-describedby={settingsDescId(id)}
           checked={effective.has(def.key)}
           disabled={pending || blocker !== null}
           onCheckedChange={(v) => setState((s) => ({ ...s, [def.key]: v }))}

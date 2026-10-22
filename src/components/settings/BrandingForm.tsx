@@ -4,7 +4,7 @@ import { useState, useTransition, type ChangeEvent, type FormEvent } from "react
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 import { uploadBranding, resetBranding } from "@/lib/actions/branding"
 
 // Raster only — the upload action rejects SVG (stored-XSS via same-origin serve).
@@ -84,7 +84,7 @@ export function BrandingForm() {
       {SLOTS.map((s) => {
         const m = msg[s.param]
         return (
-          <SettingsRow key={s.param} label={s.label} description={s.hint}>
+          <SettingsRow key={s.param} label={s.label} description={s.hint} htmlFor={`branding-${s.param}`}>
             <div className="flex items-start gap-4">
               {/* Plain <img>: the source is a dynamic, sometimes-SVG API route that next/image can't optimise. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -97,6 +97,8 @@ export function BrandingForm() {
                 <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => submit(s.param, e)}>
                   <input
                     type="file"
+                    id={`branding-${s.param}`}
+                    aria-describedby={s.hint ? settingsDescId(`branding-${s.param}`) : undefined}
                     name="file"
                     accept={ACCEPT}
                     required
