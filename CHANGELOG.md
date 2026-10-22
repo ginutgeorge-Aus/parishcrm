@@ -10,6 +10,53 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
 
+## [1.8.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.7.0...v1.8.0) (2026-10-22)
+
+
+### Added
+
+* **features:** gate off features by route prefix in middleware ([#348](https://github.com/ginutgeorge-Aus/parishcrm/issues/348)) ([0dbaeeb](https://github.com/ginutgeorge-Aus/parishcrm/commit/0dbaeeb2b540beb1553b428628a6998a0afc89dd))
+* **settings:** choose which features your church uses ([#338](https://github.com/ginutgeorge-Aus/parishcrm/issues/338)) ([a93b5ae](https://github.com/ginutgeorge-Aus/parishcrm/commit/a93b5aecf7cf277123d8f391e5713f3dc1786034))
+* **settings:** tabbed settings area (church + system tabs) ([#372](https://github.com/ginutgeorge-Aus/parishcrm/issues/372)) ([6974b8c](https://github.com/ginutgeorge-Aus/parishcrm/commit/6974b8cc881399b1f138802fdc110cd218573443))
+* **ui:** MoneyMatter-style app shell (light sidebar + top bar) ([#365](https://github.com/ginutgeorge-Aus/parishcrm/issues/365)) ([8e9e76e](https://github.com/ginutgeorge-Aus/parishcrm/commit/8e9e76edc2db9e6cc1b459e2a57ac3bf4d6b55cb))
+
+
+### Fixed
+
+* **ci:** cap coderabbit nudge at one per stale-paused head ([#346](https://github.com/ginutgeorge-Aus/parishcrm/issues/346)) ([64d12b8](https://github.com/ginutgeorge-Aus/parishcrm/commit/64d12b8d404bd77a203dae3b0fc3835eb0ab5af0))
+* **ci:** nudge auto-paused CodeRabbit PRs ([#325](https://github.com/ginutgeorge-Aus/parishcrm/issues/325)) ([eb6e83b](https://github.com/ginutgeorge-Aus/parishcrm/commit/eb6e83b486e1057174895bf5cc52221902044b1a))
+* **ci:** stop nudging CodeRabbit on PRs it skips ([#376](https://github.com/ginutgeorge-Aus/parishcrm/issues/376)) ([a5f2dc0](https://github.com/ginutgeorge-Aus/parishcrm/commit/a5f2dc005678917703cc7ba2c3edcfad819488d7))
+* **deps:** bump hono to 4.13.13, certifi to 2026.10.19 ([#390](https://github.com/ginutgeorge-Aus/parishcrm/issues/390)) ([6c7c195](https://github.com/ginutgeorge-Aus/parishcrm/commit/6c7c1955bd4b75d84776d489da27f0f3b661c34b))
+* **email:** distinct test-send recipient lookup error ([#391](https://github.com/ginutgeorge-Aus/parishcrm/issues/391)) ([6765202](https://github.com/ginutgeorge-Aus/parishcrm/commit/6765202bf60295e0f80ce5697d0d222881cde2c6))
+* **email:** resolve test-send recipient from DB ([#375](https://github.com/ginutgeorge-Aus/parishcrm/issues/375)) ([aae87ac](https://github.com/ginutgeorge-Aus/parishcrm/commit/aae87ac178bd7fddaa056ae5f8df49111cc817ce))
+* **encryption:** rotate 4 missed fields, model-qualified guard ([#327](https://github.com/ginutgeorge-Aus/parishcrm/issues/327)) ([06b52fd](https://github.com/ginutgeorge-Aus/parishcrm/commit/06b52fd9e22347dae41f2ec1f219d2bf650e5a9b))
+* **features:** check auth before feature guard ([#342](https://github.com/ginutgeorge-Aus/parishcrm/issues/342)) ([c489063](https://github.com/ginutgeorge-Aus/parishcrm/commit/c489063e43fa27eeff447df5f9ad051361a0e9d3))
+* petty-cash inactive-account edits + transaction audit in tx ([#363](https://github.com/ginutgeorge-Aus/parishcrm/issues/363)) ([164099f](https://github.com/ginutgeorge-Aus/parishcrm/commit/164099f822cb9105f0d25340825431c84601613b))
+* **petty-cash:** serialize account check with receipt/expense write ([#345](https://github.com/ginutgeorge-Aus/parishcrm/issues/345)) ([1ae2001](https://github.com/ginutgeorge-Aus/parishcrm/commit/1ae2001679fe14fe0d71365cbb709ae61238586f))
+* **settings:** a11y, toggle state, shared nav matcher ([#394](https://github.com/ginutgeorge-Aus/parishcrm/issues/394)) ([c8a26c5](https://github.com/ginutgeorge-Aus/parishcrm/commit/c8a26c580741a457be12b7a43987b3f7a5fa3358))
+* **transactions:** serialize account check with transaction write ([#328](https://github.com/ginutgeorge-Aus/parishcrm/issues/328)) ([1305f1f](https://github.com/ginutgeorge-Aus/parishcrm/commit/1305f1ffd5912162df03552bdc70dde317db315c))
+* **ui:** keep release-check count out of Settings sidebar total ([#326](https://github.com/ginutgeorge-Aus/parishcrm/issues/326)) ([01bf07b](https://github.com/ginutgeorge-Aus/parishcrm/commit/01bf07b8f45560b3689f25fc5966ac5b96ed07bb))
+* **ui:** wrap P&L header so year selector fits at 375px ([#343](https://github.com/ginutgeorge-Aus/parishcrm/issues/343)) ([50061ba](https://github.com/ginutgeorge-Aus/parishcrm/commit/50061ba6b0f6f2b9c51681c8b3faac103b0acc6d)), closes [#333](https://github.com/ginutgeorge-Aus/parishcrm/issues/333)
+
+
+### Changed
+
+* **ci:** compute latest paused note once in needsNudge ([#381](https://github.com/ginutgeorge-Aus/parishcrm/issues/381)) ([99d1506](https://github.com/ginutgeorge-Aus/parishcrm/commit/99d15060c988760cfd7c384f9a3a727bcb34d52a))
+* **settings:** parallel tab data reads; RTL page tests ([#395](https://github.com/ginutgeorge-Aus/parishcrm/issues/395)) ([1609d23](https://github.com/ginutgeorge-Aus/parishcrm/commit/1609d23239f316520bf6a0d12754132f3ad2ebf1))
+* **shell:** move nav gate helpers to navGates module ([#392](https://github.com/ginutgeorge-Aus/parishcrm/issues/392)) ([9cf7a2a](https://github.com/ginutgeorge-Aus/parishcrm/commit/9cf7a2a8df9b3256c5bc9472e6483a58fca697a7)), closes [#383](https://github.com/ginutgeorge-Aus/parishcrm/issues/383)
+* **shell:** share nav gates with top bar; fix tooltip reopen ([#382](https://github.com/ginutgeorge-Aus/parishcrm/issues/382)) ([a255494](https://github.com/ginutgeorge-Aus/parishcrm/commit/a2554940d33c1a33fa32a88ebe9f940e342888b0))
+
+
+### Dependencies
+
+* bump @simplewebauthn/browser and server to 14 ([#354](https://github.com/ginutgeorge-Aus/parishcrm/issues/354)) ([f520bdc](https://github.com/ginutgeorge-Aus/parishcrm/commit/f520bdcaf9b8d9559f66b557118a20cbb9b37775))
+* Bump dotenv from 18.0.6 to 18.0.7 ([#356](https://github.com/ginutgeorge-Aus/parishcrm/issues/356)) ([3e2aaaa](https://github.com/ginutgeorge-Aus/parishcrm/commit/3e2aaaadddf6530ea19bfbf9d4894859ee6957d4))
+* Bump lucide-react from 1.52.0 to 1.55.0 ([#357](https://github.com/ginutgeorge-Aus/parishcrm/issues/357)) ([a12f80a](https://github.com/ginutgeorge-Aus/parishcrm/commit/a12f80add47a62a861244b8a0533da88b09d77d9))
+* Bump nodemailer from 10.0.12 to 10.1.0 ([#352](https://github.com/ginutgeorge-Aus/parishcrm/issues/352)) ([35bb299](https://github.com/ginutgeorge-Aus/parishcrm/commit/35bb2990813f9912529d77c75b590ad478789f67))
+* Bump postcss from 8.5.28 to 8.5.29 ([#353](https://github.com/ginutgeorge-Aus/parishcrm/issues/353)) ([5d1fcd9](https://github.com/ginutgeorge-Aus/parishcrm/commit/5d1fcd9d62f1dce9b60d241d0ebf03ddfb3ecc10))
+* Bump the website group in /website with 5 updates ([#355](https://github.com/ginutgeorge-Aus/parishcrm/issues/355)) ([4e00a77](https://github.com/ginutgeorge-Aus/parishcrm/commit/4e00a7781e7722ef5815a42543eefe52e62eb165))
+* bump vite from 8.3.2 to 8.3.5 in /website ([#380](https://github.com/ginutgeorge-Aus/parishcrm/issues/380)) ([cfd6212](https://github.com/ginutgeorge-Aus/parishcrm/commit/cfd621295e84878a9912483e9ad07cca4624f524))
+
 ## [1.7.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.6.0...v1.7.0) (2026-10-17)
 
 
