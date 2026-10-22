@@ -16,19 +16,25 @@ import { prisma } from "@/lib/prisma"
 import SecuritySettingsPage from "@/app/(dashboard)/settings/security/page"
 
 const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 const mockAudit = prisma.auditLog.findMany as jest.Mock
 const mockReg = prisma.registration.findMany as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockRequire.mockResolvedValue({ features: new Set() })
+  allow(new Set())
   mockAudit.mockResolvedValue([{ id: 1, action: "USER_CREATED" }])
   mockReg.mockResolvedValue([{ id: 2, firstName: "Jo" }])
 })
 
 it("guards with its own tab href", async () => {
   await SecuritySettingsPage()
-  expect(mockRequire).toHaveBeenCalledWith("/settings/security")
+  expect(mockRequire).toHaveBeenCalledWith("/settings/security", expect.any(Function))
 })
 
 it("propagates the guard's redirect", async () => {

@@ -13,6 +13,12 @@ jest.mock("@/lib/routeViews", () => ({
 }))
 
 const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 const mockSummary = getUsageSummary as jest.Mock
 
 describe("UsagePage", () => {
@@ -21,11 +27,11 @@ describe("UsagePage", () => {
   it("guards with its own tab href and propagates the redirect", async () => {
     mockRequire.mockRejectedValue(new Error("NEXT_REDIRECT"))
     await expect(UsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT")
-    expect(mockRequire).toHaveBeenCalledWith("/settings/usage")
+    expect(mockRequire).toHaveBeenCalledWith("/settings/usage", expect.any(Function))
   })
 
   it("renders adoption + dormant for an admin", async () => {
-    mockRequire.mockResolvedValue({ features: new Set() })
+    allow(new Set())
     mockSummary.mockResolvedValue({
       days: 30,
       adoption: [{ resourceType: "Event", count: 9 }],

@@ -4,6 +4,6 @@ import { ReceiptSettingsSection } from "@/components/settings/ReceiptSettingsSec
 
 /** Settings → Receipts: tax receipt wording and DGR details. */
 export default async function ReceiptSettingsPage() {
-  await requireSettingsTab("/settings/receipts")
-  return <ReceiptSettingsSection settings={await getReceiptSettings()} />
+  const { data: settings } = await requireSettingsTab("/settings/receipts", getReceiptSettings)
+  return <ReceiptSettingsSection settings={settings} />
 }

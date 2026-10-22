@@ -26,5 +26,35 @@ it("redirects a feature-off tab to /settings", async () => {
 
 it("returns the features for a visible tab", async () => {
   mockFeatures.mockResolvedValue(new Set(["memberships"]))
-  await expect(requireSettingsTab("/settings/members")).resolves.toEqual({ features: new Set(["memberships"]) })
+  await expect(requireSettingsTab("/settings/members")).resolves.toEqual({ features: new Set(["memberships"]), data: undefined })
+})
+
+describe("load", () => {
+  it("is not started for a non-admin", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "VIEWER" } })
+    const load = jest.fn()
+    await expect(requireSettingsTab("/settings", load)).rejects.toThrow(/^NEXT_REDIRECT \/$/)
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("starts before the feature read settles and returns its result", async () => {
+    let release!: (f: Set<string>) => void
+    mockFeatures.mockReturnValue(new Promise((r) => { release = r }))
+    const load = jest.fn().mockResolvedValue("rows")
+    const result = requireSettingsTab("/settings", load)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(load).toHaveBeenCalled()
+    release(new Set())
+    await expect(result).resolves.toEqual({ features: new Set(), data: "rows" })
+  })
+
+  it("redirects a hidden tab even when the load fails", async () => {
+    const load = jest.fn().mockRejectedValue(new Error("db down"))
+    await expect(requireSettingsTab("/settings/members", load)).rejects.toThrow(/^NEXT_REDIRECT \/settings$/)
+  })
+
+  it("re-raises a load failure on a visible tab", async () => {
+    await expect(requireSettingsTab("/settings", () => Promise.reject(new Error("db down")))).rejects.toThrow("db down")
+  })
 })

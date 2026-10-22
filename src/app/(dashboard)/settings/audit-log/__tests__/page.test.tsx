@@ -11,17 +11,23 @@ import { prisma } from "@/lib/prisma"
 import AuditLogPage from "../page"
 
 const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockRequire.mockResolvedValue({ features: new Set() })
+  allow(new Set())
   ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([])
   ;(prisma.auditLog.count as jest.Mock).mockResolvedValue(0)
 })
 
 it("guards with its own tab href", async () => {
   await AuditLogPage({ searchParams: Promise.resolve({}) })
-  expect(mockRequire).toHaveBeenCalledWith("/settings/audit-log")
+  expect(mockRequire).toHaveBeenCalledWith("/settings/audit-log", expect.any(Function))
 })
 
 it("propagates the guard's redirect", async () => {

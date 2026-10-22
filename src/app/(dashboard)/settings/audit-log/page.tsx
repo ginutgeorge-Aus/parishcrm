@@ -26,7 +26,6 @@ type Props = {
 /** Settings → Audit Log: filterable, paginated, read-only list of security-relevant actions. */
 export default async function AuditLogPage(props: Readonly<Props>) {
   const searchParams = await props.searchParams
-  await requireSettingsTab("/settings/audit-log")
 
   const rawPage = Number.parseInt(searchParams.page ?? "1", 10)
   const page = Number.isSafeInteger(rawPage) ? Math.min(Math.max(1, rawPage), MAX_PAGE) : 1
@@ -40,16 +39,20 @@ export default async function AuditLogPage(props: Readonly<Props>) {
     ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
   }
 
-  const [logs, total] = await Promise.all([
-    prisma.auditLog.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: { user: { select: { name: true } } },
-    }),
-    prisma.auditLog.count({ where }),
-  ])
+  const {
+    data: [logs, total],
+  } = await requireSettingsTab("/settings/audit-log", () =>
+    Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        include: { user: { select: { name: true } } },
+      }),
+      prisma.auditLog.count({ where }),
+    ]),
+  )
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 

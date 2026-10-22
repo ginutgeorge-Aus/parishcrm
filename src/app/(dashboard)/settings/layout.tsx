@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
-import { auth } from "@/auth"
 import { isAdmin } from "@/lib/roleGuard"
 import { getEnabledFeatures } from "@/lib/featureFlags"
+import { getSettingsSession } from "@/lib/settingsAccess"
 import { DemoNotice } from "@/components/DemoNotice"
 import { buildSettingsTabs } from "@/components/settings/settingsTabs"
 import { SettingsTabs } from "@/components/settings/SettingsTabs"
@@ -13,7 +13,7 @@ import { UnsavedChangesProvider } from "@/components/settings/unsavedChanges"
  * @param props.children the active settings tab page
  */
 export default async function SettingsLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const session = await auth()
+  const session = await getSettingsSession()
   if (!isAdmin(session?.user?.role)) redirect("/")
   const groups = buildSettingsTabs(await getEnabledFeatures())
   return (

@@ -6,10 +6,11 @@ import { ChurchInfoForm } from "@/components/settings/ChurchInfoForm"
 
 /** Settings → General: church identity and app-wide settings. */
 export default async function GeneralSettingsPage() {
-  const { features } = await requireSettingsTab("/settings")
-  const settings = await prisma.appSetting.findMany({
-    where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
-  })
+  const { features, data: settings } = await requireSettingsTab("/settings", () =>
+    prisma.appSetting.findMany({
+      where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
+    }),
+  )
   const get = (key: string) => settings.find((s) => s.key === key)?.value ?? ""
   // churchWebsite: a saved row (even blank) must win over the env fallback, so an
   // admin who cleared the field to hide the public links doesn't get the env URL
