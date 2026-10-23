@@ -1,7 +1,7 @@
 /** @jest-environment node */
 const mockGroupBy = jest.fn()
 const mockAuth = jest.fn()
-jest.mock("@/auth", () => ({ auth: () => mockAuth() }))
+jest.mock("@/auth", () => ({ auth: () => mockAuth(), getSession: () => mockAuth() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     checkpointResult: { groupBy: (a: unknown) => mockGroupBy(a) },

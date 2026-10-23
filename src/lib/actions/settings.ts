@@ -453,10 +453,20 @@ export async function getAutoEmailFlags(): Promise<AutoEmailFlags> {
 const AutoEmailSchema = z.object({
   autoBirthdayEmail: z.string().optional().transform((v) => v === "on" || v === "true"),
   autoAnniversaryEmail: z.string().optional().transform((v) => v === "on" || v === "true"),
+  // Optional single-key mode: only this key is written, so a stale snapshot of
+  // the other toggle (second tab / admin) can never overwrite it.
+  only: z.enum(["autoBirthdayEmail", "autoAnniversaryEmail"]).optional(),
 })
 
-/** Turn the automatic birthday/anniversary emails on or off. ADMIN; Celebrations must be on. */
-export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formData: FormData): Promise<ActionResultWithSuccess> {
+/** Result of {@link updateAutoEmailFlags}; `flags` carries the persisted values when a write failed part-way, so the UI can resync. */
+export type AutoEmailResult = ({ error: string; flags?: AutoEmailFlags } | { success: string }) | undefined
+
+/**
+ * Turn the automatic birthday/anniversary emails on or off. ADMIN; Celebrations must be on.
+ * Without `only` both keys are written (absent checkbox ⇒ off); with `only` just that key is.
+ * If a write fails, the error result includes the persisted flags (when readable) to resync from.
+ */
+export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formData: FormData): Promise<AutoEmailResult> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
@@ -467,19 +477,26 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
   const parsed = AutoEmailSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const entries = [
+  const all = [
     { key: "autoBirthdayEmail", value: parsed.data.autoBirthdayEmail ? "true" : "false" },
     { key: "autoAnniversaryEmail", value: parsed.data.autoAnniversaryEmail ? "true" : "false" },
   ]
+  const entries = parsed.data.only ? all.filter((e) => e.key === parsed.data.only) : all
   for (const { key } of entries) {
     if (!ALLOWED_KEYS.has(key)) return { error: "Invalid setting key" }
   }
 
-  await Promise.all(
-    entries.map((e) =>
-      prisma.appSetting.upsert({ where: { key: e.key }, create: { key: e.key, value: e.value }, update: { value: e.value } }),
-    ),
-  )
+  try {
+    await Promise.all(
+      entries.map((e) =>
+        prisma.appSetting.upsert({ where: { key: e.key }, create: { key: e.key, value: e.value }, update: { value: e.value } }),
+      ),
+    )
+  } catch {
+    // One upsert may have committed before another failed: report what is actually stored.
+    const flags = await readAutoEmailFlags().catch(() => undefined)
+    return { error: "Could not save the automatic email setting", flags }
+  }
 
   await logAudit(actorId(session), "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 

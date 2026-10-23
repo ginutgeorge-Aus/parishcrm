@@ -39,3 +39,35 @@ test("update writes true/false for both keys (absent checkbox ⇒ false) + audit
   )
   expect(byKey).toEqual({ autoBirthdayEmail: "true", autoAnniversaryEmail: "false" })
 })
+
+test("only=<key> writes just that key (stale other toggle can't be clobbered)", async () => {
+  ;(prisma.appSetting.upsert as jest.Mock).mockResolvedValue({})
+  const fd = new FormData()
+  fd.set("only", "autoAnniversaryEmail")
+  fd.set("autoAnniversaryEmail", "true")
+  const res = await updateAutoEmailFlags(undefined, fd)
+  expect(res).toHaveProperty("success")
+  const calls = (prisma.appSetting.upsert as jest.Mock).mock.calls
+  expect(calls).toHaveLength(1)
+  expect(calls[0][0].where.key).toBe("autoAnniversaryEmail")
+  expect(calls[0][0].update.value).toBe("true")
+})
+
+test("a failed write returns the persisted flags so the UI can resync", async () => {
+  ;(prisma.appSetting.upsert as jest.Mock).mockRejectedValue(new Error("db"))
+  ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([{ key: "autoBirthdayEmail", value: "true" }])
+  const fd = new FormData()
+  fd.set("autoBirthdayEmail", "true")
+  fd.set("autoAnniversaryEmail", "true")
+  await expect(updateAutoEmailFlags(undefined, fd)).resolves.toEqual({
+    error: "Could not save the automatic email setting",
+    flags: { birthday: true, anniversary: false },
+  })
+})
+
+test("a failed write with an unreadable store still returns the error", async () => {
+  ;(prisma.appSetting.upsert as jest.Mock).mockRejectedValue(new Error("db"))
+  ;(prisma.appSetting.findMany as jest.Mock).mockRejectedValue(new Error("db"))
+  const res = await updateAutoEmailFlags(undefined, new FormData())
+  expect(res).toMatchObject({ error: expect.any(String), flags: undefined })
+})

@@ -66,6 +66,7 @@ it("SettingsRow stacked variant is a single column at every width", () => {
   const root = container.firstElementChild as HTMLElement
   expect(root.className).toContain("flex-col")
   expect(root.className).not.toContain("md:flex-row")
+  expect(screen.getByText("hint").className).toContain("text-xs") // stacked hints keep the compact size
 })
 
 it("joinDescribedBy drops empty ids and returns undefined when none remain", () => {

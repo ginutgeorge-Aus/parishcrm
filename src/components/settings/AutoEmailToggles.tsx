@@ -4,8 +4,10 @@ import { useState, useTransition } from "react"
 import { Switch } from "@/components/ui/switch"
 import { updateAutoEmailFlags } from "@/lib/actions/settings"
 import { FormFeedback } from "@/components/ui/FormFeedback"
-import { SettingsRow } from "./ui/SettingsRow"
+import { SettingsRow, joinDescribedBy } from "./ui/SettingsRow"
 import { SettingsSubgroup } from "./ui/SettingsSubgroup"
+
+const ERROR_ID = "auto-email-error"
 
 type Flags = { birthday: boolean; anniversary: boolean }
 
@@ -20,10 +22,11 @@ type Flags = { birthday: boolean; anniversary: boolean }
  * @param props.saved last confirmed saved state
  * @param props.saving this row's save is in flight
  * @param props.disabled any save is in flight (switches lock)
+ * @param props.hasError the shared error line is showing (linked via aria-describedby)
  * @param props.onChange called with the new state
  */
 function ToggleRow({
-  id, label, noun, on, saved, saving, disabled, onChange,
+  id, label, noun, on, saved, saving, disabled, hasError, onChange,
 }: Readonly<{
   id: string
   label: string
@@ -32,6 +35,7 @@ function ToggleRow({
   saved: boolean
   saving: boolean
   disabled: boolean
+  hasError: boolean
   onChange: (v: boolean) => void
 }>) {
   let status: string
@@ -45,7 +49,7 @@ function ToggleRow({
     <SettingsRow label={label} htmlFor={id} description={status}>
       {(descId) => (
         <div className="flex items-center gap-3">
-          <Switch id={id} aria-describedby={descId} checked={on} disabled={disabled} onCheckedChange={onChange} />
+          <Switch id={id} aria-describedby={joinDescribedBy(descId, hasError && ERROR_ID)} checked={on} disabled={disabled} onCheckedChange={onChange} />
           {/* The switch already announces its state; this is the at-a-glance label. */}
           <span
             aria-hidden="true"
@@ -86,16 +90,21 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
     setSaving(key)
     setFeedback(undefined)
     startTransition(async () => {
+      // Send only the toggled key: a stale snapshot of the other switch must never overwrite it.
       const fd = new FormData()
-      if (next.birthday) fd.set("autoBirthdayEmail", "true")
-      if (next.anniversary) fd.set("autoAnniversaryEmail", "true")
+      const field = key === "birthday" ? "autoBirthdayEmail" : "autoAnniversaryEmail"
+      fd.set("only", field)
+      fd.set(field, next[key] ? "true" : "false")
       try {
         const res = await updateAutoEmailFlags(undefined, fd)
         if (res && "error" in res) {
-          setFlags(saved)
+          // Resync from the persisted values when the server could read them (a write may have committed); else revert.
+          const truth = res.flags ?? saved
+          setFlags(truth)
+          setSaved(truth)
           setFeedback({ error: res.error })
         } else {
-          setSaved(next)
+          setSaved((s) => ({ ...s, [key]: next[key] }))
           setFeedback({ success: "Saved" })
         }
       } catch {
@@ -112,7 +121,7 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
       title="Automated blessing emails"
       description="When on, a daily job emails each member their birthday or anniversary blessing automatically, consent-gated, using the templates below. Leave off to send manually from the People pages."
     >
-      <FormFeedback state={feedback} className="py-3" />
+      <FormFeedback id={ERROR_ID} state={feedback} className="py-3" />
       <ToggleRow
         id="autoBirthdayEmail"
         label="Send birthday blessings automatically"
@@ -121,6 +130,7 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
         saved={saved.birthday}
         saving={saving === "birthday"}
         disabled={pending}
+        hasError={!!feedback?.error}
         onChange={(v) => save("birthday", { ...flags, birthday: v })}
       />
       <ToggleRow
@@ -131,6 +141,7 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
         saved={saved.anniversary}
         saving={saving === "anniversary"}
         disabled={pending}
+        hasError={!!feedback?.error}
         onChange={(v) => save("anniversary", { ...flags, anniversary: v })}
       />
     </SettingsSubgroup>

@@ -60,7 +60,7 @@ export function SettingsRow({
           <p className="text-sm font-medium text-foreground">{label}</p>
         )}
         {description && (
-          <div id={descId} className="mt-1 text-sm text-muted-foreground">
+          <div id={descId} className={stacked ? "mt-1 text-xs text-muted-foreground" : "mt-1 text-sm text-muted-foreground"}>
             {description}
           </div>
         )}

@@ -63,7 +63,7 @@ function SettingRow({
         {(descId) => (
           <>
             <div className="flex gap-2">
-              {control(keep, joinDescribedBy(descId, state && "error" in state && errorId))}
+              {control(keep, joinDescribedBy(descId, state && "error" in state && state.error && errorId))}
               <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
             </div>
             <FormFeedback id={errorId} state={state} />
