@@ -3,15 +3,20 @@
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { FeaturesForm } from "@/components/settings/FeaturesForm"
-import { saveFeatures } from "@/lib/actions/features"
+import { finishFeatureOnboarding, saveFeatures } from "@/lib/actions/features"
 import { FEATURES } from "@/lib/features"
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/components/settings/unsavedChanges"
 
-jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn() }))
+jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn(), finishFeatureOnboarding: jest.fn() }))
+const push = jest.fn()
+jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
 
 const mockSave = saveFeatures as jest.Mock
 
-beforeEach(() => mockSave.mockReset())
+beforeEach(() => {
+  mockSave.mockReset()
+  push.mockReset()
+})
 
 describe("FeaturesForm", () => {
   it("renders without React key warnings (with a positive control)", () => {
@@ -102,6 +107,38 @@ describe("FeaturesForm", () => {
     const warning = screen.getByText(/registration links will stop working/)
     expect(warning).toHaveAttribute("role", "status")
     expect(screen.getByLabelText("Events")).toHaveAccessibleDescription(expect.stringContaining("registration links will stop working"))
+  })
+
+  it("outside onboarding, Save stays on the page and there is no Keep defaults", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} />)
+    expect(screen.queryByRole("button", { name: "Keep defaults" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(screen.getByText("Features saved")).toBeInTheDocument())
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it("on the welcome prompt, Save continues to the dashboard", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+  })
+
+  it("Keep defaults ends onboarding without saving and continues", async () => {
+    ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ success: "Default features kept" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+    expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it("stays on the prompt when Keep defaults fails", async () => {
+    ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ error: "Disabled in the live demo" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
+    await waitFor(() => expect(screen.getByText("Disabled in the live demo")).toBeInTheDocument())
+    expect(push).not.toHaveBeenCalled()
   })
 
   it("shows the welcome banner only when welcome", () => {

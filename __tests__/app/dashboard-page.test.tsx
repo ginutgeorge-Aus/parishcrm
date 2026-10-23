@@ -4,6 +4,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     accountOpeningBalance: { findMany: jest.fn() },
+    appSetting: { findUnique: jest.fn() },
     paymentAccount: { findMany: jest.fn() },
     person: { findMany: jest.fn(), count: jest.fn() },
     family: { count: jest.fn(), findMany: jest.fn() },
@@ -59,11 +60,48 @@ function primeMocks() {
   ;(prisma.auditLog.findMany as jest.Mock).mockResolvedValue([])
   ;(prisma.familyUpdateSubmission.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.membershipApplication.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.appSetting.findUnique as jest.Mock).mockResolvedValue(null)
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
   ;(getEnabledFeatures as jest.Mock).mockResolvedValue(resolveFeatures({}))
+})
+
+describe("DashboardPage first-run feature prompt", () => {
+  const OLD_DEMO = process.env.DEMO_MODE
+  afterEach(() => { if (OLD_DEMO === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = OLD_DEMO })
+  const pending = () => (prisma.appSetting.findUnique as jest.Mock).mockResolvedValue({ key: "features.onboarding", value: "pending" })
+
+  it("sends an ADMIN with the pending flag to Settings → Features", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks(); pending()
+    await expect(DashboardPage()).rejects.toThrow("REDIRECT")
+    expect(mockRedirect).toHaveBeenCalledWith("/settings/features?welcome=1")
+  })
+
+  it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER"])("never redirects %s", async (role) => {
+    mockAuth.mockResolvedValue({ user: { role, id: "1" } })
+    primeMocks(); pending()
+    await DashboardPage()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it("does not redirect without the flag", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    await DashboardPage()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it("never prompts in the live demo", async () => {
+    process.env.DEMO_MODE = "true"
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks(); pending()
+    await DashboardPage()
+    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(prisma.appSetting.findUnique).not.toHaveBeenCalled()
+  })
 })
 
 describe("DashboardPage feature toggles", () => {

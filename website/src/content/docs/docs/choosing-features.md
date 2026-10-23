@@ -9,6 +9,16 @@ sidebar. **App Settings → Features** (`/settings/features`, `ADMIN` role only)
 lets you tick the features your church uses and come back later to switch
 more on.
 
+## First-time setup
+
+When the first administrator is created through the `/setup` page, signing in
+takes them straight to Settings → Features with a short welcome note instead
+of the dashboard. **Save** applies their choices; **Keep defaults** leaves
+everything on. Either one ends the prompt and opens the dashboard; until then,
+opening the dashboard brings them back here. Other roles never see the prompt,
+and neither do existing installs, admins created with
+`scripts/create-admin-user.ts`, or the public demo.
+
 ## Using it
 
 Sign in as an `ADMIN` and open **App Settings** from the sidebar, then the **Features** tab. Flip the

@@ -62,3 +62,20 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
   revalidatePath("/", "layout")
   return { success: "Features saved" }
 }
+
+/**
+ * "Keep defaults" on the first-run prompt: ends onboarding without changing
+ * any feature. ADMIN only; blocked in DEMO_MODE.
+ */
+export async function finishFeatureOnboarding(): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Forbidden" }
+  const userId = actorId(session)
+  await prisma.$transaction(async (tx) => {
+    await tx.appSetting.deleteMany({ where: { key: FEATURES_ONBOARDING_KEY } })
+    await logAuditTx(tx, userId, "FINISH_FEATURE_ONBOARDING", "AppSetting", undefined, { key: FEATURES_ONBOARDING_KEY })
+  })
+  return { success: "Default features kept" }
+}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
@@ -8,7 +9,7 @@ import { useUnsavedGuard } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
 import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 import { SettingsSubgroup } from "./ui/SettingsSubgroup"
-import { saveFeatures } from "@/lib/actions/features"
+import { finishFeatureOnboarding, saveFeatures } from "@/lib/actions/features"
 import {
   FEATURES, featureDef, resolveFeatures, type FeatureDef, type FeatureKey, type FeatureOverrides,
 } from "@/lib/features"
@@ -40,20 +41,27 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const [result, setResult] = useState<{ error?: string; success?: string } | null>(null)
   const [pending, startTransition] = useTransition()
   const effective = useMemo(() => resolveFeatures(state), [state])
+  const router = useRouter()
   useUnsavedGuard(JSON.stringify(state) !== JSON.stringify(start))
 
-  /** Save the full on/off map; a transport failure shows a retry message. */
-  const save = () => {
+  /**
+   * Run a save-like action; a transport failure shows a retry message and, on the
+   * first-run prompt, a successful choice continues to the dashboard.
+   */
+  const run = (action: () => ReturnType<typeof saveFeatures>, fallback: string, failure: string) => {
     setResult(null)
     startTransition(async () => {
       try {
-        const res = await saveFeatures(state)
-        startTransition(() => setResult(res ?? { success: "Features saved" }))
+        const res = (await action()) ?? { success: fallback }
+        startTransition(() => setResult(res))
+        if (welcome && "success" in res) router.push("/")
       } catch {
-        startTransition(() => setResult({ error: "Could not save features. Please try again." }))
+        startTransition(() => setResult({ error: failure }))
       }
     })
   }
+  const save = () => run(() => saveFeatures(state), "Features saved", "Could not save features. Please try again.")
+  const keepDefaults = () => run(finishFeatureOnboarding, "Default features kept", "Could not continue. Please try again.")
 
   /** One feature's row: label, description, blocking reason / warning, switch. */
   const row = (def: FeatureDef) => {
@@ -96,9 +104,16 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
         title="Features"
         description="Choose which parts of ParishCRM your church uses. Turning a feature off hides it and blocks it. Your data is kept, and switching it back on restores everything."
         footer={
-          <Button type="button" onClick={save} disabled={pending} className="min-h-11 w-full sm:w-auto">
-            Save
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" onClick={save} disabled={pending} className="min-h-11 w-full sm:w-auto">
+              Save
+            </Button>
+            {welcome && (
+              <Button type="button" variant="outline" onClick={keepDefaults} disabled={pending} className="min-h-11 w-full sm:w-auto">
+                Keep defaults
+              </Button>
+            )}
+          </div>
         }
       >
         {topLevel.flatMap((top) => {
