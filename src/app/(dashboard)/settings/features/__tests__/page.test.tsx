@@ -19,11 +19,17 @@ function stub(name: string) {
 beforeEach(() => jest.clearAllMocks())
 
 jest.mock("@/lib/featureFlags")
+jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn() } } }))
 jest.mock("@/components/settings/FeaturesForm", () => stub("FeaturesForm"))
 import FeaturesPage from "@/app/(dashboard)/settings/features/page"
 import { readRawOverrides } from "@/lib/featureFlags"
+import { prisma } from "@/lib/prisma"
+const mockFlag = prisma.appSetting.findUnique as jest.Mock
 
-const page = (welcome?: string) => FeaturesPage({ searchParams: Promise.resolve({ welcome }) })
+const page = () => FeaturesPage()
+const OLD_DEMO = process.env.DEMO_MODE
+beforeEach(() => { mockFlag.mockResolvedValue(null); delete process.env.DEMO_MODE })
+afterAll(() => { if (OLD_DEMO === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = OLD_DEMO })
 
 it("guards with its own tab href", async () => {
   allow(new Set())
@@ -38,10 +44,11 @@ it("propagates the guard's redirect before reading settings", async () => {
   expect(readRawOverrides).not.toHaveBeenCalled()
 })
 
-it("passes the stored overrides and welcome flag to the form", async () => {
+it("passes the stored overrides and the pending flag as welcome, without ?welcome", async () => {
   allow(new Set())
+  mockFlag.mockResolvedValue({ key: "features.onboarding", value: "pending" })
   ;(readRawOverrides as jest.Mock).mockResolvedValue({ events: false })
-  const { container } = render(await page("1"))
+  const { container } = render(await page())
   const form = container.querySelector('[data-c="FeaturesForm"]')
   expect(form).toHaveTextContent('"initial":{"events":false}')
   expect(form).toHaveTextContent('"welcome":true')
@@ -51,5 +58,15 @@ it("defaults welcome to false", async () => {
   allow(new Set())
   ;(readRawOverrides as jest.Mock).mockResolvedValue({})
   const { container } = render(await page())
+  expect(container.querySelector('[data-c="FeaturesForm"]')).toHaveTextContent('"welcome":false')
+})
+
+it("does not read the flag or welcome in the live demo", async () => {
+  process.env.DEMO_MODE = "true"
+  allow(new Set())
+  ;(readRawOverrides as jest.Mock).mockResolvedValue({})
+  mockFlag.mockResolvedValue({ key: "features.onboarding", value: "pending" })
+  const { container } = render(await page())
+  expect(mockFlag).not.toHaveBeenCalled()
   expect(container.querySelector('[data-c="FeaturesForm"]')).toHaveTextContent('"welcome":false')
 })

@@ -42,7 +42,11 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const [pending, startTransition] = useTransition()
   const effective = useMemo(() => resolveFeatures(state), [state])
   const router = useRouter()
-  useUnsavedGuard(JSON.stringify(state) !== JSON.stringify(start))
+  const [leaving, setLeaving] = useState(false)
+  const dirty = JSON.stringify(state) !== JSON.stringify(start)
+  // Locked while a request runs and after a first-run success, until navigation.
+  const busy = pending || leaving
+  useUnsavedGuard(dirty)
 
   /**
    * Run a save-like action; a transport failure shows a retry message and, on the
@@ -54,13 +58,20 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
       try {
         const res = (await action()) ?? { success: fallback }
         startTransition(() => setResult(res))
-        if (welcome && "success" in res) router.push("/")
+        if (welcome && "success" in res) {
+          setLeaving(true)
+          router.push("/")
+        }
       } catch {
         startTransition(() => setResult({ error: failure }))
       }
     })
   }
+
+  /** Save the full on/off map; a transport failure shows a retry message. */
   const save = () => run(() => saveFeatures(state), "Features saved", "Could not save features. Please try again.")
+
+  /** First-run only: end onboarding leaving every feature at its default. */
   const keepDefaults = () => run(finishFeatureOnboarding, "Default features kept", "Could not continue. Please try again.")
 
   /** One feature's row: label, description, blocking reason / warning, switch. */
@@ -105,13 +116,18 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
         description="Choose which parts of ParishCRM your church uses. Turning a feature off hides it and blocks it. Your data is kept, and switching it back on restores everything."
         footer={
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={save} disabled={pending} className="min-h-11 w-full sm:w-auto">
+            <Button type="button" onClick={save} disabled={busy} className="min-h-11 w-full sm:w-auto">
               Save
             </Button>
             {welcome && (
-              <Button type="button" variant="outline" onClick={keepDefaults} disabled={pending} className="min-h-11 w-full sm:w-auto">
+              <Button type="button" variant="outline" onClick={keepDefaults} disabled={busy || dirty} aria-describedby={dirty ? "keep-defaults-hint" : undefined} className="min-h-11 w-full sm:w-auto">
                 Keep defaults
               </Button>
+            )}
+            {welcome && dirty && (
+              <p id="keep-defaults-hint" className="text-sm text-muted-foreground">
+                Save your changes, or undo them to keep the defaults
+              </p>
             )}
           </div>
         }

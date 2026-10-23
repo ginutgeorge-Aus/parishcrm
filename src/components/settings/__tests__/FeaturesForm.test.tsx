@@ -133,6 +133,28 @@ describe("FeaturesForm", () => {
     expect(mockSave).not.toHaveBeenCalled()
   })
 
+  it("disables Keep defaults while the form is dirty, with a linked hint", () => {
+    render(<FeaturesForm initial={{}} welcome />)
+    const keep = screen.getByRole("button", { name: "Keep defaults" })
+    expect(keep).toBeEnabled()
+    fireEvent.click(screen.getByLabelText("Events"))
+    expect(keep).toBeDisabled()
+    expect(keep).toHaveAccessibleDescription("Save your changes, or undo them to keep the defaults")
+    fireEvent.click(screen.getByLabelText("Events"))
+    expect(keep).toBeEnabled()
+  })
+
+  it("keeps both buttons disabled after a first-run success until navigation", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
+    expect(screen.getByRole("button", { name: "Keep defaults" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(mockSave).toHaveBeenCalledTimes(1)
+  })
+
   it("stays on the prompt when Keep defaults fails", async () => {
     ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ error: "Disabled in the live demo" })
     render(<FeaturesForm initial={{}} welcome />)

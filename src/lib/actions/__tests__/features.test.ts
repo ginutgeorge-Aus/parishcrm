@@ -34,6 +34,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   delete process.env.DEMO_MODE
   findUnique.mockResolvedValue(null)
+  deleteMany.mockResolvedValue({ count: 1 })
 })
 
 describe("finishFeatureOnboarding", () => {
@@ -59,6 +60,14 @@ describe("finishFeatureOnboarding", () => {
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "FINISH_FEATURE_ONBOARDING", "AppSetting", undefined, {
       key: "features.onboarding",
     })
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout")
+  })
+
+  it("skips the audit row when there was no flag, still succeeds", async () => {
+    mockSession("ADMIN")
+    deleteMany.mockResolvedValue({ count: 0 })
+    expect(await finishFeatureOnboarding()).toEqual({ success: "Default features kept" })
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 })
 

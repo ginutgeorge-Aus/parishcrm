@@ -87,6 +87,19 @@ describe("DashboardPage first-run feature prompt", () => {
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
+  it("reads the flag in parallel with the feature lookup", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks(); pending()
+    let release: (v: unknown) => void = () => undefined
+    ;(getEnabledFeatures as jest.Mock).mockReturnValue(new Promise((r) => { release = r }))
+    const run = DashboardPage().catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(prisma.appSetting.findUnique).toHaveBeenCalled()
+    release(resolveFeatures({}))
+    await run
+    expect(mockRedirect).toHaveBeenCalledWith("/settings/features?welcome=1")
+  })
+
   it("does not redirect without the flag", async () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks()
