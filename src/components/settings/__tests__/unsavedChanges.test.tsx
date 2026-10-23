@@ -214,13 +214,16 @@ describe("popstate guard", () => {
 
   it("Cancel on Back keeps the page: stops other popstate handlers and restores the URL", () => {
     confirm.mockReturnValue(false)
-    window.history.pushState(null, "", "/settings/general")
+    window.history.pushState({ tree: "settings" }, "", "/settings/general")
     render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
     const next = jest.fn()
     window.addEventListener("popstate", next)
-    window.history.replaceState(null, "", "/people") // the URL Back landed on
+    window.history.replaceState({ tree: "people" }, "", "/people") // the entry Back landed on
+    const push = jest.spyOn(window.history, "pushState")
     window.dispatchEvent(new PopStateEvent("popstate"))
     window.removeEventListener("popstate", next)
+    expect(push).toHaveBeenCalledWith({ tree: "settings" }, "", "http://localhost/settings/general")
+    push.mockRestore()
     expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?")
     expect(next).not.toHaveBeenCalled()
     expect(window.location.pathname).toBe("/settings/general")

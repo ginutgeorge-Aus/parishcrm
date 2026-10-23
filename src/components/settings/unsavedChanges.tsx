@@ -40,13 +40,21 @@ function leavesPage(e: MouseEvent, anchor: HTMLAnchorElement): boolean {
 export function UnsavedChangesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const dirtyIds = useRef(new Set<string>())
   const dirtyUrl = useRef("")
+  const dirtyState = useRef<unknown>(null)
   useEffect(() => {
-    /** Back/Forward while dirty: confirm, else stop Next's handler and restore the URL. */
+    /**
+     * Back/Forward while dirty: confirm, else stop Next's handler and re-push the
+     * URL with the history state captured when the form became dirty (not the
+     * destination entry's state, which holds the other page's router tree).
+     * Ordering: in the DOM spec's event dispatch, capture listeners run before
+     * non-capture ones even when the target is the window itself, so this runs
+     * before Next's popstate listener and stopImmediatePropagation blocks it.
+     */
     const onPopState = (e: PopStateEvent) => {
       if (dirtyIds.current.size === 0 || window.location.href === dirtyUrl.current) return
       if (window.confirm(DISCARD_PROMPT)) return
       e.stopImmediatePropagation()
-      window.history.pushState(window.history.state, "", dirtyUrl.current)
+      window.history.pushState(dirtyState.current, "", dirtyUrl.current)
     }
     window.addEventListener("popstate", onPopState, true)
     const onClick = (e: MouseEvent) => {
@@ -68,7 +76,10 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
     () => ({
       set: (id, dirty) => {
         if (dirty) {
-          if (dirtyIds.current.size === 0) dirtyUrl.current = window.location.href
+          if (dirtyIds.current.size === 0) {
+            dirtyUrl.current = window.location.href
+            dirtyState.current = window.history.state
+          }
           dirtyIds.current.add(id)
         } else dirtyIds.current.delete(id)
       },
