@@ -222,55 +222,97 @@ function declModel(init: ts.Expression): string | null {
   return member && MODELS.has(member.name) ? member.name : null
 }
 
-const aliasCache = new WeakMap<ts.SourceFile, Map<string, string | null>>()
-
 /**
- * Records `name -> model` in `map`; a name declared more than once with different targets becomes null,
- * so a shadowed alias stays unresolved.
- * @param map - alias map being built
- * @param name - declared variable name
- * @param model - model the initializer names, or null
+ * Whether a binding name (identifier or destructuring pattern) declares `name`.
+ * @param binding - declared name node
+ * @param name - identifier text to look for
  */
-function recordAlias(map: Map<string, string | null>, name: string, model: string | null): void {
-  map.set(name, map.has(name) && map.get(name) !== model ? null : model)
+function bindsName(binding: ts.Node | undefined, name: string): boolean {
+  if (!binding) return false
+  if (ts.isIdentifier(binding)) return binding.text === name
+  if (!ts.isObjectBindingPattern(binding) && !ts.isArrayBindingPattern(binding)) return false
+  return (binding.elements as ts.NodeArray<ts.Node>).some((el) => ts.isBindingElement(el) && bindsName(el.name, name))
 }
 
 /**
- * Per-file map of variable name to the model delegate it aliases (`const d = prisma.family`).
- * @param sf - source file
+ * Declarations made directly by a statement list: variables, functions and classes.
+ * @param statements - statements of one block
  */
-function aliasMap(sf: ts.SourceFile): Map<string, string | null> {
-  const cached = aliasCache.get(sf)
-  if (cached) return cached
-  const map = new Map<string, string | null>()
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      recordAlias(map, node.name.text, declModel(node.initializer))
-    }
-    ts.forEachChild(node, visit)
+function statementDecls(statements: readonly ts.Statement[]): ts.NamedDeclaration[] {
+  return statements.flatMap((st): ts.NamedDeclaration[] => {
+    if (ts.isVariableStatement(st)) return [...st.declarationList.declarations]
+    return ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st) ? [st] : []
+  })
+}
+
+/**
+ * Whether `node` holds a plain statement list that scopes its declarations.
+ * @param node - candidate scope
+ */
+function isStatementScope(node: ts.Node): node is ts.Block | ts.SourceFile | ts.ModuleBlock {
+  return ts.isBlock(node) || ts.isSourceFile(node) || ts.isModuleBlock(node)
+}
+
+/**
+ * Declarations a `for` head or `catch` clause introduces.
+ * @param scope - candidate scope
+ */
+function headDecls(scope: ts.Node): ts.NamedDeclaration[] {
+  if (ts.isCatchClause(scope)) return scope.variableDeclaration ? [scope.variableDeclaration] : []
+  const init = ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope) ? scope.initializer : undefined
+  return init && ts.isVariableDeclarationList(init) ? [...init.declarations] : []
+}
+
+/**
+ * Names declared directly in `scope` (parameters, block-level declarations, loop or catch bindings).
+ * @param scope - any ancestor node
+ */
+function scopeDecls(scope: ts.Node): ts.NamedDeclaration[] {
+  if (ts.isFunctionLike(scope)) return [...scope.parameters]
+  if (isStatementScope(scope)) return statementDecls(scope.statements)
+  if (ts.isCaseBlock(scope)) return statementDecls(scope.clauses.flatMap((c) => [...c.statements]))
+  return headDecls(scope)
+}
+
+/**
+ * The nearest enclosing declaration of the identifier `id`, following lexical scoping.
+ * @param id - identifier use
+ */
+function findDeclaration(id: ts.Identifier): ts.NamedDeclaration | undefined {
+  for (let cur: ts.Node | undefined = id.parent; cur; cur = cur.parent) {
+    const found = scopeDecls(cur).find((d) => bindsName(d.name, id.text))
+    if (found) return found
   }
-  visit(sf)
-  aliasCache.set(sf, map)
-  return map
+  return undefined
 }
 
 /**
- * The delegate an expression resolves to: a model name, null when it is a member access that isn't a model
- * (or an alias shadowed to different targets), or undefined when it is neither a member access nor a known alias.
+ * The model a `const` alias declaration names (`const d = prisma.family`), or null for anything else
+ * (parameters, `let`/`var`, which can be reassigned, destructuring, non-model initializers).
+ * @param decl - the identifier's nearest declaration, if any
+ */
+function aliasModel(decl: ts.NamedDeclaration | undefined): string | null {
+  if (!decl || !ts.isVariableDeclaration(decl) || !ts.isIdentifier(decl.name) || !decl.initializer) return null
+  return ts.isVariableDeclarationList(decl.parent) && decl.parent.flags & ts.NodeFlags.Const ? declModel(decl.initializer) : null
+}
+
+/**
+ * The delegate an expression resolves to: a model name, or null when it is not a model delegate. An
+ * identifier resolves only through its nearest lexical `const` alias; a parameter, shadowing name,
+ * reassignable binding or undeclared name is unresolved (null).
  * @param expr - the object of a write call, e.g. `prisma.family` or `d`
  */
-function delegateOf(expr: ts.Expression): string | null | undefined {
+function delegateOf(expr: ts.Expression): string | null {
   const e = unwrap(expr)
-  if (ts.isIdentifier(e)) return aliasMap(e.getSourceFile()).get(e.text)
+  if (ts.isIdentifier(e)) return aliasModel(findDeclaration(e))
   const member = splitMember(e)
-  if (!member) return undefined
-  return MODELS.has(member.name) ? member.name : null
+  return member && MODELS.has(member.name) ? member.name : null
 }
 
 /**
  * The Prisma model a write-shaped call (`<delegate>.<write>(`) targets: its delegate (property access,
- * element access or a simple alias) when that is a model, else null. Returns undefined when the call isn't
- * write-shaped at all.
+ * element access or a lexically-scoped `const` alias) when that is a model, else null (an unresolved delegate
+ * is a boundary, never the outer call's model). Returns undefined when the call isn't write-shaped at all.
  * @param call - candidate call expression
  */
 function writeCallModel(call: ts.CallExpression): string | null | undefined {
@@ -544,12 +586,37 @@ describe("encryption coverage", () => {
     ])
   })
 
-  it("leaves an alias name declared with different targets unresolved", () => {
+  it("resolves aliases by lexical scope, not by file-wide name", () => {
     const text = `function a() { const d = prisma.family; return d.create({ data: { n: encrypt(n) } }) }
-    function b() { const d = prisma.person; return d.create({ data: { m: encrypt(m) } }) }`
+    function b() { const d = prisma.person; return d.create({ data: { m: encrypt(m) } }) }
+    function c(d: Delegate) { return d.create({ data: { p: encrypt(p) } }) }
+    function e() { const d = prisma.family; { const d = prisma.invoice; d.update({ data: { q: encrypt(q) } }) } }`
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["n", "family"],
+      ["m", "person"],
+      ["p", null],
+      ["q", "invoice"],
+    ])
+  })
+
+  it("leaves a reassignable (let/var) or shadowed alias unresolved", () => {
+    const text = `let d = prisma.family
+    d = prisma.person
+    await d.create({ data: { n: encrypt(n) } })
+    function f(d: Delegate) { const g = prisma.family; return [1].map((g) => g.create({ data: { m: encrypt(m) } })) }`
     expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
       ["n", null],
       ["m", null],
+    ])
+  })
+
+  it("does not let an unresolved nested write-shaped call inherit the outer model", () => {
+    const text = `async function f(cache: C) {
+      await prisma.person.create({ data: { extra: cache.update({ notes: encrypt(n) }), mobile: encrypt(m) } })
+    }`
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["notes", null],
+      ["mobile", "person"],
     ])
   })
 
