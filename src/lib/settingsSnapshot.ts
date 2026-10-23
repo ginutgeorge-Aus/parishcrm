@@ -1,6 +1,6 @@
 import { FEATURES_SETTING_KEY } from "@/lib/features"
 
-/** AppSetting key of the site-wide maintenance flag (re-exported by `maintenance.ts`). */
+/** AppSetting key of the site-wide maintenance flag. */
 export const MAINTENANCE_SETTING_KEY = "maintenance"
 
 /** Stored value per setting key (null when the row is absent). */

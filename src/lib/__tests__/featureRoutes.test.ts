@@ -271,20 +271,6 @@ describe("shared settings snapshot", () => {
       now.mockRestore()
     }
   })
-
-  it("a throw while resolving a successfully read value falls back to defaults once (not fail-open forever)", async () => {
-    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
-    try {
-      // A non-string value makes the parse step throw (raw.trim) on a read that succeeded.
-      findMany.mockResolvedValue([{ key: "features", value: 5 }])
-      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
-      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
-      expect(findMany).toHaveBeenCalledTimes(1)
-      expect(err).toHaveBeenCalledTimes(1)
-    } finally {
-      err.mockRestore()
-    }
-  })
 })
 
 describe("middleware wiring", () => {

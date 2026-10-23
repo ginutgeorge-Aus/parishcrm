@@ -14,7 +14,7 @@ export async function eventsOffFallback(): Promise<React.ReactElement | null> {
   const features = await getEnabledFeatures()
   if (features.has("events")) return null
   const home = organiserHome(features)
-  if (home.href !== "/my-events") redirect(home.href)
+  if (!home.isEventsHome) redirect(home.href)
   return (
     <div className="mx-auto max-w-lg rounded-lg border border-border bg-card p-6 text-center">
       <h1 className="text-lg font-semibold text-foreground">Nothing to manage right now</h1>

@@ -106,22 +106,13 @@ let lastKnown: Set<FeatureKey> | null = null
 let resolved: { raw: string | null; on: Set<FeatureKey> } | null = null
 
 /**
- * Resolve the stored features value, memoised by the raw string. A throw while
- * parsing a successfully read value is not a DB failure: fall back to the
- * registry defaults (memoised, logged once) instead of failing open forever.
+ * Resolve the stored features value, memoised by the raw string so an
+ * unreadable value is warned about once, not on every snapshot refresh.
  * @param raw stored `features` setting value
  */
 function resolveStored(raw: string | null): Set<FeatureKey> {
-  if (resolved && resolved.raw === raw) return resolved.on
-  let on: Set<FeatureKey>
-  try {
-    on = resolveFeatures(parseStoredOverrides(raw))
-  } catch (err) {
-    console.error("[featureRoutes] stored features value unusable; using defaults", err instanceof Error ? err.name : "UnknownError")
-    on = resolveFeatures({})
-  }
-  resolved = { raw, on }
-  return on
+  if (resolved?.raw !== raw) resolved = { raw, on: resolveFeatures(parseStoredOverrides(raw)) }
+  return resolved.on
 }
 
 /**

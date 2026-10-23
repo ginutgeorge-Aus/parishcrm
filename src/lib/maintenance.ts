@@ -8,8 +8,6 @@ export type MaintenanceState = {
   message: string | null
 }
 
-export const MAINTENANCE_KEY = MAINTENANCE_SETTING_KEY
-
 const DISABLED: MaintenanceState = { enabled: false, backAt: null, message: null }
 
 export function parseMaintenanceValue(value: string | null | undefined): MaintenanceState {
@@ -113,20 +111,28 @@ export function renderMaintenanceHtml(
 </html>`
 }
 
+// Last successfully read state. A read failure serves it, so maintenance switched on
+// before a migration stays on through a DB blip instead of failing open mid-deploy.
+let lastKnown: MaintenanceState | null = null
+
 /**
  * Current maintenance state via the shared 5s settings snapshot (one query
- * with the feature flags). Fails open: a DB blip must never lock everyone out,
- * and the snapshot caches a failure for only 2s, so requests retry soon after.
+ * with the feature flags). On a read failure it serves the last known state,
+ * or fails open (disabled) if there is none: a DB blip must never lock
+ * everyone out. The snapshot caches a failure for only 2s, so requests retry
+ * soon after.
  */
 export async function getMaintenanceState(): Promise<MaintenanceState> {
   try {
-    return parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_KEY])
+    lastKnown = parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_SETTING_KEY])
   } catch {
-    return { ...DISABLED }
+    return { ...(lastKnown ?? DISABLED) }
   }
+  return { ...lastKnown }
 }
 
 /** Test hook: drop the cached settings snapshot. */
 export function _resetMaintenanceCache(): void {
+  lastKnown = null
   invalidateSettingsSnapshot()
 }

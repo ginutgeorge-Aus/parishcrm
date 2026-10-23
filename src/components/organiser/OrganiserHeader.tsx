@@ -12,10 +12,10 @@ import type { OrganiserHome } from "@/lib/organiserHome"
  * @param showClasses false hides the Classes link while Sunday School is off
  * @param home brand link label/target, resolved by the layout (`organiserHome`)
  */
-export function OrganiserHeader({ showEvents = true, showClasses = true, home = { href: "/my-events", label: "My Events" } }: Readonly<{
+export function OrganiserHeader({ showEvents = true, showClasses = true, home }: Readonly<{
   showEvents?: boolean
   showClasses?: boolean
-  home?: OrganiserHome
+  home: OrganiserHome
 }>) {
   return (
     <header className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">

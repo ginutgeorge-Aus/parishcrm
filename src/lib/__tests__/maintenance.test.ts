@@ -156,6 +156,22 @@ describe("getMaintenanceState", () => {
     expect(await getMaintenanceState()).toEqual({ enabled: false, backAt: null, message: null })
   })
 
+  it("keeps serving the last known state when a later read fails (stays on through a mid-deploy DB blip)", async () => {
+    const now = jest.spyOn(Date, "now")
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      now.mockReturnValue(1_000_000)
+      findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":"Upgrading"}' }])
+      expect((await getMaintenanceState()).enabled).toBe(true)
+      now.mockReturnValue(1_006_000) // snapshot expired
+      findMany.mockRejectedValue(new Error("db down"))
+      expect(await getMaintenanceState()).toEqual({ enabled: true, backAt: null, message: "Upgrading" })
+    } finally {
+      now.mockRestore()
+      err.mockRestore()
+    }
+  })
+
   it("caches within the TTL (one query for two rapid reads)", async () => {
     findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
     await getMaintenanceState()
