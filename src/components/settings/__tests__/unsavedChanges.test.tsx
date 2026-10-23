@@ -206,3 +206,67 @@ describe("link-click guard", () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 })
+
+describe("popstate guard", () => {
+  let confirm: jest.SpyInstance<boolean, [message?: string]>
+  beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
+  afterEach(() => confirm.mockRestore())
+
+  it("Cancel on Back keeps the page: stops other popstate handlers and restores the URL", () => {
+    confirm.mockReturnValue(false)
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    window.history.replaceState(null, "", "/people") // the URL Back landed on
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    window.removeEventListener("popstate", next)
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?")
+    expect(next).not.toHaveBeenCalled()
+    expect(window.location.pathname).toBe("/settings/general")
+  })
+
+  it("OK lets Back through untouched", () => {
+    confirm.mockReturnValue(true)
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    window.removeEventListener("popstate", next)
+    expect(next).toHaveBeenCalled()
+    expect(window.location.pathname).toBe("/people")
+  })
+
+  it("does not ask when clean", () => {
+    render(<UnsavedChangesProvider><Guarded dirty={false} /></UnsavedChangesProvider>)
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+})
+
+/** A form whose select options only appear after mount (like Radix Select's hidden native select). */
+function LateOptionsForm() {
+  const { ref, dirty } = useFormDirty()
+  const [ready, setReady] = React.useState(false)
+  React.useEffect(() => { queueMicrotask(() => setReady(true)) }, [])
+  return (
+    <form ref={ref}>
+      <select aria-label="Idle" name="value" value="30" onChange={() => {}}>
+        {ready && <option value="30">30</option>}
+        {ready && <option value="60">60</option>}
+      </select>
+      <output>{dirty ? "dirty" : "clean"}</output>
+    </form>
+  )
+}
+
+it("useFormDirty: options added after mount do not read as dirty once the baseline settles", async () => {
+  render(<UnsavedChangesProvider><Probe /><LateOptionsForm /></UnsavedChangesProvider>)
+  await act(async () => {}) // flush the post-mount option render
+  await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))) })
+  fireEvent.change(screen.getByLabelText("Idle"), { target: { value: "30" } })
+  expect(screen.getByText("clean")).toBeInTheDocument()
+  expect(probe()).toBe(false)
+})
