@@ -8,7 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
+import { SettingsRow } from "./ui/SettingsRow"
 
 /**
  * Public membership form options card.
@@ -43,9 +43,10 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
           htmlFor="membershipMinDues"
           description="Also pre-fills dues when adding a family."
         >
+          {(descId) => (
           <Input
             id="membershipMinDues"
-            aria-describedby={settingsDescId("membershipMinDues")}
+            aria-describedby={descId}
             name="membershipMinDues"
             inputMode="decimal"
             maxLength={20}
@@ -53,6 +54,7 @@ export function MembershipSettingsForm({ settings }: Readonly<{ settings: Member
             placeholder="Blank = no minimum"
             className="md:w-80"
           />
+          )}
         </SettingsRow>
         <SettingsRow label="Overseas / home-country address field label" htmlFor="membershipHomeAddressLabel">
           <Input

@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/SiteFooter"
 import { IdleTimeout } from "@/components/auth/IdleTimeout"
 import { getIdleTimeoutMinutes } from "@/lib/actions/settings"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
-import { auth } from "@/auth"
+import { getSession } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
@@ -28,7 +28,7 @@ async function countUntestedCheckpoints(): Promise<number> {
 export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const [idleMinutes, session, { name: churchName }, features] = await Promise.all([
     getIdleTimeoutMinutes(),
-    auth(),
+    getSession(),
     getChurchSettings(),
     getEnabledFeatures(),
   ])

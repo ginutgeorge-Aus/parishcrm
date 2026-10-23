@@ -82,4 +82,43 @@ describe("AutoEmailToggles", () => {
     const toggles = screen.getAllByRole("switch")
     toggles.forEach(toggle => expect(toggle).toBeDisabled())
   })
+
+  it("does not present the optimistic state as saved while the request is pending", async () => {
+    mockUpdate.mockImplementation(() => new Promise(() => {}))
+    render(<AutoEmailToggles birthday={false} anniversary={false} />)
+    const toggle = screen.getByLabelText("Send birthday blessings automatically")
+    fireEvent.click(toggle)
+    expect(toggle).toBeChecked() // switch moves optimistically
+    expect(toggle).toHaveAccessibleDescription(/Saving automatic birthday email setting/)
+    expect(screen.queryByText("On")).not.toBeInTheDocument()
+    expect(screen.getAllByText("Off")).toHaveLength(1) // only the untouched anniversary row
+    expect(screen.getByText("…")).toBeInTheDocument()
+  })
+
+  it("shows On only after the save succeeds", async () => {
+    mockUpdate.mockResolvedValue({})
+    render(<AutoEmailToggles birthday={false} anniversary={false} />)
+    fireEvent.click(screen.getByLabelText("Send birthday blessings automatically"))
+    expect(await screen.findByText("On")).toBeInTheDocument()
+  })
+
+  it("keeps the saved text and surfaces an alert when the save fails", async () => {
+    mockUpdate.mockResolvedValue({ error: "Permission denied" })
+    render(<AutoEmailToggles birthday={true} anniversary={false} />)
+    const toggle = screen.getByLabelText("Send birthday blessings automatically")
+    fireEvent.click(toggle)
+    expect(await screen.findByRole("alert")).toHaveTextContent("Permission denied")
+    expect(toggle).toBeChecked()
+    expect(toggle).toHaveAccessibleDescription("Automatic birthday emails are on (sent by the daily job).")
+    expect(screen.getByText("On")).toBeInTheDocument()
+  })
+
+  it("surfaces an error (no silent revert) when the action throws", async () => {
+    mockUpdate.mockRejectedValue(new Error("network"))
+    render(<AutoEmailToggles birthday={false} anniversary={false} />)
+    const toggle = screen.getByLabelText("Send birthday blessings automatically")
+    fireEvent.click(toggle)
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save")
+    expect(toggle).not.toBeChecked()
+  })
 })

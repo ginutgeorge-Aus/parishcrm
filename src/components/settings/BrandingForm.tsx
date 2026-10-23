@@ -4,7 +4,7 @@ import { useState, useTransition, type ChangeEvent, type FormEvent } from "react
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
+import { SettingsRow } from "./ui/SettingsRow"
 import { uploadBranding, resetBranding } from "@/lib/actions/branding"
 
 // Raster only — the upload action rejects SVG (stored-XSS via same-origin serve).
@@ -85,6 +85,7 @@ export function BrandingForm() {
         const m = msg[s.param]
         return (
           <SettingsRow key={s.param} label={s.label} description={s.hint} htmlFor={`branding-${s.param}`}>
+            {(descId) => (
             <div className="flex items-start gap-4">
               {/* Plain <img>: the source is a dynamic, sometimes-SVG API route that next/image can't optimise. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -98,7 +99,7 @@ export function BrandingForm() {
                   <input
                     type="file"
                     id={`branding-${s.param}`}
-                    aria-describedby={s.hint ? settingsDescId(`branding-${s.param}`) : undefined}
+                    aria-describedby={descId}
                     name="file"
                     accept={ACCEPT}
                     required
@@ -120,6 +121,7 @@ export function BrandingForm() {
                 <FormFeedback state={m} className="mt-1 text-xs" />
               </div>
             </div>
+            )}
           </SettingsRow>
         )
       })}

@@ -3,7 +3,7 @@
  */
 import { render, screen } from "@testing-library/react"
 import { SettingsCard } from "@/components/settings/ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "@/components/settings/ui/SettingsRow"
+import { SettingsRow, settingsDescId, joinDescribedBy } from "@/components/settings/ui/SettingsRow"
 import { SettingsSubgroup } from "@/components/settings/ui/SettingsSubgroup"
 
 it("SettingsCard renders a labelled section with title, description, body and footer", () => {
@@ -42,4 +42,33 @@ it("SettingsSubgroup renders its heading and rows", () => {
   render(<SettingsSubgroup title="Templates"><SettingsRow label="A"><span /></SettingsRow></SettingsSubgroup>)
   expect(screen.getByRole("heading", { name: "Templates" })).toBeInTheDocument()
   expect(screen.getByText("A")).toBeInTheDocument()
+})
+
+it("SettingsRow passes the description id to a render-prop control, so linking is automatic", () => {
+  render(
+    <SettingsRow label="Website" description="Shown on forms" htmlFor="w">
+      {(descId) => <input id="w" aria-describedby={descId} />}
+    </SettingsRow>,
+  )
+  expect(screen.getByLabelText("Website")).toHaveAccessibleDescription("Shown on forms")
+})
+
+it("SettingsRow passes no description id when the row has no description", () => {
+  const seen = jest.fn(() => <input id="w" />)
+  render(<SettingsRow label="Website" htmlFor="w">{seen}</SettingsRow>)
+  expect(seen).toHaveBeenCalledWith(undefined)
+})
+
+it("SettingsRow stacked variant is a single column at every width", () => {
+  const { container } = render(
+    <SettingsRow label="Legal" description="hint" htmlFor="l" stacked><textarea id="l" /></SettingsRow>,
+  )
+  const root = container.firstElementChild as HTMLElement
+  expect(root.className).toContain("flex-col")
+  expect(root.className).not.toContain("md:flex-row")
+})
+
+it("joinDescribedBy drops empty ids and returns undefined when none remain", () => {
+  expect(joinDescribedBy("a", false, null, undefined, "b")).toBe("a b")
+  expect(joinDescribedBy(undefined, false)).toBeUndefined()
 })

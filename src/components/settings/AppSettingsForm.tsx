@@ -16,7 +16,7 @@ import { APP_CURRENCY } from "@/lib/appConfig"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
+import { SettingsRow, joinDescribedBy } from "./ui/SettingsRow"
 
 type Props = {
   ownerNotificationEmail: string
@@ -32,6 +32,9 @@ type Props = {
 
 type KeepFn = (name: string, fallback: string) => string
 
+/** Renders a setting's input(s); `describedBy` links the description and any save error. */
+type ControlFn = (keep: KeepFn, describedBy: string | undefined) => React.ReactNode
+
 /**
  * One app setting saved on its own: a `<form>` holding one `SettingsRow` whose
  * control is the input plus an inline Save button. Owns its dirty tracking.
@@ -39,7 +42,7 @@ type KeepFn = (name: string, fallback: string) => string
  * @param props.label row label
  * @param props.description row helper text
  * @param props.htmlFor id of the control inside `control`
- * @param props.control renders the input(s); receives the keep-values helper
+ * @param props.control renders the input(s); receives the keep-values helper and the `aria-describedby` value
  */
 function SettingRow({
   settingKey, label, description, htmlFor, control,
@@ -48,19 +51,24 @@ function SettingRow({
   label: string
   description: React.ReactNode
   htmlFor: string
-  control: (keep: KeepFn) => React.ReactNode
+  control: ControlFn
 }>) {
   const [state, formAction, isPending, keep] = useKeepFormValues(upsertSetting)
   const { ref } = useFormDirty(state)
+  const errorId = `${htmlFor}-error`
   return (
     <form ref={ref} action={formAction}>
       <input type="hidden" name="key" value={settingKey} />
       <SettingsRow label={label} description={description} htmlFor={htmlFor}>
-        <div className="flex gap-2">
-          {control(keep)}
-          <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
-        </div>
-        <FormFeedback state={state} />
+        {(descId) => (
+          <>
+            <div className="flex gap-2">
+              {control(keep, joinDescribedBy(descId, state && "error" in state && errorId))}
+              <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
+            </div>
+            <FormFeedback id={errorId} state={state} />
+          </>
+        )}
       </SettingsRow>
     </form>
   )
@@ -83,10 +91,10 @@ export function AppSettingsForm({
         label="Notification email address"
         htmlFor="owner-email"
         description="Receives failed-login alerts, public feedback messages, email-delivery-failure alerts and Stripe payment alerts. Leave blank to disable notifications."
-        control={(keep) => (
+        control={(keep, describedBy) => (
           <Input
             id="owner-email"
-            aria-describedby={settingsDescId("owner-email")}
+            aria-describedby={describedBy}
             name="value"
             type="email"
             defaultValue={keep("value", ownerNotificationEmail)}
@@ -101,10 +109,10 @@ export function AppSettingsForm({
           label="Secretary email address(es)"
           htmlFor="membership-email"
           description="Where to email an alert when a new public membership application arrives. Separate multiple addresses with commas. Leave blank to fall back to the church email."
-          control={(keep) => (
+          control={(keep, describedBy) => (
             <Input
               id="membership-email"
-              aria-describedby={settingsDescId("membership-email")}
+              aria-describedby={describedBy}
               name="value"
               type="text"
               defaultValue={keep("value", membershipSecretaryEmail)}
@@ -119,12 +127,12 @@ export function AppSettingsForm({
         label="Idle timeout"
         htmlFor="idle-timeout"
         description="Automatically sign out inactive users after this period."
-        control={(keep) => {
+        control={(keep, describedBy) => {
           const value = keep("value", String(idleTimeoutMinutes))
           // Keyed: a select's default only applies on mount, so remount to show the kept choice after the form reset
           return (
             <Select key={value} name="value" defaultValue={value}>
-              <SelectTrigger id="idle-timeout" aria-describedby={settingsDescId("idle-timeout")} className="w-full md:w-40">
+              <SelectTrigger id="idle-timeout" aria-describedby={describedBy} className="w-full md:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -143,10 +151,10 @@ export function AppSettingsForm({
             label="Card processing fee: percent (%)"
             htmlFor="card-fee-percent"
             description="The blended Stripe fee used to gross up paid-event totals when an event opts to pass the card fee to the registrant. Update when Stripe changes its pricing."
-            control={(keep) => (
+            control={(keep, describedBy) => (
               <Input
                 id="card-fee-percent"
-                aria-describedby={settingsDescId("card-fee-percent")}
+                aria-describedby={describedBy}
                 name="value"
                 type="number"
                 step="0.01"
@@ -163,10 +171,10 @@ export function AppSettingsForm({
             label={`Card processing fee: fixed (${APP_CURRENCY})`}
             htmlFor="card-fee-fixed"
             description="The fixed part of the card fee, added to each card payment."
-            control={(keep) => (
+            control={(keep, describedBy) => (
               <Input
                 id="card-fee-fixed"
-                aria-describedby={settingsDescId("card-fee-fixed")}
+                aria-describedby={describedBy}
                 name="value"
                 type="number"
                 step="0.01"

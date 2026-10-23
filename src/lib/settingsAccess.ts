@@ -1,13 +1,15 @@
-import { cache } from "react"
 import { redirect } from "next/navigation"
-import { auth } from "@/auth"
+import { getSession } from "@/auth"
 import { isAdmin } from "@/lib/roleGuard"
 import { getEnabledFeatures } from "@/lib/featureFlags"
-import { isSettingsTabVisible, type SettingsTabHref } from "@/components/settings/settingsTabs"
+import { isSettingsTabVisible, type SettingsTabHref } from "@/lib/settingsTabs"
 import type { FeatureKey } from "@/lib/features"
 
-/** Per-request session, so the settings layout and the tab page decode the JWT once. */
-export const getSettingsSession = cache(() => auth())
+/** Per-request session (the app-wide cached getter), so the dashboard layout, settings layout and tab page decode the JWT once. */
+export const getSettingsSession = getSession
+
+/** Result of {@link requireSettingsTab}; `data` is `null` when no `load` was passed. */
+export type SettingsTabAccess<T> = { features: Set<FeatureKey>; data: T }
 
 /**
  * Page-level guard for every settings tab: ADMIN only (else "/"), and the tab
@@ -16,14 +18,19 @@ export const getSettingsSession = cache(() => auth())
  * the shared layout doesn't re-run on client navigation between tabs.
  * `load` (the page's feature-independent reads) starts once the role check
  * passes and runs alongside the feature read; a hidden tab still redirects
- * before its result (or error) is used.
+ * before its result (or error) is used. Without `load`, `data` is `null`.
  * @param href the page's tab href (nested pages pass their parent tab)
  * @param load optional page data read, run in parallel with the feature read
  */
-export async function requireSettingsTab<T = undefined>(
+export async function requireSettingsTab(href: SettingsTabHref): Promise<SettingsTabAccess<null>>
+export async function requireSettingsTab<T>(
+  href: SettingsTabHref,
+  load: () => Promise<T>,
+): Promise<SettingsTabAccess<T>>
+export async function requireSettingsTab<T>(
   href: SettingsTabHref,
   load?: () => Promise<T>,
-): Promise<{ features: Set<FeatureKey>; data: T }> {
+): Promise<SettingsTabAccess<T | null>> {
   const session = await getSettingsSession()
   if (!isAdmin(session?.user?.role)) redirect("/")
   // Deferred via a promise so a synchronous throw from `load` is also held until after the redirect check.
@@ -32,5 +39,5 @@ export async function requireSettingsTab<T = undefined>(
   pending?.catch(() => {})
   const features = await getEnabledFeatures()
   if (!isSettingsTabVisible(href, features)) redirect("/settings")
-  return { features, data: (await pending) as T }
+  return { features, data: pending ? await pending : null }
 }

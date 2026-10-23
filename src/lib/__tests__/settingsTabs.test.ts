@@ -1,4 +1,4 @@
-import { buildSettingsTabs, isSettingsTabVisible, type SettingsTabHref } from "../settingsTabs"
+import { buildSettingsTabs, isSettingsTabVisible, type SettingsTabHref } from "@/lib/settingsTabs"
 import type { FeatureKey } from "@/lib/features"
 
 const on = (...keys: FeatureKey[]) => new Set<FeatureKey>(keys)
