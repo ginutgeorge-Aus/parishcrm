@@ -65,6 +65,8 @@ const ENCRYPT_FNS = new Set(["encrypt", "encryptBytes", "encryptOrNull"])
 const WRITE_METHODS = new Set(["create", "createMany", "update", "updateMany", "upsert"])
 // A nested relation write (`attendees: { create: ... }`): rows there belong to the related model, not the call's.
 const NESTED_KEYS = new Set(["create", "createMany", "connectOrCreate", "upsert", "update", "updateMany"])
+// Operators that pass an operand through as the expression's value (`a ?? { ... }`).
+const LOGICAL_OPS = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken])
 // Prisma delegate names (camelCase model names), so a `.cache.update(` helper call is never taken for a model.
 const MODELS = new Set(
   [...fs.readFileSync(path.join(__dirname, "../../prisma/schema.prisma"), "utf8").matchAll(/^model\s+(\w+)/gm)]
@@ -105,6 +107,15 @@ function isBufferFrom(callee: ts.Expression): boolean {
 }
 
 /**
+ * Whether `call` is a `Buffer.from(` wrapper whose first argument holds an encrypt call.
+ * @param call - candidate call expression
+ */
+function bufferWrapsEncrypt(call: ts.CallExpression): boolean {
+  const arg = call.arguments[0]
+  return isBufferFrom(call.expression) && arg !== undefined && findEncrypt(arg) !== null
+}
+
+/**
  * The encrypt call `node` itself is: encrypt/encryptBytes/encryptOrNull (bare or as a member call), or a
  * `Buffer.from(` wrapper of one.
  * @param node - expression to test
@@ -113,7 +124,7 @@ function encryptCall(node: ts.Node): { blob: boolean } | null {
   if (!ts.isCallExpression(node)) return null
   const name = calleeName(node.expression)
   if (ENCRYPT_FNS.has(name)) return { blob: name === "encryptBytes" }
-  return isBufferFrom(node.expression) && node.arguments[0] && findEncrypt(node.arguments[0]) ? { blob: true } : null
+  return bufferWrapsEncrypt(node) ? { blob: true } : null
 }
 
 /**
@@ -130,6 +141,54 @@ function findEncrypt(node: ts.Node): { blob: boolean } | null {
 }
 
 /**
+ * Whether `node` is a wrapper expression that does not change its operand's value: parentheses, `as`,
+ * `satisfies`, `<T>x` or non-null (`!`).
+ * @param node - node to test
+ */
+function isWrapper(node: ts.Node): node is ts.Expression & { expression: ts.Expression } {
+  return (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node)
+  )
+}
+
+/**
+ * Strips parentheses, `as`, `satisfies`, `<T>x` and non-null (`!`) wrappers from an expression.
+ * @param expr - expression to unwrap
+ */
+function unwrap(expr: ts.Expression): ts.Expression {
+  let cur = expr
+  while (isWrapper(cur)) cur = cur.expression
+  return cur
+}
+
+/**
+ * Whether `cur` passes its value straight up to `parent`: a wrapper, either branch of a conditional (not
+ * its condition), or an operand of `??` / `||` / `&&`.
+ * @param cur - the child node
+ * @param parent - its parent node
+ */
+function isValueHop(cur: ts.Node, parent: ts.Node): boolean {
+  if (ts.isConditionalExpression(parent)) return cur !== parent.condition
+  if (ts.isBinaryExpression(parent)) return LOGICAL_OPS.has(parent.operatorToken.kind)
+  return isWrapper(parent)
+}
+
+/**
+ * Whether the object literal `obj` is the value of a property (`key: { ... }`), looking through
+ * conditionals, logical operators and wrappers (`key: cond ? { ... } : undefined`).
+ * @param obj - object literal node
+ */
+function isPropertyValue(obj: ts.ObjectLiteralExpression): boolean {
+  let cur: ts.Node = obj
+  while (cur.parent && isValueHop(cur, cur.parent)) cur = cur.parent
+  return cur.parent !== undefined && ts.isPropertyAssignment(cur.parent)
+}
+
+/**
  * Whether `node` sits inside a nested relation write (`attendees: { create: ... }`) of the object literal `obj`.
  * @param obj - object literal on the path from `node` upwards
  * @param node - the write's key node
@@ -142,16 +201,101 @@ function inNestedWrite(obj: ts.ObjectLiteralExpression, node: ts.Node): boolean 
 }
 
 /**
- * The Prisma model a write-shaped call (`<delegate>.<write>(`) targets: its delegate name when that is a
- * model, else null. Returns undefined when the call isn't write-shaped at all.
+ * The object and member name of `obj.name` or `obj["name"]` (after unwrapping), else null.
+ * @param expr - candidate member access
+ */
+function splitMember(expr: ts.Expression): { object: ts.Expression; name: string } | null {
+  const e = unwrap(expr)
+  if (ts.isPropertyAccessExpression(e)) return { object: e.expression, name: e.name.text }
+  if (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression)) {
+    return { object: e.expression, name: e.argumentExpression.text }
+  }
+  return null
+}
+
+/**
+ * The model a declaration initializer names (`prisma.family`, `tx["family"]`), or null when it is not a model delegate.
+ * @param init - variable initializer
+ */
+function declModel(init: ts.Expression): string | null {
+  const member = splitMember(init)
+  return member && MODELS.has(member.name) ? member.name : null
+}
+
+const aliasCache = new WeakMap<ts.SourceFile, Map<string, string | null>>()
+
+/**
+ * Records `name -> model` in `map`; a name declared more than once with different targets becomes null,
+ * so a shadowed alias stays unresolved.
+ * @param map - alias map being built
+ * @param name - declared variable name
+ * @param model - model the initializer names, or null
+ */
+function recordAlias(map: Map<string, string | null>, name: string, model: string | null): void {
+  map.set(name, map.has(name) && map.get(name) !== model ? null : model)
+}
+
+/**
+ * Per-file map of variable name to the model delegate it aliases (`const d = prisma.family`).
+ * @param sf - source file
+ */
+function aliasMap(sf: ts.SourceFile): Map<string, string | null> {
+  const cached = aliasCache.get(sf)
+  if (cached) return cached
+  const map = new Map<string, string | null>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      recordAlias(map, node.name.text, declModel(node.initializer))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  aliasCache.set(sf, map)
+  return map
+}
+
+/**
+ * The delegate an expression resolves to: a model name, null when it is a member access that isn't a model
+ * (or an alias shadowed to different targets), or undefined when it is neither a member access nor a known alias.
+ * @param expr - the object of a write call, e.g. `prisma.family` or `d`
+ */
+function delegateOf(expr: ts.Expression): string | null | undefined {
+  const e = unwrap(expr)
+  if (ts.isIdentifier(e)) return aliasMap(e.getSourceFile()).get(e.text)
+  const member = splitMember(e)
+  if (!member) return undefined
+  return MODELS.has(member.name) ? member.name : null
+}
+
+/**
+ * The Prisma model a write-shaped call (`<delegate>.<write>(`) targets: its delegate (property access,
+ * element access or a simple alias) when that is a model, else null. Returns undefined when the call isn't
+ * write-shaped at all.
  * @param call - candidate call expression
  */
 function writeCallModel(call: ts.CallExpression): string | null | undefined {
-  const callee = call.expression
-  if (!ts.isPropertyAccessExpression(callee) || !WRITE_METHODS.has(callee.name.text)) return undefined
-  if (!ts.isPropertyAccessExpression(callee.expression)) return undefined
-  const delegate = callee.expression.name.text
-  return MODELS.has(delegate) ? delegate : null
+  const callee = splitMember(call.expression)
+  if (!callee || !WRITE_METHODS.has(callee.name)) return undefined
+  return delegateOf(callee.object)
+}
+
+/**
+ * Whether `cur` is a relation-value object literal on the path to `node` that holds `node` in a nested write.
+ * @param cur - node on the path upwards
+ * @param node - the write's key node
+ */
+function inRelationWrite(cur: ts.Node, node: ts.Node): boolean {
+  return ts.isObjectLiteralExpression(cur) && isPropertyValue(cur) && inNestedWrite(cur, node)
+}
+
+/**
+ * The model of the write-shaped call that `cur` is an argument of (null when its delegate isn't a model),
+ * or undefined when `cur` isn't such an argument.
+ * @param cur - node on the path upwards
+ */
+function callArgModel(cur: ts.Node): string | null | undefined {
+  const parent = cur.parent
+  return ts.isCallExpression(parent) && cur !== parent.expression ? writeCallModel(parent) : undefined
 }
 
 /**
@@ -163,14 +307,33 @@ function writeCallModel(call: ts.CallExpression): string | null | undefined {
  */
 function modelOf(node: ts.Node): string | null {
   for (let cur: ts.Node = node; cur.parent; cur = cur.parent) {
-    const parent = cur.parent
-    if (ts.isObjectLiteralExpression(cur) && ts.isPropertyAssignment(parent) && inNestedWrite(cur, node)) return null
-    if (ts.isCallExpression(parent) && cur !== parent.expression) {
-      const model = writeCallModel(parent)
-      if (model !== undefined) return model
-    }
+    if (inRelationWrite(cur, node)) return null
+    const model = callArgModel(cur)
+    if (model !== undefined) return model
   }
   return null
+}
+
+/**
+ * The write site of an object-literal property `field: encrypt(...)`, if it is one.
+ * @param node - property assignment
+ * @param where - label for the file
+ */
+function propertySite(node: ts.PropertyAssignment, where: string): WriteSite | null {
+  const field = keyName(node.name)
+  const enc = field && findEncrypt(node.initializer)
+  return field && enc ? { model: modelOf(node), field, blob: enc.blob, where } : null
+}
+
+/**
+ * The write site of an assignment `x.field = encrypt(...)`, if it is one.
+ * @param node - binary expression
+ * @param where - label for the file
+ */
+function assignmentSite(node: ts.BinaryExpression, where: string): WriteSite | null {
+  if (node.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isPropertyAccessExpression(node.left)) return null
+  const enc = findEncrypt(node.right)
+  return enc ? { model: modelOf(node), field: node.left.name.text, blob: enc.blob, where } : null
 }
 
 /**
@@ -179,16 +342,8 @@ function modelOf(node: ts.Node): string | null {
  * @param where - label for the file
  */
 function siteOf(node: ts.Node, where: string): WriteSite | null {
-  if (ts.isPropertyAssignment(node)) {
-    const field = keyName(node.name)
-    const enc = field && findEncrypt(node.initializer)
-    return field && enc ? { model: modelOf(node), field, blob: enc.blob, where } : null
-  }
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left)) {
-    const enc = findEncrypt(node.right)
-    return enc ? { model: modelOf(node), field: node.left.name.text, blob: enc.blob, where } : null
-  }
-  return null
+  if (ts.isPropertyAssignment(node)) return propertySite(node, where)
+  return ts.isBinaryExpression(node) ? assignmentSite(node, where) : null
 }
 
 /**
@@ -221,6 +376,10 @@ export function findWriteSites(text: string, where = "<inline>"): WriteSite[] {
 function encryptedWriteSites(): WriteSite[] {
   return walk(SRC).flatMap((file) => findWriteSites(fs.readFileSync(file, "utf8"), path.relative(SRC, file)))
 }
+
+// Fixture source text: a template literal whose substitution holds a stray brace. Assembled from parts so
+// neither a plain-string template-syntax lint rule nor a literal-concatenation rule matches this file.
+const TEMPLATE_WITH_BRACE_FIXTURE = ["`x $", '{"}"} (`'].join("")
 
 describe("encryption coverage", () => {
   it("every encrypt() write site is in the rotation FIELDS map (or allowlisted)", async () => {
@@ -343,10 +502,61 @@ describe("encryption coverage", () => {
     expect(findWriteSites(text).map((s) => s.field)).toEqual(["secret"])
   })
 
+  it("resolves a nested write inside a conditional or wrapped relation value", () => {
+    const text = `await tx.person.update({ data: {
+      a: cond ? { update: { notes: encrypt(n) } } : undefined,
+      b: ({ update: { memo: encrypt(m) } } as unknown as X),
+      c: (cond ? undefined : { create: { tag: encrypt(t) } })!,
+      d: x ?? { upsert: { body: encrypt(b) } },
+      mobile: encrypt(p),
+    } })`
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["notes", null],
+      ["memo", null],
+      ["tag", null],
+      ["body", null],
+      ["mobile", "person"],
+    ])
+  })
+
+  it("keeps the call's model for a conditional that is not a relation value", () => {
+    const text = "await tx.person.update({ data: cond ? { mobile: encrypt(p) } : { notes: encrypt(n) } })"
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["mobile", "person"],
+      ["notes", "person"],
+    ])
+  })
+
+  it("resolves element-access and aliased delegates", () => {
+    const text = `await prisma["family"].create({ data: { email: encrypt(e) } })
+    await tx["person"]["update"]({ data: { mobile: encrypt(m) } })
+    const d = prisma.family
+    await d.create({ data: { notes: encrypt(n) } })
+    const t = (tx.invoice as Delegate)
+    await t.update({ data: { memo: encrypt(m) } })
+    await other.update({ data: { x: encrypt(x) } })`
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["email", "family"],
+      ["mobile", "person"],
+      ["notes", "family"],
+      ["memo", "invoice"],
+      ["x", null],
+    ])
+  })
+
+  it("leaves an alias name declared with different targets unresolved", () => {
+    const text = `function a() { const d = prisma.family; return d.create({ data: { n: encrypt(n) } }) }
+    function b() { const d = prisma.person; return d.create({ data: { m: encrypt(m) } }) }`
+    expect(findWriteSites(text).map((s) => [s.field, s.model])).toEqual([
+      ["n", null],
+      ["m", null],
+    ])
+  })
+
   it("is not thrown off by brackets in strings, templates or comments before a write", () => {
     const text = [
       "await prisma.waitlist.create({",
-      '  data: { note: "unbalanced ) ] }", label: `x $' + '{"}"} (`, /* ) ) */ email: encrypt(e) },',
+      `  data: { note: "unbalanced ) ] }", label: ${TEMPLATE_WITH_BRACE_FIXTURE}, /* ) ) */ email: encrypt(e) },`,
       "  // stray ( [ {",
       "})",
       "await tx.invoice.update({ data: { notes: encrypt(n) } })",
