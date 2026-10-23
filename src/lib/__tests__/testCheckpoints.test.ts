@@ -31,6 +31,8 @@ describe("TEST_CHECKPOINTS", () => {
   // the release PR, so this fails until checkpoints for that version are added.
   it("has at least one checkpoint for the current package.json version", () => {
     const { version } = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string }
-    expect(TEST_CHECKPOINTS.some((c) => c.version === `v${version}`)).toBe(true)
+    // Pre-release suffixes (1.9.0-rc.1) gate on the base version's checkpoints.
+    const base = version.split("-")[0]
+    expect(TEST_CHECKPOINTS.map((c) => c.version)).toContain(`v${base}`)
   })
 })
