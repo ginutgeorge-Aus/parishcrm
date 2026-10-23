@@ -273,3 +273,49 @@ it("useFormDirty: options added after mount do not read as dirty once the baseli
   expect(screen.getByText("clean")).toBeInTheDocument()
   expect(probe()).toBe(false)
 })
+
+describe("popstate guard: hash and Navigation API", () => {
+  let confirm: jest.SpyInstance<boolean, [message?: string]>
+  beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
+  afterEach(() => {
+    confirm.mockRestore()
+    delete (window as { navigation?: unknown }).navigation
+  })
+
+  it("does not prompt for a hash-only traversal", () => {
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    window.history.replaceState(null, "", "/settings/general#section")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["Back", 4, 1],
+    ["Forward", 6, -1],
+  ])("cancel on %s uses history.go(delta) and ignores the restoring popstate", (_name, index, delta) => {
+    confirm.mockReturnValue(false)
+    const nav = { currentEntry: { index: 5 } }
+    Object.defineProperty(window, "navigation", { configurable: true, value: nav })
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const go = jest.spyOn(window.history, "go").mockImplementation(() => {})
+    const push = jest.spyOn(window.history, "pushState")
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    nav.currentEntry.index = index
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(go).toHaveBeenCalledWith(delta)
+    expect(push).not.toHaveBeenCalled()
+    // The traversal back to the dirty entry fires its own popstate: no second prompt, not forwarded.
+    confirm.mockClear()
+    window.history.replaceState(null, "", "/settings/general")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+    window.removeEventListener("popstate", next)
+    go.mockRestore()
+    push.mockRestore()
+  })
+})

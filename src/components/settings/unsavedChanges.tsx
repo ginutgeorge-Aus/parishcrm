@@ -30,31 +30,62 @@ function leavesPage(e: MouseEvent, anchor: HTMLAnchorElement): boolean {
 }
 
 /**
+ * Strips the fragment so hash-only traversals compare equal.
+ * @param href absolute or relative URL
+ * @returns origin + pathname + search
+ */
+function withoutHash(href: string): string {
+  const u = new URL(href, window.location.href)
+  return u.origin + u.pathname + u.search
+}
+
+/**
  * Holds which settings forms on the current page have unsaved edits. While any
  * is dirty, a click on any link that leaves the page (tab list, sidebar, top
  * bar, in-page links) asks before navigating. It listens in the document
  * capture phase so a cancel stops Next's `<Link>` handler too. Browser
- * Back/Forward (`popstate`) asks too; on cancel the page URL is pushed back.
+ * Back/Forward (`popstate`) asks too; on cancel the dirty history entry is restored.
  * @param props.children settings tabs + page
  */
 export function UnsavedChangesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const dirtyIds = useRef(new Set<string>())
   const dirtyUrl = useRef("")
   const dirtyState = useRef<unknown>(null)
+  const dirtyIndex = useRef<number | null>(null)
+  const restoring = useRef(false)
   useEffect(() => {
     /**
-     * Back/Forward while dirty: confirm, else stop Next's handler and re-push the
-     * URL with the history state captured when the form became dirty (not the
-     * destination entry's state, which holds the other page's router tree).
+     * Back/Forward while dirty: confirm, else stop Next's handler and put the
+     * user back on the dirty entry. Hash-only traversals stay on the page and
+     * never prompt (URLs are compared without the fragment).
+     * Preferred restore: with the Navigation API, `history.go(dirtyIndex - currentIndex)`
+     * returns to the exact entry, so Forward entries and the stack are untouched;
+     * the popstate that traversal fires is swallowed via `restoring`.
+     * Fallback (no Navigation API): `pushState` re-adds the dirty URL with the
+     * state captured when the form became dirty (not the destination's state,
+     * which holds the other page's router tree). Trade-off: it adds one history
+     * entry and discards any Forward entries.
      * Ordering: in the DOM spec's event dispatch, capture listeners run before
      * non-capture ones even when the target is the window itself, so this runs
      * before Next's popstate listener and stopImmediatePropagation blocks it.
      */
     const onPopState = (e: PopStateEvent) => {
-      if (dirtyIds.current.size === 0 || window.location.href === dirtyUrl.current) return
+      if (restoring.current) {
+        restoring.current = false
+        e.stopImmediatePropagation()
+        return
+      }
+      if (dirtyIds.current.size === 0 || withoutHash(window.location.href) === withoutHash(dirtyUrl.current)) return
       if (window.confirm(DISCARD_PROMPT)) return
       e.stopImmediatePropagation()
-      window.history.pushState(dirtyState.current, "", dirtyUrl.current)
+      const current = window.navigation?.currentEntry?.index
+      const delta = dirtyIndex.current !== null && current != null ? dirtyIndex.current - current : 0
+      if (delta !== 0) {
+        restoring.current = true
+        window.history.go(delta)
+      } else {
+        window.history.pushState(dirtyState.current, "", dirtyUrl.current)
+      }
     }
     window.addEventListener("popstate", onPopState, true)
     const onClick = (e: MouseEvent) => {
@@ -79,6 +110,7 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
           if (dirtyIds.current.size === 0) {
             dirtyUrl.current = window.location.href
             dirtyState.current = window.history.state
+            dirtyIndex.current = window.navigation?.currentEntry?.index ?? null
           }
           dirtyIds.current.add(id)
         } else dirtyIds.current.delete(id)
