@@ -30,9 +30,9 @@ describe("TEST_CHECKPOINTS", () => {
   // Release gate (mirrors whatsNew.test): release-please bumps package.json on
   // the release PR, so this fails until checkpoints for that version are added.
   it("has at least one checkpoint for the current package.json version", () => {
-    const { version } = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string }
-    // Pre-release suffixes (1.9.0-rc.1) gate on the base version's checkpoints.
-    const base = version.split("-")[0]
+    const { version } = JSON.parse(readFileSync(join(__dirname, "../../../package.json"), "utf8")) as { version: string }
+    // Pre-release/build suffixes (1.9.0-rc.1, 1.9.0+sha) gate on the base version's checkpoints.
+    const base = version.replace(/[-+].*$/, "")
     expect(TEST_CHECKPOINTS.map((c) => c.version)).toContain(`v${base}`)
   })
 })
