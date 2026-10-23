@@ -1,5 +1,5 @@
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
-import { getSettingsSnapshot, invalidateSettingsSnapshot, MAINTENANCE_SETTING_KEY } from "@/lib/settingsSnapshot"
+import { getSettingsSnapshot, invalidateSettingsSnapshot, MAINTENANCE_SETTING_KEY, settingsGeneration } from "@/lib/settingsSnapshot"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export type MaintenanceState = {
@@ -123,12 +123,16 @@ let lastKnown: MaintenanceState | null = null
  * soon after.
  */
 export async function getMaintenanceState(): Promise<MaintenanceState> {
+  const gen = settingsGeneration()
+  let state: MaintenanceState
   try {
-    lastKnown = parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_SETTING_KEY])
+    state = parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_SETTING_KEY])
   } catch {
     return { ...(lastKnown ?? DISABLED) }
   }
-  return { ...lastKnown }
+  // A read that started before an invalidation must not overwrite the fallback state.
+  if (gen === settingsGeneration()) lastKnown = state
+  return { ...state }
 }
 
 /** Test hook: drop the cached settings snapshot. */

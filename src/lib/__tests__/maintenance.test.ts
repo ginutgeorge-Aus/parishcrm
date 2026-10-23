@@ -172,6 +172,22 @@ describe("getMaintenanceState", () => {
     }
   })
 
+  it("a read that started before an invalidation does not overwrite the fallback state", async () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      let release!: (rows: unknown) => void
+      findMany.mockReturnValueOnce(new Promise((r) => { release = r }))
+      const stale = getMaintenanceState()
+      _resetMaintenanceCache() // invalidates mid-read (and clears the fallback)
+      release([{ key: "maintenance", value: '{"enabled":true}' }])
+      expect((await stale).enabled).toBe(true)
+      findMany.mockRejectedValue(new Error("db down"))
+      expect((await getMaintenanceState()).enabled).toBe(false)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
   it("caches within the TTL (one query for two rapid reads)", async () => {
     findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
     await getMaintenanceState()
