@@ -23,7 +23,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `purge-membership-application-pii` | Retention purge — anonymises DECIDED `MembershipApplication` payload/signature/email/mobile/applicantName reviewed >24 months ago; PENDING untouched. Idempotent via `anonymizedAt`; runs monthly via CI |
 | `set-church-name` | One-time/ad-hoc: set the `churchName` `AppSetting` row directly from the CLI (`CHURCH_FULL_NAME="…"`, dry-run unless `--apply --yes`) |
 | `unlock-admins` | **Emergency** — clears password + OTP lockout on all ADMIN accounts. Only needed if a brute-force/DAST locks out *every* admin at once (a single lock auto-expires in 15 min; a non-locked admin can also unlock via the Users UI). Run `DATABASE_URL=<prod> npx tsx scripts/unlock-admins.ts` |
-| `prep-release` | CI/release tooling — mechanical release prep (`CHANGELOG.md` rename, `whatsNew.ts` entry, test bump). Not a data script |
+| `prep-release` | CI/release tooling — mechanical release prep (`CHANGELOG.md` rename, `whatsNew.ts` entry, test bump). Not a data script. It does not write `/verify` checkpoints — add those by hand to `src/lib/testCheckpoints.ts` on the release PR (a test gates it) |
 | `codebase-review` / `file-findings` | CI tooling — optional weekly full-codebase AI review that files findings as `weekly-review`-labelled issues. Not data scripts |
 
 ## Health Stack

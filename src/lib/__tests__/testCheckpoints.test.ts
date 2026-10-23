@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { TEST_CHECKPOINTS, findCheckpoint } from "@/lib/testCheckpoints"
 
 describe("TEST_CHECKPOINTS", () => {
@@ -23,5 +25,12 @@ describe("TEST_CHECKPOINTS", () => {
     const first = TEST_CHECKPOINTS[0]
     expect(findCheckpoint(first.id)).toEqual(first)
     expect(findCheckpoint("does-not-exist")).toBeUndefined()
+  })
+
+  // Release gate (mirrors whatsNew.test): release-please bumps package.json on
+  // the release PR, so this fails until checkpoints for that version are added.
+  it("has at least one checkpoint for the current package.json version", () => {
+    const { version } = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string }
+    expect(TEST_CHECKPOINTS.some((c) => c.version === `v${version}`)).toBe(true)
   })
 })
