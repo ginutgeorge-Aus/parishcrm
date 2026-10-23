@@ -172,6 +172,11 @@ function snapshot(form: HTMLFormElement): string {
  * The first baseline is re-taken on the next frame while the user has not
  * touched the form, because widgets such as Radix Select fill their hidden
  * native `<select>` options after mount (an early snapshot would read dirty).
+ * Limitation: this is a single-frame re-take. A widget that fills its options
+ * later (e.g. only after being opened) can still read dirty; filtering
+ * untrusted change events was judged too invasive (programmatic changes from
+ * widgets are indistinguishable from edits in jsdom tests). Such a form should
+ * call `rebaseline()` once its widget signals ready.
  * Attach `ref` to the `<form>`. If the form unmounts while this host stays
  * mounted, its cleanup clears the dirty flag so the guard is released.
  * Call `rebaseline()` after changing values in code (no input/change event),

@@ -157,7 +157,7 @@ it("beforeunload while dirty cancels and sets the legacy returnValue", () => {
 describe("link-click guard", () => {
   let confirm: jest.SpyInstance<boolean, [message?: string]>
   beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
-  afterEach(() => confirm.mockRestore())
+  afterEach(() => jest.restoreAllMocks())
 
   /**
    * Renders a dirty provider with links outside the settings tab list (as the sidebar is),
@@ -210,7 +210,7 @@ describe("link-click guard", () => {
 describe("popstate guard", () => {
   let confirm: jest.SpyInstance<boolean, [message?: string]>
   beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
-  afterEach(() => confirm.mockRestore())
+  afterEach(() => jest.restoreAllMocks())
 
   it("Cancel on Back keeps the page: stops other popstate handlers and restores the URL", () => {
     confirm.mockReturnValue(false)
@@ -223,7 +223,6 @@ describe("popstate guard", () => {
     window.dispatchEvent(new PopStateEvent("popstate"))
     window.removeEventListener("popstate", next)
     expect(push).toHaveBeenCalledWith({ tree: "settings" }, "", "http://localhost/settings/general")
-    push.mockRestore()
     expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?")
     expect(next).not.toHaveBeenCalled()
     expect(window.location.pathname).toBe("/settings/general")
@@ -278,7 +277,7 @@ describe("popstate guard: hash and Navigation API", () => {
   let confirm: jest.SpyInstance<boolean, [message?: string]>
   beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
   afterEach(() => {
-    confirm.mockRestore()
+    jest.restoreAllMocks()
     delete (window as { navigation?: unknown }).navigation
   })
 
@@ -315,7 +314,5 @@ describe("popstate guard: hash and Navigation API", () => {
     expect(confirm).not.toHaveBeenCalled()
     expect(next).not.toHaveBeenCalled()
     window.removeEventListener("popstate", next)
-    go.mockRestore()
-    push.mockRestore()
   })
 })
