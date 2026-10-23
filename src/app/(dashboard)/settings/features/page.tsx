@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic"
 
 /**
  * Settings → Features: ADMIN picks which features this church uses. The
- * first-run welcome state comes from the pending flag in the DB (not the
- * `?welcome=1` URL), so a reload or the sidebar link still shows it.
+ * first-run welcome state comes from the pending flag in the DB, not the
+ * URL, so a reload or the sidebar link still shows it.
  */
 export default async function FeaturesPage() {
   const [{ data: initial }, flag] = await Promise.all([

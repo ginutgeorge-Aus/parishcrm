@@ -14,18 +14,19 @@ jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/featureRoutes", () => ({ invalidateFeatureRouteCache: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
-  const p = {
-    appSetting: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
-    $transaction: jest.fn(),
-  }
-  p.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(p))
-  return { prisma: p }
+  // Writes go through a distinct tx client so tests prove they ran inside the callback.
+  const findUnique = jest.fn()
+  const txClient = { appSetting: { findUnique, upsert: jest.fn(), deleteMany: jest.fn() } }
+  const p = { appSetting: { findUnique }, $transaction: jest.fn() }
+  p.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(txClient))
+  return { prisma: p, txClient }
 })
 
 const mockAuth = auth as jest.Mock
 const findUnique = prisma.appSetting.findUnique as jest.Mock
-const upsert = prisma.appSetting.upsert as jest.Mock
-const deleteMany = prisma.appSetting.deleteMany as jest.Mock
+const { txClient } = jest.requireMock("@/lib/prisma") as { txClient: { appSetting: { upsert: jest.Mock; deleteMany: jest.Mock } } }
+const upsert = txClient.appSetting.upsert
+const deleteMany = txClient.appSetting.deleteMany
 const tx = prisma.$transaction as jest.Mock
 
 const mockSession = (role: string) => mockAuth.mockResolvedValue({ user: { id: "1", role } })
@@ -46,7 +47,7 @@ describe("finishFeatureOnboarding", () => {
     expect(tx).not.toHaveBeenCalled()
   })
 
-  it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER"])("rejects %s", async (role) => {
+  it.each(["PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER"])("rejects %s", async (role) => {
     mockSession(role)
     expect(await finishFeatureOnboarding()).toEqual({ error: "Forbidden" })
     expect(tx).not.toHaveBeenCalled()
@@ -57,10 +58,28 @@ describe("finishFeatureOnboarding", () => {
     expect(await finishFeatureOnboarding()).toEqual({ success: "Default features kept" })
     expect(deleteMany).toHaveBeenCalledWith({ where: { key: "features.onboarding" } })
     expect(upsert).not.toHaveBeenCalled()
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "FINISH_FEATURE_ONBOARDING", "AppSetting", undefined, {
+    expect(logAuditTx).toHaveBeenCalledWith(txClient, 1, "FINISH_FEATURE_ONBOARDING", "AppSetting", undefined, {
       key: "features.onboarding",
     })
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout")
+  })
+
+  it("deletes and audits through the transaction client, not top-level prisma", async () => {
+    mockSession("ADMIN")
+    const seen: unknown[] = []
+    deleteMany.mockImplementationOnce(async () => { seen.push("delete"); return { count: 1 } })
+    ;(logAuditTx as jest.Mock).mockImplementationOnce(async () => { seen.push("audit") })
+    let inside = false
+    tx.mockImplementationOnce(async (fn: (t: unknown) => Promise<unknown>) => {
+      inside = true
+      const out = await fn(txClient)
+      inside = false
+      return out
+    })
+    await finishFeatureOnboarding()
+    expect(seen).toEqual(["delete", "audit"])
+    expect(inside).toBe(false)
+    expect((logAuditTx as jest.Mock).mock.calls[0][0]).toBe(txClient)
   })
 
   it("skips the audit row when there was no flag, still succeeds", async () => {
@@ -113,7 +132,7 @@ describe("saveFeatures", () => {
       update: { value: '{"events":false}' },
     })
     expect(deleteMany).toHaveBeenCalledWith({ where: { key: "features.onboarding" } })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "UPDATE_FEATURES", "AppSetting", undefined, {
+    expect(logAuditTx).toHaveBeenCalledWith(txClient, 1, "UPDATE_FEATURES", "AppSetting", undefined, {
       key: "features",
       before: { budget: false },
       after: { events: false },

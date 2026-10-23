@@ -46,7 +46,7 @@ export default async function DashboardPage() {
       ? prisma.appSetting.findUnique({ where: { key: FEATURES_ONBOARDING_KEY } })
       : null,
   ])
-  if (onboarding?.value === "pending") redirect("/settings/features?welcome=1")
+  if (onboarding?.value === "pending") redirect("/settings/features")
 
   // Off features skip their queries as well as their widgets.
   const showMoney = canViewAccounting(role) && features.has("accounting")

@@ -8,14 +8,15 @@ import { FEATURES } from "@/lib/features"
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/components/settings/unsavedChanges"
 
 jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn(), finishFeatureOnboarding: jest.fn() }))
-const push = jest.fn()
-jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
+const replace = jest.fn()
+jest.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }))
 
 const mockSave = saveFeatures as jest.Mock
 
 beforeEach(() => {
   mockSave.mockReset()
-  push.mockReset()
+  ;(finishFeatureOnboarding as jest.Mock).mockReset()
+  replace.mockReset()
 })
 
 describe("FeaturesForm", () => {
@@ -115,21 +116,21 @@ describe("FeaturesForm", () => {
     expect(screen.queryByRole("button", { name: "Keep defaults" })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     await waitFor(() => expect(screen.getByText("Features saved")).toBeInTheDocument())
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("on the welcome prompt, Save continues to the dashboard", async () => {
     mockSave.mockResolvedValue({ success: "Features saved" })
     render(<FeaturesForm initial={{}} welcome />)
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
   })
 
   it("Keep defaults ends onboarding without saving and continues", async () => {
     ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ success: "Default features kept" })
     render(<FeaturesForm initial={{}} welcome />)
     fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
     expect(mockSave).not.toHaveBeenCalled()
   })
 
@@ -138,17 +139,34 @@ describe("FeaturesForm", () => {
     const keep = screen.getByRole("button", { name: "Keep defaults" })
     expect(keep).toBeEnabled()
     fireEvent.click(screen.getByLabelText("Events"))
-    expect(keep).toBeDisabled()
+    expect(keep).toHaveAttribute("aria-disabled", "true")
+    expect(keep).toBeEnabled() // stays focusable
+    fireEvent.click(keep)
+    expect(finishFeatureOnboarding).not.toHaveBeenCalled()
     expect(keep).toHaveAccessibleDescription("Save your changes, or undo them to keep the defaults")
     fireEvent.click(screen.getByLabelText("Events"))
-    expect(keep).toBeEnabled()
+    expect(keep).not.toHaveAttribute("aria-disabled")
+  })
+
+  it("does not trigger the unsaved-changes prompt when leaving after a first-run save", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByLabelText("Events"))
+    const before = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(before)
+    expect(before.defaultPrevented).toBe(true) // control: dirty form does prompt
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
+    const after = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
   })
 
   it("keeps both buttons disabled after a first-run success until navigation", async () => {
     mockSave.mockResolvedValue({ success: "Features saved" })
     render(<FeaturesForm initial={{}} welcome />)
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
     expect(screen.getByRole("button", { name: "Keep defaults" })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
@@ -160,7 +178,7 @@ describe("FeaturesForm", () => {
     render(<FeaturesForm initial={{}} welcome />)
     fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
     await waitFor(() => expect(screen.getByText("Disabled in the live demo")).toBeInTheDocument())
-    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("shows the welcome banner only when welcome", () => {

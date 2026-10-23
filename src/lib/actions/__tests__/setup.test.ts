@@ -89,6 +89,22 @@ describe("createFirstAdmin", () => {
     })
   })
 
+  it("runs the user insert and the flag upsert inside one transaction callback", async () => {
+    const order: string[] = []
+    ;(tx.user.create as jest.Mock).mockImplementationOnce(async () => { order.push("create"); return { id: 1 } })
+    tx.appSetting.upsert.mockImplementationOnce(async () => { order.push("upsert") })
+    let callbacks = 0
+    ;(prisma.$transaction as jest.Mock).mockImplementationOnce(async (fn: (t: typeof tx) => unknown) => {
+      callbacks++
+      const out = await fn(tx)
+      order.push("committed")
+      return out
+    })
+    await createFirstAdmin(fd(valid))
+    expect(callbacks).toBe(1)
+    expect(order).toEqual(["create", "upsert", "committed"])
+  })
+
   it("does not flag onboarding when setup is closed by a concurrent user", async () => {
     tx.user.count.mockResolvedValue(1)
     await createFirstAdmin(fd(valid))

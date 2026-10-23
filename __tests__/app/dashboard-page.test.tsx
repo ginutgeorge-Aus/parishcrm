@@ -39,7 +39,7 @@ import { redirect } from "next/navigation"
 import DashboardPage from "@/app/(dashboard)/page"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
 import { getEnabledFeatures } from "@/lib/featureFlags"
-import { resolveFeatures } from "@/lib/features"
+import { resolveFeatures, FEATURES_ONBOARDING_KEY } from "@/lib/features"
 
 const mockAuth = auth as jest.Mock
 const mockPersonFindMany = prisma.person.findMany as jest.Mock
@@ -77,7 +77,19 @@ describe("DashboardPage first-run feature prompt", () => {
     mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     primeMocks(); pending()
     await expect(DashboardPage()).rejects.toThrow("REDIRECT")
-    expect(mockRedirect).toHaveBeenCalledWith("/settings/features?welcome=1")
+    expect(mockRedirect).toHaveBeenCalledWith("/settings/features")
+    expect(prisma.appSetting.findUnique).toHaveBeenCalledWith({ where: { key: FEATURES_ONBOARDING_KEY } })
+  })
+
+  it("only honours the onboarding key's flag, not another key's pending value", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    primeMocks()
+    // Behaves like the DB: a value exists only for the onboarding key.
+    ;(prisma.appSetting.findUnique as jest.Mock).mockImplementation(async ({ where }: { where: { key: string } }) =>
+      where.key === FEATURES_ONBOARDING_KEY ? null : { key: where.key, value: "pending" })
+    await DashboardPage()
+    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(prisma.appSetting.findUnique).toHaveBeenCalledWith({ where: { key: FEATURES_ONBOARDING_KEY } })
   })
 
   it.each(["PASTOR", "OFFICE_ADMIN", "VIEWER"])("never redirects %s", async (role) => {
@@ -97,7 +109,7 @@ describe("DashboardPage first-run feature prompt", () => {
     expect(prisma.appSetting.findUnique).toHaveBeenCalled()
     release(resolveFeatures({}))
     await run
-    expect(mockRedirect).toHaveBeenCalledWith("/settings/features?welcome=1")
+    expect(mockRedirect).toHaveBeenCalledWith("/settings/features")
   })
 
   it("does not redirect without the flag", async () => {

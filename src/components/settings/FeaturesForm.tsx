@@ -46,7 +46,8 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
   const dirty = JSON.stringify(state) !== JSON.stringify(start)
   // Locked while a request runs and after a first-run success, until navigation.
   const busy = pending || leaving
-  useUnsavedGuard(dirty)
+  // Off once a first-run success is navigating away, so the redirect is not blocked.
+  useUnsavedGuard(dirty && !leaving)
 
   /**
    * Run a save-like action; a transport failure shows a retry message and, on the
@@ -60,7 +61,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
         startTransition(() => setResult(res))
         if (welcome && "success" in res) {
           setLeaving(true)
-          router.push("/")
+          router.replace("/")
         }
       } catch {
         startTransition(() => setResult({ error: failure }))
@@ -120,7 +121,7 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
               Save
             </Button>
             {welcome && (
-              <Button type="button" variant="outline" onClick={keepDefaults} disabled={busy || dirty} aria-describedby={dirty ? "keep-defaults-hint" : undefined} className="min-h-11 w-full sm:w-auto">
+              <Button type="button" variant="outline" onClick={dirty ? undefined : keepDefaults} disabled={busy} aria-disabled={dirty || undefined} aria-describedby={dirty ? "keep-defaults-hint" : undefined} className="min-h-11 w-full sm:w-auto">
                 Keep defaults
               </Button>
             )}
