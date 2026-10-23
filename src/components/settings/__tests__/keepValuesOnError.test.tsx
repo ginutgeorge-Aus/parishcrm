@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { MembershipSettingsForm } from "../MembershipSettingsForm"
 import { ChurchInfoForm } from "../ChurchInfoForm"
 import { AppSettingsForm } from "../AppSettingsForm"
@@ -9,6 +9,18 @@ jest.mock("@/lib/actions/settings", () => ({
   updateChurchInfo: jest.fn(),
   upsertSetting: jest.fn(),
   updateLetterSettings: jest.fn(),
+}))
+
+// Render the shadcn Select as a native <select> so the idle-timeout choice can
+// be driven in jsdom (same pattern as BudgetForm.test.tsx).
+jest.mock("@/components/ui/select", () => ({
+  Select: ({ name, defaultValue, children }: any) => (
+    <select name={name} defaultValue={defaultValue} aria-label="Idle timeout" data-default-value={defaultValue}>{children}</select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: any) => <>{children}</>,
+  SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
 }))
 
 describe("settings forms keep typed values when the action returns an error", () => {
@@ -45,6 +57,21 @@ describe("settings forms keep typed values when the action returns an error", ()
     fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0])
     expect(await screen.findByText("Invalid email address")).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText("Notification email address")).toHaveValue("typed@example.com"))
+  })
+
+  it("AppSettingsForm keeps the rejected idle-timeout choice", async () => {
+    ;(upsertSetting as jest.Mock).mockResolvedValue({ error: "Save failed" })
+    render(<AppSettingsForm ownerNotificationEmail="" membershipSecretaryEmail="" idleTimeoutMinutes={30} cardFeePercent="1.7" cardFeeFixed="0.30" />)
+    fireEvent.change(screen.getByLabelText("Idle timeout"), { target: { value: "120" } })
+    const form = screen.getByLabelText("Idle timeout").closest("form")
+    if (!form) throw new Error("idle-timeout select is not inside a form")
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Save failed")).toBeInTheDocument()
+    await waitFor(() => {
+      const kept = screen.getByLabelText("Idle timeout")
+      expect(kept).toHaveAttribute("data-default-value", "120")
+      expect(kept).toHaveValue("120")
+    })
   })
 
   it("MembershipSettingsForm drops typed values after a later success", async () => {

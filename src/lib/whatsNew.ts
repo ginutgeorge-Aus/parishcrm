@@ -16,6 +16,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.8.0",
+    date: "2026-10-22",
+    highlights: [
+      "A fresh look: a lighter sidebar and a new top bar with a New menu for quick adds, a notifications bell and your account menu.",
+      "Settings now has its own area with tabs for church details and system options, instead of one long page.",
+      "Choose which features your church uses. Features you turn off are hidden from the menu and their pages are closed.",
+      "Fixes for petty cash and transactions when two people save at the same time, and the profit and loss report now fits on phones.",
+    ],
+  },
+  {
     version: "v1.7.0",
     date: "2026-10-17",
     highlights: [

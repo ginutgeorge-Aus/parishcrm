@@ -8,7 +8,7 @@ and members, accounting, event ticketing, petty cash, membership applications,
 and donation receipts, in one app your church runs itself.
 
 > **Single-tenant by design.** One deployment per church, configured through
-> environment variables and an in-app Settings page — not a multi-tenant SaaS.
+> environment variables and an in-app Settings area — not a multi-tenant SaaS.
 > Your data stays on your own server, encrypted at rest.
 
 Built with Next.js 16 (App Router), Prisma 7 + PostgreSQL, NextAuth v5, and

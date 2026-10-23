@@ -1,4 +1,5 @@
-import { attentionItems, buildNavGroups, featureOn, flattenNavItems, navFlagsFor, pendingTotal, type NavFlags } from "@/components/layout/sidebar/navData"
+import { featureOn, navFlagsFor, type NavFlags } from "@/components/layout/navGates"
+import { attentionItems, buildNavGroups, flattenNavItems, pendingTotal } from "@/components/layout/sidebar/navData"
 import { resolveFeatures } from "@/lib/features"
 
 /** Items of the named group, failing loudly if the group is missing. */
@@ -110,11 +111,14 @@ describe("feature toggles", () => {
       .filter((i) => i.show)
       .map((i) => i.href)
 
-  it("all on shows everything plus the Features link", () => {
+  it("all on shows everything; settings tabs live under App Settings, not the sidebar", () => {
     const hrefs = visible({})
     expect(hrefs).toContain("/events")
     expect(hrefs).toContain("/accounting/budget")
-    expect(hrefs).toContain("/settings/features")
+    expect(hrefs).toContain("/settings")
+    expect(hrefs).not.toContain("/settings/features")
+    expect(hrefs).not.toContain("/settings/audit-log")
+    expect(hrefs).not.toContain("/settings/usage")
   })
 
   it("hides events and budget when off", () => {

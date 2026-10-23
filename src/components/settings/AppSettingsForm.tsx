@@ -4,7 +4,6 @@ import { upsertSetting } from "@/lib/actions/settings"
 import { IDLE_TIMEOUT_OPTIONS_LIST } from "@/lib/settingsConstants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -15,6 +14,9 @@ import {
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import { useKeepFormValues } from "./useKeepFormValues"
+import { useFormDirty } from "./unsavedChanges"
+import { SettingsCard } from "./ui/SettingsCard"
+import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
 
 type Props = {
   ownerNotificationEmail: string
@@ -22,89 +24,107 @@ type Props = {
   idleTimeoutMinutes: number
   cardFeePercent: string
   cardFeeFixed: string
-  /** Membership Applications section (Membership forms on). Default true. */
+  /** Membership Applications row (Membership forms on). Default true. */
   showMembership?: boolean
-  /** Card Processing Fee section (Events on). Default true. */
+  /** Card Processing Fee rows (Events on). Default true. */
   showCardFee?: boolean
+}
+
+type KeepFn = (name: string, fallback: string) => string
+
+/**
+ * One app setting saved on its own: a `<form>` holding one `SettingsRow` whose
+ * control is the input plus an inline Save button. Owns its dirty tracking.
+ * @param props.settingKey the AppSetting key posted as the hidden `key` field
+ * @param props.label row label
+ * @param props.description row helper text
+ * @param props.htmlFor id of the control inside `control`
+ * @param props.control renders the input(s); receives the keep-values helper
+ */
+function SettingRow({
+  settingKey, label, description, htmlFor, control,
+}: Readonly<{
+  settingKey: string
+  label: string
+  description: React.ReactNode
+  htmlFor: string
+  control: (keep: KeepFn) => React.ReactNode
+}>) {
+  const [state, formAction, isPending, keep] = useKeepFormValues(upsertSetting)
+  const { ref } = useFormDirty(state)
+  return (
+    <form ref={ref} action={formAction}>
+      <input type="hidden" name="key" value={settingKey} />
+      <SettingsRow label={label} description={description} htmlFor={htmlFor}>
+        <div className="flex gap-2">
+          {control(keep)}
+          <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
+        </div>
+        <FormFeedback state={state} />
+      </SettingsRow>
+    </form>
+  )
 }
 
 /**
  * General app settings: owner alert email, membership alert email, idle
- * timeout and card fee. Feature-owned sections hide while their feature is off.
+ * timeout and card fee. Feature-owned rows hide while their feature is off.
+ * Each setting saves on its own.
+ * @param props the current saved values and feature gates
  */
 export function AppSettingsForm({
   ownerNotificationEmail, membershipSecretaryEmail, idleTimeoutMinutes, cardFeePercent, cardFeeFixed,
   showMembership = true, showCardFee = true,
 }: Readonly<Props>) {
-  const [state, formAction, isPending, keepOwner] = useKeepFormValues(upsertSetting)
-  const [membershipState, membershipFormAction, isMembershipPending, keepMembership] = useKeepFormValues(upsertSetting)
-  const [idleState, idleFormAction, isIdlePending] = useKeepFormValues(upsertSetting)
-  const [pctState, pctFormAction, isPctPending, keepPct] = useKeepFormValues(upsertSetting)
-  const [fixedState, fixedFormAction, isFixedPending, keepFixed] = useKeepFormValues(upsertSetting)
-
   return (
-    <div className="space-y-8">
-      <section>
-        <h3 className="text-base font-semibold text-foreground mb-1">Login Notifications</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          Receive an email whenever a failed login attempt is recorded.
-        </p>
-        <form action={formAction} className="space-y-3">
-          <input type="hidden" name="key" value="ownerNotificationEmail" />
-          <div>
-            <Label htmlFor="owner-email">Notification email address</Label>
-            <Input
-              id="owner-email"
-              name="value"
-              type="email"
-              defaultValue={keepOwner("value", ownerNotificationEmail)}
-              placeholder="owner@example.com"
-              className="mt-1"
-            />
-            <p className="text-xs text-muted-foreground mt-1">Leave blank to disable notifications.</p>
-          </div>
-          <FormFeedback state={state} />
-          <Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save"}</Button>
-        </form>
-      </section>
+    <SettingsCard title="App settings" description="Alerts, sign-out timing and fees. Each setting saves on its own.">
+      <SettingRow
+        settingKey="ownerNotificationEmail"
+        label="Notification email address"
+        htmlFor="owner-email"
+        description="Receives failed-login alerts, public feedback messages, email-delivery-failure alerts and Stripe payment alerts. Leave blank to disable notifications."
+        control={(keep) => (
+          <Input
+            id="owner-email"
+            aria-describedby={settingsDescId("owner-email")}
+            name="value"
+            type="email"
+            defaultValue={keep("value", ownerNotificationEmail)}
+            placeholder="owner@example.com"
+            className="md:w-64"
+          />
+        )}
+      />
       {showMembership && (
-      <section>
-        <h3 className="text-base font-semibold text-foreground mb-1">Membership Applications</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          Where to email an alert when a new public membership application arrives.
-        </p>
-        <form action={membershipFormAction} className="space-y-3">
-          <input type="hidden" name="key" value="membershipSecretaryEmail" />
-          <div>
-            <Label htmlFor="membership-email">Secretary email address(es)</Label>
+        <SettingRow
+          settingKey="membershipSecretaryEmail"
+          label="Secretary email address(es)"
+          htmlFor="membership-email"
+          description="Where to email an alert when a new public membership application arrives. Separate multiple addresses with commas. Leave blank to fall back to the church email."
+          control={(keep) => (
             <Input
               id="membership-email"
+              aria-describedby={settingsDescId("membership-email")}
               name="value"
               type="text"
-              defaultValue={keepMembership("value", membershipSecretaryEmail)}
+              defaultValue={keep("value", membershipSecretaryEmail)}
               placeholder="secretary@example.com, admin@example.com"
-              className="mt-1"
+              className="md:w-64"
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              Separate multiple addresses with commas. Leave blank to fall back to the church email.
-            </p>
-          </div>
-          <FormFeedback state={membershipState} />
-          <Button type="submit" disabled={isMembershipPending}>{isMembershipPending ? "Saving…" : "Save"}</Button>
-        </form>
-      </section>
+          )}
+        />
       )}
-      <section>
-        <h3 className="text-base font-semibold text-foreground mb-1">Session Timeout</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          Automatically sign out inactive users after this period.
-        </p>
-        <form action={idleFormAction} className="space-y-3">
-          <input type="hidden" name="key" value="SESSION_IDLE_TIMEOUT_MINUTES" />
-          <div>
-            <Label htmlFor="idle-timeout">Idle timeout</Label>
-            <Select name="value" defaultValue={String(idleTimeoutMinutes)}>
-              <SelectTrigger id="idle-timeout" className="mt-1 w-full">
+      <SettingRow
+        settingKey="SESSION_IDLE_TIMEOUT_MINUTES"
+        label="Idle timeout"
+        htmlFor="idle-timeout"
+        description="Automatically sign out inactive users after this period."
+        control={(keep) => {
+          const value = keep("value", String(idleTimeoutMinutes))
+          // Keyed: a select's default only applies on mount, so remount to show the kept choice after the form reset
+          return (
+            <Select key={value} name="value" defaultValue={value}>
+              <SelectTrigger id="idle-timeout" aria-describedby={settingsDescId("idle-timeout")} className="w-full md:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -113,61 +133,53 @@ export function AppSettingsForm({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <FormFeedback state={idleState} />
-          <Button type="submit" disabled={isIdlePending}>{isIdlePending ? "Saving…" : "Save"}</Button>
-        </form>
-      </section>
+          )
+        }}
+      />
       {showCardFee && (
-      <section>
-        <h3 className="text-base font-semibold text-foreground mb-1">Card Processing Fee</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          The blended Stripe fee used to gross up paid-event totals when an event
-          opts to pass the card fee to the registrant. Update when Stripe changes
-          its pricing.
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <form action={pctFormAction} className="space-y-3">
-            <input type="hidden" name="key" value="cardFeePercent" />
-            <div>
-              <Label htmlFor="card-fee-percent">Percent (%)</Label>
+        <>
+          <SettingRow
+            settingKey="cardFeePercent"
+            label="Card processing fee: percent (%)"
+            htmlFor="card-fee-percent"
+            description="The blended Stripe fee used to gross up paid-event totals when an event opts to pass the card fee to the registrant. Update when Stripe changes its pricing."
+            control={(keep) => (
               <Input
                 id="card-fee-percent"
+                aria-describedby={settingsDescId("card-fee-percent")}
                 name="value"
                 type="number"
                 step="0.01"
                 min={0}
                 max={10}
-                defaultValue={keepPct("value", cardFeePercent)}
+                defaultValue={keep("value", cardFeePercent)}
                 placeholder="1.7"
-                className="mt-1"
+                className="md:w-32"
               />
-            </div>
-            <FormFeedback state={pctState} />
-            <Button type="submit" disabled={isPctPending}>{isPctPending ? "Saving…" : "Save"}</Button>
-          </form>
-          <form action={fixedFormAction} className="space-y-3">
-            <input type="hidden" name="key" value="cardFeeFixed" />
-            <div>
-              <Label htmlFor="card-fee-fixed">Fixed ({APP_CURRENCY})</Label>
+            )}
+          />
+          <SettingRow
+            settingKey="cardFeeFixed"
+            label={`Card processing fee: fixed (${APP_CURRENCY})`}
+            htmlFor="card-fee-fixed"
+            description="The fixed part of the card fee, added to each card payment."
+            control={(keep) => (
               <Input
                 id="card-fee-fixed"
+                aria-describedby={settingsDescId("card-fee-fixed")}
                 name="value"
                 type="number"
                 step="0.01"
                 min={0}
                 max={5}
-                defaultValue={keepFixed("value", cardFeeFixed)}
+                defaultValue={keep("value", cardFeeFixed)}
                 placeholder="0.30"
-                className="mt-1"
+                className="md:w-32"
               />
-            </div>
-            <FormFeedback state={fixedState} />
-            <Button type="submit" disabled={isFixedPending}>{isFixedPending ? "Saving…" : "Save"}</Button>
-          </form>
-        </div>
-      </section>
+            )}
+          />
+        </>
       )}
-    </div>
+    </SettingsCard>
   )
 }

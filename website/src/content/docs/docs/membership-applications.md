@@ -40,7 +40,7 @@ A public, unauthenticated form (`/membershipform`) lets a visitor apply to join 
 
 ## Configuration
 
-Settings live under **App Settings** (`/settings`, `ADMIN` only) in the **Membership** section, backed by `AppSetting` rows and read via `src/lib/membershipSettings.ts` (`getMembershipSettings`, cached, tag-busted on save):
+Settings live under **App Settings → Members** (`/settings/members`, `ADMIN` only; the tab shows when the Memberships or Welcome Letter feature is on), backed by `AppSetting` rows and read via `src/lib/membershipSettings.ts` (`getMembershipSettings`, cached, tag-busted on save):
 
 | Setting | Effect |
 |---|---|

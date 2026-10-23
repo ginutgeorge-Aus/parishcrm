@@ -36,4 +36,4 @@ The app has two separate "report something" widgets — one for logged-in staff,
 | `GITHUB_TOKEN` | Fine-grained GitHub PAT with Issues: write on `GITHUB_REPO`. Unset = both feedback widgets fail closed with a generic error when submitted (the widgets themselves still render). |
 | `GITHUB_REPO` | `owner/repo` the issues are filed against. |
 
-The parish office notification address for the *public* widget is the same **Settings → App Settings → Owner notification email** used for the email-delivery-failure alert described in [Email-Notifications](/parishcrm/docs/email-notifications/) — there's no separate setting for it.
+The parish office notification address for the *public* widget is the same **Settings → General → Notification email address** used for the email-delivery-failure alert described in [Email-Notifications](/parishcrm/docs/email-notifications/) — there's no separate setting for it.

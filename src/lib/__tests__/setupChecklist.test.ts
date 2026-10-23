@@ -48,6 +48,15 @@ afterAll(() => {
 })
 
 describe("getSetupChecklist", () => {
+  /** Checklist links point at the settings tab pages, not hash anchors. */
+  it("links church and branding steps to the settings tabs", async () => {
+    prime([])
+    const steps = await getSetupChecklist("ADMIN")
+    const href = (id: string) => steps!.find((s) => s.id === id)!.href
+    expect(href("church")).toBe("/settings")
+    expect(href("branding")).toBe("/settings/branding")
+  })
+
   it("returns null without querying for non-admin roles", async () => {
     for (const role of ["PASTOR", "OFFICE_ADMIN", "AUDITOR", "VIEWER", "EVENT_ORGANISER", undefined] as const) {
       expect(await getSetupChecklist(role)).toBeNull()

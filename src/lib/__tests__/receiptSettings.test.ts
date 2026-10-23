@@ -1,4 +1,4 @@
-import { DEFAULT_RECEIPT_SETTINGS, getReceiptSettings } from "@/lib/receiptSettings"
+import { DEFAULT_RECEIPT_SETTINGS, getReceiptSettings, readReceiptSettings } from "@/lib/receiptSettings"
 
 jest.mock("@/lib/prisma", () => ({
   prisma: { appSetting: { findMany: jest.fn() } },
@@ -27,5 +27,10 @@ describe("getReceiptSettings", () => {
   it("returns all defaults on DB error", async () => {
     findMany.mockRejectedValue(new Error("db down"))
     await expect(getReceiptSettings()).resolves.toEqual(DEFAULT_RECEIPT_SETTINGS)
+  })
+
+  it("readReceiptSettings throws on DB error instead of returning defaults", async () => {
+    findMany.mockRejectedValue(new Error("db down"))
+    await expect(readReceiptSettings()).rejects.toThrow("db down")
   })
 })

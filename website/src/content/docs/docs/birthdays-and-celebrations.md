@@ -50,4 +50,4 @@ Both the manual send and the automatic sweep share one mechanism: before sending
 
 - **Settings → auto-birthday-email / auto-anniversary-email** toggles (default off) — enable the daily automatic sweep independently for each celebration type.
 - `CRON_SECRET` env var — required for the `/api/cron/send-celebrations` route to accept requests; if unset, the sweep refuses to run (fails loudly rather than silently sending nothing).
-- Birthday/anniversary email subject/intro/body/signoff are editable per-parish in Settings → Email Templates.
+- Birthday/anniversary email subject/intro/body/signoff are editable per-parish in Settings → Email.

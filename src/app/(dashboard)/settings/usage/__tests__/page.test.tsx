@@ -1,34 +1,36 @@
 // src/app/(dashboard)/settings/usage/__tests__/page.test.tsx
-/** @jest-environment node */
+/** @jest-environment jsdom */
 import UsagePage from "../page"
-import { auth } from "@/auth"
+import { requireSettingsTab } from "@/lib/settingsAccess"
 import { getUsageSummary } from "@/lib/usage"
-import { renderToStaticMarkup } from "react-dom/server"
+import { render } from "@testing-library/react"
 
-jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 jest.mock("@/lib/usage", () => ({ getUsageSummary: jest.fn() }))
 jest.mock("@/lib/routeViews", () => ({
   getTopRoutes: jest.fn().mockResolvedValue([{ route: "/reports", count: 40 }]),
 }))
-jest.mock("next/navigation", () => ({
-  redirect: jest.fn(() => {
-    throw new Error("REDIRECT")
-  }),
-}))
 
-const mockAuth = auth as jest.Mock
+const mockRequire = requireSettingsTab as jest.Mock
+/**
+ * Lets the guard pass and runs the page's load, as the real guard does.
+ * @param features enabled features to report
+ */
+const allow = (features: Set<string>) =>
+  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
 const mockSummary = getUsageSummary as jest.Mock
 
 describe("UsagePage", () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it("redirects a non-admin", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    await expect(UsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT")
+  it("guards with its own tab href and propagates the redirect", async () => {
+    mockRequire.mockRejectedValue(new Error("NEXT_REDIRECT"))
+    await expect(UsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT")
+    expect(mockRequire).toHaveBeenCalledWith("/settings/usage", expect.any(Function))
   })
 
   it("renders adoption + dormant for an admin", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    allow(new Set())
     mockSummary.mockResolvedValue({
       days: 30,
       adoption: [{ resourceType: "Event", count: 9 }],
@@ -37,9 +39,9 @@ describe("UsagePage", () => {
       weeklyTrend: [{ label: "2026-08-01", count: 5 }],
       dormant: ["Budget"],
     })
-    const html = renderToStaticMarkup(await UsagePage({ searchParams: Promise.resolve({}) }))
-    expect(html).toContain("Event")
-    expect(html).toContain("Budget")
-    expect(html).toContain("/reports")
+    const { container } = render(await UsagePage({ searchParams: Promise.resolve({}) }))
+    expect(container).toHaveTextContent("Event")
+    expect(container).toHaveTextContent("Budget")
+    expect(container).toHaveTextContent("/reports")
   })
 })

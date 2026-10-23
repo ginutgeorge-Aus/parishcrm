@@ -78,8 +78,8 @@ login code. Use [Resend](https://resend.com), which sends over HTTPS (port 443):
 - Free tier: 100 emails/day, 3,000/month.
 - `MAIL_FROM` is also the fallback church contact address and membership
   notification destination. A send-only `noreply@` address receives nothing —
-  use a monitored mailbox, or set **Settings → Church Information** email and
-  **Settings → App Settings → Secretary email address(es)** after first login.
+  use a monitored mailbox, or set **App Settings → General** church email and
+  **App Settings → General → Secretary email address(es)** after first login.
 
 ## Related pages
 

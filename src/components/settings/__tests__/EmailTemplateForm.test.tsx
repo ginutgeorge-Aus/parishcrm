@@ -1,6 +1,6 @@
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { EmailTemplateForm } from "@/components/settings/EmailTemplateForm"
-import { previewEmailTemplate, resetEmailTemplate } from "@/lib/actions/emailTemplates"
+import { previewEmailTemplate, resetEmailTemplate, updateEmailTemplate } from "@/lib/actions/emailTemplates"
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
 
 jest.mock("@/lib/actions/emailTemplates", () => ({
@@ -82,5 +82,46 @@ describe("EmailTemplateForm", () => {
       expect(screen.getByDisplayValue(DEFAULT_EMAIL_TEMPLATES.welcome.subject)).toBeInTheDocument()
     )
     expect(screen.queryByDisplayValue("MY OLD DRAFT")).toBeNull()
+  })
+
+  describe("unsaved-changes guard", () => {
+    /** True when a reload would prompt (the form registered as dirty). */
+    const isDirty = () => {
+      const e = new Event("beforeunload", { cancelable: true })
+      window.dispatchEvent(e)
+      return e.defaultPrevented
+    }
+    const initial = { subject: "s", intro: "", body: "", signoff: "" }
+
+    it("is dirty after an edit and clean again when reverted", () => {
+      render(<EmailTemplateForm templateKey="welcome" initial={initial} />)
+      const subject = screen.getByDisplayValue("s")
+      expect(isDirty()).toBe(false)
+      fireEvent.change(subject, { target: { value: "edited" } })
+      expect(isDirty()).toBe(true)
+      fireEvent.change(subject, { target: { value: "s" } })
+      expect(isDirty()).toBe(false)
+    })
+
+    it("is clean after a successful save, dirty after a failed one", async () => {
+      ;(updateEmailTemplate as jest.Mock).mockResolvedValueOnce({ error: "nope" }).mockResolvedValueOnce({ success: "Template saved" })
+      render(<EmailTemplateForm templateKey="welcome" initial={initial} />)
+      fireEvent.change(screen.getByDisplayValue("s"), { target: { value: "edited" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+      await waitFor(() => expect(screen.getByText("nope")).toBeInTheDocument())
+      expect(isDirty()).toBe(true)
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+      await waitFor(() => expect(screen.getByText("Template saved")).toBeInTheDocument())
+      expect(isDirty()).toBe(false)
+    })
+
+    it("is clean after a successful reset", async () => {
+      ;(resetEmailTemplate as jest.Mock).mockResolvedValue({ success: "Reset to default." })
+      render(<EmailTemplateForm templateKey="welcome" initial={initial} />)
+      fireEvent.change(screen.getByDisplayValue("s"), { target: { value: "edited" } })
+      fireEvent.click(screen.getByText("Reset to default"))
+      await waitFor(() => expect(screen.getByDisplayValue(DEFAULT_EMAIL_TEMPLATES.welcome.subject)).toBeInTheDocument())
+      expect(isDirty()).toBe(false)
+    })
   })
 })

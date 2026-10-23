@@ -21,7 +21,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: {} }))
 describe("ReceiptSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
+    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true, settings: DEFAULT_RECEIPT_SETTINGS })
     ;(resetReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
   })
 
@@ -44,6 +44,30 @@ describe("ReceiptSettingsSection", () => {
     render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }))
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/saved/i))
+  })
+
+  it("shows the default and stays clean after saving a blank field", async () => {
+    render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "" } })
+    const dirtyEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() => expect(prefix.value).toBe(DEFAULT_RECEIPT_SETTINGS.numberPrefix))
+    const cleanEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(cleanEvent)
+    expect(cleanEvent.defaultPrevented).toBe(false)
+  })
+
+  it("keeps the typed values when the save returns no settings", async () => {
+    ;(updateReceiptSettings as jest.Mock).mockResolvedValue({ ok: true })
+    render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "RCPT" } })
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/saved/i))
+    expect(prefix.value).toBe("RCPT")
   })
 
   it("shows the error message when save fails", async () => {
@@ -90,5 +114,16 @@ describe("ReceiptSettingsSection", () => {
 
     await waitFor(() => expect(resetReceiptSettings).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(prefix.value).toBe(DEFAULT_RECEIPT_SETTINGS.numberPrefix))
+  })
+
+  it("adopts revalidated settings (blank saved as default) so the form is clean", () => {
+    const { rerender } = render(<ReceiptSettingsSection settings={DEFAULT_RECEIPT_SETTINGS} />)
+    const prefix = screen.getByLabelText(/receipt number prefix/i) as HTMLInputElement
+    fireEvent.change(prefix, { target: { value: "" } })
+    expect(prefix.value).toBe("")
+    rerender(<ReceiptSettingsSection settings={{ ...DEFAULT_RECEIPT_SETTINGS }} />)
+    expect(prefix.value).toBe("")
+    rerender(<ReceiptSettingsSection settings={{ ...DEFAULT_RECEIPT_SETTINGS, numberPrefix: "NEW" }} />)
+    expect(prefix.value).toBe("NEW")
   })
 })
