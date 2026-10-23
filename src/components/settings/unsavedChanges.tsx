@@ -53,6 +53,7 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
   const dirtyState = useRef<unknown>(null)
   const dirtyIndex = useRef<number | null>(null)
   const restoring = useRef(false)
+  const restoreTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
     /**
      * Back/Forward while dirty: confirm, else stop Next's handler and put the
@@ -60,7 +61,8 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
      * never prompt (URLs are compared without the fragment).
      * Preferred restore: with the Navigation API, `history.go(dirtyIndex - currentIndex)`
      * returns to the exact entry, so Forward entries and the stack are untouched;
-     * the popstate that traversal fires is swallowed via `restoring`.
+     * the popstate that traversal fires is swallowed via `restoring` (only if it
+     * landed on the dirty entry; the flag also expires after 500ms if no popstate comes).
      * Fallback (no Navigation API): `pushState` re-adds the dirty URL with the
      * state captured when the form became dirty (not the destination's state,
      * which holds the other page's router tree). Trade-off: it adds one history
@@ -71,9 +73,13 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
      */
     const onPopState = (e: PopStateEvent) => {
       if (restoring.current) {
+        const landed = window.navigation?.currentEntry?.index
         restoring.current = false
-        e.stopImmediatePropagation()
-        return
+        clearTimeout(restoreTimer.current)
+        if (landed == null || landed === dirtyIndex.current) {
+          e.stopImmediatePropagation()
+          return
+        }
       }
       if (dirtyIds.current.size === 0 || withoutHash(window.location.href) === withoutHash(dirtyUrl.current)) return
       if (window.confirm(DISCARD_PROMPT)) return
@@ -82,6 +88,9 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
       const delta = dirtyIndex.current !== null && current != null ? dirtyIndex.current - current : 0
       if (delta !== 0) {
         restoring.current = true
+        // If go() fires no popstate (e.g. the target entry is gone), don't swallow the next real one.
+        clearTimeout(restoreTimer.current)
+        restoreTimer.current = setTimeout(() => { restoring.current = false }, 500)
         window.history.go(delta)
       } else {
         window.history.pushState(dirtyState.current, "", dirtyUrl.current)

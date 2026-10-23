@@ -309,10 +309,36 @@ describe("popstate guard: hash and Navigation API", () => {
     expect(push).not.toHaveBeenCalled()
     // The traversal back to the dirty entry fires its own popstate: no second prompt, not forwarded.
     confirm.mockClear()
+    nav.currentEntry.index = 5 // the go() landed back on the dirty entry
     window.history.replaceState(null, "", "/settings/general")
     window.dispatchEvent(new PopStateEvent("popstate"))
     expect(confirm).not.toHaveBeenCalled()
     expect(next).not.toHaveBeenCalled()
     window.removeEventListener("popstate", next)
+  })
+})
+
+describe("popstate guard: restoring flag expiry", () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+    jest.useRealTimers()
+    delete (window as { navigation?: unknown }).navigation
+  })
+
+  it("go() with no popstate does not swallow the next real Back", () => {
+    jest.useFakeTimers()
+    const confirm = jest.spyOn(window, "confirm").mockReturnValue(false)
+    const nav = { currentEntry: { index: 5 } }
+    Object.defineProperty(window, "navigation", { configurable: true, value: nav })
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    jest.spyOn(window.history, "go").mockImplementation(() => {})
+    nav.currentEntry.index = 4
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate")) // cancel -> go(1), no popstate follows
+    expect(confirm).toHaveBeenCalledTimes(1)
+    act(() => { jest.advanceTimersByTime(600) })
+    window.dispatchEvent(new PopStateEvent("popstate")) // a later real Back must prompt again
+    expect(confirm).toHaveBeenCalledTimes(2)
   })
 })
