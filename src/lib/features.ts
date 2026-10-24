@@ -82,7 +82,7 @@ export function parseOverrides(raw: string | null | undefined): FeatureOverrides
 /**
  * `parseOverrides` for a stored row value, also reporting whether a non-empty
  * value yielded nothing usable (corrupt JSON). Pure: server callers log the
- * fallback to defaults via `warnUnreadableOverrides`.
+ * fallback to defaults via `parseOverridesWarn` (featuresWarn.ts).
  * @param raw stored `features` setting value
  */
 export function parseStoredOverrides(raw: string | null | undefined): { overrides: FeatureOverrides; unreadable: boolean } {
