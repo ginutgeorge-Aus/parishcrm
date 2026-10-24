@@ -9,6 +9,8 @@ from the Conventional Commit PR titles merged to `main` (`feat:` → Added,
 `fix:` → Fixed, …) — don't edit it by hand. Before merging a release PR, add a
 top (newest-first) entry to `WHATS_NEW` in `src/lib/whatsNew.ts` with 1–4
 short, plain-English, user-facing highlights, on the release PR's branch.
+Also add checkpoints for that version to `TEST_CHECKPOINTS` in
+`src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
 ## [1.8.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.7.0...v1.8.0) (2026-10-22)
 
