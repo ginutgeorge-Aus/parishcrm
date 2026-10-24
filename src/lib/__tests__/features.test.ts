@@ -48,13 +48,13 @@ describe("parseOverrides", () => {
 })
 
 describe("parseStoredOverrides", () => {
-  it("warns on a corrupt value but not on an empty object, however it is formatted", () => {
+  it("is pure: flags a corrupt value but not an empty object, however it is formatted", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined)
     try {
-      for (const raw of [null, "", "{}", "{ }", "{\n}"]) parseStoredOverrides(raw)
+      for (const raw of [null, "", "{}", "{ }", "{\n}"]) expect(parseStoredOverrides(raw)).toEqual({ overrides: {}, unreadable: false })
+      expect(parseStoredOverrides("not json")).toEqual({ overrides: {}, unreadable: true })
+      expect(parseStoredOverrides('{"events":false}')).toEqual({ overrides: { events: false }, unreadable: false })
       expect(warn).not.toHaveBeenCalled()
-      parseStoredOverrides("not json")
-      expect(warn).toHaveBeenCalledTimes(1)
     } finally {
       warn.mockRestore()
     }

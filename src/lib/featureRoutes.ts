@@ -1,4 +1,5 @@
-import { FEATURES_SETTING_KEY, parseStoredOverrides, resolveFeatures, type FeatureKey } from "@/lib/features"
+import { FEATURES_SETTING_KEY, resolveFeatures, type FeatureKey, type FeatureOverrides } from "@/lib/features"
+import { parseOverridesWarn } from "@/lib/featuresWarn"
 import {
   getSettingsSnapshot, invalidateSettingsSnapshot, settingsGeneration, type SettingsSnapshot,
 } from "@/lib/settingsSnapshot"
@@ -100,7 +101,8 @@ export function featureOffRedirect(pathname: string): string | null {
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
 // Last successfully resolved set. Survives invalidation so a read failure right after
-// a save still serves the previous set instead of failing open.
+// a save still serves the previous set instead of failing open; a save seeds it with
+// the just-saved set, so that fallback is the saved set, not the pre-save one.
 let lastKnown: Set<FeatureKey> | null = null
 // Resolved set per distinct stored value: a bad value is parsed (and warned about) once, not per refresh.
 let resolved: { raw: string | null; on: Set<FeatureKey> } | null = null
@@ -111,7 +113,7 @@ let resolved: { raw: string | null; on: Set<FeatureKey> } | null = null
  * @param raw stored `features` setting value
  */
 function resolveStored(raw: string | null): Set<FeatureKey> {
-  if (resolved?.raw !== raw) resolved = { raw, on: resolveFeatures(parseStoredOverrides(raw)) }
+  if (resolved?.raw !== raw) resolved = { raw, on: resolveFeatures(parseOverridesWarn(raw)) }
   return resolved.on
 }
 
@@ -143,10 +145,13 @@ export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null
  * when the middleware shares this module instance (dev, single bundle); a
  * production build may bundle the middleware separately, in which case it
  * converges within the TTL instead. The last known set is kept as the
- * read-failure fallback.
+ * read-failure fallback; when `saved` is given it replaces it, so a DB read that
+ * fails right after a save serves the saved set rather than the pre-save one.
+ * @param saved overrides just written by the save (omit to keep the previous fallback)
  */
-export function invalidateFeatureRouteCache(): void {
+export function invalidateFeatureRouteCache(saved?: FeatureOverrides): void {
   invalidateSettingsSnapshot()
+  if (saved) lastKnown = resolveFeatures(saved)
 }
 
 /** Test hook: drop every cached state (snapshot, failure, resolved and last-known sets). */

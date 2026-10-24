@@ -58,7 +58,7 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
     })
   })
   // Drop the 5s route cache now where the middleware shares this module instance; otherwise it converges within the TTL.
-  invalidateFeatureRouteCache()
+  invalidateFeatureRouteCache(next)
   revalidatePath("/", "layout")
   return { success: "Features saved" }
 }
