@@ -62,3 +62,23 @@ export async function saveFeatures(input: Record<string, boolean>): Promise<Acti
   revalidatePath("/", "layout")
   return { success: "Features saved" }
 }
+
+/**
+ * "Keep defaults" on the first-run prompt: ends onboarding without changing
+ * any feature. ADMIN only; blocked in DEMO_MODE.
+ */
+export async function finishFeatureOnboarding(): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!isAdmin(session?.user?.role)) return { error: "Forbidden" }
+  const userId = actorId(session)
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.appSetting.deleteMany({ where: { key: FEATURES_ONBOARDING_KEY } })
+    // Only audit a real state change; a repeat click is a harmless no-op.
+    if (count > 0) await logAuditTx(tx, userId, "FINISH_FEATURE_ONBOARDING", "AppSetting", undefined, { key: FEATURES_ONBOARDING_KEY })
+  })
+  // The dashboard's first-run redirect reads the flag, so refresh cached pages.
+  revalidatePath("/", "layout")
+  return { success: "Default features kept" }
+}

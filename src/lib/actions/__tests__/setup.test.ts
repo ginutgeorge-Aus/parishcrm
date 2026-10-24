@@ -10,6 +10,7 @@ jest.mock("bcryptjs", () => ({ hash: jest.fn(async () => "hashed") }))
 
 const tx = {
   user: { count: jest.fn(), create: jest.fn() },
+  appSetting: { upsert: jest.fn() },
 }
 jest.mock("@/lib/prisma", () => ({
   prisma: {
@@ -79,6 +80,37 @@ describe("createFirstAdmin", () => {
     })
     expect(logAudit).toHaveBeenCalledWith(1, "SETUP_FIRST_ADMIN", "User", 1, undefined, "203.0.113.9")
   })
+  it("flags first-run feature onboarding in the same transaction as the admin insert", async () => {
+    await createFirstAdmin(fd(valid))
+    expect(tx.appSetting.upsert).toHaveBeenCalledWith({
+      where: { key: "features.onboarding" },
+      create: { key: "features.onboarding", value: "pending" },
+      update: { value: "pending" },
+    })
+  })
+
+  it("runs the user insert and the flag upsert inside one transaction callback", async () => {
+    const order: string[] = []
+    ;(tx.user.create as jest.Mock).mockImplementationOnce(async () => { order.push("create"); return { id: 1 } })
+    tx.appSetting.upsert.mockImplementationOnce(async () => { order.push("upsert") })
+    let callbacks = 0
+    ;(prisma.$transaction as jest.Mock).mockImplementationOnce(async (fn: (t: typeof tx) => unknown) => {
+      callbacks++
+      const out = await fn(tx)
+      order.push("committed")
+      return out
+    })
+    await createFirstAdmin(fd(valid))
+    expect(callbacks).toBe(1)
+    expect(order).toEqual(["create", "upsert", "committed"])
+  })
+
+  it("does not flag onboarding when setup is closed by a concurrent user", async () => {
+    tx.user.count.mockResolvedValue(1)
+    await createFirstAdmin(fd(valid))
+    expect(tx.appSetting.upsert).not.toHaveBeenCalled()
+  })
+
   it("trims but keeps the email's case (login matches it exactly as typed)", async () => {
     await createFirstAdmin(fd({ ...valid, email: "  Admin@Example.com " }))
     expect(tx.user.create.mock.calls[0][0].data.email).toBe("Admin@Example.com")
