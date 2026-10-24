@@ -100,6 +100,17 @@ test("a partial failure still audits the write that committed", async () => {
   expect(logAudit).toHaveBeenCalledWith(expect.anything(), "SETTING_UPDATED", "AppSetting", undefined, { keys: ["autoBirthdayEmail"] })
 })
 
+test("a failed write is logged server-side by setting key", async () => {
+  const err = jest.spyOn(console, "error").mockImplementation(() => {})
+  const boom = Object.assign(new Error("secret query text"), { code: "P2034" })
+  ;(prisma.appSetting.upsert as jest.Mock).mockResolvedValueOnce({}).mockRejectedValueOnce(boom)
+  ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([])
+  await updateAutoEmailFlags(undefined, new FormData())
+  expect(err).toHaveBeenCalledTimes(1)
+  expect(err).toHaveBeenCalledWith("updateAutoEmailFlags: failed to save autoAnniversaryEmail (P2034)")
+  err.mockRestore()
+})
+
 test("a write where nothing committed logs no audit", async () => {
   ;(prisma.appSetting.upsert as jest.Mock).mockRejectedValue(new Error("db"))
   ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([])

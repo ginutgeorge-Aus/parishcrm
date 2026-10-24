@@ -23,9 +23,12 @@ export async function readRawOverrides(
   return parseOverridesWarn(row?.value)
 }
 
-/** Enabled feature set, read once per request. */
+/** Stored overrides, read once per request (outside any transaction). */
+export const getStoredOverrides = cache((): Promise<FeatureOverrides> => readRawOverrides())
+
+/** Enabled feature set, derived from the per-request stored overrides. */
 export const getEnabledFeatures = cache(async (): Promise<Set<FeatureKey>> =>
-  resolveFeatures(await readRawOverrides()))
+  resolveFeatures(await getStoredOverrides()))
 
 /** True when `key` is on. */
 export async function isFeatureOn(key: FeatureKey): Promise<boolean> {

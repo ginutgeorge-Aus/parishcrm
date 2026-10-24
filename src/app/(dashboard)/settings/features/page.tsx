@@ -1,5 +1,5 @@
 import { requireSettingsTab } from "@/lib/settingsAccess"
-import { readRawOverrides } from "@/lib/featureFlags"
+import { getStoredOverrides } from "@/lib/featureFlags"
 import { FeaturesForm } from "@/components/settings/FeaturesForm"
 import { prisma } from "@/lib/prisma"
 import { isDemoMode } from "@/lib/demoMode"
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic"
  */
 export default async function FeaturesPage() {
   const [{ data: initial }, flag] = await Promise.all([
-    requireSettingsTab("/settings/features", readRawOverrides),
+    requireSettingsTab("/settings/features", getStoredOverrides),
     isDemoMode() ? null : prisma.appSetting.findUnique({ where: { key: FEATURES_ONBOARDING_KEY } }),
   ])
   return <FeaturesForm initial={initial} welcome={flag?.value === "pending"} />

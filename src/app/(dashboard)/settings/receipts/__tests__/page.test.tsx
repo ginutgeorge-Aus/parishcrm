@@ -3,13 +3,10 @@ import { render } from "@testing-library/react"
 
 jest.mock("@/lib/settingsAccess", () => ({ requireSettingsTab: jest.fn() }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
+import { allowSettingsTab } from "@/test-utils/allowSettingsTab"
 const mockRequire = requireSettingsTab as jest.Mock
-/**
- * Lets the guard pass and runs the page's load, as the real guard does.
- * @param features enabled features to report
- */
-const allow = (features: Set<string>) =>
-  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
+/** Lets the guard pass and runs the page's load. */
+const allow = (features: Set<string>) => allowSettingsTab(mockRequire, features)
 
 /** Stub component that prints its name and JSON props. */
 function stub(name: string) {
