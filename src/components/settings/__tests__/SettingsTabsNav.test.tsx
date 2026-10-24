@@ -3,7 +3,7 @@
  */
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { SettingsTabs } from "../SettingsTabs"
-import type { SettingsTabGroup } from "../settingsTabs"
+import type { SettingsTabGroup } from "@/lib/settingsTabs"
 import { UnsavedChangesProvider, useUnsavedGuard } from "../unsavedChanges"
 
 const push = jest.fn()

@@ -1,13 +1,13 @@
 /** @jest-environment node */
 jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))
-jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/auth", () => ({ getSession: jest.fn() }))
 jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn() }))
 
-import { auth } from "@/auth"
+import { getSession } from "@/auth"
 import { getEnabledFeatures } from "@/lib/featureFlags"
-import { requireSettingsTab } from "@/lib/settingsAccess"
+import { requireSettingsTab, getSettingsSession } from "@/lib/settingsAccess"
 
-const mockAuth = auth as unknown as jest.Mock
+const mockAuth = getSession as unknown as jest.Mock
 const mockFeatures = getEnabledFeatures as jest.Mock
 
 beforeEach(() => {
@@ -26,7 +26,7 @@ it("redirects a feature-off tab to /settings", async () => {
 
 it("returns the features for a visible tab", async () => {
   mockFeatures.mockResolvedValue(new Set(["memberships"]))
-  await expect(requireSettingsTab("/settings/members")).resolves.toEqual({ features: new Set(["memberships"]), data: undefined })
+  await expect(requireSettingsTab("/settings/members")).resolves.toEqual({ features: new Set(["memberships"]), data: null })
 })
 
 describe("load", () => {
@@ -42,8 +42,7 @@ describe("load", () => {
     mockFeatures.mockReturnValue(new Promise((r) => { release = r }))
     const load = jest.fn().mockResolvedValue("rows")
     const result = requireSettingsTab("/settings", load)
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise((r) => setImmediate(r)) // let queued microtasks run, not an exact tick count
     expect(load).toHaveBeenCalled()
     release(new Set())
     await expect(result).resolves.toEqual({ features: new Set(), data: "rows" })
@@ -56,5 +55,27 @@ describe("load", () => {
 
   it("re-raises a load failure on a visible tab", async () => {
     await expect(requireSettingsTab("/settings", () => Promise.reject(new Error("db down")))).rejects.toThrow("db down")
+  })
+})
+
+describe("cached session getter", () => {
+  it("reads the session through the shared getSession", async () => {
+    mockAuth.mockClear()
+    await requireSettingsTab("/settings")
+    expect(mockAuth).toHaveBeenCalledTimes(1)
+    expect(getSettingsSession).toBe(getSession)
+  })
+})
+
+describe("overload typing", () => {
+  it("types data as null without load and as the load result with it", async () => {
+    const none = await requireSettingsTab("/settings")
+    // @ts-expect-error data is null when no load is passed, not a non-nullable value
+    const asString: string = none.data
+    expect(none.data).toBeNull()
+    const some = await requireSettingsTab("/settings", async () => 42)
+    const n: number = some.data
+    expect(n).toBe(42)
+    void asString
   })
 })

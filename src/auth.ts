@@ -1,3 +1,4 @@
+import { cache } from "react"
 import NextAuth, { CredentialsSignin } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { compare, hash } from "bcryptjs"
@@ -613,7 +614,7 @@ export async function jwtCallback({
   return token
 }
 
-export const { auth, handlers, signOut } = NextAuth({
+const nextAuth = NextAuth({
   ...authConfig,
   providers: [
     Credentials({
@@ -655,3 +656,13 @@ export const { auth, handlers, signOut } = NextAuth({
   // hard cap now lives in jwtCallback (non-remember branch), not in maxAge.
   session: { strategy: "jwt", maxAge: 604800 },
 })
+
+export const { auth, handlers, signOut } = nextAuth
+
+/**
+ * Per-request session: wraps `auth()` in React `cache()` so the layout, the
+ * page guards and any other server component in one request decode the JWT
+ * (and run the jwt callback's user re-query) once. Same semantics as `auth()`.
+ * Server components only; route handlers and server actions keep calling `auth()`.
+ */
+export const getSession = cache(() => nextAuth.auth())
