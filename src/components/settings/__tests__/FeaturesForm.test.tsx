@@ -3,15 +3,21 @@
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { FeaturesForm } from "@/components/settings/FeaturesForm"
-import { saveFeatures } from "@/lib/actions/features"
+import { finishFeatureOnboarding, saveFeatures } from "@/lib/actions/features"
 import { FEATURES } from "@/lib/features"
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/components/settings/unsavedChanges"
 
-jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn() }))
+jest.mock("@/lib/actions/features", () => ({ saveFeatures: jest.fn(), finishFeatureOnboarding: jest.fn() }))
+const replace = jest.fn()
+jest.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }))
 
 const mockSave = saveFeatures as jest.Mock
 
-beforeEach(() => mockSave.mockReset())
+beforeEach(() => {
+  mockSave.mockReset()
+  ;(finishFeatureOnboarding as jest.Mock).mockReset()
+  replace.mockReset()
+})
 
 describe("FeaturesForm", () => {
   it("renders without React key warnings (with a positive control)", () => {
@@ -54,16 +60,30 @@ describe("FeaturesForm", () => {
 
   it("turning Accounting off disables its children", () => {
     render(<FeaturesForm initial={{}} />)
-    expect(screen.getByLabelText("Budget")).toBeEnabled()
+    const budget = screen.getByLabelText("Budget")
+    expect(budget).not.toHaveAttribute("aria-disabled")
     fireEvent.click(screen.getByLabelText("Accounting"))
-    expect(screen.getByLabelText("Budget")).toBeDisabled()
+    // Blocked, not disabled: stays focusable so its "Needs …" reason is reachable.
+    expect(budget).toHaveAttribute("aria-disabled", "true")
+    expect(budget).toBeEnabled()
+    budget.focus()
+    expect(budget).toHaveFocus()
     expect(screen.getAllByText("Needs Accounting").length).toBeGreaterThan(0)
+  })
+
+  it("clicking a blocked switch does not change it", () => {
+    render(<FeaturesForm initial={{ accounting: false, budget: false }} />)
+    // Budget's own choice (off) is hidden while Accounting is off; a click must
+    // not overwrite it, so it is still off once Accounting is back on.
+    fireEvent.click(screen.getByLabelText("Budget"))
+    fireEvent.click(screen.getByLabelText("Accounting"))
+    expect(screen.getByLabelText("Budget")).not.toBeChecked()
   })
 
   it("turning Membership forms off disables dues", () => {
     render(<FeaturesForm initial={{}} />)
     fireEvent.click(screen.getByLabelText("Membership forms"))
-    expect(screen.getByLabelText("Subscription dues")).toBeDisabled()
+    expect(screen.getByLabelText("Subscription dues")).toHaveAttribute("aria-disabled", "true")
     expect(screen.getByText("Needs Membership forms")).toBeInTheDocument()
   })
 
@@ -102,6 +122,77 @@ describe("FeaturesForm", () => {
     const warning = screen.getByText(/registration links will stop working/)
     expect(warning).toHaveAttribute("role", "status")
     expect(screen.getByLabelText("Events")).toHaveAccessibleDescription(expect.stringContaining("registration links will stop working"))
+  })
+
+  it("outside onboarding, Save stays on the page and there is no Keep defaults", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} />)
+    expect(screen.queryByRole("button", { name: "Keep defaults" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(screen.getByText("Features saved")).toBeInTheDocument())
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("on the welcome prompt, Save continues to the dashboard", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
+  })
+
+  it("Keep defaults ends onboarding without saving and continues", async () => {
+    ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ success: "Default features kept" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
+    expect(mockSave).not.toHaveBeenCalled()
+  })
+
+  it("disables Keep defaults while the form is dirty, with a linked hint", () => {
+    render(<FeaturesForm initial={{}} welcome />)
+    const keep = screen.getByRole("button", { name: "Keep defaults" })
+    expect(keep).toBeEnabled()
+    fireEvent.click(screen.getByLabelText("Events"))
+    expect(keep).toHaveAttribute("aria-disabled", "true")
+    expect(keep).toBeEnabled() // stays focusable
+    fireEvent.click(keep)
+    expect(finishFeatureOnboarding).not.toHaveBeenCalled()
+    expect(keep).toHaveAccessibleDescription("Save your changes, or undo them to keep the defaults")
+    fireEvent.click(screen.getByLabelText("Events"))
+    expect(keep).not.toHaveAttribute("aria-disabled")
+  })
+
+  it("does not trigger the unsaved-changes prompt when leaving after a first-run save", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByLabelText("Events"))
+    const before = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(before)
+    expect(before.defaultPrevented).toBe(true) // control: dirty form does prompt
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
+    const after = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(after)
+    expect(after.defaultPrevented).toBe(false)
+  })
+
+  it("keeps both buttons disabled after a first-run success until navigation", async () => {
+    mockSave.mockResolvedValue({ success: "Features saved" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"))
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
+    expect(screen.getByRole("button", { name: "Keep defaults" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(mockSave).toHaveBeenCalledTimes(1)
+  })
+
+  it("stays on the prompt when Keep defaults fails", async () => {
+    ;(finishFeatureOnboarding as jest.Mock).mockResolvedValue({ error: "Disabled in the live demo" })
+    render(<FeaturesForm initial={{}} welcome />)
+    fireEvent.click(screen.getByRole("button", { name: "Keep defaults" }))
+    await waitFor(() => expect(screen.getByText("Disabled in the live demo")).toBeInTheDocument())
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("shows the welcome banner only when welcome", () => {

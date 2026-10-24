@@ -21,6 +21,8 @@ import { SetupChecklist } from "@/components/dashboard/SetupChecklist"
 import { NeedsAttention } from "@/components/dashboard/NeedsAttention"
 import { BalanceTile } from "@/components/accounting/BalanceTile"
 import { getEnabledFeatures } from "@/lib/featureFlags"
+import { FEATURES_ONBOARDING_KEY } from "@/lib/features"
+import { isDemoMode } from "@/lib/demoMode"
 import { buildAttentionItems, canHaveAttentionItems, toUnreconciledRows } from "@/lib/dashboardAttention"
 
 /**
@@ -33,8 +35,20 @@ export default async function DashboardPage() {
   if (!session) redirect("/login")
   const role = session?.user?.role
 
+  // First-run prompt: a new install's admin picks features before the
+  // dashboard. Checked here, not in the layout (which also wraps
+  // /settings/features and would loop). Save or "Keep defaults" clears it.
+  // The flag read runs in parallel with the feature lookup; non-admins and
+  // the demo skip it entirely.
+  const [features, onboarding] = await Promise.all([
+    getEnabledFeatures(),
+    isAdmin(role) && !isDemoMode()
+      ? prisma.appSetting.findUnique({ where: { key: FEATURES_ONBOARDING_KEY } })
+      : null,
+  ])
+  if (onboarding?.value === "pending") redirect("/settings/features")
+
   // Off features skip their queries as well as their widgets.
-  const features = await getEnabledFeatures()
   const showMoney = canViewAccounting(role) && features.has("accounting")
   const showCelebrations = canViewPeople(role) && features.has("celebrations")
   const showEvents = features.has("events")
