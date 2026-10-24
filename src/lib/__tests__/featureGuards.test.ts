@@ -121,6 +121,43 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/(dashboard)/accounting/invoices/[id]/pdf/route.ts": "invoices",
 }
 
+// API routes deliberately not owned by an optional feature, with the reason.
+// Every src/app/api route.ts must be in GUARDED_ROUTES or here, so a new
+// feature-owned handler can't ship unguarded by omission.
+const EXEMPT_API_ROUTES: Record<string, string> = {
+  "src/app/api/auth/[...nextauth]/route.ts": "core: NextAuth sign-in/session endpoints",
+  "src/app/api/branding/[slot]/route.ts": "core: public church logo/branding images",
+  "src/app/api/health/route.ts": "core: uptime/health probe",
+  "src/app/api/cron/error-issues/route.ts": "core: error digest, not feature-owned",
+  "src/app/api/cron/sweep-checkouts/route.ts": "in-flight payments must settle while events is off",
+  "src/app/api/stripe/webhook/route.ts": "in-flight payments must settle while events is off",
+  "src/app/api/import/families/route.ts": "core: family CSV import (admin only)",
+  "src/app/api/import/families/check/route.ts": "core: family CSV import dry run (admin only)",
+  "src/app/api/people/export/route.ts": "core: people CSV export (admin only)",
+  "src/app/api/people/[id]/export/route.ts": "core: single person data export (admin only)",
+}
+
+/**
+ * Every route.ts under `dir`, as repo-relative paths.
+ * @param dir repo-relative directory to walk
+ */
+const walkRoutes = (dir: string): string[] =>
+  fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walkRoutes(`${dir}/${e.name}`) : e.name === "route.ts" ? [`${dir}/${e.name}`] : [])
+
+it("every src/app/api route.ts is guarded or explicitly exempt (with a reason)", () => {
+  const unmapped = walkRoutes("src/app/api").filter((f) => !(f in GUARDED_ROUTES) && !(f in EXEMPT_API_ROUTES))
+  expect(unmapped).toEqual([])
+  for (const reason of Object.values(EXEMPT_API_ROUTES)) expect(reason.trim().length).toBeGreaterThan(0)
+})
+
+it("no GUARDED_ROUTES or EXEMPT_API_ROUTES entry is stale or double-listed", () => {
+  const missing = [...Object.keys(GUARDED_ROUTES), ...Object.keys(EXEMPT_API_ROUTES)]
+    .filter((f) => !fs.existsSync(path.join(process.cwd(), f)))
+  expect(missing).toEqual([])
+  expect(Object.keys(EXEMPT_API_ROUTES).filter((f) => f in GUARDED_ROUTES)).toEqual([])
+})
+
 it("every route.ts inside a gated segment is itself gated", () => {
   const walk = (dir: string): string[] =>
     fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) =>
