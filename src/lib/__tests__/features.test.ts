@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { FEATURES, FEATURE_KEYS, parseOverrides, resolveFeatures } from "@/lib/features"
+import { FEATURES, FEATURE_KEYS, parseOverrides, parseStoredOverrides, resolveFeatures } from "@/lib/features"
 
 describe("features registry", () => {
   it("every parent/requires refers to a known key", () => {
@@ -44,5 +44,19 @@ describe("parseOverrides", () => {
 
   it("keeps known boolean keys, drops unknown keys and non-booleans", () => {
     expect(parseOverrides('{"events":false,"bogus":false,"budget":"no"}')).toEqual({ events: false })
+  })
+})
+
+describe("parseStoredOverrides", () => {
+  it("warns on a corrupt value but not on an empty object, however it is formatted", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined)
+    try {
+      for (const raw of [null, "", "{}", "{ }", "{\n}"]) parseStoredOverrides(raw)
+      expect(warn).not.toHaveBeenCalled()
+      parseStoredOverrides("not json")
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

@@ -157,7 +157,7 @@ it("beforeunload while dirty cancels and sets the legacy returnValue", () => {
 describe("link-click guard", () => {
   let confirm: jest.SpyInstance<boolean, [message?: string]>
   beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
-  afterEach(() => confirm.mockRestore())
+  afterEach(() => jest.restoreAllMocks())
 
   /**
    * Renders a dirty provider with links outside the settings tab list (as the sidebar is),
@@ -204,5 +204,141 @@ describe("link-click guard", () => {
   it("does not ask when clean", () => {
     clickLink("People", {}, false)
     expect(confirm).not.toHaveBeenCalled()
+  })
+})
+
+describe("popstate guard", () => {
+  let confirm: jest.SpyInstance<boolean, [message?: string]>
+  beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
+  afterEach(() => jest.restoreAllMocks())
+
+  it("Cancel on Back keeps the page: stops other popstate handlers and restores the URL", () => {
+    confirm.mockReturnValue(false)
+    window.history.pushState({ tree: "settings" }, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    window.history.replaceState({ tree: "people" }, "", "/people") // the entry Back landed on
+    const push = jest.spyOn(window.history, "pushState")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    window.removeEventListener("popstate", next)
+    expect(push).toHaveBeenCalledWith({ tree: "settings" }, "", "http://localhost/settings/general")
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?")
+    expect(next).not.toHaveBeenCalled()
+    expect(window.location.pathname).toBe("/settings/general")
+  })
+
+  it("OK lets Back through untouched", () => {
+    confirm.mockReturnValue(true)
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    window.removeEventListener("popstate", next)
+    expect(next).toHaveBeenCalled()
+    expect(window.location.pathname).toBe("/people")
+  })
+
+  it("does not ask when clean", () => {
+    render(<UnsavedChangesProvider><Guarded dirty={false} /></UnsavedChangesProvider>)
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+})
+
+/** A form whose select options only appear after mount (like Radix Select's hidden native select). */
+function LateOptionsForm() {
+  const { ref, dirty } = useFormDirty()
+  const [ready, setReady] = React.useState(false)
+  React.useEffect(() => { queueMicrotask(() => setReady(true)) }, [])
+  return (
+    <form ref={ref}>
+      <select aria-label="Idle" name="value" value="30" onChange={() => {}}>
+        {ready && <option value="30">30</option>}
+        {ready && <option value="60">60</option>}
+      </select>
+      <output>{dirty ? "dirty" : "clean"}</output>
+    </form>
+  )
+}
+
+it("useFormDirty: options added after mount do not read as dirty once the baseline settles", async () => {
+  render(<UnsavedChangesProvider><Probe /><LateOptionsForm /></UnsavedChangesProvider>)
+  await act(async () => {}) // flush the post-mount option render
+  await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))) })
+  fireEvent.change(screen.getByLabelText("Idle"), { target: { value: "30" } })
+  expect(screen.getByText("clean")).toBeInTheDocument()
+  expect(probe()).toBe(false)
+})
+
+describe("popstate guard: hash and Navigation API", () => {
+  let confirm: jest.SpyInstance<boolean, [message?: string]>
+  beforeEach(() => { confirm = jest.spyOn(window, "confirm") })
+  afterEach(() => {
+    jest.restoreAllMocks()
+    delete (window as { navigation?: unknown }).navigation
+  })
+
+  it("does not prompt for a hash-only traversal", () => {
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    window.history.replaceState(null, "", "/settings/general#section")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["Back", 4, 1],
+    ["Forward", 6, -1],
+  ])("cancel on %s uses history.go(delta) and ignores the restoring popstate", (_name, index, delta) => {
+    confirm.mockReturnValue(false)
+    const nav = { currentEntry: { index: 5 } }
+    Object.defineProperty(window, "navigation", { configurable: true, value: nav })
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    const go = jest.spyOn(window.history, "go").mockImplementation(() => {})
+    const push = jest.spyOn(window.history, "pushState")
+    const next = jest.fn()
+    window.addEventListener("popstate", next)
+    nav.currentEntry.index = index
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(go).toHaveBeenCalledWith(delta)
+    expect(push).not.toHaveBeenCalled()
+    // The traversal back to the dirty entry fires its own popstate: no second prompt, not forwarded.
+    confirm.mockClear()
+    nav.currentEntry.index = 5 // the go() landed back on the dirty entry
+    window.history.replaceState(null, "", "/settings/general")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+    window.removeEventListener("popstate", next)
+  })
+})
+
+describe("popstate guard: restoring flag expiry", () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+    jest.useRealTimers()
+    delete (window as { navigation?: unknown }).navigation
+  })
+
+  it("go() with no popstate does not swallow the next real Back", () => {
+    jest.useFakeTimers()
+    const confirm = jest.spyOn(window, "confirm").mockReturnValue(false)
+    const nav = { currentEntry: { index: 5 } }
+    Object.defineProperty(window, "navigation", { configurable: true, value: nav })
+    window.history.pushState(null, "", "/settings/general")
+    render(<UnsavedChangesProvider><Guarded dirty /></UnsavedChangesProvider>)
+    jest.spyOn(window.history, "go").mockImplementation(() => {})
+    nav.currentEntry.index = 4
+    window.history.replaceState(null, "", "/people")
+    window.dispatchEvent(new PopStateEvent("popstate")) // cancel -> go(1), no popstate follows
+    expect(confirm).toHaveBeenCalledTimes(1)
+    act(() => { jest.advanceTimersByTime(600) })
+    window.dispatchEvent(new PopStateEvent("popstate")) // a later real Back must prompt again
+    expect(confirm).toHaveBeenCalledTimes(2)
   })
 })

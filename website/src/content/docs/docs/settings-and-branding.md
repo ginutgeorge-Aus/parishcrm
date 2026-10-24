@@ -40,9 +40,9 @@ tab's URL sends you back to General.
 
 Each form saves independently. If you edit a field and then leave the page by
 any link (a settings tab, the mobile picker, the sidebar or the top bar), the
-app asks **"Discard unsaved changes?"** first. Reloading or closing the browser
-tab also asks before discarding. The browser Back/Forward buttons do not ask
-yet, so save before going back.
+app asks **"Discard unsaved changes?"** first. The browser
+Back/Forward buttons ask too, and Cancel keeps you on the page. Reloading or
+closing the browser tab also asks before discarding.
 
 ### General: Church Information
 

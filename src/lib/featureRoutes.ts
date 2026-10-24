@@ -1,4 +1,7 @@
-import { FEATURES_SETTING_KEY, parseOverrides, resolveFeatures, type FeatureKey } from "@/lib/features"
+import { FEATURES_SETTING_KEY, parseStoredOverrides, resolveFeatures, type FeatureKey } from "@/lib/features"
+import {
+  getSettingsSnapshot, invalidateSettingsSnapshot, settingsGeneration, type SettingsSnapshot,
+} from "@/lib/settingsSnapshot"
 
 /**
  * Route → feature map for the middleware gate. Mirrors the segment layouts'
@@ -7,7 +10,7 @@ import { FEATURES_SETTING_KEY, parseOverrides, resolveFeatures, type FeatureKey 
  * segment (which never re-renders its layout) is blocked too.
  * No DB import at module top, so it loads in tests/scripts without a DB.
  */
-type Rule = { match: RegExp; feature: FeatureKey }
+export type Rule = { match: RegExp; feature: FeatureKey }
 
 /**
  * Rule matching `p` and everything beneath it.
@@ -20,7 +23,7 @@ const prefix = (p: string, feature: FeatureKey): Rule => ({
 })
 
 /** Every matching rule must be on: a child path inherits its parents' gates. */
-const FEATURE_ROUTES: readonly Rule[] = [
+export const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/events", "events"),
   { match: /^\/e\/[^/]+\/crew(?:\/|$)/, feature: "events" },
   // The exact /my-events home is deliberately NOT gated: its layout falls back
@@ -96,71 +99,61 @@ export function featureOffRedirect(pathname: string): string | null {
 /** Path the middleware rewrites a blocked request to: no such route, so the app 404 renders. */
 export const FEATURE_OFF_REWRITE_PATH = "/_feature-off"
 
-const TTL_MS = 5_000
-let cache: { on: Set<FeatureKey> | null; at: number } | null = null
-// Last successfully read set. Survives invalidation so a read failure right after
+// Last successfully resolved set. Survives invalidation so a read failure right after
 // a save still serves the previous set instead of failing open.
 let lastKnown: Set<FeatureKey> | null = null
-let inflight: Promise<Set<FeatureKey> | null> | null = null
-// Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data.
-let generation = 0
+// Resolved set per distinct stored value: a bad value is parsed (and warned about) once, not per refresh.
+let resolved: { raw: string | null; on: Set<FeatureKey> } | null = null
 
-/** One DB read; on failure logs, keeps serving the last known set (else null = fail open) and caches that for the TTL. */
-async function loadFeatures(): Promise<Set<FeatureKey> | null> {
-  const gen = generation
-  try {
-    const { prisma } = await import("@/lib/prisma")
-    const row = await prisma.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
-    const on = resolveFeatures(parseOverrides(row?.value))
-    if (gen === generation) {
-      lastKnown = on
-      cache = { on, at: Date.now() }
-    }
-    return on
-  } catch (err) {
-    // Error class only: driver messages can echo query values.
-    console.error("[featureRoutes] feature settings read failed; using", lastKnown ? "last known set" : "fail-open", err instanceof Error ? err.name : "UnknownError")
-    const on = lastKnown
-    if (gen === generation) cache = { on, at: Date.now() }
-    return on
-  }
+/**
+ * Resolve the stored features value, memoised by the raw string so an
+ * unreadable value is warned about once, not on every snapshot refresh.
+ * @param raw stored `features` setting value
+ */
+function resolveStored(raw: string | null): Set<FeatureKey> {
+  if (resolved?.raw !== raw) resolved = { raw, on: resolveFeatures(parseStoredOverrides(raw)) }
+  return resolved.on
 }
 
 /**
- * Enabled features for the middleware, cached 5s per process (every request
- * passes through it). Concurrent callers share one read. On a read failure it
- * serves the last known set, or null (fail open) if there is none: a DB blip
- * must not 404 the whole app — layouts and actions still enforce per request.
- * The failure result is cached for the TTL so an outage is not hammered.
+ * Enabled features for the middleware, via the shared 5s settings snapshot
+ * (every request passes through it). On a read failure it serves the last
+ * known set, or null (fail open) if there is none: a DB blip must not 404 the
+ * whole app — layouts and actions still enforce per request. The snapshot
+ * caches the failure briefly so an outage is not hammered.
  */
 export async function getEnabledFeaturesCached(): Promise<Set<FeatureKey> | null> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.on
-  if (!inflight) {
-    const read: Promise<Set<FeatureKey> | null> = loadFeatures().finally(() => {
-      if (inflight === read) inflight = null
-    })
-    inflight = read
+  const gen = settingsGeneration()
+  let snap: SettingsSnapshot
+  try {
+    snap = await getSettingsSnapshot()
+  } catch {
+    return lastKnown // the snapshot already logged the failure
   }
-  return inflight
+  const on = resolveStored(snap[FEATURES_SETTING_KEY])
+  // A read that started before an invalidation must not overwrite the fallback set.
+  if (gen === settingsGeneration()) lastKnown = on
+  return on
 }
 
 /**
- * Drop this process's cached feature set so the next request re-reads it.
- * Called by `saveFeatures`. Only effective when the middleware shares this
- * module instance (dev, single bundle); a production build may bundle the
- * middleware separately, in which case it converges within the TTL instead.
- * The last known set is kept as the read-failure fallback.
+ * Drop this process's cached settings so the next request re-reads them.
+ * Called by `saveFeatures`. The settings snapshot is shared, so this also
+ * drops the cached maintenance flag (harmless: one extra read). Only effective
+ * when the middleware shares this module instance (dev, single bundle); a
+ * production build may bundle the middleware separately, in which case it
+ * converges within the TTL instead. The last known set is kept as the
+ * read-failure fallback.
  */
 export function invalidateFeatureRouteCache(): void {
-  generation++
-  cache = null
-  inflight = null
+  invalidateSettingsSnapshot()
 }
 
-/** Test hook: drop the cached and last-known feature sets. */
+/** Test hook: drop every cached state (snapshot, failure, resolved and last-known sets). */
 export function _resetFeatureRoutesCache(): void {
-  invalidateFeatureRouteCache()
+  invalidateSettingsSnapshot()
   lastKnown = null
+  resolved = null
 }
 
 /**
