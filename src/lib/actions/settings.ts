@@ -492,13 +492,16 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
       prisma.appSetting.upsert({ where: { key: e.key }, create: { key: e.key, value: e.value }, update: { value: e.value } }),
     ),
   )
-  if (results.some((r) => r.status === "rejected")) {
+  // Audit every write that committed, even when a sibling write failed.
+  const saved = entries.filter((_, i) => results[i].status === "fulfilled")
+  if (saved.length > 0) {
+    await logAudit(actorId(session), "SETTING_UPDATED", "AppSetting", undefined, { keys: saved.map((e) => e.key) })
+  }
+  if (saved.length < entries.length) {
     // One upsert may have committed while another failed: report what is actually stored.
     const flags = await readAutoEmailFlags().catch(() => undefined)
     return { error: "Could not save the automatic email setting", flags }
   }
-
-  await logAudit(actorId(session), "SETTING_UPDATED", "AppSetting", undefined, { keys: entries.map((e) => e.key) })
 
   revalidatePath("/settings/email")
   return { success: "Automated email settings saved" }

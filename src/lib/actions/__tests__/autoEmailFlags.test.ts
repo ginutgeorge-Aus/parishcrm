@@ -12,6 +12,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findMany: jest.fn(), 
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}) }))
 
 import { prisma } from "@/lib/prisma"
+import { logAudit } from "@/lib/audit"
 
 beforeEach(() => jest.clearAllMocks())
 
@@ -86,4 +87,22 @@ test("a failed write waits for the other upsert before reading back", async () =
   release()
   await expect(pending).resolves.toHaveProperty("error")
   expect(prisma.appSetting.findMany).toHaveBeenCalledTimes(1)
+})
+
+test("a partial failure still audits the write that committed", async () => {
+  ;(prisma.appSetting.upsert as jest.Mock).mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("db"))
+  ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([])
+  const fd = new FormData()
+  fd.set("autoBirthdayEmail", "true")
+  fd.set("autoAnniversaryEmail", "true")
+  await expect(updateAutoEmailFlags(undefined, fd)).resolves.toHaveProperty("error")
+  expect(logAudit).toHaveBeenCalledTimes(1)
+  expect(logAudit).toHaveBeenCalledWith(expect.anything(), "SETTING_UPDATED", "AppSetting", undefined, { keys: ["autoBirthdayEmail"] })
+})
+
+test("a write where nothing committed logs no audit", async () => {
+  ;(prisma.appSetting.upsert as jest.Mock).mockRejectedValue(new Error("db"))
+  ;(prisma.appSetting.findMany as jest.Mock).mockResolvedValue([])
+  await updateAutoEmailFlags(undefined, new FormData())
+  expect(logAudit).not.toHaveBeenCalled()
 })
