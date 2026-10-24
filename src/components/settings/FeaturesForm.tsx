@@ -97,8 +97,12 @@ export function FeaturesForm({ initial, welcome = false }: Props) {
           id={id}
           aria-describedby={settingsDescId(id)}
           checked={effective.has(def.key)}
-          disabled={pending || blocker !== null}
-          onCheckedChange={(v) => setState((s) => ({ ...s, [def.key]: v }))}
+          // Blocked switches use aria-disabled (not disabled) so keyboard and
+          // screen-reader users can still reach them and hear the "Needs …" reason.
+          disabled={pending}
+          aria-disabled={blocker !== null || undefined}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          onCheckedChange={(v) => { if (!blocker) setState((s) => ({ ...s, [def.key]: v })) }}
         />
       </SettingsRow>
     )
