@@ -72,11 +72,12 @@ describe("FeaturesForm", () => {
   })
 
   it("clicking a blocked switch does not change it", () => {
-    render(<FeaturesForm initial={{ accounting: false }} />)
-    const budget = screen.getByLabelText("Budget")
-    const before = budget.getAttribute("aria-checked")
-    fireEvent.click(budget)
-    expect(budget).toHaveAttribute("aria-checked", before!)
+    render(<FeaturesForm initial={{ accounting: false, budget: false }} />)
+    // Budget's own choice (off) is hidden while Accounting is off; a click must
+    // not overwrite it, so it is still off once Accounting is back on.
+    fireEvent.click(screen.getByLabelText("Budget"))
+    fireEvent.click(screen.getByLabelText("Accounting"))
+    expect(screen.getByLabelText("Budget")).not.toBeChecked()
   })
 
   it("turning Membership forms off disables dues", () => {
