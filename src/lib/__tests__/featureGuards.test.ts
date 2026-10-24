@@ -211,8 +211,9 @@ it("the organiser home (/my-events) gates on events without a 404 dead end", () 
 })
 
 it("the public event success page stays reachable (in-flight payments must show their confirmation)", () => {
-  expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/layout.tsx"))).toBe(false)
-  expect(fs.existsSync(path.join(process.cwd(), "src/app/(public)/e/[slug]/layout.tsx"))).toBe(false)
+  for (const f of ["src/app/(public)/e/layout.tsx", "src/app/(public)/e/[slug]/layout.tsx"]) {
+    expect(() => fs.statSync(path.join(process.cwd(), f))).toThrow(expect.objectContaining({ code: "ENOENT" }))
+  }
   expect(read("src/app/(public)/e/[slug]/success/page.tsx")).not.toMatch(/requireFeature/)
 })
 

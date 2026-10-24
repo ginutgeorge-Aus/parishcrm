@@ -499,6 +499,10 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
     revalidatePath("/settings/email")
   }
   if (saved.length < entries.length) {
+    // Server-side trace of each failed write: setting key + error only (no PII in these rows).
+    results.forEach((r, i) => {
+      if (r.status === "rejected") console.error(`updateAutoEmailFlags: failed to save ${entries[i].key}`, r.reason)
+    })
     // One upsert may have committed while another failed: report what is actually stored.
     const flags = await readAutoEmailFlags().catch(() => undefined)
     return { error: "Could not save the automatic email setting", flags }

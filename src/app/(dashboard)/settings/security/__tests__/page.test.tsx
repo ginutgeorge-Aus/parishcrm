@@ -12,16 +12,13 @@ jest.mock("@/components/settings/ActivityFeed", () => ({
   ActivityFeed: (p: object) => <i data-c="ActivityFeed">{JSON.stringify(p)}</i>,
 }))
 import { requireSettingsTab } from "@/lib/settingsAccess"
+import { allowSettingsTab } from "@/test-utils/allowSettingsTab"
 import { prisma } from "@/lib/prisma"
 import SecuritySettingsPage from "@/app/(dashboard)/settings/security/page"
 
 const mockRequire = requireSettingsTab as jest.Mock
-/**
- * Lets the guard pass and runs the page's load, as the real guard does.
- * @param features enabled features to report
- */
-const allow = (features: Set<string>) =>
-  mockRequire.mockImplementation(async (_href: string, load?: () => Promise<unknown>) => ({ features, data: await load?.() }))
+/** Lets the guard pass and runs the page's load. */
+const allow = (features: Set<string>) => allowSettingsTab(mockRequire, features)
 const mockAudit = prisma.auditLog.findMany as jest.Mock
 const mockReg = prisma.registration.findMany as jest.Mock
 
