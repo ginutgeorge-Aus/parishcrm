@@ -15,6 +15,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { assertNotDemo, isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
+import { FEATURES_ONBOARDING_KEY } from "@/lib/features"
 
 const UNAVAILABLE = "Setup is not available."
 const SETUP_LIMIT = 10
@@ -77,10 +78,18 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
     const user = await prisma.$transaction(
       async (tx) => {
         if ((await tx.user.count()) > 0) throw new SetupClosedError()
-        return tx.user.create({
+        const created = await tx.user.create({
           data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: UserRole.ADMIN },
           select: { id: true },
         })
+        // First-run prompt: the dashboard sends this admin to Settings → Features
+        // until they save or keep the defaults. Existing installs never get it.
+        await tx.appSetting.upsert({
+          where: { key: FEATURES_ONBOARDING_KEY },
+          create: { key: FEATURES_ONBOARDING_KEY, value: "pending" },
+          update: { value: "pending" },
+        })
+        return created
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
