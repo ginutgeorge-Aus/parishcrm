@@ -191,6 +191,21 @@ describe("invalidateFeatureRouteCache", () => {
   })
 })
 
+describe("invalidation after a save", () => {
+  it("a failed read right after a save serves the saved set, not the pre-save one", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      stored({})
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      invalidateFeatureRouteCache({ events: false })
+      findMany.mockRejectedValueOnce(new Error("db down"))
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+})
+
 describe("read failures", () => {
   let errSpy: jest.SpyInstance
   beforeEach(() => {

@@ -85,6 +85,7 @@ describe("saveFeatures", () => {
     })
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout")
     expect(invalidateFeatureRouteCache).toHaveBeenCalledTimes(1)
+    expect(invalidateFeatureRouteCache).toHaveBeenCalledWith({ events: false })
   })
 
   it("blocked in demo mode before auth", async () => {

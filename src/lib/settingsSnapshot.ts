@@ -7,25 +7,29 @@ export const MAINTENANCE_SETTING_KEY = "maintenance"
 export type SettingsSnapshot = Readonly<Record<string, string | null>>
 
 const KEYS = [MAINTENANCE_SETTING_KEY, FEATURES_SETTING_KEY] as const
-const TTL_MS = 5_000
-// A failed read is cached briefly so a DB outage is not re-queried by every request.
+/** How long a successful read is served before the next one. */
+const SNAPSHOT_TTL_MS = 5_000
+/** How long a failed read is replayed, so a DB outage is not re-queried by every request. */
 const FAILURE_TTL_MS = 2_000
 
-let cache: { snap: SettingsSnapshot; at: number } | null = null
-let failure: { err: unknown; at: number } | null = null
-let inflight: Promise<SettingsSnapshot> | null = null
-// Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data.
-let generation = 0
+/** Per-process cache state, kept in one object so invalidation resets it in one place. */
+const state: {
+  cache: { snap: SettingsSnapshot; at: number } | null
+  failure: { err: unknown; at: number } | null
+  inflight: Promise<SettingsSnapshot> | null
+  /** Bumped by invalidation so a read that started before it cannot repopulate the cache with stale data. */
+  generation: number
+} = { cache: null, failure: null, inflight: null, generation: 0 }
 
 /** One query for every setting the middleware needs; throws on any failure (logged once, cached briefly). */
 async function load(): Promise<SettingsSnapshot> {
-  const gen = generation
+  const gen = state.generation
   try {
     return await query(gen)
   } catch (err) {
     // Error class only: driver messages can echo query values.
     console.error("[settingsSnapshot] settings read failed", err instanceof Error ? err.name : "UnknownError")
-    if (gen === generation) failure = { err, at: Date.now() }
+    if (gen === state.generation) state.failure = { err, at: Date.now() }
     throw err
   }
 }
@@ -41,9 +45,9 @@ async function query(gen: number): Promise<SettingsSnapshot> {
   const rows = await prisma.appSetting.findMany({ where: { key: { in: [...KEYS] } } })
   const snap: Record<string, string | null> = Object.fromEntries(KEYS.map((k) => [k, null]))
   for (const r of rows) snap[r.key] = r.value
-  if (gen === generation) {
-    cache = { snap, at: Date.now() }
-    failure = null
+  if (gen === state.generation) {
+    state.cache = { snap, at: Date.now() }
+    state.failure = null
   }
   return snap
 }
@@ -56,30 +60,32 @@ async function query(gen: number): Promise<SettingsSnapshot> {
  * @throws when the database read fails
  */
 export async function getSettingsSnapshot(): Promise<SettingsSnapshot> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.snap
-  if (failure && Date.now() - failure.at < FAILURE_TTL_MS) throw failure.err
-  if (!inflight) {
+  if (state.cache && Date.now() - state.cache.at < SNAPSHOT_TTL_MS) return state.cache.snap
+  if (state.failure && Date.now() - state.failure.at < FAILURE_TTL_MS) throw state.failure.err
+  if (!state.inflight) {
     const read: Promise<SettingsSnapshot> = load().finally(() => {
-      if (inflight === read) inflight = null
+      if (state.inflight === read) state.inflight = null
     })
-    inflight = read
+    state.inflight = read
   }
-  return inflight
+  return state.inflight
 }
 
 /** Current invalidation generation; callers compare before/after a read to detect a concurrent invalidation. */
 export function settingsGeneration(): number {
-  return generation
+  return state.generation
 }
 
 /**
  * Drop the cached snapshot and failure so the next call re-reads (a read already
- * in flight is discarded). The snapshot is shared, so this refreshes BOTH the
+ * in flight is discarded). Clearing the failure cache is deliberate: a save only
+ * succeeds when the DB is up, so the next read should retry at once instead of
+ * replaying a stale failure. (A save during an outage fails, so it never gets here.) The snapshot is shared, so this refreshes BOTH the
  * maintenance flag and the feature flags.
  */
 export function invalidateSettingsSnapshot(): void {
-  generation++
-  cache = null
-  failure = null
-  inflight = null
+  state.generation++
+  state.cache = null
+  state.failure = null
+  state.inflight = null
 }

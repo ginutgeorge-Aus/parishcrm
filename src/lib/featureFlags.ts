@@ -5,9 +5,10 @@ import { prisma } from "@/lib/prisma"
 import { bearerOk } from "@/lib/cronAuth"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, FEATURE_OFF_SKIP, type FeatureOffSkip, parseStoredOverrides, resolveFeatures,
+  FEATURES_SETTING_KEY, FEATURE_OFF_MESSAGE, FEATURE_OFF_SKIP, type FeatureOffSkip, resolveFeatures,
   type FeatureKey, type FeatureOverrides,
 } from "@/lib/features"
+import { parseOverridesWarn } from "@/lib/featuresWarn"
 
 
 /**
@@ -19,7 +20,7 @@ export async function readRawOverrides(
   db: Pick<Prisma.TransactionClient, "appSetting"> = prisma,
 ): Promise<FeatureOverrides> {
   const row = await db.appSetting.findUnique({ where: { key: FEATURES_SETTING_KEY } })
-  return parseStoredOverrides(row?.value)
+  return parseOverridesWarn(row?.value)
 }
 
 /** Enabled feature set, read once per request. */
