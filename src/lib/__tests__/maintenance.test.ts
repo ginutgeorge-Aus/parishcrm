@@ -10,13 +10,13 @@ import {
 import { prisma } from "@/lib/prisma"
 
 jest.mock("@/lib/prisma", () => ({
-  prisma: { appSetting: { findUnique: jest.fn() } },
+  prisma: { appSetting: { findMany: jest.fn() } },
 }))
 
-const findUnique = prisma.appSetting.findUnique as jest.Mock
+const findMany = prisma.appSetting.findMany as jest.Mock
 
 beforeEach(() => {
-  findUnique.mockReset()
+  findMany.mockReset()
   _resetMaintenanceCache()
 })
 
@@ -147,19 +147,76 @@ describe("isMaintenanceBypassPath", () => {
 
 describe("getMaintenanceState", () => {
   it("reads and parses the AppSetting row", async () => {
-    findUnique.mockResolvedValue({ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":null}' })
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":null}' }])
     expect((await getMaintenanceState()).enabled).toBe(true)
   })
 
   it("fails open (disabled) when the DB throws", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+    findMany.mockRejectedValue(new Error("db down"))
     expect(await getMaintenanceState()).toEqual({ enabled: false, backAt: null, message: null })
   })
 
+  it("keeps serving the last known state when a later read fails (stays on through a mid-deploy DB blip)", async () => {
+    const now = jest.spyOn(Date, "now")
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      now.mockReturnValue(1_000_000)
+      findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true,"backAt":null,"message":"Upgrading"}' }])
+      expect((await getMaintenanceState()).enabled).toBe(true)
+      now.mockReturnValue(1_006_000) // snapshot expired
+      findMany.mockRejectedValue(new Error("db down"))
+      expect(await getMaintenanceState()).toEqual({ enabled: true, backAt: null, message: "Upgrading" })
+    } finally {
+      now.mockRestore()
+      err.mockRestore()
+    }
+  })
+
+  it("a read that started before an invalidation does not overwrite the fallback state", async () => {
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      let release!: (rows: unknown) => void
+      findMany.mockReturnValueOnce(new Promise((r) => { release = r }))
+      const stale = getMaintenanceState()
+      _resetMaintenanceCache() // invalidates mid-read (and clears the fallback)
+      release([{ key: "maintenance", value: '{"enabled":true}' }])
+      expect((await stale).enabled).toBe(true)
+      findMany.mockRejectedValue(new Error("db down"))
+      expect((await getMaintenanceState()).enabled).toBe(false)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
   it("caches within the TTL (one query for two rapid reads)", async () => {
-    findUnique.mockResolvedValue({ key: "maintenance", value: '{"enabled":true}' })
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
     await getMaintenanceState()
     await getMaintenanceState()
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("reads maintenance and features in one query", async () => {
+    findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }, { key: "features", value: "{}" }])
+    await getMaintenanceState()
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(findMany.mock.calls[0][0].where.key.in).toEqual(expect.arrayContaining(["maintenance", "features"]))
+  })
+
+  it("caches a failure briefly (an outage is not re-queried per request), then retries", async () => {
+    const now = jest.spyOn(Date, "now")
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      now.mockReturnValue(1_000_000)
+      findMany.mockRejectedValue(new Error("db down"))
+      expect((await getMaintenanceState()).enabled).toBe(false)
+      expect((await getMaintenanceState()).enabled).toBe(false)
+      expect(findMany).toHaveBeenCalledTimes(1)
+      findMany.mockResolvedValue([{ key: "maintenance", value: '{"enabled":true}' }])
+      now.mockReturnValue(1_002_000)
+      expect((await getMaintenanceState()).enabled).toBe(true)
+    } finally {
+      now.mockRestore()
+      err.mockRestore()
+    }
   })
 })

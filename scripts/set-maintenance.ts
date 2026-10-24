@@ -6,7 +6,8 @@ if (!process.env.DATABASE_URL) {
 
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { buildMaintenanceState, MAINTENANCE_KEY } from "../src/lib/maintenance"
+import { buildMaintenanceState } from "../src/lib/maintenance"
+import { MAINTENANCE_SETTING_KEY } from "../src/lib/settingsSnapshot"
 
 // Toggle the site-wide maintenance flag (AppSetting key `maintenance`).
 // Used by .github/workflows/deploy.yml (on before migrate, off at job end)
@@ -35,8 +36,8 @@ async function main() {
   const state = buildMaintenanceState(mode === "on", etaMinutes(), new Date())
   const value = JSON.stringify(state)
   await prisma.appSetting.upsert({
-    where: { key: MAINTENANCE_KEY },
-    create: { key: MAINTENANCE_KEY, value },
+    where: { key: MAINTENANCE_SETTING_KEY },
+    create: { key: MAINTENANCE_SETTING_KEY, value },
     update: { value },
   })
   console.log(`maintenance ${mode} → ${value}`)
