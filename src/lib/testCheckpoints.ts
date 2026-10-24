@@ -4,6 +4,12 @@
 //
 // `id` is a PERMANENT anchor for stored results (CheckpointResult.checkpointId).
 // Never change or reuse a shipped id; editing area/title/steps text is fine.
+//
+// `version` must be a real release tag. Release gate: the testCheckpoints test
+// fails until at least one entry exists for the package.json version, so the
+// release PR needs checkpoints added alongside its WHATS_NEW entry.
+// The v1.0.0 entries below shipped under the old pre-OSS numbering (v1.19/v1.21)
+// and were relabelled to v1.0.0, the first tag of the reset version line.
 
 export type TestCheckpoint = {
   id: string // stable, unique — e.g. "v1.19.0-verify-page"
@@ -15,8 +21,136 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.8.0-app-shell",
+    version: "v1.8.0",
+    area: "Navigation",
+    title: "Top bar, New menu and user menu",
+    steps:
+      "On desktop, check the top bar → open the New menu and confirm it lists quick-add items you may use → click the notifications bell and confirm it opens → open your account menu and confirm Account and Sign out are there. Then sign in as a VIEWER and confirm New only shows what that role may do.",
+  },
+  {
+    id: "v1.8.0-mobile-drawer",
+    version: "v1.8.0",
+    area: "Navigation",
+    title: "Mobile navigation drawer",
+    steps:
+      "At 375px wide (phone or browser dev tools), tap the menu button → confirm the sidebar slides in as a drawer → tap a link and confirm the drawer closes and the page loads → confirm the top bar fits with no sideways scrolling.",
+  },
+  {
+    id: "v1.8.0-settings-tabs",
+    version: "v1.8.0",
+    area: "Settings",
+    title: "Tabbed settings area",
+    steps:
+      "Open Settings → confirm church and system tabs → switch between tabs and confirm each loads its own section and the current tab is highlighted → reload on a tab and confirm you stay on it → confirm tabs work by keyboard and on a phone width.",
+  },
+  {
+    id: "v1.8.0-feature-toggles",
+    version: "v1.8.0",
+    area: "Settings",
+    title: "Feature toggles hide nav and close routes",
+    steps:
+      "Settings → Features → turn one feature off (e.g. Invoices) and save → confirm it disappears from the sidebar and the New menu → open its URL directly and confirm the page is closed → turn it back on and confirm the menu item and page return.",
+  },
+  {
+    id: "v1.8.0-concurrent-save",
+    version: "v1.8.0",
+    area: "Accounting",
+    title: "Petty cash and transactions with two people saving",
+    steps:
+      "In two browser sessions, edit the same account at once: in one, deactivate a petty-cash account; in the other, add a receipt, expense or transaction to it and save → confirm the save is rejected with a clear message rather than writing to an inactive account.",
+  },
+  {
+    id: "v1.8.0-pl-mobile",
+    version: "v1.8.0",
+    area: "Accounting",
+    title: "Profit & Loss fits at 375px",
+    steps:
+      "Open Reports → Profit & Loss at 375px wide → confirm the header wraps and the year selector is fully visible with no sideways page scroll.",
+  },
+  {
+    id: "v1.7.0-passkey-signin",
+    version: "v1.7.0",
+    area: "Auth",
+    title: "Passkey sign-in",
+    steps:
+      "On the Account page add a passkey (fingerprint, face or device PIN) → sign out → choose passkey sign-in and confirm you are signed in without typing a password or code → remove the passkey and confirm it no longer works.",
+  },
+  {
+    id: "v1.7.0-needs-attention",
+    version: "v1.7.0",
+    area: "Dashboard",
+    title: "Needs attention list and setup checklist",
+    steps:
+      "Open the dashboard → confirm a Needs attention list shows items such as updates to review, transactions to reconcile or open petty-cash sessions, each linking to the right page → on a fresh install confirm the short setup checklist appears.",
+  },
+  {
+    id: "v1.7.0-sidebar-reports",
+    version: "v1.7.0",
+    area: "Navigation",
+    title: "Five-section sidebar and Reports hub",
+    steps:
+      "Confirm the sidebar groups pages into five sections → open Reports and confirm it links to every report and each link opens.",
+  },
+  {
+    id: "v1.7.0-event-revenue-split",
+    version: "v1.7.0",
+    area: "Events",
+    title: "Event revenue split by card and transfer",
+    steps:
+      "Open an event with both card and bank-transfer registrations → confirm revenue shows card and transfer separately and they add up to the total → send an invoice, change the letterhead in Branding, and confirm the already-sent invoice PDF keeps its original letterhead.",
+  },
+  {
+    id: "v1.6.0-pl-drilldown",
+    version: "v1.6.0",
+    area: "Accounting",
+    title: "Profit & Loss drill-down",
+    steps:
+      "Open Profit & Loss → click a category and confirm its transactions for the year open → in the monthly view click a month and confirm only that month's transactions show.",
+  },
+  {
+    id: "v1.6.0-transaction-filters",
+    version: "v1.6.0",
+    area: "Accounting",
+    title: "Transaction filters persist; month filter",
+    steps:
+      "On Transactions apply a filter and a month → edit a transaction and save → confirm you return to the list with the same filters still applied.",
+  },
+  {
+    id: "v1.6.0-financial-year",
+    version: "v1.6.0",
+    area: "Accounting",
+    title: "Financial-year label with a non-July start",
+    steps:
+      "Set the financial-year start month to something other than July → open a report and confirm the year label and date range match that start month.",
+  },
+  {
+    id: "v1.5.0-invoices",
+    version: "v1.5.0",
+    area: "Invoices",
+    title: "Invoice lifecycle",
+    steps:
+      "Create a draft invoice for a hall hirer → email it as a PDF (or mark it sent) → record a payment and confirm the Invoices page moves it from owed to paid → create another and void it.",
+  },
+  {
+    id: "v1.5.0-sunday-school",
+    version: "v1.5.0",
+    area: "Sunday School",
+    title: "Classes, roll and rollover lock",
+    steps:
+      "Create a class with a teacher and enrol a child → take this week's roll and confirm it saves → after rollover confirm last year's classes are locked from editing.",
+  },
+  {
+    id: "v1.5.0-clearances",
+    version: "v1.5.0",
+    area: "People",
+    title: "Ministry roles and WWCC / Safe Ministry clearances",
+    steps:
+      "On a person add a ministry role and a Working With Children Check with an expiry date → open the compliance list and confirm the person appears with the right status and expiry.",
+  },
+  {
     id: "v1.21.0-per-attendee-questions",
-    version: "v1.21.0",
+    version: "v1.0.0",
     area: "Events",
     title: "Per-attendee custom questions",
     steps:
@@ -24,7 +158,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.21.0-event-checkin",
-    version: "v1.21.0",
+    version: "v1.0.0",
     area: "Events",
     title: "Day-of check-in",
     steps:
@@ -32,7 +166,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.21.0-waitlist",
-    version: "v1.21.0",
+    version: "v1.0.0",
     area: "Events",
     title: "Waitlist for sold-out tickets",
     steps:
@@ -40,7 +174,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.21.0-users-last-login",
-    version: "v1.21.0",
+    version: "v1.0.0",
     area: "Admin",
     title: "Users list last login + lock badge",
     steps:
@@ -48,7 +182,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-email-templates",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "Settings",
     title: "Customisable email templates",
     steps:
@@ -56,7 +190,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-event-capacity-cancelled",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "Events",
     title: "Cancelled registrations free up capacity",
     steps:
@@ -64,7 +198,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-registration-custom-answers",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "Events",
     title: "Custom-question answers still export",
     steps:
@@ -72,7 +206,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-church-name",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "General",
     title: "Full church name shown",
     steps:
@@ -80,7 +214,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-verify-page",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "Admin",
     title: "Feature verification page",
     steps:
@@ -88,7 +222,7 @@ export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   },
   {
     id: "v1.19.0-verify-not-working",
-    version: "v1.19.0",
+    version: "v1.0.0",
     area: "Admin",
     title: "Not-working files a bug",
     steps:

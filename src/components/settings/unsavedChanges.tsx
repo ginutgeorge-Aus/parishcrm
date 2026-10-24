@@ -30,16 +30,73 @@ function leavesPage(e: MouseEvent, anchor: HTMLAnchorElement): boolean {
 }
 
 /**
+ * Strips the fragment so hash-only traversals compare equal.
+ * @param href absolute or relative URL
+ * @returns origin + pathname + search
+ */
+function withoutHash(href: string): string {
+  const u = new URL(href, window.location.href)
+  return u.origin + u.pathname + u.search
+}
+
+/**
  * Holds which settings forms on the current page have unsaved edits. While any
  * is dirty, a click on any link that leaves the page (tab list, sidebar, top
  * bar, in-page links) asks before navigating. It listens in the document
  * capture phase so a cancel stops Next's `<Link>` handler too. Browser
- * Back/Forward is not intercepted.
+ * Back/Forward (`popstate`) asks too; on cancel the dirty history entry is restored.
  * @param props.children settings tabs + page
  */
 export function UnsavedChangesProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const dirtyIds = useRef(new Set<string>())
+  const dirtyUrl = useRef("")
+  const dirtyState = useRef<unknown>(null)
+  const dirtyIndex = useRef<number | null>(null)
+  const restoring = useRef(false)
+  const restoreTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
+    /**
+     * Back/Forward while dirty: confirm, else stop Next's handler and put the
+     * user back on the dirty entry. Hash-only traversals stay on the page and
+     * never prompt (URLs are compared without the fragment).
+     * Preferred restore: with the Navigation API, `history.go(dirtyIndex - currentIndex)`
+     * returns to the exact entry, so Forward entries and the stack are untouched;
+     * the popstate that traversal fires is swallowed via `restoring` (only if it
+     * landed on the dirty entry; the flag also expires after 500ms if no popstate comes).
+     * Fallback (no Navigation API): `pushState` re-adds the dirty URL with the
+     * state captured when the form became dirty (not the destination's state,
+     * which holds the other page's router tree). Trade-off: it adds one history
+     * entry and discards any Forward entries.
+     * Ordering: in the DOM spec's event dispatch, capture listeners run before
+     * non-capture ones even when the target is the window itself, so this runs
+     * before Next's popstate listener and stopImmediatePropagation blocks it.
+     */
+    const onPopState = (e: PopStateEvent) => {
+      if (restoring.current) {
+        const landed = window.navigation?.currentEntry?.index
+        restoring.current = false
+        clearTimeout(restoreTimer.current)
+        if (landed == null || landed === dirtyIndex.current) {
+          e.stopImmediatePropagation()
+          return
+        }
+      }
+      if (dirtyIds.current.size === 0 || withoutHash(window.location.href) === withoutHash(dirtyUrl.current)) return
+      if (window.confirm(DISCARD_PROMPT)) return
+      e.stopImmediatePropagation()
+      const current = window.navigation?.currentEntry?.index
+      const delta = dirtyIndex.current !== null && current != null ? dirtyIndex.current - current : 0
+      if (delta !== 0) {
+        restoring.current = true
+        // If go() fires no popstate (e.g. the target entry is gone), don't swallow the next real one.
+        clearTimeout(restoreTimer.current)
+        restoreTimer.current = setTimeout(() => { restoring.current = false }, 500)
+        window.history.go(delta)
+      } else {
+        window.history.pushState(dirtyState.current, "", dirtyUrl.current)
+      }
+    }
+    window.addEventListener("popstate", onPopState, true)
     const onClick = (e: MouseEvent) => {
       if (dirtyIds.current.size === 0 || e.defaultPrevented) return
       const anchor = (e.target as Element | null)?.closest?.("a[href]")
@@ -50,13 +107,22 @@ export function UnsavedChangesProvider({ children }: Readonly<{ children: React.
       }
     }
     document.addEventListener("click", onClick, true)
-    return () => document.removeEventListener("click", onClick, true)
+    return () => {
+      document.removeEventListener("click", onClick, true)
+      window.removeEventListener("popstate", onPopState, true)
+    }
   }, [])
   const value = useMemo<Registry>(
     () => ({
       set: (id, dirty) => {
-        if (dirty) dirtyIds.current.add(id)
-        else dirtyIds.current.delete(id)
+        if (dirty) {
+          if (dirtyIds.current.size === 0) {
+            dirtyUrl.current = window.location.href
+            dirtyState.current = window.history.state
+            dirtyIndex.current = window.navigation?.currentEntry?.index ?? null
+          }
+          dirtyIds.current.add(id)
+        } else dirtyIds.current.delete(id)
       },
       hasUnsaved: () => dirtyIds.current.size > 0,
     }),
@@ -112,6 +178,14 @@ function snapshot(form: HTMLFormElement): string {
  * values when the form mounted. Each new non-error `result` (the form action's
  * return value) re-baselines after React commits it, so a rejected save stays
  * dirty. A remount takes a fresh baseline.
+ * The first baseline is re-taken on the next frame while the user has not
+ * touched the form, because widgets such as Radix Select fill their hidden
+ * native `<select>` options after mount (an early snapshot would read dirty).
+ * Limitation: this is a single-frame re-take. A widget that fills its options
+ * later (e.g. only after being opened) can still read dirty; filtering
+ * untrusted change events was judged too invasive (programmatic changes from
+ * widgets are indistinguishable from edits in jsdom tests). Such a form should
+ * call `rebaseline()` once its widget signals ready.
  * Attach `ref` to the `<form>`. If the form unmounts while this host stays
  * mounted, its cleanup clears the dirty flag so the guard is released.
  * Call `rebaseline()` after changing values in code (no input/change event),
@@ -134,15 +208,25 @@ export function useFormDirty(result?: Readonly<{ error?: string | null; success?
   const ref = useCallback((form: HTMLFormElement | null) => {
     if (!form) return
     let initial = snapshot(form)
+    let touched = false
     setDirty(false)
-    const check = () => setDirty(snapshot(form) !== initial)
+    const frame = requestAnimationFrame(() => {
+      if (!touched) initial = snapshot(form)
+    })
+    /** Compares the current values to the baseline and marks the form touched. */
+    const check = () => {
+      touched = true
+      setDirty(snapshot(form) !== initial)
+    }
     form.addEventListener("input", check)
     form.addEventListener("change", check)
     rebaselineRef.current = () => {
+      touched = true
       initial = snapshot(form)
       setDirty(false)
     }
     return () => {
+      cancelAnimationFrame(frame)
       form.removeEventListener("input", check)
       form.removeEventListener("change", check)
       rebaselineRef.current = () => {}

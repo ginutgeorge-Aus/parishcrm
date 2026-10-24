@@ -1,4 +1,5 @@
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
+import { getSettingsSnapshot, invalidateSettingsSnapshot, MAINTENANCE_SETTING_KEY, settingsGeneration } from "@/lib/settingsSnapshot"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 
 export type MaintenanceState = {
@@ -6,8 +7,6 @@ export type MaintenanceState = {
   backAt: string | null
   message: string | null
 }
-
-export const MAINTENANCE_KEY = "maintenance"
 
 const DISABLED: MaintenanceState = { enabled: false, backAt: null, message: null }
 
@@ -112,27 +111,32 @@ export function renderMaintenanceHtml(
 </html>`
 }
 
-let cache: { state: MaintenanceState; at: number } | null = null
-const TTL_MS = 5_000
+// Last successfully read state. A read failure serves it, so maintenance switched on
+// before a migration stays on through a DB blip instead of failing open mid-deploy.
+let lastKnown: MaintenanceState | null = null
 
+/**
+ * Current maintenance state via the shared 5s settings snapshot (one query
+ * with the feature flags). On a read failure it serves the last known state,
+ * or fails open (disabled) if there is none: a DB blip must never lock
+ * everyone out. The snapshot caches a failure for only 2s, so requests retry
+ * soon after.
+ */
 export async function getMaintenanceState(): Promise<MaintenanceState> {
-  const now = Date.now()
-  if (cache && now - cache.at < TTL_MS) return cache.state
+  const gen = settingsGeneration()
+  let state: MaintenanceState
   try {
-    // Deferred import: @/lib/prisma is `server-only`, so a top-level import makes
-    // this module unloadable from scripts/set-maintenance.ts. Inside the try so an
-    // import failure also fails open (never 500 every request).
-    const { prisma } = await import("@/lib/prisma")
-    const row = await prisma.appSetting.findUnique({ where: { key: MAINTENANCE_KEY } })
-    const state = parseMaintenanceValue(row?.value)
-    cache = { state, at: now }
-    return state
+    state = parseMaintenanceValue((await getSettingsSnapshot())[MAINTENANCE_SETTING_KEY])
   } catch {
-    // Fail-open: a DB blip must never lock everyone out.
-    return { ...DISABLED }
+    return { ...(lastKnown ?? DISABLED) }
   }
+  // A read that started before an invalidation must not overwrite the fallback state.
+  if (gen === settingsGeneration()) lastKnown = state
+  return { ...state }
 }
 
+/** Test hook: drop the cached settings snapshot. */
 export function _resetMaintenanceCache(): void {
-  cache = null
+  lastKnown = null
+  invalidateSettingsSnapshot()
 }
