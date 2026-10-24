@@ -486,14 +486,14 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
     if (!ALLOWED_KEYS.has(key)) return { error: "Invalid setting key" }
   }
 
-  try {
-    await Promise.all(
-      entries.map((e) =>
-        prisma.appSetting.upsert({ where: { key: e.key }, create: { key: e.key, value: e.value }, update: { value: e.value } }),
-      ),
-    )
-  } catch {
-    // One upsert may have committed before another failed: report what is actually stored.
+  // allSettled, not all: wait for every upsert so the resync read below sees the final state.
+  const results = await Promise.allSettled(
+    entries.map((e) =>
+      prisma.appSetting.upsert({ where: { key: e.key }, create: { key: e.key, value: e.value }, update: { value: e.value } }),
+    ),
+  )
+  if (results.some((r) => r.status === "rejected")) {
+    // One upsert may have committed while another failed: report what is actually stored.
     const flags = await readAutoEmailFlags().catch(() => undefined)
     return { error: "Could not save the automatic email setting", flags }
   }
