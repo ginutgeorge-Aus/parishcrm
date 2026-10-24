@@ -60,16 +60,29 @@ describe("FeaturesForm", () => {
 
   it("turning Accounting off disables its children", () => {
     render(<FeaturesForm initial={{}} />)
-    expect(screen.getByLabelText("Budget")).toBeEnabled()
+    const budget = screen.getByLabelText("Budget")
+    expect(budget).not.toHaveAttribute("aria-disabled")
     fireEvent.click(screen.getByLabelText("Accounting"))
-    expect(screen.getByLabelText("Budget")).toBeDisabled()
+    // Blocked, not disabled: stays focusable so its "Needs …" reason is reachable.
+    expect(budget).toHaveAttribute("aria-disabled", "true")
+    expect(budget).toBeEnabled()
+    budget.focus()
+    expect(budget).toHaveFocus()
     expect(screen.getAllByText("Needs Accounting").length).toBeGreaterThan(0)
+  })
+
+  it("clicking a blocked switch does not change it", () => {
+    render(<FeaturesForm initial={{ accounting: false }} />)
+    const budget = screen.getByLabelText("Budget")
+    const before = budget.getAttribute("aria-checked")
+    fireEvent.click(budget)
+    expect(budget).toHaveAttribute("aria-checked", before!)
   })
 
   it("turning Membership forms off disables dues", () => {
     render(<FeaturesForm initial={{}} />)
     fireEvent.click(screen.getByLabelText("Membership forms"))
-    expect(screen.getByLabelText("Subscription dues")).toBeDisabled()
+    expect(screen.getByLabelText("Subscription dues")).toHaveAttribute("aria-disabled", "true")
     expect(screen.getByText("Needs Membership forms")).toBeInTheDocument()
   })
 
