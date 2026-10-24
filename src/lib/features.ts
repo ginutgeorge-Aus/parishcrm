@@ -80,18 +80,16 @@ export function parseOverrides(raw: string | null | undefined): FeatureOverrides
 }
 
 /**
- * `parseOverrides` for a stored row value, warning when a non-empty value
- * yields nothing usable (corrupt JSON) so the fallback to defaults is visible.
+ * `parseOverrides` for a stored row value, also reporting whether a non-empty
+ * value yielded nothing usable (corrupt JSON). Pure: server callers log the
+ * fallback to defaults via `parseOverridesWarn` (featuresWarn.ts).
  * @param raw stored `features` setting value
  */
-export function parseStoredOverrides(raw: string | null | undefined): FeatureOverrides {
+export function parseStoredOverrides(raw: string | null | undefined): { overrides: FeatureOverrides; unreadable: boolean } {
   const overrides = parseOverrides(raw)
   // Whitespace-insensitive: a hand-formatted `{ }` is a valid empty value, not corrupt.
   const emptyObject = typeof raw === "string" && raw.replace(/\s/g, "") === "{}"
-  if (raw && Object.keys(overrides).length === 0 && !emptyObject) {
-    console.warn("[features] unreadable 'features' setting — using defaults")
-  }
-  return overrides
+  return { overrides, unreadable: !!raw && Object.keys(overrides).length === 0 && !emptyObject }
 }
 
 /**

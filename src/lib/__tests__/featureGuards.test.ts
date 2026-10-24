@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import fs from "node:fs"
 import path from "node:path"
-import { FEATURE_KEYS } from "@/lib/features"
+import { FEATURE_KEYS, featureDef, type FeatureKey } from "@/lib/features"
 import { FEATURE_ROUTES, featuresForPath } from "@/lib/featureRoutes"
 
 // Static coverage: every route segment and Server Action owned by a feature
@@ -190,15 +190,21 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s is also gated by the middleware rou
   expect(featuresForPath(layoutUrl(file))).toContain(key)
 })
 
-// Gates enforced outside a layout's requireFeature, as a sample URL -> feature.
+// Gates enforced outside a layout's requireFeature, by exact file -> feature.
 // /my-events/* runs eventsOffFallback in its layout (a notice/redirect, not a 404).
+// Each page needs its own entry: a new page under /my-events is not covered by default.
 const NON_LAYOUT_GATES: Record<string, string> = {
-  "/my-events/x": "events",
+  "src/app/(organiser)/my-events/[id]/registrations/page.tsx": "events",
+  "src/app/(organiser)/my-events/[id]/check-in/page.tsx": "events",
 }
+
+it.each(Object.keys(NON_LAYOUT_GATES))("%s (non-layout gate) exists", (file) => {
+  expect(fs.existsSync(path.join(process.cwd(), file))).toBe(true)
+})
 
 it.each(FEATURE_ROUTES.map((r) => [String(r.match), r] as const))(
   "middleware rule %s is backed by a guarded layout (a stale or mistyped prefix would 404 a live route)", (_name, rule) => {
-    const urls = [...Object.entries(GUARDED_LAYOUTS).map(([f, k]) => [layoutUrl(f), k] as const), ...Object.entries(NON_LAYOUT_GATES)]
+    const urls = [...Object.entries(GUARDED_LAYOUTS).map(([f, k]) => [layoutUrl(f), k] as const), ...Object.entries(NON_LAYOUT_GATES).map(([f, k]) => [layoutUrl(f), k] as const)]
     expect(urls.some(([url, key]) => key === rule.feature && rule.match.test(url))).toBe(true)
   })
 
@@ -453,19 +459,26 @@ it("guardAccountingExport authenticates and role-checks (export routes rely on i
   ].join("")))
 })
 
-it("no middleware rule 404s a page outside a guarded layout (over-broad prefix)", () => {
+it("no middleware rule 404s a page or route handler outside a guarded layout / gated route (over-broad prefix)", () => {
+  // page.tsx and route.ts: both are served at their directory's URL.
   const walk = (dir: string): string[] =>
     fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) =>
-      e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name === "page.tsx" ? [`${dir}/${e.name}`] : [])
+      e.isDirectory() ? walk(`${dir}/${e.name}`) : ["page.tsx", "route.ts"].includes(e.name) ? [`${dir}/${e.name}`] : [])
   const layoutDirs = Object.entries(GUARDED_LAYOUTS).map(([f, k]) => [path.dirname(f), k] as const)
   const stray = walk("src/app").flatMap((file) => {
     const dir = path.dirname(file)
-    const url = layoutUrl(`${dir}/page.tsx`)
-    const allowed = new Set<string>([
-      ...layoutDirs.filter(([d]) => dir === d || dir.startsWith(`${d}/`)).map(([, k]) => k),
-      ...Object.entries(NON_LAYOUT_GATES).filter(([u]) => url.startsWith(u.replace(/x$/, ""))).map(([, k]) => k),
-    ])
-    return featuresForPath(url).filter((k) => !allowed.has(k)).map((k) => `${url} -> ${k}`)
+    const url = layoutUrl(file)
+    // A route.ts is never wrapped by a layout: it must gate itself (GUARDED_ROUTES, asserted above).
+    const byLayout = file.endsWith("page.tsx")
+      ? layoutDirs.filter(([d]) => dir === d || dir.startsWith(`${d}/`)).map(([, k]) => k)
+      : []
+    const gates = [
+      ...byLayout,
+      ...[NON_LAYOUT_GATES, GUARDED_PAGES, GUARDED_ROUTES].flatMap((m) => (file in m ? [m[file]] : [])),
+    ]
+    // A child feature is only on when its parent is, so gating the child covers the parent's middleware rule too.
+    const allowed = new Set<string>(gates.flatMap((k) => [k, featureDef(k as FeatureKey).parent ?? k]))
+    return featuresForPath(url).filter((k) => !allowed.has(k)).map((k) => `${file} (${url}) -> ${k}`)
   })
   expect(stray).toEqual([])
 })
