@@ -496,6 +496,7 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
   const saved = entries.filter((_, i) => results[i].status === "fulfilled")
   if (saved.length > 0) {
     await logAudit(actorId(session), "SETTING_UPDATED", "AppSetting", undefined, { keys: saved.map((e) => e.key) })
+    revalidatePath("/settings/email")
   }
   if (saved.length < entries.length) {
     // One upsert may have committed while another failed: report what is actually stored.
@@ -503,7 +504,6 @@ export async function updateAutoEmailFlags(_prev: ActionResultWithSuccess, formD
     return { error: "Could not save the automatic email setting", flags }
   }
 
-  revalidatePath("/settings/email")
   return { success: "Automated email settings saved" }
 }
 
