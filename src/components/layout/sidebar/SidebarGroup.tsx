@@ -90,7 +90,7 @@ function SidebarEntry({
     if (visible.length === 0) return null
     return (
       <div>
-        <p className="px-3 pt-2 pb-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+        <p className="px-3 pt-2 pb-0.5 text-[11px] text-muted-foreground">
           {entry.subLabel}
         </p>
         {visible.map((item) => (

@@ -29,13 +29,13 @@ export function PLMobileCards({
     <div className="space-y-4 md:hidden">
       {sections.map((section) => (
         <div key={section.key}>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{section.label}</p>
+          <p className="mb-2 text-xs font-bold text-muted-foreground">{section.label}</p>
           <ul className="space-y-2">
             {section.groups.map((group) => {
               const groupTotal = group.accounts.reduce((s, a) => s + accountTotal(a, totalMap), 0)
               return (
                 <li key={`${section.key}-card-${group.groupName}`} className="rounded-lg border bg-card p-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group.groupName}</p>
+                  <p className="text-xs font-semibold text-muted-foreground">{group.groupName}</p>
                   <ul className="mt-2 space-y-1.5 text-sm">
                     {group.accounts.map((a) => (
                       <li key={a.id} className="flex items-center justify-between gap-2">

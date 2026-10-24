@@ -89,7 +89,7 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
                   {["Receipt No", "FY", "Donor", "Amount", "Status", "Sent", "Actions"].map((h) => (
                     <th
                       key={h}
-                      className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase"
+                      className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground"
                     >
                       {h}
                     </th>

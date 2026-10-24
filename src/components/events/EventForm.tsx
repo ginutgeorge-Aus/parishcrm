@@ -115,7 +115,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       {/* Section 1: Details */}
       <section>
-        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border uppercase">
+        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Event Details
         </h2>
         <div className="flex flex-col gap-4">
@@ -301,7 +301,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       {/* Section 2: Ticket Types */}
       <section>
-        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border uppercase">
+        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Ticket Types <span className="text-xs text-muted-foreground font-normal">(optional — add to enable registration)</span>
         </h2>
         <TicketTypesEditor rows={ticketRows} onAdd={addTicket} onRemove={removeTicket} onUpdate={updateTicket} />
@@ -309,7 +309,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       {/* Section 3: Bank Details */}
       <section>
-        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border uppercase">
+        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Payment Details
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -395,7 +395,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       {/* Section 4: Custom Questions */}
       <section>
-        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border uppercase">
+        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Custom Questions <span className="text-xs text-muted-foreground font-normal">(optional)</span>
         </h2>
         <CustomQuestionsEditor initial={defaultValues.customQuestions ?? []} ticketTypeNames={ticketNames} />
@@ -403,7 +403,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       {/* Section 5: Organisers */}
       <section>
-        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border uppercase">
+        <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Organisers <span className="text-xs text-muted-foreground font-normal">(optional — shown on the public event page)</span>
         </h2>
         <OrganizersEditor initial={defaultValues.organizers ?? []} />

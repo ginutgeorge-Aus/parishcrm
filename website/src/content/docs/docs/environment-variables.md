@@ -69,9 +69,9 @@ bar. See [Settings and Branding](/parishcrm/docs/settings-and-branding/).
 
 | Variable | Purpose |
 |---|---|
-| `THEME_PRIMARY` | Primary brand colour, hex `#RRGGBB`. Unset = neutral slate. |
+| `THEME_PRIMARY` | Primary brand colour, hex `#RRGGBB`. Unset = deep slate. |
 | `THEME_PRIMARY_DARK` | Deeper primary shade (section bands, buttons). Falls back to `THEME_PRIMARY` when unset. |
-| `THEME_ACCENT` | Accent colour for emphasis / rule lines. |
+| `THEME_ACCENT` | Accent colour for emphasis / rule lines. Unset = muted terracotta `#cc6f50`. |
 
 ## Scheduled jobs (optional)
 

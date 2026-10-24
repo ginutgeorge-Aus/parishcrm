@@ -51,8 +51,8 @@ export const viewport: Viewport = {
 // Per-deploy theme override: when THEME_PRIMARY/THEME_ACCENT env is set, emit a
 // :root block that wins over globals.css's neutral defaults (later in the DOM,
 // equal specificity). A deploy restores its brand colours with zero source edits
-// (OSS migration Phase 2). No env → neutral monochrome-slate defaults stand.
-// --gold-foreground stays fixed dark, so it pairs with both gold and slate-200.
+// (OSS migration Phase 2). No env → the warm globals.css defaults stand.
+// --gold-foreground stays fixed dark, so it pairs with terracotta and any light brand gold.
 function themeOverrideCss(): string | null {
   // parseHex → null for absent OR malformed, so a typo'd override is dropped and
   // the neutral globals.css defaults stand (consistent with the palette's hex

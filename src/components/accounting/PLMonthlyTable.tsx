@@ -73,7 +73,7 @@ const renderMonthlyGroups = (
         return (
           <React.Fragment key={`${keyPrefix}-${group.accounts[0].id}`}>
             <tr>
-              <td colSpan={MONTHLY_COLS} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <td colSpan={MONTHLY_COLS} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground">
                 <span className={STICKY_LABEL}>{group.groupName}</span>
               </td>
             </tr>
@@ -210,7 +210,7 @@ export function PLMonthlyTable({
           {sections.map((section) => (
             <React.Fragment key={section.key}>
               <tr>
-                <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
+                <td colSpan={MONTHLY_COLS} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">
                   <span className="inline-block lg:sticky lg:left-0">{section.label}</span>
                 </td>
               </tr>
@@ -251,7 +251,7 @@ export function PLMonthlyTable({
       <div className="space-y-5 p-4">
         {MONTH_LABELS.map((m, i) => (
           <div key={m} className="rounded-lg border border-border">
-            <div className="border-b border-border bg-muted px-3 py-2 text-xs font-semibold uppercase tracking-wide">
+            <div className="border-b border-border bg-muted px-3 py-2 text-xs font-semibold">
               {m}
             </div>
             <div className="grid grid-cols-2 gap-y-1 px-3 py-2 text-sm">
@@ -275,7 +275,7 @@ export function PLMonthlyTable({
           </div>
         ))}
         <div className="rounded-lg border border-border">
-          <div className="border-b border-border bg-muted px-3 py-2 text-xs font-semibold uppercase tracking-wide">
+          <div className="border-b border-border bg-muted px-3 py-2 text-xs font-semibold">
             Totals
           </div>
           <div className="grid grid-cols-2 gap-y-1 px-3 py-2 text-sm">

@@ -39,8 +39,8 @@ export function ActivityFeed({ auditEntries, registrations }: Readonly<ActivityF
     <div className="space-y-4">
       {auditEntries.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            System Activity
+          <p className="text-xs font-medium text-muted-foreground mb-2">
+            System activity
           </p>
           <ul className="space-y-1">
             {auditEntries.map((entry) => (
@@ -61,8 +61,8 @@ export function ActivityFeed({ auditEntries, registrations }: Readonly<ActivityF
       )}
 
       <div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Recent Registrations
+        <p className="text-xs font-medium text-muted-foreground mb-2">
+          Recent registrations
         </p>
         {registrations.length === 0 ? (
           <p className="text-sm text-muted-foreground">No recent registrations.</p>

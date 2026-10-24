@@ -71,7 +71,7 @@ function ReconciliationEquationPanel({
   if (openingBalance && calculated !== null) {
     return (
       <div className="mb-4 p-4 bg-card rounded-lg border border-border">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+        <h3 className="text-xs font-semibold text-muted-foreground mb-1">
           Reconciliation Equation
         </h3>
         <p className="text-xs text-muted-foreground mb-3">
@@ -358,13 +358,13 @@ export default async function ReconciliationPage(props: Readonly<{
       {/* Summary bar */}
       <div className="flex flex-wrap items-center gap-6 mb-4 p-4 bg-muted rounded-lg border border-border">
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Reconciled</p>
+          <p className="text-xs text-muted-foreground">Reconciled</p>
           <p className="text-sm font-semibold">
             {reconciledCount} transactions · <span className="text-income">{fmtAUD(reconciledIn)} in</span> · <span className="text-expense">{fmtAUD(reconciledOut)} out</span>
           </p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Pending</p>
+          <p className="text-xs text-muted-foreground">Pending</p>
           <p className="text-sm font-semibold">
             {unreconciledCount} transactions · <span className="text-income">{fmtAUD(pendingIn)} in</span> · <span className="text-expense">{fmtAUD(pendingOut)} out</span>
           </p>

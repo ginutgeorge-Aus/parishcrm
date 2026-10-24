@@ -56,7 +56,7 @@ The FY start month is configurable per install via `APP_FY_START_MONTH` (`src/li
 
 ### Locking a period
 
-An ADMIN can set an **accounting lock date** (Accounting Settings → Period Lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
+An ADMIN can set an **accounting lock date** (Accounting Settings → Period lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
 
 ### Audit trail
 

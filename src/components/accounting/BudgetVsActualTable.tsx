@@ -85,7 +85,7 @@ export function BudgetVsActualTable({
       return (
         <React.Fragment key={group.groupName}>
           <tr>
-            <td colSpan={6} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            <td colSpan={6} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground">
               {group.groupName}
             </td>
           </tr>
@@ -120,7 +120,7 @@ export function BudgetVsActualTable({
         </thead>
         <tbody>
           <tr>
-            <td colSpan={6} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">Income</td>
+            <td colSpan={6} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">Income</td>
           </tr>
           {renderGroupRows(incomeGroups, true)}
           <tr className="border-t-2 border-border font-semibold">
@@ -135,7 +135,7 @@ export function BudgetVsActualTable({
           </tr>
 
           <tr>
-            <td colSpan={6} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">Expenses</td>
+            <td colSpan={6} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">Expenses</td>
           </tr>
           {renderGroupRows(expenseGroups, false)}
           <tr className="border-t-2 border-border font-semibold">

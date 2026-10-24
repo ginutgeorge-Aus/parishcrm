@@ -1,6 +1,6 @@
 // Single source for server-rendered brand colours — PDFs (welcome letter, DGR
 // receipt, membership), transactional emails, the OTP mail, print pages, and the
-// PWA manifest / mobile theme-colour. Ships neutral monochrome-slate defaults so
+// PWA manifest / mobile theme-colour. Ships a warm, restrained default (slate primary, terracotta accent) so
 // the open-source image is church-agnostic; a deploy restores its own look by
 // setting the THEME_* env vars, with zero source edits (OSS migration Phase 2).
 //
@@ -31,8 +31,8 @@ export const PRIMARY_HEX = normHex(process.env.THEME_PRIMARY, "#1e293b") // slat
 // Deeper primary for section bands / reminder buttons; inherits PRIMARY when
 // unset so a deploy that sets only THEME_PRIMARY still looks coherent.
 export const PRIMARY_DARK_HEX = normHex(process.env.THEME_PRIMARY_DARK, PRIMARY_HEX)
-// Emphasis / rule lines. Neutral slate-400 stays visible on white.
-export const ACCENT_HEX = normHex(process.env.THEME_ACCENT, "#94a3b8") // slate-400
+// Emphasis / rule lines. Muted terracotta default (matches --gold in globals.css).
+export const ACCENT_HEX = normHex(process.env.THEME_ACCENT, "#cc6f50") // muted terracotta
 
 // Theme-independent neutrals + money semantics shared across the PDF/email
 // renderers (previously duplicated as per-file consts). Not branded — no env.

@@ -166,7 +166,7 @@ export default async function AccountsPage() {
       <div className="space-y-8">
         {groups.map((group) => (
           <div key={group.id}>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">
               {group.name}{" "}
               <span className="font-normal">({group.accounts.length})</span>
             </h3>
@@ -184,7 +184,7 @@ export default async function AccountsPage() {
 
         {ungrouped.length > 0 && (
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">
               Ungrouped <span className="font-normal">({ungrouped.length})</span>
             </h3>
             <div className="hidden overflow-x-auto md:block">

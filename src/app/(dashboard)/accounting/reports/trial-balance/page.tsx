@@ -49,12 +49,12 @@ export default async function TrialBalancePage(props: Readonly<Props>) {
     return (
       <>
         <tr>
-          <td colSpan={4} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">{heading}</td>
+          <td colSpan={4} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">{heading}</td>
         </tr>
         {groups.map((g) => (
           <React.Fragment key={`${side}-${g.groupName}`}>
             <tr>
-              <td colSpan={4} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{g.groupName}</td>
+              <td colSpan={4} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground">{g.groupName}</td>
             </tr>
             {g.accounts.map((a) => (
               <tr key={a.id} className="border-b border-border">

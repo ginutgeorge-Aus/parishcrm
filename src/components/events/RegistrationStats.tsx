@@ -39,7 +39,7 @@ export function RegistrationStats({ total, paid, cancelled, revenue, cardRevenue
         ] as Array<{ label: string; value: string | number; sub: string; valueClass?: string }>
       ).map(card => (
         <div key={card.label} className="bg-card rounded-xl border border-border p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{card.label}</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-2">{card.label}</p>
           <data className={`text-3xl font-bold tabular text-foreground ${card.valueClass ?? ""}`} value={String(card.value)}>
             {card.value}
           </data>

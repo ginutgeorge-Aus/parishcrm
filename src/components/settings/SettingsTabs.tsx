@@ -53,7 +53,7 @@ export function SettingsTabs({ groups }: Readonly<{ groups: readonly SettingsTab
       <nav aria-label="Settings sections" className="sticky top-[4.5rem] hidden w-[220px] shrink-0 space-y-5 self-start md:block">
         {groups.map((g) => (
           <div key={g.label}>
-            <p className="px-3 pb-1 text-xs uppercase text-muted-foreground">{g.label}</p>
+            <p className="px-3 pb-1 text-xs text-muted-foreground">{g.label}</p>
             <ul className="space-y-0.5">
               {g.tabs.map((t) => {
                 const isActive = t.href === active

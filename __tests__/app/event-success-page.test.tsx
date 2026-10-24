@@ -100,7 +100,7 @@ it("renders a cancelled state — not an active booking with bank details — fo
   const html = renderToStaticMarkup(await render("gala", "REG-CANCELLED1"))
 
   expect(html).toMatch(/cancelled/i)
-  expect(html).not.toContain("Bank Transfer Details")
+  expect(html).not.toContain("Bank transfer details")
   expect(html).not.toMatch(/you&#x27;re registered/i)
 })
 
@@ -178,7 +178,7 @@ it("shows a not-found message — not bank details — when the ref matches no r
 
   expect(html).toMatch(/not found/i)
   // The bogus ref must NOT be presented as a payment reference next to bank details.
-  expect(html).not.toContain("Bank Transfer Details")
+  expect(html).not.toContain("Bank transfer details")
   expect(html).not.toContain("12345678")
   expect(html).not.toContain("You&#x27;re registered")
 })
@@ -226,7 +226,7 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
 
     expect(html).toMatch(/couldn&#x27;t complete your registration/i)
     expect(html).not.toMatch(/being finalised/i)
-    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).not.toContain("Bank transfer details")
     expect(mockRegFindFirst).not.toHaveBeenCalled()
   })
 
@@ -287,7 +287,7 @@ describe("card (pay-now) return via ?token= (Stripe event payments)", () => {
     const html = renderToStaticMarkup(await renderWithToken("gala", "cs_test_unknown"))
 
     expect(html).toMatch(/not found/i)
-    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).not.toContain("Bank transfer details")
     expect(mockRegFindFirst).not.toHaveBeenCalled()
   })
 
@@ -348,7 +348,7 @@ describe("PAID registration — no bank-details leak", () => {
     const html = renderToStaticMarkup(await render("gala", "REG-PAID0001"))
 
     expect(html).toMatch(/paid by card/i)
-    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).not.toContain("Bank transfer details")
     expect(html).not.toContain("12345678")
     expect(html).not.toContain("013-999")
   })
@@ -371,7 +371,7 @@ describe("PAID registration — no bank-details leak", () => {
     expect(html).toMatch(/payment received/i)
     expect(html).not.toMatch(/paid by card/i)
     // Still settled: no bank-transfer instructions shown.
-    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).not.toContain("Bank transfer details")
     expect(html).not.toContain("12345678")
   })
 
@@ -388,7 +388,7 @@ describe("PAID registration — no bank-details leak", () => {
 
     const html = renderToStaticMarkup(await render("gala", "REG-PENDING1"))
 
-    expect(html).toContain("Bank Transfer Details")
+    expect(html).toContain("Bank transfer details")
     expect(html).toContain("12345678")
     expect(html).not.toMatch(/paid by card/i)
   })
@@ -409,7 +409,7 @@ describe("$0 free registration — no payment required", () => {
     const html = renderToStaticMarkup(await render("gala", "REG-FREE00001"))
 
     expect(html).toMatch(/no payment required/i)
-    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).not.toContain("Bank transfer details")
     expect(html).not.toContain("12345678")
     expect(html).not.toContain("013-999")
     expect(html).not.toMatch(/held for 7 days/i)

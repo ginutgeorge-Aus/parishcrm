@@ -8,11 +8,23 @@ import { PRODUCT_NAME } from "@/lib/settingsConstants"
 // own wrapper classes via `className` to preserve existing spacing/borders.
 // Server-rendered, so the copyright year is computed server-side (no hydration
 // mismatch) and rolls over automatically.
-export function SiteFooter({ churchName, className }: Readonly<{ churchName: string; className?: string }>) {
+// `compactOnMobile` hides the copyright line below the `sm` breakpoint so the
+// footer collapses to the single credit + privacy line on phones (dashboard).
+/**
+ * Renders the shared site footer.
+ * @param churchName - Church name shown in the copyright line.
+ * @param className - Wrapper classes supplied by the host layout.
+ * @param compactOnMobile - Hide the copyright line below `sm` (keeps the privacy link).
+ */
+export function SiteFooter({
+  churchName,
+  className,
+  compactOnMobile = false,
+}: Readonly<{ churchName: string; className?: string; compactOnMobile?: boolean }>) {
   const year = new Date().getFullYear()
   return (
     <footer className={cn("text-center text-xs text-muted-foreground space-y-0.5", className)}>
-      <p>&copy; {year} {churchName}. All rights reserved.</p>
+      <p className={compactOnMobile ? "hidden sm:block" : undefined}>&copy; {year} {churchName}. All rights reserved.</p>
       <p>
         Powered by {PRODUCT_NAME} &middot;{" "}
         <Link

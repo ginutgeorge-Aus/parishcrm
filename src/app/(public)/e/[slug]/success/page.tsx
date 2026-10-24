@@ -296,7 +296,7 @@ function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchNa
 
   return (
     <div className="bg-muted rounded-xl border border-border p-5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Bank Transfer Details</p>
+      <p className="text-xs font-semibold text-muted-foreground mb-3">Bank transfer details</p>
       <div className="flex flex-col gap-2 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Account name</span>
@@ -336,7 +336,7 @@ function OrganizersList({ organizers }: Readonly<{ organizers: Organizer[] }>) {
   if (organizers.length === 0) return null
   return (
     <div className="mt-5 rounded-xl border border-border bg-muted p-5">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="mb-3 text-xs font-semibold text-muted-foreground">
         {organizers.length === 1 ? "Organiser" : "Organisers"}
       </p>
       <div className="flex flex-col gap-1 text-sm">
@@ -493,7 +493,7 @@ export default async function SuccessPage(props: Readonly<Props>) {
         {registration && <RegistrationSummary registration={registration} freeCount={freeCount} />}
 
         <div className="mb-6 flex flex-col items-center rounded-xl border border-border bg-muted p-5">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Check-in code</p>
+          <p className="mb-3 text-xs font-semibold text-muted-foreground">Check-in code</p>
           <div className="rounded-lg bg-card p-3">
             <QrCode value={registration.publicToken} title={`Check-in code ${registration.publicToken}`} />
           </div>

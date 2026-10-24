@@ -155,7 +155,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
             <TableHeader className="bg-muted">
               <TableRow>
                 {["Name", "Ticket", "Booked by", "Status"].map(h => (
-                  <TableHead key={h} className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <TableHead key={h} className="text-xs font-semibold text-muted-foreground">
                     {h}
                   </TableHead>
                 ))}
@@ -215,7 +215,7 @@ export function RegistrationsTable({ registrations, eventId, canEdit, total }: R
           <TableHeader className="bg-muted">
             <TableRow>
               {["Name", "Email", "Phone", "Tickets", "Amount", "Method", "Status", "Registered", "Actions"].map(h => (
-                <TableHead key={h} className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <TableHead key={h} className="text-xs font-semibold text-muted-foreground">
                   {h}
                 </TableHead>
               ))}

@@ -66,7 +66,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
       />
 
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Your Details</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Your details</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label htmlFor="reg-firstName" className="text-sm font-medium text-foreground">First name *</label>
@@ -120,7 +120,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
 
       {orderQuestions.length > 0 && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Additional Info</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Additional info</p>
           <div className="flex flex-col gap-3">
             {orderQuestions.map(q => (
               <QuestionField
@@ -137,7 +137,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
 
       {showMethodChoice && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Payment method</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Payment method</p>
           <div className="flex flex-col gap-2">
             <label className="flex items-center gap-2 min-h-11 text-sm text-foreground">
               <input

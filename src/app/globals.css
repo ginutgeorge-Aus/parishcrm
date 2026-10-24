@@ -102,45 +102,50 @@
 
 @layer base {
   :root {
-    /* Neutral visual system — cool slate neutrals, monochrome by default.
-       Primary/dark surface = slate-800 #1E293B; the accent is a light slate chip
-       for active/emphasis states. A deploy restores its own brand colours via
-       THEME_PRIMARY/THEME_ACCENT env (injected as a :root override by the root
-       layout) with zero source edits (OSS Phase 2).
-       Money has its own semantic green/red, never the accent hue. */
-    --background: 210 40% 98%;        /* slate-50 #F8FAFC */
-    --foreground: 222 47% 11%;        /* slate-900 #0F172A */
-    --card: 0 0% 100%;                /* pure white — cards lift off the cool bg */
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 217 33% 17%;           /* slate-800 #1E293B (cool navy) */
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;         /* slate-100 #F1F5F9 */
+    /* Warm, restrained visual system — neutrals carry a faint warm tint (hue
+       ~30-40, very low chroma) instead of cool slate. Background is a warm
+       off-white; cards are a lighter warm white so they still lift off it
+       (never pure #FFF). Primary/dark surface stays deep slate #1E293B. The
+       emphasis accent defaults to a muted terracotta; a deploy restores its own
+       brand colours via THEME_PRIMARY/THEME_ACCENT env (injected as a :root
+       override by the root layout) with zero source edits (OSS Phase 2).
+       Money has its own semantic green/red, never the accent hue.
+       All text pairs below are >= 4.5:1 (WCAG AA) — ratios are in the PR #316
+       description. */
+    --background: 38 25% 96%;         /* warm off-white #F8F6F1 */
+    --foreground: 30 20% 12%;         /* warm near-black #251F19 */
+    --card: 40 30% 99%;               /* warm white #FDFCFA — lighter than the bg, not pure white */
+    --card-foreground: 30 20% 12%;
+    --popover: 40 30% 99%;
+    --popover-foreground: 30 20% 12%;
+    --primary: 217 33% 17%;           /* slate-800 #1E293B (deep navy) */
+    --primary-foreground: 38 25% 96%;
+    --secondary: 38 20% 93%;          /* warm stone #F1EEE8 */
     --secondary-foreground: 217 33% 17%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 19% 35%;  /* slate-600 #475569 — slate-500 failed WCAG AA (~4.4:1) on the slate-50 bg */
-    --accent: 210 40% 96%;            /* neutral hover bg (shadcn uses this for menu/hover) */
+    --muted: 38 20% 93%;
+    --muted-foreground: 30 10% 32%;   /* warm grey #5A524B — AA on bg, card and muted */
+    --accent: 38 20% 93%;             /* neutral hover bg (shadcn uses this for menu/hover) */
     --accent-foreground: 217 33% 17%;
     --destructive: 0 74% 42%;         /* danger red #B91C1C */
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;            /* slate-200 #E2E8F0 */
-    --input: 214 32% 91%;
-    --ring: 215 20% 65%;              /* slate-400 focus ring (neutral); THEME_ACCENT overrides */
+    --destructive-foreground: 38 25% 96%;
+    --border: 35 15% 86%;             /* warm hairline #E2DDD5 */
+    --input: 35 15% 86%;
+    --ring: 15 55% 56%;               /* terracotta focus ring; THEME_ACCENT overrides */
     --radius: 0.5rem;
 
     /* Emphasis accent — distinct from shadcn --accent (the neutral hover bg).
-       Neutral default = slate-200 chip; THEME_ACCENT env restores a brand colour.
-       --gold-foreground stays dark so it pairs with both the slate chip and any
-       light brand accent (e.g. gold). */
-    --gold: 214 32% 91%;              /* slate-200 (neutral) */
-    --gold-foreground: 217 33% 17%;   /* dark slate text on the accent (contrast) */
+       Default = muted terracotta #CC6F50; THEME_ACCENT env restores a brand colour.
+       --gold-foreground stays a fixed dark warm brown so it pairs with the
+       terracotta chip, any light brand accent (e.g. gold), and the
+       bg-gold/10 tints that use it as text colour. */
+    --gold: 15 55% 56%;               /* terracotta #CC6F50 (neutral-warm default) */
+    --gold-foreground: 30 25% 10%;    /* dark warm brown text on the accent (contrast) */
     /* Money semantics */
     --income: 142 72% 29%;            /* green #15803D */
     --expense: 0 74% 42%;             /* red #B91C1C */
     --info: 214 80% 42%;              /* informational blue #1565D8 */
     --info-foreground: 0 0% 100%;
-    --warning: 32 81% 36%;            /* amber-700 #B45309 — AA on white + on bg-warning/10 */
+    --warning: 32 81% 33%;            /* deep amber #985910 — AA on card, bg and bg-warning/10 */
     --warning-foreground: 0 0% 100%;
     --success: 142 72% 29%;           /* green #15803D — mirrors --income */
     --success-foreground: 0 0% 100%;
@@ -154,10 +159,12 @@
     @apply bg-background text-foreground;
   }
 
-  /* Single sans family (Public Sans). Headings differentiate by weight + tight
-     tracking, not a separate face — modern SaaS look. */
+  /* Single sans family (Public Sans). Headings differentiate by weight; h1/h2
+     also get tight tracking (h3 and below stay at normal tracking). */
   h1, h2, h3 {
     font-weight: 600;
+  }
+  h1, h2 {
     letter-spacing: -0.02em;
   }
 }
