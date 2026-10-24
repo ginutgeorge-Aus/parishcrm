@@ -108,8 +108,9 @@ export function AutoEmailToggles({ birthday, anniversary }: Readonly<Flags>) {
           setFeedback({ success: "Saved" })
         }
       } catch {
+        // No response: the write may still have committed, so don't claim it failed.
         setFlags(saved)
-        setFeedback({ error: "Could not save. Try again." })
+        setFeedback({ error: "Couldn't confirm the save. Reload the page to see the current setting." })
       } finally {
         setSaving(null)
       }

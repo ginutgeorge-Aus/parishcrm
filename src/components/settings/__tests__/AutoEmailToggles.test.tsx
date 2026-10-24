@@ -148,7 +148,7 @@ describe("AutoEmailToggles", () => {
     render(<AutoEmailToggles birthday={false} anniversary={false} />)
     const toggle = screen.getByLabelText("Send birthday blessings automatically")
     fireEvent.click(toggle)
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't confirm the save")
     expect(toggle).not.toBeChecked()
   })
 })
