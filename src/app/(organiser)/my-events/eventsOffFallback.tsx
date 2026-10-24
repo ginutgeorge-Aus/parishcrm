@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { getEnabledFeatures } from "@/lib/featureFlags"
+import { organiserHome } from "@/lib/organiserHome"
 
 /**
  * What /my-events shows while Events is off. This is the organiser's home
@@ -12,7 +13,8 @@ import { getEnabledFeatures } from "@/lib/featureFlags"
 export async function eventsOffFallback(): Promise<React.ReactElement | null> {
   const features = await getEnabledFeatures()
   if (features.has("events")) return null
-  if (features.has("sundaySchool")) redirect("/my-classes")
+  const home = organiserHome(features)
+  if (!home.isEventsHome) redirect(home.href)
   return (
     <div className="mx-auto max-w-lg rounded-lg border border-border bg-card p-6 text-center">
       <h1 className="text-lg font-semibold text-foreground">Nothing to manage right now</h1>

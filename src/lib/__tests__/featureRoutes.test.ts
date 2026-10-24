@@ -2,7 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
-jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findMany: jest.fn() } } }))
 
 import { prisma } from "@/lib/prisma"
 import {
@@ -10,12 +10,12 @@ import {
 } from "@/lib/featureRoutes"
 import { FEATURE_KEYS } from "@/lib/features"
 
-const findUnique = prisma.appSetting.findUnique as jest.Mock
+const findMany = prisma.appSetting.findMany as jest.Mock
 const stored = (o: object | null) =>
-  findUnique.mockResolvedValue(o && { key: "features", value: JSON.stringify(o) })
+  findMany.mockResolvedValue(o ? [{ key: "features", value: JSON.stringify(o) }] : [])
 
 beforeEach(() => {
-  findUnique.mockReset()
+  findMany.mockReset()
   _resetFeatureRoutesCache()
 })
 
@@ -80,7 +80,7 @@ describe("featureOffRedirect", () => {
 describe("isFeatureRouteOff", () => {
   it("is false for ungated paths without reading settings", async () => {
     expect(await isFeatureRouteOff("/people")).toBe(false)
-    expect(findUnique).not.toHaveBeenCalled()
+    expect(findMany).not.toHaveBeenCalled()
   })
 
   it("is true when the feature is off, including nested pages", async () => {
@@ -100,8 +100,10 @@ describe("isFeatureRouteOff", () => {
   })
 
   it("fails open when the read throws", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined)
+    findMany.mockRejectedValue(new Error("db down"))
     expect(await isFeatureRouteOff("/events/5")).toBe(false)
+    err.mockRestore()
   })
 })
 
@@ -109,7 +111,7 @@ it("caches the feature set between calls", async () => {
   stored({ events: false })
   await getEnabledFeaturesCached()
   await getEnabledFeaturesCached()
-  expect(findUnique).toHaveBeenCalledTimes(1)
+  expect(findMany).toHaveBeenCalledTimes(1)
 })
 
 it("serves the cache within the TTL and refetches after it", async () => {
@@ -120,10 +122,10 @@ it("serves the cache within the TTL and refetches after it", async () => {
     await getEnabledFeaturesCached()
     now.mockReturnValue(1_004_999)
     await getEnabledFeaturesCached()
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledTimes(1)
     now.mockReturnValue(1_005_000)
     await getEnabledFeaturesCached()
-    expect(findUnique).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenCalledTimes(2)
   } finally {
     now.mockRestore()
   }
@@ -136,17 +138,17 @@ describe("invalidateFeatureRouteCache", () => {
     stored({})
     invalidateFeatureRouteCache()
     expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
-    expect(findUnique).toHaveBeenCalledTimes(2)
+    expect(findMany).toHaveBeenCalledTimes(2)
   })
 
   it("a read started before invalidation cannot repopulate the cache with stale data", async () => {
     let release!: (v: unknown) => void
-    findUnique.mockReturnValueOnce(new Promise((r) => { release = r }))
+    findMany.mockReturnValueOnce(new Promise((r) => { release = r }))
     const stale = getEnabledFeaturesCached()
     await new Promise((r) => setImmediate(r))
     invalidateFeatureRouteCache()
     stored({})
-    release({ key: "features", value: JSON.stringify({ events: false }) })
+    release([{ key: "features", value: JSON.stringify({ events: false }) }])
     expect((await stale)?.has("events")).toBe(false)
     expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
   })
@@ -155,7 +157,7 @@ describe("invalidateFeatureRouteCache", () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
     try {
       let fail!: (e: unknown) => void
-      findUnique.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
+      findMany.mockReturnValueOnce(new Promise((_, rej) => { fail = rej }))
       const stale = getEnabledFeaturesCached()
       await new Promise((r) => setImmediate(r))
       invalidateFeatureRouteCache()
@@ -172,16 +174,16 @@ describe("invalidateFeatureRouteCache", () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined)
     try {
       let release!: (v: unknown) => void
-      findUnique.mockReturnValueOnce(new Promise((r) => { release = r }))
+      findMany.mockReturnValueOnce(new Promise((r) => { release = r }))
       const stale = getEnabledFeaturesCached()
       await new Promise((r) => setImmediate(r))
       invalidateFeatureRouteCache()
       stored({})
       expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
-      release({ key: "features", value: JSON.stringify({ events: false }) })
+      release([{ key: "features", value: JSON.stringify({ events: false }) }])
       await stale
       invalidateFeatureRouteCache()
-      findUnique.mockRejectedValueOnce(new Error("db down"))
+      findMany.mockRejectedValueOnce(new Error("db down"))
       expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
     } finally {
       errSpy.mockRestore()
@@ -197,15 +199,15 @@ describe("read failures", () => {
   afterEach(() => errSpy.mockRestore())
 
   it("fails open, logs, and caches the failure for the TTL", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+    findMany.mockRejectedValue(new Error("db down"))
     expect(await getEnabledFeaturesCached()).toBeNull()
     expect(await getEnabledFeaturesCached()).toBeNull()
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledTimes(1)
     expect(errSpy).toHaveBeenCalledTimes(1)
   })
 
   it("logs the error class, never the driver message", async () => {
-    findUnique.mockRejectedValue(new Error("secret query value"))
+    findMany.mockRejectedValue(new Error("secret query value"))
     await getEnabledFeaturesCached()
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain("secret query value")
     expect(errSpy.mock.calls[0]).toContain("Error")
@@ -215,7 +217,7 @@ describe("read failures", () => {
     stored({ events: false })
     await getEnabledFeaturesCached()
     invalidateFeatureRouteCache()
-    findUnique.mockRejectedValue(new Error("db down"))
+    findMany.mockRejectedValue(new Error("db down"))
     expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
   })
 
@@ -225,7 +227,7 @@ describe("read failures", () => {
       stored({ events: false })
       now.mockReturnValue(1_000_000)
       await getEnabledFeaturesCached()
-      findUnique.mockRejectedValue("boom")
+      findMany.mockRejectedValue("boom")
       now.mockReturnValue(1_006_000)
       expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
       expect(errSpy).toHaveBeenCalledTimes(1)
@@ -237,7 +239,37 @@ describe("read failures", () => {
   it("coalesces concurrent cold reads into one query", async () => {
     stored({ events: false })
     await Promise.all([getEnabledFeaturesCached(), getEnabledFeaturesCached(), getEnabledFeaturesCached()])
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findMany).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("shared settings snapshot", () => {
+  it("one query serves the maintenance flag and the feature flags", async () => {
+    const { getMaintenanceState } = await import("@/lib/maintenance")
+    findMany.mockResolvedValue([
+      { key: "maintenance", value: '{"enabled":true}' },
+      { key: "features", value: JSON.stringify({ events: false }) },
+    ])
+    expect((await getMaintenanceState()).enabled).toBe(true)
+    expect((await getEnabledFeaturesCached())?.has("events")).toBe(false)
+    expect(findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("warns once per distinct unreadable features value, across snapshot refreshes", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined)
+    const now = jest.spyOn(Date, "now")
+    try {
+      findMany.mockResolvedValue([{ key: "features", value: "not json" }])
+      now.mockReturnValue(1_000_000)
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      now.mockReturnValue(1_006_000) // snapshot expired: a second read of the same bad value
+      expect((await getEnabledFeaturesCached())?.has("events")).toBe(true)
+      expect(findMany).toHaveBeenCalledTimes(2)
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+      now.mockRestore()
+    }
   })
 })
 
