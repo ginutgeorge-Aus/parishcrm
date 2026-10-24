@@ -145,7 +145,8 @@ it("the Stripe webhook and checkout sweep stay ungated (in-flight payments must 
 })
 
 it("maps only known feature keys", () => {
-  for (const key of [...Object.values(GUARDED_LAYOUTS), ...Object.values(GUARDED_ACTIONS), ...Object.values(GUARDED_ROUTES)]) {
+  // GUARDED_PAGES / NON_LAYOUT_GATES are declared below; test bodies run after module load.
+  for (const key of [GUARDED_LAYOUTS, GUARDED_ACTIONS, GUARDED_ROUTES, GUARDED_PAGES, NON_LAYOUT_GATES].flatMap(Object.values)) {
     expect(FEATURE_KEYS).toContain(key)
   }
 })
