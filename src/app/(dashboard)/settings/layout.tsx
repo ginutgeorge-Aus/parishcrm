@@ -3,7 +3,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { getEnabledFeatures } from "@/lib/featureFlags"
 import { getSettingsSession } from "@/lib/settingsAccess"
 import { DemoNotice } from "@/components/DemoNotice"
-import { buildSettingsTabs } from "@/components/settings/settingsTabs"
+import { buildSettingsTabs } from "@/lib/settingsTabs"
 import { SettingsTabs } from "@/components/settings/SettingsTabs"
 import { UnsavedChangesProvider } from "@/components/settings/unsavedChanges"
 

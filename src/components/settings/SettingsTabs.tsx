@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { activeHref } from "@/components/layout/activeHref"
-import type { SettingsTabGroup } from "./settingsTabs"
+import type { SettingsTabGroup } from "@/lib/settingsTabs"
 import { DISCARD_PROMPT, useUnsavedChanges } from "./unsavedChanges"
 
 /**

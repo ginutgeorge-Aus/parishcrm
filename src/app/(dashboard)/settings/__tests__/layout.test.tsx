@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react"
 
 jest.mock("next/navigation", () => ({ redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }) }))
-jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/auth", () => ({ getSession: jest.fn() }))
 jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn().mockResolvedValue(new Set(["memberships"])) }))
 jest.mock("@/components/DemoNotice", () => ({ DemoNotice: () => null }))
 jest.mock("@/components/settings/SettingsTabs", () => ({
@@ -11,10 +11,10 @@ jest.mock("@/components/settings/SettingsTabs", () => ({
   ),
 }))
 
-import { auth } from "@/auth"
+import { getSession } from "@/auth"
 import SettingsLayout from "@/app/(dashboard)/settings/layout"
 
-const mockAuth = auth as unknown as jest.Mock
+const mockAuth = getSession as unknown as jest.Mock
 
 it("redirects non-admins", async () => {
   mockAuth.mockResolvedValue({ user: { role: "PASTOR" } })

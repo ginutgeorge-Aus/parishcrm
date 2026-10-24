@@ -7,7 +7,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { useKeepFormValues } from "./useKeepFormValues"
 import { useFormDirty } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
+import { SettingsRow } from "./ui/SettingsRow"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 
 type Props = {
@@ -88,9 +88,10 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
           htmlFor="church-website"
           description="Shown as a link on the public membership and family-update forms. Leave blank to hide it."
         >
+          {(descId) => (
           <Input
             id="church-website"
-            aria-describedby={settingsDescId("church-website")}
+            aria-describedby={descId}
             name="churchWebsite"
             type="url"
             defaultValue={keep("churchWebsite", churchWebsite)}
@@ -98,6 +99,7 @@ export function ChurchInfoForm({ churchName, churchAddress, churchABN, churchEma
             className="md:w-80"
             maxLength={500}
           />
+          )}
         </SettingsRow>
         <FormFeedback state={state} />
       </SettingsCard>

@@ -12,12 +12,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { useUnsavedGuard } from "./unsavedChanges"
 import { SettingsCard } from "./ui/SettingsCard"
-import { SettingsRow, settingsDescId } from "./ui/SettingsRow"
+import { SettingsRow } from "./ui/SettingsRow"
 
 // Maps each editable ReceiptSettings field to its AppSetting key (what the
 // server actions expect) plus display metadata.
@@ -128,39 +127,39 @@ export function ReceiptSettingsSection({ settings }: Readonly<{ settings: Receip
         </div>
       }
     >
-      {FIELDS.map((f) =>
-        f.multiline ? (
-          <div key={f.settingKey} className="space-y-2 py-5">
-            <Label htmlFor={f.settingKey}>{f.label}</Label>
-            {f.hint && (
-              <p id={settingsDescId(f.settingKey)} className="text-xs text-muted-foreground">
-                {f.hint}
-              </p>
-            )}
-            <Textarea
-              id={f.settingKey}
-              aria-describedby={f.hint ? settingsDescId(f.settingKey) : undefined}
-              value={fields[f.key]}
-              rows={f.rows}
-              maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
-              disabled={pending}
-              onChange={set(f.key)}
-            />
-          </div>
-        ) : (
-          <SettingsRow key={f.settingKey} label={f.label} htmlFor={f.settingKey} description={f.hint}>
-            <Input
-              id={f.settingKey}
-              aria-describedby={f.hint ? settingsDescId(f.settingKey) : undefined}
-              value={fields[f.key]}
-              maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
-              disabled={pending}
-              onChange={set(f.key)}
-              className="md:w-80"
-            />
-          </SettingsRow>
-        ),
-      )}
+      {FIELDS.map((f) => (
+        <SettingsRow
+          key={f.settingKey}
+          label={f.label}
+          htmlFor={f.settingKey}
+          description={f.hint}
+          stacked={f.multiline}
+        >
+          {(descId) =>
+            f.multiline ? (
+              <Textarea
+                id={f.settingKey}
+                aria-describedby={descId}
+                value={fields[f.key]}
+                rows={f.rows}
+                maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
+                disabled={pending}
+                onChange={set(f.key)}
+              />
+            ) : (
+              <Input
+                id={f.settingKey}
+                aria-describedby={descId}
+                value={fields[f.key]}
+                maxLength={RECEIPT_SETTING_MAX_LENGTHS[f.settingKey]}
+                disabled={pending}
+                onChange={set(f.key)}
+                className="md:w-80"
+              />
+            )
+          }
+        </SettingsRow>
+      ))}
       <FormFeedback state={feedback} />
     </SettingsCard>
   )
