@@ -21,6 +21,38 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.9.0-warm-theme",
+    version: "v1.9.0",
+    area: "Navigation",
+    title: "Warmer theme and sentence-case labels",
+    steps:
+      "Open the dashboard, People and Settings → confirm the warm neutral colours and terracotta accent (or your brand colour if THEME_ACCENT is set) → confirm buttons and labels use sentence case → check text is readable in both light and dark mode.",
+  },
+  {
+    id: "v1.9.0-setup-features",
+    version: "v1.9.0",
+    area: "Settings",
+    title: "Setup asks which features are needed",
+    steps:
+      "On a fresh install (or the setup checklist as ADMIN), open the features step → turn off a feature you don't need and continue → confirm it is hidden from the sidebar afterwards and can be turned back on in Settings → Features.",
+  },
+  {
+    id: "v1.9.0-unsaved-guard",
+    version: "v1.9.0",
+    area: "Settings",
+    title: "Unsaved-changes warning on any navigation",
+    steps:
+      "In Settings, change a field without saving → click a sidebar link, a top-bar item and the browser back button in turn → confirm each time you are warned before leaving → save and confirm you can then leave without a warning.",
+  },
+  {
+    id: "v1.9.0-blocked-switch-focus",
+    version: "v1.9.0",
+    area: "Settings",
+    title: "Blocked feature switches stay focusable",
+    steps:
+      "Settings → Features → Tab through the switches with the keyboard → confirm a switch that can't be turned off still receives focus and its reason is announced or shown.",
+  },
+  {
     id: "v1.8.0-app-shell",
     version: "v1.8.0",
     area: "Navigation",
