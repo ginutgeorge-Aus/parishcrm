@@ -67,6 +67,6 @@ it("marks the active link with the primary pill, not a gold border", () => {
   )
   const link = screen.getByRole("link")
   expect(link).toHaveAttribute("aria-current", "page")
-  expect(link).toHaveClass("bg-primary/10", "text-primary")
+  expect(link).toHaveClass("bg-gold/15", "text-foreground")
   expect(link).not.toHaveClass("border-gold")
 })

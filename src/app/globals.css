@@ -112,7 +112,7 @@
        Money has its own semantic green/red, never the accent hue.
        All text pairs below are >= 4.5:1 (WCAG AA) — ratios are in the PR #316
        description. */
-    --background: 38 25% 96%;         /* warm off-white #F8F6F1 */
+    --background: 36 30% 93%;         /* warm cream #F2EDE5 */
     --foreground: 30 20% 12%;         /* warm near-black #251F19 */
     --card: 40 30% 99%;               /* warm white #FDFCFA — lighter than the bg, not pure white */
     --card-foreground: 30 20% 12%;
@@ -141,13 +141,13 @@
     --gold: 15 55% 56%;               /* terracotta #CC6F50 (neutral-warm default) */
     --gold-foreground: 30 25% 10%;    /* dark warm brown text on the accent (contrast) */
     /* Money semantics */
-    --income: 142 72% 29%;            /* green #15803D */
+    --income: 142 72% 27%;            /* green #137638 — AA (4.9:1) on the warm cream bg */
     --expense: 0 74% 42%;             /* red #B91C1C */
     --info: 214 80% 42%;              /* informational blue #1565D8 */
     --info-foreground: 0 0% 100%;
     --warning: 32 81% 33%;            /* deep amber #985910 — AA on card, bg and bg-warning/10 */
     --warning-foreground: 0 0% 100%;
-    --success: 142 72% 29%;           /* green #15803D — mirrors --income */
+    --success: 142 72% 27%;           /* green #137638 — mirrors --income */
     --success-foreground: 0 0% 100%;
   }
 

@@ -60,7 +60,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
           </div>
         </div>
       </ShellProvider>
-      <SiteFooter churchName={churchName} compactOnMobile className="border-t bg-card px-4 py-1 sm:px-8 sm:py-3" />
+      <SiteFooter churchName={churchName} compactOnMobile className="border-t bg-background px-4 py-1 sm:px-8 sm:py-3" />
       <IdleTimeout idleMinutes={session?.remember ? REMEMBERED_IDLE_MINUTES : idleMinutes} />
     </div>
   )

@@ -30,7 +30,7 @@ export function SidebarLink({
         "flex items-center gap-3 rounded-lg text-sm transition-colors",
         collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
         active
-          ? "bg-primary/10 font-medium text-primary"
+          ? "bg-gold/15 font-medium text-foreground shadow-[inset_3px_0_0_var(--color-gold)]"
           : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >

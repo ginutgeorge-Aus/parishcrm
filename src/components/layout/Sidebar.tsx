@@ -294,7 +294,7 @@ export function Sidebar({
         aria-hidden={!mobileOpen}
         inert={!mobileOpen}
         className={cn(
-          "md:hidden fixed top-0 left-0 h-full w-56 bg-card text-foreground border-r border-border flex flex-col z-50 transition-transform duration-200 motion-reduce:transition-none",
+          "md:hidden fixed top-0 left-0 h-full w-56 bg-background text-foreground border-r border-border flex flex-col z-50 transition-transform duration-200 motion-reduce:transition-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -318,7 +318,7 @@ export function Sidebar({
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden md:flex print:hidden min-h-screen bg-card text-foreground border-r border-border flex-col transition-[width] duration-200",
+          "hidden md:flex print:hidden min-h-screen bg-background text-foreground border-r border-border flex-col transition-[width] duration-200",
           railCollapsed ? "w-16" : "w-56"
         )}
       >
