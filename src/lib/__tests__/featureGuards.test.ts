@@ -337,6 +337,8 @@ const CORE_ACTIONS = new Set([
   "person.ts", "publicFeedback.ts", "session.ts", "setup.ts", "totp.ts", "trustedDevice.ts", "user.ts",
   // Gated per template key (feature-owned templates only): emailTemplates.test.ts + the sweep.
   "emailTemplates.ts",
+  // Gated by the AppSetting `venueUsage.enabled` (not a FEATURES flag): venueUsage.test.ts.
+  "venueUsage.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

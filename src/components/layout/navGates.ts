@@ -12,6 +12,8 @@ export type NavFlags = {
   isEditor: boolean
   canUsers: boolean
   canViewPeople: boolean
+  /** Venue Usage nav link (AppSetting `venueUsage.enabled`). */
+  venueUsage?: boolean
   pendingUpdates: number
   verifyPending: number
   membershipPending: number
@@ -32,6 +34,7 @@ export function navFlagsFor(
   role: UserRole | undefined,
   counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending">> = {},
   features?: ReadonlySet<FeatureKey>,
+  venueUsage = false,
 ): NavFlags {
   return {
     isAccounting: canAccessAccounting(role),
@@ -40,6 +43,7 @@ export function navFlagsFor(
     isEditor: canEdit(role),
     canUsers: canManageUsers(role),
     canViewPeople: canViewPeople(role),
+    venueUsage,
     pendingUpdates: counts.pendingUpdates ?? 0,
     verifyPending: counts.verifyPending ?? 0,
     membershipPending: counts.membershipPending ?? 0,

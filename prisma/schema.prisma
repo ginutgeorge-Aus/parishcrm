@@ -137,6 +137,8 @@ model User {
   archivedAt                   DateTime?
   createdAt                    DateTime                 @default(now())
   receiptSends                 ReceiptSend[]
+  venueUsagesCreated           VenueUsage[]             @relation("VenueUsageCreatedBy")
+  venueUsageRequestsSent       VenueUsageRequest[]      @relation("VenueUsageRequestSentBy")
   paymentReminderSends         PaymentReminderSend[]
   auditLogs                    AuditLog[]
   sundaySchoolRollMarkers      SundaySchoolRollMarker[]
@@ -1371,4 +1373,50 @@ model SundaySchoolRollMarker {
 
   @@unique([classId, userId])
   @@index([userId])
+}
+
+enum VenueBookingStatus {
+  REQUESTED
+  CONFIRMED
+  CANCELLED
+}
+
+// One hired-venue booking/usage line (a date + start/end wall-clock time). Several rows
+// may share a date. `date` is a UTC-midnight calendar date; times are "HH:mm"
+// 24h church wall-clock strings (no overnight: end > start).
+model VenueUsage {
+  id          Int                @id @default(autoincrement())
+  date        DateTime           @db.Date
+  startTime   String
+  endTime     String
+  status      VenueBookingStatus @default(CONFIRMED)
+  purpose     String?
+  notes       String?
+  createdById Int?
+  createdBy   User?              @relation("VenueUsageCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([date])
+  @@index([createdById])
+}
+
+// One row per "YYYY-MM": the monthly invoice-request email to the venue.
+// `sentTo` is AES-256-GCM encrypted (like ReceiptSend.sentTo).
+// reminderSentAt/reminderClaimedAt back the monthly admin reminder (scheduler).
+model VenueUsageRequest {
+  id                Int       @id @default(autoincrement())
+  month             String    @unique
+  sentAt            DateTime?
+  sentTo            String?
+  status            String?
+  errorMessage      String?
+  sentById          Int?
+  sentBy            User?     @relation("VenueUsageRequestSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  reminderSentAt    DateTime?
+  reminderClaimedAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([sentById])
 }

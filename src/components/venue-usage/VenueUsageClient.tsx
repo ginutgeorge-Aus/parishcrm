@@ -1,0 +1,336 @@
+"use client"
+
+import { useEffect, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { FormFeedback } from "@/components/ui/FormFeedback"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+import {
+  createVenueUsage, updateVenueUsage, deleteVenueUsage, getVenueRequestPreview, sendVenueUsageRequest,
+  type VenueRequestPreview,
+} from "@/lib/actions/venueUsage"
+import {
+  VENUE_BOOKING_STATUSES, defaultStatusForDate, durationHours, formatHours, formatMonthLabel,
+  formatUsageDate, formatTime12, totalHours, validateTimeRange, ymdToUtcDate, type VenueBookingStatusValue,
+} from "@/lib/venueUsage"
+
+export type VenueUsageRowView = {
+  id: number
+  date: string
+  startTime: string
+  endTime: string
+  status: VenueBookingStatusValue
+  purpose: string | null
+  notes: string | null
+}
+
+type Props = {
+  month: string
+  today: string
+  nextSunday: string
+  defaultRequestMonth: string
+  rows: VenueUsageRowView[]
+}
+
+const STATUS_LABEL: Record<VenueBookingStatusValue, string> = {
+  REQUESTED: "Requested",
+  CONFIRMED: "Confirmed",
+  CANCELLED: "Cancelled",
+}
+const STATUS_VARIANT: Record<VenueBookingStatusValue, "default" | "secondary" | "outline" | "destructive"> = {
+  REQUESTED: "outline",
+  CONFIRMED: "default",
+  CANCELLED: "destructive",
+}
+const SELECT_CLASS =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+
+type FormState = {
+  id: number | null
+  date: string
+  startTime: string
+  endTime: string
+  status: VenueBookingStatusValue
+  purpose: string
+  notes: string
+}
+
+/** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
+function blankForm(nextSunday: string, today: string): FormState {
+  return {
+    id: null, date: nextSunday, startTime: "17:00", endTime: "20:00",
+    status: defaultStatusForDate(nextSunday, today), purpose: "", notes: "",
+  }
+}
+
+/** Narrow an action result to what `DeleteConfirmButton` understands (errors only). */
+function errorOnly(r: { error: string } | { success: string } | undefined): { error: string } | undefined {
+  return r && "error" in r ? r : undefined
+}
+
+/** Human duration of a row, or "" when its times are invalid. */
+function rowHours(r: { startTime: string; endTime: string }): string {
+  return validateTimeRange(r.startTime, r.endTime) ? "" : formatHours(durationHours(r.startTime, r.endTime))
+}
+
+/**
+ * Venue usage screen: month picker, booking list, add/edit form and the
+ * "Request invoice" panel.
+ * @param props the selected month, server "today" values and that month's rows
+ */
+export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows }: Readonly<Props>) {
+  const router = useRouter()
+  const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
+  const [formState, setFormState] = useState<{ error?: string; success?: string } | undefined>()
+  const [pending, startTransition] = useTransition()
+
+  const confirmedHours = totalHours(rows.map((r) => ({ ...r, date: ymdToUtcDate(r.date) })))
+  const otherCount = rows.filter((r) => r.status !== "CONFIRMED").length
+
+  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function onDateChange(date: string) {
+    // Only re-suggest the status while adding; an edit keeps the chosen status.
+    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, today) } : {}) }))
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const input = {
+      date: form.date, startTime: form.startTime, endTime: form.endTime,
+      status: form.status, purpose: form.purpose, notes: form.notes,
+    }
+    startTransition(async () => {
+      const result = form.id === null ? await createVenueUsage(input) : await updateVenueUsage(form.id, input)
+      setFormState(result)
+      if (result && "success" in result) {
+        setForm(blankForm(nextSunday, today))
+        // Show the month of the saved date so the new row is visible.
+        if (form.date.slice(0, 7) !== month) router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
+      }
+    })
+  }
+
+  function startEdit(r: VenueUsageRowView) {
+    setFormState(undefined)
+    setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
+    document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3 rounded-lg border bg-card p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="venue-month">Month</Label>
+            <Input
+              id="venue-month"
+              type="month"
+              value={month}
+              onChange={(e) => e.target.value && router.push(`/venue-usage?month=${e.target.value}`)}
+              className="w-44"
+            />
+          </div>
+          <p className="text-sm" aria-live="polite">
+            <span className="font-medium">{formatHours(confirmedHours)}</span> confirmed in {formatMonthLabel(month)}
+            {otherCount > 0 && (
+              <span className="text-muted-foreground"> ({otherCount} requested or cancelled not counted)</span>
+            )}
+          </p>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No bookings logged for this month.</p>
+        ) : (
+          <ul className="divide-y">
+            {rows.map((r) => (
+              <li key={r.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{formatUsageDate(ymdToUtcDate(r.date))}</span>
+                    <Badge variant={STATUS_VARIANT[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {formatTime12(r.startTime)} – {formatTime12(r.endTime)} ({rowHours(r)})
+                  </p>
+                  {r.purpose && <p className="text-sm">{r.purpose}</p>}
+                  {r.notes && <p className="break-words text-xs text-muted-foreground">{r.notes}</p>}
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(r)}>Edit</Button>
+                  <DeleteConfirmButton
+                    title="Delete this booking?"
+                    description={`${formatUsageDate(ymdToUtcDate(r.date))} will be removed from the log.`}
+                    onConfirm={async () => errorOnly(await deleteVenueUsage(r.id))}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section id="venue-form" className="scroll-mt-20 space-y-3 rounded-lg border bg-card p-4">
+        <h2 className="text-lg font-medium">{form.id === null ? "Add a booking" : "Edit booking"}</h2>
+        <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="vu-date">Date</Label>
+            <Input id="vu-date" type="date" required value={form.date} onChange={(e) => onDateChange(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="vu-status">Status</Label>
+            <select
+              id="vu-status"
+              className={SELECT_CLASS}
+              value={form.status}
+              onChange={(e) => set("status", e.target.value as VenueBookingStatusValue)}
+            >
+              {VENUE_BOOKING_STATUSES.map((s) => (
+                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="vu-start">Start</Label>
+            <Input id="vu-start" type="time" required value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="vu-end">End</Label>
+            <Input id="vu-end" type="time" required value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="vu-purpose">Purpose (optional)</Label>
+            <Input
+              id="vu-purpose" maxLength={200} placeholder="e.g. Sunday service"
+              value={form.purpose} onChange={(e) => set("purpose", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="vu-notes">Notes (optional)</Label>
+            <Input id="vu-notes" maxLength={500} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : form.id === null ? "Add booking" : "Save changes"}
+            </Button>
+            {form.id !== null && (
+              <Button
+                type="button" variant="outline"
+                onClick={() => { setForm(blankForm(nextSunday, today)); setFormState(undefined) }}
+              >
+                Cancel edit
+              </Button>
+            )}
+            <FormFeedback state={formState} />
+          </div>
+        </form>
+      </section>
+
+      <RequestPanel defaultMonth={defaultRequestMonth} />
+    </div>
+  )
+}
+
+/** "Request invoice" panel: choose a month, preview the email, confirm and send. */
+function RequestPanel({ defaultMonth }: Readonly<{ defaultMonth: string }>) {
+  const [reqMonth, setReqMonth] = useState(defaultMonth)
+  const [preview, setPreview] = useState<VenueRequestPreview | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ error?: string; success?: string } | undefined>()
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const p = await getVenueRequestPreview(reqMonth)
+      if (cancelled) return
+      if ("error" in p) {
+        setPreview(null)
+        setLoadError(p.error)
+      } else {
+        setLoadError(null)
+        setPreview(p)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [reqMonth, reloadKey])
+
+  const alreadySent = preview?.last?.status === "SUCCESS"
+
+  async function send() {
+    const r = await sendVenueUsageRequest(reqMonth, alreadySent)
+    setResult(r)
+    setReloadKey((k) => k + 1)
+    return errorOnly(r)
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border bg-card p-4">
+      <h2 className="text-lg font-medium">Request invoice</h2>
+      <div className="space-y-1.5">
+        <Label htmlFor="vu-req-month">Month to invoice</Label>
+        <Input
+          id="vu-req-month" type="month" value={reqMonth} className="w-44"
+          onChange={(e) => { if (e.target.value) { setReqMonth(e.target.value); setResult(undefined) } }}
+        />
+      </div>
+
+      {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
+
+      {preview && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {preview.rowCount} confirmed {preview.rowCount === 1 ? "booking" : "bookings"},{" "}
+            {formatHours(preview.totalHours)} for {formatMonthLabel(preview.month)}.
+          </p>
+          {preview.last?.status && (
+            <p className="text-sm" aria-live="polite">
+              Last request:{" "}
+              <Badge variant={preview.last.status === "SUCCESS" ? "default" : "destructive"}>
+                {preview.last.status === "SUCCESS" ? "Sent" : "Failed"}
+              </Badge>{" "}
+              {preview.last.sentAt && <span className="text-muted-foreground">{new Date(preview.last.sentAt).toLocaleString()}</span>}
+            </p>
+          )}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">To</dt>
+            <dd className="break-all">{preview.to || "Not set"}</dd>
+            {preview.cc && (<><dt className="text-muted-foreground">CC</dt><dd className="break-all">{preview.cc}</dd></>)}
+            <dt className="text-muted-foreground">Replies go to</dt>
+            <dd className="break-all">{preview.replyTo || "Not set"}</dd>
+            <dt className="text-muted-foreground">Subject</dt>
+            <dd className="break-words">{preview.subject}</dd>
+          </dl>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 text-sm">
+            {preview.text}
+          </pre>
+          {preview.blockedReason ? (
+            <p className="text-sm text-muted-foreground">{preview.blockedReason}</p>
+          ) : (
+            <DeleteConfirmButton
+              title={alreadySent ? "Send this request again?" : "Send invoice request?"}
+              description={
+                alreadySent
+                  ? `A request for ${formatMonthLabel(preview.month)} was already sent. This emails ${preview.to} again.`
+                  : `This emails ${preview.to} asking for the ${formatMonthLabel(preview.month)} invoice.`
+              }
+              triggerLabel={alreadySent ? "Send again" : "Send request"}
+              triggerVariant="default"
+              triggerSize="default"
+              triggerClassName=""
+              confirmLabel="Send"
+              pendingLabel="Sending…"
+              onConfirm={send}
+            />
+          )}
+          {result && <FormFeedback state={result} />}
+        </div>
+      )}
+    </section>
+  )
+}

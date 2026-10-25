@@ -20,6 +20,10 @@ type Attachment = { filename: string; content: Buffer | string; contentType: str
 export type ResendMailOptions = {
   from: string
   to: string
+  /** Comma-separated CC list (optional). */
+  cc?: string
+  /** Reply-To address (optional). */
+  replyTo?: string
   subject: string
   html?: string
   text: string
@@ -56,6 +60,8 @@ function toBody(opts: ResendMailOptions) {
     from: opts.from,
     // Settings store multi-recipient values as "a@x.com, b@y.com".
     to: opts.to.split(",").map((s) => s.trim()).filter(Boolean),
+    ...(opts.cc ? { cc: opts.cc.split(",").map((x) => x.trim()).filter(Boolean) } : {}),
+    ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
     subject: opts.subject,
     ...(opts.html === undefined ? {} : { html: opts.html }),
     text: opts.text,

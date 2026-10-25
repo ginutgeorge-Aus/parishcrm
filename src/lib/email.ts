@@ -170,6 +170,8 @@ type EmailAttachment = { filename: string; content: Buffer | string; contentType
 type MailOptions = {
   from: string
   to: string
+  cc?: string
+  replyTo?: string
   subject: string
   html: string
   text: string
@@ -216,6 +218,32 @@ export async function sendEmail(
     html,
     text,
     ...(attachments?.length ? { attachments } : {}),
+  })
+}
+
+/**
+ * Send the monthly venue invoice-request email (pre-rendered by the caller).
+ * Goes through the shared retry + owner-alert chokepoint. Throws on failure.
+ * @param opts recipient, optional CC list (comma-separated), Reply-To, and the rendered subject/html/text
+ */
+export async function sendVenueUsageRequestEmail(opts: {
+  to: string
+  cc?: string
+  replyTo?: string
+  subject: string
+  html: string
+  text: string
+}): Promise<void> {
+  const { transporter, user } = makeTransporter()
+  const churchName = await getChurchName()
+  await sendMailWithRetry(transporter, {
+    from: `"${churchName}" <${user}>`,
+    to: opts.to,
+    ...(opts.cc ? { cc: opts.cc } : {}),
+    ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+    subject: opts.subject,
+    html: opts.html,
+    text: opts.text,
   })
 }
 

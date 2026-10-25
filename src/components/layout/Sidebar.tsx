@@ -25,6 +25,7 @@ export function Sidebar({
   verifyPending = 0,
   membershipPending = 0,
   features,
+  venueUsage = false,
 }: Readonly<{
   churchName: string
   pendingUpdates?: number
@@ -32,6 +33,8 @@ export function Sidebar({
   membershipPending?: number
   /** Enabled features (array: Sets don't cross the server→client boundary); omitted = all on. */
   features?: FeatureKey[]
+  /** Venue Usage enabled (AppSetting); shows the nav link for editors. */
+  venueUsage?: boolean
 }>) {
   const pathname = usePathname()
   const { data: session } = useSession()
@@ -40,8 +43,8 @@ export function Sidebar({
   const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])
 
   const groups: NavGroup[] = useMemo(
-    () => buildNavGroups(navFlagsFor(role, { pendingUpdates, verifyPending, membershipPending }, featureSet)),
-    [role, pendingUpdates, verifyPending, membershipPending, featureSet]
+    () => buildNavGroups(navFlagsFor(role, { pendingUpdates, verifyPending, membershipPending }, featureSet, venueUsage)),
+    [role, pendingUpdates, verifyPending, membershipPending, featureSet, venueUsage]
   )
 
   // Highlight only the single most-specific matching item, so a parent path
