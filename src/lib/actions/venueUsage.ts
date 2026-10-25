@@ -97,6 +97,13 @@ async function monthWouldOverflow(tx: Prisma.TransactionClient, month: string, a
   return existing + adding > MAX_ROWS_PER_MONTH
 }
 
+/** Refusal when date or times of a row the venue already knows about are edited. */
+const VENUE_KNOWS_LOCK_ERROR =
+  "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
+
+/** Refusal when a move targets a full month. */
+const MOVE_MONTH_FULL_ERROR = `That month already holds the maximum of ${MAX_ROWS_PER_MONTH} bookings. Choose another date.`
+
 /**
  * Create a venue usage row. ADMIN/PASTOR/OFFICE_ADMIN (`canEdit`); feature must be enabled.
  * Clears the approval of the row's month (same transaction) when it was approved and unsent.
@@ -131,9 +138,11 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
 
 /**
  * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
- * A change to date, times or status also resets `bookingRequestedAt`, so the row is asked about again
- * and the stale "asked on" stamp disappears; purpose/notes edits leave it alone. `venueNotifiedAt` is never
- * touched: the venue still knows the row, so a later cancellation must reach them.
+ * Once the venue knows a row (`venueNotifiedAt` or `bookingRequestedAt` set) its date and times are locked:
+ * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}); status, purpose and notes stay editable.
+ * A status change resets `bookingRequestedAt` (date and times can only change on unasked rows, where it is
+ * already null), so the stale "asked on" stamp disappears; purpose/notes edits leave it alone.
+ * `venueNotifiedAt` is never touched: the venue still knows the row, so a later cancellation must reach them.
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
@@ -152,16 +161,15 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   const userId = actorId(session)
   // Read the row inside the transaction so the old month is the one actually being replaced.
   const outcome = await prisma.$transaction(async (tx) => {
-    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true } })
+    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true } })
     if (!existing) return { notFound: true } as const
+    const timingChanged =
+      utcDateToYmd(existing.date) !== date || existing.startTime !== rest.startTime || existing.endTime !== rest.endTime
+    if (timingChanged && (existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null)) return { locked: true } as const
     if (monthOfDate(existing.date) !== date.slice(0, 7) && (await monthWouldOverflow(tx, date.slice(0, 7), 1))) {
       return { full: true } as const
     }
-    const rescheduled =
-      utcDateToYmd(existing.date) !== date ||
-      existing.startTime !== rest.startTime ||
-      existing.endTime !== rest.endTime ||
-      existing.status !== rest.status
+    const rescheduled = timingChanged || existing.status !== rest.status
     await tx.venueUsage.update({
       where: { id },
       data: { ...rest, date: ymdToUtcDate(date), ...(rescheduled ? { bookingRequestedAt: null } : {}) },
@@ -172,7 +180,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     return { months }
   })
   if ("notFound" in outcome) return { error: "Booking not found" }
-  if ("full" in outcome) return { error: MONTH_FULL_ERROR }
+  if ("locked" in outcome) return { error: VENUE_KNOWS_LOCK_ERROR }
+  if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
   return mutationOk("Booking updated", outcome.months)
 }
@@ -284,7 +293,7 @@ export async function setVenueUsageStatus(
   const result = await prisma.$transaction(async (tx) => {
     const rows = await tx.venueUsage.findMany({
       where: { id: { in: uniqueIds } },
-      select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true },
+      select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true },
     })
     if (rows.length !== uniqueIds.length) return null
     const toChange = rows.filter((r) => r.status !== status)
@@ -304,8 +313,8 @@ export async function setVenueUsageStatus(
   const noun = changed.length === 1 ? "date" : "dates"
   const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared) as Extract<VenueMutationResult, { success: string }>
   if (!emailVenue) return base
-  // Only tell the venue about dates they knew: included in a sent booking request (ever), or previously confirmed.
-  const known = changed.filter((r) => r.venueNotifiedAt !== null || r.status === "CONFIRMED")
+  // Only tell the venue about dates they knew: included in a sent booking request (ever), claimed by a request (fallback if the notified stamp failed), or previously confirmed.
+  const known = changed.filter((r) => r.venueNotifiedAt !== null || r.bookingRequestedAt !== null || r.status === "CONFIRMED")
   if (known.length === 0) {
     return { ...base, success: `${base.success}. The venue was not emailed: none of these dates had been shared with them.` }
   }

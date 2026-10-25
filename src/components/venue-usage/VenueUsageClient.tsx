@@ -28,6 +28,8 @@ export type VenueUsageRowView = {
   notes: string | null
   /** ISO date-time the row was included in a booking request to the venue, if any. */
   bookingRequestedAt: string | null
+  /** True once the venue has been asked about this row: its date and times are then locked. */
+  venueKnows: boolean
 }
 
 type Props = {
@@ -58,13 +60,14 @@ type FormState = {
   status: VenueBookingStatusValue
   purpose: string
   notes: string
+  venueKnows: boolean
 }
 
 /** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
 function blankForm(nextSunday: string, today: string): FormState {
   return {
     id: null, date: nextSunday, startTime: "17:00", endTime: "20:00",
-    status: defaultStatusForDate(nextSunday, today), purpose: "", notes: "",
+    status: defaultStatusForDate(nextSunday, today), purpose: "", notes: "", venueKnows: false,
   }
 }
 
@@ -163,6 +166,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
     document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
+  const locked = form.id !== null && form.venueKnows
+
   return (
     <div className="space-y-6">
       <section className="space-y-3 rounded-lg border bg-card p-4">
@@ -203,7 +208,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="vu-date">Date</Label>
-            <Input id="vu-date" type="date" required value={form.date} onChange={(e) => onDateChange(e.target.value)} />
+            <Input id="vu-date" type="date" required disabled={locked} value={form.date} onChange={(e) => onDateChange(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="vu-status">Status</Label>
@@ -220,11 +225,11 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="vu-start">Start</Label>
-            <Input id="vu-start" type="time" required value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
+            <Input id="vu-start" type="time" required disabled={locked} value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="vu-end">End</Label>
-            <Input id="vu-end" type="time" required value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
+            <Input id="vu-end" type="time" required disabled={locked} value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="vu-purpose">Purpose (optional)</Label>
@@ -237,6 +242,12 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
             <Label htmlFor="vu-notes">Notes (optional)</Label>
             <Input id="vu-notes" maxLength={500} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
           </div>
+          {locked && (
+            <p className="text-sm text-muted-foreground sm:col-span-2">
+              The venue has already been asked about this date, so the date and times are locked. To change them,
+              cancel it (emailing the venue) and add a new booking.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
             <Button type="submit" disabled={pending}>
               {pending ? "Saving…" : form.id === null ? "Add booking" : "Save changes"}

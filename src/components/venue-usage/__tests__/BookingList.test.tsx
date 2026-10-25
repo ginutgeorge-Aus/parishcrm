@@ -11,9 +11,9 @@ jest.mock("next/navigation", () => ({
 }))
 
 const rows = [
-  { id: 1, date: "2026-11-01", startTime: "17:00", endTime: "20:00", status: "REQUESTED" as const, purpose: "Service", notes: null, bookingRequestedAt: null },
-  { id: 2, date: "2026-11-08", startTime: "17:00", endTime: "20:00", status: "REQUESTED" as const, purpose: null, notes: null, bookingRequestedAt: "2026-10-20T01:00:00.000Z" },
-  { id: 3, date: "2026-11-15", startTime: "17:00", endTime: "20:00", status: "CANCELLED" as const, purpose: null, notes: null, bookingRequestedAt: null },
+  { id: 1, date: "2026-11-01", startTime: "17:00", endTime: "20:00", status: "REQUESTED" as const, purpose: "Service", notes: null, bookingRequestedAt: null, venueKnows: false },
+  { id: 2, date: "2026-11-08", startTime: "17:00", endTime: "20:00", status: "REQUESTED" as const, purpose: null, notes: null, bookingRequestedAt: "2026-10-20T01:00:00.000Z", venueKnows: true },
+  { id: 3, date: "2026-11-15", startTime: "17:00", endTime: "20:00", status: "CANCELLED" as const, purpose: null, notes: null, bookingRequestedAt: null, venueKnows: false },
 ]
 /** Render the list with a spy for results. */
 const setup = () => {

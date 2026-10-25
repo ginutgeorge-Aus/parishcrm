@@ -29,7 +29,7 @@ export default async function VenueUsagePage(
     where: { date: { gte: start, lte: end } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: 200,
-    select: { id: true, date: true, startTime: true, endTime: true, status: true, purpose: true, notes: true, bookingRequestedAt: true },
+    select: { id: true, date: true, startTime: true, endTime: true, status: true, purpose: true, notes: true, bookingRequestedAt: true, venueNotifiedAt: true },
   })
 
   return (
@@ -48,7 +48,12 @@ export default async function VenueUsagePage(
         defaultRequestMonth={previousMonth(today)}
         calendarUrl={token ? calendarUrl(token) : null}
         canResetCalendar={isAdmin(session?.user?.role)}
-        rows={rows.map((r) => ({ ...r, date: utcDateToYmd(r.date), bookingRequestedAt: r.bookingRequestedAt?.toISOString() ?? null }))}
+        rows={rows.map(({ venueNotifiedAt, ...r }) => ({
+          ...r,
+          date: utcDateToYmd(r.date),
+          bookingRequestedAt: r.bookingRequestedAt?.toISOString() ?? null,
+          venueKnows: venueNotifiedAt !== null || r.bookingRequestedAt !== null,
+        }))}
       />
     </div>
   )

@@ -127,14 +127,19 @@ async function releaseClaim(ids: number[], claimAt: Date): Promise<void> {
 
 /**
  * Record that the venue has now been told about these rows (first time only; never reset by edits).
- * Runs after the email went, so it never throws: a failure is logged and the send still counts.
+ * Runs after the email went, so it never throws: the write is retried once, then a failure is logged and the send still counts.
  * @param ids rows the sent request included
  */
 async function markVenueNotified(ids: number[]): Promise<void> {
+  const write = () => prisma.venueUsage.updateMany({ where: { id: { in: ids }, venueNotifiedAt: null }, data: { venueNotifiedAt: new Date() } })
   try {
-    await prisma.venueUsage.updateMany({ where: { id: { in: ids }, venueNotifiedAt: null }, data: { venueNotifiedAt: new Date() } })
-  } catch (err) {
-    console.error("Venue booking request sent but venueNotifiedAt not recorded", err)
+    await write()
+  } catch {
+    try {
+      await write() // one retry for a transient DB error before giving up
+    } catch (err) {
+      console.error("Venue booking request sent but venueNotifiedAt not recorded", err)
+    }
   }
 }
 

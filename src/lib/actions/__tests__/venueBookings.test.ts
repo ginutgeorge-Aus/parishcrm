@@ -152,6 +152,18 @@ describe("sendBookingRequest", () => {
     spy.mockRestore()
   })
 
+  it("retries the venueNotifiedAt stamp once before logging", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
+    ;(prisma.venueUsage.updateMany as jest.Mock)
+      .mockResolvedValueOnce({ count: 2 }).mockRejectedValueOnce(new Error("db")).mockResolvedValueOnce({ count: 2 })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await sendBookingRequest([1, 2])).toEqual({ success: "Booking request sent for 2 dates" })
+    expect(prisma.venueUsage.updateMany).toHaveBeenCalledTimes(3)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
   it("still reports success when the audit write fails after a send", async () => {
     asRole("PASTOR")
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)

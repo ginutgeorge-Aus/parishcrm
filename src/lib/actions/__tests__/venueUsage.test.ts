@@ -61,7 +61,7 @@ beforeEach(() => {
   ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(confirmedRows)
   ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue(null)
   ;(prisma.venueUsage.create as jest.Mock).mockResolvedValue({ id: 5 })
-  ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValue({ id: 5, date: new Date("2026-09-06T00:00:00Z") })
+  ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValue({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null })
   const getCS = jest.requireMock("@/lib/churchSettings").getChurchSettings as jest.Mock
   getCS.mockResolvedValue({ name: "Example Church" })
 })
@@ -118,8 +118,35 @@ describe("usage row CRUD", () => {
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5, expect.any(Object))
   })
 
+  describe("date and times lock once the venue knows the row", () => {
+    const base = { id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED" }
+    const LOCK = "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
+    const knows = [
+      ["venueNotifiedAt", { venueNotifiedAt: new Date(), bookingRequestedAt: null }],
+      ["bookingRequestedAt", { venueNotifiedAt: null, bookingRequestedAt: new Date() }],
+    ] as const
+    it.each(knows)("refuses a date, start or end change when %s is set", async (_n, stamps) => {
+      asRole("PASTOR")
+      for (const patch of [{ date: "2026-09-13" }, { startTime: "18:00" }, { endTime: "21:00" }]) {
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, ...stamps })
+        expect(await updateVenueUsage(5, { ...validInput, status: "REQUESTED", ...patch })).toEqual({ error: LOCK })
+      }
+      expect(prisma.venueUsage.update).not.toHaveBeenCalled()
+    })
+    it.each(knows)("still allows status, purpose and notes edits when %s is set", async (_n, stamps) => {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, ...stamps })
+      expect(await updateVenueUsage(5, { ...validInput, status: "CANCELLED", purpose: "P", notes: "N" })).toEqual({ success: "Booking updated" })
+    })
+    it("allows a date change on a row the venue does not know", async () => {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, venueNotifiedAt: null, bookingRequestedAt: null })
+      expect(await updateVenueUsage(5, { ...validInput, status: "REQUESTED", date: "2026-09-13" })).toEqual({ success: "Booking updated" })
+    })
+  })
+
   describe("update resets the stale booking-request stamp", () => {
-    const existing = { id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" }
+    const existing = { id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED", venueNotifiedAt: null, bookingRequestedAt: null }
     const run = async (patch: Record<string, unknown>) => {
       asRole("PASTOR")
       ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(existing)
@@ -403,7 +430,7 @@ describe("approval invalidation", () => {
   })
   it("a date move clears both the old and the new month", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValue({ id: 5, date: new Date("2026-08-30T00:00:00Z") })
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValue({ id: 5, date: new Date("2026-08-30T00:00:00Z"), venueNotifiedAt: null, bookingRequestedAt: null })
     await updateVenueUsage(5, validInput) // 2026-09-06
     expect((prisma.venueUsageRequest.findMany as jest.Mock).mock.calls[0][0].where.month).toEqual({ in: ["2026-08", "2026-09"] })
   })
@@ -497,8 +524,8 @@ describe("addAllSundays", () => {
 
 describe("setVenueUsageStatus", () => {
   const rows = [
-    { id: 1, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", venueNotifiedAt: new Date("2026-08-30T00:00:00Z") },
-    { id: 2, date: new Date("2026-09-13T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CANCELLED", venueNotifiedAt: null },
+    { id: 1, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: null, venueNotifiedAt: new Date("2026-08-30T00:00:00Z") },
+    { id: 2, date: new Date("2026-09-13T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CANCELLED", bookingRequestedAt: null, venueNotifiedAt: null },
   ]
   it("gates role and validates ids", async () => {
     asRole("AUDITOR"); expect(await setVenueUsageStatus([1], "CONFIRMED")).toEqual({ error: "Unauthorized" })
@@ -531,8 +558,8 @@ describe("setVenueUsageStatus", () => {
   })
   it("emails only rows the venue knew about (asked or previously CONFIRMED)", async () => {
     asRole("PASTOR")
-    const unknown = { id: 3, date: new Date("2026-09-20T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", venueNotifiedAt: null }
-    const confirmed = { id: 4, date: new Date("2026-09-27T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CONFIRMED", venueNotifiedAt: null }
+    const unknown = { id: 3, date: new Date("2026-09-20T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: null, venueNotifiedAt: null }
+    const confirmed = { id: 4, date: new Date("2026-09-27T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CONFIRMED", bookingRequestedAt: null, venueNotifiedAt: null }
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0], unknown, confirmed])
     await setVenueUsageStatus([1, 3, 4], "CANCELLED", { emailVenue: true })
     const mail = (sendVenueUsageRequestEmail as jest.Mock).mock.calls[0][0]
@@ -540,7 +567,7 @@ describe("setVenueUsageStatus", () => {
     expect(mail.text).toContain("Sunday, 27 September")
     expect(mail.text).not.toContain("Sunday, 20 September")
   })
-  it("uses venueNotifiedAt, not bookingRequestedAt: an edited row the venue was told about is still emailed", async () => {
+  it("an edited row the venue was told about (venueNotifiedAt) is still emailed", async () => {
     asRole("PASTOR")
     const editedAfterAsk = { id: 5, date: new Date("2026-09-20T00:00:00Z"), startTime: "18:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: null, venueNotifiedAt: new Date("2026-08-30T00:00:00Z") }
     const claimedOnly = { id: 6, date: new Date("2026-09-27T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: new Date(), venueNotifiedAt: null }
@@ -549,11 +576,18 @@ describe("setVenueUsageStatus", () => {
     expect((prisma.venueUsage.findMany as jest.Mock).mock.calls[0][0].select).toMatchObject({ venueNotifiedAt: true })
     const mail = (sendVenueUsageRequestEmail as jest.Mock).mock.calls[0][0]
     expect(mail.text).toContain("Sunday, 20 September")
-    expect(mail.text).not.toContain("Sunday, 27 September")
+  })
+  it("falls back to bookingRequestedAt when the venueNotifiedAt write failed", async () => {
+    asRole("PASTOR")
+    const claimed = { id: 6, date: new Date("2026-09-27T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: new Date(), venueNotifiedAt: null }
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([claimed])
+    await setVenueUsageStatus([6], "CANCELLED", { emailVenue: true })
+    expect((prisma.venueUsage.findMany as jest.Mock).mock.calls[0][0].select).toMatchObject({ bookingRequestedAt: true })
+    expect((sendVenueUsageRequestEmail as jest.Mock).mock.calls[0][0].text).toContain("Sunday, 27 September")
   })
   it("sends no email and says so when the venue knew about none of the cancelled rows", async () => {
     asRole("PASTOR")
-    const unknown = { id: 3, date: new Date("2026-09-20T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", venueNotifiedAt: null }
+    const unknown = { id: 3, date: new Date("2026-09-20T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED", bookingRequestedAt: null, venueNotifiedAt: null }
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([unknown])
     const r = await setVenueUsageStatus([3], "CANCELLED", { emailVenue: true })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
@@ -651,16 +685,18 @@ describe("per-month row cap", () => {
   })
   it("updateVenueUsage refuses moving a row into a full month", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" })
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED", venueNotifiedAt: null, bookingRequestedAt: null })
     ;(prisma.venueUsage.count as jest.Mock).mockResolvedValue(200)
-    expect(await updateVenueUsage(5, { ...validInput, date: "2026-10-04" })).toEqual({ error: expect.stringMatching(/200 bookings/) })
+    expect(await updateVenueUsage(5, { ...validInput, date: "2026-10-04" })).toEqual({
+      error: "That month already holds the maximum of 200 bookings. Choose another date.",
+    })
     expect(prisma.venueUsage.update).not.toHaveBeenCalled()
     const where = (prisma.venueUsage.count as jest.Mock).mock.calls[0][0].where
     expect(where.date.gte.toISOString().slice(0, 10)).toBe("2026-10-01")
   })
   it("updateVenueUsage within the same month skips the cap check; a vanished row is still not-found", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" })
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED", venueNotifiedAt: null, bookingRequestedAt: null })
     ;(prisma.venueUsage.count as jest.Mock).mockResolvedValue(200)
     expect(await updateVenueUsage(5, { ...validInput, date: "2026-09-13" })).toMatchObject({ success: "Booking updated" })
     expect(prisma.venueUsage.count).not.toHaveBeenCalled()
