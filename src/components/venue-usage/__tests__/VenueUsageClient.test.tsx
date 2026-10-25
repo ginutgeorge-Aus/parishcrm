@@ -19,6 +19,7 @@ jest.mock("@/lib/actions/venueBookings", () => ({
   approveVenueMonth: jest.fn(),
   withdrawVenueApproval: jest.fn(),
 }))
+jest.mock("@/lib/actions/venueCalendar", () => ({ resetVenueCalendarLink: jest.fn() }))
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
   unstable_rethrow: jest.fn(),
@@ -26,7 +27,7 @@ jest.mock("next/navigation", () => ({
 
 /** Render the screen for November 2026 with no rows. */
 const setup = () =>
-  render(<VenueUsageClient month="2026-11" today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[]} />)
+  render(<VenueUsageClient month="2026-11" today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
 
 beforeEach(() => jest.clearAllMocks())
 
@@ -45,4 +46,8 @@ it("shows the re-approve notice when a result clears the approval", async () => 
   setup()
   await user.click(screen.getByRole("button", { name: "Add booking" }))
   expect(await screen.findByText(/Approval cleared/)).toHaveAttribute("role", "status")
+})
+it("renders the calendar link box with the supplied link", () => {
+  setup()
+  expect(screen.getByDisplayValue("https://app.example.com/venue/tok")).toBeInTheDocument()
 })

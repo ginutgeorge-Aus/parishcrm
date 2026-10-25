@@ -16,6 +16,7 @@ import {
 import { BookingList } from "./BookingList"
 import { BookingRequestPanel } from "./BookingRequestPanel"
 import { InvoiceRequestPanel } from "./InvoiceRequestPanel"
+import { CalendarLinkBox } from "./CalendarLinkBox"
 
 export type VenueUsageRowView = {
   id: number
@@ -35,6 +36,10 @@ type Props = {
   nextSunday: string
   defaultRequestMonth: string
   rows: VenueUsageRowView[]
+  /** Absolute committee-calendar link; null when none exists or the viewer may not see it. */
+  calendarUrl: string | null
+  /** True for ADMIN only: may create or reset the calendar link. */
+  canResetCalendar: boolean
 }
 
 const STATUS_LABEL: Record<VenueBookingStatusValue, string> = {
@@ -65,10 +70,10 @@ function blankForm(nextSunday: string, today: string): FormState {
 
 /**
  * Venue usage screen: month picker, booking list, add/edit form and the
- * "Request invoice" panel.
- * @param props the selected month, server "today" values and that month's rows
+ * "Request invoice" panel and the committee calendar link box.
+ * @param props the selected month, server "today" values, that month's rows and the calendar link state
  */
-export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows }: Readonly<Props>) {
+export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string } | undefined>()
@@ -227,6 +232,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
 
       <BookingRequestPanel />
       <InvoiceRequestPanel defaultMonth={defaultRequestMonth} />
+      <CalendarLinkBox url={calendarUrl} canReset={canResetCalendar} />
     </div>
   )
 }

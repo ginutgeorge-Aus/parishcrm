@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { canEdit } from "@/lib/roleGuard"
+import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { isValidMonth, monthRange, nextSundayYMD, previousMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { calendarUrl, readCalendarToken } from "@/lib/venueCalendarToken"
 import { VenueUsageClient } from "@/components/venue-usage/VenueUsageClient"
 
 /** Venue bookings: bookings for a month plus the monthly invoice-request panel. */
@@ -15,6 +16,9 @@ export default async function VenueUsagePage(
   if (!canEdit(session?.user?.role)) redirect("/")
   const settings = await readVenueUsageSettings()
   if (!settings.enabled) redirect("/")
+
+  // Bearer secret: only read here, after the canEdit gate above, so it never reaches a non-editor's payload.
+  const token = await readCalendarToken()
 
   const today = sydneyTodayYMD()
   const { month: rawMonth } = await props.searchParams
@@ -42,6 +46,8 @@ export default async function VenueUsagePage(
         today={today}
         nextSunday={nextSundayYMD(today)}
         defaultRequestMonth={previousMonth(today)}
+        calendarUrl={token ? calendarUrl(token) : null}
+        canResetCalendar={isAdmin(session?.user?.role)}
         rows={rows.map((r) => ({ ...r, date: utcDateToYmd(r.date), bookingRequestedAt: r.bookingRequestedAt?.toISOString() ?? null }))}
       />
     </div>
