@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { TurnstileWidget } from "@/components/public/TurnstileWidget"
 import { submitPublicFeedback, type PublicFeedbackInput } from "@/lib/actions/publicFeedback"
 
+import { redactPagePath } from "@/lib/redactPagePath"
 import { TURNSTILE_SITE_KEY } from "@/lib/appConfig"
 
 type FeedbackType = "BUG" | "FEEDBACK"
@@ -89,7 +90,7 @@ export function PublicFeedbackDialog() {
           whatExpected,
           whatHappened,
           reporterEmail: email.trim(),
-          pageUrl: pathname,
+          pageUrl: redactPagePath(pathname),
           turnstileToken: token,
           website,
           client,
@@ -99,7 +100,7 @@ export function PublicFeedbackDialog() {
           what,
           why: why.trim() || undefined,
           reporterEmail: email.trim(),
-          pageUrl: pathname,
+          pageUrl: redactPagePath(pathname),
           turnstileToken: token,
           website,
           client,

@@ -144,3 +144,17 @@ it("still succeeds when the notification email send fails", async () => {
   expect(r).toHaveProperty("success")
   await flush()
 })
+
+it.each([
+  ["/venue/SECRETtoken_123", "/venue/[token]"],
+  ["/family/update/SECRETtoken_123", "/family/update/[token]"],
+])("redacts bearer token in pageUrl %s before the issue and email", async (url, redacted) => {
+  await submitPublicFeedback({ ...bug, pageUrl: url })
+  const body = mockCreateIssue.mock.calls[0][0].body as string
+  expect(body).toContain(redacted.replace("[token]", "\\[token\\]")) // markdown-escaped
+  expect(body).not.toContain("SECRETtoken")
+  await flush()
+  const [, , html, text] = mockSendEmail.mock.calls[0]
+  expect(html + text).not.toContain("SECRETtoken")
+  expect(text).toContain(redacted)
+})
