@@ -27,7 +27,7 @@ type Props = {
 export function TicketPicker({ ticketTypes, soldCounts, quantities, names, onChange, onNameChange, attendeeQuestions, attendeeAnswers, onAttendeeAnswerChange }: Readonly<Props>) {
   return (
     <div className="bg-muted rounded-xl border border-border p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Select Tickets</p>
+      <p className="text-xs font-semibold text-muted-foreground mb-3">Select tickets</p>
       <div className="flex flex-col gap-3">
         {ticketTypes.map(tt => {
           const price = tt.price

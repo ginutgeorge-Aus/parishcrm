@@ -81,7 +81,7 @@ export function BudgetVsActualMobileCards({
       const gFlagged = isOverVarianceThreshold(groupVariance, groupBudget, varianceThresholdPct)
       return (
         <li key={group.groupName} className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group.groupName}</p>
+          <p className="text-xs font-semibold text-muted-foreground">{group.groupName}</p>
           <ul className="space-y-2">{group.accounts.map((r) => renderAccountCard(r, isIncome))}</ul>
           <div className="rounded-md bg-muted p-2.5 text-xs font-medium">
             <p className="text-muted-foreground italic">{group.groupName} subtotal</p>
@@ -107,7 +107,7 @@ export function BudgetVsActualMobileCards({
   return (
     <div className="space-y-4 md:hidden">
       <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Income</p>
+        <p className="mb-2 text-xs font-bold text-muted-foreground">Income</p>
         <ul className="space-y-3">{renderGroupCards(incomeGroups, true)}</ul>
         <div className="mt-2 rounded-lg bg-secondary p-3 text-sm font-semibold">
           <p>Total Income</p>
@@ -128,7 +128,7 @@ export function BudgetVsActualMobileCards({
       </div>
 
       <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Expenses</p>
+        <p className="mb-2 text-xs font-bold text-muted-foreground">Expenses</p>
         <ul className="space-y-3">{renderGroupCards(expenseGroups, false)}</ul>
         <div className="mt-2 rounded-lg bg-secondary p-3 text-sm font-semibold">
           <p>Total Expenses</p>

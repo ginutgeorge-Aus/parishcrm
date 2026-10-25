@@ -130,13 +130,13 @@ export function BudgetForm({ accounts, budgets, year }: Readonly<Props>) {
         <table className="w-full">
           <thead className="bg-muted text-left">
             <tr>
-              <th className="py-2 px-3 text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+              <th className="py-2 px-3 text-xs font-semibold text-muted-foreground">
                 Code
               </th>
-              <th className="py-2 px-3 text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+              <th className="py-2 px-3 text-xs font-semibold text-muted-foreground">
                 Category
               </th>
-              <th className="py-2 px-3 text-xs font-semibold uppercase text-muted-foreground tracking-wide text-right">
+              <th className="py-2 px-3 text-xs font-semibold text-muted-foreground text-right">
                 Budget ($)
               </th>
             </tr>
@@ -145,7 +145,7 @@ export function BudgetForm({ accounts, budgets, year }: Readonly<Props>) {
             <tr className="bg-info/10">
               <td
                 colSpan={3}
-                className="py-1.5 px-3 text-xs font-bold uppercase text-info tracking-wide"
+                className="py-1.5 px-3 text-xs font-bold text-info"
               >
                 Income
               </td>
@@ -154,7 +154,7 @@ export function BudgetForm({ accounts, budgets, year }: Readonly<Props>) {
             <tr className="bg-warning/10">
               <td
                 colSpan={3}
-                className="py-1.5 px-3 text-xs font-bold uppercase text-warning tracking-wide"
+                className="py-1.5 px-3 text-xs font-bold text-warning"
               >
                 Expenses
               </td>

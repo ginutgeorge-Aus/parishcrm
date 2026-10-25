@@ -58,7 +58,7 @@ export function TopBar({
 
   return (
     <TooltipProvider>
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-card px-4 print:hidden md:px-8">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background px-4 print:hidden md:px-8">
         <button
           ref={menuButtonRef}
           onClick={() => setMobileOpen(true)}

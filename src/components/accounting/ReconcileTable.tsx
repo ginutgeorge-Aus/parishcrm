@@ -100,7 +100,7 @@ export function ReconcileTable({
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+            <tr className="border-b border-border text-xs text-muted-foreground">
               {userCanEdit && (
                 <th className="py-3 px-4 text-left font-medium">
                   <Checkbox

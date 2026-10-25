@@ -40,7 +40,7 @@ export function PLAnnualTable({
           {sections.map((section) => (
             <React.Fragment key={section.key}>
               <tr>
-                <td colSpan={3} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">
+                <td colSpan={3} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">
                   {section.label}
                 </td>
               </tr>
@@ -49,7 +49,7 @@ export function PLAnnualTable({
                 return (
                   <React.Fragment key={`${section.key}-${group.groupName}`}>
                     <tr>
-                      <td colSpan={3} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      <td colSpan={3} className="pt-3 pb-0.5 pl-2 text-xs font-semibold text-muted-foreground">
                         {group.groupName}
                       </td>
                     </tr>

@@ -1,6 +1,6 @@
 /**
  * Theme palette — single source for server-rendered brand colours (PDFs, emails,
- * OTP, print pages, manifest/theme-color). Neutral monochrome-slate defaults; a
+ * OTP, print pages, manifest/theme-color). Warm terracotta-accent defaults; a
  * deploy restores its own colours via THEME_* env, zero source edits (OSS Phase 2).
  */
 describe("theme/palette", () => {
@@ -21,7 +21,7 @@ describe("theme/palette", () => {
   it("uses neutral monochrome-slate defaults when no THEME_* env is set", async () => {
     const p = await import("../palette")
     expect(p.PRIMARY_HEX).toBe("#1e293b") // slate-800
-    expect(p.ACCENT_HEX).toBe("#94a3b8") // slate-400 — visible rule/emphasis
+    expect(p.ACCENT_HEX).toBe("#cc6f50") // muted terracotta — visible rule/emphasis
     // Band falls back to primary when THEME_PRIMARY_DARK is unset.
     expect(p.PRIMARY_DARK_HEX).toBe("#1e293b")
   })
@@ -49,7 +49,7 @@ describe("theme/palette", () => {
     process.env.THEME_ACCENT = "#12" // too short
     const p = await import("../palette")
     expect(p.PRIMARY_HEX).toBe("#1e293b")
-    expect(p.ACCENT_HEX).toBe("#94a3b8")
+    expect(p.ACCENT_HEX).toBe("#cc6f50")
   })
 
   it("band inherits THEME_PRIMARY when THEME_PRIMARY_DARK is unset", async () => {

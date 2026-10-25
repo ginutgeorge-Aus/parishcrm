@@ -140,7 +140,7 @@ export function EventHero({ title, description, date, endDate, location, organiz
       {/* Ticket price list */}
       {ticketTypes.length > 0 && (
         <div className="bg-card rounded-xl border border-border p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-foreground mb-3">Ticket Prices</p>
+          <p className="text-xs font-semibold text-foreground mb-3">Ticket prices</p>
           <div className="flex flex-col gap-2">
             {ticketTypes.map(tt => (
               <div key={tt.id} className="flex justify-between text-sm">

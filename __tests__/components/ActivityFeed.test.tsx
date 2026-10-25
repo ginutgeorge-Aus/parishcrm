@@ -39,14 +39,14 @@ describe("ActivityFeed", () => {
 
   it("shows System Activity section with audit entries", () => {
     render(<ActivityFeed auditEntries={auditEntries} registrations={registrations} />)
-    expect(screen.getByText("System Activity")).toBeInTheDocument()
+    expect(screen.getByText("System activity")).toBeInTheDocument()
     expect(screen.getByText(/USER_CREATED/)).toBeInTheDocument()
     expect(screen.getByText(/Admin User/)).toBeInTheDocument()
   })
 
   it("shows Recent Registrations", () => {
     render(<ActivityFeed auditEntries={[]} registrations={registrations} />)
-    expect(screen.getByText("Recent Registrations")).toBeInTheDocument()
+    expect(screen.getByText("Recent registrations")).toBeInTheDocument()
     expect(screen.getByText(/John Smith/)).toBeInTheDocument()
     expect(screen.getByText(/Easter Service/)).toBeInTheDocument()
   })
@@ -69,7 +69,7 @@ describe("ActivityFeed", () => {
 
   it("hides System Activity section when there are no audit entries", () => {
     render(<ActivityFeed auditEntries={[]} registrations={registrations} />)
-    expect(screen.queryByText("System Activity")).not.toBeInTheDocument()
+    expect(screen.queryByText("System activity")).not.toBeInTheDocument()
   })
 
   it("renders relative timestamp on registration entries", () => {

@@ -78,7 +78,8 @@ database, not on disk, so they survive container restarts/redeploys.
 `THEME_PRIMARY` / `THEME_PRIMARY_DARK` / `THEME_ACCENT` environment
 variables set the brand **colours** (see [Environment Variables](/parishcrm/docs/environment-variables/))
 — there's no in-app colour picker; colours are deployment config, images are
-admin-uploaded content.
+admin-uploaded content. With no `THEME_*` variables set, the UI uses a warm
+off-white palette with a muted terracotta accent.
 
 ### Members tab: Welcome Letter
 

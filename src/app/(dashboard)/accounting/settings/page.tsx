@@ -54,24 +54,24 @@ export default async function AccountingSettingsPage() {
       <h1 className="text-xl font-semibold text-foreground">Accounting Settings</h1>
 
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-          Opening Balances
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">
+          Opening balances
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
           Set the starting balance and as-of date for each payment account.
           The dashboard will show: opening balance + all income − all expenses recorded after that date.
         </p>
-        <div className="flex gap-3 text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1 ml-24">
+        <div className="flex gap-3 text-xs font-medium text-muted-foreground mb-1 ml-24">
           <span className="w-36">Opening Amount</span>
-          <span>As-of Date</span>
+          <span>As-of date</span>
         </div>
         <OpeningBalanceForm accounts={accounts} balancesByAccountId={balancesByAccountId} />
       </div>
 
       {features.has("pettyCash") && (
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-          Petty Cash Auto-open
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">
+          Petty cash auto-open
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
           A petty cash session for each Sunday is opened automatically (zero opening balance)
@@ -82,7 +82,7 @@ export default async function AccountingSettingsPage() {
       )}
 
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">Period Lock</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">Period lock</h2>
         <p className="text-sm text-muted-foreground mb-5">
           Transactions dated on or before this date become read-only — no create, edit, or delete.
           Leave blank to remove the lock. ADMIN only.
@@ -91,8 +91,8 @@ export default async function AccountingSettingsPage() {
       </div>
 
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-          Payment Accounts
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">
+          Payment accounts
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
           Manage the bank and cash accounts used across transactions, reconciliation, and reports.
@@ -102,7 +102,7 @@ export default async function AccountingSettingsPage() {
 
       {features.has("invoices") && (
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">
           Invoices
         </h2>
         <p className="text-sm text-muted-foreground mb-5">
@@ -114,7 +114,7 @@ export default async function AccountingSettingsPage() {
       )}
 
       <div className="bg-card rounded-lg border border-border p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-1">
           Funds
         </h2>
         <p className="text-sm text-muted-foreground mb-5">

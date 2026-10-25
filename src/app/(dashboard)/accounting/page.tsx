@@ -104,7 +104,7 @@ export default async function AccountingPage() {
         {stats.map((s) => (
           <Card key={s.label}>
             <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
                 {s.label}
               </CardTitle>
             </CardHeader>
@@ -117,8 +117,8 @@ export default async function AccountingPage() {
 
       <div className="space-y-2">
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Account Balances (all-time, CRM transactions only)
+          <p className="text-xs font-medium text-muted-foreground">
+            Account balances (all-time, CRM transactions only)
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Cumulative net of every recorded transaction per account — not FY-scoped like the cards above. Reflects transactions recorded in this system only; may not match your bank statement if historical data was not imported.

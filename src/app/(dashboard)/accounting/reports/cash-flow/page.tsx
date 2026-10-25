@@ -121,7 +121,7 @@ export default async function CashFlowPage(props: Readonly<Props>) {
       <div className="overflow-x-auto">
       <table className="w-full text-sm mb-8">
         <tbody>
-          <tr><td colSpan={2} className="pt-2 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">Operating — Cash In</td></tr>
+          <tr><td colSpan={2} className="pt-2 pb-1 font-bold text-xs text-muted-foreground">Operating — cash in</td></tr>
           {incomeGroups.map((g) => (
             <tr key={`in-${g.groupName}`} className="border-b border-border">
               <td className="py-1.5 pr-3 pl-4">{g.groupName}</td>
@@ -133,7 +133,7 @@ export default async function CashFlowPage(props: Readonly<Props>) {
             <td className="py-1.5 text-right tabular">{fmt(centsToNumber(cashIn))}</td>
           </tr>
 
-          <tr><td colSpan={2} className="pt-4 pb-1 font-bold uppercase text-xs text-muted-foreground tracking-wide">Operating — Cash Out</td></tr>
+          <tr><td colSpan={2} className="pt-4 pb-1 font-bold text-xs text-muted-foreground">Operating — cash out</td></tr>
           {expenseGroups.map((g) => (
             <tr key={`out-${g.groupName}`} className="border-b border-border">
               <td className="py-1.5 pr-3 pl-4">{g.groupName}</td>

@@ -83,13 +83,13 @@ export function RegistrationDetailDialog({ registrationId, open, onOpenChange }:
 
             {data.orderAnswers.length > 0 && (
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Answers</h3>
+                <h3 className="text-xs font-semibold text-muted-foreground mb-2">Answers</h3>
                 <AnswerList answers={data.orderAnswers} />
               </section>
             )}
 
             <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              <h3 className="text-xs font-semibold text-muted-foreground mb-2">
                 Attendees · {data.attendees.length}
               </h3>
               {data.attendees.length === 0 && <p className="text-sm text-muted-foreground">No named attendees.</p>}

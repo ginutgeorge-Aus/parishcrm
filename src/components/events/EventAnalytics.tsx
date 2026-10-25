@@ -15,7 +15,7 @@ const chartConfig = { cumulative: { label: "Registrations", color: "hsl(var(--in
 function Card({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
   return (
     <div className="bg-card rounded-xl border border-border p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">{title}</p>
+      <p className="text-xs font-semibold text-muted-foreground mb-3">{title}</p>
       {children}
     </div>
   )

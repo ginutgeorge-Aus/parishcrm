@@ -199,7 +199,7 @@ export default async function EventsPage(
           <TableHeader className="bg-muted">
             <TableRow>
               {["Event", "Date", "Status", "Tickets Sold", "Revenue", "Actions"].map(h => (
-                <TableHead key={h} className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <TableHead key={h} className="text-xs font-semibold text-muted-foreground">
                   {h}
                 </TableHead>
               ))}
