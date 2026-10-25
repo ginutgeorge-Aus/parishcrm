@@ -57,3 +57,16 @@ test("disabled trigger is described by the visible reason for screen readers", (
   expect(describedBy).toBeTruthy()
   expect(document.getElementById(describedBy!)).toHaveTextContent("Period locked")
 })
+
+test("accepts a rich description node and renders it in the dialog", async () => {
+  render(
+    <DeleteConfirmButton
+      onConfirm={noop}
+      title="Approve?"
+      description={<span data-testid="rich">Email preview text</span>}
+      triggerLabel="Open"
+    />,
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Open" }))
+  expect(await screen.findByTestId("rich")).toHaveTextContent("Email preview text")
+})

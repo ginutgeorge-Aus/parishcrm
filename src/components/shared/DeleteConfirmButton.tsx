@@ -43,7 +43,7 @@ export function DeleteConfirmButton({
 }: Readonly<{
   onConfirm: () => Promise<ActionResult | { error?: string } | void>
   title: string
-  description: string
+  description: React.ReactNode
   triggerLabel?: React.ReactNode
   triggerVariant?: ButtonVariant
   triggerSize?: ButtonSize

@@ -1,22 +1,21 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
+import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
-import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import {
-  createVenueUsage, updateVenueUsage, addAllSundays, getVenueRequestPreview, sendVenueUsageRequest,
-  type VenueMutationResult, type VenueRequestPreview,
+  createVenueUsage, updateVenueUsage, addAllSundays, type VenueMutationResult,
 } from "@/lib/actions/venueUsage"
 import {
   VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel,
   totalHours, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
 import { BookingList } from "./BookingList"
+import { BookingRequestPanel } from "./BookingRequestPanel"
+import { InvoiceRequestPanel } from "./InvoiceRequestPanel"
 
 export type VenueUsageRowView = {
   id: number
@@ -62,11 +61,6 @@ function blankForm(nextSunday: string, today: string): FormState {
     id: null, date: nextSunday, startTime: "17:00", endTime: "20:00",
     status: defaultStatusForDate(nextSunday, today), purpose: "", notes: "",
   }
-}
-
-/** Narrow an action result to what `DeleteConfirmButton` understands (errors only). */
-function errorOnly(r: { error: string } | { success: string } | undefined): { error: string } | undefined {
-  return r && "error" in r ? r : undefined
 }
 
 /**
@@ -231,106 +225,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         </form>
       </section>
 
-      <RequestPanel defaultMonth={defaultRequestMonth} />
+      <BookingRequestPanel />
+      <InvoiceRequestPanel defaultMonth={defaultRequestMonth} />
     </div>
-  )
-}
-
-/** "Request invoice" panel: choose a month, preview the email, confirm and send. */
-function RequestPanel({ defaultMonth }: Readonly<{ defaultMonth: string }>) {
-  const [reqMonth, setReqMonth] = useState(defaultMonth)
-  const [preview, setPreview] = useState<VenueRequestPreview | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ error?: string; success?: string } | undefined>()
-  const [reloadKey, setReloadKey] = useState(0)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const p = await getVenueRequestPreview(reqMonth)
-      if (cancelled) return
-      if ("error" in p) {
-        setPreview(null)
-        setLoadError(p.error)
-      } else {
-        setLoadError(null)
-        setPreview(p)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [reqMonth, reloadKey])
-
-  const alreadySent = preview?.last?.status === "SUCCESS"
-
-  async function send() {
-    const r = await sendVenueUsageRequest(reqMonth, alreadySent)
-    setResult(r)
-    setReloadKey((k) => k + 1)
-    return errorOnly(r)
-  }
-
-  return (
-    <section className="space-y-3 rounded-lg border bg-card p-4">
-      <h2 className="text-lg font-medium">Request invoice</h2>
-      <div className="space-y-1.5">
-        <Label htmlFor="vu-req-month">Month to invoice</Label>
-        <Input
-          id="vu-req-month" type="month" value={reqMonth} className="w-44"
-          onChange={(e) => { if (e.target.value) { setReqMonth(e.target.value); setResult(undefined) } }}
-        />
-      </div>
-
-      {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
-
-      {preview && (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            {preview.rowCount} confirmed {preview.rowCount === 1 ? "booking" : "bookings"},{" "}
-            {formatHours(preview.totalHours)} for {formatMonthLabel(preview.month)}.
-          </p>
-          {preview.last?.status && (
-            <p className="text-sm" aria-live="polite">
-              Last request:{" "}
-              <Badge variant={preview.last.status === "SUCCESS" ? "default" : "destructive"}>
-                {preview.last.status === "SUCCESS" ? "Sent" : "Failed"}
-              </Badge>{" "}
-              {preview.last.sentAt && <span className="text-muted-foreground">{new Date(preview.last.sentAt).toLocaleString()}</span>}
-            </p>
-          )}
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            <dt className="text-muted-foreground">To</dt>
-            <dd className="break-all">{preview.to || "Not set"}</dd>
-            {preview.cc && (<><dt className="text-muted-foreground">CC</dt><dd className="break-all">{preview.cc}</dd></>)}
-            <dt className="text-muted-foreground">Replies go to</dt>
-            <dd className="break-all">{preview.replyTo || "Not set"}</dd>
-            <dt className="text-muted-foreground">Subject</dt>
-            <dd className="break-words">{preview.subject}</dd>
-          </dl>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 text-sm">
-            {preview.text}
-          </pre>
-          {preview.blockedReason ? (
-            <p className="text-sm text-muted-foreground">{preview.blockedReason}</p>
-          ) : (
-            <DeleteConfirmButton
-              title={alreadySent ? "Send this request again?" : "Send invoice request?"}
-              description={
-                alreadySent
-                  ? `A request for ${formatMonthLabel(preview.month)} was already sent. This emails ${preview.to} again.`
-                  : `This emails ${preview.to} asking for the ${formatMonthLabel(preview.month)} invoice.`
-              }
-              triggerLabel={alreadySent ? "Send again" : "Send request"}
-              triggerVariant="default"
-              triggerSize="default"
-              triggerClassName=""
-              confirmLabel="Send"
-              pendingLabel="Sending…"
-              onConfirm={send}
-            />
-          )}
-          {result && <FormFeedback state={result} />}
-        </div>
-      )}
-    </section>
   )
 }

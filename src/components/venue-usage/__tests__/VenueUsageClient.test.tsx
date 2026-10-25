@@ -13,6 +13,12 @@ jest.mock("@/lib/actions/venueUsage", () => ({
   getVenueRequestPreview: jest.fn().mockResolvedValue({ error: "skip" }),
   sendVenueUsageRequest: jest.fn(),
 }))
+jest.mock("@/lib/actions/venueBookings", () => ({
+  getBookingRequestPreview: jest.fn().mockResolvedValue({ error: "skip" }),
+  sendBookingRequest: jest.fn(),
+  approveVenueMonth: jest.fn(),
+  withdrawVenueApproval: jest.fn(),
+}))
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
   unstable_rethrow: jest.fn(),
