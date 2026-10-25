@@ -2,26 +2,21 @@
 
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
-import type { Session } from "next-auth"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { encrypt } from "@/lib/crypto"
 import { assertNotDemo } from "@/lib/demoMode"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
-import { sendVenueUsageRequestEmail } from "@/lib/email"
-import { getChurchSettings } from "@/lib/churchSettings"
+import { deliverInvoiceRequest, loadActor, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { parseCcList } from "@/lib/venueUsage"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
-  VENUE_BOOKING_STATUSES, buildRequestEmail, isValidMonth, isValidYMD, monthRange, totalHours,
+  VENUE_BOOKING_STATUSES, isValidMonth, isValidYMD, totalHours,
   validateTimeRange, ymdToUtcDate, VENUE_USAGE_SETTING_KEYS,
 } from "@/lib/venueUsage"
 import type { ActionResultWithSuccess } from "./types"
-
-const MAX_ROWS_PER_MONTH = 200
 
 const emptyToNull = (max: number) =>
   z.string().max(max, "Too long").optional().transform((v) => v?.trim() || null)
@@ -56,30 +51,6 @@ export type VenueRequestPreview = {
   /** Why Send is disabled, or null when sending is allowed. */
   blockedReason: string | null
   last: { status: string | null; sentAt: string | null; errorMessage: string | null } | null
-}
-
-type ActorInfo = { name: string; email: string | null }
-
-/** Look up the acting user's display name + email (the session never carries email). */
-async function loadActor(session: Session | null): Promise<ActorInfo> {
-  const user = await prisma.user.findUnique({
-    where: { id: actorId(session) },
-    select: { name: true, email: true },
-  })
-  return { name: user?.name ?? "", email: user?.email || null }
-}
-
-/** Case-insensitive de-duplicated list of non-blank addresses, excluding `exclude`. */
-function dedupeAddresses(list: (string | null | undefined)[], exclude: string): string[] {
-  const seen = new Set([exclude.toLowerCase()])
-  const out: string[] = []
-  for (const a of list) {
-    const v = a?.trim()
-    if (!v || seen.has(v.toLowerCase())) continue
-    seen.add(v.toLowerCase())
-    out.push(v)
-  }
-  return out
 }
 
 /**
@@ -211,41 +182,6 @@ export async function updateVenueUsageSettings(
 }
 
 /**
- * Shared by preview + send: load the month's CONFIRMED rows, build the email and resolve recipients.
- * Caller has already passed the role gate.
- */
-async function prepareRequest(month: string, session: Session | null) {
-  const settings = await readVenueUsageSettings()
-  const { start, end } = monthRange(month)
-  const [rows, churchSettings, actor, last] = await Promise.all([
-    prisma.venueUsage.findMany({
-      where: { date: { gte: start, lte: end }, status: "CONFIRMED" },
-      orderBy: [{ date: "asc" }, { startTime: "asc" }],
-      take: MAX_ROWS_PER_MONTH,
-      select: { date: true, startTime: true, endTime: true, status: true },
-    }),
-    getChurchSettings(),
-    loadActor(session),
-    prisma.venueUsageRequest.findUnique({
-      where: { month },
-      select: { status: true, sentAt: true, errorMessage: true },
-    }),
-  ])
-  const { subject, text, html } = buildRequestEmail({
-    churchName: churchSettings.name,
-    venueName: settings.venueName,
-    contactName: settings.contactName,
-    month,
-    rows,
-    senderName: actor.name,
-  })
-  const to = settings.contactEmail
-  const replyTo = settings.replyToEmail || actor.email || ""
-  const cc = dedupeAddresses([settings.ccEmail, replyTo, actor.email], to)
-  return { settings, rows, subject, text, html, to, cc, replyTo, last }
-}
-
-/**
  * Preview the invoice-request email for a month (`canEdit`; feature must be enabled).
  * @param month "YYYY-MM"
  */
@@ -253,7 +189,7 @@ export async function getVenueRequestPreview(month: string): Promise<VenueReques
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidMonth(month)) return { error: "Invalid month" }
-  const p = await prepareRequest(month, session)
+  const p = await prepareInvoiceRequest(month, await loadActor(actorId(session)))
   if (!p.settings.enabled) return { error: "Venue usage is not enabled" }
 
   let blockedReason: string | null = null
@@ -290,7 +226,8 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidMonth(month)) return { error: "Invalid month" }
 
-  const p = await prepareRequest(month, session)
+  const userId = actorId(session)
+  const p = await prepareInvoiceRequest(month, await loadActor(userId))
   if (!p.settings.enabled) return { error: "Venue usage is not enabled" }
   if (!p.to) return { error: "Set the venue contact email in Settings first" }
   if (p.rows.length === 0) return { error: "No confirmed bookings in this month" }
@@ -298,30 +235,7 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
     return { error: "A request for this month was already sent. Confirm to send it again." }
   }
 
-  const userId = actorId(session)
-  let status: "SUCCESS" | "FAILED" = "SUCCESS"
-  let errorMessage: string | null = null
-  try {
-    await sendVenueUsageRequestEmail({
-      to: p.to,
-      cc: p.cc.length ? p.cc.join(", ") : undefined,
-      replyTo: p.replyTo || undefined,
-      subject: p.subject,
-      html: p.html,
-      text: p.text,
-    })
-  } catch (err) {
-    status = "FAILED"
-    errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
-  }
-
-  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: userId }
-  await prisma.venueUsageRequest.upsert({ where: { month }, create: { month, ...data }, update: data })
-  await logAudit(userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined, {
-    month,
-    rows: p.rows.length,
-    resend,
-  })
+  const { status } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
   revalidatePath("/venue-usage")
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
   return { success: "Invoice request sent" }

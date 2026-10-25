@@ -3,7 +3,8 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     venueUsage: { create: jest.fn(), update: jest.fn(), delete: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
-    venueUsageRequest: { findUnique: jest.fn(), upsert: jest.fn() },
+    venueUsageRequest: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    emailTemplate: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
     appSetting: { upsert: jest.fn() },
   },
@@ -158,11 +159,11 @@ describe("sendVenueUsageRequest", () => {
     expect(prisma.venueUsageRequest.upsert).not.toHaveBeenCalled()
   })
 
-  it("only queries CONFIRMED rows inside the month", async () => {
+  it("queries the month (all statuses for completeness) and sends only CONFIRMED rows", async () => {
     asRole("ADMIN")
     await sendVenueUsageRequest("2026-09")
     const where = (prisma.venueUsage.findMany as jest.Mock).mock.calls[0][0].where
-    expect(where.status).toBe("CONFIRMED")
+    expect(where.status).toBeUndefined()
     expect(where.date.gte.toISOString()).toBe("2026-09-01T00:00:00.000Z")
     expect(where.date.lte.toISOString()).toBe("2026-09-30T00:00:00.000Z")
   })

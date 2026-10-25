@@ -222,7 +222,7 @@ export async function sendEmail(
 }
 
 /**
- * Send the monthly venue invoice-request email (pre-rendered by the caller).
+ * Send a pre-rendered venue email (invoice request, booking request or cancellation).
  * Goes through the shared retry + owner-alert chokepoint. Throws on failure.
  * @param opts recipient, optional CC list (comma-separated), Reply-To, and the rendered subject/html/text
  */
