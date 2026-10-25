@@ -23,9 +23,14 @@ function errorOnly(r: { error: string } | { success: string } | undefined): { er
 /**
  * "Request invoice" panel: choose a month, preview the email, approve the automatic send
  * (current month only), or confirm and send by hand.
- * @param props the month to show first
+ * @param props `defaultMonth` is the month to show first; `dataVersion` bumps whenever the booking
+ *   list changed (forces a refetch); `onApproved` runs after a successful approval
  */
-export function InvoiceRequestPanel({ defaultMonth }: Readonly<{ defaultMonth: string }>) {
+export function InvoiceRequestPanel({ defaultMonth, dataVersion = 0, onApproved }: Readonly<{
+  defaultMonth: string
+  dataVersion?: number
+  onApproved?: () => void
+}>) {
   const [reqMonth, setReqMonth] = useState(defaultMonth)
   const [preview, setPreview] = useState<VenueRequestPreview | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -46,7 +51,7 @@ export function InvoiceRequestPanel({ defaultMonth }: Readonly<{ defaultMonth: s
       }
     })()
     return () => { cancelled = true }
-  }, [reqMonth, reloadKey])
+  }, [reqMonth, reloadKey, dataVersion])
 
   const alreadySent = preview?.last?.status === "SUCCESS"
 
@@ -65,6 +70,7 @@ export function InvoiceRequestPanel({ defaultMonth }: Readonly<{ defaultMonth: s
     const r = await approveVenueMonth(preview.month)
     setResult(r)
     setReloadKey((k) => k + 1)
+    if (r && "success" in r) onApproved?.()
     return errorOnly(r)
   }
 

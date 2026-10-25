@@ -53,7 +53,7 @@ When the venue replies with their invoice, record it as an ordinary expense in [
 You can approve the **current month** so the app sends the request for you.
 
 1. Make the month complete: every Sunday is confirmed or cancelled, nothing is Requested, and at least one date is confirmed.
-2. In **Request invoice**, click **Approve automatic send on 1 *next month*, 9:00 AM** and confirm. The preview you approve is the email that will go out.
+2. In **Request invoice**, click **Approve automatic send on 1 *next month*, 9:00 AM** and confirm. The email is built again when it is sent, so it always lists the dates as they stand then. Changing a date clears your approval, so the dates you approved are the dates that go out. Edits to the email template or the venue contact settings before the send do change the wording or recipient.
 3. On the first of the next month, from 9:00 AM Sydney time, the app sends the request and emails the editors a notice that it went out.
 
 Details:

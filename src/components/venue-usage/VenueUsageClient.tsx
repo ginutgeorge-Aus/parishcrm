@@ -69,8 +69,8 @@ function blankForm(nextSunday: string, today: string): FormState {
 }
 
 /**
- * Venue usage screen: month picker, booking list, add/edit form and the
- * "Request invoice" panel and the committee calendar link box.
+ * Venue usage screen: month picker, booking list, add/edit form, the booking-request and
+ * "Request invoice" panels and the committee calendar link box.
  * @param props the selected month, server "today" values, that month's rows and the calendar link state
  */
 export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
@@ -78,17 +78,29 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string } | undefined>()
   const [approvalCleared, setApprovalCleared] = useState(false)
+  const [dataVersion, setDataVersion] = useState(0)
+  const [seenMonth, setSeenMonth] = useState(month)
   const [pending, startTransition] = useTransition()
+
+  // The approval-cleared notice belongs to the month it was raised in.
+  if (seenMonth !== month) {
+    setSeenMonth(month)
+    setApprovalCleared(false)
+  }
 
   const confirmedHours = totalHours(rows.map((r) => ({ ...r, date: ymdToUtcDate(r.date) })))
   const otherCount = rows.filter((r) => r.status !== "CONFIRMED").length
 
   /**
-   * Remember that a mutation cleared the month's approval so the re-approve notice shows.
+   * After a successful mutation: bump the data version so the request panels refetch, and
+   * remember if the month's approval was cleared so the re-approve notice shows.
    * @param r mutation result from any booking action
    */
   function handleResult(r: VenueMutationResult | undefined) {
-    if (r && "success" in r && r.approvalCleared) setApprovalCleared(true)
+    if (r && "success" in r) {
+      setDataVersion((v) => v + 1)
+      if (r.approvalCleared) setApprovalCleared(true)
+    }
   }
 
   /** Add every Sunday of the selected month using the form's times and purpose. */
@@ -101,15 +113,28 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
     })
   }
 
+  /**
+   * Update one form field.
+   * @param key field name
+   * @param value new value
+   */
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
+  /**
+   * Set the form date; while adding, re-suggest the status for that date.
+   * @param date new date as YYYY-MM-DD (may be empty while typing)
+   */
   function onDateChange(date: string) {
     // Only re-suggest the status while adding; an edit keeps the chosen status.
     setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, today) } : {}) }))
   }
 
+  /**
+   * Create or update the booking from the form, then reset the form and follow the saved month.
+   * @param e form submit event
+   */
   function submit(e: React.FormEvent) {
     e.preventDefault()
     const input = {
@@ -128,6 +153,10 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
     })
   }
 
+  /**
+   * Load a row into the form for editing and scroll to it.
+   * @param r the row to edit
+   */
   function startEdit(r: VenueUsageRowView) {
     setFormState(undefined)
     setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
@@ -230,8 +259,12 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         </form>
       </section>
 
-      <BookingRequestPanel />
-      <InvoiceRequestPanel defaultMonth={defaultRequestMonth} />
+      <BookingRequestPanel dataVersion={dataVersion} onSent={() => router.refresh()} />
+      <InvoiceRequestPanel
+        defaultMonth={defaultRequestMonth}
+        dataVersion={dataVersion}
+        onApproved={() => setApprovalCleared(false)}
+      />
       <CalendarLinkBox url={calendarUrl} canReset={canResetCalendar} />
     </div>
   )

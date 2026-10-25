@@ -63,3 +63,19 @@ it("shows an empty state when there is nothing to request", async () => {
   render(<BookingRequestPanel />)
   expect(await screen.findByText(/no new dates to request/i)).toBeInTheDocument()
 })
+it("refetches the preview when dataVersion changes", async () => {
+  const { rerender } = render(<BookingRequestPanel dataVersion={0} />)
+  await screen.findByRole("checkbox", { name: /sunday, 1 november/i })
+  const before = (getBookingRequestPreview as jest.Mock).mock.calls.length
+  rerender(<BookingRequestPanel dataVersion={1} />)
+  await waitFor(() => expect((getBookingRequestPreview as jest.Mock).mock.calls.length).toBeGreaterThan(before))
+})
+it("calls onSent after a successful send", async () => {
+  ;(sendBookingRequest as jest.Mock).mockResolvedValue({ success: "Booking request sent for 2 dates" })
+  const onSent = jest.fn()
+  const user = userEvent.setup()
+  render(<BookingRequestPanel onSent={onSent} />)
+  await user.click(await screen.findByRole("button", { name: /send request/i }))
+  await user.click(await screen.findByRole("button", { name: /^send$/i }))
+  await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
+})

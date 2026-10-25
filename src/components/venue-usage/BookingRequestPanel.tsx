@@ -17,8 +17,10 @@ function errorOnly(r: { error: string } | { success: string } | undefined): { er
 /**
  * "Send booking request" panel: tick the new REQUESTED dates, preview the email (new dates plus
  * already-booked dates), then send. Dates already asked about show "asked on <date>".
+ * @param props `dataVersion` bumps whenever the booking list changed (forces a refetch);
+ *   `onSent` runs after a successful send so the parent can refresh its list
  */
-export function BookingRequestPanel() {
+export function BookingRequestPanel({ dataVersion = 0, onSent }: Readonly<{ dataVersion?: number; onSent?: () => void }>) {
   const [preview, setPreview] = useState<BookingRequestPreview | null>(null)
   const [ticked, setTicked] = useState<number[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -41,7 +43,7 @@ export function BookingRequestPanel() {
       setTicked(p.selectedIds)
     })()
     return () => { cancelled = true }
-  }, [wanted, reloadKey])
+  }, [wanted, reloadKey, dataVersion])
 
   /**
    * Tick or untick one candidate and reload the preview.
@@ -59,6 +61,7 @@ export function BookingRequestPanel() {
     setResult(r)
     setWanted(undefined)
     setReloadKey((k) => k + 1)
+    if (r && "success" in r) onSent?.()
     return errorOnly(r)
   }
 
