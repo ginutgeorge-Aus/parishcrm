@@ -147,8 +147,8 @@ export function BookingList({ rows, onEdit, onResult }: Readonly<{
                   <p className="text-sm text-muted-foreground">
                     {formatTime12(r.startTime)} – {formatTime12(r.endTime)} ({rowHours(r)})
                   </p>
-                  {r.purpose && <p className="text-sm">{r.purpose}</p>}
-                  {r.notes && <p className="break-words text-xs text-muted-foreground">{r.notes}</p>}
+                  {r.purpose && <p className="text-sm [overflow-wrap:anywhere]">{r.purpose}</p>}
+                  {r.notes && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.notes}</p>}
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap gap-1">

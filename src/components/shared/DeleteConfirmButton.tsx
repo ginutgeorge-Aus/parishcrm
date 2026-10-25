@@ -2,6 +2,7 @@
 
 import { useId, useState, useTransition } from "react"
 import { unstable_rethrow } from "next/navigation"
+import { cn } from "@/lib/utils"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,11 +66,11 @@ export function DeleteConfirmButton({
     // touch, and screen-reader users can discover why the action is inert — `title`
     // alone is skipped by most screen readers and never shows on touch.
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
         <Button
           variant={triggerVariant}
           size={triggerSize}
-          className={triggerClassName}
+          className={cn("max-w-full", triggerClassName)}
           disabled
           aria-describedby={disabledReason ? reasonId : undefined}
         >

@@ -84,7 +84,7 @@ export function BookingRequestPanel({ dataVersion = 0, onSent }: Readonly<{ data
                         type="checkbox" className="size-5 shrink-0 accent-primary" aria-label={label}
                         checked={ticked.includes(c.id)} onChange={() => toggle(c.id)}
                       />
-                      <span className="break-words">
+                      <span className="min-w-0 [overflow-wrap:anywhere]">
                         {label}, {formatTime12(c.startTime)} – {formatTime12(c.endTime)}
                         {c.purpose && <span className="text-muted-foreground"> ({c.purpose})</span>}
                       </span>
