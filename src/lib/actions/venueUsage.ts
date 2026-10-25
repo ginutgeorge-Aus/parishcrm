@@ -6,11 +6,16 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx, logAuditManyTx } from "@/lib/audit"
+import { clearApprovalTx, monthOfDate } from "@/lib/venueApproval"
+import { getChurchSettings } from "@/lib/churchSettings"
+import { sendVenueUsageRequestEmail } from "@/lib/email"
+import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
-import { deliverInvoiceRequest, loadActor, prepareInvoiceRequest } from "@/lib/venueInvoice"
-import { parseCcList } from "@/lib/venueUsage"
+import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, prepareInvoiceRequest } from "@/lib/venueInvoice"
+import { buildCancellationEmail, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import type { VenueUsageLine } from "@/lib/venueUsage"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
   VENUE_BOOKING_STATUSES, isValidMonth, isValidYMD, totalHours,
@@ -53,11 +58,24 @@ export type VenueRequestPreview = {
   last: { status: string | null; sentAt: string | null; errorMessage: string | null } | null
 }
 
+/** Result of a booking mutation; `approvalCleared` tells the UI to show the re-approve notice, `warning` a non-fatal problem. */
+export type VenueMutationResult = { success: string; approvalCleared?: boolean; warning?: string } | { error: string }
+
+/**
+ * Success result carrying the approval-cleared flag only when it applies.
+ * @param success message
+ * @param cleared months whose approval was cleared
+ */
+function mutationOk(success: string, cleared: string[]): VenueMutationResult {
+  return cleared.length ? { success, approvalCleared: true } : { success }
+}
+
 /**
  * Create a venue usage row. ADMIN/PASTOR/OFFICE_ADMIN (`canEdit`); feature must be enabled.
+ * Clears the approval of the row's month (same transaction) when it was approved and unsent.
  * @param input date, times, status, purpose and notes
  */
-export async function createVenueUsage(input: VenueUsageInput): Promise<ActionResultWithSuccess> {
+export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMutationResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   const settings = await readVenueUsageSettings()
@@ -68,21 +86,25 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<ActionRe
   const { date, ...rest } = parsed.data
 
   const userId = actorId(session)
-  const row = await prisma.venueUsage.create({
-    data: { ...rest, date: ymdToUtcDate(date), createdById: userId },
-    select: { id: true },
+  const cleared = await prisma.$transaction(async (tx) => {
+    const row = await tx.venueUsage.create({
+      data: { ...rest, date: ymdToUtcDate(date), createdById: userId },
+      select: { id: true },
+    })
+    const months = await clearApprovalTx(tx, [date.slice(0, 7)], userId)
+    await logAuditTx(tx, userId, "VENUE_USAGE_CREATED", "VenueUsage", row.id, { date, status: rest.status })
+    return months
   })
-  await logAudit(userId, "VENUE_USAGE_CREATED", "VenueUsage", row.id, { date, status: rest.status })
   revalidatePath("/venue-usage")
-  return { success: "Booking added" }
+  return mutationOk("Booking added", cleared)
 }
 
 /**
- * Update a venue usage row (`canEdit`).
+ * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
  * @param id VenueUsage id
  * @param input new field values
  */
-export async function updateVenueUsage(id: number, input: VenueUsageInput): Promise<ActionResultWithSuccess> {
+export async function updateVenueUsage(id: number, input: VenueUsageInput): Promise<VenueMutationResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid booking" }
@@ -91,21 +113,26 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 
   const parsed = UsageSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const existing = await prisma.venueUsage.findUnique({ where: { id }, select: { id: true } })
+  const existing = await prisma.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
   if (!existing) return { error: "Booking not found" }
   const { date, ...rest } = parsed.data
 
-  await prisma.venueUsage.update({ where: { id }, data: { ...rest, date: ymdToUtcDate(date) } })
-  await logAudit(actorId(session), "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
+  const userId = actorId(session)
+  const cleared = await prisma.$transaction(async (tx) => {
+    await tx.venueUsage.update({ where: { id }, data: { ...rest, date: ymdToUtcDate(date) }, select: { id: true } })
+    const months = await clearApprovalTx(tx, [monthOfDate(existing.date), date.slice(0, 7)], userId)
+    await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
+    return months
+  })
   revalidatePath("/venue-usage")
-  return { success: "Booking updated" }
+  return mutationOk("Booking updated", cleared)
 }
 
 /**
- * Delete a venue usage row (`canEdit`).
+ * Delete a venue usage row (`canEdit`). Clears the approval of the row's month.
  * @param id VenueUsage id
  */
-export async function deleteVenueUsage(id: number): Promise<ActionResultWithSuccess> {
+export async function deleteVenueUsage(id: number): Promise<VenueMutationResult> {
   const session = await auth()
   if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(id)) return { error: "Invalid booking" }
@@ -114,12 +141,136 @@ export async function deleteVenueUsage(id: number): Promise<ActionResultWithSucc
 
   const existing = await prisma.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
   if (!existing) return { error: "Booking not found" }
-  await prisma.venueUsage.delete({ where: { id } })
-  await logAudit(actorId(session), "VENUE_USAGE_DELETED", "VenueUsage", id, {
-    date: existing.date.toISOString().slice(0, 10),
+  const userId = actorId(session)
+  const cleared = await prisma.$transaction(async (tx) => {
+    await tx.venueUsage.delete({ where: { id } })
+    const months = await clearApprovalTx(tx, [monthOfDate(existing.date)], userId)
+    await logAuditTx(tx, userId, "VENUE_USAGE_DELETED", "VenueUsage", id, { date: utcDateToYmd(existing.date) })
+    return months
   })
   revalidatePath("/venue-usage")
-  return { success: "Booking deleted" }
+  return mutationOk("Booking deleted", cleared)
+}
+
+const AddAllSchema = z.object({
+  month: z.string().refine(isValidMonth, "Invalid month"),
+  startTime: z.string(),
+  endTime: z.string(),
+  purpose: emptyToNull(200),
+})
+
+/**
+ * Add a REQUESTED booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
+ * @param input month "YYYY-MM", shared start/end time and optional public purpose
+ */
+export async function addAllSundays(input: { month: string; startTime: string; endTime: string; purpose?: string }): Promise<VenueMutationResult> {
+  const session = await auth()
+  if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  const settings = await readVenueUsageSettings()
+  if (!settings.enabled) return { error: "Venue usage is not enabled" }
+  const parsed = AddAllSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const { month, startTime, endTime, purpose } = parsed.data
+  const timeError = validateTimeRange(startTime, endTime)
+  if (timeError) return { error: timeError }
+
+  const userId = actorId(session)
+  const sundays = sundaysInMonth(month)
+  const { added, cleared } = await prisma.$transaction(async (tx) => {
+    const existing = await tx.venueUsage.findMany({
+      where: { date: { in: sundays.map(ymdToUtcDate) }, status: { not: "CANCELLED" } },
+      select: { date: true },
+      take: MAX_ROWS_PER_MONTH,
+    })
+    const taken = new Set(existing.map((e) => utcDateToYmd(e.date)))
+    const free = sundays.filter((s) => !taken.has(s))
+    if (free.length === 0) return { added: 0, cleared: [] as string[] }
+    await tx.venueUsage.createMany({
+      data: free.map((s) => ({ date: ymdToUtcDate(s), startTime, endTime, status: "REQUESTED" as const, purpose, createdById: userId })),
+    })
+    const months = await clearApprovalTx(tx, [month], userId)
+    await logAuditTx(tx, userId, "VENUE_USAGE_BULK_ADDED", "VenueUsage", undefined, { month, added: free.length, skipped: sundays.length - free.length })
+    return { added: free.length, cleared: months }
+  })
+  revalidatePath("/venue-usage")
+  if (added === 0) return { success: "Nothing to add: every Sunday already has a booking" }
+  const skipped = sundays.length - added
+  const label = `Added ${added} ${added === 1 ? "Sunday" : "Sundays"}${skipped ? ` (${skipped} skipped: already booked)` : ""}`
+  return mutationOk(label, cleared)
+}
+
+/**
+ * Mark bookings CONFIRMED or CANCELLED in bulk (`canEdit`). Rows already in the target status are skipped.
+ * Cancelling can also email the venue a cancellation notice (not undone if the email fails).
+ * @param ids VenueUsage ids (1 to 200)
+ * @param status target status
+ * @param opts `emailVenue`: send the cancellation notice (CANCELLED only)
+ */
+export async function setVenueUsageStatus(
+  ids: number[],
+  status: "CONFIRMED" | "CANCELLED",
+  opts: { emailVenue?: boolean } = {},
+): Promise<VenueMutationResult> {
+  const emailVenue = status === "CANCELLED" && !!opts.emailVenue
+  if (emailVenue) {
+    const demo = assertNotDemo()
+    if (demo) return demo
+  }
+  const session = await auth()
+  if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  if (ids.length === 0) return { error: "Select at least one booking" }
+  if (ids.length > MAX_ROWS_PER_MONTH) return { error: "Too many bookings selected" }
+  if (!ids.every(isValidPgId)) return { error: "Invalid booking" }
+  const settings = await readVenueUsageSettings()
+  if (!settings.enabled) return { error: "Venue usage is not enabled" }
+
+  const userId = actorId(session)
+  const uniqueIds = Array.from(new Set(ids))
+  const result = await prisma.$transaction(async (tx) => {
+    const rows = await tx.venueUsage.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, date: true, startTime: true, endTime: true, status: true },
+    })
+    if (rows.length !== uniqueIds.length) return null
+    const toChange = rows.filter((r) => r.status !== status)
+    if (toChange.length === 0) return { changed: [] as typeof rows, cleared: [] as string[] }
+    await tx.venueUsage.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { status } })
+    const months = await clearApprovalTx(tx, toChange.map((r) => monthOfDate(r.date)), userId)
+    await logAuditManyTx(tx, toChange.map((r) => ({
+      userId, action: "VENUE_USAGE_STATUS_CHANGED", resourceType: "VenueUsage", resourceId: r.id,
+      metadata: { date: utcDateToYmd(r.date), from: r.status, to: status },
+    })))
+    return { changed: toChange, cleared: months }
+  })
+  if (!result) return { error: "Booking not found" }
+  const { changed, cleared } = result
+  revalidatePath("/venue-usage")
+  if (changed.length === 0) return { error: "No bookings to change" }
+  const noun = changed.length === 1 ? "date" : "dates"
+  const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared) as Extract<VenueMutationResult, { success: string }>
+  if (!emailVenue) return base
+  return { ...base, ...(await emailCancellation(settings, changed, userId)) }
+}
+
+/**
+ * Send the cancellation notice to the venue; returns a `warning` on failure (the cancellation itself stands).
+ * @param settings venue settings
+ * @param rows the rows that were just cancelled
+ * @param userId acting user id
+ */
+async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageLine[], userId: number): Promise<{ warning?: string }> {
+  const [actor, church] = await Promise.all([loadActor(userId), getChurchSettings()])
+  const { to, cc, replyTo } = bookingRecipients(settings, actor)
+  if (!to) return { warning: "Could not email the venue: no contact email is set." }
+  const mail = buildCancellationEmail({ churchName: church.name, venueName: settings.venueName, contactName: settings.contactName, cancelled: rows, senderName: actor.name })
+  try {
+    await sendVenueUsageRequestEmail({ to, cc: cc.length ? cc.join(", ") : undefined, replyTo: replyTo || undefined, ...mail })
+    await logAudit(userId, "VENUE_CANCELLATION_EMAILED", "VenueUsage", undefined, { count: rows.length })
+    return {}
+  } catch {
+    await logAudit(userId, "VENUE_CANCELLATION_EMAIL_FAILED", "VenueUsage", undefined, { count: rows.length })
+    return { warning: "Could not email the venue. The dates are cancelled; let them know another way." }
+  }
 }
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
