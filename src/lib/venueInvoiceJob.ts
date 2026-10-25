@@ -1,0 +1,155 @@
+import { prisma } from "@/lib/prisma"
+import { logAudit } from "@/lib/audit"
+import { sendEmail } from "@/lib/email"
+import { getChurchName } from "@/lib/emailTemplateStore"
+import { FEATURE_OFF_SKIP } from "@/lib/features"
+import { UserRole } from "@/lib/generated/prisma/enums"
+import { isP2002 } from "@/lib/validation"
+import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
+import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
+import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
+import { venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
+import { describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
+
+/** A claim older than this is treated as abandoned (the work is a few emails, so a live run never gets near it). */
+export const VENUE_JOB_LEASE_MS = 10 * 60_000
+
+/** `failed` and `inFlight` are what the scheduler retries on; `sent` = invoice requests emailed, `notified` = staff notices sent. */
+export type VenueJobResult = { sent: number; notified: number; failed: number; inFlight: number }
+const ZERO: VenueJobResult = { sent: 0, notified: 0, failed: 0, inFlight: 0 }
+
+/**
+ * Create the month's request row if missing; a racing instance creating it first is fine.
+ * @param month "YYYY-MM"
+ */
+async function ensureRequestRow(month: string): Promise<void> {
+  try {
+    await prisma.venueUsageRequest.upsert({ where: { month }, create: { month }, update: {} })
+  } catch (e) {
+    if (!isP2002(e)) throw e
+  }
+}
+
+/**
+ * Give the claim back (only if it is still ours) so a later tick can retry. Never throws: a failing
+ * release must not mask the error or result that led here (an unreleased claim just expires with its lease).
+ * @param month "YYYY-MM"
+ * @param claimAt the claim timestamp this run holds
+ */
+async function releaseClaim(month: string, claimAt: Date): Promise<void> {
+  try {
+    await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderClaimedAt: null } })
+  } catch (e) {
+    console.error("[venueInvoiceJob] releasing the claim failed", e)
+  }
+}
+
+/**
+ * Send one notice to every active editor, sequentially; counts only (never addresses in logs).
+ * @param mail subject, html and text of the notice
+ */
+async function notifyEditors(mail: { subject: string; html: string; text: string }): Promise<{ notified: number; failed: number }> {
+  const users = await prisma.user.findMany({
+    where: { role: { in: [UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN] }, archivedAt: null },
+    select: { email: true },
+  })
+  let notified = 0
+  let failed = 0
+  for (const to of Array.from(new Set(users.map((u) => u.email.trim().toLowerCase())))) {
+    try {
+      await sendEmail(to, mail.subject, mail.html, mail.text)
+      notified++
+    } catch {
+      failed++
+      console.error("[venueInvoiceJob] notice send failed for one recipient")
+    }
+  }
+  return { notified, failed }
+}
+
+/**
+ * Run the month's work under a held claim: skip if already sent, send the invoice request when approved and
+ * still complete (else build a reminder), notify editors, then mark the month done. All reads that depend on
+ * the claim happen here, after it was won.
+ * @param month "YYYY-MM" being invoiced
+ * @param claimAt the claim timestamp this run holds (fence for the final write)
+ */
+async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
+  const request = await prisma.venueUsageRequest.findUnique({ where: { month }, select: { id: true, status: true, approvedAt: true } })
+  if (request?.status === "SUCCESS") {
+    await releaseClaim(month, claimAt)
+    return ZERO
+  }
+  const { start, end } = monthRange(month)
+  const rows = await prisma.venueUsage.findMany({
+    where: { date: { gte: start, lte: end } }, take: MAX_ROWS_PER_MONTH, select: { date: true, status: true },
+  })
+  const completeness = monthCompleteness(month, rows)
+  const churchName = await getChurchName()
+
+  let sent = 0
+  let mail: { subject: string; html: string; text: string }
+  if (request?.approvedAt && completeness.complete) {
+    const prep = await prepareInvoiceRequest(month, null)
+    const result = await deliverInvoiceRequest(prep, { month, userId: null, autoSent: true, resend: false })
+    if (result.status === "FAILED") {
+      await releaseClaim(month, claimAt)
+      return { ...ZERO, failed: 1 }
+    }
+    sent = 1
+    mail = buildAutoSentEmail({ churchName, month, rowCount: prep.rows.length, totalHoursLabel: formatHours(totalHours(prep.rows)) })
+  } else {
+    const problems = completeness.complete
+      ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]
+      : describeIncomplete(completeness)
+    mail = buildReminderEmail({ churchName, month, problems, url: venuePageUrl(month) })
+  }
+
+  const { notified, failed } = await notifyEditors(mail)
+  if (notified === 0 && failed > 0) {
+    await releaseClaim(month, claimAt)
+    return { sent, notified, failed, inFlight: 0 }
+  }
+  if (failed > 0) console.error(`[venueInvoiceJob] ${failed} notice(s) failed; not retried to avoid repeats`)
+  await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
+  // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).
+  try {
+    await logAudit(null, sent ? "VENUE_INVOICE_NOTICE_SENT" : "VENUE_REMINDER_SENT", "VenueUsageRequest", request?.id, { month, notified, failed })
+  } catch (e) {
+    console.error("[venueInvoiceJob] audit write failed", e)
+  }
+  return { sent, notified, failed: 0, inFlight: 0 }
+}
+
+/**
+ * Monthly venue job, called by the scheduler. Within the Sydney 1st-7th window (from 09:00; the later days
+ * are outage catch-up) it handles the previous month: sends the invoice request when an admin approved it and
+ * the month is still complete, otherwise emails the editors a reminder. Idempotent per month through a lease
+ * on `reminderClaimedAt` and a final `reminderSentAt`, so later days of the window are no-ops once done.
+ * @param now run time
+ */
+export async function runVenueInvoiceJob(now: Date = new Date()): Promise<VenueJobResult | typeof FEATURE_OFF_SKIP> {
+  if (!venueJobWindowOpen(now)) return ZERO
+  const settings = await readVenueUsageSettings()
+  if (!settings.enabled || !settings.contactEmail) return FEATURE_OFF_SKIP
+  const month = venueInvoiceMonth(now)
+  await ensureRequestRow(month)
+
+  const claimAt = new Date(Math.max(Date.now(), now.getTime()))
+  const staleBefore = new Date(claimAt.getTime() - VENUE_JOB_LEASE_MS)
+  const claim = await prisma.venueUsageRequest.updateMany({
+    where: { month, reminderSentAt: null, OR: [{ reminderClaimedAt: null }, { reminderClaimedAt: { lt: staleBefore } }] },
+    data: { reminderClaimedAt: claimAt },
+  })
+  if (claim.count === 0) {
+    const row = await prisma.venueUsageRequest.findUnique({ where: { month }, select: { reminderSentAt: true } })
+    return row?.reminderSentAt ? ZERO : { ...ZERO, inFlight: 1 }
+  }
+  try {
+    return await work(month, claimAt)
+  } catch (e) {
+    console.error("[venueInvoiceJob] run failed", e)
+    await releaseClaim(month, claimAt)
+    throw e
+  }
+}
