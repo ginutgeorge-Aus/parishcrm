@@ -21,6 +21,14 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.9.1-security-smoke",
+    version: "v1.9.1",
+    area: "Security",
+    title: "Smoke test after security dependency update",
+    steps:
+      "Sign in with password and OTP → open the dashboard, People and an event → open a page with images (e.g. Settings → Branding) and confirm logos load → save one small change (e.g. a person's note) and confirm it saves.",
+  },
+  {
     id: "v1.9.0-warm-theme",
     version: "v1.9.0",
     area: "Navigation",
