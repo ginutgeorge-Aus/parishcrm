@@ -1215,6 +1215,21 @@ describe("authorizeCredentials — demo mode", () => {
     expect(logAudit).toHaveBeenCalledWith(9, "USER_LOGIN", "User", 9, { demo: true }, undefined)
   })
 
+  it("uses its own 120/min bucket, not the 10/min password bucket (#95)", async () => {
+    process.env.DEMO_MODE = "true"
+    const req = new Request("http://x", { headers: { "x-forwarded-for": "10.29.58.213" } })
+    await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" }, req)
+    expect(dbRateLimit).toHaveBeenCalledWith("login:demo:10.29.58.213", 120, 60_000)
+    expect(dbRateLimit).not.toHaveBeenCalledWith("login:ip:10.29.58.213", 10, 60_000)
+  })
+
+  it("rejects a demo login once its bucket is exhausted", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    expect(await authorizeCredentials({ email: "admin@demo.invalid", mode: "demo" })).toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
   it("rejects password/otp modes for demo emails so the shared users cannot be locked out", async () => {
     process.env.DEMO_MODE = "true"
     for (const mode of ["password", "otp", "totp", undefined]) {

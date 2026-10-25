@@ -186,10 +186,11 @@ async function verifyPassword(email: string, password: string, ip: string | unde
 }
 
 // Per-IP throttle shared by both providers (the e2e exemption and its rationale
-// are documented at the call site in authorizeCredentials).
-async function loginIpAllowed(ip: string | undefined): Promise<boolean> {
+// are documented at the call site in authorizeCredentials). `bucket`/`limit`
+// let demo one-click logins use their own, larger bucket.
+async function loginIpAllowed(ip: string | undefined, bucket = "login:ip", limit = 10): Promise<boolean> {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
-  if (await dbRateLimit(`login:ip:${ip ?? "unknown"}`, 10, 60_000)) return true
+  if (await dbRateLimit(`${bucket}:${ip ?? "unknown"}`, limit, 60_000)) return true
   // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
   // diagnosable from container logs. No PII beyond the ip already logged.
   logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
@@ -309,25 +310,30 @@ export async function authorizeCredentials(
   // key on `ip ?? "unknown"` so a request whose XFF is missing or fails
   // the IP regex falls back to a shared bucket rather than skipping the throttle
   // entirely — matches the sibling limiters (publicFeedback.ts, membership.ts).
-  if (!(await loginIpAllowed(ip))) return null
-
   // Live demo one-click login (/login role buttons). Honoured ONLY when
   // DEMO_MODE=true AND the email is on the reserved @demo.invalid domain, so a
   // real deployment that sets the flag by mistake still has no account this can
-  // reach. No password, no OTP/TOTP, no trusted-device grant. Still behind the
-  // per-IP throttle above.
-  if (isDemoMode() && isDemoEmail(String(credentials.email)) && credentials.mode !== "demo") {
-    // Shared public users: any password/OTP/TOTP attempt would bump lockout
-    // counters and lock every visitor out of that role.
-    return null
-  }
+  // reach. No password, no OTP/TOTP, no trusted-device grant. Runs before the
+  // 10/min password throttle with its own 120/min bucket: on Render the
+  // rightmost XFF entry is an internal proxy address (10.x) shared by many
+  // visitors, so the password bucket locked the demo for everyone (#95).
   if (credentials.mode === "demo") {
     const email = String(credentials.email)
     if (!isDemoMode() || !isDemoEmail(email)) return null
+    if (!(await loginIpAllowed(ip, "login:demo", 120))) return null
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user || user.archivedAt) return null
     void logAudit(user.id, "USER_LOGIN", "User", user.id, { demo: true }, ip)
     return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: false }
+  }
+
+  if (!(await loginIpAllowed(ip))) return null
+
+  // Live demo users have no password path (one-click login is handled above).
+  if (isDemoMode() && isDemoEmail(String(credentials.email)) && credentials.mode !== "demo") {
+    // Shared public users: any password/OTP/TOTP attempt would bump lockout
+    // counters and lock every visitor out of that role.
+    return null
   }
 
   if (credentials.mode === "otp") {
