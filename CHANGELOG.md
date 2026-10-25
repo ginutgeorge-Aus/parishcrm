@@ -12,6 +12,13 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.9.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.9.0...v1.9.1) (2026-10-25)
+
+
+### Fixed
+
+* **deps:** override @azure/msal-node to 7.1.1 (GHSA-xcx6-jx8p-x3h5) ([#421](https://github.com/ginutgeorge-Aus/parishcrm/issues/421)) ([109d3db](https://github.com/ginutgeorge-Aus/parishcrm/commit/109d3db7916e5ec29065ae1d7a60b98522410a46))
+
 ## [1.9.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.8.0...v1.9.0) (2026-10-25)
 
 

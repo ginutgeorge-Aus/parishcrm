@@ -16,6 +16,13 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.9.1",
+    date: "2026-10-25",
+    highlights: [
+      "Security update: fixes in the web framework and a supporting Microsoft library.",
+    ],
+  },
+  {
     version: "v1.9.0",
     date: "2026-10-25",
     highlights: [
