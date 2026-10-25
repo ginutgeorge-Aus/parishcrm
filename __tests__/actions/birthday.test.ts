@@ -139,8 +139,9 @@ describe("sendBirthdayEmailsBulk", () => {
   it("sends to consenting upcoming members and skips the rest", async () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
     // The action windows against the Sydney calendar, so derive the DOB from it.
+    // 28 years keeps leap-year alignment, so a 29 Feb run stays a valid date.
     const [y, m, d] = sydneyTodayYMD().split("-")
-    const iso = () => `${Number(y) - 30}-${m}-${d}`
+    const iso = () => `${Number(y) - 28}-${m}-${d}`
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
       { id: 1, firstName: "A", email: "enc:a@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
       { id: 2, firstName: "B", email: "enc:b@x.com", emailConsent: false, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
@@ -154,8 +155,9 @@ describe("sendBirthdayEmailsBulk", () => {
   it("skips a member with an undecryptable field instead of aborting the batch", async () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
     // The action windows against the Sydney calendar, so derive the DOB from it.
+    // 28 years keeps leap-year alignment, so a 29 Feb run stays a valid date.
     const [y, m, d] = sydneyTodayYMD().split("-")
-    const iso = () => `${Number(y) - 30}-${m}-${d}`
+    const iso = () => `${Number(y) - 28}-${m}-${d}`
     // One corrupt row whose dateOfBirth ciphertext throws on decrypt — without
     // per-row handling this kills the whole batch, including the valid member.
     ;(decrypt as jest.Mock).mockImplementation((v: string) => {
