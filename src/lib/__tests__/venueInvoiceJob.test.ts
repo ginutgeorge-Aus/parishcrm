@@ -15,6 +15,7 @@ jest.mock("@/lib/venueInvoice", () => ({
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/emailTemplateStore", () => ({ getChurchName: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 
 import { prisma } from "@/lib/prisma"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -22,6 +23,7 @@ import { deliverInvoiceRequest, prepareInvoiceRequest } from "@/lib/venueInvoice
 import { sendEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { logAudit } from "@/lib/audit"
+import { logger } from "@/lib/logger"
 import { FEATURE_OFF_SKIP } from "@/lib/features"
 import { runVenueInvoiceJob, VENUE_JOB_LEASE_MS } from "@/lib/venueInvoiceJob"
 
@@ -37,7 +39,6 @@ const findUnique = () => prisma.venueUsageRequest.findUnique as jest.Mock
 
 beforeEach(() => {
   jest.resetAllMocks()
-  jest.spyOn(console, "error").mockImplementation(() => undefined)
   ;(readVenueUsageSettings as jest.Mock).mockResolvedValue({ enabled: true, contactEmail: "venue@example.com", venueName: "Example Hall" })
   ;(prisma.venueUsageRequest.upsert as jest.Mock).mockResolvedValue({})
   updateMany().mockResolvedValue({ count: 1 })
@@ -157,7 +158,7 @@ it("a thrown error releases the claim, logs the original and rethrows", async ()
   ;(prisma.venueUsage.findMany as jest.Mock).mockRejectedValue(new Error("db"))
   await expect(runVenueInvoiceJob(OPEN)).rejects.toThrow("db")
   expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderClaimedAt: null })
-  expect(console.error).toHaveBeenCalledWith(expect.stringContaining("venueInvoiceJob"), expect.objectContaining({ message: "db" }))
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoiceJob.*db/))
 })
 
 it("a failing release cannot mask the original error", async () => {

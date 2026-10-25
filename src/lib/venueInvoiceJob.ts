@@ -5,6 +5,7 @@ import { getChurchName } from "@/lib/emailTemplateStore"
 import { FEATURE_OFF_SKIP } from "@/lib/features"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { isP2002 } from "@/lib/validation"
+import { logger } from "@/lib/logger"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
 import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
@@ -40,7 +41,7 @@ async function releaseClaim(month: string, claimAt: Date): Promise<void> {
   try {
     await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderClaimedAt: null } })
   } catch (e) {
-    console.error("[venueInvoiceJob] releasing the claim failed", e)
+    logger.error(`[venueInvoiceJob] releasing the claim failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -61,7 +62,7 @@ async function notifyEditors(mail: { subject: string; html: string; text: string
       notified++
     } catch {
       failed++
-      console.error("[venueInvoiceJob] notice send failed for one recipient")
+      logger.error("[venueInvoiceJob] notice send failed for one recipient")
     }
   }
   return { notified, failed }
@@ -110,13 +111,13 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     await releaseClaim(month, claimAt)
     return { sent, notified, failed, inFlight: 0 }
   }
-  if (failed > 0) console.error(`[venueInvoiceJob] ${failed} notice(s) failed; not retried to avoid repeats`)
+  if (failed > 0) logger.error(`[venueInvoiceJob] ${failed} notice(s) failed; not retried to avoid repeats`)
   await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
   // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).
   try {
     await logAudit(null, sent ? "VENUE_INVOICE_NOTICE_SENT" : "VENUE_REMINDER_SENT", "VenueUsageRequest", request?.id, { month, notified, failed })
   } catch (e) {
-    console.error("[venueInvoiceJob] audit write failed", e)
+    logger.error(`[venueInvoiceJob] audit write failed: ${e instanceof Error ? e.message : String(e)}`)
   }
   return { sent, notified, failed: 0, inFlight: 0 }
 }
@@ -148,7 +149,7 @@ export async function runVenueInvoiceJob(now: Date = new Date()): Promise<VenueJ
   try {
     return await work(month, claimAt)
   } catch (e) {
-    console.error("[venueInvoiceJob] run failed", e)
+    logger.error(`[venueInvoiceJob] run failed: ${e instanceof Error ? e.message : String(e)}`)
     await releaseClaim(month, claimAt)
     throw e
   }
