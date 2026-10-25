@@ -3,6 +3,7 @@ import {
   parseTimeToMinutes, isValidTime, validateTimeRange, durationHours, formatHours, formatTime12,
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
+  parseCcList, MAX_BOOKING_CC,
 } from "@/lib/venueUsage"
 
 const d = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`)
@@ -249,5 +250,24 @@ describe("buildRequestEmail", () => {
     expect(() =>
       buildRequestEmail({ ...base, rows: [{ date: d("2026-09-06"), startTime: "20:00", endTime: "17:00" }] }),
     ).toThrow(RangeError)
+  })
+})
+
+describe("parseCcList", () => {
+  it("splits on comma, semicolon and newline, trims and de-duplicates case-insensitively", () => {
+    expect(parseCcList("a@example.com; B@example.com,\n a@EXAMPLE.com , ")).toEqual({
+      ok: true,
+      list: ["a@example.com", "B@example.com"],
+    })
+  })
+  it("accepts an empty value", () => {
+    expect(parseCcList("  ")).toEqual({ ok: true, list: [] })
+  })
+  it("rejects an invalid address and names it", () => {
+    expect(parseCcList("a@example.com, nope")).toEqual({ ok: false, error: '"nope" is not a valid email address' })
+  })
+  it("rejects more than the maximum", () => {
+    const many = Array.from({ length: MAX_BOOKING_CC + 1 }, (_, i) => `u${i}@example.com`).join(",")
+    expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` })
   })
 })

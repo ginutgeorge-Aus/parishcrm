@@ -13,6 +13,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { parseCcList } from "@/lib/venueUsage"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
   VENUE_BOOKING_STATUSES, buildRequestEmail, isValidMonth, isValidYMD, monthRange, totalHours,
@@ -159,11 +160,20 @@ const SettingsSchema = z.object({
   contactEmail: OptionalEmail,
   ccEmail: OptionalEmail,
   replyToEmail: OptionalEmail,
+  bookingCcEmails: z
+    .string()
+    .max(1000, "Booking CC list is too long")
+    .superRefine((v, ctx) => {
+      const r = parseCcList(v)
+      if (!r.ok) ctx.addIssue({ code: "custom", message: r.error })
+    })
+    .default(""),
 })
 
 /**
  * Save the venue usage settings (one form). ADMIN only; blocked in demo mode.
- * Enabling requires a venue contact email.
+ * Enabling requires a venue contact email. The booking CC list is validated and
+ * stored normalised (comma-joined, de-duplicated, max 10).
  */
 export async function updateVenueUsageSettings(
   _prev: ActionResultWithSuccess,
@@ -186,6 +196,7 @@ export async function updateVenueUsageSettings(
     { key: "venueUsage.contactEmail", value: v.contactEmail },
     { key: "venueUsage.ccEmail", value: v.ccEmail },
     { key: "venueUsage.replyToEmail", value: v.replyToEmail },
+    { key: "venueUsage.bookingCcEmails", value: (parseCcList(v.bookingCcEmails) as { ok: true; list: string[] }).list.join(", ") },
   ]
   await Promise.all(
     entries.map((e) =>

@@ -52,6 +52,15 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
           <Input id="venue-cc-email" name="ccEmail" type="email" defaultValue={keep("ccEmail", settings.ccEmail)} placeholder="treasurer@example.com" className="md:w-80" maxLength={254} />
         </SettingsRow>
         <SettingsRow
+          label="Booking request CCs (optional)"
+          htmlFor="venue-booking-cc"
+          description="Extra addresses copied on booking requests and cancellation notices. Separate with commas. The reply-to address is always copied."
+        >
+          {(descId) => (
+            <Input id="venue-booking-cc" aria-describedby={descId} name="bookingCcEmails" defaultValue={keep("bookingCcEmails", settings.bookingCcEmails)} placeholder="secretary@example.com, treasurer@example.com" className="md:w-80" maxLength={1000} />
+          )}
+        </SettingsRow>
+        <SettingsRow
           label="Reply-to email (optional)"
           htmlFor="venue-reply-to"
           description="Where the venue's reply (the invoice) goes. Leave blank to use the email of whoever sends the request. This address is also copied on the request."

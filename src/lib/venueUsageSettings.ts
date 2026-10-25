@@ -11,6 +11,7 @@ export type VenueUsageSettings = {
   contactEmail: string
   ccEmail: string
   replyToEmail: string
+  bookingCcEmails: string
 }
 
 /**
@@ -29,6 +30,7 @@ export async function readVenueUsageSettings(): Promise<VenueUsageSettings> {
     contactEmail: get("venueUsage.contactEmail"),
     ccEmail: get("venueUsage.ccEmail"),
     replyToEmail: get("venueUsage.replyToEmail"),
+    bookingCcEmails: get("venueUsage.bookingCcEmails"),
   }
 }
 

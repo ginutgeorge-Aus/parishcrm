@@ -36,7 +36,7 @@ const asRole = (role: string | null) =>
 
 const settings = {
   enabled: true, venueName: "Example Hall", contactName: "Pat Example",
-  contactEmail: "venue@example.com", ccEmail: "", replyToEmail: "",
+  contactEmail: "venue@example.com", ccEmail: "", replyToEmail: "", bookingCcEmails: "",
 }
 
 const validInput = {
@@ -282,8 +282,26 @@ describe("updateVenueUsageSettings", () => {
     const keys = (prisma.appSetting.upsert as jest.Mock).mock.calls.map((c) => c[0].where.key)
     expect(keys).toEqual([
       "venueUsage.enabled", "venueUsage.venueName", "venueUsage.contactName",
-      "venueUsage.contactEmail", "venueUsage.ccEmail", "venueUsage.replyToEmail",
+      "venueUsage.contactEmail", "venueUsage.ccEmail", "venueUsage.replyToEmail", "venueUsage.bookingCcEmails",
     ])
     expect((prisma.appSetting.upsert as jest.Mock).mock.calls[0][0].update.value).toBe("true")
+  })
+})
+
+describe("updateVenueUsageSettings bookingCcEmails", () => {
+  it("saves bookingCcEmails normalised and rejects a bad address", async () => {
+    asRole("ADMIN")
+    const fd = new FormData()
+    fd.set("enabled", "on"); fd.set("venueName", "Example Hall"); fd.set("contactName", "Pat Example")
+    fd.set("contactEmail", "venue@example.com"); fd.set("ccEmail", ""); fd.set("replyToEmail", "")
+    fd.set("bookingCcEmails", "a@example.com; A@example.com, b@example.com")
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ success: "Venue usage settings saved" })
+    const calls = (prisma.appSetting.upsert as jest.Mock).mock.calls.map((c) => c[0])
+    expect(calls).toContainEqual(expect.objectContaining({
+      where: { key: "venueUsage.bookingCcEmails" },
+      update: { value: "a@example.com, b@example.com" },
+    }))
+    fd.set("bookingCcEmails", "a@example.com, nope")
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: '"nope" is not a valid email address' })
   })
 })

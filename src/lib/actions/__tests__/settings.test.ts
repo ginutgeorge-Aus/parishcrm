@@ -223,3 +223,18 @@ describe("upsertSetting — letter keys have a dedicated action", () => {
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 })
+
+describe("upsertSetting — venueUsage keys", () => {
+  it("validates venueUsage.bookingCcEmails as a list and allows it past 254 chars", async () => {
+    const ok = Array.from({ length: 8 }, (_, i) => `person${i}.with.a.long.name@example.com`).join(", ")
+    expect(ok.length).toBeGreaterThan(254)
+    expect(await upsertSetting(undefined, fd("venueUsage.bookingCcEmails", ok))).toEqual({ success: "Settings saved" })
+    expect(await upsertSetting(undefined, fd("venueUsage.bookingCcEmails", "a@example.com, nope")))
+      .toEqual({ error: '"nope" is not a valid email address' })
+  })
+  it("does not allow the calendar token through the generic setting action", async () => {
+    const r = await upsertSetting(undefined, fd("venueUsage.calendarToken", "weak"))
+    expect(r).toEqual({ error: expect.any(String) })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+})

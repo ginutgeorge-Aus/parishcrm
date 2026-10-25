@@ -18,7 +18,7 @@ import { DEFAULT_BIRTHDAY_TEMPLATE, renderBirthdayEmail, type BirthdayTemplate }
 import { DEFAULT_ANNIVERSARY_TEMPLATE, renderAnniversaryEmail, type AnniversaryTemplate } from "@/lib/anniversaryTemplate"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
-import { VENUE_USAGE_SETTING_KEYS } from "@/lib/venueUsage"
+import { VENUE_USAGE_SETTING_KEYS, parseCcList } from "@/lib/venueUsage"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
@@ -136,6 +136,12 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     return { error: "Invalid timeout value" }
   }
   if (key === "venueUsage.enabled" && value !== "true" && value !== "false") return { error: "Invalid value" }
+  if (key === "venueUsage.bookingCcEmails") {
+    if (value.length > 1000) return { error: "Value is too long" }
+    const list = parseCcList(value)
+    if (!list.ok) return { error: list.error }
+    return { value: list.list.join(", ") }
+  }
   if (key.startsWith("venueUsage.") && value.length > 254) return { error: "Value is too long" }
   // Email-valued keys must hold a real address (blank clears) — a bad value
   // causes silent sendEmail delivery failures later.

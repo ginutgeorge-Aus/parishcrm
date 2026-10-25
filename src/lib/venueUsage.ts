@@ -4,6 +4,8 @@
 // Dates are UTC-midnight calendar dates (the app's storage convention) and are
 // always formatted in UTC, never server-local. Times are "HH:mm" 24h strings.
 
+import { isValidEmail } from "@/lib/validation"
+
 /** Setting keys (AppSetting) owned by the venue usage feature. */
 export const VENUE_USAGE_SETTING_KEYS = [
   "venueUsage.enabled",
@@ -12,6 +14,7 @@ export const VENUE_USAGE_SETTING_KEYS = [
   "venueUsage.contactEmail",
   "venueUsage.ccEmail",
   "venueUsage.replyToEmail",
+  "venueUsage.bookingCcEmails",
 ] as const
 
 export type VenueUsageSettingKey = (typeof VENUE_USAGE_SETTING_KEYS)[number]
@@ -301,4 +304,29 @@ export function buildRequestEmail(input: {
   ].join("\n")
 
   return { subject, text, html }
+}
+
+/** Most extra booking-request / cancellation CC addresses an admin may configure. */
+export const MAX_BOOKING_CC = 10
+
+/**
+ * Parse and validate a comma/semicolon/newline separated CC list (blank entries ignored,
+ * duplicates dropped case-insensitively, original casing of the first occurrence kept).
+ * @param value raw text from the settings form
+ * @returns the clean list, or the first validation error
+ */
+export function parseCcList(value: string): { ok: true; list: string[] } | { ok: false; error: string } {
+  const seen = new Set<string>()
+  const list: string[] = []
+  for (const raw of value.split(/[,;\n]/)) {
+    const address = raw.trim()
+    if (!address) continue
+    if (!isValidEmail(address)) return { ok: false, error: `"${address}" is not a valid email address` }
+    const key = address.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    list.push(address)
+  }
+  if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` }
+  return { ok: true, list }
 }
