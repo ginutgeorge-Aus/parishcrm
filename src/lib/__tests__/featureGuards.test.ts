@@ -340,6 +340,8 @@ const CORE_ACTIONS = new Set([
   // Gated by the AppSetting `venueUsage.enabled` (not a FEATURES flag): venueUsage.test.ts.
   "venueUsage.ts",
   "venueBookings.ts",
+  // Gated by venueUsage.enabled + ADMIN only: venueCalendar.test.ts.
+  "venueCalendar.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
