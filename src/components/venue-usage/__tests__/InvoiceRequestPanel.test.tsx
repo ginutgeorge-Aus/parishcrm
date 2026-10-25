@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { InvoiceRequestPanel } from "@/components/venue-usage/InvoiceRequestPanel"
 import { getVenueRequestPreview, sendVenueUsageRequest } from "@/lib/actions/venueUsage"
@@ -87,4 +87,53 @@ it("says when the request went out automatically", async () => {
   ;(getVenueRequestPreview as jest.Mock).mockResolvedValue({ ...preview, autoSent: true, last: { status: "SUCCESS", sentAt: "2026-10-01T00:00:00.000Z", errorMessage: null } })
   render(<InvoiceRequestPanel defaultMonth="2026-10" />)
   expect(await screen.findByText("Sent automatically.")).toBeInTheDocument()
+})
+
+/** Build a promise whose resolution the test controls. */
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
+}
+
+it("hides the old preview while a new month loads, so no action can run on the wrong month", async () => {
+  const next = deferred<typeof preview>()
+  ;(getVenueRequestPreview as jest.Mock).mockResolvedValueOnce(preview).mockReturnValueOnce(next.promise)
+  render(<InvoiceRequestPanel defaultMonth="2026-10" />)
+  await screen.findByRole("button", { name: /send request/i })
+  fireEvent.change(screen.getByLabelText(/month to invoice/i), { target: { value: "2026-09" } })
+  expect(screen.queryByRole("button", { name: /send request/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /approve automatic send/i })).not.toBeInTheDocument()
+  expect(screen.queryByText(/Hello Pat/)).not.toBeInTheDocument()
+  next.resolve({ ...preview, month: "2026-09", isCurrentMonth: false })
+  expect(await screen.findByRole("button", { name: /send request/i })).toBeInTheDocument()
+})
+it("closes an open confirm dialog on a month change and sends nothing; the new month is then sent as shown", async () => {
+  const next = deferred<typeof preview>()
+  ;(getVenueRequestPreview as jest.Mock).mockResolvedValueOnce(preview).mockReturnValueOnce(next.promise)
+  ;(sendVenueUsageRequest as jest.Mock).mockResolvedValue({ success: "ok" })
+  const user = userEvent.setup()
+  render(<InvoiceRequestPanel defaultMonth="2026-10" />)
+  await user.click(await screen.findByRole("button", { name: /send request/i }))
+  expect(await screen.findByRole("button", { name: /^send$/i })).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText(/month to invoice/i), { target: { value: "2026-09" } })
+  expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument()
+  expect(sendVenueUsageRequest).not.toHaveBeenCalled()
+  next.resolve({ ...preview, month: "2026-09", isCurrentMonth: false })
+  await user.click(await screen.findByRole("button", { name: /send request/i }))
+  await user.click(await screen.findByRole("button", { name: /^send$/i }))
+  await waitFor(() => expect(sendVenueUsageRequest).toHaveBeenCalledWith("2026-09", false))
+})
+it("ignores a late response for a month that is no longer selected", async () => {
+  const old = deferred<typeof preview>()
+  const fresh = deferred<typeof preview>()
+  ;(getVenueRequestPreview as jest.Mock).mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
+  render(<InvoiceRequestPanel defaultMonth="2026-10" />)
+  fireEvent.change(screen.getByLabelText(/month to invoice/i), { target: { value: "2026-09" } })
+  fresh.resolve({ ...preview, month: "2026-09", subject: "September subject", isCurrentMonth: false })
+  expect(await screen.findByText("September subject")).toBeInTheDocument()
+  old.resolve({ ...preview, month: "2026-10", subject: "October subject" })
+  await new Promise((r) => setTimeout(r, 0))
+  expect(screen.queryByText("October subject")).not.toBeInTheDocument()
+  expect(screen.getByText("September subject")).toBeInTheDocument()
 })

@@ -50,25 +50,28 @@ export function InvoiceRequestPanel({ defaultMonth }: Readonly<{ defaultMonth: s
 
   const alreadySent = preview?.last?.status === "SUCCESS"
 
-  /** Send the request now (resend flag set when one already went out). */
+  /** Send the request now for the month whose preview is shown (resend flag set when one already went out). */
   async function send() {
-    const r = await sendVenueUsageRequest(reqMonth, alreadySent)
+    if (!preview) return { error: "Preview is still loading." }
+    const r = await sendVenueUsageRequest(preview.month, alreadySent)
     setResult(r)
     setReloadKey((k) => k + 1)
     return errorOnly(r)
   }
 
-  /** Approve the automatic send for the month being shown. */
+  /** Approve the automatic send for the month whose preview is shown. */
   async function approve() {
-    const r = await approveVenueMonth(reqMonth)
+    if (!preview) return { error: "Preview is still loading." }
+    const r = await approveVenueMonth(preview.month)
     setResult(r)
     setReloadKey((k) => k + 1)
     return errorOnly(r)
   }
 
-  /** Withdraw the month's approval so the job will not send it. */
+  /** Withdraw the shown month's approval so the job will not send it. */
   async function withdraw() {
-    const r = await withdrawVenueApproval(reqMonth)
+    if (!preview) return
+    const r = await withdrawVenueApproval(preview.month)
     setResult(r)
     setReloadKey((k) => k + 1)
   }
@@ -80,7 +83,7 @@ export function InvoiceRequestPanel({ defaultMonth }: Readonly<{ defaultMonth: s
         <Label htmlFor="vu-req-month">Month to invoice</Label>
         <Input
           id="vu-req-month" type="month" value={reqMonth} className="w-44"
-          onChange={(e) => { if (e.target.value) { setReqMonth(e.target.value); setResult(undefined) } }}
+          onChange={(e) => { if (e.target.value) { setReqMonth(e.target.value); setPreview(null); setLoadError(null); setResult(undefined) } }}
         />
       </div>
 
