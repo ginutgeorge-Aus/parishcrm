@@ -12,6 +12,29 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.9.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.8.0...v1.9.0) (2026-10-25)
+
+
+### Added
+
+* **setup:** ask new churches which features they need ([#404](https://github.com/ginutgeorge-Aus/parishcrm/issues/404)) ([596a66c](https://github.com/ginutgeorge-Aus/parishcrm/commit/596a66ce1bfbd21cbee66ca3c5096f563645417b))
+* **ui:** warmer restrained theme (tinted neutrals, sentence-case labels) ([#413](https://github.com/ginutgeorge-Aus/parishcrm/issues/413)) ([64faf07](https://github.com/ginutgeorge-Aus/parishcrm/commit/64faf077c166c279ab62a72212d0a5dcef07eec8))
+
+
+### Fixed
+
+* **auth:** give demo logins their own throttle bucket ([#411](https://github.com/ginutgeorge-Aus/parishcrm/issues/411)) ([7b868b8](https://github.com/ginutgeorge-Aus/parishcrm/commit/7b868b83c614780424c61f47937a5df21a9915dd)), closes [#95](https://github.com/ginutgeorge-Aus/parishcrm/issues/95)
+* **deps:** bump next to 16.4.3 for security advisories ([#415](https://github.com/ginutgeorge-Aus/parishcrm/issues/415)) ([1d9da89](https://github.com/ginutgeorge-Aus/parishcrm/commit/1d9da896e5cf4cbabe500baa175fda99c60800ee))
+* **features:** keep blocked switches focusable ([#407](https://github.com/ginutgeorge-Aus/parishcrm/issues/407)) ([73d0620](https://github.com/ginutgeorge-Aus/parishcrm/commit/73d062061296688f5dc6b5fcc2fda2b03b4736c9))
+* **features:** review follow-ups from [#393](https://github.com/ginutgeorge-Aus/parishcrm/issues/393) ([#405](https://github.com/ginutgeorge-Aus/parishcrm/issues/405)) ([98c384d](https://github.com/ginutgeorge-Aus/parishcrm/commit/98c384dd0367dbbda251ea7f35a41e31494a9a9f))
+* **settings:** guard all in-app navigation on unsaved changes ([#402](https://github.com/ginutgeorge-Aus/parishcrm/issues/402)) ([d74f538](https://github.com/ginutgeorge-Aus/parishcrm/commit/d74f538449ef637a748ddecd3b6dbb713ac51e63))
+* **verify:** add release checkpoints and a version gate ([#400](https://github.com/ginutgeorge-Aus/parishcrm/issues/400)) ([fce00e1](https://github.com/ginutgeorge-Aus/parishcrm/commit/fce00e10364d70d73930ee68e9240e76307439b3))
+
+
+### Changed
+
+* **settings:** review follow-ups from [#372](https://github.com/ginutgeorge-Aus/parishcrm/issues/372)/[#394](https://github.com/ginutgeorge-Aus/parishcrm/issues/394)/[#395](https://github.com/ginutgeorge-Aus/parishcrm/issues/395) ([#403](https://github.com/ginutgeorge-Aus/parishcrm/issues/403)) ([96dc5a3](https://github.com/ginutgeorge-Aus/parishcrm/commit/96dc5a3f221c0e76c38edba14b199aa509a6bf7f))
+
 ## [1.8.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.7.0...v1.8.0) (2026-10-22)
 
 
