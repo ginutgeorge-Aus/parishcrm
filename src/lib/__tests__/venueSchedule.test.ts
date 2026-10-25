@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { VENUE_JOB_LAST_DAY, autoSendLabel, venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
 
-describe("venueJobWindowOpen (Sydney 1st, from 09:00)", () => {
+describe("venueJobWindowOpen (Sydney 1st-7th, from 09:00)", () => {
   it("is closed at 08:59 and open at 09:00 on the 1st (AEDT)", () => {
     expect(venueJobWindowOpen(new Date("2026-10-31T21:59:00Z"))).toBe(false) // 1 Nov 08:59 AEDT
     expect(venueJobWindowOpen(new Date("2026-10-31T22:00:00Z"))).toBe(true) // 1 Nov 09:00 AEDT
@@ -10,9 +10,11 @@ describe("venueJobWindowOpen (Sydney 1st, from 09:00)", () => {
     expect(venueJobWindowOpen(new Date("2026-06-30T22:59:00Z"))).toBe(false) // 1 Jul 08:59 AEST
     expect(venueJobWindowOpen(new Date("2026-06-30T23:00:00Z"))).toBe(true) // 1 Jul 09:00 AEST
   })
-  it("is open until the end of the Sydney 1st and closed on the 2nd", () => {
-    expect(venueJobWindowOpen(new Date("2026-11-01T12:59:00Z"))).toBe(true) // 1 Nov 23:59 AEDT
-    expect(venueJobWindowOpen(new Date("2026-11-01T13:00:00Z"))).toBe(false) // 2 Nov 00:00 AEDT
+  it("stays open through the 7th so an outage on the 1st catches up, still only from 09:00", () => {
+    expect(venueJobWindowOpen(new Date("2026-11-01T21:59:00Z"))).toBe(false) // 2 Nov 08:59 AEDT
+    expect(venueJobWindowOpen(new Date("2026-11-01T22:00:00Z"))).toBe(true) // 2 Nov 09:00 AEDT
+    expect(venueJobWindowOpen(new Date("2026-11-07T12:59:00Z"))).toBe(true) // 7 Nov 23:59 AEDT
+    expect(venueJobWindowOpen(new Date("2026-11-07T13:00:00Z"))).toBe(false) // 8 Nov 00:00 AEDT
   })
   it("is closed on other days", () => {
     expect(venueJobWindowOpen(new Date("2026-10-25T00:00:00Z"))).toBe(false)

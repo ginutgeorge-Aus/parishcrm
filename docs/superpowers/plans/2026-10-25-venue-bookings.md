@@ -33,7 +33,7 @@
 
 1. **`sentAt` is stamped on FAILED sends** (part 1 `sendVenueUsageRequest` writes `sentAt` for failures). So "sent" everywhere in this plan means `status === "SUCCESS"`, never `sentAt != null`. "Approved, unsent" = `approvedAt != null AND (status IS NULL OR status != 'SUCCESS')` (Task 5 `UNSENT_FILTER`; note SQL `!=` skips NULLs so the OR is required).
 2. **A failed manual resend overwrites a prior SUCCESS** (part 1 upsert). That would let the job auto-send a duplicate. Task 4 changes `deliverInvoiceRequest` so a FAILED attempt after a SUCCESS only records `errorMessage` and leaves `status`/`sentAt` alone.
-3. **Window strictness:** spec says only on the 1st. Implemented as specified (`VENUE_JOB_LAST_DAY = 1` in `venueSchedule.ts`). Raising that one constant (e.g. 7, like the clearance digest) would add outage catch-up; flagged for the PO, not done unilaterally.
+3. **Window strictness:** spec said only on the 1st; PO approved (2026-10-25) a 1st-7th window (`VENUE_JOB_LAST_DAY = 7` in `venueSchedule.ts`) for outage catch-up, like the clearance digest. The job must stay idempotent across those days (skip months already sent).
 4. **Calendar token and the settings allowlist:** spec says "calendarToken allowlist". Adding it to `ALLOWED_KEYS` would let the generic `upsertSetting` write a weak, admin-typed value. The token is therefore **not** in `VENUE_USAGE_SETTING_KEYS`; it has its own constant and is only written by the dedicated `resetVenueCalendarLink` action (CSPRNG). `bookingCcEmails` **is** allowlisted (validated list).
 5. **Email template keys visibility:** `visibleEmailTemplateKeys` is feature-flag driven; venue is an AppSetting. Task 3 adds an optional second argument so venue templates show only while `venueUsage.enabled`, and guards the template actions the same way.
 6. **Spec says the add-all button yields REQUESTED always** (even past Sundays in the month). Implemented as specified.
@@ -294,7 +294,7 @@ Pure helpers only. No DB, no email.
   - `monthCompleteness(month: string, rows: readonly CompletenessRow[]): MonthCompleteness`
   - `describeIncomplete(c: MonthCompleteness): string[]` (human reasons, `[]` when complete)
 - Produces (`venueSchedule.ts`):
-  - `VENUE_JOB_FROM_HOUR = 9`, `VENUE_JOB_LAST_DAY = 1`
+  - `VENUE_JOB_FROM_HOUR = 9`, `VENUE_JOB_LAST_DAY = 7`
   - `venueJobWindowOpen(now: Date): boolean`
   - `venueInvoiceMonth(now: Date): string` (the month before the Sydney month of `now`)
   - `autoSendLabel(month: string): string` (e.g. `"1 November, 9:00 AM"` for `"2026-10"`)
@@ -497,7 +497,7 @@ import { addMonths, formatMonthLabel, previousMonth } from "@/lib/venueUsage"
 /** The scheduled invoice job opens at this Sydney hour on the 1st. */
 export const VENUE_JOB_FROM_HOUR = 9
 /** Last Sydney day-of-month the job may act on (spec: only the 1st). Raise to add outage catch-up. */
-export const VENUE_JOB_LAST_DAY = 1
+export const VENUE_JOB_LAST_DAY = 7
 
 /**
  * True when the monthly venue job may act: the Sydney date is within the job window

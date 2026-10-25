@@ -6,12 +6,12 @@ import { addMonths, formatMonthLabel, previousMonth } from "@/lib/venueUsage"
 
 /** The scheduled invoice job opens at this Sydney hour on the 1st. */
 export const VENUE_JOB_FROM_HOUR = 9
-/** Last Sydney day-of-month the job may act on (spec: only the 1st). Raise to add outage catch-up. */
-export const VENUE_JOB_LAST_DAY = 1
+/** Last Sydney day-of-month the job may act on: through the 7th so an outage on the 1st catches up. */
+export const VENUE_JOB_LAST_DAY = 7
 
 /**
  * True when the monthly venue job may act: the Sydney date is within the job window
- * (the 1st) and the Sydney hour is at least 09:00.
+ * (the 1st to {@link VENUE_JOB_LAST_DAY}) and the Sydney hour is at least 09:00.
  * @param now current instant
  */
 export function venueJobWindowOpen(now: Date): boolean {
