@@ -11,7 +11,7 @@ export default [
   ]),
   g('Dashboard & Accounting', [
     'dashboard', 'accounting-overview', 'transactions', 'budgets', 'financial-reports',
-    'bank-statement-import', 'receipts', 'invoices', 'petty-cash', 'reconciliation',
+    'bank-statement-import', 'receipts', 'invoices', 'venue-bookings', 'petty-cash', 'reconciliation',
   ]),
   g('Events', [
     'events-overview', 'registrations-management', 'public-event-registration', 'card-payments-stripe',
