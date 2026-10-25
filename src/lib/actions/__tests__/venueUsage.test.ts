@@ -338,10 +338,42 @@ describe("approval invalidation", () => {
     expect(where.approvedAt).toEqual({ not: null })
     expect(where.OR).toEqual([{ status: null }, { status: { not: "SUCCESS" } }])
   })
-  it("propagates the error (so the transaction rolls back) when the clear throws", async () => {
+  it("runs the write, approval clear and audit through the tx client, and propagates a clear failure", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsageRequest.findMany as jest.Mock).mockRejectedValue(new Error("boom"))
+    const tx = {
+      venueUsage: { create: jest.fn().mockResolvedValue({ id: 5 }) },
+      venueUsageRequest: { findMany: jest.fn().mockRejectedValue(new Error("boom")), updateMany: jest.fn() },
+    }
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb(tx))
     await expect(createVenueUsage(validInput)).rejects.toThrow("boom")
+    expect(tx.venueUsage.create).toHaveBeenCalledTimes(1)
+    expect(tx.venueUsageRequest.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.venueUsage.create).not.toHaveBeenCalled()
+    expect(prisma.venueUsageRequest.findMany).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+  it("update reads the existing row via tx and returns not-found when it vanished", async () => {
+    asRole("PASTOR")
+    const tx = {
+      venueUsage: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
+      venueUsageRequest: { findMany: jest.fn(), updateMany: jest.fn() },
+    }
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb(tx))
+    expect(await updateVenueUsage(5, validInput)).toEqual({ error: "Booking not found" })
+    expect(tx.venueUsage.findUnique).toHaveBeenCalledTimes(1)
+    expect(tx.venueUsage.update).not.toHaveBeenCalled()
+    expect(prisma.venueUsage.findUnique).not.toHaveBeenCalled()
+  })
+  it("delete reads the existing row via tx and returns not-found when it vanished", async () => {
+    asRole("ADMIN")
+    const tx = {
+      venueUsage: { findUnique: jest.fn().mockResolvedValue(null), delete: jest.fn() },
+      venueUsageRequest: { findMany: jest.fn(), updateMany: jest.fn() },
+    }
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb(tx))
+    expect(await deleteVenueUsage(5)).toEqual({ error: "Booking not found" })
+    expect(tx.venueUsage.delete).not.toHaveBeenCalled()
+    expect(prisma.venueUsage.findUnique).not.toHaveBeenCalled()
   })
 })
 
@@ -436,5 +468,56 @@ describe("setVenueUsageStatus", () => {
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
     await setVenueUsageStatus([1], "CONFIRMED", { emailVenue: true })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
+  })
+  it("returns Booking not found when an id in the batch is missing, changing nothing", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    expect(await setVenueUsageStatus([1, 99], "CANCELLED")).toEqual({ error: "Booking not found" })
+    expect(prisma.venueUsage.updateMany).not.toHaveBeenCalled()
+  })
+  it("dedupes repeated ids before the existence check", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    const r = await setVenueUsageStatus([1, 1, 1], "CANCELLED")
+    expect(r).toEqual({ success: "Cancelled 1 date" })
+    expect((prisma.venueUsage.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ id: { in: [1] } })
+  })
+  it("warns (no throw) when the venue has no contact email", async () => {
+    asRole("PASTOR")
+    ;(readVenueUsageSettings as jest.Mock).mockResolvedValue({ ...settings, contactEmail: "" })
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    const r = await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(r).toMatchObject({ success: "Cancelled 1 date", warning: expect.stringContaining("no contact email") })
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
+  })
+  it("keeps success with a warning when the actor lookup throws after the cancel committed", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    ;(prisma.user.findUnique as jest.Mock).mockRejectedValue(new Error("db blip"))
+    const r = await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(r).toMatchObject({ success: "Cancelled 1 date", warning: expect.stringContaining("Could not email the venue") })
+    expect(prisma.venueUsage.updateMany).toHaveBeenCalled()
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
+  })
+  it("an audit failure after a successful send adds no warning and logs no _FAILED", async () => {
+    asRole("PASTOR")
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    ;(logAudit as jest.Mock).mockRejectedValue(new Error("audit down"))
+    const r = await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(r).toEqual({ success: "Cancelled 1 date" })
+    expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
+    expect(logAudit).not.toHaveBeenCalledWith(7, "VENUE_CANCELLATION_EMAIL_FAILED", expect.anything(), undefined, expect.anything())
+    spy.mockRestore()
+  })
+  it("an audit failure on the failed-send path still returns the warning", async () => {
+    asRole("PASTOR")
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([rows[0]])
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
+    ;(logAudit as jest.Mock).mockRejectedValue(new Error("audit down"))
+    const r = await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(r).toMatchObject({ success: "Cancelled 1 date", warning: expect.stringContaining("Could not email the venue") })
+    spy.mockRestore()
   })
 })

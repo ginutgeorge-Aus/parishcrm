@@ -113,17 +113,19 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 
   const parsed = UsageSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const existing = await prisma.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
-  if (!existing) return { error: "Booking not found" }
   const { date, ...rest } = parsed.data
 
   const userId = actorId(session)
+  // Read the row inside the transaction so the old month is the one actually being replaced.
   const cleared = await prisma.$transaction(async (tx) => {
+    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
+    if (!existing) return null
     await tx.venueUsage.update({ where: { id }, data: { ...rest, date: ymdToUtcDate(date) }, select: { id: true } })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date), date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
     return months
   })
+  if (!cleared) return { error: "Booking not found" }
   revalidatePath("/venue-usage")
   return mutationOk("Booking updated", cleared)
 }
@@ -139,15 +141,17 @@ export async function deleteVenueUsage(id: number): Promise<VenueMutationResult>
   const settings = await readVenueUsageSettings()
   if (!settings.enabled) return { error: "Venue usage is not enabled" }
 
-  const existing = await prisma.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
-  if (!existing) return { error: "Booking not found" }
   const userId = actorId(session)
+  // Read the row inside the transaction so a concurrent move or delete cannot leave a stale month.
   const cleared = await prisma.$transaction(async (tx) => {
+    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
+    if (!existing) return null
     await tx.venueUsage.delete({ where: { id } })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_DELETED", "VenueUsage", id, { date: utcDateToYmd(existing.date) })
     return months
   })
+  if (!cleared) return { error: "Booking not found" }
   revalidatePath("/venue-usage")
   return mutationOk("Booking deleted", cleared)
 }
@@ -253,24 +257,39 @@ export async function setVenueUsageStatus(
 }
 
 /**
- * Send the cancellation notice to the venue; returns a `warning` on failure (the cancellation itself stands).
+ * Audit-log after the fact without ever throwing: the action's outcome is already decided.
+ * @param userId acting user id
+ * @param action audit action name
+ * @param count number of bookings concerned
+ */
+async function auditCancellationEmail(userId: number, action: string, count: number): Promise<void> {
+  try {
+    await logAudit(userId, action, "VenueUsage", undefined, { count })
+  } catch (err) {
+    console.error("Venue cancellation audit failed", err)
+  }
+}
+
+/**
+ * Send the cancellation notice to the venue; returns a `warning` on any failure (the cancellation itself already committed and stands).
+ * Lookups, email build and send all sit inside one guard; audit logging has its own guard so it cannot change the outcome.
  * @param settings venue settings
  * @param rows the rows that were just cancelled
  * @param userId acting user id
  */
 async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageLine[], userId: number): Promise<{ warning?: string }> {
-  const [actor, church] = await Promise.all([loadActor(userId), getChurchSettings()])
-  const { to, cc, replyTo } = bookingRecipients(settings, actor)
-  if (!to) return { warning: "Could not email the venue: no contact email is set." }
-  const mail = buildCancellationEmail({ churchName: church.name, venueName: settings.venueName, contactName: settings.contactName, cancelled: rows, senderName: actor.name })
   try {
+    const [actor, church] = await Promise.all([loadActor(userId), getChurchSettings()])
+    const { to, cc, replyTo } = bookingRecipients(settings, actor)
+    if (!to) return { warning: "Could not email the venue: no contact email is set." }
+    const mail = buildCancellationEmail({ churchName: church.name, venueName: settings.venueName, contactName: settings.contactName, cancelled: rows, senderName: actor.name })
     await sendVenueUsageRequestEmail({ to, cc: cc.length ? cc.join(", ") : undefined, replyTo: replyTo || undefined, ...mail })
-    await logAudit(userId, "VENUE_CANCELLATION_EMAILED", "VenueUsage", undefined, { count: rows.length })
-    return {}
   } catch {
-    await logAudit(userId, "VENUE_CANCELLATION_EMAIL_FAILED", "VenueUsage", undefined, { count: rows.length })
+    await auditCancellationEmail(userId, "VENUE_CANCELLATION_EMAIL_FAILED", rows.length)
     return { warning: "Could not email the venue. The dates are cancelled; let them know another way." }
   }
+  await auditCancellationEmail(userId, "VENUE_CANCELLATION_EMAILED", rows.length)
+  return {}
 }
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
