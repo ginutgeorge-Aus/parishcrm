@@ -16,6 +16,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.9.0",
+    date: "2026-10-25",
+    highlights: [
+      "A warmer, calmer colour scheme with easier-to-read labels.",
+      "New churches are asked which features they need during setup.",
+      "Settings now warns you before leaving with unsaved changes.",
+      "Important security fixes from the latest Next.js update.",
+    ],
+  },
+  {
     version: "v1.8.0",
     date: "2026-10-22",
     highlights: [
