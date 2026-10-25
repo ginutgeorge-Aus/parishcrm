@@ -7,7 +7,7 @@ import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { isValidMonth, monthRange, nextSundayYMD, previousMonth, utcDateToYmd } from "@/lib/venueUsage"
 import { VenueUsageClient } from "@/components/venue-usage/VenueUsageClient"
 
-/** Venue usage log: bookings for a month plus the monthly invoice-request panel. */
+/** Venue bookings: bookings for a month plus the monthly invoice-request panel. */
 export default async function VenueUsagePage(
   props: Readonly<{ searchParams: Promise<{ month?: string }> }>,
 ) {
@@ -25,16 +25,16 @@ export default async function VenueUsagePage(
     where: { date: { gte: start, lte: end } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: 200,
-    select: { id: true, date: true, startTime: true, endTime: true, status: true, purpose: true, notes: true },
+    select: { id: true, date: true, startTime: true, endTime: true, status: true, purpose: true, notes: true, bookingRequestedAt: true },
   })
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4">
       <div>
-        <h1 className="text-2xl font-semibold">Venue usage</h1>
+        <h1 className="text-2xl font-semibold">Venue bookings</h1>
         <p className="text-sm text-muted-foreground">
-          Log each booking of {settings.venueName || "the venue"}, then ask the venue for the month&apos;s invoice.
-          Only confirmed bookings are counted in the request.
+          Plan and confirm dates at {settings.venueName || "the venue"}, ask the venue to book them, then request the
+          monthly invoice. Only confirmed bookings are counted in the invoice request.
         </p>
       </div>
       <VenueUsageClient
@@ -42,7 +42,7 @@ export default async function VenueUsagePage(
         today={today}
         nextSunday={nextSundayYMD(today)}
         defaultRequestMonth={previousMonth(today)}
-        rows={rows.map((r) => ({ ...r, date: utcDateToYmd(r.date) }))}
+        rows={rows.map((r) => ({ ...r, date: utcDateToYmd(r.date), bookingRequestedAt: r.bookingRequestedAt?.toISOString() ?? null }))}
       />
     </div>
   )

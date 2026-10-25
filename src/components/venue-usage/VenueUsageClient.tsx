@@ -9,13 +9,14 @@ import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import {
-  createVenueUsage, updateVenueUsage, deleteVenueUsage, getVenueRequestPreview, sendVenueUsageRequest,
-  type VenueRequestPreview,
+  createVenueUsage, updateVenueUsage, addAllSundays, getVenueRequestPreview, sendVenueUsageRequest,
+  type VenueMutationResult, type VenueRequestPreview,
 } from "@/lib/actions/venueUsage"
 import {
-  VENUE_BOOKING_STATUSES, defaultStatusForDate, durationHours, formatHours, formatMonthLabel,
-  formatUsageDate, formatTime12, totalHours, validateTimeRange, ymdToUtcDate, type VenueBookingStatusValue,
+  VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel,
+  totalHours, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
+import { BookingList } from "./BookingList"
 
 export type VenueUsageRowView = {
   id: number
@@ -25,6 +26,8 @@ export type VenueUsageRowView = {
   status: VenueBookingStatusValue
   purpose: string | null
   notes: string | null
+  /** ISO date-time the row was included in a booking request to the venue, if any. */
+  bookingRequestedAt: string | null
 }
 
 type Props = {
@@ -39,11 +42,6 @@ const STATUS_LABEL: Record<VenueBookingStatusValue, string> = {
   REQUESTED: "Requested",
   CONFIRMED: "Confirmed",
   CANCELLED: "Cancelled",
-}
-const STATUS_VARIANT: Record<VenueBookingStatusValue, "default" | "secondary" | "outline" | "destructive"> = {
-  REQUESTED: "outline",
-  CONFIRMED: "default",
-  CANCELLED: "destructive",
 }
 const SELECT_CLASS =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -71,11 +69,6 @@ function errorOnly(r: { error: string } | { success: string } | undefined): { er
   return r && "error" in r ? r : undefined
 }
 
-/** Human duration of a row, or "" when its times are invalid. */
-function rowHours(r: { startTime: string; endTime: string }): string {
-  return validateTimeRange(r.startTime, r.endTime) ? "" : formatHours(durationHours(r.startTime, r.endTime))
-}
-
 /**
  * Venue usage screen: month picker, booking list, add/edit form and the
  * "Request invoice" panel.
@@ -85,10 +78,29 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string } | undefined>()
+  const [approvalCleared, setApprovalCleared] = useState(false)
   const [pending, startTransition] = useTransition()
 
   const confirmedHours = totalHours(rows.map((r) => ({ ...r, date: ymdToUtcDate(r.date) })))
   const otherCount = rows.filter((r) => r.status !== "CONFIRMED").length
+
+  /**
+   * Remember that a mutation cleared the month's approval so the re-approve notice shows.
+   * @param r mutation result from any booking action
+   */
+  function handleResult(r: VenueMutationResult | undefined) {
+    if (r && "success" in r && r.approvalCleared) setApprovalCleared(true)
+  }
+
+  /** Add every Sunday of the selected month using the form's times and purpose. */
+  function addAll() {
+    startTransition(async () => {
+      const result = await addAllSundays({ month, startTime: form.startTime, endTime: form.endTime, purpose: form.purpose })
+      setFormState(result)
+      handleResult(result)
+      if (result && "success" in result) router.refresh()
+    })
+  }
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -108,6 +120,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
     startTransition(async () => {
       const result = form.id === null ? await createVenueUsage(input) : await updateVenueUsage(form.id, input)
       setFormState(result)
+      handleResult(result)
       if (result && "success" in result) {
         setForm(blankForm(nextSunday, today))
         // Show the month of the saved date so the new row is visible.
@@ -144,34 +157,16 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
           </p>
         </div>
 
+        {approvalCleared && (
+          <p role="status" className="rounded-md border bg-muted p-2 text-sm text-foreground">
+            Approval cleared — dates changed, please re-approve.
+          </p>
+        )}
+
         {rows.length === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">No bookings logged for this month.</p>
         ) : (
-          <ul className="divide-y">
-            {rows.map((r) => (
-              <li key={r.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 space-y-0.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{formatUsageDate(ymdToUtcDate(r.date))}</span>
-                    <Badge variant={STATUS_VARIANT[r.status]}>{STATUS_LABEL[r.status]}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {formatTime12(r.startTime)} – {formatTime12(r.endTime)} ({rowHours(r)})
-                  </p>
-                  {r.purpose && <p className="text-sm">{r.purpose}</p>}
-                  {r.notes && <p className="break-words text-xs text-muted-foreground">{r.notes}</p>}
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => startEdit(r)}>Edit</Button>
-                  <DeleteConfirmButton
-                    title="Delete this booking?"
-                    description={`${formatUsageDate(ymdToUtcDate(r.date))} will be removed from the log.`}
-                    onConfirm={async () => errorOnly(await deleteVenueUsage(r.id))}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <BookingList rows={rows} onEdit={startEdit} onResult={handleResult} />
         )}
       </section>
 
@@ -218,6 +213,11 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
             <Button type="submit" disabled={pending}>
               {pending ? "Saving…" : form.id === null ? "Add booking" : "Save changes"}
             </Button>
+            {form.id === null && (
+              <Button type="button" variant="outline" disabled={pending} onClick={addAll}>
+                Add all Sundays in {formatMonthLabel(month)}
+              </Button>
+            )}
             {form.id !== null && (
               <Button
                 type="button" variant="outline"

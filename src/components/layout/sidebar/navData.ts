@@ -54,7 +54,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor && on("memberships"), badge: membershipPending },
         { href: "/welcome-letter", label: "Welcome Letter", icon: MailPlus, show: isEditor && on("welcomeLetter") },
-        { href: "/venue-usage", label: "Venue Usage", icon: Warehouse, show: isEditor && !!venueUsage },
+        { href: "/venue-usage", label: "Venue bookings", icon: Warehouse, show: isEditor && !!venueUsage },
       ],
     },
     {

@@ -22,11 +22,11 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
   return (
     <form ref={ref} action={formAction} key={JSON.stringify(settings)}>
       <SettingsCard
-        title="Venue usage"
-        description="For churches that hire a hall or church building. Log each booking, then email the venue a monthly invoice request."
-        footer={<Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save venue usage"}</Button>}
+        title="Venue bookings"
+        description="For churches that hire a hall or church building. Plan bookings, ask the venue to book them, then email a monthly invoice request."
+        footer={<Button type="submit" disabled={isPending}>{isPending ? "Saving…" : "Save venue bookings"}</Button>}
       >
-        <SettingsRow label="Enable venue usage" htmlFor="venue-enabled" description="Adds a Venue Usage page to the sidebar for editors.">
+        <SettingsRow label="Enable venue bookings" htmlFor="venue-enabled" description="Adds a Venue bookings page to the sidebar for editors.">
           <input
             id="venue-enabled"
             name="enabled"
