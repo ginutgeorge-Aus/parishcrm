@@ -12,7 +12,7 @@ const mk = (id: number, dob: string, over: Partial<BirthdayPerson> = {}): Birthd
 })
 
 describe("upcomingBirthdays", () => {
-  const today = new Date("2026-06-01T00:00:00")
+  const today = new Date("2026-06-01T00:00:00Z")
 
   it("exposes the window options", () => {
     expect(BIRTHDAY_WINDOWS).toEqual([7, 14, 30])
@@ -39,7 +39,7 @@ describe("upcomingBirthdays", () => {
   })
 
   it("handles year-end wrap (Dec window into Jan)", () => {
-    const dec = new Date("2026-12-28T00:00:00")
+    const dec = new Date("2026-12-28T00:00:00Z")
     const people = [mk(1, "1990-01-02"), mk(2, "1990-12-30")]
     const result = upcomingBirthdays(people, 7, dec)
     expect(result.map((r) => r.id).sort()).toEqual([1, 2])
@@ -52,7 +52,7 @@ describe("upcomingBirthdays", () => {
   })
 
   it("handles a 29 Feb birthday in a non-leap year without crashing", () => {
-    const feb = new Date("2026-02-25T00:00:00") // 2026 is not a leap year
+    const feb = new Date("2026-02-25T00:00:00Z") // 2026 is not a leap year
     const people = [mk(1, "2000-02-29")]
     const result = upcomingBirthdays(people, 7, feb)
     expect(result).toHaveLength(1)
@@ -65,7 +65,7 @@ describe("upcomingBirthdays", () => {
 
   describe("29 Feb birthday observed on 28 Feb in a non-leap year", () => {
     it("treats the birthday as 28 Feb, not 1 Mar, so daysUntil isn't shifted a day late", () => {
-      const feb = new Date("2026-02-25T00:00:00") // 2026 is not a leap year
+      const feb = new Date("2026-02-25T00:00:00Z") // 2026 is not a leap year
       const people = [mk(1, "2000-02-29")]
       const result = upcomingBirthdays(people, 7, feb)
       expect(result).toHaveLength(1)
@@ -74,7 +74,7 @@ describe("upcomingBirthdays", () => {
     })
 
     it("is included with daysUntil 0 when today is exactly the observed 28 Feb", () => {
-      const feb28 = new Date("2026-02-28T00:00:00") // 2026 is not a leap year
+      const feb28 = new Date("2026-02-28T00:00:00Z") // 2026 is not a leap year
       const people = [mk(1, "2000-02-29")]
       const result = upcomingBirthdays(people, 0, feb28)
       expect(result).toHaveLength(1)
@@ -82,7 +82,7 @@ describe("upcomingBirthdays", () => {
     })
 
     it("still lands on the real 29 Feb in a leap year", () => {
-      const feb = new Date("2024-02-20T00:00:00") // 2024 is a leap year
+      const feb = new Date("2024-02-20T00:00:00Z") // 2024 is a leap year
       const people = [mk(1, "2000-02-29")]
       const result = upcomingBirthdays(people, 14, feb)
       expect(result).toHaveLength(1)

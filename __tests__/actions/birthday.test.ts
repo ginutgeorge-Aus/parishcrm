@@ -139,7 +139,7 @@ describe("sendBirthdayEmailsBulk", () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
     const today = new Date()
     const iso = (d: Date) => d.toISOString().slice(0, 10)
-    const soon = new Date(today.getFullYear() - 30, today.getMonth(), today.getDate())
+    const soon = new Date(Date.UTC(today.getUTCFullYear() - 30, today.getUTCMonth(), today.getUTCDate()))
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
       { id: 1, firstName: "A", email: "enc:a@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
       { id: 2, firstName: "B", email: "enc:b@x.com", emailConsent: false, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
@@ -154,7 +154,7 @@ describe("sendBirthdayEmailsBulk", () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
     const today = new Date()
     const iso = (d: Date) => d.toISOString().slice(0, 10)
-    const soon = new Date(today.getFullYear() - 30, today.getMonth(), today.getDate())
+    const soon = new Date(Date.UTC(today.getUTCFullYear() - 30, today.getUTCMonth(), today.getUTCDate()))
     // One corrupt row whose dateOfBirth ciphertext throws on decrypt — without
     // per-row handling this kills the whole batch, including the valid member.
     ;(decrypt as jest.Mock).mockImplementation((v: string) => {
