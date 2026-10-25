@@ -12,9 +12,11 @@ import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { sendEmail } from "@/lib/email"
+import { isVenueUsageEnabled } from "@/lib/venueUsageSettings"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/featureFlags")
+jest.mock("@/lib/venueUsageSettings", () => ({ isVenueUsageEnabled: jest.fn(async () => true) }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
@@ -208,5 +210,35 @@ describe("sendTestEmail", () => {
     const res = await sendTestEmail("welcome", { subject: "s", intro: "i", body: "b", signoff: "x" })
     expect(res).toEqual({ error: "Couldn't look up your email address — try again" })
     expect(sendEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe("venue templates", () => {
+  const mockVenue = isVenueUsageEnabled as jest.Mock
+  const draft = { subject: "S {month}", intro: "Hi {contactName}", body: "{venueName}\n\n{dates}", signoff: "" }
+  const fd = () => {
+    const f = new FormData()
+    f.set("key", "venueInvoiceRequest")
+    for (const [k, v] of Object.entries(draft)) f.set(k, v)
+    return f
+  }
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  })
+  it("refuses to save while venue usage is off", async () => {
+    mockVenue.mockResolvedValueOnce(false)
+    expect(await updateEmailTemplate(undefined, fd())).toEqual({ error: "Venue usage is not enabled" })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+  it("saves when venue usage is on", async () => {
+    mockVenue.mockResolvedValueOnce(true)
+    expect(await updateEmailTemplate(undefined, fd())).toEqual({ success: "Template saved" })
+    expect(mockUpsert).toHaveBeenCalled()
+  })
+  it("previews a venue key with its own render, not another template's branch", async () => {
+    const r = await previewEmailTemplate("venueBookingRequest", draft)
+    expect(r).toEqual({ html: expect.stringContaining("Example Hall") })
+    expect("html" in r && r.html).toContain("Sunday, 6 September")
   })
 })

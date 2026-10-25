@@ -5,6 +5,7 @@ import {
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
   parseCcList, MAX_BOOKING_CC,
   sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
+  buildBookingRequestEmail, buildCancellationEmail, renderVenueEmail,
 } from "@/lib/venueUsage"
 
 const d = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`)
@@ -325,5 +326,81 @@ describe("monthCompleteness", () => {
       sep("06", "CANCELLED"), sep("06", "CONFIRMED"), sep("13", "CONFIRMED"), sep("20", "CONFIRMED"), sep("27", "CONFIRMED"),
     ])
     expect(c.complete).toBe(true)
+  })
+})
+
+describe("renderVenueEmail", () => {
+  const t = { subject: "Hi {venueName}\r\nBcc: x", intro: "Hello {contactName},", body: "Dates:\n\n{dates}\n\nTotal: {totalHours}", signoff: "Kind regards,\n{senderName}\n{churchName}" }
+  const vars = { venueName: "Example Hall", contactName: "Pat <b>", dates: "- A\n- B", totalHours: "2 hours", senderName: "", churchName: "Example Church" }
+  it("fills vars, escapes html, renders bullet blocks as a list and drops a blank sender line", () => {
+    const { subject, text, html } = renderVenueEmail(t, vars)
+    expect(subject).toBe("Hi Example Hall Bcc: x")
+    expect(text).toBe("Hello Pat <b>,\n\nDates:\n\n- A\n- B\n\nTotal: 2 hours\n\nKind regards,\nExample Church")
+    expect(html).toContain("<p>Hello Pat &lt;b&gt;,</p>")
+    expect(html).toContain("<ul><li>A</li><li>B</li></ul>")
+    expect(html).toContain("<p>Kind regards,<br>Example Church</p>")
+    expect(html).not.toContain("<b>")
+  })
+  it("leaves unknown tokens verbatim", () => {
+    expect(renderVenueEmail({ ...t, body: "{nope}" }, vars).text).toContain("{nope}")
+  })
+})
+
+describe("buildBookingRequestEmail", () => {
+  const requested = [
+    { date: new Date("2026-10-11T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "REQUESTED" as const },
+    { date: new Date("2026-09-27T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED" as const },
+  ]
+  const booked = [{ date: new Date("2026-10-04T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const }]
+  const base = { churchName: "Example Church", venueName: "Example Hall", contactName: "Pat Example", senderName: "Sam Admin" }
+  it("lists new dates sorted, already-booked dates, month labels and total", () => {
+    const { subject, text } = buildBookingRequestEmail({ ...base, requested, booked })
+    expect(subject).toBe("Booking request: September 2026 and October 2026 (Example Church)")
+    expect(text.indexOf("Sunday, 27 September")).toBeLessThan(text.indexOf("Sunday, 11 October"))
+    expect(text).toContain("- Sunday, 4 October: 5:00 PM – 8:00 PM (3 hours)")
+    expect(text).toContain("Dear Pat Example,")
+    expect(text.trimEnd().endsWith("Kind regards,\nSam Admin\nExample Church")).toBe(true)
+  })
+  it("says None when nothing is already booked and escapes values in html", () => {
+    const { text, html } = buildBookingRequestEmail({ ...base, venueName: "Hall <script>", requested, booked: [] })
+    expect(text).toContain("None")
+    expect(html).toContain("Hall &lt;script&gt;")
+    expect(html).not.toContain("<script>")
+  })
+  it("uses the supplied template", () => {
+    const template = { subject: "S {month}", intro: "I", body: "B {totalHours}", signoff: "" }
+    const { subject, text } = buildBookingRequestEmail({ ...base, requested, booked, template })
+    expect(subject).toBe("S September 2026 and October 2026")
+    expect(text).toBe("I\n\nB 6.5 hours")
+  })
+})
+
+describe("buildCancellationEmail", () => {
+  it("lists the cancelled dates with a fixed wording", () => {
+    const { subject, text, html } = buildCancellationEmail({
+      churchName: "Example Church", venueName: "Example Hall", contactName: "", senderName: "Sam Admin",
+      cancelled: [{ date: new Date("2026-10-11T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CANCELLED" }],
+    })
+    expect(subject).toBe("Booking cancellation (Example Church)")
+    expect(text.startsWith("Hello,")).toBe(true)
+    expect(text).toContain("cancel our booking of Example Hall")
+    expect(text).toContain("- Sunday, 11 October: 5:00 PM – 8:00 PM (3 hours)")
+    expect(html).toContain("<li>Sunday, 11 October: 5:00 PM – 8:00 PM (3 hours)</li>")
+  })
+})
+
+describe("buildRequestEmail template override", () => {
+  it("honours a custom template and totals confirmed rows only", () => {
+    const rows = [
+      { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const },
+      { date: new Date("2026-09-13T00:00:00Z"), startTime: "17:00", endTime: "20:00", status: "CANCELLED" as const },
+    ]
+    const { subject, text } = buildRequestEmail({
+      churchName: "Example Church", venueName: "Example Hall", contactName: "Pat", month: "2026-09", rows,
+      template: { subject: "Custom {month}", intro: "Yo", body: "{dates}\nT={totalHours}", signoff: "" },
+    })
+    expect(subject).toBe("Custom September 2026")
+    expect(text).toContain("T=3 hours")
+    expect(text).not.toContain("13 September")
   })
 })

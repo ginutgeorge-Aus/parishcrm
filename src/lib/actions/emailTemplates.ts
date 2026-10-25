@@ -15,6 +15,7 @@ import {
   EMAIL_TEMPLATE_KEYS,
   applyVars,
   emailTemplateFeature,
+  isVenueTemplateKey,
   type EmailTemplateKey,
   type EmailTemplateFields,
 } from "@/lib/emailTemplates"
@@ -28,6 +29,8 @@ import { getReceiptSettings } from "@/lib/receiptSettings"
 import type { ActionResultWithSuccess } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
+import { isVenueUsageEnabled } from "@/lib/venueUsageSettings"
+import { buildBookingRequestEmail, buildRequestEmail } from "@/lib/venueUsage"
 
 const SAMPLE_APP_URL = process.env.AUTH_URL ?? "https://app.example.com"
 
@@ -42,6 +45,17 @@ const FieldsSchema = z.object({
 })
 
 function sampleVars(key: EmailTemplateKey, churchName: string): Record<string, string> {
+  if (isVenueTemplateKey(key))
+    return {
+      venueName: "Example Hall",
+      contactName: "Pat Example",
+      churchName,
+      month: "September 2026",
+      dates: "- Sunday, 6 September: 5:00 PM – 8:30 PM (3.5 hours)",
+      bookedDates: "- Sunday, 30 August: 5:00 PM – 8:30 PM (3.5 hours)",
+      totalHours: "7 hours",
+      senderName: "Sam Admin",
+    }
   if (key === "welcome") return { name: "Jane Member", role: "OFFICE_ADMIN", churchName }
   if (key === "familyUpdate") return { familyName: "The Smith Family", churchName }
   if (key === "dgrReceipt")
@@ -101,6 +115,21 @@ async function renderTemplate(key: EmailTemplateKey, f: EmailTemplateFields): Pr
       }),
     )
   }
+  if (isVenueTemplateKey(key)) {
+    const sample = [
+      { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" as const },
+      { date: new Date("2026-09-13T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" as const },
+    ]
+    const common = { churchName, venueName: "Example Hall", contactName: "Pat Example", senderName: "Sam Admin" }
+    return key === "venueInvoiceRequest"
+      ? buildRequestEmail({ ...common, month: "2026-09", rows: sample, template: f }).html
+      : buildBookingRequestEmail({
+          ...common,
+          requested: sample,
+          booked: [{ ...sample[0], date: new Date("2026-08-30T00:00:00Z") }],
+          template: f,
+        }).html
+  }
   const data: ReceiptData = {
     transactionId: 1234,
     date: "01/07/2025",
@@ -124,11 +153,14 @@ async function renderTemplate(key: EmailTemplateKey, f: EmailTemplateFields): Pr
 
 /**
  * Off-message while the feature owning `key` is off (familyUpdate, receipt,
- * dgrReceipt); null for core templates. Call after assertNotDemo and the auth +
+ * dgrReceipt) or the venue feature is off (venue templates); null for core templates. Call after assertNotDemo and the auth +
  * role check, so a non-admin never triggers the settings read.
  * @param key template key from the caller
  */
 async function templateFeatureGuard(key: unknown): Promise<{ error: string } | null> {
+  if (typeof key === "string" && isVenueTemplateKey(key) && !(await isVenueUsageEnabled())) {
+    return { error: "Venue usage is not enabled" }
+  }
   const feature = typeof key === "string" ? emailTemplateFeature(key) : undefined
   return feature ? featureGuard(feature) : null
 }

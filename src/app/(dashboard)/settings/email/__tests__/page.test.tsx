@@ -20,6 +20,7 @@ jest.mock("@/lib/actions/settings", () => ({
 jest.mock("@/lib/emailTemplateStore", () => ({
   getEmailTemplate: jest.fn().mockResolvedValue({ subject: "s", intro: "i", body: "b", signoff: "x" }),
 }))
+jest.mock("@/lib/venueUsageSettings", () => ({ isVenueUsageEnabled: jest.fn(async () => false) }))
 jest.mock("@/components/settings/BirthdayEmailForm", () => stub("BirthdayEmailForm"))
 jest.mock("@/components/settings/AnniversaryEmailForm", () => stub("AnniversaryEmailForm"))
 jest.mock("@/components/settings/AutoEmailToggles", () => stub("AutoEmailToggles"))
@@ -27,6 +28,7 @@ jest.mock("@/components/settings/EmailTemplatesSection", () => stub("EmailTempla
 import EmailSettingsPage from "@/app/(dashboard)/settings/email/page"
 import { visibleEmailTemplateKeys } from "@/lib/emailTemplates"
 import type { FeatureKey } from "@/lib/features"
+import { isVenueUsageEnabled } from "@/lib/venueUsageSettings"
 
 it("guards with its own tab href", async () => {
   mockRequire.mockResolvedValue({ features: new Set() })
@@ -57,4 +59,14 @@ it("renders only the templates when celebrations is off, with the visible keys",
   const section = container.querySelector('[data-c="EmailTemplatesSection"]')
   expect(section).toBeInTheDocument()
   expect(section).toHaveTextContent(JSON.stringify({ keys: visibleEmailTemplateKeys(features) }).slice(1, -1), { normalizeWhitespace: false })
+})
+
+it("includes the venue templates when venue usage is enabled", async () => {
+  const features = new Set<FeatureKey>()
+  mockRequire.mockResolvedValue({ features })
+  ;(isVenueUsageEnabled as jest.Mock).mockResolvedValueOnce(true)
+  const { container } = render(await EmailSettingsPage())
+  const section = container.querySelector('[data-c="EmailTemplatesSection"]')
+  expect(section).toHaveTextContent(JSON.stringify({ keys: visibleEmailTemplateKeys(features, { venueUsage: true }) }).slice(1, -1), { normalizeWhitespace: false })
+  expect(section).toHaveTextContent("venueBookingRequest")
 })

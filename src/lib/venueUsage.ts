@@ -5,6 +5,7 @@
 // always formatted in UTC, never server-local. Times are "HH:mm" 24h strings.
 
 import { isValidEmail } from "@/lib/validation"
+import { applyVars, DEFAULT_EMAIL_TEMPLATES, type EmailTemplateFields } from "@/lib/emailTemplates"
 
 /** Setting keys (AppSetting) owned by the venue usage feature. */
 export const VENUE_USAGE_SETTING_KEYS = [
@@ -252,9 +253,91 @@ export function totalHours(rows: readonly VenueUsageLine[]): number {
 }
 
 /**
- * Build the monthly invoice-request email (subject + plain text + HTML).
- * Only CONFIRMED rows are listed and totalled; rows are sorted by date then start time. All interpolated values are HTML-escaped in `html`.
- * @param input church/venue/contact names, month key, usage rows and the sender's display name
+ * Fill a template with variables and render plain text + HTML. Every value is substituted first and
+ * HTML-escaped afterwards; the subject has its whitespace collapsed so a value cannot add a header line.
+ * A paragraph made only of "- " lines becomes a list. The signoff drops blank lines.
+ * @param template subject/intro/body/signoff with {vars}
+ * @param vars values for the {vars}; unknown tokens stay visible
+ */
+export function renderVenueEmail(
+  template: EmailTemplateFields,
+  vars: Record<string, string>,
+): { subject: string; text: string; html: string } {
+  const fill = (s: string) => applyVars(s, vars)
+  const signoff = fill(template.signoff).split("\n").map((l) => l.trim()).filter(Boolean).join("\n")
+  const blocks = [fill(template.intro), fill(template.body), signoff].map((b) => b.trim()).filter(Boolean)
+  const paragraphs = blocks.flatMap((b) => b.split(/\n{2,}/)).map((p) => p.trim()).filter(Boolean)
+  const html = paragraphs
+    .map((p) => {
+      const lines = p.split("\n")
+      if (lines.every((l) => l.startsWith("- "))) {
+        return `<ul>${lines.map((l) => `<li>${escapeHtml(l.slice(2))}</li>`).join("")}</ul>`
+      }
+      return `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`
+    })
+    .join("\n")
+  return { subject: fill(template.subject).replace(/\s+/g, " ").trim(), text: blocks.join("\n\n"), html }
+}
+
+/**
+ * Lines sorted by date, then start time (does not mutate the input).
+ * @param rows usage lines
+ */
+function sortLines<T extends VenueUsageLine>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => a.date.getTime() - b.date.getTime() || a.startTime.localeCompare(b.startTime))
+}
+
+/**
+ * "- <line>" per row, or "None" for an empty list.
+ * @param rows usage lines
+ */
+function bulletLines(rows: readonly VenueUsageLine[]): string {
+  return rows.length ? sortLines(rows).map((r) => `- ${formatUsageLine(r)}`).join("\n") : "None"
+}
+
+/**
+ * Decimal hours across lines regardless of status (callers pre-filter).
+ * @param rows usage lines
+ */
+function sumHours(rows: readonly VenueUsageLine[]): number {
+  return Math.round(rows.reduce((sum, r) => sum + durationHours(r.startTime, r.endTime), 0) * 100) / 100
+}
+
+/**
+ * Distinct month labels of the lines in date order, joined with " and ".
+ * @param rows usage lines
+ */
+function monthsLabel(rows: readonly VenueUsageLine[]): string {
+  const keys = Array.from(new Set(sortLines(rows).map((r) => utcDateToYmd(r.date).slice(0, 7))))
+  return keys.map(formatMonthLabel).join(" and ")
+}
+
+/**
+ * Variables shared by every venue email. A blank contact name is handled by the callers.
+ * @param i names and sender
+ */
+function commonVars(i: { churchName: string; venueName: string; contactName: string; senderName?: string | null }) {
+  return {
+    churchName: i.churchName.trim(),
+    venueName: i.venueName.trim() || "your venue",
+    contactName: i.contactName.trim(),
+    senderName: i.senderName?.trim() ?? "",
+  }
+}
+
+/**
+ * Replace the template intro with a neutral greeting when there is no contact name.
+ * @param template the template to use
+ * @param contactName trimmed contact name
+ */
+function withGreeting(template: EmailTemplateFields, contactName: string): EmailTemplateFields {
+  return contactName ? template : { ...template, intro: "Hello," }
+}
+
+/**
+ * Build the monthly invoice-request email (subject + plain text + HTML) from the
+ * `venueInvoiceRequest` template. Only CONFIRMED rows are listed and totalled, sorted by date then start time.
+ * @param input church/venue/contact names, month key, usage rows, sender name and an optional template override
  */
 export function buildRequestEmail(input: {
   churchName: string
@@ -263,47 +346,66 @@ export function buildRequestEmail(input: {
   month: string
   rows: readonly VenueUsageLine[]
   senderName?: string | null
+  template?: EmailTemplateFields
 }): { subject: string; text: string; html: string } {
-  const { churchName, venueName, contactName, month, rows, senderName } = input
-  const monthLabel = formatMonthLabel(month)
-  const sorted = confirmedOnly(rows).sort(
-    (a, b) => a.date.getTime() - b.date.getTime() || a.startTime.localeCompare(b.startTime),
-  )
-  const lines = sorted.map(formatUsageLine)
-  const total = formatHours(totalHours(sorted))
-  const greeting = contactName.trim() ? `Dear ${contactName.trim()},` : "Hello,"
-  const venue = venueName.trim() || "your venue"
-  const signoff = [senderName?.trim(), churchName.trim()].filter(Boolean) as string[]
+  const confirmed = confirmedOnly(input.rows)
+  const common = commonVars(input)
+  const vars = {
+    ...common,
+    month: formatMonthLabel(input.month),
+    dates: bulletLines(confirmed),
+    bookedDates: "",
+    totalHours: formatHours(totalHours(confirmed)),
+  }
+  return renderVenueEmail(withGreeting(input.template ?? DEFAULT_EMAIL_TEMPLATES.venueInvoiceRequest, common.contactName), vars)
+}
 
-  const subject = `Invoice request: ${monthLabel} venue usage (${churchName})`
-  const intro = `We hope you are well. Could you please send us an invoice for our use of ${venue} during ${monthLabel}? The dates and times we used are listed below.`
-  const outro = "Please let us know if any of these details differ from your records. Thank you for your help."
+/**
+ * Build the booking-request email for new (REQUESTED) dates, with already-booked dates for reference.
+ * @param input names, the requested rows, the already-booked rows, sender and optional template override
+ */
+export function buildBookingRequestEmail(input: {
+  churchName: string
+  venueName: string
+  contactName: string
+  requested: readonly VenueUsageLine[]
+  booked: readonly VenueUsageLine[]
+  senderName?: string | null
+  template?: EmailTemplateFields
+}): { subject: string; text: string; html: string } {
+  const common = commonVars(input)
+  const vars = {
+    ...common,
+    month: monthsLabel(input.requested),
+    dates: bulletLines(input.requested),
+    bookedDates: bulletLines(input.booked),
+    totalHours: formatHours(sumHours(input.requested)),
+  }
+  return renderVenueEmail(withGreeting(input.template ?? DEFAULT_EMAIL_TEMPLATES.venueBookingRequest, common.contactName), vars)
+}
 
-  const text = [
-    greeting,
-    "",
-    intro,
-    "",
-    ...lines.map((l) => `- ${l}`),
-    "",
-    `Total: ${total}`,
-    "",
-    outro,
-    "",
-    "Kind regards,",
-    ...signoff,
-  ].join("\n")
+const CANCELLATION_TEMPLATE: EmailTemplateFields = {
+  subject: "Booking cancellation ({churchName})",
+  intro: "Dear {contactName},",
+  body:
+    "Unfortunately we need to cancel our booking of {venueName} on the following dates:\n\n{dates}\n\nWe are sorry for any inconvenience this causes. Please let us know if you have any questions.",
+  signoff: "Kind regards,\n{senderName}\n{churchName}",
+}
 
-  const html = [
-    `<p>${escapeHtml(greeting)}</p>`,
-    `<p>${escapeHtml(intro)}</p>`,
-    `<ul>${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`,
-    `<p><strong>Total: ${escapeHtml(total)}</strong></p>`,
-    `<p>${escapeHtml(outro)}</p>`,
-    `<p>Kind regards,<br>${signoff.map(escapeHtml).join("<br>")}</p>`,
-  ].join("\n")
-
-  return { subject, text, html }
+/**
+ * Build the cancellation notice for cancelled booking dates (fixed wording, not an editable template).
+ * @param input names, the cancelled rows and the sender name
+ */
+export function buildCancellationEmail(input: {
+  churchName: string
+  venueName: string
+  contactName: string
+  cancelled: readonly VenueUsageLine[]
+  senderName?: string | null
+}): { subject: string; text: string; html: string } {
+  const common = commonVars(input)
+  const vars = { ...common, dates: bulletLines(input.cancelled) }
+  return renderVenueEmail(withGreeting(CANCELLATION_TEMPLATE, common.contactName), vars)
 }
 
 /** Most extra booking-request / cancellation CC addresses an admin may configure. */
