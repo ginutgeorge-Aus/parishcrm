@@ -11,6 +11,7 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
     celebrations: jest.fn(async () => ({})),
     errorDigest: jest.fn(async () => ({})),
     clearanceDigest: jest.fn(async () => ({})),
+    venueInvoice: jest.fn(async () => ({})),
     ...overrides,
   }
 }
@@ -152,6 +153,20 @@ describe("startScheduler", () => {
     expect(j.reminders).toHaveBeenCalledTimes(1)
     await jest.advanceTimersByTimeAsync(TICK_MS * 6) // 30 min later → due again
     expect(j.reminders).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("venue invoice job", () => {
+  it("runs the venue invoice job on the 1st from 09:00 and records the month; in-flight keeps it open", async () => {
+    const s = initialState()
+    const j = jobs({ venueInvoice: jest.fn(async () => ({ sent: 0, notified: 0, failed: 0, inFlight: 1 })) })
+    const at9 = new Date("2026-06-30T23:00:00Z") // 1 Jul 09:00 AEST
+    await tick(s, j, at9)
+    expect(j.venueInvoice).toHaveBeenCalledWith(at9)
+    expect(s.venueInvoice.lastSuccessKey).toBeNull() // inFlight > 0 => retry
+    j.venueInvoice = jest.fn(async () => ({ sent: 1, notified: 2, failed: 0, inFlight: 0 }))
+    await tick(s, j, new Date("2026-06-30T23:30:00Z"))
+    expect(s.venueInvoice.lastSuccessKey).toBe("2026-07")
   })
 })
 

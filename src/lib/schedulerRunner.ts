@@ -24,6 +24,9 @@ export const DEFAULT_JOBS: Jobs = {
   celebrations: gated("celebrations", async (now) => (await import("@/lib/celebrationSweep")).runCelebrationSweep(now)),
   errorDigest: async (now) => (await import("@/lib/errorDigest")).runErrorDigestOncePerWeek(now),
   clearanceDigest: gated("clearances", async (now) => (await import("@/lib/clearanceDigest")).runClearanceDigest(now)),
+  // Not gated by a FEATURES flag: runVenueInvoiceJob checks venueUsage.enabled itself and returns the
+  // feature-off skip so the month stays open.
+  venueInvoice: async (now) => (await import("@/lib/venueInvoiceJob")).runVenueInvoiceJob(now),
 }
 
 /** True for a gated job's feature-off result — not a success, so the period stays open. */
