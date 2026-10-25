@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { auditIpFromHeaders, getClientIp } from "@/lib/clientIp"
+import { auditIpFromHeaders, clientIpFromHeaders, getClientIp } from "@/lib/clientIp"
 
 const h = (xff?: string) => new Headers(xff === undefined ? {} : { "x-forwarded-for": xff })
 
@@ -28,5 +28,15 @@ describe("getClientIp", () => {
   it("keeps its rightmost/unknown behaviour", () => {
     expect(getClientIp(new Request("http://x", { headers: { "x-forwarded-for": "a, b" } }))).toBe("b")
     expect(getClientIp(new Request("http://x"))).toBe("unknown")
+  })
+})
+
+describe("clientIpFromHeaders", () => {
+  it("takes the rightmost x-forwarded-for entry", () => {
+    expect(clientIpFromHeaders(h("1.1.1.1, 2.2.2.2"))).toBe("2.2.2.2")
+  })
+  it("falls back to unknown when absent or empty", () => {
+    expect(clientIpFromHeaders(h())).toBe("unknown")
+    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
   })
 })

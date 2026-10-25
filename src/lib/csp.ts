@@ -57,6 +57,10 @@ export const EVENT_IMAGE_PATH = /^\/api\/events\/[^/]+\/image\/(banner|poster)$/
 // gated — only the token-scoped update path is exposed (no API route; submit is
 // a server action validated by the hashed token).
 const PUBLIC_FAMILY_UPDATE = /^\/family\/update\/[^/]+$/
+// Public read-only committee calendar: /venue/[token]. The secret token is the
+// only gate (constant-time compared in the page). Bare "/venue" and deeper
+// paths stay gated, as does the admin page at "/venue-usage".
+const PUBLIC_VENUE_CALENDAR = /^\/venue\/[A-Za-z0-9_-]+$/
 
 // Static security headers applied to every dynamic response by middleware
 // (AUDIT-054). next.config `headers()` does not reach App-Router Route
@@ -98,7 +102,8 @@ export function isPublicPath(pathname: string): boolean {
     PUBLIC_TREES.some((p) => path === p || path.startsWith(`${p}/`)) ||
     PUBLIC_EVENT_PAGES.test(path) ||
     PUBLIC_EVENT_API.test(path) ||
-    PUBLIC_FAMILY_UPDATE.test(path)
+    PUBLIC_FAMILY_UPDATE.test(path) ||
+    PUBLIC_VENUE_CALENDAR.test(path)
   )
 }
 

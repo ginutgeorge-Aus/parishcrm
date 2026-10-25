@@ -1,6 +1,16 @@
 import { isIP } from "node:net"
 
 /**
+ * Client IP from a headers object (Server Components receive `await headers()`, not a Request): the rightmost
+ * `x-forwarded-for` entry (appended by the trusted proxy), else "unknown".
+ * @param h anything with `get`
+ */
+export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
+  const last = h.get("x-forwarded-for")?.split(",").at(-1)?.trim()
+  return last || "unknown"
+}
+
+/**
  * Client IP for rate-limiting and audit trails. The rightmost `x-forwarded-for`
  * entry is appended by the trusted reverse proxy and is not spoofable by
  * the client; earlier entries are attacker-controlled. Falls back to "unknown".
@@ -9,12 +19,7 @@ import { isIP } from "node:net"
  * only reads `headers`.
  */
 export function getClientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for")
-  if (xff) {
-    const last = xff.split(",").at(-1)?.trim()
-    if (last) return last
-  }
-  return "unknown"
+  return clientIpFromHeaders(req.headers)
 }
 
 /**
