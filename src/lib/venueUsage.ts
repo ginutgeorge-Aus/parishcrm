@@ -18,8 +18,6 @@ export const VENUE_USAGE_SETTING_KEYS = [
   "venueUsage.bookingCcEmails",
 ] as const
 
-export type VenueUsageSettingKey = (typeof VENUE_USAGE_SETTING_KEYS)[number]
-
 /** Booking lifecycle; mirrors the Prisma `VenueBookingStatus` enum (kept local so this module stays client-safe). */
 export const VENUE_BOOKING_STATUSES = ["REQUESTED", "CONFIRMED", "CANCELLED"] as const
 export type VenueBookingStatusValue = (typeof VENUE_BOOKING_STATUSES)[number]

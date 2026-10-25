@@ -7,7 +7,7 @@
  *  - Path segments — a valid single-use token carried as a path segment, so
  *    query-stripping alone misses it. We rewrite that segment to `[token]`.
  *    Covers `/family/update/<token>` and the volunteer view route
- *    `/e/<slug>/crew/<token>`.
+ *    `/e/<slug>/crew/<token>` and the venue calendar route `/venue/<token>`.
  * Either would otherwise land a live token in telemetry readable by anyone with
  * telemetry read access.
  */
@@ -32,6 +32,8 @@ const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = [
   { gate: "/family/update/", re: /(\/family\/update\/)[^/?#]+/g },
   // Volunteer crew view: /e/<slug>/crew/<token>.
   { gate: "/crew/", re: /(\/e\/[^/?#]+\/crew\/)[^/?#]+/g },
+  // Venue calendar feed/view bearer-token route: /venue/<token>.
+  { gate: "/venue/", re: /(\/venue\/)[^/?#]+/g },
 ]
 
 function stripQueryStrings(attributes: Record<string, unknown>): void {

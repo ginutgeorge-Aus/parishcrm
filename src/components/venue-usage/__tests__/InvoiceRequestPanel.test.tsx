@@ -163,3 +163,10 @@ it("does not call onApproved when approval fails", async () => {
   await waitFor(() => expect(approveVenueMonth).toHaveBeenCalled())
   expect(onApproved).not.toHaveBeenCalled()
 })
+
+it("shows the last-request time on the Sydney wall clock", async () => {
+  // 2026-10-01T23:30Z is 02/10/2026 09:30 in Sydney (AEST), whatever the test machine zone.
+  ;(getVenueRequestPreview as jest.Mock).mockResolvedValue({ ...preview, last: { status: "SUCCESS", sentAt: "2026-10-01T23:30:00.000Z", errorMessage: null } })
+  render(<InvoiceRequestPanel defaultMonth="2026-10" />)
+  expect(await screen.findByText("02/10/2026 09:30")).toBeInTheDocument()
+})

@@ -7,7 +7,7 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 import { isP2002 } from "@/lib/validation"
 import { logger } from "@/lib/logger"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
-import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
+import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH, warnIfMonthCapped } from "@/lib/venueInvoice"
 import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
 import { venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
 import { describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
@@ -69,41 +69,64 @@ async function notifyEditors(mail: { subject: string; html: string; text: string
 }
 
 /**
- * Run the month's work under a held claim: skip if already sent, send the invoice request when approved and
- * still complete (else build a reminder), notify editors, then mark the month done. All reads that depend on
- * the claim happen here, after it was won.
+ * The "invoice request sent" notice for a month, with its row count and total hours.
+ * @param churchName church name for the notice
+ * @param month "YYYY-MM"
+ * @param rows the rows the request listed
+ */
+function autoSentNotice(churchName: string, month: string, rows: Parameters<typeof totalHours>[0]) {
+  return buildAutoSentEmail({ churchName, month, rowCount: rows.length, totalHoursLabel: formatHours(totalHours(rows)) })
+}
+
+/**
+ * Run the month's work under a held claim: skip if sent by hand, send the invoice request when approved and
+ * still complete (else build a reminder), notify editors, then mark the month done. A month the job itself
+ * already sent (SUCCESS + autoSent, but `reminderSentAt` still null because every notice failed) only
+ * retries the staff notices and never emails the venue again. All reads that depend on the claim happen
+ * here, after it was won.
  * @param month "YYYY-MM" being invoiced
  * @param claimAt the claim timestamp this run holds (fence for the final write)
  */
 async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
-  const request = await prisma.venueUsageRequest.findUnique({ where: { month }, select: { id: true, status: true, approvedAt: true } })
-  if (request?.status === "SUCCESS") {
-    await releaseClaim(month, claimAt)
-    return ZERO
-  }
-  const { start, end } = monthRange(month)
-  const rows = await prisma.venueUsage.findMany({
-    where: { date: { gte: start, lte: end } }, take: MAX_ROWS_PER_MONTH, select: { date: true, status: true },
+  const request = await prisma.venueUsageRequest.findUnique({
+    where: { month }, select: { id: true, status: true, approvedAt: true, autoSent: true },
   })
-  const completeness = monthCompleteness(month, rows)
   const churchName = await getChurchName()
-
   let sent = 0
+  let isInvoiceNotice = false
   let mail: { subject: string; html: string; text: string }
-  if (request?.approvedAt && completeness.complete) {
-    const prep = await prepareInvoiceRequest(month, null)
-    const result = await deliverInvoiceRequest(prep, { month, userId: null, autoSent: true, resend: false })
-    if (result.status === "FAILED") {
+  if (request?.status === "SUCCESS") {
+    if (!request.autoSent) {
       await releaseClaim(month, claimAt)
-      return { ...ZERO, failed: 1 }
+      return ZERO
     }
-    sent = 1
-    mail = buildAutoSentEmail({ churchName, month, rowCount: prep.rows.length, totalHoursLabel: formatHours(totalHours(prep.rows)) })
+    // Sent by an earlier run whose notices all failed: retry the notices only (read-only prepare, no send).
+    const prep = await prepareInvoiceRequest(month, null)
+    isInvoiceNotice = true
+    mail = autoSentNotice(churchName, month, prep.rows)
   } else {
-    const problems = completeness.complete
-      ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]
-      : describeIncomplete(completeness)
-    mail = buildReminderEmail({ churchName, month, problems, url: venuePageUrl(month) })
+    const { start, end } = monthRange(month)
+    const rows = await prisma.venueUsage.findMany({
+      where: { date: { gte: start, lte: end } }, take: MAX_ROWS_PER_MONTH, select: { date: true, status: true },
+    })
+    warnIfMonthCapped("venueInvoiceJob", month, rows.length)
+    const completeness = monthCompleteness(month, rows)
+    if (request?.approvedAt && completeness.complete) {
+      const prep = await prepareInvoiceRequest(month, null)
+      const result = await deliverInvoiceRequest(prep, { month, userId: null, autoSent: true, resend: false })
+      if (result.status === "FAILED") {
+        await releaseClaim(month, claimAt)
+        return { ...ZERO, failed: 1 }
+      }
+      sent = 1
+      isInvoiceNotice = true
+      mail = autoSentNotice(churchName, month, prep.rows)
+    } else {
+      const problems = completeness.complete
+        ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]
+        : describeIncomplete(completeness)
+      mail = buildReminderEmail({ churchName, month, problems, url: venuePageUrl(month) })
+    }
   }
 
   const { notified, failed } = await notifyEditors(mail)
@@ -115,7 +138,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
   // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).
   try {
-    await logAudit(null, sent ? "VENUE_INVOICE_NOTICE_SENT" : "VENUE_REMINDER_SENT", "VenueUsageRequest", request?.id, { month, notified, failed })
+    await logAudit(null, isInvoiceNotice ? "VENUE_INVOICE_NOTICE_SENT" : "VENUE_REMINDER_SENT", "VenueUsageRequest", request?.id, { month, notified, failed })
   } catch (e) {
     logger.error(`[venueInvoiceJob] audit write failed: ${e instanceof Error ? e.message : String(e)}`)
   }

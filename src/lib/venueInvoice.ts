@@ -4,13 +4,52 @@ import { encrypt } from "@/lib/crypto"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getEmailTemplate } from "@/lib/emailTemplateStore"
+import { logger } from "@/lib/logger"
 import { readVenueUsageSettings, type VenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
   buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, parseCcList,
   type MonthCompleteness, type VenueUsageLine,
 } from "@/lib/venueUsage"
 
+/** Most bookings one month may hold; creates enforce it and month reads `take` it (warning when they hit it). */
 export const MAX_ROWS_PER_MONTH = 200
+
+/** User-facing error when a create would push a month past {@link MAX_ROWS_PER_MONTH}. */
+export const MONTH_FULL_ERROR = `A month can hold at most ${MAX_ROWS_PER_MONTH} bookings. Delete some before adding more.`
+
+/**
+ * Log a warning when a capped month read came back full, so a truncated list is never silent.
+ * @param source log prefix naming the caller
+ * @param month "YYYY-MM" that was read
+ * @param count rows the read returned
+ */
+export function warnIfMonthCapped(source: string, month: string, count: number): void {
+  if (count >= MAX_ROWS_PER_MONTH) {
+    logger.warn(`[${source}] month read hit the row cap; later rows are ignored`, { month, cap: MAX_ROWS_PER_MONTH })
+  }
+}
+
+/**
+ * Run a write that follows an email already sent; never throws, logs failures (no PII).
+ * @param what short label for the log
+ * @param month "YYYY-MM" for log context
+ * @param fn the write
+ * @param attempts how many tries before giving up
+ * @returns whether the write succeeded
+ */
+async function afterSendWrite(what: string, month: string, fn: () => Promise<unknown>, attempts: number): Promise<boolean> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await fn()
+      return true
+    } catch (e) {
+      if (i === attempts) {
+        logger.error(`[venueInvoice] ${what}`, { month, attempts, error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+  }
+  return false
+}
 
 export type ActorInfo = { name: string; email: string | null }
 export type Recipients = { to: string; cc: string[]; replyTo: string }
@@ -29,7 +68,7 @@ export async function loadActor(userId: number): Promise<ActorInfo> {
  * @param list candidate addresses
  * @param exclude an address to leave out (the To address)
  */
-export function dedupeAddresses(list: (string | null | undefined)[], exclude: string): string[] {
+function dedupeAddresses(list: (string | null | undefined)[], exclude: string): string[] {
   const seen = new Set([exclude.toLowerCase()])
   const out: string[] = []
   for (const a of list) {
@@ -104,6 +143,7 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
       },
     }),
   ])
+  warnIfMonthCapped("venueInvoice", month, all.length)
   const rows = confirmedOnly(all)
   const { subject, text, html } = buildRequestEmail({
     churchName: churchSettings.name, venueName: settings.venueName, contactName: settings.contactName,
@@ -125,6 +165,14 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * Send the prepared invoice request and record the outcome (also on failure). A failed RESEND after an
  * earlier SUCCESS records only the error, so the month still reads as sent and the job cannot send a duplicate.
  * "Sent" is `status === "SUCCESS"`, never `sentAt != null` (FAILED sends also stamp `sentAt`).
+ *
+ * Once the email has gone, nothing after it may turn the result into a failure (that would make the job or
+ * the user send again): the SUCCESS write is retried once, then logged loudly, and the audit write never
+ * throws. Residual window: if both SUCCESS writes fail (or the process dies between the send and the
+ * write), the row does not read as sent, so a later manual send or job run could email the venue again.
+ * The job still records `reminderSentAt` after its notices, which closes the month for it in that case.
+ * (A SENDING pre-mark was not added: `status` is shown and filtered as SUCCESS/FAILED across the UI and
+ * the approval queries, so a third value would need changes beyond this function.)
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  */
@@ -143,14 +191,18 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  if (status === "FAILED" && p.last?.status === "SUCCESS") {
+  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent }
+  const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
+  if (status === "SUCCESS") {
+    await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
+  } else if (p.last?.status === "SUCCESS") {
     await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage } })
   } else {
-    const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent }
-    await prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
+    await record()
   }
-  await logAudit(ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined, {
-    month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent,
-  })
+  await afterSendWrite("audit write failed", ctx.month, () => logAudit(
+    ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
+    { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent },
+  ), 1)
   return { status, errorMessage }
 }

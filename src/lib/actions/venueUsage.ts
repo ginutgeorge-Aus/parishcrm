@@ -13,12 +13,14 @@ import { sendVenueUsageRequestEmail } from "@/lib/email"
 import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
-import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, prepareInvoiceRequest } from "@/lib/venueInvoice"
+import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, MONTH_FULL_ERROR, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { autoSendLabel } from "@/lib/venueSchedule"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { buildCancellationEmail, describeIncomplete, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { buildCancellationEmail, describeIncomplete, monthRange, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
 import type { VenueUsageLine } from "@/lib/venueUsage"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
+import { logger } from "@/lib/logger"
 import {
   VENUE_BOOKING_STATUSES, isValidMonth, isValidYMD, totalHours,
   validateTimeRange, ymdToUtcDate, VENUE_USAGE_SETTING_KEYS,
@@ -82,8 +84,23 @@ function mutationOk(success: string, cleared: string[]): VenueMutationResult {
 }
 
 /**
+ * Whether adding `adding` rows to `month` would exceed {@link MAX_ROWS_PER_MONTH} (all statuses count, as the
+ * capped month reads do). Concurrent creates are not serialised, so a race can overshoot by a few rows; the
+ * reads then warn when they hit the cap.
+ * @param tx transaction client
+ * @param month "YYYY-MM"
+ * @param adding rows about to be created
+ */
+async function monthWouldOverflow(tx: Prisma.TransactionClient, month: string, adding: number): Promise<boolean> {
+  const { start, end } = monthRange(month)
+  const existing = await tx.venueUsage.count({ where: { date: { gte: start, lte: end } } })
+  return existing + adding > MAX_ROWS_PER_MONTH
+}
+
+/**
  * Create a venue usage row. ADMIN/PASTOR/OFFICE_ADMIN (`canEdit`); feature must be enabled.
  * Clears the approval of the row's month (same transaction) when it was approved and unsent.
+ * Refuses when the month already holds {@link MAX_ROWS_PER_MONTH} rows.
  * @param input date, times, status, purpose and notes
  */
 export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMutationResult> {
@@ -98,6 +115,7 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
 
   const userId = actorId(session)
   const cleared = await prisma.$transaction(async (tx) => {
+    if (await monthWouldOverflow(tx, date.slice(0, 7), 1)) return null
     const row = await tx.venueUsage.create({
       data: { ...rest, date: ymdToUtcDate(date), createdById: userId },
       select: { id: true },
@@ -106,12 +124,15 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
     await logAuditTx(tx, userId, "VENUE_USAGE_CREATED", "VenueUsage", row.id, { date, status: rest.status })
     return months
   })
+  if (!cleared) return { error: MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
   return mutationOk("Booking added", cleared)
 }
 
 /**
  * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
+ * A change to date, times or status also resets `bookingRequestedAt`, so the row is asked about again
+ * and the stale "asked on" stamp disappears; purpose/notes edits leave it alone.
  * @param id VenueUsage id
  * @param input new field values
  */
@@ -129,9 +150,18 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   const userId = actorId(session)
   // Read the row inside the transaction so the old month is the one actually being replaced.
   const cleared = await prisma.$transaction(async (tx) => {
-    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
+    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true } })
     if (!existing) return null
-    await tx.venueUsage.update({ where: { id }, data: { ...rest, date: ymdToUtcDate(date) }, select: { id: true } })
+    const rescheduled =
+      utcDateToYmd(existing.date) !== date ||
+      existing.startTime !== rest.startTime ||
+      existing.endTime !== rest.endTime ||
+      existing.status !== rest.status
+    await tx.venueUsage.update({
+      where: { id },
+      data: { ...rest, date: ymdToUtcDate(date), ...(rescheduled ? { bookingRequestedAt: null } : {}) },
+      select: { id: true },
+    })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date), date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
     return months
@@ -176,6 +206,7 @@ const AddAllSchema = z.object({
 
 /**
  * Add a REQUESTED booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
+ * Refuses (adds nothing) when the new rows would push the month past {@link MAX_ROWS_PER_MONTH}.
  * @param input month "YYYY-MM", shared start/end time and optional public purpose
  */
 export async function addAllSundays(input: { month: string; startTime: string; endTime: string; purpose?: string }): Promise<VenueMutationResult> {
@@ -191,7 +222,7 @@ export async function addAllSundays(input: { month: string; startTime: string; e
 
   const userId = actorId(session)
   const sundays = sundaysInMonth(month)
-  const { added, cleared } = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     const existing = await tx.venueUsage.findMany({
       where: { date: { in: sundays.map(ymdToUtcDate) }, status: { not: "CANCELLED" } },
       select: { date: true },
@@ -200,6 +231,7 @@ export async function addAllSundays(input: { month: string; startTime: string; e
     const taken = new Set(existing.map((e) => utcDateToYmd(e.date)))
     const free = sundays.filter((s) => !taken.has(s))
     if (free.length === 0) return { added: 0, cleared: [] as string[] }
+    if (await monthWouldOverflow(tx, month, free.length)) return null
     await tx.venueUsage.createMany({
       data: free.map((s) => ({ date: ymdToUtcDate(s), startTime, endTime, status: "REQUESTED" as const, purpose, createdById: userId })),
     })
@@ -207,6 +239,8 @@ export async function addAllSundays(input: { month: string; startTime: string; e
     await logAuditTx(tx, userId, "VENUE_USAGE_BULK_ADDED", "VenueUsage", undefined, { month, added: free.length, skipped: sundays.length - free.length })
     return { added: free.length, cleared: months }
   })
+  if (!outcome) return { error: MONTH_FULL_ERROR }
+  const { added, cleared } = outcome
   revalidatePath("/venue-usage")
   if (added === 0) return { success: "Nothing to add: every Sunday already has a booking" }
   const skipped = sundays.length - added
@@ -244,7 +278,7 @@ export async function setVenueUsageStatus(
   const result = await prisma.$transaction(async (tx) => {
     const rows = await tx.venueUsage.findMany({
       where: { id: { in: uniqueIds } },
-      select: { id: true, date: true, startTime: true, endTime: true, status: true },
+      select: { id: true, date: true, startTime: true, endTime: true, status: true, bookingRequestedAt: true },
     })
     if (rows.length !== uniqueIds.length) return null
     const toChange = rows.filter((r) => r.status !== status)
@@ -264,7 +298,12 @@ export async function setVenueUsageStatus(
   const noun = changed.length === 1 ? "date" : "dates"
   const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared) as Extract<VenueMutationResult, { success: string }>
   if (!emailVenue) return base
-  return { ...base, ...(await emailCancellation(settings, changed, userId)) }
+  // Only tell the venue about dates they knew: already asked about, or previously confirmed.
+  const known = changed.filter((r) => r.bookingRequestedAt !== null || r.status === "CONFIRMED")
+  if (known.length === 0) {
+    return { ...base, success: `${base.success}. The venue was not emailed: none of these dates had been shared with them.` }
+  }
+  return { ...base, ...(await emailCancellation(settings, known, userId)) }
 }
 
 /**
@@ -426,5 +465,12 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
   const { status } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
   revalidatePath("/venue-usage")
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
+  // The invoice has been requested by hand: a pending automatic-send approval is now moot. The email has
+  // already gone, so a failure here must not surface as an error (the user would send again).
+  try {
+    await prisma.venueUsageRequest.updateMany({ where: { month }, data: { approvedAt: null, approvedById: null } })
+  } catch (e) {
+    logger.error("[venueUsage] could not clear approval after manual send", { month, error: e instanceof Error ? e.message : String(e) })
+  }
   return { success: "Invoice request sent" }
 }

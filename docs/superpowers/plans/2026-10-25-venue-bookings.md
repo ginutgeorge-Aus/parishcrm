@@ -44,7 +44,7 @@
 ## File Structure
 
 **New**
-- `prisma/migrations/20261026000000_venue_bookings/migration.sql`
+- `prisma/migrations/20261025120000_venue_bookings/migration.sql`
 - `src/lib/venueSchedule.ts`: Sydney 1st-at-09:00 gate, invoice month, auto-send label.
 - `src/lib/venueInvoice.ts`: shared prepare/deliver of the invoice request, recipients, actor lookup.
 - `src/lib/venueApproval.ts`: `UNSENT_FILTER`, `clearApprovalTx`.
@@ -75,7 +75,7 @@ New columns, a NEW migration directory (part 1's migration is untouched), the `b
 
 **Files:**
 - Modify: `prisma/schema.prisma`
-- Create: `prisma/migrations/20261026000000_venue_bookings/migration.sql`
+- Create: `prisma/migrations/20261025120000_venue_bookings/migration.sql`
 - Modify: `src/lib/venueUsage.ts` (key list, `parseCcList`), `src/lib/venueUsageSettings.ts`, `src/lib/actions/venueUsage.ts` (`updateVenueUsageSettings`), `src/lib/actions/settings.ts` (generic validation), `src/components/settings/VenueUsageSettingsForm.tsx`
 - Test: `src/lib/__tests__/venueUsage.test.ts`, `src/lib/actions/__tests__/venueUsage.test.ts`, `src/lib/actions/__tests__/settings.test.ts`
 
@@ -154,7 +154,7 @@ export function parseCcList(value: string): { ok: true; list: string[] } | { ok:
   autoSent          Boolean   @default(false)
 ```
   and add `@@index([approvedById])` next to the existing index.
-  Create `prisma/migrations/20261026000000_venue_bookings/migration.sql`:
+  Create `prisma/migrations/20261025120000_venue_bookings/migration.sql`:
 
 ```sql
 -- AlterTable
@@ -269,7 +269,7 @@ it("does not allow the calendar token through the generic setting action", async
 
 ```bash
 git status -s   # only the files above; src/lib/generated stays untracked/ignored
-git add prisma/schema.prisma prisma/migrations/20261026000000_venue_bookings src/lib/venueUsage.ts src/lib/venueUsageSettings.ts src/lib/actions/venueUsage.ts src/lib/actions/settings.ts src/components/settings/VenueUsageSettingsForm.tsx src/lib/__tests__/venueUsage.test.ts src/lib/actions/__tests__/venueUsage.test.ts src/lib/actions/__tests__/settings.test.ts
+git add prisma/schema.prisma prisma/migrations/20261025120000_venue_bookings src/lib/venueUsage.ts src/lib/venueUsageSettings.ts src/lib/actions/venueUsage.ts src/lib/actions/settings.ts src/components/settings/VenueUsageSettingsForm.tsx src/lib/__tests__/venueUsage.test.ts src/lib/actions/__tests__/venueUsage.test.ts src/lib/actions/__tests__/settings.test.ts
 git commit -m "feat(venue): booking-request columns, approval fields and booking CC setting" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 

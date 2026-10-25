@@ -12,6 +12,7 @@ jest.mock("@/lib/email", () => ({ sendVenueUsageRequestEmail: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({ getChurchSettings: jest.fn() }))
 jest.mock("@/lib/venueUsageSettings", () => ({ readVenueUsageSettings: jest.fn() }))
 jest.mock("@/lib/emailTemplateStore", () => ({ getEmailTemplate: jest.fn() }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
@@ -21,6 +22,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
+import { logger } from "@/lib/logger"
 import {
   bookingRecipients, deliverInvoiceRequest, invoiceRecipients, loadActor, prepareInvoiceRequest,
 } from "@/lib/venueInvoice"
@@ -133,4 +135,39 @@ describe("deliverInvoiceRequest", () => {
     expect(prisma.venueUsageRequest.update).not.toHaveBeenCalled()
     expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[0][0].update).toMatchObject({ status: "FAILED", errorMessage: "smtp down" })
   })
+})
+
+describe("deliverInvoiceRequest after the email has gone", () => {
+  const upsert = () => prisma.venueUsageRequest.upsert as jest.Mock
+  const ctx = { month: "2026-09", userId: null, autoSent: true, resend: false }
+
+  it("retries the success write once and still reports SUCCESS", async () => {
+    upsert().mockRejectedValueOnce(new Error("db blip")).mockResolvedValueOnce({})
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null })
+    expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
+    expect(upsert()).toHaveBeenCalledTimes(2)
+    expect(upsert().mock.calls[1][0].update).toMatchObject({ status: "SUCCESS" })
+  })
+
+  it("a success write that fails twice is logged loudly (no PII) and never throws or reports FAILED", async () => {
+    upsert().mockRejectedValue(new Error("db down"))
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null })
+    expect(upsert()).toHaveBeenCalledTimes(2)
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*not recorded/), expect.objectContaining({ month: "2026-09", error: "db down" }))
+    expect(JSON.stringify((logger.error as jest.Mock).mock.calls)).not.toContain("venue@example.com")
+  })
+
+  it("an audit failure never propagates (SUCCESS or FAILED)", async () => {
+    ;(logAudit as jest.Mock).mockRejectedValue(new Error("audit down"))
+    expect((await deliverInvoiceRequest(await prepare(), ctx)).status).toBe("SUCCESS")
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
+    expect((await deliverInvoiceRequest(await prepare(), ctx)).status).toBe("FAILED")
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*audit/), expect.any(Object))
+  })
+})
+
+it("prepareInvoiceRequest warns when the month read hits the row cap", async () => {
+  ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(Array.from({ length: 200 }, () => sunday6))
+  await prepare()
+  expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*cap/), expect.objectContaining({ month: "2026-09", cap: 200 }))
 })

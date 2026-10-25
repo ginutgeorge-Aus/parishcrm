@@ -9,7 +9,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { getVenueRequestPreview, sendVenueUsageRequest, type VenueRequestPreview } from "@/lib/actions/venueUsage"
 import { approveVenueMonth, withdrawVenueApproval } from "@/lib/actions/venueBookings"
-import { formatSydneyDate } from "@/lib/dates"
+import { formatSydneyDate, formatSydneyDateTime } from "@/lib/dates"
 import { formatHours, formatMonthLabel } from "@/lib/venueUsage"
 
 /**
@@ -112,7 +112,7 @@ export function InvoiceRequestPanel({ defaultMonth, dataVersion = 0, onApproved 
               <Badge variant={preview.last.status === "SUCCESS" ? "default" : "destructive"}>
                 {preview.last.status === "SUCCESS" ? "Sent" : "Failed"}
               </Badge>{" "}
-              {preview.last.sentAt && <span className="text-muted-foreground">{new Date(preview.last.sentAt).toLocaleString()}</span>}
+              {preview.last.sentAt && <span className="text-muted-foreground">{formatSydneyDateTime(new Date(preview.last.sentAt))}</span>}
             </p>
           )}
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">

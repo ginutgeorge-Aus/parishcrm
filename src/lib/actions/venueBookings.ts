@@ -21,7 +21,7 @@ import {
 } from "@/lib/venueUsage"
 
 /** One not-yet-asked REQUESTED date the secretary can tick for the booking request. */
-export type BookingCandidate = { id: number; date: string; startTime: string; endTime: string; purpose: string | null }
+type BookingCandidate = { id: number; date: string; startTime: string; endTime: string; purpose: string | null }
 
 /** Everything the "Request booking" dialog needs. */
 export type BookingRequestPreview = {

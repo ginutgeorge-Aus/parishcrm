@@ -11,6 +11,7 @@ jest.mock("@/lib/venueInvoice", () => ({
   MAX_ROWS_PER_MONTH: 200,
   prepareInvoiceRequest: jest.fn(),
   deliverInvoiceRequest: jest.fn(),
+  warnIfMonthCapped: jest.fn(),
 }))
 jest.mock("@/lib/email", () => ({ sendEmail: jest.fn() }))
 jest.mock("@/lib/emailTemplateStore", () => ({ getChurchName: jest.fn() }))
@@ -19,7 +20,7 @@ jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), 
 
 import { prisma } from "@/lib/prisma"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
-import { deliverInvoiceRequest, prepareInvoiceRequest } from "@/lib/venueInvoice"
+import { deliverInvoiceRequest, prepareInvoiceRequest, warnIfMonthCapped } from "@/lib/venueInvoice"
 import { sendEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { logAudit } from "@/lib/audit"
@@ -130,8 +131,8 @@ it("approved but no longer complete: reminder lists the gap, no invoice", async 
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toContain("Sunday, 4 October")
 })
 
-it("already sent (SUCCESS): releases the claim and does nothing", async () => {
-  findUnique().mockResolvedValue({ id: 3, status: "SUCCESS", approvedAt: new Date() })
+it("already sent manually (SUCCESS, not autoSent): releases the claim and does nothing", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: false })
   expect(await runVenueInvoiceJob(OPEN)).toEqual(ZERO)
   expect(sendEmail).not.toHaveBeenCalled()
   expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderClaimedAt: null })
@@ -180,4 +181,41 @@ it("a run on the 3rd with no prior run does the work for October", async () => {
   expect(await runVenueInvoiceJob(OPEN_3RD)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
   expect(updateMany().mock.calls[0][0].where.month).toBe("2026-10")
   expect(updateMany().mock.calls.some((c) => c[0].data.reminderSentAt instanceof Date)).toBe(true)
+})
+
+describe("auto-sent request whose staff notices all failed", () => {
+  const sentByJob = { id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: true }
+
+  it("the retry re-sends only the staff notices (never the venue email) and then sets reminderSentAt", async () => {
+    // Run 1: the venue email goes out, every notice fails, the claim is released.
+    findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+    ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 0, failed: 2, inFlight: 0 })
+    expect(deliverInvoiceRequest).toHaveBeenCalledTimes(1)
+    expect(updateMany().mock.calls.some((c) => c[0].data.reminderSentAt)).toBe(false)
+
+    // Run 2 (retry): the row now reads SUCCESS + autoSent; mail works again.
+    findUnique().mockResolvedValue(sentByJob)
+    ;(sendEmail as jest.Mock).mockReset().mockResolvedValue(undefined)
+    updateMany().mockClear()
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+    expect(deliverInvoiceRequest).toHaveBeenCalledTimes(1) // still only the first run's send
+    expect((sendEmail as jest.Mock).mock.calls[0][1]).toBe("Invoice request for October 2026 sent")
+    const done = updateMany().mock.calls.find((c) => c[0].data.reminderSentAt instanceof Date)
+    expect(done?.[0].where.reminderClaimedAt).toBeInstanceOf(Date)
+    expect(logAudit).toHaveBeenCalledWith(null, "VENUE_INVOICE_NOTICE_SENT", "VenueUsageRequest", 3, expect.objectContaining({ month: "2026-10", notified: 2 }))
+  })
+
+  it("a notices-only retry that fails again keeps the month open for the next attempt", async () => {
+    findUnique().mockResolvedValue(sentByJob)
+    ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 0, failed: 2, inFlight: 0 })
+    expect(deliverInvoiceRequest).not.toHaveBeenCalled()
+    expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderClaimedAt: null })
+  })
+})
+
+it("checks the month read against the row cap (truncation is never silent)", async () => {
+  await runVenueInvoiceJob(OPEN)
+  expect(warnIfMonthCapped).toHaveBeenCalledWith("venueInvoiceJob", "2026-10", complete.length)
 })

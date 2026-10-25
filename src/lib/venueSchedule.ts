@@ -5,7 +5,7 @@ import { sydneyClock } from "@/lib/dates"
 import { addMonths, formatMonthLabel, previousMonth } from "@/lib/venueUsage"
 
 /** The scheduled invoice job opens at this Sydney hour on the 1st. */
-export const VENUE_JOB_FROM_HOUR = 9
+const VENUE_JOB_FROM_HOUR = 9
 /** Last Sydney day-of-month the job may act on: through the 7th so an outage on the 1st catches up. */
 export const VENUE_JOB_LAST_DAY = 7
 
