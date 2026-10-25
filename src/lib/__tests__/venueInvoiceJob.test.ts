@@ -48,7 +48,7 @@ beforeEach(() => {
   ;(prisma.user.findMany as jest.Mock).mockResolvedValue(staff)
   ;(getChurchName as jest.Mock).mockResolvedValue("Example Church")
   ;(prepareInvoiceRequest as jest.Mock).mockResolvedValue({ rows: complete.map((r) => ({ ...r, startTime: "17:00", endTime: "20:30" })) })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true })
 })
 
 it("does nothing outside the Sydney 1st-7th >= 09:00 window", async () => {
@@ -153,6 +153,18 @@ it("all notices failing keeps the month open; a partial failure does not", async
   expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderClaimedAt: null })
   ;(sendEmail as jest.Mock).mockReset().mockRejectedValueOnce(new Error("smtp")).mockResolvedValueOnce(undefined)
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ notified: 1, failed: 0 })
+})
+
+it("sent but unrecorded + every notice failed: closes the month (never releases) so the venue is not emailed twice", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
+  expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
+  const calls = updateMany().mock.calls.map((c) => c[0])
+  expect(calls.some((c) => "reminderClaimedAt" in c.data && c.data.reminderClaimedAt === null)).toBe(false)
+  const done = calls.find((c) => c.data.reminderSentAt instanceof Date)
+  expect(done?.where.reminderClaimedAt).toBeInstanceOf(Date)
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/not recorded/))
 })
 
 it("a thrown error releases the claim, logs the original and rethrows", async () => {

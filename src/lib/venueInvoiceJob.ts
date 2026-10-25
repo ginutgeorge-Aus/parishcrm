@@ -82,7 +82,9 @@ function autoSentNotice(churchName: string, month: string, rows: Parameters<type
  * Run the month's work under a held claim: skip if sent by hand, send the invoice request when approved and
  * still complete (else build a reminder), notify editors, then mark the month done. A month the job itself
  * already sent (SUCCESS + autoSent, but `reminderSentAt` still null because every notice failed) only
- * retries the staff notices and never emails the venue again. All reads that depend on the claim happen
+ * retries the staff notices and never emails the venue again. If this run sent the venue email but could not
+ * record it, the claim is never released and `reminderSentAt` is written even when every notice failed: a
+ * missing staff notice is better than a duplicate venue email. All reads that depend on the claim happen
  * here, after it was won.
  * @param month "YYYY-MM" being invoiced
  * @param claimAt the claim timestamp this run holds (fence for the final write)
@@ -94,6 +96,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   const churchName = await getChurchName()
   let sent = 0
   let isInvoiceNotice = false
+  let sentUnrecorded = false
   let mail: { subject: string; html: string; text: string }
   if (request?.status === "SUCCESS") {
     if (!request.autoSent) {
@@ -119,6 +122,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
         return { ...ZERO, failed: 1 }
       }
       sent = 1
+      sentUnrecorded = !result.recorded
       isInvoiceNotice = true
       mail = autoSentNotice(churchName, month, prep.rows)
     } else {
@@ -130,10 +134,11 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   }
 
   const { notified, failed } = await notifyEditors(mail)
-  if (notified === 0 && failed > 0) {
+  if (notified === 0 && failed > 0 && !sentUnrecorded) {
     await releaseClaim(month, claimAt)
     return { sent, notified, failed, inFlight: 0 }
   }
+  if (sentUnrecorded) logger.error(`[venueInvoiceJob] invoice request for ${month} was sent but not recorded; closing the month to avoid a duplicate venue email`)
   if (failed > 0) logger.error(`[venueInvoiceJob] ${failed} notice(s) failed; not retried to avoid repeats`)
   await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
   // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).

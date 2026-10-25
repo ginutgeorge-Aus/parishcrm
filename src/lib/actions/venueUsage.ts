@@ -132,7 +132,9 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
 /**
  * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
  * A change to date, times or status also resets `bookingRequestedAt`, so the row is asked about again
- * and the stale "asked on" stamp disappears; purpose/notes edits leave it alone.
+ * and the stale "asked on" stamp disappears; purpose/notes edits leave it alone. `venueNotifiedAt` is never
+ * touched: the venue still knows the row, so a later cancellation must reach them.
+ * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
  */
@@ -149,9 +151,12 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 
   const userId = actorId(session)
   // Read the row inside the transaction so the old month is the one actually being replaced.
-  const cleared = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true } })
-    if (!existing) return null
+    if (!existing) return { notFound: true } as const
+    if (monthOfDate(existing.date) !== date.slice(0, 7) && (await monthWouldOverflow(tx, date.slice(0, 7), 1))) {
+      return { full: true } as const
+    }
     const rescheduled =
       utcDateToYmd(existing.date) !== date ||
       existing.startTime !== rest.startTime ||
@@ -164,11 +169,12 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date), date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
-    return months
+    return { months }
   })
-  if (!cleared) return { error: "Booking not found" }
+  if ("notFound" in outcome) return { error: "Booking not found" }
+  if ("full" in outcome) return { error: MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
-  return mutationOk("Booking updated", cleared)
+  return mutationOk("Booking updated", outcome.months)
 }
 
 /**
@@ -278,7 +284,7 @@ export async function setVenueUsageStatus(
   const result = await prisma.$transaction(async (tx) => {
     const rows = await tx.venueUsage.findMany({
       where: { id: { in: uniqueIds } },
-      select: { id: true, date: true, startTime: true, endTime: true, status: true, bookingRequestedAt: true },
+      select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true },
     })
     if (rows.length !== uniqueIds.length) return null
     const toChange = rows.filter((r) => r.status !== status)
@@ -298,8 +304,8 @@ export async function setVenueUsageStatus(
   const noun = changed.length === 1 ? "date" : "dates"
   const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared) as Extract<VenueMutationResult, { success: string }>
   if (!emailVenue) return base
-  // Only tell the venue about dates they knew: already asked about, or previously confirmed.
-  const known = changed.filter((r) => r.bookingRequestedAt !== null || r.status === "CONFIRMED")
+  // Only tell the venue about dates they knew: included in a sent booking request (ever), or previously confirmed.
+  const known = changed.filter((r) => r.venueNotifiedAt !== null || r.status === "CONFIRMED")
   if (known.length === 0) {
     return { ...base, success: `${base.success}. The venue was not emailed: none of these dates had been shared with them.` }
   }
@@ -462,7 +468,7 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
     return { error: "A request for this month was already sent. Confirm to send it again." }
   }
 
-  const { status } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
+  const { status, recorded } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
   revalidatePath("/venue-usage")
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
   // The invoice has been requested by hand: a pending automatic-send approval is now moot. The email has
@@ -471,6 +477,9 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
     await prisma.venueUsageRequest.updateMany({ where: { month }, data: { approvedAt: null, approvedById: null } })
   } catch (e) {
     logger.error("[venueUsage] could not clear approval after manual send", { month, error: e instanceof Error ? e.message : String(e) })
+  }
+  if (!recorded) {
+    return { success: "Invoice request sent, but it could not be recorded. Do not send it again; check the venue's inbox before retrying." }
   }
   return { success: "Invoice request sent" }
 }

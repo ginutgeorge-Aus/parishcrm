@@ -170,16 +170,19 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * the user send again): the SUCCESS write is retried once, then logged loudly, and the audit write never
  * throws. Residual window: if both SUCCESS writes fail (or the process dies between the send and the
  * write), the row does not read as sent, so a later manual send or job run could email the venue again.
- * The job still records `reminderSentAt` after its notices, which closes the month for it in that case.
+ * `recorded: false` reports that case: the job then never releases its claim and always writes
+ * `reminderSentAt` (closing the month for it), and a manual send warns the user not to send again. A
+ * process death between the send and the write is not covered.
  * (A SENDING pre-mark was not added: `status` is shown and filtered as SUCCESS/FAILED across the UI and
  * the approval queries, so a third value would need changes beyond this function.)
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
+ * @returns the send status, its error, and whether the outcome row was written (`recorded`)
  */
 export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
-): Promise<{ status: "SUCCESS" | "FAILED"; errorMessage: string | null }> {
+): Promise<{ status: "SUCCESS" | "FAILED"; errorMessage: string | null; recorded: boolean }> {
   let status: "SUCCESS" | "FAILED" = "SUCCESS"
   let errorMessage: string | null = null
   try {
@@ -193,8 +196,9 @@ export async function deliverInvoiceRequest(
   }
   const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
+  let recorded = true
   if (status === "SUCCESS") {
-    await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
+    recorded = await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
   } else if (p.last?.status === "SUCCESS") {
     await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage } })
   } else {
@@ -204,5 +208,5 @@ export async function deliverInvoiceRequest(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
     { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent },
   ), 1)
-  return { status, errorMessage }
+  return { status, errorMessage, recorded }
 }

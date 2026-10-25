@@ -1395,6 +1395,8 @@ model VenueUsage {
   notes              String?
   // Set when the date was included in a sent booking request.
   bookingRequestedAt DateTime?
+  // First time the venue was told about this row (a booking request that sent); never reset.
+  venueNotifiedAt    DateTime?
   createdById        Int?
   createdBy          User?              @relation("VenueUsageCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt          DateTime           @default(now())

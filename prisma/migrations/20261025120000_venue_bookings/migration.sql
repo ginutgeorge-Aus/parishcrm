@@ -1,5 +1,6 @@
 -- AlterTable
-ALTER TABLE "VenueUsage" ADD COLUMN "bookingRequestedAt" TIMESTAMP(3);
+ALTER TABLE "VenueUsage" ADD COLUMN "bookingRequestedAt" TIMESTAMP(3),
+ADD COLUMN "venueNotifiedAt" TIMESTAMP(3);
 
 -- AlterTable
 ALTER TABLE "VenueUsageRequest" ADD COLUMN "approvedAt" TIMESTAMP(3),

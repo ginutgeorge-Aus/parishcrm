@@ -129,6 +129,29 @@ describe("sendBookingRequest", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_BOOKING_REQUEST_SENT", "VenueUsage", undefined, { count: 2, ids: [1, 2] })
   })
 
+  it("stamps venueNotifiedAt after a successful send, only where it is still null (never on claim)", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
+    ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValue({ count: 2 })
+    await sendBookingRequest([1, 2])
+    const calls = (prisma.venueUsage.updateMany as jest.Mock).mock.calls.map((c) => c[0])
+    expect(calls[0].data).not.toHaveProperty("venueNotifiedAt")
+    const stamp = calls.find((c) => "venueNotifiedAt" in c.data)
+    expect(stamp.where).toEqual({ id: { in: [1, 2] }, venueNotifiedAt: null })
+    expect(stamp.data.venueNotifiedAt).toBeInstanceOf(Date)
+    expect((sendVenueUsageRequestEmail as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan((prisma.venueUsage.updateMany as jest.Mock).mock.invocationCallOrder[calls.indexOf(stamp)])
+  })
+
+  it("still reports success when the venueNotifiedAt stamp fails after a send", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
+    ;(prisma.venueUsage.updateMany as jest.Mock).mockResolvedValueOnce({ count: 2 }).mockRejectedValueOnce(new Error("db"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await sendBookingRequest([1, 2])).toEqual({ success: "Booking request sent for 2 dates" })
+    spy.mockRestore()
+  })
+
   it("still reports success when the audit write fails after a send", async () => {
     asRole("PASTOR")
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce(candidateRows).mockResolvedValueOnce(bookedRows)
@@ -155,6 +178,8 @@ describe("sendBookingRequest", () => {
     expect(await sendBookingRequest([1, 2])).toEqual({ error: "Could not send the email. Check email settings and try again." })
     const release = (prisma.venueUsage.updateMany as jest.Mock).mock.calls[1][0]
     expect(release.data).toEqual({ bookingRequestedAt: null })
+    const datas = (prisma.venueUsage.updateMany as jest.Mock).mock.calls.map((c) => c[0].data)
+    expect(datas.some((d) => "venueNotifiedAt" in d)).toBe(false)
     expect(release.where.bookingRequestedAt).toBeInstanceOf(Date)
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_BOOKING_REQUEST_FAILED", "VenueUsage", undefined, { count: 2, ids: [1, 2] })
   })

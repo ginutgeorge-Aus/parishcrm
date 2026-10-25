@@ -126,6 +126,19 @@ async function releaseClaim(ids: number[], claimAt: Date): Promise<void> {
 }
 
 /**
+ * Record that the venue has now been told about these rows (first time only; never reset by edits).
+ * Runs after the email went, so it never throws: a failure is logged and the send still counts.
+ * @param ids rows the sent request included
+ */
+async function markVenueNotified(ids: number[]): Promise<void> {
+  try {
+    await prisma.venueUsage.updateMany({ where: { id: { in: ids }, venueNotifiedAt: null }, data: { venueNotifiedAt: new Date() } })
+  } catch (err) {
+    console.error("Venue booking request sent but venueNotifiedAt not recorded", err)
+  }
+}
+
+/**
  * Audit-log after the outcome is decided, without ever throwing.
  * @param userId acting user id
  * @param action audit action name
@@ -142,7 +155,7 @@ async function auditBookingRequest(userId: number, action: string, ids: number[]
 /**
  * Email the venue a booking request for the ticked dates (`canEdit`; blocked in demo mode).
  * Claims the rows first (conditional `updateMany`) so a double-click cannot email twice, and
- * releases only its own claim if the send fails.
+ * releases only its own claim if the send fails. On success it stamps `venueNotifiedAt` (first time only).
  * @param ids ticked VenueUsage ids (1 to 200)
  */
 export async function sendBookingRequest(ids: number[]): Promise<{ success: string } | { error: string }> {
@@ -185,6 +198,7 @@ export async function sendBookingRequest(ids: number[]): Promise<{ success: stri
     await auditBookingRequest(g.userId, "VENUE_BOOKING_REQUEST_FAILED", claimedIds)
     return { error: "Could not send the email. Check email settings and try again." }
   }
+  await markVenueNotified(claimedIds)
   await auditBookingRequest(g.userId, "VENUE_BOOKING_REQUEST_SENT", claimedIds)
   revalidatePath("/venue-usage")
   return { success: `Booking request sent for ${claimedIds.length} ${claimedIds.length === 1 ? "date" : "dates"}` }
