@@ -14,7 +14,9 @@ import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
 import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, prepareInvoiceRequest } from "@/lib/venueInvoice"
-import { buildCancellationEmail, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { autoSendLabel } from "@/lib/venueSchedule"
+import { sydneyTodayYMD } from "@/lib/dates"
+import { buildCancellationEmail, describeIncomplete, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
 import type { VenueUsageLine } from "@/lib/venueUsage"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
@@ -56,6 +58,15 @@ export type VenueRequestPreview = {
   /** Why Send is disabled, or null when sending is allowed. */
   blockedReason: string | null
   last: { status: string | null; sentAt: string | null; errorMessage: string | null } | null
+  /** True when `month` is the current Sydney month (the only one that can be approved). */
+  isCurrentMonth: boolean
+  /** When the job sends this month's request, e.g. "1 November, 9:00 AM". */
+  autoSendLabel: string
+  approval: { approvedAt: string; approvedBy: string | null } | null
+  canApprove: boolean
+  /** Reasons the month is incomplete (empty when complete). */
+  warnings: string[]
+  autoSent: boolean
 }
 
 /** Result of a booking mutation; `approvalCleared` tells the UI to show the re-approve notice, `warning` a non-fatal problem. */
@@ -365,6 +376,7 @@ export async function getVenueRequestPreview(month: string): Promise<VenueReques
   let blockedReason: string | null = null
   if (!p.to) blockedReason = "Set the venue contact email in Settings first"
   else if (p.rows.length === 0) blockedReason = "No confirmed bookings in this month"
+  const isCurrentMonth = month === sydneyTodayYMD().slice(0, 7)
   return {
     month,
     subject: p.subject,
@@ -378,6 +390,12 @@ export async function getVenueRequestPreview(month: string): Promise<VenueReques
     last: p.last
       ? { status: p.last.status, sentAt: p.last.sentAt?.toISOString() ?? null, errorMessage: p.last.errorMessage }
       : null,
+    isCurrentMonth,
+    autoSendLabel: autoSendLabel(month),
+    approval: p.last?.approvedAt ? { approvedAt: p.last.approvedAt.toISOString(), approvedBy: p.last.approvedByName } : null,
+    canApprove: isCurrentMonth && p.completeness.complete && !!p.to && p.last?.status !== "SUCCESS",
+    warnings: describeIncomplete(p.completeness),
+    autoSent: p.last?.autoSent ?? false,
   }
 }
 

@@ -339,6 +339,7 @@ const CORE_ACTIONS = new Set([
   "emailTemplates.ts",
   // Gated by the AppSetting `venueUsage.enabled` (not a FEATURES flag): venueUsage.test.ts.
   "venueUsage.ts",
+  "venueBookings.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

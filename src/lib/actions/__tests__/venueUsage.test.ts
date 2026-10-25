@@ -244,6 +244,34 @@ describe("getVenueRequestPreview", () => {
     })
   })
 
+  it("returns approval state, auto-send label and incompleteness warnings", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-10-25T02:00:00Z"))
+    try {
+      asRole("ADMIN")
+      const rows = ["04", "11", "18", "25"].map((d) => ({
+        date: new Date(`2026-10-${d}T00:00:00Z`), startTime: "17:00", endTime: "20:00", status: "CONFIRMED",
+      }))
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows)
+      ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue({
+        status: null, sentAt: null, errorMessage: null, approvedAt: new Date("2026-10-24T00:00:00Z"),
+        autoSent: false, approvedBy: { name: "Sam Admin" },
+      })
+      const p = await getVenueRequestPreview("2026-10")
+      expect(p).toMatchObject({
+        isCurrentMonth: true, autoSendLabel: "1 November, 9:00 AM", warnings: [], autoSent: false, canApprove: true,
+        approval: { approvedAt: "2026-10-24T00:00:00.000Z", approvedBy: "Sam Admin" },
+      })
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows.slice(1))
+      const q = await getVenueRequestPreview("2026-10")
+      expect(q).toMatchObject({ canApprove: false })
+      expect((q as { warnings: string[] }).warnings[0]).toContain("No confirmed or cancelled booking for")
+      const past = await getVenueRequestPreview("2026-09")
+      expect(past).toMatchObject({ isCurrentMonth: false, canApprove: false })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it("flags a blocked month with no confirmed rows", async () => {
     asRole("ADMIN")
     ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([])
