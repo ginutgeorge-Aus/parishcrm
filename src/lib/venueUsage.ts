@@ -330,3 +330,84 @@ export function parseCcList(value: string): { ok: true; list: string[] } | { ok:
   if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` }
   return { ok: true, list }
 }
+
+/**
+ * Every Sunday in a month as "YYYY-MM-DD", ascending (UTC calendar arithmetic, server-timezone independent).
+ * @param month "YYYY-MM"
+ * @throws RangeError when malformed
+ */
+export function sundaysInMonth(month: string): string[] {
+  const { start, end } = monthRange(month)
+  const d = new Date(start)
+  d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7))
+  const out: string[] = []
+  for (; d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 7)) out.push(utcDateToYmd(d))
+  return out
+}
+
+/**
+ * Shift a month key by whole months (negative goes back; crosses year boundaries).
+ * @param month "YYYY-MM"
+ * @param delta months to add
+ * @throws RangeError when malformed
+ */
+export function addMonths(month: string, delta: number): string {
+  const m = MONTH_RE.exec(month)
+  if (!m) throw new RangeError("Invalid month")
+  const index = Number(m[1]) * 12 + (Number(m[2]) - 1) + delta
+  const year = Math.floor(index / 12)
+  const mo = (((index % 12) + 12) % 12) + 1
+  return `${year}-${String(mo).padStart(2, "0")}`
+}
+
+/** A usage row reduced to what the completeness check needs. */
+export type CompletenessRow = { date: Date; status: VenueBookingStatusValue }
+
+/** Result of {@link monthCompleteness}. */
+export type MonthCompleteness = {
+  complete: boolean
+  /** Sundays ("YYYY-MM-DD") with no CONFIRMED or CANCELLED row. */
+  missingSundays: string[]
+  requestedCount: number
+  confirmedCount: number
+}
+
+/**
+ * Whether a month is ready for the automatic invoice request: every Sunday has at least one
+ * CONFIRMED or CANCELLED row, no row in the month is REQUESTED, and at least one row is CONFIRMED.
+ * Rows outside `month` are ignored.
+ * @param month "YYYY-MM"
+ * @param rows usage rows (any month)
+ */
+export function monthCompleteness(month: string, rows: readonly CompletenessRow[]): MonthCompleteness {
+  const inMonth = rows.filter((r) => utcDateToYmd(r.date).startsWith(`${month}-`))
+  const requestedCount = inMonth.filter((r) => r.status === "REQUESTED").length
+  const confirmedCount = inMonth.filter((r) => r.status === "CONFIRMED").length
+  const settled = new Set(inMonth.filter((r) => r.status !== "REQUESTED").map((r) => utcDateToYmd(r.date)))
+  const missingSundays = sundaysInMonth(month).filter((s) => !settled.has(s))
+  return {
+    complete: requestedCount === 0 && confirmedCount > 0 && missingSundays.length === 0,
+    missingSundays,
+    requestedCount,
+    confirmedCount,
+  }
+}
+
+/**
+ * Human reasons a month is not complete, in a stable order; `[]` when it is complete.
+ * Shared by the admin warnings and the scheduler's reminder email.
+ * @param c result of {@link monthCompleteness}
+ */
+export function describeIncomplete(c: MonthCompleteness): string[] {
+  const reasons: string[] = []
+  if (c.requestedCount > 0) {
+    reasons.push(`${c.requestedCount} ${c.requestedCount === 1 ? "date is" : "dates are"} still marked Requested`)
+  }
+  if (c.missingSundays.length > 0) {
+    reasons.push(
+      `No confirmed or cancelled booking for: ${c.missingSundays.map((s) => formatUsageDate(ymdToUtcDate(s))).join("; ")}`,
+    )
+  }
+  if (c.confirmedCount === 0) reasons.push("No confirmed bookings in this month")
+  return reasons
+}

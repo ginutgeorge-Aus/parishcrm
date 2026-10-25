@@ -4,6 +4,7 @@ import {
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
   parseCcList, MAX_BOOKING_CC,
+  sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
 } from "@/lib/venueUsage"
 
 const d = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`)
@@ -269,5 +270,60 @@ describe("parseCcList", () => {
   it("rejects more than the maximum", () => {
     const many = Array.from({ length: MAX_BOOKING_CC + 1 }, (_, i) => `u${i}@example.com`).join(",")
     expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` })
+  })
+})
+
+describe("sundaysInMonth / addMonths", () => {
+  it("lists every Sunday of a month", () => {
+    expect(sundaysInMonth("2026-09")).toEqual(["2026-09-06", "2026-09-13", "2026-09-20", "2026-09-27"])
+    expect(sundaysInMonth("2026-11")).toEqual(["2026-11-01", "2026-11-08", "2026-11-15", "2026-11-22", "2026-11-29"])
+    expect(sundaysInMonth("2027-01")).toEqual(["2027-01-03", "2027-01-10", "2027-01-17", "2027-01-24", "2027-01-31"])
+  })
+  it("handles a leap February", () => {
+    expect(sundaysInMonth("2028-02")).toEqual(["2028-02-06", "2028-02-13", "2028-02-20", "2028-02-27"])
+  })
+  it("rejects a malformed month", () => {
+    expect(() => sundaysInMonth("2026-13")).toThrow(RangeError)
+  })
+  it("adds months across year boundaries", () => {
+    expect(addMonths("2026-12", 1)).toBe("2027-01")
+    expect(addMonths("2026-01", -1)).toBe("2025-12")
+    expect(addMonths("2026-10", -12)).toBe("2025-10")
+    expect(addMonths("2026-10", 6)).toBe("2027-04")
+  })
+})
+
+describe("monthCompleteness", () => {
+  const d = (ymd: string) => new Date(`${ymd}T00:00:00Z`)
+  const sep = (day: string, status: "REQUESTED" | "CONFIRMED" | "CANCELLED") => ({ date: d(`2026-09-${day}`), status })
+  it("is complete when every Sunday is confirmed or cancelled and one is confirmed", () => {
+    const c = monthCompleteness("2026-09", [sep("06", "CONFIRMED"), sep("13", "CANCELLED"), sep("20", "CONFIRMED"), sep("27", "CONFIRMED")])
+    expect(c).toEqual({ complete: true, missingSundays: [], requestedCount: 0, confirmedCount: 3 })
+    expect(describeIncomplete(c)).toEqual([])
+  })
+  it("is incomplete with a Sunday that has no row", () => {
+    const c = monthCompleteness("2026-09", [sep("06", "CONFIRMED"), sep("20", "CONFIRMED"), sep("27", "CONFIRMED")])
+    expect(c.complete).toBe(false)
+    expect(c.missingSundays).toEqual(["2026-09-13"])
+    expect(describeIncomplete(c)).toEqual(["No confirmed or cancelled booking for: Sunday, 13 September"])
+  })
+  it("is incomplete while any row is still REQUESTED (even on a non-Sunday)", () => {
+    const c = monthCompleteness("2026-09", [
+      sep("06", "CONFIRMED"), sep("13", "CONFIRMED"), sep("20", "CONFIRMED"), sep("27", "CONFIRMED"), sep("10", "REQUESTED"),
+    ])
+    expect(c.complete).toBe(false)
+    expect(describeIncomplete(c)).toEqual(["1 date is still marked Requested"])
+  })
+  it("is incomplete with nothing confirmed", () => {
+    const c = monthCompleteness("2026-09", ["06", "13", "20", "27"].map((x) => sep(x, "CANCELLED")))
+    expect(c.complete).toBe(false)
+    expect(describeIncomplete(c)).toEqual(["No confirmed bookings in this month"])
+  })
+  it("ignores rows outside the month and counts a Sunday settled by a second row", () => {
+    const c = monthCompleteness("2026-09", [
+      { date: d("2026-08-30"), status: "REQUESTED" },
+      sep("06", "CANCELLED"), sep("06", "CONFIRMED"), sep("13", "CONFIRMED"), sep("20", "CONFIRMED"), sep("27", "CONFIRMED"),
+    ])
+    expect(c.complete).toBe(true)
   })
 })
