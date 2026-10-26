@@ -16,7 +16,7 @@ import { SettingsRow } from "./ui/SettingsRow"
  * @param props the current saved settings
  */
 export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueUsageSettings }>) {
-  const [state, formAction, isPending, keep] = useKeepFormValues(updateVenueUsageSettings)
+  const [state, formAction, isPending, keep, keepChecked] = useKeepFormValues(updateVenueUsageSettings)
   const { ref } = useFormDirty(state)
 
   return (
@@ -31,7 +31,7 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
             id="venue-enabled"
             name="enabled"
             type="checkbox"
-            defaultChecked={settings.enabled}
+            defaultChecked={keepChecked("enabled", settings.enabled)}
             className="size-5 accent-primary"
           />
         </SettingsRow>

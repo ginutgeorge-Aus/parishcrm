@@ -131,6 +131,13 @@ it("rejects an invalid reporterEmail but accepts an empty string", async () => {
   expect(ok).toHaveProperty("success")
 })
 
+it("accepts a redacted pageUrl containing square brackets", async () => {
+  const r = await submitPublicFeedback({ ...feedback, pageUrl: "/venue/[token]" })
+  expect(r).toHaveProperty("success")
+  const r2 = await submitPublicFeedback({ ...feedback, pageUrl: "/family/update/[token]" })
+  expect(r2).toHaveProperty("success")
+})
+
 it("never leaks reporterEmail into the GitHub issue", async () => {
   await submitPublicFeedback({ ...bug, reporterEmail: "visitor@example.com" })
   const call = mockCreateIssue.mock.calls[0][0]

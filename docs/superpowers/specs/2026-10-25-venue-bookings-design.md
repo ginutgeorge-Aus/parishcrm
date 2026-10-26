@@ -26,7 +26,7 @@ committee-submitted requests, standing/recurring bookings, multiple venues.
 | Field | Notes |
 |---|---|
 | `date` `@db.Date` | UTC-midnight calendar date |
-| `startTime`, `endTime` | `"HH:mm"`, 30-min steps, end > start, no overnight |
+| `startTime`, `endTime` | `"HH:mm"` (any minute; the time inputs use the browser default step), end > start, no overnight |
 | `status` `VenueBookingStatus` | `REQUESTED` \| `CONFIRMED` \| `CANCELLED` |
 | `purpose String?` | **Public** (shown on the calendar) |
 | `notes String?` | Private |
@@ -45,8 +45,10 @@ Existing: `sentAt`, `sentTo` (encrypted), `status`, `errorMessage`, `sentById`,
 ### Settings (`AppSetting`, allowlisted)
 Existing: `venueUsage.enabled`, `.venueName`, `.contactName`, `.contactEmail`,
 `.ccEmail` (invoice CC), `.replyToEmail`.
-**New:** `.bookingCcEmails` (comma-separated, each validated), `.calendarToken`
-(CSPRNG, unset = calendar disabled; "Reset link" mints a new one).
+**New:** `.bookingCcEmails` (comma-separated, each validated).
+The calendar token is stored in its own `AppSetting` key (`VENUE_CALENDAR_TOKEN_KEY` in
+`src/lib/venueCalendar.ts`), outside the settings allowlist (CSPRNG, unset = calendar
+disabled; "Reset link" mints a new one).
 
 ### Rules
 - Invoice request and totals count **CONFIRMED** rows in the month only.
@@ -97,7 +99,7 @@ values HTML-escaped.
 
 ## Monthly job (in-app scheduler)
 
-Runs daily; acts only when Sydney date is the 1st and Sydney time ≥ 09:00. For the previous
+Runs daily; acts only inside the window `venueJobWindowOpen` (`src/lib/venueSchedule.ts`): Sydney day 1 to 7 of the month, from 09:00. A month already sent is left alone, so later days of the window do nothing. For the previous
 month:
 1. Feature disabled or no contact email → no-op.
 2. Claim the month's `VenueUsageRequest` via an atomic lease on `reminderClaimedAt`

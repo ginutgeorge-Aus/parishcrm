@@ -1,7 +1,9 @@
 /** @jest-environment node */
 import VenueUsagePage from "../page"
 import { auth } from "@/auth"
+import { redirect } from "next/navigation"
 import { readCalendarToken } from "@/lib/venueCalendarToken"
+import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -44,5 +46,12 @@ it("passes null when no token exists", async () => {
 it("redirects a non-editor before reading the token", async () => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "3", role: "VIEWER" } })
   await expect(VenueUsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT")
+  expect(readCalendarToken).not.toHaveBeenCalled()
+})
+it("redirects an editor when venue bookings is disabled", async () => {
+  ;(readVenueUsageSettings as jest.Mock).mockResolvedValueOnce({ enabled: false, venueName: "" })
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  await expect(VenueUsagePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT")
+  expect(redirect).toHaveBeenCalled()
   expect(readCalendarToken).not.toHaveBeenCalled()
 })

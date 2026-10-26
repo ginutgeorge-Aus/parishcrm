@@ -30,8 +30,8 @@ const clientSchema = z
   .optional()
 
 // App-relative pathname only — restrict to safe path chars so nothing can be
-// injected into the **Page:** line.
-const pageUrl = z.string().regex(/^\/[\w\-./?=&%]*$/, "Invalid page URL").max(300).optional()
+// injected into the **Page:** line. `[` and `]` allowed for redacted paths like /venue/[token].
+const pageUrl = z.string().regex(/^\/[\w\-./?=&%[\]]*$/, "Invalid page URL").max(300).optional()
 
 // Empty string is treated as "not provided"; any non-empty value must be a
 // valid email. Bounded length either way.

@@ -61,7 +61,7 @@ Each email is a React Email component (`src/lib/emails/*.tsx`) rendered to both 
 
 ### Scheduled sends
 
-Event reminders and birthday/anniversary emails are sent by the app's in-process scheduler, on by default in production (`IN_APP_CRON`); the monthly clearance digest runs there too once `CLEARANCE_DIGEST=true` is set, and the monthly venue invoice job runs there when Venue bookings is enabled. On a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the bearer-authenticated `/api/cron/*` endpoints from an external scheduler instead — see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
+Event reminders and birthday/anniversary emails are sent by the app's in-process scheduler, on by default in production (`IN_APP_CRON`); the monthly clearance digest runs there too once `CLEARANCE_DIGEST=true` is set, and the monthly venue invoice job runs there when Venue bookings is enabled (it has no `/api/cron` endpoint, so with `IN_APP_CRON=false` staff must send venue invoice requests manually from the Venue bookings page). On a host that sleeps or scales to zero, set `IN_APP_CRON=false` and call the bearer-authenticated `/api/cron/*` endpoints from an external scheduler instead — see [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
 
 ### Customizable templates
 

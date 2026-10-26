@@ -36,18 +36,25 @@ export function InvoiceRequestPanel({ defaultMonth, dataVersion = 0, onApproved 
   const [loadError, setLoadError] = useState<string | null>(null)
   const [result, setResult] = useState<{ error?: string; success?: string } | undefined>()
   const [reloadKey, setReloadKey] = useState(0)
+  const [withdrawing, setWithdrawing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const p = await getVenueRequestPreview(reqMonth)
-      if (cancelled) return
-      if ("error" in p) {
+      try {
+        const p = await getVenueRequestPreview(reqMonth)
+        if (cancelled) return
+        if ("error" in p) {
+          setPreview(null)
+          setLoadError(p.error)
+        } else {
+          setLoadError(null)
+          setPreview(p)
+        }
+      } catch {
+        if (cancelled) return
         setPreview(null)
-        setLoadError(p.error)
-      } else {
-        setLoadError(null)
-        setPreview(p)
+        setLoadError("Could not load the invoice request preview. Please try again.")
       }
     })()
     return () => { cancelled = true }
@@ -76,10 +83,17 @@ export function InvoiceRequestPanel({ defaultMonth, dataVersion = 0, onApproved 
 
   /** Withdraw the shown month's approval so the job will not send it. */
   async function withdraw() {
-    if (!preview) return
-    const r = await withdrawVenueApproval(preview.month)
-    setResult(r)
-    setReloadKey((k) => k + 1)
+    if (!preview || withdrawing) return
+    setWithdrawing(true)
+    try {
+      const r = await withdrawVenueApproval(preview.month)
+      setResult(r)
+      setReloadKey((k) => k + 1)
+    } catch {
+      setResult({ error: "Could not withdraw the approval. Please try again." })
+    } finally {
+      setWithdrawing(false)
+    }
   }
 
   return (
@@ -136,7 +150,7 @@ export function InvoiceRequestPanel({ defaultMonth, dataVersion = 0, onApproved 
                     Approved by {preview.approval.approvedBy ?? "a former user"} on{" "}
                     {formatSydneyDate(new Date(preview.approval.approvedAt))}; will be sent on {preview.autoSendLabel}.
                   </p>
-                  <Button variant="outline" onClick={() => void withdraw()}>Withdraw approval</Button>
+                  <Button variant="outline" disabled={withdrawing} onClick={() => void withdraw()}>{withdrawing ? "Withdrawing…" : "Withdraw approval"}</Button>
                 </>
               ) : (
                 <DeleteConfirmButton

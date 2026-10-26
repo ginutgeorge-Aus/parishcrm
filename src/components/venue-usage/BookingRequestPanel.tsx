@@ -32,15 +32,21 @@ export function BookingRequestPanel({ dataVersion = 0, onSent }: Readonly<{ data
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const p = await getBookingRequestPreview(wanted)
-      if (cancelled) return
-      if ("error" in p) {
-        setLoadError(p.error)
-        return
+      try {
+        const p = await getBookingRequestPreview(wanted)
+        if (cancelled) return
+        if ("error" in p) {
+          setLoadError(p.error)
+          return
+        }
+        setLoadError(null)
+        setPreview(p)
+        setTicked(p.selectedIds)
+      } catch {
+        if (cancelled) return
+        setPreview(null)
+        setLoadError("Could not load the booking request preview. Please try again.")
       }
-      setLoadError(null)
-      setPreview(p)
-      setTicked(p.selectedIds)
     })()
     return () => { cancelled = true }
   }, [wanted, reloadKey, dataVersion])
