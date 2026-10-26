@@ -94,6 +94,7 @@ function isValidRow(r: unknown): r is ReviewRow {
     (row.personId === null || typeof row.personId === "number") &&
     typeof row.skip === "boolean" &&
     typeof row.isDuplicate === "boolean" &&
+    (row.isPossibleDuplicate === undefined || typeof row.isPossibleDuplicate === "boolean") &&
     typeof row.fromPettyCash === "boolean" &&
     (row.splits === undefined ||
       (Array.isArray(row.splits) && row.splits.every(isValidSplit)))
@@ -222,7 +223,7 @@ export function mergeDraftSelections(newRows: ReviewRow[], prevRows: ReviewRow[]
       splits: prev.splits,
       // duplicates flagged by the new upload stay pre-skipped; otherwise the
       // user's skip choice wins
-      skip: r.isDuplicate ? true : prev.skip,
+      skip: r.isDuplicate || r.isPossibleDuplicate ? true : prev.skip,
       fromPettyCash: prev.fromPettyCash,
     }
   })

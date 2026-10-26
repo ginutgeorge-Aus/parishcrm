@@ -223,6 +223,28 @@ describe("saveDraft / loadDraft / clearDraft", () => {
   })
 })
 
+describe("isPossibleDuplicate flag", () => {
+  it("round-trips a row with isPossibleDuplicate", () => {
+    const draft = makeDraft({ rows: [makeRow({ isPossibleDuplicate: true })] })
+    saveDraft(draft)
+    expect(loadDraft()).toEqual(draft)
+  })
+
+  it("rejects a non-boolean isPossibleDuplicate", () => {
+    sessionStorage.setItem(
+      "bankImportDraft.v1",
+      JSON.stringify(makeDraft({ rows: [makeRow({ isPossibleDuplicate: "yes" as never })] })),
+    )
+    expect(loadDraft()).toBeNull()
+  })
+
+  it("keeps possible duplicates pre-skipped on re-upload", () => {
+    const prev = [makeRow({ bankRef: "ANZ_1", skip: false })]
+    const fresh = [makeRow({ bankRef: "ANZ_1", isPossibleDuplicate: true, skip: true })]
+    expect(mergeDraftSelections(fresh, prev)[0].skip).toBe(true)
+  })
+})
+
 describe("clearMismatchedAccountIds", () => {
   const accounts = [
     { id: 1, code: "4001", name: "Tithes", type: "INCOME" as const },
