@@ -14,7 +14,7 @@ describe("whatsNew", () => {
 
   it("each entry has a version, date, and at least one highlight", () => {
     for (const e of WHATS_NEW) {
-      expect(e.version).toMatch(/^v\d+\.\d+\.\d+$/)
+      expect(e.version).toMatch(/^(pre-OSS )?v\d+\.\d+\.\d+$/)
       expect(e.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
       expect(e.highlights.length).toBeGreaterThan(0)
     }

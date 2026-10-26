@@ -8,10 +8,10 @@ afterEach(() => {
 
 describe("WhatsNewFooter", () => {
   it("shows the version + highlights + history link on a version match", () => {
-    process.env.NEXT_PUBLIC_APP_VERSION = "v1.10.0"
+    process.env.NEXT_PUBLIC_APP_VERSION = "v1.9.0"
     render(<WhatsNewFooter />)
-    expect(screen.getByText(/v1\.10\.0/)).toBeInTheDocument()
-    expect(screen.getByText(/Annual giving summary report/)).toBeInTheDocument()
+    expect(screen.getByText(/v1\.9\.0/)).toBeInTheDocument()
+    expect(screen.getByText(/warmer, calmer colour scheme/)).toBeInTheDocument()
     const link = screen.getByRole("link", { name: /see all updates/i })
     expect(link).toHaveAttribute("href", "/whats-new")
   })
@@ -20,6 +20,6 @@ describe("WhatsNewFooter", () => {
     process.env.NEXT_PUBLIC_APP_VERSION = "dev"
     render(<WhatsNewFooter />)
     expect(screen.getByRole("link", { name: /see all updates/i })).toHaveAttribute("href", "/whats-new")
-    expect(screen.queryByText(/Annual giving summary report/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/warmer, calmer colour scheme/)).not.toBeInTheDocument()
   })
 })

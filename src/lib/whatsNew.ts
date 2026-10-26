@@ -7,6 +7,10 @@
 // version string as the git tag, alongside the CHANGELOG [Unreleased] rename.
 // __tests__/lib/whatsNew.test.ts fails on the release PR until the top entry
 // matches the new package.json version, so an entry can't be skipped.
+//
+// Entries labelled "pre-OSS v1.x" shipped under the old pre-OSS numbering
+// (v1.10.0–v1.50.1). They carry the prefix so they never clash with the
+// current version line.
 
 export type WhatsNewEntry = {
   version: string // matches the git tag / NEXT_PUBLIC_APP_VERSION, e.g. "v1.10.0"
@@ -15,6 +19,15 @@ export type WhatsNewEntry = {
 }
 
 export const WHATS_NEW: WhatsNewEntry[] = [
+  {
+    version: "v1.10.0",
+    date: "2026-10-26",
+    highlights: [
+      "New Venue bookings page: book church spaces, add all Sundays at once, and confirm or cancel several bookings together.",
+      "Send booking and invoice requests to the venue by email, with approval before they go out.",
+      "Share a read-only calendar link so committees can see confirmed and pending bookings.",
+    ],
+  },
   {
     version: "v1.9.1",
     date: "2026-10-25",
@@ -114,14 +127,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.50.1",
+    version: "pre-OSS v1.50.1",
     date: "2026-09-25",
     highlights: [
       "The site footer now credits ParishCRM, the open-source software behind this app.",
     ],
   },
   {
-    version: "v1.50.0",
+    version: "pre-OSS v1.50.0",
     date: "2026-09-24",
     highlights: [
       "Event check-in lists now pick up attendees and check-ins made on another device.",
@@ -131,7 +144,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.49.0",
+    version: "pre-OSS v1.49.0",
     date: "2026-09-24",
     highlights: [
       "Bank and cash accounts are now set up in Settings → Accounting — add, rename, choose the default, or deactivate accounts. All existing accounts and history carry over unchanged.",
@@ -141,7 +154,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.48.0",
+    version: "pre-OSS v1.48.0",
     date: "2026-09-16",
     highlights: [
       "An administrator can now set the church's look from App Settings → Branding — upload the logo, crest, app/PWA icon and PDF letterhead, and they appear everywhere: the login screen, sidebar, public pages, browser tab, and receipt and letter PDFs. “Reset” restores the built-in default for any slot.",
@@ -149,35 +162,35 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.47.0",
+    version: "pre-OSS v1.47.0",
     date: "2026-09-10",
     highlights: [
       "Payment-reminder emails now let a registrant pay by card. Each unpaid person's reminder links straight to their own booking (with the bank-transfer details and reference), and for events that take online payment they can choose Pay now by card instead — it marks them paid without creating a duplicate registration.",
     ],
   },
   {
-    version: "v1.46.0",
+    version: "pre-OSS v1.46.0",
     date: "2026-09-07",
     highlights: [
       "You can now email unpaid event registrants a payment reminder — from an event's registrations (or your managed event), pick the registrations that still owe, edit the message if you like, and send each one a reminder with a link to pay. The table shows when each person was last reminded.",
     ],
   },
   {
-    version: "v1.45.0",
+    version: "pre-OSS v1.45.0",
     date: "2026-09-04",
     highlights: [
       "You can now add your own greeting and sign-off around each birthday and anniversary blessing email, and send yourself a test copy from App Settings → Email templates before turning them on.",
     ],
   },
   {
-    version: "v1.44.0",
+    version: "pre-OSS v1.44.0",
     date: "2026-09-02",
     highlights: [
       "New members now consent to church emails by default — the consent box on the person form starts ticked, and every existing member has been set to consenting. You can still untick it per person to opt someone out.",
     ],
   },
   {
-    version: "v1.43.0",
+    version: "pre-OSS v1.43.0",
     date: "2026-09-02",
     highlights: [
       "You can now send a written birthday or wedding-anniversary blessing to members straight from People → Birthdays and the new People → Anniversaries page. The birthday message adapts to the member’s gender and the anniversary message names both spouses.",
@@ -186,7 +199,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.42.0",
+    version: "pre-OSS v1.42.0",
     date: "2026-09-01",
     highlights: [
       "Data tables now stack into readable cards on your phone instead of scrolling sideways — event registrations, reconcile, bank review, send receipts, ledger, audit log, families, funds, dues, and more all read cleanly on a small screen.",
@@ -195,7 +208,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.41.0",
+    version: "pre-OSS v1.41.0",
     date: "2026-08-31",
     highlights: [
       "New: generate a branded new-member welcome letter for a family — edit the draft, preview the PDF, and email it to selected family members. Set up your bank accounts and default signer under App Settings → Welcome Letter.",
@@ -208,14 +221,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.40.1",
+    version: "pre-OSS v1.40.1",
     date: "2026-08-17",
     highlights: [
       "Fixed a bug where saving an event did nothing if tiered pricing was switched off — the form now saves reliably whether tiered pricing is on or off.",
     ],
   },
   {
-    version: "v1.40.0",
+    version: "pre-OSS v1.40.0",
     date: "2026-08-17",
     highlights: [
       "Event organisers can now close registration — either manually with a toggle or automatically on a deadline you set. Once closed, the public event page shows a “registration closed — contact the organiser” message instead of the booking form.",
@@ -223,7 +236,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.39.0",
+    version: "pre-OSS v1.39.0",
     date: "2026-08-13",
     highlights: [
       "Event registration lists now have a “Method” column — Card for online payments, Bank transfer for offline bookings — so you can see at a glance how each person paid.",
@@ -232,7 +245,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.38.3",
+    version: "pre-OSS v1.38.3",
     date: "2026-08-11",
     highlights: [
       "Fixed an occasional failure when paying online for an event — some payers were shown an error instead of the Stripe checkout page. Card payments now open reliably.",
@@ -241,7 +254,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.38.2",
+    version: "pre-OSS v1.38.2",
     date: "2026-08-05",
     highlights: [
       "A brief “we’ll be back shortly” maintenance page now appears automatically while an update is being deployed, instead of a half-updated app.",
@@ -250,14 +263,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.38.1",
+    version: "pre-OSS v1.38.1",
     date: "2026-08-03",
     highlights: [
       "Fixed online card payments for events with a family discount (tiered pricing or fee waiver): the payer was being charged the full undiscounted price and then no registration was created. Discounted events now charge the correct total and record the registration reliably.",
     ],
   },
   {
-    version: "v1.38.0",
+    version: "pre-OSS v1.38.0",
     date: "2026-08-03",
     highlights: [
       "New Event Organiser role: you can now give a volunteer a login that only sees the events you assign them. They get a “My Events” area where they can view and export (CSV + PDF) the registration list for those events — and nothing else. Assign organisers from an event's registrations page, and create their account under Users.",
@@ -265,21 +278,21 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.37.2",
+    version: "pre-OSS v1.37.2",
     date: "2026-08-02",
     highlights: [
       "Fixed event times showing about 11 hours off — an 8:30 AM event was appearing as 7:30 PM on the confirmation email, calendar file and event page. Event times are now saved and shown correctly in Sydney time. Please re-save each existing event once so its time is corrected.",
     ],
   },
   {
-    version: "v1.37.1",
+    version: "pre-OSS v1.37.1",
     date: "2026-08-01",
     highlights: [
       "Fixed the church crest showing as a broken image in the header of public event and registration pages — it now displays correctly for visitors who aren’t logged in.",
     ],
   },
   {
-    version: "v1.37.0",
+    version: "pre-OSS v1.37.0",
     date: "2026-08-01",
     highlights: [
       "Event organiser contacts (name and phone) now also appear on the registration confirmation email, the post-registration success page, and the pre-event reminder email — not just the public event page — so registrants always know who to contact.",
@@ -288,7 +301,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.36.0",
+    version: "pre-OSS v1.36.0",
     date: "2026-07-31",
     highlights: [
       "Event consent questions can now list several statements, each with its own required tick plus a final “I have read and agree to the above” box — handy for waivers or policies with multiple points to acknowledge. Add one statement per line in the question editor.",
@@ -298,7 +311,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.35.2",
+    version: "pre-OSS v1.35.2",
     date: "2026-07-31",
     highlights: [
       "Fixed the grand-total row on the Cash Flow and Giving Summary reports, which could show a figure 100× too large (the individual line items were always correct).",
@@ -308,14 +321,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.35.1",
+    version: "pre-OSS v1.35.1",
     date: "2026-07-30",
     highlights: [
       "Fixed the church logo showing as a broken image in the sidebar — it now displays correctly again.",
     ],
   },
   {
-    version: "v1.35.0",
+    version: "pre-OSS v1.35.0",
     date: "2026-07-29",
     highlights: [
       "Multiple-choice questions on event registration forms can now include an “Other” option that lets people type in their own answer, so you're no longer limited to the preset choices.",
@@ -323,21 +336,21 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.34.0",
+    version: "pre-OSS v1.34.0",
     date: "2026-07-28",
     highlights: [
       "You can now track giving and spending by fund or ministry (e.g. Building Fund, Sunday School). Tag any transaction or petty-cash entry with a fund, then see a per-fund income, expense and net summary in Accounting → Reports. Set up your funds under Accounting → Settings (admins only).",
     ],
   },
   {
-    version: "v1.33.0",
+    version: "pre-OSS v1.33.0",
     date: "2026-07-23",
     highlights: [
       "Each event now has a private volunteer share link you can send to helpers — they can see live how many spots are filled and who has booked and paid, on their phone, without needing to log in. Turn it on (and regenerate the link) from the event's registrations page.",
     ],
   },
   {
-    version: "v1.32.0",
+    version: "pre-OSS v1.32.0",
     date: "2026-07-23",
     highlights: [
       "Before a draft event goes live, admins can now clear out all test registrations, waitlist entries and unfinished checkouts in one click from the event's registrations page — a clean slate for the real launch.",
@@ -346,14 +359,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.31.0",
+    version: "pre-OSS v1.31.0",
     date: "2026-07-23",
     highlights: [
       "Events can now waive fees for larger families: once a family registers more than a set number of members, the extra members are free. You can exclude ticket types (like Visitor) so they always pay full price.",
     ],
   },
   {
-    version: "v1.30.3",
+    version: "pre-OSS v1.30.3",
     date: "2026-07-20",
     highlights: [
       "Fixed a rare error when two admins approved the same membership application at the same time.",
@@ -361,7 +374,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.30.0",
+    version: "pre-OSS v1.30.0",
     date: "2026-07-17",
     highlights: [
       "Paid events can now take card payments online. Turn on “online card payment” when editing an event, and registrants can choose to pay now by card (via Stripe) or pay later by bank transfer.",
@@ -373,7 +386,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.29.0",
+    version: "pre-OSS v1.29.0",
     date: "2026-07-14",
     highlights: [
       "The Privacy Policy is now linked in the footer on every page, and the policy has more detail on data security, cookies and how to contact us.",
@@ -381,7 +394,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.28.0",
+    version: "pre-OSS v1.28.0",
     date: "2026-07-12",
     highlights: [
       "Attach receipts and invoices to any transaction (Xero-style): upload JPEG, PNG or PDF files and view them from the transaction detail page.",
@@ -390,7 +403,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.27.2",
+    version: "pre-OSS v1.27.2",
     date: "2026-07-11",
     highlights: [
       "The public pages (membership form, event tickets, privacy and family-update links) are now easier to use with a screen reader or keyboard — a skip-to-content link, clearer page titles, and status messages that read out when a form is submitting or has an error.",
@@ -398,7 +411,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.27.1",
+    version: "pre-OSS v1.27.1",
     date: "2026-07-10",
     highlights: [
       "The public membership form now carries the official church letterhead at the top, and the secretary’s new-application email now includes a branded PDF of the completed form (all sections, family details and signature) — so it can be read and filed without logging in.",
@@ -407,7 +420,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.27.0",
+    version: "pre-OSS v1.27.0",
     date: "2026-07-10",
     highlights: [
       "Automated event reminder emails — when creating or editing an event, set a “Send reminder (days before)” lead time and every registrant is emailed a reminder once, that many days before the event.",
@@ -417,21 +430,21 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.26.2",
+    version: "pre-OSS v1.26.2",
     date: "2026-07-09",
     highlights: [
       "The downloadable annual DGR receipt PDF now has a professionally branded layout — church letterhead with crest, name, address and ABN, an itemised donation table, and a highlighted tax-deductible total — replacing the old plain-text version. Long lists of gifts flow neatly across pages.",
     ],
   },
   {
-    version: "v1.26.1",
+    version: "pre-OSS v1.26.1",
     date: "2026-07-09",
     highlights: [
       "The email that carries an annual DGR donation receipt now has a professional branded layout — a church header, the total tax-deductible amount, and an official footer with ABN and address — matching the look of the app’s transaction receipts (the receipt PDF is unchanged).",
     ],
   },
   {
-    version: "v1.26.0",
+    version: "pre-OSS v1.26.0",
     date: "2026-07-08",
     highlights: [
       "Annual DGR receipts now email and download reliably — a problem that was marking them as “failed” has been fixed. Any receipt still showing Failed can be re-sent after editing it once.",
@@ -439,7 +452,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.25.0",
+    version: "pre-OSS v1.25.0",
     date: "2026-07-08",
     highlights: [
       "Annual tax receipts for tithes and donations — go to Accounting → DGR Receipts, pick a person and financial year, enter their dated gifts, and the app produces a numbered ATO-format receipt PDF and emails it to them.",
@@ -448,7 +461,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.24.0",
+    version: "pre-OSS v1.24.0",
     date: "2026-07-06",
     highlights: [
       "Event check-in by QR code — the registration success page now shows a scannable check-in code, and the check-in screen has a Scan QR button that opens the camera to pull up a party instantly instead of typing their reference.",
@@ -458,7 +471,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.23.1",
+    version: "pre-OSS v1.23.1",
     date: "2026-07-03",
     highlights: [
       "Events can now have a full poster image — upload it on the event edit page and it shows large at the top of the public ticket page, with the title over it. You can also upload the smaller banner instead of pasting a link.",
@@ -471,7 +484,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.22.0",
+    version: "pre-OSS v1.22.0",
     date: "2026-07-02",
     highlights: [
       "Registrations page now shows per-event analytics — fill rate per ticket type, revenue breakdown by ticket, and a registrations-over-time chart.",
@@ -480,14 +493,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.21.1",
+    version: "pre-OSS v1.21.1",
     date: "2026-06-30",
     highlights: [
       "“Remember this device” now sticks across logging out — once you tick it and enter the code, that browser skips the email code for the full 14 days, even if you log out and back in the same day",
     ],
   },
   {
-    version: "v1.21.0",
+    version: "pre-OSS v1.21.0",
     date: "2026-06-28",
     highlights: [
       "Event registration questions can now be asked per attendee, not just per booking — so you can collect a dietary need or allergy for each named guest",
@@ -497,7 +510,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.20.0",
+    version: "pre-OSS v1.20.0",
     date: "2026-06-27",
     highlights: [
       "Event pages can now show a banner image, and people who register get an automatic confirmation email with payment details and an add-to-calendar link",
@@ -506,7 +519,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.19.0",
+    version: "pre-OSS v1.19.0",
     date: "2026-06-26",
     highlights: [
       "New admin “Verify” page — after each update, admins can tick off that new features and fixes work, and flag anything that doesn’t (which automatically files a bug)",
@@ -514,7 +527,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.18.0",
+    version: "pre-OSS v1.18.0",
     date: "2026-06-25",
     highlights: [
       "A more polished, consistent look across the app — refreshed colours and tables that follow the church’s brand, plus loading skeletons so pages no longer flash blank while they load",
@@ -523,7 +536,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.17.0",
+    version: "pre-OSS v1.17.0",
     date: "2026-06-25",
     highlights: [
       "New “Office Admin” role for church office staff — manage families, events and users, with read-only access to accounting",
@@ -531,7 +544,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.16.0",
+    version: "pre-OSS v1.16.0",
     date: "2026-06-25",
     highlights: [
       "The “Report Bug” button is now “Feedback” — send us a bug, a feature request, or an idea, all from one place",
@@ -539,7 +552,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.15.0",
+    version: "pre-OSS v1.15.0",
     date: "2026-06-24",
     highlights: [
       "Fresh new look — a navy and gold church theme across the whole app, with cleaner headings and a redesigned sidebar",
@@ -549,7 +562,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.14.0",
+    version: "pre-OSS v1.14.0",
     date: "2026-06-24",
     highlights: [
       "Better on phones — pages no longer scroll sideways or get cut off on small screens",
@@ -557,7 +570,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.13.0",
+    version: "pre-OSS v1.13.0",
     date: "2026-06-24",
     highlights: [
       "New “Remember this device” option at login — skip the emailed verification code for 14 days on devices you trust",
@@ -566,7 +579,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.12.0",
+    version: "pre-OSS v1.12.0",
     date: "2026-06-23",
     highlights: [
       "New Trial Balance report — debit/credit totals per account for the financial year",
@@ -575,7 +588,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.11.0",
+    version: "pre-OSS v1.11.0",
     date: "2026-06-23",
     highlights: [
       "Families can now add their marriage date when updating their details",
@@ -584,7 +597,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.10.2",
+    version: "pre-OSS v1.10.2",
     date: "2026-06-23",
     highlights: [
       "Family and registration pages now display correctly on phones",
@@ -594,7 +607,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.10.1",
+    version: "pre-OSS v1.10.1",
     date: "2026-06-20",
     highlights: [
       "Add the CRM to your phone's home screen — it now opens full-screen like an app",
@@ -603,7 +616,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
-    version: "v1.10.0",
+    version: "pre-OSS v1.10.0",
     date: "2026-06-19",
     highlights: [
       "Annual giving summary report — per-family totals for a financial year, with CSV export for acknowledgement letters",
