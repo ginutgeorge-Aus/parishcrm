@@ -26,7 +26,7 @@ it("clears approved unsent months once each and audits them", async () => {
   expect(where.OR).toEqual(UNSENT_FILTER.OR)
   expect(t.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { id: { in: [4] } }, data: { approvedAt: null, approvedById: null } })
   expect(logAuditManyTx).toHaveBeenCalledWith(tx, [
-    { userId: 7, action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: 4, metadata: { month: "2026-10", reason: "dates changed" } },
+    { userId: 7, action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: 4, metadata: { month: "2026-10", reason: "booking changed" } },
   ])
 })
 it("does nothing when no month is approved", async () => {

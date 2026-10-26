@@ -344,6 +344,10 @@ describe("renderVenueEmail", () => {
   it("leaves unknown tokens verbatim", () => {
     expect(renderVenueEmail({ ...t, body: "{nope}" }, vars).text).toContain("{nope}")
   })
+  it("splits paragraphs on CRLF line endings from a textarea", () => {
+    const crlf = { ...t, body: t.body.replace(/\n/g, "\r\n"), signoff: t.signoff.replace(/\n/g, "\r\n") }
+    expect(renderVenueEmail(crlf, vars).html).toBe(renderVenueEmail(t, vars).html)
+  })
 })
 
 describe("buildBookingRequestEmail", () => {

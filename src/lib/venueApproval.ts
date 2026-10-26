@@ -34,7 +34,7 @@ export async function clearApprovalTx(tx: Prisma.TransactionClient, months: read
   await tx.venueUsageRequest.updateMany({ where: { id: { in: approved.map((a) => a.id) } }, data: { approvedAt: null, approvedById: null } })
   await logAuditManyTx(tx, approved.map((a) => ({
     userId, action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: a.id,
-    metadata: { month: a.month, reason: "dates changed" },
+    metadata: { month: a.month, reason: "booking changed" },
   })))
   return approved.map((a) => a.month)
 }

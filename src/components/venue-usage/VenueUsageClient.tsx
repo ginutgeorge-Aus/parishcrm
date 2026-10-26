@@ -178,7 +178,10 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
               id="venue-month"
               type="month"
               value={month}
-              onChange={(e) => e.target.value && router.push(`/venue-usage?month=${e.target.value}`)}
+              onChange={(e) => {
+                const m = e.target.value
+                if (m) startTransition(() => router.push(`/venue-usage?month=${m}`))
+              }}
               className="w-44"
             />
           </div>

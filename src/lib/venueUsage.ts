@@ -261,7 +261,8 @@ export function renderVenueEmail(
   template: EmailTemplateFields,
   vars: Record<string, string>,
 ): { subject: string; text: string; html: string } {
-  const fill = (s: string) => applyVars(s, vars)
+  // Textareas submit CRLF; normalise so blank-line paragraph splits work.
+  const fill = (s: string) => applyVars(s, vars).replace(/\r\n?/g, "\n")
   const signoff = fill(template.signoff).split("\n").map((l) => l.trim()).filter(Boolean).join("\n")
   const blocks = [fill(template.intro), fill(template.body), signoff].map((b) => b.trim()).filter(Boolean)
   const paragraphs = blocks.flatMap((b) => b.split(/\n{2,}/)).map((p) => p.trim()).filter(Boolean)

@@ -9,6 +9,7 @@ import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { readCalendarToken, tokenMatches } from "@/lib/venueCalendarToken"
 import { clampCalendarMonth, type CalendarEntry } from "@/lib/venueCalendar"
 import { monthRange, utcDateToYmd } from "@/lib/venueUsage"
+import { MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
 import { VenueCalendarView } from "@/components/venue-usage/VenueCalendarView"
 
 // Always current; never cached or indexed. The token is the only secret, so the
@@ -44,7 +45,7 @@ export default async function VenueCalendarPage({ params, searchParams }: Readon
   const rows = await prisma.venueUsage.findMany({
     where: { date: { gte: start, lte: end }, status: { in: ["REQUESTED", "CONFIRMED"] } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
-    take: 200,
+    take: MAX_ROWS_PER_MONTH, // same cap writes enforce, so a full month is never cut off
     select: { id: true, date: true, startTime: true, endTime: true, purpose: true, status: true },
   })
   const entries: CalendarEntry[] = rows.map((r) => ({
