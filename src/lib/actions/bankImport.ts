@@ -36,7 +36,10 @@ export async function rememberBankImportAccount(
   if (!account) return { error: "Invalid bank account" }
 
   const row = await prisma.appSetting.findUnique({ where: { key: BANK_ACCOUNT_MAP_KEY } })
-  const value = JSON.stringify({ ...parseAccountMap(row?.value), [suffix]: paymentAccountId })
+  // Map, not a computed object key: no dynamic property write on user input.
+  const map = new Map(Object.entries(parseAccountMap(row?.value)))
+  map.set(suffix, paymentAccountId)
+  const value = JSON.stringify(Object.fromEntries(map))
   await prisma.appSetting.upsert({
     where: { key: BANK_ACCOUNT_MAP_KEY },
     create: { key: BANK_ACCOUNT_MAP_KEY, value },
