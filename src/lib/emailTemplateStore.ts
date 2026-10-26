@@ -65,6 +65,6 @@ export async function getEmailFooterTemplate(): Promise<string> {
 export async function getEmailFooter(): Promise<string> {
   const template = await getEmailFooterTemplate()
   if (!template.trim()) return ""
-  const vars = template.includes("{churchName}") ? { churchName: await getChurchName() } : {}
+  const vars: Record<string, string> = template.includes("{churchName}") ? { churchName: await getChurchName() } : {}
   return applyVars(template, vars).trim()
 }
