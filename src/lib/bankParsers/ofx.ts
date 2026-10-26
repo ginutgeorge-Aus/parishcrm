@@ -128,7 +128,7 @@ export function parseOfx(text: string): ParseResult {
     })
   })
 
-  const dates = rows.map((r) => r.date).sort()
+  const dates = rows.map((r) => r.date).sort((a, b) => a.localeCompare(b))
   const from = ofxDate(tags.find((t) => !t.close && t.name === "DTSTART")?.value) ?? dates[0] ?? ""
   const to = ofxDate(tags.find((t) => !t.close && t.name === "DTEND")?.value) ?? dates.at(-1) ?? ""
   return { rows, period: { from, to }, accountNumber, errors }

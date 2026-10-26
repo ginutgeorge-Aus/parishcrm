@@ -14,7 +14,7 @@ const MAX_DETAILS = 1000
 
 /** True when a QIF Bank or CCard type header appears on any line in the first 2000 chars (after e.g. !Option/!Account blocks). */
 export function detectQif(text: string): boolean {
-  return /^\s*!Type:(Bank|CCard)\b/im.test(text.slice(0, 2000))
+  return /^[ \t]*!Type:(Bank|CCard)\b/im.test(text.slice(0, 2000))
 }
 
 /** Split a QIF date ("25/09/2026", "5/9'26", "2026-09-30") into components. */
@@ -118,7 +118,7 @@ export function parseQif(text: string, opts: { accountKey: string; dateOrder?: Q
     })
   })
 
-  const dates = rows.map((r) => r.date).sort()
+  const dates = rows.map((r) => r.date).sort((a, b) => a.localeCompare(b))
   return {
     rows,
     period: { from: dates[0] ?? "", to: dates.at(-1) ?? "" },
