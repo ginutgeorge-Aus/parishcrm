@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 
 export type WizardStep = "source" | "upload" | "review" | "done"
 
-export const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
+const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
   { id: "source", label: "Source" },
   { id: "upload", label: "Upload" },
   { id: "review", label: "Review" },

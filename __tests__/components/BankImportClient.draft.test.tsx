@@ -153,20 +153,20 @@ describe("BankImportClient draft persistence", () => {
   })
 
   it("persists accountNumber and source in the draft", async () => {
-    seedDraft([makeRow({ accountId: null })], { accountNumber: "000111", source: "ofx" })
+    seedDraft([makeRow({ accountId: null })], { accountSuffix: "0111", source: "ofx" })
     const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     const table = await screen.findByRole("table")
     await user.selectOptions(within(table).getByText("PAYMENT FROM JOHN").closest("tr")!.querySelector("select")!, "1")
     await waitFor(() => {
       const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v1")!)
-      expect(stored.accountNumber).toBe("000111")
+      expect(stored.accountSuffix).toBe("0111")
       expect(stored.source).toBe("ofx")
     })
   })
 
   it("restores the saved source when going back to upload", async () => {
-    seedDraft([makeRow()], { accountNumber: "000111", source: "ofx" })
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
     const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
@@ -175,18 +175,18 @@ describe("BankImportClient draft persistence", () => {
   })
 
   it("remembers the restored account number after a successful import", async () => {
-    seedDraft([makeRow()], { accountNumber: "000111", source: "ofx" })
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) }) as jest.Mock
     const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
     await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
     await screen.findByText("Import complete")
-    expect(rememberBankImportAccount).toHaveBeenCalledWith("000111", 1)
+    expect(rememberBankImportAccount).toHaveBeenCalledWith("0111", 1)
   })
 
   it("startOver resets source and account number", async () => {
-    seedDraft([makeRow()], { accountNumber: "000111", source: "ofx" })
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) }) as jest.Mock
     const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)

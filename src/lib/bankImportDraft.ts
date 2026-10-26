@@ -53,9 +53,16 @@ export type BankImportDraft = {
   rows: ReviewRow[]
   period: { from: string; to: string } | null
   paymentAccountId: number | ""
-  // Optional: drafts saved before the wizard lack them.
-  accountNumber?: string
+  // Optional: drafts saved before the wizard lack them. Only the last 4
+  // digits are kept (all the account map needs); never the full number.
+  accountSuffix?: string
   source?: ImportSource
+}
+
+/** Last 4 digits of a statement account number for the draft, or undefined when it has fewer. */
+export function draftAccountSuffix(accountNumber: string): string | undefined {
+  const digits = accountNumber.replace(/\D/g, "")
+  return digits.length >= 4 ? digits.slice(-4) : undefined
 }
 
 /** Persist the in-progress review (skipped when this exact content was already imported). */
@@ -119,7 +126,7 @@ export function loadDraft(): BankImportDraft | null {
     // category was cleared on restore (deactivated account) still matches its
     // imported tombstone (round-6 codex).
     if (isImported(draftFingerprint(parsed))) return null
-    if (parsed.accountNumber !== undefined && typeof parsed.accountNumber !== "string") return null
+    if (parsed.accountSuffix !== undefined && !/^\d{4}$/.test(String(parsed.accountSuffix))) return null
     if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     return parsed
   } catch {

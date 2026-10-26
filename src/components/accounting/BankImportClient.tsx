@@ -11,7 +11,7 @@ import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
 import { applyBulkSkip } from "@/lib/bankReviewFilter"
-import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
+import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds, draftAccountSuffix } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
 // Pass-2 bankingName aliases shorter than this are too collision-prone to
@@ -100,7 +100,7 @@ export function BankImportClient({
       setRows(clearMismatchedAccountIds(draft.rows, accounts))
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
-      if (draft.accountNumber !== undefined) setAccountNumber(draft.accountNumber)
+      if (draft.accountSuffix !== undefined) setAccountNumber(draft.accountSuffix)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -115,7 +115,7 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountNumber, source })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: draftAccountSuffix(accountNumber), source })
     }
   }, [view, rows, period, paymentAccountId, accountNumber, source])
 
