@@ -1,5 +1,5 @@
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { logAuditTx } from "@/lib/audit"
+import { logAuditManyTx } from "@/lib/audit"
 import { utcDateToYmd } from "@/lib/venueUsage"
 
 /** Requests that have not been successfully sent. `status` can be null (never sent) or FAILED; SQL `!=` skips NULLs, hence the OR. */
@@ -32,8 +32,9 @@ export async function clearApprovalTx(tx: Prisma.TransactionClient, months: read
   })
   if (approved.length === 0) return []
   await tx.venueUsageRequest.updateMany({ where: { id: { in: approved.map((a) => a.id) } }, data: { approvedAt: null, approvedById: null } })
-  for (const a of approved) {
-    await logAuditTx(tx, userId, "VENUE_APPROVAL_CLEARED", "VenueUsageRequest", a.id, { month: a.month, reason: "dates changed" })
-  }
+  await logAuditManyTx(tx, approved.map((a) => ({
+    userId, action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: a.id,
+    metadata: { month: a.month, reason: "dates changed" },
+  })))
   return approved.map((a) => a.month)
 }

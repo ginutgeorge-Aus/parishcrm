@@ -101,6 +101,9 @@ async function monthWouldOverflow(tx: Prisma.TransactionClient, month: string, a
 const VENUE_KNOWS_LOCK_ERROR =
   "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
 
+const VENUE_KNOWS_CANCEL_ERROR =
+  "The venue has already been asked about this date. Cancel it from the bookings list so you can email the venue."
+
 /** Refusal when a move targets a full month. */
 const MOVE_MONTH_FULL_ERROR = `That month already holds the maximum of ${MAX_ROWS_PER_MONTH} bookings. Choose another date.`
 
@@ -139,7 +142,9 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
 /**
  * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
  * Once the venue knows a row (`venueNotifiedAt` or `bookingRequestedAt` set) its date and times are locked:
- * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}); status, purpose and notes stay editable.
+ * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}); status, purpose and notes stay editable, except that
+ * cancelling such a row here is refused ({@link VENUE_KNOWS_CANCEL_ERROR}): it must go through
+ * `setVenueUsageStatus`, which offers the cancellation email.
  * A status change resets `bookingRequestedAt` (date and times can only change on unasked rows, where it is
  * already null), so the stale "asked on" stamp disappears; purpose/notes edits leave it alone.
  * `venueNotifiedAt` is never touched: the venue still knows the row, so a later cancellation must reach them.
@@ -165,7 +170,9 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     if (!existing) return { notFound: true } as const
     const timingChanged =
       utcDateToYmd(existing.date) !== date || existing.startTime !== rest.startTime || existing.endTime !== rest.endTime
-    if (timingChanged && (existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null)) return { locked: true } as const
+    const venueKnows = existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null
+    if (timingChanged && venueKnows) return { locked: true } as const
+    if (venueKnows && existing.status !== "CANCELLED" && rest.status === "CANCELLED") return { cancelViaList: true } as const
     if (monthOfDate(existing.date) !== date.slice(0, 7) && (await monthWouldOverflow(tx, date.slice(0, 7), 1))) {
       return { full: true } as const
     }
@@ -181,6 +188,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   })
   if ("notFound" in outcome) return { error: "Booking not found" }
   if ("locked" in outcome) return { error: VENUE_KNOWS_LOCK_ERROR }
+  if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
   return mutationOk("Booking updated", outcome.months)

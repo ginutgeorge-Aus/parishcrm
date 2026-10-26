@@ -219,7 +219,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
               onChange={(e) => set("status", e.target.value as VenueBookingStatusValue)}
             >
               {VENUE_BOOKING_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                <option key={s} value={s} disabled={locked && s === "CANCELLED" && form.status !== "CANCELLED"}>
+                  {STATUS_LABEL[s]}
+                </option>
               ))}
             </select>
           </div>
@@ -245,7 +247,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
           {locked && (
             <p className="text-sm text-muted-foreground sm:col-span-2">
               The venue has already been asked about this date, so the date and times are locked. To change them,
-              cancel it (emailing the venue) and add a new booking.
+              cancel it from the bookings list (emailing the venue) and add a new booking.
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2">

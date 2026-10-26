@@ -1,6 +1,6 @@
 /** @jest-environment node */
-jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
-import { logAuditTx } from "@/lib/audit"
+jest.mock("@/lib/audit", () => ({ logAuditManyTx: jest.fn() }))
+import { logAuditManyTx } from "@/lib/audit"
 import { clearApprovalTx, monthOfDate, UNSENT_FILTER } from "@/lib/venueApproval"
 
 const makeTx = (approved: { id: number; month: string }[]) => ({
@@ -25,7 +25,9 @@ it("clears approved unsent months once each and audits them", async () => {
   expect(where.approvedAt).toEqual({ not: null })
   expect(where.OR).toEqual(UNSENT_FILTER.OR)
   expect(t.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { id: { in: [4] } }, data: { approvedAt: null, approvedById: null } })
-  expect(logAuditTx).toHaveBeenCalledWith(tx, 7, "VENUE_APPROVAL_CLEARED", "VenueUsageRequest", 4, { month: "2026-10", reason: "dates changed" })
+  expect(logAuditManyTx).toHaveBeenCalledWith(tx, [
+    { userId: 7, action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: 4, metadata: { month: "2026-10", reason: "dates changed" } },
+  ])
 })
 it("does nothing when no month is approved", async () => {
   const tx = makeTx([])

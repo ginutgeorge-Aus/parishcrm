@@ -136,7 +136,20 @@ describe("usage row CRUD", () => {
     it.each(knows)("still allows status, purpose and notes edits when %s is set", async (_n, stamps) => {
       asRole("PASTOR")
       ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, ...stamps })
-      expect(await updateVenueUsage(5, { ...validInput, status: "CANCELLED", purpose: "P", notes: "N" })).toEqual({ success: "Booking updated" })
+      expect(await updateVenueUsage(5, { ...validInput, status: "CONFIRMED", purpose: "P", notes: "N" })).toEqual({ success: "Booking updated" })
+    })
+    it.each(knows)("refuses cancelling from the edit form when %s is set (the list offers the venue email)", async (_n, stamps) => {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, ...stamps })
+      expect(await updateVenueUsage(5, { ...validInput, status: "CANCELLED" })).toEqual({
+        error: "The venue has already been asked about this date. Cancel it from the bookings list so you can email the venue.",
+      })
+      expect(prisma.venueUsage.update).not.toHaveBeenCalled()
+    })
+    it("still allows editing notes on an already-cancelled row the venue knows", async () => {
+      asRole("PASTOR")
+      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...base, status: "CANCELLED", venueNotifiedAt: new Date(), bookingRequestedAt: null })
+      expect(await updateVenueUsage(5, { ...validInput, status: "CANCELLED", notes: "N" })).toEqual({ success: "Booking updated" })
     })
     it("allows a date change on a row the venue does not know", async () => {
       asRole("PASTOR")
@@ -426,7 +439,7 @@ describe("approval invalidation", () => {
     expect(r).toEqual({ success: "Booking added", approvalCleared: true })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { id: { in: [9] } }, data: { approvedAt: null, approvedById: null } })
-    expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_APPROVAL_CLEARED", "VenueUsageRequest", 9, expect.any(Object))
+    expect(logAuditManyTx).toHaveBeenCalledWith(prisma, [expect.objectContaining({ action: "VENUE_APPROVAL_CLEARED", resourceType: "VenueUsageRequest", resourceId: 9 })])
   })
   it("a date move clears both the old and the new month", async () => {
     asRole("PASTOR")
