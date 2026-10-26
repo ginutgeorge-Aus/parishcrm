@@ -19,17 +19,22 @@ export const MEMBERSHIP_RETENTION_MONTHS = 24
 
 export const REDACTED_APPLICANT_NAME = "Redacted"
 
-// Cutoff instant: a decision made strictly before this is past retention.
-// Same month-subtraction logic as registrationRetention.retentionCutoff
-// (kept local — these modules are deliberately independent,/ have
-// different windows and no shared caller).
+/**
+ * Cutoff instant: a decision made strictly before this is past retention.
+ * Same month-subtraction logic as registrationRetention.retentionCutoff
+ * (kept local — these modules are deliberately independent, have
+ * different windows and no shared caller). UTC getters/setters keep the
+ * result independent of the host timezone.
+ */
 export function membershipRetentionCutoff(now: Date, months: number = MEMBERSHIP_RETENTION_MONTHS): Date {
   const cutoff = new Date(now)
-  const day = cutoff.getDate()
-  cutoff.setDate(1)
-  cutoff.setMonth(cutoff.getMonth() - months)
-  const lastDayOfTargetMonth = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, 0).getDate()
-  cutoff.setDate(Math.min(day, lastDayOfTargetMonth))
+  const day = cutoff.getUTCDate()
+  cutoff.setUTCDate(1)
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months)
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth() + 1, 0),
+  ).getUTCDate()
+  cutoff.setUTCDate(Math.min(day, lastDayOfTargetMonth))
   return cutoff
 }
 
