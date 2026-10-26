@@ -1,6 +1,6 @@
 # Live demo
 
-The public demo runs a tagged release with `DEMO_MODE=true` on a free host. The `demo-reset` workflow (`.github/workflows/demo-reset.yml`) wipes and reseeds its database every night at 17:00 UTC (03:00 AEST / 04:00 AEDT), then redeploys the demo. It seeds from the latest release tag, and the run fails if the demo is not serving that release (version on the login page) within about 12 minutes of the redeploy. Run it manually from the Actions tab at any time. If a seed step fails part-way, rerun the workflow.
+The public demo runs a tagged release with `DEMO_MODE=true` on a free host. The `demo-reset` workflow (`.github/workflows/demo-reset.yml`) wipes and reseeds its database every night at 17:00 UTC (03:00 AEST / 04:00 AEDT), then redeploys the demo. It seeds from the latest release tag, and the run fails if the demo is not serving that release (version on the login page) within 12 minutes of the redeploy. When that release was already live (a rerun), the check passes at once without proving the redeploy finished. Run it manually from the Actions tab at any time. If a seed step fails part-way, rerun the workflow.
 
 ## What DEMO_MODE changes
 - `/login` shows one-click "Try as <role>" buttons. They sign into `@demo.invalid` users only — no password, no 2FA.

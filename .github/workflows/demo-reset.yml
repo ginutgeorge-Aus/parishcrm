@@ -71,12 +71,15 @@ jobs:
           DEMO_URL: ${{ vars.DEMO_URL || 'https://parishcrm-demo.onrender.com' }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          for _ in $(seq 1 36); do
-            if curl -fsS -m 90 "$DEMO_URL/login" | grep -qF "· ${TAG}</p>"; then
+          url="${DEMO_URL%/}/login"
+          deadline=$((SECONDS + 720))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(curl -fsSL -m 60 "$url" 2>/dev/null) || true
+            if grep -qF "· ${TAG}</p>" <<<"$body"; then
               echo "Demo is serving $TAG"
               exit 0
             fi
             sleep 20
           done
-          echo "::error::Demo not serving $TAG after ~12 min; check the Render deploy log"
+          echo "::error::Demo not serving $TAG at $url after 12 min; check the Render deploy log"
           exit 1
