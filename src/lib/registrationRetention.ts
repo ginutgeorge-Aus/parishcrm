@@ -15,18 +15,24 @@ export const RETENTION_MONTHS = 6
 // longer be matched back to a member.
 export const REDACTED_NAME = "Redacted"
 
-// Cutoff instant: an event whose end is strictly before this is past retention.
+/**
+ * Cutoff instant: an event whose end is strictly before this is past retention.
+ * Uses UTC getters/setters so the result doesn't depend on the host timezone
+ * (local-time arithmetic across a DST boundary moves the instant by an hour).
+ */
 export function retentionCutoff(now: Date, months: number = RETENTION_MONTHS): Date {
   const cutoff = new Date(now)
   // Subtract months without JS's month-end rollover: e.g. Aug 31 − 6mo naively
   // lands on "Feb 31" → Mar 2/3, shifting the cutoff days too far back.
   // Pin to day 1 before shifting the month, then clamp to the target month's
   // last valid day. Time-of-day is preserved.
-  const day = cutoff.getDate()
-  cutoff.setDate(1)
-  cutoff.setMonth(cutoff.getMonth() - months)
-  const lastDayOfTargetMonth = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, 0).getDate()
-  cutoff.setDate(Math.min(day, lastDayOfTargetMonth))
+  const day = cutoff.getUTCDate()
+  cutoff.setUTCDate(1)
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months)
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth() + 1, 0),
+  ).getUTCDate()
+  cutoff.setUTCDate(Math.min(day, lastDayOfTargetMonth))
   return cutoff
 }
 

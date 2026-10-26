@@ -476,10 +476,10 @@ describe("createReceipt", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     mockFindSession.mockResolvedValue({ id: 5, status: "OPEN", title: "10-JAN-2026" })
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Offering" })
-    mockCreateReceipt.mockResolvedValue({ id: 1, date: new Date("2026-01-10T00:00:00"), amount: 250, accountId: 1, sessionId: 5 })
+    mockCreateReceipt.mockResolvedValue({ id: 1, date: new Date("2026-01-10T00:00:00Z"), amount: 250, accountId: 1, sessionId: 5 })
     await createReceipt(5, undefined, fd({ accountId: "1", amount: "250.00" }))
     expect(mockCreateReceipt).toHaveBeenCalledWith({
-      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00Z") }),
     })
   })
 
@@ -487,10 +487,10 @@ describe("createReceipt", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     mockFindSession.mockResolvedValue({ id: 5, status: "OPEN", title: "10-JAN-2026" })
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Offering" })
-    mockCreateReceipt.mockResolvedValue({ id: 1, date: new Date("2026-01-10T00:00:00"), amount: 250, accountId: 1, sessionId: 5 })
+    mockCreateReceipt.mockResolvedValue({ id: 1, date: new Date("2026-01-10T00:00:00Z"), amount: 250, accountId: 1, sessionId: 5 })
     await createReceipt(5, undefined, fd({ date: "2026-03-15", accountId: "1", amount: "250.00" }))
     expect(mockCreateReceipt).toHaveBeenCalledWith({
-      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00Z") }),
     })
   })
 
@@ -529,7 +529,7 @@ describe("createReceipt duplicate detection", () => {
   it("queries candidates scoped to sessionId+date+amount+accountId+personId", async () => {
     await createReceipt(5, undefined, fd(receiptFd))
     expect(mockFindManyReceipt).toHaveBeenCalledWith({
-      where: { sessionId: 5, date: new Date("2026-05-11T00:00:00"), amount: "250.00", accountId: 1, personId: 3 },
+      where: { sessionId: 5, date: new Date("2026-05-11T00:00:00Z"), amount: "250.00", accountId: 1, personId: 3 },
       select: { notes: true },
     })
   })
@@ -868,11 +868,11 @@ describe("updateReceipt", () => {
     await updateReceipt(1, undefined, fd(receiptFd))
     expect(mockUpdateReceipt).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
       where: { pettyCashReceiptId: 1 },
-      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
   })
 
@@ -1000,10 +1000,10 @@ describe("createExpense", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     mockFindSession.mockResolvedValue({ id: 5, status: "OPEN", title: "10-JAN-2026" })
     mockFindAccount.mockResolvedValue({ type: "EXPENSE", isActive: true, name: "Stationery" })
-    mockCreateExpense.mockResolvedValue({ id: 3, date: new Date("2026-01-10T00:00:00"), amount: 45, accountId: 4, sessionId: 5, payee: "Woolworths" })
+    mockCreateExpense.mockResolvedValue({ id: 3, date: new Date("2026-01-10T00:00:00Z"), amount: 45, accountId: 4, sessionId: 5, payee: "Woolworths" })
     await createExpense(5, undefined, fd({ payee: "Woolworths", accountId: "4", amount: "45.00", description: "Morning tea" }))
     expect(mockCreateExpense).toHaveBeenCalledWith({
-      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-01-10T00:00:00Z") }),
     })
   })
 
@@ -1046,7 +1046,7 @@ describe("createExpense duplicate detection", () => {
   it("queries candidates scoped to sessionId+date+amount", async () => {
     await createExpense(5, undefined, fd(expenseFd))
     expect(mockFindManyExpense).toHaveBeenCalledWith({
-      where: { sessionId: 5, date: new Date("2026-05-11T00:00:00"), amount: "45.00" },
+      where: { sessionId: 5, date: new Date("2026-05-11T00:00:00Z"), amount: "45.00" },
       select: { payee: true, description: true },
     })
   })
@@ -1245,11 +1245,11 @@ describe("updateExpense", () => {
     await updateExpense(3, undefined, fd(expenseFd))
     expect(mockUpdateExpense).toHaveBeenCalledWith({
       where: { id: 3 },
-      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
     expect(mockUpdateManyTransaction).toHaveBeenCalledWith({
       where: { pettyCashExpenseId: 3 },
-      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00") }),
+      data: expect.objectContaining({ date: new Date("2026-05-11T00:00:00Z") }),
     })
   })
 
