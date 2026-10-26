@@ -446,6 +446,24 @@ describe("updateVenueUsageSettings bookingCcEmails", () => {
   })
 })
 
+describe("updateVenueUsageSettings ccEmail", () => {
+  it("saves the invoice CC list normalised and rejects a bad address", async () => {
+    asRole("ADMIN")
+    const fd = new FormData()
+    fd.set("enabled", "on"); fd.set("venueName", "Example Hall"); fd.set("contactName", "Pat Example")
+    fd.set("contactEmail", "venue@example.com"); fd.set("replyToEmail", "")
+    fd.set("ccEmail", "a@example.com; A@example.com, b@example.com")
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ success: "Venue usage settings saved" })
+    const calls = (prisma.appSetting.upsert as jest.Mock).mock.calls.map((c) => c[0])
+    expect(calls).toContainEqual(expect.objectContaining({
+      where: { key: "venueUsage.ccEmail" },
+      update: { value: "a@example.com, b@example.com" },
+    }))
+    fd.set("ccEmail", "a@example.com, nope")
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: '"nope" is not a valid email address' })
+  })
+})
+
 describe("approval invalidation", () => {
   it("create clears an approved unsent month in the same transaction", async () => {
     asRole("PASTOR")

@@ -270,7 +270,7 @@ describe("parseCcList", () => {
   })
   it("rejects more than the maximum", () => {
     const many = Array.from({ length: MAX_BOOKING_CC + 1 }, (_, i) => `u${i}@example.com`).join(",")
-    expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` })
+    expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_BOOKING_CC} CC addresses` })
   })
 })
 

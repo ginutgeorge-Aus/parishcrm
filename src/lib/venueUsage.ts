@@ -428,7 +428,7 @@ export function parseCcList(value: string): { ok: true; list: string[] } | { ok:
     seen.add(key)
     list.push(address)
   }
-  if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` }
+  if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} CC addresses` }
   return { ok: true, list }
 }
 

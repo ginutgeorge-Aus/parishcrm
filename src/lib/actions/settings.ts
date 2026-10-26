@@ -59,7 +59,7 @@ const KEY_FEATURE = new Map<string, FeatureKey>([
 ])
 const IDLE_TIMEOUT_OPTIONS = new Set(IDLE_TIMEOUT_OPTIONS_LIST.map(String))
 const EMAIL_KEYS = new Set([
-  "ownerNotificationEmail", "churchEmail", "venueUsage.contactEmail", "venueUsage.ccEmail", "venueUsage.replyToEmail",
+  "ownerNotificationEmail", "churchEmail", "venueUsage.contactEmail", "venueUsage.replyToEmail",
 ])
 // Numeric-valued settings and their sane bounds. Card surcharge rate: a blended
 // domestic percent + a fixed AUD component. Reader lives in cardFeeSettings.ts
@@ -136,7 +136,7 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     return { error: "Invalid timeout value" }
   }
   if (key === "venueUsage.enabled" && value !== "true" && value !== "false") return { error: "Invalid value" }
-  if (key === "venueUsage.bookingCcEmails") {
+  if (key === "venueUsage.bookingCcEmails" || key === "venueUsage.ccEmail") {
     if (value.length > 1000) return { error: "Value is too long" }
     const list = parseCcList(value)
     if (!list.ok) return { error: list.error }

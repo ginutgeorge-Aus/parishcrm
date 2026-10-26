@@ -48,8 +48,14 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
             <Input id="venue-contact-email" aria-describedby={descId} name="contactEmail" type="email" defaultValue={keep("contactEmail", settings.contactEmail)} placeholder="venue@example.com" className="md:w-80" maxLength={254} />
           )}
         </SettingsRow>
-        <SettingsRow label="CC email (optional)" htmlFor="venue-cc-email">
-          <Input id="venue-cc-email" name="ccEmail" type="email" defaultValue={keep("ccEmail", settings.ccEmail)} placeholder="treasurer@example.com" className="md:w-80" maxLength={254} />
+        <SettingsRow
+          label="Invoice request CCs (optional)"
+          htmlFor="venue-cc-email"
+          description="Addresses copied on the invoice request. Separate with commas."
+        >
+          {(descId) => (
+            <Input id="venue-cc-email" aria-describedby={descId} name="ccEmail" defaultValue={keep("ccEmail", settings.ccEmail)} placeholder="treasurer@example.com, secretary@example.com" className="md:w-80" maxLength={1000} />
+          )}
         </SettingsRow>
         <SettingsRow
           label="Booking request CCs (optional)"

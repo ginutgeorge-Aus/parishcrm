@@ -390,27 +390,38 @@ async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageL
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
 
+/** Comma/semicolon/newline-separated address list, validated by parseCcList. */
+const CcListSchema = z
+  .string()
+  .max(1000, "CC list is too long")
+  .superRefine((v, ctx) => {
+    const r = parseCcList(v)
+    if (!r.ok) ctx.addIssue({ code: "custom", message: r.error })
+  })
+  .default("")
+
+/**
+ * Normalise an already-validated CC list to "a@x.com, b@y.com".
+ * @param value raw list that passed CcListSchema
+ */
+function normaliseCcList(value: string): string {
+  return (parseCcList(value) as { ok: true; list: string[] }).list.join(", ")
+}
+
 const SettingsSchema = z.object({
   enabled: z.string().optional().transform((v) => v === "on" || v === "true"),
   venueName: z.string().trim().max(200, "Venue name is too long"),
   contactName: z.string().trim().max(200, "Contact name is too long"),
   contactEmail: OptionalEmail,
-  ccEmail: OptionalEmail,
+  ccEmail: CcListSchema,
   replyToEmail: OptionalEmail,
-  bookingCcEmails: z
-    .string()
-    .max(1000, "Booking CC list is too long")
-    .superRefine((v, ctx) => {
-      const r = parseCcList(v)
-      if (!r.ok) ctx.addIssue({ code: "custom", message: r.error })
-    })
-    .default(""),
+  bookingCcEmails: CcListSchema,
 })
 
 /**
  * Save the venue usage settings (one form). ADMIN only; blocked in demo mode.
- * Enabling requires a venue contact email. The booking CC list is validated and
- * stored normalised (comma-joined, de-duplicated, max 10).
+ * Enabling requires a venue contact email. Both CC lists (invoice and booking) are
+ * validated and stored normalised (comma-joined, de-duplicated, max 10).
  */
 export async function updateVenueUsageSettings(
   _prev: ActionResultWithSuccess,
@@ -431,9 +442,9 @@ export async function updateVenueUsageSettings(
     { key: "venueUsage.venueName", value: v.venueName },
     { key: "venueUsage.contactName", value: v.contactName },
     { key: "venueUsage.contactEmail", value: v.contactEmail },
-    { key: "venueUsage.ccEmail", value: v.ccEmail },
+    { key: "venueUsage.ccEmail", value: normaliseCcList(v.ccEmail) },
     { key: "venueUsage.replyToEmail", value: v.replyToEmail },
-    { key: "venueUsage.bookingCcEmails", value: (parseCcList(v.bookingCcEmails) as { ok: true; list: string[] }).list.join(", ") },
+    { key: "venueUsage.bookingCcEmails", value: normaliseCcList(v.bookingCcEmails) },
   ]
   await Promise.all(
     entries.map((e) =>

@@ -88,7 +88,8 @@ function dedupeAddresses(list: (string | null | undefined)[], exclude: string): 
  */
 export function invoiceRecipients(settings: VenueUsageSettings, actor: ActorInfo | null): Recipients {
   const replyTo = settings.replyToEmail || actor?.email || ""
-  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([settings.ccEmail, replyTo, actor?.email], settings.contactEmail) }
+  const parsed = parseCcList(settings.ccEmail)
+  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...(parsed.ok ? parsed.list : []), replyTo, actor?.email], settings.contactEmail) }
 }
 
 /**

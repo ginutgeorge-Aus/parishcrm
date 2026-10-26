@@ -51,6 +51,10 @@ describe("recipients", () => {
       to: "venue@example.com", replyTo: "sam@example.com", cc: ["treasurer@example.com", "sam@example.com"],
     })
   })
+  it("invoiceRecipients: CC email holds a list; each address is copied once, never the To address", () => {
+    expect(invoiceRecipients({ ...settings, ccEmail: "treasurer@example.com, sec@example.com; venue@example.com" }, null))
+      .toEqual({ to: "venue@example.com", replyTo: "", cc: ["treasurer@example.com", "sec@example.com"] })
+  })
   it("invoiceRecipients: scheduler (no actor) uses only the configured reply-to", () => {
     expect(invoiceRecipients({ ...settings, replyToEmail: "office@example.com" }, null))
       .toEqual({ to: "venue@example.com", replyTo: "office@example.com", cc: ["treasurer@example.com", "office@example.com"] })
