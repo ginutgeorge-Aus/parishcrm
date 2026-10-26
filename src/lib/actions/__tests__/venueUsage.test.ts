@@ -207,6 +207,21 @@ describe("usage row CRUD", () => {
     expect(prisma.venueUsage.delete).toHaveBeenCalledWith({ where: { id: 5 } })
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_DELETED", "VenueUsage", 5, { date: "2026-09-06" })
   })
+
+  it("delete refuses a live row the venue knows about, but allows a cancelled one", async () => {
+    asRole("ADMIN")
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 5, date: new Date("2026-09-06T00:00:00Z"), status: "CONFIRMED", venueNotifiedAt: new Date(), bookingRequestedAt: null,
+    })
+    expect(await deleteVenueUsage(5)).toEqual({ error: expect.stringContaining("Cancel it from the bookings list") })
+    expect(prisma.venueUsage.delete).not.toHaveBeenCalled()
+
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 5, date: new Date("2026-09-06T00:00:00Z"), status: "CANCELLED", venueNotifiedAt: new Date(), bookingRequestedAt: null,
+    })
+    expect(await deleteVenueUsage(5)).toEqual({ success: "Booking deleted" })
+    expect(prisma.venueUsage.delete).toHaveBeenCalledWith({ where: { id: 5 } })
+  })
 })
 
 describe("sendVenueUsageRequest", () => {

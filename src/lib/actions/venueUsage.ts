@@ -210,7 +210,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 }
 
 /**
- * Delete a venue usage row (`canEdit`). Clears the approval of the row's month.
+ * Delete a venue usage row (`canEdit`). Clears the approval of the row's month. A live row the venue already
+ * knows about is refused: it must be cancelled from the list so the venue is emailed.
  * @param id VenueUsage id
  */
 export async function deleteVenueUsage(id: number): Promise<VenueMutationResult> {
@@ -223,14 +224,20 @@ export async function deleteVenueUsage(id: number): Promise<VenueMutationResult>
   const userId = actorId(session)
   // Read the row inside the transaction so a concurrent move or delete cannot leave a stale month.
   const cleared = await prisma.$transaction(async (tx) => {
-    const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true } })
+    const existing = await tx.venueUsage.findUnique({
+      where: { id }, select: { id: true, date: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true },
+    })
     if (!existing) return null
+    // A live row the venue knows about must be cancelled through the list, which emails the venue.
+    const venueKnows = existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null
+    if (venueKnows && existing.status !== "CANCELLED") return { cancelViaList: true } as const
     await tx.venueUsage.delete({ where: { id } })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_DELETED", "VenueUsage", id, { date: utcDateToYmd(existing.date) })
     return months
   })
   if (!cleared) return { error: "Booking not found" }
+  if ("cancelViaList" in cleared) return { error: VENUE_KNOWS_CANCEL_ERROR }
   revalidatePath("/venue-usage")
   return mutationOk("Booking deleted", cleared)
 }
@@ -355,7 +362,7 @@ async function auditCancellationEmail(userId: number, action: string, count: num
   try {
     await logAudit(userId, action, "VenueUsage", undefined, { count })
   } catch (err) {
-    console.error("Venue cancellation audit failed", err)
+    logger.error(`Venue cancellation audit failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
