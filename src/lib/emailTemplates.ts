@@ -5,8 +5,8 @@ export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number]
 export const EMAIL_FOOTER_KEY = "emailFooter"
 /** Max length of the stored footer template. */
 export const EMAIL_FOOTER_MAX = 500
-/** Footer used when no `emailFooter` row exists. Supports `{churchName}`. */
-export const DEFAULT_EMAIL_FOOTER = "This email was sent via the {churchName} CRM application."
+/** Example footer shown as the form placeholder. The footer is off until an admin saves one. */
+export const EMAIL_FOOTER_EXAMPLE = "This email was sent via the {churchName} CRM application."
 export type EmailTemplateFields = { subject: string; intro: string; body: string; signoff: string }
 
 // Templates owned by a feature: hidden in Settings while it's off. Unlisted = core.

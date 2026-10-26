@@ -338,7 +338,12 @@ describe("email footer", () => {
     })
   })
 
-  it("sendEmail delivers the default footer in html and text", async () => {
+  it("sendEmail delivers the saved footer in html and text", async () => {
+    appSettingFindUnique.mockImplementation(async (args: unknown) =>
+      (args as [{ where: { key: string } }])[0].where.key === "emailFooter"
+        ? { value: "This email was sent via the {churchName} CRM application." }
+        : null,
+    )
     await sendEmail("to@example.com", "Subj", "<html><body>x</body></html>", "x")
     const call = sendMailMock.mock.calls[0][0]
     expect(String(call.html)).toContain("This email was sent via the Test Church CRM application.</p></body>")

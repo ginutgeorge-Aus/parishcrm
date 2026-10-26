@@ -144,7 +144,7 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     if (!list.ok) return { error: list.error }
     return { value: list.list.join(", ") }
   }
-  // Blank is valid: it stores "" = footer disabled (a missing row means the default).
+  // Blank is valid: it stores "" = footer off (same as no row).
   // Form posts textarea newlines as CRLF; normalise first so the length matches the browser's maxLength count.
   if (key === EMAIL_FOOTER_KEY) {
     const footer = value.replace(/\r\n?/g, "\n")

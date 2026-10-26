@@ -13,7 +13,7 @@ describe("EmailFooterForm", () => {
     render(<EmailFooterForm footer="Sent via {churchName}" />)
     const textarea = screen.getByLabelText("Footer text")
     expect(textarea).toHaveValue("Sent via {churchName}")
-    expect(textarea).toHaveAccessibleDescription(/Leave blank to turn the footer off/)
+    expect(textarea).toHaveAccessibleDescription(/leave blank to turn it off/)
 
     fireEvent.change(textarea, { target: { value: "" } })
     fireEvent.submit(textarea.closest("form")!)

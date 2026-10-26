@@ -1,7 +1,7 @@
 "use client"
 
 import { upsertSetting } from "@/lib/actions/settings"
-import { EMAIL_FOOTER_KEY, EMAIL_FOOTER_MAX } from "@/lib/emailTemplates"
+import { EMAIL_FOOTER_EXAMPLE, EMAIL_FOOTER_KEY, EMAIL_FOOTER_MAX } from "@/lib/emailTemplates"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFeedback } from "@/components/ui/FormFeedback"
@@ -13,7 +13,7 @@ import { SettingsRow, joinDescribedBy } from "./ui/SettingsRow"
 /**
  * Email footer card: the text appended to the bottom of every outgoing email.
  * Saves through the generic `upsertSetting` action (ADMIN only); blank turns it off.
- * @param props.footer the stored footer template, or the default when none is stored
+ * @param props.footer the stored footer template, or "" when none is saved (footer off)
  */
 export function EmailFooterForm({ footer }: Readonly<{ footer: string }>) {
   const [state, formAction, isPending, keep] = useKeepFormValues(upsertSetting)
@@ -29,7 +29,7 @@ export function EmailFooterForm({ footer }: Readonly<{ footer: string }>) {
           description={
             <>
               Use <code>{"{churchName}"}</code> to insert your church name. Plain text only, up to {EMAIL_FOOTER_MAX} characters.
-              Leave blank to turn the footer off.
+              Off until you save some text; leave blank to turn it off.
             </>
           }
         >
@@ -40,6 +40,7 @@ export function EmailFooterForm({ footer }: Readonly<{ footer: string }>) {
                 name="value"
                 rows={3}
                 maxLength={EMAIL_FOOTER_MAX}
+                placeholder={EMAIL_FOOTER_EXAMPLE}
                 defaultValue={keep("value", footer)}
                 aria-describedby={joinDescribedBy(descId, state && "error" in state && state.error && errorId)}
               />

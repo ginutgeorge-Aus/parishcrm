@@ -127,9 +127,9 @@ Editable subject/body templates for the app's transactional emails
 
 Below the templates, **Email footer** sets a short line of text added to the bottom
 of every email the app sends (HTML and plain-text versions). Use `{churchName}` to
-insert your church name; up to 500 characters, plain text. By default it reads
-"This email was sent via the {churchName} CRM application." Clear the box and save
-to turn the footer off. Only admins can change it.
+insert your church name; up to 500 characters, plain text. The footer is off until
+you save some text, for example "This email was sent via the {churchName} CRM
+application." Clear the box and save to turn it off again. Only admins can change it.
 
 ### Receipts tab
 

@@ -1,6 +1,5 @@
 /** @jest-environment node */
 import { getEmailFooter, getEmailFooterTemplate } from "@/lib/emailTemplateStore"
-import { DEFAULT_EMAIL_FOOTER } from "@/lib/emailTemplates"
 
 const findUnique = jest.fn()
 jest.mock("@/lib/prisma", () => ({
@@ -20,9 +19,15 @@ describe("getEmailFooter", () => {
     delete process.env.CHURCH_NAME
   })
 
-  it("returns the default with the church name when no row exists", async () => {
+  it("is off (empty) when no row exists", async () => {
     rows({ churchName: "Grace Church" })
-    expect(await getEmailFooter()).toBe("This email was sent via the Grace Church CRM application.")
+    expect(await getEmailFooter()).toBe("")
+  })
+
+  it("skips the church-name read when the footer has no {churchName}", async () => {
+    rows({ emailFooter: "Plain footer" })
+    expect(await getEmailFooter()).toBe("Plain footer")
+    expect(findUnique).toHaveBeenCalledTimes(1)
   })
 
   it("returns empty string when the row is blank (disabled)", async () => {
@@ -40,9 +45,11 @@ describe("getEmailFooter", () => {
     expect(await getEmailFooter()).toBe("")
   })
 
-  it("template reader returns the raw default / stored value", async () => {
+  it("template reader returns the stored value, or empty when none", async () => {
     rows({})
-    expect(await getEmailFooterTemplate()).toBe(DEFAULT_EMAIL_FOOTER)
+    expect(await getEmailFooterTemplate()).toBe("")
+    rows({ emailFooter: "Hi {churchName}" })
+    expect(await getEmailFooterTemplate()).toBe("Hi {churchName}")
     rows({ emailFooter: "" })
     expect(await getEmailFooterTemplate()).toBe("")
   })

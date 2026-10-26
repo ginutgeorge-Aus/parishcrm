@@ -6,7 +6,7 @@ jest.mock("nodemailer", () => ({
 jest.mock("@react-email/render", () => ({
   render: jest.fn(() => Promise.resolve("<html>receipt</html>")),
 }))
-// No settings rows: church name + footer fall back to their defaults.
+// No settings rows: default church name, footer off.
 jest.mock("@/lib/prisma", () => ({
   prisma: { appSetting: { findUnique: jest.fn(() => Promise.resolve(null)) } },
 }))
@@ -50,8 +50,8 @@ describe("email", () => {
         expect.objectContaining({
           to: "recipient@example.com",
           subject: "Test Subject",
-          html: expect.stringMatching(/^<p>Hello<\/p><p style="[^"]*">This email was sent via the Your Church CRM application\.<\/p>$/),
-          text: "Hello\n\n—\nThis email was sent via the Your Church CRM application.",
+          html: "<p>Hello</p>", // no footer saved: off by default
+          text: "Hello",
         })
       )
     })
