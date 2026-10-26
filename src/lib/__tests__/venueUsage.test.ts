@@ -3,7 +3,7 @@ import {
   parseTimeToMinutes, isValidTime, validateTimeRange, durationHours, formatHours, formatTime12,
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
-  parseCcList, MAX_BOOKING_CC,
+  parseCcList, MAX_CC_ADDRESSES,
   sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
   buildBookingRequestEmail, buildCancellationEmail, renderVenueEmail,
 } from "@/lib/venueUsage"
@@ -269,8 +269,8 @@ describe("parseCcList", () => {
     expect(parseCcList("a@example.com, nope")).toEqual({ ok: false, error: '"nope" is not a valid email address' })
   })
   it("rejects more than the maximum", () => {
-    const many = Array.from({ length: MAX_BOOKING_CC + 1 }, (_, i) => `u${i}@example.com`).join(",")
-    expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_BOOKING_CC} CC addresses` })
+    const many = Array.from({ length: MAX_CC_ADDRESSES + 1 }, (_, i) => `u${i}@example.com`).join(",")
+    expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_CC_ADDRESSES} CC addresses` })
   })
 })
 

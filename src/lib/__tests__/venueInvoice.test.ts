@@ -55,6 +55,9 @@ describe("recipients", () => {
     expect(invoiceRecipients({ ...settings, ccEmail: "treasurer@example.com, sec@example.com; venue@example.com" }, null))
       .toEqual({ to: "venue@example.com", replyTo: "", cc: ["treasurer@example.com", "sec@example.com"] })
   })
+  it("invoiceRecipients: a stored list with a bad entry still copies the valid addresses", () => {
+    expect(invoiceRecipients({ ...settings, ccEmail: "treasurer@example.com, nope" }, null).cc).toEqual(["treasurer@example.com"])
+  })
   it("invoiceRecipients: scheduler (no actor) uses only the configured reply-to", () => {
     expect(invoiceRecipients({ ...settings, replyToEmail: "office@example.com" }, null))
       .toEqual({ to: "venue@example.com", replyTo: "office@example.com", cc: ["treasurer@example.com", "office@example.com"] })

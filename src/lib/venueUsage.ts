@@ -407,8 +407,8 @@ export function buildCancellationEmail(input: {
   return renderVenueEmail(withGreeting(CANCELLATION_TEMPLATE, common.contactName), vars)
 }
 
-/** Most extra booking-request / cancellation CC addresses an admin may configure. */
-export const MAX_BOOKING_CC = 10
+/** Most addresses an admin may configure in one CC list (invoice CCs or booking CCs). */
+export const MAX_CC_ADDRESSES = 10
 
 /**
  * Parse and validate a comma/semicolon/newline separated CC list (blank entries ignored,
@@ -428,8 +428,35 @@ export function parseCcList(value: string): { ok: true; list: string[] } | { ok:
     seen.add(key)
     list.push(address)
   }
-  if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} CC addresses` }
+  if (list.length > MAX_CC_ADDRESSES) return { ok: false, error: `Add at most ${MAX_CC_ADDRESSES} CC addresses` }
   return { ok: true, list }
+}
+
+/**
+ * Validate a CC list and normalise it to the stored "a@x.com, b@y.com" form.
+ * @param value raw text from a settings form or the generic setting action
+ * @returns the normalised string, or the first validation error
+ */
+export function normaliseCcList(value: string): { ok: true; value: string } | { ok: false; error: string } {
+  const r = parseCcList(value)
+  return r.ok ? { ok: true, value: r.list.join(", ") } : r
+}
+
+/**
+ * Addresses to copy from a stored CC list. Never drops the whole list over one bad
+ * entry: invalid addresses are skipped, duplicates dropped, capped at MAX_CC_ADDRESSES.
+ * @param stored the saved setting value
+ */
+export function ccAddresses(stored: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of stored.split(/[,;\n]/)) {
+    const address = raw.trim()
+    if (!address || !isValidEmail(address) || seen.has(address.toLowerCase())) continue
+    seen.add(address.toLowerCase())
+    out.push(address)
+  }
+  return out.slice(0, MAX_CC_ADDRESSES)
 }
 
 /**

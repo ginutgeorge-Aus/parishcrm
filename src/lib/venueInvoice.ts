@@ -7,7 +7,7 @@ import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
 import { readVenueUsageSettings, type VenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
-  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, parseCcList,
+  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddresses,
   type MonthCompleteness, type VenueUsageLine,
 } from "@/lib/venueUsage"
 
@@ -88,8 +88,7 @@ function dedupeAddresses(list: (string | null | undefined)[], exclude: string): 
  */
 export function invoiceRecipients(settings: VenueUsageSettings, actor: ActorInfo | null): Recipients {
   const replyTo = settings.replyToEmail || actor?.email || ""
-  const parsed = parseCcList(settings.ccEmail)
-  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...(parsed.ok ? parsed.list : []), replyTo, actor?.email], settings.contactEmail) }
+  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccAddresses(settings.ccEmail), replyTo, actor?.email], settings.contactEmail) }
 }
 
 /**
@@ -99,8 +98,7 @@ export function invoiceRecipients(settings: VenueUsageSettings, actor: ActorInfo
  */
 export function bookingRecipients(settings: VenueUsageSettings, actor: ActorInfo | null): Recipients {
   const replyTo = settings.replyToEmail || actor?.email || ""
-  const parsed = parseCcList(settings.bookingCcEmails)
-  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...(parsed.ok ? parsed.list : []), replyTo], settings.contactEmail) }
+  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccAddresses(settings.bookingCcEmails), replyTo], settings.contactEmail) }
 }
 
 export type InvoicePrep = {

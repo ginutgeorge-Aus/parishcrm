@@ -51,7 +51,7 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
         <SettingsRow
           label="Invoice request CCs (optional)"
           htmlFor="venue-cc-email"
-          description="Addresses copied on the invoice request. Separate with commas."
+          description="Addresses copied on the invoice request. Separate with commas, up to 10."
         >
           {(descId) => (
             <Input id="venue-cc-email" aria-describedby={descId} name="ccEmail" defaultValue={keep("ccEmail", settings.ccEmail)} placeholder="treasurer@example.com, secretary@example.com" className="md:w-80" maxLength={1000} />
@@ -60,7 +60,7 @@ export function VenueUsageSettingsForm({ settings }: Readonly<{ settings: VenueU
         <SettingsRow
           label="Booking request CCs (optional)"
           htmlFor="venue-booking-cc"
-          description="Extra addresses copied on booking requests and cancellation notices. Separate with commas. The reply-to address is always copied."
+          description="Extra addresses copied on booking requests and cancellation notices. Separate with commas, up to 10. The reply-to address is always copied."
         >
           {(descId) => (
             <Input id="venue-booking-cc" aria-describedby={descId} name="bookingCcEmails" defaultValue={keep("bookingCcEmails", settings.bookingCcEmails)} placeholder="secretary@example.com, treasurer@example.com" className="md:w-80" maxLength={1000} />

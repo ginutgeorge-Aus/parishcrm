@@ -16,7 +16,7 @@ import { isValidEmail, isValidPgId } from "@/lib/validation"
 import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, MONTH_FULL_ERROR, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { autoSendLabel } from "@/lib/venueSchedule"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { buildCancellationEmail, describeIncomplete, monthRange, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { buildCancellationEmail, describeIncomplete, monthRange, normaliseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
 import type { VenueUsageLine } from "@/lib/venueUsage"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -390,23 +390,16 @@ async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageL
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
 
-/** Comma/semicolon/newline-separated address list, validated by parseCcList. */
+/** Comma/semicolon/newline-separated address list, validated and normalised to "a@x.com, b@y.com". */
 const CcListSchema = z
   .string()
   .max(1000, "CC list is too long")
-  .superRefine((v, ctx) => {
-    const r = parseCcList(v)
-    if (!r.ok) ctx.addIssue({ code: "custom", message: r.error })
+  .transform((v, ctx) => {
+    const r = normaliseCcList(v)
+    if (r.ok) return r.value
+    ctx.addIssue({ code: "custom", message: r.error })
+    return z.NEVER
   })
-  .default("")
-
-/**
- * Normalise an already-validated CC list to "a@x.com, b@y.com".
- * @param value raw list that passed CcListSchema
- */
-function normaliseCcList(value: string): string {
-  return (parseCcList(value) as { ok: true; list: string[] }).list.join(", ")
-}
 
 const SettingsSchema = z.object({
   enabled: z.string().optional().transform((v) => v === "on" || v === "true"),
@@ -415,7 +408,7 @@ const SettingsSchema = z.object({
   contactEmail: OptionalEmail,
   ccEmail: CcListSchema,
   replyToEmail: OptionalEmail,
-  bookingCcEmails: CcListSchema,
+  bookingCcEmails: CcListSchema.default(""),
 })
 
 /**
@@ -442,9 +435,9 @@ export async function updateVenueUsageSettings(
     { key: "venueUsage.venueName", value: v.venueName },
     { key: "venueUsage.contactName", value: v.contactName },
     { key: "venueUsage.contactEmail", value: v.contactEmail },
-    { key: "venueUsage.ccEmail", value: normaliseCcList(v.ccEmail) },
+    { key: "venueUsage.ccEmail", value: v.ccEmail },
     { key: "venueUsage.replyToEmail", value: v.replyToEmail },
-    { key: "venueUsage.bookingCcEmails", value: normaliseCcList(v.bookingCcEmails) },
+    { key: "venueUsage.bookingCcEmails", value: v.bookingCcEmails },
   ]
   await Promise.all(
     entries.map((e) =>
