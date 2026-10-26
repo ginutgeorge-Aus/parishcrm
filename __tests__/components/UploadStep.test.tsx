@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { UploadStep } from "@/components/accounting/import/UploadStep"
 
 // Native <select> stand-in for the shadcn Select — same mock as BankImportClient.draft.test.tsx.
@@ -94,5 +94,101 @@ describe("UploadStep", () => {
     render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
     pick()
     expect(await screen.findByRole("alert")).toHaveTextContent("go back and choose QIF")
+  })
+  it("ignores a stale response that resolves after a newer request", async () => {
+    let resolveFirst: (v: unknown) => void = () => {}
+    const first = new Promise((r) => { resolveFirst = r })
+    global.fetch = jest.fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: 1, rows: [] })) }) as never
+    const onComplete = jest.fn()
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={onComplete} />)
+    pick("a.ofx")
+    pick("b.ofx")
+    await screen.findByText(/0 rows/)
+    await act(async () => {
+      resolveFirst({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: 3 })) })
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(screen.getByText(/0 rows/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Continue to review" }))
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 1, rows: [] }))
+    expect(screen.getByText("b.ofx")).toBeInTheDocument()
+  })
+
+  it("keeps uploading true until the latest request settles", async () => {
+    let resolveFirst: (v: unknown) => void = () => {}
+    const first = new Promise((r) => { resolveFirst = r })
+    const second = new Promise(() => {})
+    global.fetch = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second) as never
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("a.ofx")
+    pick("b.ofx")
+    await act(async () => {
+      resolveFirst({ ok: true, json: () => Promise.resolve(okBody()) })
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(screen.getByText("Reading file…")).toBeInTheDocument()
+  })
+
+  it("rejects a file outside the accept list without reading it", () => {
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("notes.txt")
+    expect(screen.getByRole("alert")).toHaveTextContent(/\.ofx, \.qfx/)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it("accepts a PDF by extension for ANZ", async () => {
+    render(<UploadStep source="anz" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("Statement.PDF")
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+  })
+
+  it("keeps the drop highlight while dragging over child elements", () => {
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    const zone = screen.getByText("Drop file here").closest("label") as HTMLElement
+    const child = screen.getByText("Drop file here")
+    fireEvent.dragEnter(zone)
+    fireEvent.dragEnter(child)
+    fireEvent.dragLeave(zone)
+    expect(zone.className).toContain("border-primary")
+    fireEvent.dragLeave(child)
+    expect(zone.className).not.toContain("border-primary bg-secondary")
+  })
+
+  it("shows a keyboard focus ring on the picker label", () => {
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    const zone = screen.getByText("Drop file here").closest("label") as HTMLElement
+    expect(zone.className).toMatch(/focus-visible/)
+  })
+
+  it("shows size limit and accept label from the source config", () => {
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    expect(screen.getByText(/\.ofx, \.qfx · max 50 MB · one file/)).toBeInTheDocument()
+  })
+
+  it("QIF: date-order toggle stays visible when the re-read fails", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ dateFormatAmbiguous: true })) })
+      .mockResolvedValueOnce({ ok: false, json: () => Promise.resolve({ error: "bad dates" }) }) as never
+    render(<UploadStep source="qif" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("s.qif")
+    fireEvent.click(await screen.findByRole("radio", { name: "MM/DD" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("bad dates")
+    expect(screen.getByRole("radio", { name: "DD/MM" })).toBeInTheDocument()
+  })
+
+  it("resets the suggested account when a new file has no match", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: 3 })) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: null })) }) as never
+    const onComplete = jest.fn()
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={onComplete} />)
+    pick("a.ofx")
+    await screen.findByText("Auto-matched from file")
+    pick("b.ofx")
+    await waitFor(() => expect(screen.queryByText("Auto-matched from file")).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole("button", { name: "Continue to review" }))
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 1 }))
   })
 })

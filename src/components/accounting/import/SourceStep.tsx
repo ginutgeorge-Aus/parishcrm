@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { radioGroupKeyDown } from "./radioKeys"
 import { IMPORT_SOURCES, type ImportSource } from "@/lib/importSources"
 
 const BADGE: Record<ImportSource, string> = { anz: "PDF", ofx: "OFX", qif: "QIF" }
@@ -20,7 +21,7 @@ export function SourceStep({
         <CardDescription>Pick the file type your bank exported.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div role="radiogroup" aria-label="Import source" className="grid gap-3 sm:grid-cols-2">
+        <div role="radiogroup" aria-label="Import source" onKeyDown={radioGroupKeyDown} className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(IMPORT_SOURCES) as ImportSource[]).map((id) => {
             const s = IMPORT_SOURCES[id]
             const selected = value === id
@@ -30,6 +31,7 @@ export function SourceStep({
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
                 onClick={() => onChange(id)}
                 className={cn(
                   "flex min-h-11 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent",
@@ -50,6 +52,7 @@ export function SourceStep({
             type="button"
             role="radio"
             aria-checked={false}
+            tabIndex={-1}
             disabled
             className="flex min-h-11 items-start gap-3 rounded-lg border bg-card p-3 text-left opacity-60"
           >

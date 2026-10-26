@@ -16,7 +16,7 @@ export function ReviewFilterTabs({
   onChange,
 }: Readonly<{ value: ReviewFilter; stats: ReviewStats; onChange: (f: ReviewFilter) => void }>) {
   return (
-    <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" aria-label="Filter rows">
+    <div role="group" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" aria-label="Filter rows">
       {TABS.map((t) => (
         <button
           key={t.id}

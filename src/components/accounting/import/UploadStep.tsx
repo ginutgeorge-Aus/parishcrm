@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils"
 import type { ParsedRow } from "@/lib/anzParser"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
-import { IMPORT_SOURCES, type ImportSource } from "@/lib/importSources"
+import { radioGroupKeyDown } from "./radioKeys"
+import { IMPORT_SOURCES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
 
 export type UploadResult = {
   rows: ParsedRow[]
@@ -46,6 +47,10 @@ export function UploadStep({
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Latest read() request; a response from an older one must not touch state.
+  const readSeq = useRef(0)
+  // dragenter/dragleave also fire for child elements, so count them to avoid flicker.
+  const dragDepth = useRef(0)
   const isQif = source === "qif"
 
   /** POST the file to the parse route; QIF also sends the account and (if chosen) date order. */
@@ -55,6 +60,7 @@ export function UploadStep({
       setError("Choose the bank account first.")
       return
     }
+    const seq = ++readSeq.current
     setUploading(true)
     setError(null)
     const fd = new FormData()
@@ -67,6 +73,7 @@ export function UploadStep({
     try {
       const res = await fetch("/api/import/bank-statement", { method: "POST", body: fd })
       const data = await res.json().catch(() => ({}))
+      if (seq !== readSeq.current) return
       if (!res.ok) {
         setParsed(null)
         setError(data.error ?? "Couldn't read this file.")
@@ -85,16 +92,22 @@ export function UploadStep({
       if (data.dateFormatAmbiguous === true) setDateAmbiguous(true)
       if (typeof data.suggestedPaymentAccountId === "number") setPaymentAccountId(data.suggestedPaymentAccountId)
     } catch {
-      setError("Network error — please retry.")
+      if (seq === readSeq.current) setError("Network error — please retry.")
     } finally {
-      setUploading(false)
+      if (seq === readSeq.current) setUploading(false)
     }
   }
 
   /** Accept a picked or dropped file and read it straight away. */
   function accept(f: File | undefined) {
     if (!f) return
+    if (!matchesAccept(f, cfg.accept)) {
+      setError(`That file type isn't supported. Please choose a ${cfg.acceptLabel} file.`)
+      return
+    }
     setFile(f)
+    // A new file starts from the default account; the parse response may suggest a better one.
+    if (!isQif) setPaymentAccountId(defaultBankId ?? "")
     setDateOrder("DMY")
     setDateAmbiguous(false)
     void read(f)
@@ -141,17 +154,18 @@ export function UploadStep({
 
         <label
           htmlFor="import-file"
-          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); accept(e.dataTransfer.files[0]) }}
+          onDragEnter={(e) => { e.preventDefault(); dragDepth.current++; setDragging(true) }}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragging(false) }}
+          onDrop={(e) => { e.preventDefault(); dragDepth.current = 0; setDragging(false); accept(e.dataTransfer.files[0]) }}
           className={cn(
-            "flex min-h-32 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed bg-background p-6 text-center",
+            "flex min-h-32 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed bg-background p-6 text-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2",
             dragging && "border-primary bg-secondary",
           )}
         >
           <Upload className="size-5 text-muted-foreground" aria-hidden />
           <span className="text-sm"><strong>Drop file here</strong> or <span className="underline">browse</span></span>
-          <span className="text-xs text-muted-foreground">{cfg.accept.replace(/application\/pdf,/, "")} · max 50 MB · one file</span>
+          <span className="text-xs text-muted-foreground">{cfg.acceptLabel} · max {MAX_UPLOAD_LABEL} · one file</span>
           <input
             ref={inputRef}
             id="import-file"
@@ -178,23 +192,26 @@ export function UploadStep({
               </span>
             </div>
             {parsed.errors.length > 0 && <p className="text-warning">{parsed.errors[0]}</p>}
-            {dateAmbiguous && (
-              <div role="radiogroup" aria-label="Date format" className="flex items-center gap-2">
-                <span className="text-muted-foreground">Dates in this file could be either format:</span>
-                {(["DMY", "MDY"] as const).map((o) => (
-                  <button
-                    key={o}
-                    type="button"
-                    role="radio"
-                    aria-checked={dateOrder === o}
-                    onClick={() => { setDateOrder(o); void read(file, { order: o }) }}
-                    className={cn("min-h-11 rounded-full border px-3", dateOrder === o && "border-primary bg-primary text-primary-foreground")}
-                  >
-                    {o === "DMY" ? "DD/MM" : "MM/DD"}
-                  </button>
-                ))}
-              </div>
-            )}
+          </div>
+        )}
+
+        {/* Outside the summary so a failed re-read can still be retried or undone. */}
+        {dateAmbiguous && file && !uploading && (
+          <div role="radiogroup" aria-label="Date format" onKeyDown={radioGroupKeyDown} className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Dates in this file could be either format:</span>
+            {(["DMY", "MDY"] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                role="radio"
+                aria-checked={dateOrder === o}
+                tabIndex={dateOrder === o ? 0 : -1}
+                onClick={() => { setDateOrder(o); void read(file, { order: o }) }}
+                className={cn("min-h-11 rounded-full border px-3", dateOrder === o && "border-primary bg-primary text-primary-foreground")}
+              >
+                {o === "DMY" ? "DD/MM" : "MM/DD"}
+              </button>
+            ))}
           </div>
         )}
 
