@@ -12,6 +12,27 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.10.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.9.1...v1.10.0) (2026-10-26)
+
+
+### Added
+
+* **venue:** venue bookings, invoice requests and committee calendar ([#424](https://github.com/ginutgeorge-Aus/parishcrm/issues/424)) ([c987623](https://github.com/ginutgeorge-Aus/parishcrm/commit/c9876233279bab2f95b67b5504e0fef753298fac))
+
+
+### Fixed
+
+* **test:** make date tests timezone-independent ([#423](https://github.com/ginutgeorge-Aus/parishcrm/issues/423)) ([cd461d9](https://github.com/ginutgeorge-Aus/parishcrm/commit/cd461d9e0043a84979bbced92edb368c08aab47d))
+
+
+### Dependencies
+
+* bump fast-uri from 3.1.8 to 3.1.9 ([#418](https://github.com/ginutgeorge-Aus/parishcrm/issues/418)) ([eeec451](https://github.com/ginutgeorge-Aus/parishcrm/commit/eeec45184983631675dcca0579d6b8263ff40a24))
+* bump nodemailer from 10.1.0 to 10.1.4 ([#417](https://github.com/ginutgeorge-Aus/parishcrm/issues/417)) ([eaca3ee](https://github.com/ginutgeorge-Aus/parishcrm/commit/eaca3ee7f1b211283a5c75a328fbea4a3e03eeaf))
+* bump undici from 7.30.0 to 7.30.1 ([#419](https://github.com/ginutgeorge-Aus/parishcrm/issues/419)) ([756f2a5](https://github.com/ginutgeorge-Aus/parishcrm/commit/756f2a539997bc14aa9c6e4d06225567f81d48b1))
+* bump undici from 8.11.2 to 8.12.3 in /website ([#425](https://github.com/ginutgeorge-Aus/parishcrm/issues/425)) ([81d4c86](https://github.com/ginutgeorge-Aus/parishcrm/commit/81d4c86f9c04b68f155e03436e80160399b8e497))
+* bump zod from 4.6.5 to 4.6.7 in /website ([#416](https://github.com/ginutgeorge-Aus/parishcrm/issues/416)) ([1951d2d](https://github.com/ginutgeorge-Aus/parishcrm/commit/1951d2d7cfc1b238ff182d858382aa846d67ffd0))
+
 ## [1.9.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.9.0...v1.9.1) (2026-10-25)
 
 
