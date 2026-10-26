@@ -265,7 +265,7 @@ export function renderVenueEmail(
   const fill = (s: string) => applyVars(s, vars).replace(/\r\n?/g, "\n")
   const signoff = fill(template.signoff).split("\n").map((l) => l.trim()).filter(Boolean).join("\n")
   const blocks = [fill(template.intro), fill(template.body), signoff].map((b) => b.trim()).filter(Boolean)
-  const paragraphs = blocks.flatMap((b) => b.split(/\n{2,}/)).map((p) => p.trim()).filter(Boolean)
+  const paragraphs = blocks.flatMap((b) => b.split(/\r?\n\s*\r?\n/)).map((p) => p.trim()).filter(Boolean)
   const html = paragraphs
     .map((p) => {
       const lines = p.split("\n")

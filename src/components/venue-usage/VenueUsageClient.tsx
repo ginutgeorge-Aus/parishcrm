@@ -169,7 +169,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         if ("success" in result) {
           setForm(blankForm(nextSunday, today))
           // Show the month of the saved date so the new row is visible.
-          if (form.date.slice(0, 7) !== month) router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
+          if (form.date.slice(0, 7) !== month) void router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
         }
       })
     })

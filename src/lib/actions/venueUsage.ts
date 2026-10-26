@@ -21,6 +21,7 @@ import type { VenueUsageLine } from "@/lib/venueUsage"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { logger } from "@/lib/logger"
+import { serializableWrite as sharedSerializableWrite } from "@/lib/serializableWrite"
 import {
   VENUE_BOOKING_STATUSES, isValidMonth, isValidYMD, totalHours,
   validateTimeRange, ymdToUtcDate, VENUE_USAGE_SETTING_KEYS,
@@ -85,8 +86,8 @@ function mutationOk(success: string, cleared: string[]): VenueMutationResult {
 
 /**
  * Whether adding `adding` rows to `month` would exceed {@link MAX_ROWS_PER_MONTH} (all statuses count, as the
- * capped month reads do). Concurrent creates are not serialised, so a race can overshoot by a few rows; the
- * reads then warn when they hit the cap.
+ * capped month reads do). Callers run it inside {@link serializableWrite}, so two concurrent creates near the cap
+ * conflict (P2034) and the loser re-counts instead of both inserting.
  * @param tx transaction client
  * @param month "YYYY-MM"
  * @param adding rows about to be created
@@ -95,6 +96,18 @@ async function monthWouldOverflow(tx: Prisma.TransactionClient, month: string, a
   const { start, end } = monthRange(month)
   const existing = await tx.venueUsage.count({ where: { date: { gte: start, lte: end } } })
   return existing + adding > MAX_ROWS_PER_MONTH
+}
+
+/** Result when a Serializable write keeps conflicting with concurrent bookings. */
+const BUSY_ERROR = "Another change to the bookings was in progress. Please try again."
+
+/**
+ * Run a count-then-write booking body in a Serializable transaction (retried on conflict) so the monthly cap
+ * cannot be overshot by concurrent requests.
+ * @param fn transaction body
+ */
+function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T | { error: string }> {
+  return sharedSerializableWrite(fn, { error: BUSY_ERROR })
 }
 
 /** Refusal when date or times of a row the venue already knows about are edited. */
@@ -124,7 +137,7 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
   const { date, ...rest } = parsed.data
 
   const userId = actorId(session)
-  const cleared = await prisma.$transaction(async (tx) => {
+  const cleared = await serializableWrite(async (tx) => {
     if (await monthWouldOverflow(tx, date.slice(0, 7), 1)) return null
     const row = await tx.venueUsage.create({
       data: { ...rest, date: ymdToUtcDate(date), createdById: userId },
@@ -135,6 +148,7 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
     return months
   })
   if (!cleared) return { error: MONTH_FULL_ERROR }
+  if ("error" in cleared) return cleared
   revalidatePath("/venue-usage")
   return mutationOk("Booking added", cleared)
 }
@@ -165,7 +179,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 
   const userId = actorId(session)
   // Read the row inside the transaction so the old month is the one actually being replaced.
-  const outcome = await prisma.$transaction(async (tx) => {
+  const outcome = await serializableWrite(async (tx) => {
     const existing = await tx.venueUsage.findUnique({ where: { id }, select: { id: true, date: true, startTime: true, endTime: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true } })
     if (!existing) return { notFound: true } as const
     const timingChanged =
@@ -186,6 +200,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
     return { months }
   })
+  if ("error" in outcome) return outcome
   if ("notFound" in outcome) return { error: "Booking not found" }
   if ("locked" in outcome) return { error: VENUE_KNOWS_LOCK_ERROR }
   if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
@@ -245,7 +260,7 @@ export async function addAllSundays(input: { month: string; startTime: string; e
 
   const userId = actorId(session)
   const sundays = sundaysInMonth(month)
-  const outcome = await prisma.$transaction(async (tx) => {
+  const outcome = await serializableWrite(async (tx) => {
     const existing = await tx.venueUsage.findMany({
       where: { date: { in: sundays.map(ymdToUtcDate) }, status: { not: "CANCELLED" } },
       select: { date: true },
@@ -263,6 +278,7 @@ export async function addAllSundays(input: { month: string; startTime: string; e
     return { added: free.length, cleared: months }
   })
   if (!outcome) return { error: MONTH_FULL_ERROR }
+  if ("error" in outcome) return outcome
   const { added, cleared } = outcome
   revalidatePath("/venue-usage")
   if (added === 0) return { success: "Nothing to add: every Sunday already has a booking" }

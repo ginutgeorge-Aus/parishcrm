@@ -78,6 +78,28 @@ function autoSentNotice(churchName: string, month: string, rows: Parameters<type
   return buildAutoSentEmail({ churchName, month, rowCount: rows.length, totalHoursLabel: formatHours(totalHours(rows)) })
 }
 
+/** Attempts to write `reminderSentAt` before giving up. */
+const DONE_ATTEMPTS = 3
+
+/**
+ * Write `reminderSentAt` (fenced on our claim), retrying a thrown error with a short backoff.
+ * @param month "YYYY-MM"
+ * @param claimAt the claim timestamp this run holds
+ * @returns whether the write succeeded
+ */
+async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
+  for (let attempt = 1; attempt <= DONE_ATTEMPTS; attempt++) {
+    try {
+      await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
+      return true
+    } catch (e) {
+      logger.error(`[venueInvoiceJob] recording completion failed (attempt ${attempt}): ${e instanceof Error ? e.message : String(e)}`)
+      if (attempt < DONE_ATTEMPTS) await new Promise((r) => setTimeout(r, 50 * attempt))
+    }
+  }
+  return false
+}
+
 /**
  * Run the month's work under a held claim: skip if sent by hand, send the invoice request when approved and
  * still complete (else build a reminder), notify editors, then mark the month done. A month the job itself
@@ -133,14 +155,28 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     }
   }
 
-  const { notified, failed } = await notifyEditors(mail)
+  let notified = 0
+  let failed = 0
+  try {
+    ;({ notified, failed } = await notifyEditors(mail))
+  } catch (e) {
+    // Once the venue email went out, a notice failure must not release the claim (a retry would resend it).
+    if (!sentUnrecorded) throw e
+    logger.error(`[venueInvoiceJob] notifying staff threw after the invoice was sent: ${e instanceof Error ? e.message : String(e)}`)
+  }
   if (notified === 0 && failed > 0 && !sentUnrecorded) {
     await releaseClaim(month, claimAt)
     return { sent, notified, failed, inFlight: 0 }
   }
   if (sentUnrecorded) logger.error(`[venueInvoiceJob] invoice request for ${month} was sent but not recorded; closing the month to avoid a duplicate venue email`)
   if (failed > 0) logger.error(`[venueInvoiceJob] ${failed} notice(s) failed; not retried to avoid repeats`)
-  await prisma.venueUsageRequest.updateMany({ where: { month, reminderClaimedAt: claimAt }, data: { reminderSentAt: new Date() } })
+  const recorded = await markMonthDone(month, claimAt)
+  if (!recorded) {
+    if (!sentUnrecorded && sent === 0 && notified === 0) throw new Error("could not record month completion")
+    // Something already went out: releasing the claim would repeat it. Let the lease expire instead.
+    logger.error(`[venueInvoiceJob] completion for ${month} is unrecorded after ${DONE_ATTEMPTS} attempts; claim kept until the lease expires`)
+    return { sent, notified, failed: failed + 1, inFlight: 0 }
+  }
   // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).
   try {
     await logAudit(null, isInvoiceNotice ? "VENUE_INVOICE_NOTICE_SENT" : "VENUE_REMINDER_SENT", "VenueUsageRequest", request?.id, { month, notified, failed })

@@ -167,6 +167,38 @@ it("sent but unrecorded + every notice failed: closes the month (never releases)
   expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/not recorded/))
 })
 
+const releases = () => updateMany().mock.calls.filter((c) => c[0].data.reminderClaimedAt === null)
+const doneWrites = () => updateMany().mock.calls.filter((c) => c[0].data.reminderSentAt instanceof Date)
+
+it("notifyEditors throwing after an unrecorded send still records completion and keeps the claim", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(prisma.user.findMany as jest.Mock).mockRejectedValue(new Error("db down"))
+  expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
+  expect(doneWrites()).toHaveLength(1)
+  expect(releases()).toHaveLength(0)
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/notifying staff threw/))
+})
+
+it("a reminderSentAt write that fails once is retried and the run succeeds", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  updateMany().mockResolvedValueOnce({ count: 1 }).mockRejectedValueOnce(new Error("blip")).mockResolvedValue({ count: 1 })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
+  expect(doneWrites()).toHaveLength(2)
+  expect(releases()).toHaveLength(0)
+})
+
+it("a reminderSentAt write that always fails after a send is not success, keeps the claim and logs", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  updateMany().mockResolvedValueOnce({ count: 1 }).mockRejectedValue(new Error("db down"))
+  const r = await runVenueInvoiceJob(OPEN)
+  expect(r).toMatchObject({ sent: 1, notified: 2 })
+  expect((r as { failed: number }).failed).toBeGreaterThan(0)
+  expect(doneWrites()).toHaveLength(3)
+  expect(releases()).toHaveLength(0)
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/completion for 2026-10 is unrecorded/))
+})
+
 it("a thrown error releases the claim, logs the original and rethrows", async () => {
   ;(prisma.venueUsage.findMany as jest.Mock).mockRejectedValue(new Error("db"))
   await expect(runVenueInvoiceJob(OPEN)).rejects.toThrow("db")

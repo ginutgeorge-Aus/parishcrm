@@ -344,6 +344,10 @@ describe("renderVenueEmail", () => {
   it("leaves unknown tokens verbatim", () => {
     expect(renderVenueEmail({ ...t, body: "{nope}" }, vars).text).toContain("{nope}")
   })
+  it("splits on a CRLF blank line, even one holding whitespace", () => {
+    const { html } = renderVenueEmail({ ...t, intro: "One", body: "Two\r\n\r\nThree\r\n \r\nFour" }, vars)
+    expect(html).toContain("<p>Two</p>\n<p>Three</p>\n<p>Four</p>")
+  })
   it("splits paragraphs on CRLF line endings from a textarea", () => {
     const crlf = { ...t, body: t.body.replace(/\n/g, "\r\n"), signoff: t.signoff.replace(/\n/g, "\r\n") }
     expect(renderVenueEmail(crlf, vars).html).toBe(renderVenueEmail(t, vars).html)
