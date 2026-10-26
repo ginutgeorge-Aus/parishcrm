@@ -77,6 +77,18 @@ describe("UploadStep", () => {
     expect(((global.fetch as jest.Mock).mock.calls[1][1].body as FormData).get("dateOrder")).toBe("MDY")
   })
 
+  it("QIF ambiguous dates: toggle stays visible after a pick so it can be undone", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ dateFormatAmbiguous: true })) })
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody({ dateFormatAmbiguous: false })) }) as never
+    render(<UploadStep source="qif" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("s.qif")
+    fireEvent.click(await screen.findByRole("radio", { name: "MM/DD" }))
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole("radio", { name: "MM/DD" })).toHaveAttribute("aria-checked", "true"))
+    expect(screen.getByRole("radio", { name: "DD/MM" })).toBeInTheDocument()
+  })
+
   it("shows the server error", async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, json: () => Promise.resolve({ error: "This looks like a QIF file — go back and choose QIF" }) }) as never
     render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)

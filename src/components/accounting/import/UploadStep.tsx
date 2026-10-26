@@ -20,7 +20,7 @@ export type UploadResult = {
   errors: string[]
 }
 
-type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean; dateFormatAmbiguous: boolean }
+type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean }
 type DateOrder = "DMY" | "MDY"
 
 /** Step 2: upload one export file, show what was read, and pick/confirm the ParishCRM bank account. */
@@ -41,6 +41,7 @@ export function UploadStep({
   const [file, setFile] = useState<File | null>(null)
   const [parsed, setParsed] = useState<Parsed | null>(null)
   const [dateOrder, setDateOrder] = useState<DateOrder>("DMY")
+  const [dateAmbiguous, setDateAmbiguous] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -79,8 +80,9 @@ export function UploadStep({
         accountNumber: data.accountNumber ?? "",
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
-        dateFormatAmbiguous: data.dateFormatAmbiguous === true,
       })
+      // Sticky per file: a re-read with an explicit order reports not-ambiguous, but the user must still be able to switch back.
+      if (data.dateFormatAmbiguous === true) setDateAmbiguous(true)
       if (typeof data.suggestedPaymentAccountId === "number") setPaymentAccountId(data.suggestedPaymentAccountId)
     } catch {
       setError("Network error — please retry.")
@@ -94,6 +96,7 @@ export function UploadStep({
     if (!f) return
     setFile(f)
     setDateOrder("DMY")
+    setDateAmbiguous(false)
     void read(f)
   }
 
@@ -175,7 +178,7 @@ export function UploadStep({
               </span>
             </div>
             {parsed.errors.length > 0 && <p className="text-warning">{parsed.errors[0]}</p>}
-            {parsed.dateFormatAmbiguous && (
+            {dateAmbiguous && (
               <div role="radiogroup" aria-label="Date format" className="flex items-center gap-2">
                 <span className="text-muted-foreground">Dates in this file could be either format:</span>
                 {(["DMY", "MDY"] as const).map((o) => (
