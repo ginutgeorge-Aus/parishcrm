@@ -406,7 +406,7 @@ const SettingsSchema = z.object({
   venueName: z.string().trim().max(200, "Venue name is too long"),
   contactName: z.string().trim().max(200, "Contact name is too long"),
   contactEmail: OptionalEmail,
-  ccEmail: CcListSchema,
+  ccEmail: CcListSchema.default(""),
   replyToEmail: OptionalEmail,
   bookingCcEmails: CcListSchema.default(""),
 })
