@@ -34,6 +34,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email"
 import { decrypt } from "@/lib/crypto"
+import { sydneyTodayYMD } from "@/lib/dates"
 
 const admin = { user: { role: "ADMIN", id: "1" } }
 const create = prisma.celebrationSend.create as jest.Mock
@@ -137,13 +138,14 @@ describe("sendBirthdayEmailsBulk", () => {
 
   it("sends to consenting upcoming members and skips the rest", async () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
-    const today = new Date()
-    const iso = (d: Date) => d.toISOString().slice(0, 10)
-    const soon = new Date(today.getFullYear() - 30, today.getMonth(), today.getDate())
+    // The action windows against the Sydney calendar, so derive the DOB from it.
+    // 28 years keeps leap-year alignment, so a 29 Feb run stays a valid date.
+    const [y, m, d] = sydneyTodayYMD().split("-")
+    const iso = () => `${Number(y) - 28}-${m}-${d}`
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
-      { id: 1, firstName: "A", email: "enc:a@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
-      { id: 2, firstName: "B", email: "enc:b@x.com", emailConsent: false, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
-      { id: 3, firstName: "C", email: null, emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
+      { id: 1, firstName: "A", email: "enc:a@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
+      { id: 2, firstName: "B", email: "enc:b@x.com", emailConsent: false, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
+      { id: 3, firstName: "C", email: null, emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
     ])
     const res = await sendBirthdayEmailsBulk(7)
     expect(res).toEqual({ sent: 1, skipped: 2, failed: 0 })
@@ -152,9 +154,10 @@ describe("sendBirthdayEmailsBulk", () => {
 
   it("skips a member with an undecryptable field instead of aborting the batch", async () => {
     ;(auth as jest.Mock).mockResolvedValue(admin)
-    const today = new Date()
-    const iso = (d: Date) => d.toISOString().slice(0, 10)
-    const soon = new Date(today.getFullYear() - 30, today.getMonth(), today.getDate())
+    // The action windows against the Sydney calendar, so derive the DOB from it.
+    // 28 years keeps leap-year alignment, so a 29 Feb run stays a valid date.
+    const [y, m, d] = sydneyTodayYMD().split("-")
+    const iso = () => `${Number(y) - 28}-${m}-${d}`
     // One corrupt row whose dateOfBirth ciphertext throws on decrypt — without
     // per-row handling this kills the whole batch, including the valid member.
     ;(decrypt as jest.Mock).mockImplementation((v: string) => {
@@ -163,7 +166,7 @@ describe("sendBirthdayEmailsBulk", () => {
     })
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([
       { id: 1, firstName: "Corrupt", email: "enc:c@x.com", emailConsent: true, archivedAt: null, dateOfBirth: "enc:CORRUPT", family: { name: "F" } },
-      { id: 2, firstName: "Valid", email: "enc:v@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso(soon)}`, family: { name: "F" } },
+      { id: 2, firstName: "Valid", email: "enc:v@x.com", emailConsent: true, archivedAt: null, dateOfBirth: `enc:${iso()}`, family: { name: "F" } },
     ])
     const res = await sendBirthdayEmailsBulk(7)
     // Corrupt row dropped before windowing; valid member still emailed.
