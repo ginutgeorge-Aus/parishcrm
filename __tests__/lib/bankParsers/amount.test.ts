@@ -16,3 +16,11 @@ describe("normaliseSignedAmount", () => {
     expect(normaliseSignedAmount(raw)).toBeNull()
   })
 })
+
+describe("normaliseSignedAmount range", () => {
+  it("accepts 8 integer digits, rejects 9", () => {
+    expect(normaliseSignedAmount("99999999.99")?.amount).toBe("99999999.99")
+    expect(normaliseSignedAmount("100000000.00")).toBeNull()
+    expect(normaliseSignedAmount("-123,456,789.00")).toBeNull()
+  })
+})

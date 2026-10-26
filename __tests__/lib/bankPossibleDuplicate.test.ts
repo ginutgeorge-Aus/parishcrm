@@ -20,3 +20,10 @@ describe("findPossibleDuplicates", () => {
     expect(findPossibleDuplicates(rows, new Set(), [tx("2026-09-02", "5.00")])).toEqual(["A"])
   })
 })
+
+describe("findPossibleDuplicates exact-duplicate consumption", () => {
+  it("does not let an exact-duplicate line's existing row vouch for another identical line", () => {
+    const rows = [row("A", "2026-09-02", "50.00"), row("B", "2026-09-02", "50.00")]
+    expect(findPossibleDuplicates(rows, new Set(["A"]), [tx("2026-09-02", "50.00")])).toEqual([])
+  })
+})

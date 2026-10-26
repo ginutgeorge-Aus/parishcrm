@@ -88,3 +88,36 @@ describe("parseQif", () => {
     expect(parseQif(text, opts).rows).toHaveLength(1)
   })
 })
+
+describe("qif hardening", () => {
+  const opts = { accountKey: "PA1" }
+
+  it("detects a Bank header after an Option/Account preamble", () => {
+    const t = "!Option:AutoSwitch\n!Account\nNMy Bank\nTBank\n^\n!Clear:AutoSwitch\n!Type:Bank\nD25/09/2026\nT-1.00\nPSHOP\n^\n"
+    expect(detectQif(t)).toBe(true)
+    const r = parseQif(t, opts)
+    expect(r.rows).toHaveLength(1)
+    expect(r.errors).toEqual([])
+  })
+
+  it("ignores records in non-transaction sections", () => {
+    const t = "!Type:Cat\nNTithe\nD25/09/2026\nT9.00\nPCAT\n^\n!Type:Bank\nD25/09/2026\nT-1.00\nPSHOP\n^\n"
+    expect(parseQif(t, opts).rows.map((r) => r.description)).toEqual(["SHOP"])
+  })
+
+  it("accepts Quicken-style spaces in dates", () => {
+    const t = "!Type:Bank\nD 5/ 9'26\nT-1.00\nPA\n^\nD25/ 9/2026\nT-1.00\nPB\n^\n"
+    const r = parseQif(t, opts)
+    expect(r.errors).toEqual([])
+    expect(r.rows.map((x) => x.date)).toEqual(["2026-09-05", "2026-09-25"])
+  })
+
+  it("truncates payee/memo and rejects oversize amounts", () => {
+    const t = `!Type:Bank\nD25/09/2026\nT-1.00\nP${"P".repeat(700)}\nM${"M".repeat(1500)}\n^\nD25/09/2026\nT123456789.00\nPBIG\n^\n`
+    const r = parseQif(t, opts)
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0].description).toHaveLength(500)
+    expect(r.rows[0].details).toHaveLength(1000)
+    expect(r.errors).toHaveLength(1)
+  })
+})

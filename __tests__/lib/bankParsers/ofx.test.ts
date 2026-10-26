@@ -118,3 +118,41 @@ describe("parseOfx", () => {
     expect(parseOfx(two).fatalError).toBe("This file contains more than one account. Export one account at a time.")
   })
 })
+
+describe("parseOfx hardening", () => {
+  const wrap = (acct: string, trn: string) => `OFXHEADER:100
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>AUD
+<BANKACCTFROM><ACCTID>${acct}</BANKACCTFROM>
+<BANKTRANLIST>
+${trn}
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
+
+  it("ignores a transfer-to ACCTID inside a STMTTRN", () => {
+    const r = parseOfx(wrap("000111222333", "<STMTTRN><DTPOSTED>20260902<TRNAMT>-5.00<FITID>F1<NAME>XFER<BANKACCTTO><ACCTID>999888777</BANKACCTTO></STMTTRN>"))
+    expect(r.fatalError).toBeUndefined()
+    expect(r.accountNumber).toBe("000111222333")
+    expect(r.rows).toHaveLength(1)
+  })
+
+  it("decodes XML character entities in values", () => {
+    const r = parseOfx(wrap("1", "<STMTTRN><DTPOSTED>20260902<TRNAMT>-5.00<FITID>F1<NAME>SMITH &amp; SONS &lt;X&gt; &quot;Q&quot; &apos;A&apos; &#65;&#x42; &bogus; &#1114112;<MEMO>m</STMTTRN>"))
+    expect(r.rows[0].description).toBe("SMITH & SONS <X> \"Q\" 'A' AB &bogus; &#1114112;")
+  })
+
+  it("does not double-decode", () => {
+    const r = parseOfx(wrap("1", "<STMTTRN><DTPOSTED>20260902<TRNAMT>-5.00<FITID>F1<NAME>A &amp;lt; B</STMTTRN>"))
+    expect(r.rows[0].description).toBe("A &lt; B")
+  })
+
+  it("truncates description and details to the confirm limits", () => {
+    const r = parseOfx(wrap("1", `<STMTTRN><DTPOSTED>20260902<TRNAMT>-5.00<FITID>F1<NAME>${"N".repeat(700)}<MEMO>${"M".repeat(1500)}</STMTTRN>`))
+    expect(r.rows[0].description).toHaveLength(500)
+    expect(r.rows[0].details).toHaveLength(1000)
+  })
+
+  it("rejects an amount too large for Decimal(10,2)", () => {
+    const r = parseOfx(wrap("1", "<STMTTRN><DTPOSTED>20260902<TRNAMT>123456789.00<FITID>F1<NAME>BIG</STMTTRN>"))
+    expect(r.rows).toHaveLength(0)
+    expect(r.errors).toHaveLength(1)
+  })
+})

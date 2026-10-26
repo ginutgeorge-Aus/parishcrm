@@ -8,16 +8,20 @@ export type QifDateOrder = "DMY" | "MDY"
 type RawRecord = { D?: string; T?: string; U?: string; P?: string; M?: string }
 type DateParts = { a: number; b: number; year: number } | { iso: string }
 
-/** True when the text starts with a QIF Bank or CCard type header. */
+// Mirrors RowSchema in bankImportConfirm.ts (description 500, details 1000).
+const MAX_DESCRIPTION = 500
+const MAX_DETAILS = 1000
+
+/** True when a QIF Bank or CCard type header appears on any line in the first 2000 chars (after e.g. !Option/!Account blocks). */
 export function detectQif(text: string): boolean {
-  return /^\s*!Type:(Bank|CCard)\b/i.test(text.slice(0, 200))
+  return /^\s*!Type:(Bank|CCard)\b/im.test(text.slice(0, 2000))
 }
 
 /** Split a QIF date ("25/09/2026", "5/9'26", "2026-09-30") into components. */
 function splitDate(raw: string): DateParts | null {
   const s = raw.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return { iso: s }
-  const m = /^(\d{1,2})[/.-](\d{1,2})(?:[/.-]|')\s*(\d{2}|\d{4})$/.exec(s)
+  const m = /^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*(?:[/.-]|')\s*(\d{2}|\d{4})$/.exec(s)
   if (!m) return null
   const y = Number.parseInt(m[3], 10)
   return { a: Number.parseInt(m[1], 10), b: Number.parseInt(m[2], 10), year: m[3].length === 2 ? 2000 + y : y }
@@ -31,13 +35,22 @@ function toIso(p: DateParts, order: QifDateOrder): string | null {
   return isRealCalendarDate(iso) ? iso : null
 }
 
-/** Split QIF text into records of first-letter field codes; split lines (S/E/$) and others are ignored. */
+/** Split QIF text into records of first-letter field codes; only records under a !Type:Bank/CCard header are read. Split lines (S/E/$) and others are ignored. */
 function readRecords(text: string): RawRecord[] {
   const records: RawRecord[] = []
   let cur: RawRecord = {}
   let has = false
+  let inTxSection = false
   for (const line of text.split(/\r?\n/)) {
-    if (!line || line.startsWith("!")) continue
+    if (!line) continue
+    if (line.startsWith("!")) {
+      if (has && inTxSection) records.push(cur)
+      cur = {}
+      has = false
+      inTxSection = /^!Type:(Bank|CCard)\b/i.test(line.trim())
+      continue
+    }
+    if (!inTxSection) continue
     if (line.startsWith("^")) {
       if (has) records.push(cur)
       cur = {}
@@ -86,7 +99,7 @@ export function parseQif(text: string, opts: { accountKey: string; dateOrder?: Q
     const signed = normaliseSignedAmount(rec.T ?? rec.U ?? "")
     const payee = rec.P ?? ""
     const memo = rec.M ?? ""
-    const description = payee || memo
+    const description = (payee || memo).slice(0, MAX_DESCRIPTION)
     if (!date || !signed || !description) {
       errors.push(`Record ${i + 1}: unreadable date, amount or payee`)
       return
@@ -97,7 +110,7 @@ export function parseQif(text: string, opts: { accountKey: string; dateOrder?: Q
     rows.push({
       date,
       description,
-      details: payee && memo && memo !== payee ? memo : "",
+      details: payee && memo && memo !== payee ? memo.slice(0, MAX_DETAILS) : "",
       amount: signed.amount,
       type: signed.type,
       bankRef: `QIF_${dedupKey}_${n}`,

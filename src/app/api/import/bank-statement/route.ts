@@ -142,6 +142,8 @@ async function parseUpload(buffer: Buffer, fields: UploadFields): Promise<RouteF
   if (fields.paymentAccountId === null) {
     return { ok: false, error: "Choose the bank account before uploading a QIF file", status: 400 }
   }
+  const account = await prisma.paymentAccount.findFirst({ where: { id: fields.paymentAccountId, kind: "BANK", isActive: true }, select: { id: true } })
+  if (!account) return { ok: false, error: "Choose a valid bank account", status: 400 }
   return { ok: true, result: parseQif(text, { accountKey: `PA${fields.paymentAccountId}`, dateOrder: fields.dateOrder }) }
 }
 

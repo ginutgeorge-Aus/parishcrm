@@ -72,6 +72,14 @@ describe("POST /api/import/bank-statement — OFX/QIF sources", () => {
     expect((await res.json()).error).toBe("Choose the bank account before uploading a QIF file")
   })
 
+  it("rejects a QIF account that is not an active bank account", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1000", role: "ADMIN" } }) // separate rate-limit bucket (10/min per actor)
+    ;(prisma.paymentAccount.findFirst as jest.Mock).mockResolvedValue(null)
+    const res = await upload(QIF, "s.qif", { source: "qif", paymentAccountId: "77" })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Choose a valid bank account")
+  })
+
   it("explains a source/file mismatch", async () => {
     const res = await upload(QIF, "s.ofx", { source: "ofx" })
     expect(res.status).toBe(400)

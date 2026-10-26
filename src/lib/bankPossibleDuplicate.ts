@@ -7,7 +7,7 @@ import { toCents } from "@/lib/formatting"
  * equals an existing transaction (any source, incl. manual entry) but which was
  * NOT an exact/content-key duplicate. Catches the same bank line imported first
  * from a PDF and again from OFX/QIF, where descriptions/account formats differ.
- * Each existing transaction can vouch for at most one row, so two genuine
+ * Existing transactions consumed by exact duplicates are removed first. Each remaining one can vouch for at most one row, so two genuine
  * identical lines against one prior entry flag only one. Returns bankRefs.
  */
 export function findPossibleDuplicates(
@@ -21,10 +21,18 @@ export function findPossibleDuplicates(
     const k = `${t.date.toISOString().slice(0, 10)}|${toCents(t.amount.toString())}|${t.type}`
     available.set(k, (available.get(k) ?? 0) + 1)
   }
+  const keyOf = (r: Pick<ParsedRow, "date" | "amount" | "type">) => `${r.date}|${toCents(r.amount)}|${r.type}`
+  // Existing rows matched by exact duplicates are already spoken for.
+  for (const r of rows) {
+    if (!exactDuplicateRefs.has(r.bankRef)) continue
+    const k = keyOf(r)
+    const n = available.get(k) ?? 0
+    if (n > 0) available.set(k, n - 1)
+  }
   const flagged: string[] = []
   for (const r of rows) {
     if (exactDuplicateRefs.has(r.bankRef)) continue
-    const k = `${r.date}|${toCents(r.amount)}|${r.type}`
+    const k = keyOf(r)
     const n = available.get(k) ?? 0
     if (n > 0) {
       available.set(k, n - 1)
