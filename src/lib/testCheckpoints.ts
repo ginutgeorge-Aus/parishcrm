@@ -21,6 +21,30 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.10.0-venue-bookings",
+    version: "v1.10.0",
+    area: "Venue",
+    title: "Venue bookings list and bulk actions",
+    steps:
+      "With venue usage enabled, open Venue bookings → add all Sundays for a month → select several bookings and confirm them, then cancel one → confirm statuses update and the list stays correct after a page reload.",
+  },
+  {
+    id: "v1.10.0-venue-requests",
+    version: "v1.10.0",
+    area: "Venue",
+    title: "Booking and invoice request emails",
+    steps:
+      "On Venue bookings, open the booking-request panel → approve the month and send → confirm the email arrives (with the CC list from Settings) → repeat for the invoice-request panel.",
+  },
+  {
+    id: "v1.10.0-venue-calendar",
+    version: "v1.10.0",
+    area: "Venue",
+    title: "Public committee calendar link",
+    steps:
+      "Copy the calendar link from Venue bookings → open it in a private window → confirm confirmed and pending bookings show in month and list views and previous/next month work → reset the link and confirm the old link no longer opens.",
+  },
+  {
     id: "v1.9.1-security-smoke",
     version: "v1.9.1",
     area: "Security",
