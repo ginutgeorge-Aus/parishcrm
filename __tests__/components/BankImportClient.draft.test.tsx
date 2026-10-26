@@ -6,8 +6,10 @@ import userEvent from "@testing-library/user-event"
 import { BankImportClient } from "@/components/accounting/BankImportClient"
 import type { Account, Family, ReviewRow } from "@/components/accounting/BankReviewTable"
 
-jest.mock("@/components/accounting/BankUploadStep", () => ({
-  BankUploadStep: () => <div data-testid="upload-step" />,
+jest.mock("@/lib/actions/bankImport", () => ({ rememberBankImportAccount: jest.fn().mockResolvedValue({ success: true }) }))
+
+jest.mock("@/components/accounting/import/UploadStep", () => ({
+  UploadStep: () => <div data-testid="upload-step" />,
 }))
 
 // Render the shadcn Select as a plain native <select> — this test drives
@@ -70,8 +72,11 @@ beforeEach(() => {
 })
 
 describe("BankImportClient draft persistence", () => {
-  it("starts at upload step when no draft exists", () => {
+  it("starts at the source step, then upload, when no draft exists", async () => {
+    const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    expect(screen.queryByTestId("upload-step")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Continue" }))
     expect(screen.getByTestId("upload-step")).toBeInTheDocument()
   })
 
@@ -110,7 +115,7 @@ describe("BankImportClient draft persistence", () => {
 
     await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
-    expect(await screen.findByText("Import Complete")).toBeInTheDocument()
+    expect(await screen.findByText("Import complete")).toBeInTheDocument()
     expect(sessionStorage.getItem("bankImportDraft.v1")).toBeNull()
   })
 

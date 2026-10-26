@@ -4,6 +4,9 @@
 import { applyCategoryToRows, matchPerson } from "@/components/accounting/BankImportClient"
 import type { ReviewRow } from "@/components/accounting/BankReviewTable"
 
+// The client imports a server action (auth/prisma chain); these tests only exercise pure helpers.
+jest.mock("@/lib/actions/bankImport", () => ({ rememberBankImportAccount: jest.fn() }))
+
 const families = [
   {
     id: 1,
