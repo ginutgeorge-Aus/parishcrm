@@ -4,7 +4,7 @@ description: "A few background tasks — event reminder emails, abandoned-checko
 ---
 
 A few background tasks — event reminder emails, abandoned-checkout cleanup,
-birthday/anniversary emails, an optional monthly clearance-compliance digest, and an
+birthday/anniversary emails, an optional monthly clearance-compliance digest, a monthly venue invoice request (when Venue bookings is on), and an
 optional error digest — run inside the
 app by default: an in-process timer starts at boot (`IN_APP_CRON`, on in
 production, off in development unless `IN_APP_CRON=true`) and checks for due
@@ -19,6 +19,7 @@ scheduler.
 | Event reminders, abandoned-checkout cleanup | Every 30 minutes |
 | Birthday/anniversary emails | Once per Sydney day, from 07:00 |
 | Clearance compliance digest | Once per Sydney month, on the 1st from 07:00 (catches up through the 7th if the app was down; at most 3 attempts per day per process; the count resets when the app restarts). Opt-in: needs `CLEARANCE_DIGEST=true`. Emails ADMIN and PASTOR users about people with a ministry role; nothing is sent in a month where every clearance is in order. |
+| Venue invoice request | Once per Sydney month, on the 1st from 09:00 (catches up through the 7th if the app was down; at most 3 attempts per Sydney day, 30 minutes apart, and the budget refreshes each day). Sends last month's invoice request if an admin approved it and the month is still complete, otherwise emails ADMIN, PASTOR and OFFICE_ADMIN users a reminder. Does nothing until Venue bookings is enabled with a contact email. No env flag and no HTTP endpoint; the **Send request** button on the Venue bookings page is the manual route. |
 | Error digest | Once per Sydney week, from Monday 09:00. Opt-in: needs `ERROR_DIGEST=true` plus `GITHUB_TOKEN` and `GITHUB_REPO`. |
 
 A period job that does not fully succeed is retried 30 minutes later, at most
@@ -76,6 +77,7 @@ environment and your scheduler's `Authorization: Bearer` header.
   filing a new one. It also purges error-log and route-view rows older than
   90 days.
 - **`send-clearance-digest`** records the Sydney month it last sent in an app setting (`clearanceDigestLastMonth`) and takes a short lease while sending, so a second tick or an overlapping manual call cannot send at the same time. If the app stops after sending but before it marks the month done, the lease expires after 30 minutes and a retry may send again. It also keeps the addresses recorded as sent this month (`clearanceDigestDelivered`, email addresses only; an ambiguous mail-server error counts as sent). If any send fails the month normally stays open and the job retries, emailing only addresses not yet recorded; once all are recorded the month is marked done. The exception: if that list cannot be saved, failed sends are not retried, to avoid repeat emails, and the job tries to mark the month done anyway (if that write also fails, the lease expires as above and a later run may send again). `?force=1` emails everyone again and replaces that list.
+- **Venue invoice request** (in-app only) takes a lease on the month's request record (`reminderClaimedAt`, 10 minutes), so two instances or an overlapping run cannot send at the same time (a crash between sending and recording can resend once). `reminderSentAt` is set only after the work completes, and a month that was already sent is left alone, so the later days of the window do nothing. If every notice email fails, the lease is released and the job retries; if the invoice request itself already went out, the retry sends only the staff notices, never a second email to the venue. See [Venue Bookings](/parishcrm/docs/venue-bookings/).
 - None of these endpoints require a session login — they authenticate only
   via the `CRON_SECRET` bearer token, so they're safe to call from an
   external scheduler with no browser session.
@@ -98,6 +100,7 @@ See [Environment Variables](/parishcrm/docs/environment-variables/) for the full
 ## Related pages
 
 - [Event Reminders](/parishcrm/docs/event-reminders/)
+- [Venue Bookings](/parishcrm/docs/venue-bookings/)
 - [Birthdays and Celebrations](/parishcrm/docs/birthdays-and-celebrations/)
 - [Card Payments (Stripe)](/parishcrm/docs/card-payments-stripe/)
 - [Feedback Widget](/parishcrm/docs/feedback-widget/)

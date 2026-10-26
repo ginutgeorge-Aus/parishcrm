@@ -12,6 +12,7 @@ import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendin
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { getEnabledFeatures } from "@/lib/featureFlags"
+import { isVenueUsageEnabled } from "@/lib/venueUsageSettings"
 
 /**
  * Number of verify checkpoints with no recorded result. Uses a DB-side
@@ -34,7 +35,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   ])
   const role = session?.user?.role
 
-  const [pendingUpdates, verifyPending, membershipPending] = await Promise.all([
+  const [pendingUpdates, verifyPending, membershipPending, venueUsage] = await Promise.all([
     canEdit(role) && features.has("familyUpdates") ? countPendingFamilyUpdates() : Promise.resolve(0),
     isAdmin(role)
       ? countUntestedCheckpoints()
@@ -42,6 +43,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     canEdit(role) && features.has("memberships")
       ? countPendingMemberships()
       : Promise.resolve(0),
+    canEdit(role) ? isVenueUsageEnabled().catch(() => false) : Promise.resolve(false),
   ])
   return (
     <div className="flex min-h-screen flex-col">
@@ -53,7 +55,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       </a>
       <ShellProvider>
         <div className="flex flex-1">
-          <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} />
+          <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} venueUsage={venueUsage} />
           <div id="shell-content" className="flex min-w-0 flex-1 flex-col">
             <TopBar churchName={churchName} role={role} pendingUpdates={pendingUpdates} membershipPending={membershipPending} features={[...features]} />
             <main id="main-content" className="min-w-0 flex-1 scroll-mt-14 bg-muted p-4 md:p-8">{children}</main>

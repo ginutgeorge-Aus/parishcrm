@@ -19,6 +19,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { appSetting: { findMany: jest.fn().m
 jest.mock("@/lib/mailConfig", () => ({ senderAddress: () => "office@example.com" }))
 jest.mock("@/components/settings/ChurchInfoForm", () => stub("ChurchInfoForm"))
 jest.mock("@/components/settings/AppSettingsForm", () => stub("AppSettingsForm"))
+jest.mock("@/components/settings/VenueUsageSettingsForm", () => stub("VenueUsageSettingsForm"))
 import GeneralSettingsPage from "@/app/(dashboard)/settings/page"
 
 it("guards with its own tab href", async () => {

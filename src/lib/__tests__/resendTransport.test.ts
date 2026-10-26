@@ -50,6 +50,19 @@ describe("createResendTransport", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).to).toEqual(["a@x.com", "b@y.com"])
   })
 
+  it("passes cc and reply_to only when set", async () => {
+    fetchMock.mockResolvedValue(json(200, { id: "msg_1" }))
+    const t = createResendTransport("k", { sleep: noSleep })
+    await t.sendMail({ ...baseOpts, cc: "c@x.com, d@y.com", replyTo: "r@x.com" })
+    await t.sendMail(baseOpts)
+    const withBoth = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(withBoth.cc).toEqual(["c@x.com", "d@y.com"])
+    expect(withBoth.reply_to).toBe("r@x.com")
+    const plain = JSON.parse(fetchMock.mock.calls[1][1].body)
+    expect(plain).not.toHaveProperty("cc")
+    expect(plain).not.toHaveProperty("reply_to")
+  })
+
   it("base64-encodes attachments", async () => {
     fetchMock.mockResolvedValue(json(200, { id: "msg_1" }))
     await createResendTransport("k", { sleep: noSleep }).sendMail({

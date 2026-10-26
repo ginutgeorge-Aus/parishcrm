@@ -3,7 +3,7 @@ import {
   BookOpen, ArrowLeftRight, Landmark, PiggyBank, BarChart2,
   CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
-  MessagesSquare, HelpCircle, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
+  MessagesSquare, HelpCircle, Warehouse, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
   Church, Calculator, Settings,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
@@ -24,7 +24,7 @@ export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; i
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-    pendingUpdates, verifyPending, membershipPending, features,
+    pendingUpdates, verifyPending, membershipPending, features, venueUsage,
   } = flags
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
@@ -54,6 +54,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor && on("memberships"), badge: membershipPending },
         { href: "/welcome-letter", label: "Welcome Letter", icon: MailPlus, show: isEditor && on("welcomeLetter") },
+        { href: "/venue-usage", label: "Venue bookings", icon: Warehouse, show: isEditor && !!venueUsage },
       ],
     },
     {

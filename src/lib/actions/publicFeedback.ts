@@ -11,6 +11,7 @@ import { escapeMarkdown, buildIssueTitle, buildIssueBody, type IssueClientContex
 import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
+import { redactPagePath } from "@/lib/redactPagePath"
 
 const RATE_LIMIT = 5
 const RATE_WINDOW_MS = 60 * 60 * 1000
@@ -29,8 +30,8 @@ const clientSchema = z
   .optional()
 
 // App-relative pathname only — restrict to safe path chars so nothing can be
-// injected into the **Page:** line.
-const pageUrl = z.string().regex(/^\/[\w\-./?=&%]*$/, "Invalid page URL").max(300).optional()
+// injected into the **Page:** line. `[` and `]` allowed for redacted paths like /venue/[token].
+const pageUrl = z.string().regex(/^\/[\w\-./?=&%[\]]*$/, "Invalid page URL").max(300).optional()
 
 // Empty string is treated as "not provided"; any non-empty value must be a
 // valid email. Bounded length either way.
@@ -97,6 +98,9 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
   const parsed = Schema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const data = parsed.data
+  // Defence in depth: the client redacts too, but never trust it. Bearer-token
+  // path segments must not reach the GitHub issue or the notification email.
+  const safePageUrl = redactPagePath(data.pageUrl) ?? null
 
   // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
   // never trust caller input for throttling.
@@ -144,7 +148,7 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
     lead,
     reporter: "Public visitor", // never a real identity — issues are collaborator-visible
     type: data.type,
-    pageUrl: data.pageUrl ?? null,
+    pageUrl: safePageUrl,
     client: data.client as IssueClientContext | undefined,
     timestamp,
   })
@@ -159,7 +163,7 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
 
   const contact = data.reporterEmail && data.reporterEmail.length > 0 ? data.reporterEmail : undefined
   // Fire-and-forget — a mail failure must never affect the visitor's success.
-  void notifyChurch({ typeLabel, summary, details, contact, issueNumber: issue.number, pageUrl: data.pageUrl ?? null, timestamp }).catch(() => {})
+  void notifyChurch({ typeLabel, summary, details, contact, issueNumber: issue.number, pageUrl: safePageUrl, timestamp }).catch(() => {})
 
   return { success: "Thanks — your report has been sent to the parish office." }
 }

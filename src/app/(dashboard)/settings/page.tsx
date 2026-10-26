@@ -3,14 +3,17 @@ import { requireSettingsTab } from "@/lib/settingsAccess"
 import { senderAddress } from "@/lib/mailConfig"
 import { AppSettingsForm } from "@/components/settings/AppSettingsForm"
 import { ChurchInfoForm } from "@/components/settings/ChurchInfoForm"
+import { VenueUsageSettingsForm } from "@/components/settings/VenueUsageSettingsForm"
+import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 
 /** Settings → General: church identity and app-wide settings. */
 export default async function GeneralSettingsPage() {
-  const { features, data: settings } = await requireSettingsTab("/settings", () =>
-    prisma.appSetting.findMany({
+  const { features, data: loaded } = await requireSettingsTab("/settings", () =>
+    Promise.all([readVenueUsageSettings(), prisma.appSetting.findMany({
       where: { key: { in: ["ownerNotificationEmail", "membershipSecretaryEmail", "churchName", "churchAddress", "churchABN", "churchEmail", "churchWebsite", "SESSION_IDLE_TIMEOUT_MINUTES", "cardFeePercent", "cardFeeFixed"] } },
-    }),
+    })]),
   )
+  const [venueSettings, settings] = loaded
   const get = (key: string) => settings.find((s) => s.key === key)?.value ?? ""
   // churchWebsite: a saved row (even blank) must win over the env fallback, so an
   // admin who cleared the field to hide the public links doesn't get the env URL
@@ -37,6 +40,7 @@ export default async function GeneralSettingsPage() {
         showMembership={features.has("memberships")}
         showCardFee={features.has("events")}
       />
+      <VenueUsageSettingsForm settings={venueSettings} />
     </>
   )
 }

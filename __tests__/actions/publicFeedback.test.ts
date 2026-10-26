@@ -131,6 +131,13 @@ it("rejects an invalid reporterEmail but accepts an empty string", async () => {
   expect(ok).toHaveProperty("success")
 })
 
+it("accepts a redacted pageUrl containing square brackets", async () => {
+  const r = await submitPublicFeedback({ ...feedback, pageUrl: "/venue/[token]" })
+  expect(r).toHaveProperty("success")
+  const r2 = await submitPublicFeedback({ ...feedback, pageUrl: "/family/update/[token]" })
+  expect(r2).toHaveProperty("success")
+})
+
 it("never leaks reporterEmail into the GitHub issue", async () => {
   await submitPublicFeedback({ ...bug, reporterEmail: "visitor@example.com" })
   const call = mockCreateIssue.mock.calls[0][0]
@@ -143,4 +150,18 @@ it("still succeeds when the notification email send fails", async () => {
   const r = await submitPublicFeedback(bug)
   expect(r).toHaveProperty("success")
   await flush()
+})
+
+it.each([
+  ["/venue/SECRETtoken_123", "/venue/[token]"],
+  ["/family/update/SECRETtoken_123", "/family/update/[token]"],
+])("redacts bearer token in pageUrl %s before the issue and email", async (url, redacted) => {
+  await submitPublicFeedback({ ...bug, pageUrl: url })
+  const body = mockCreateIssue.mock.calls[0][0].body as string
+  expect(body).toContain(redacted.replace("[token]", "\\[token\\]")) // markdown-escaped
+  expect(body).not.toContain("SECRETtoken")
+  await flush()
+  const [, , html, text] = mockSendEmail.mock.calls[0]
+  expect(html + text).not.toContain("SECRETtoken")
+  expect(text).toContain(redacted)
 })

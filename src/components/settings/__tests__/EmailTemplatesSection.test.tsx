@@ -66,8 +66,9 @@ describe("feature-owned templates", () => {
 
   it("visibleEmailTemplateKeys drops templates whose feature is off and keeps core ones", () => {
     expect(visibleEmailTemplateKeys(new Set())).toEqual(["welcome"])
-    expect(visibleEmailTemplateKeys(new Set(["receipts", "familyUpdates", "dgrReceipts"]))).toEqual([...EMAIL_TEMPLATE_KEYS])
+    expect(visibleEmailTemplateKeys(new Set(["receipts", "familyUpdates", "dgrReceipts"]))).toEqual(EMAIL_TEMPLATE_KEYS.filter((k) => !k.startsWith("venue")))
     expect(visibleEmailTemplateKeys(new Set(["dgrReceipts"]))).toEqual(["welcome", "dgrReceipt"])
+    expect(visibleEmailTemplateKeys(new Set(), { venueUsage: true })).toEqual(["welcome", "venueBookingRequest", "venueInvoiceRequest"])
   })
 })
 

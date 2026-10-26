@@ -18,6 +18,7 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("@/lib/reminderSweep", () => ({ runReminderSweep: jest.fn() }))
 jest.mock("@/lib/celebrationSweep", () => ({ runCelebrationSweep: jest.fn() }))
 jest.mock("@/lib/clearanceDigest", () => ({ runClearanceDigest: jest.fn() }))
+jest.mock("@/lib/venueInvoiceJob", () => ({ runVenueInvoiceJob: jest.fn() }))
 jest.mock("@/lib/checkoutSweep", () => ({ sweepExpiredCheckouts: jest.fn() }))
 
 import { prisma } from "@/lib/prisma"

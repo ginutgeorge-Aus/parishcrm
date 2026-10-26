@@ -1,5 +1,6 @@
 import { requireSettingsTab } from "@/lib/settingsAccess"
 import { getAnniversaryTemplate, getAutoEmailFlags, getBirthdayTemplate } from "@/lib/actions/settings"
+import { isVenueUsageEnabled } from "@/lib/venueUsageSettings"
 import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { EMAIL_TEMPLATE_KEYS, visibleEmailTemplateKeys, type EmailTemplateFields, type EmailTemplateKey } from "@/lib/emailTemplates"
 import { BirthdayEmailForm } from "@/components/settings/BirthdayEmailForm"
@@ -12,11 +13,12 @@ import { SettingsCard } from "@/components/settings/ui/SettingsCard"
 export default async function EmailSettingsPage() {
   const { features } = await requireSettingsTab("/settings/email")
   const celebrations = features.has("celebrations")
-  const [birthday, anniversary, autoFlags, tplEntries] = await Promise.all([
+  const [birthday, anniversary, autoFlags, tplEntries, venueUsage] = await Promise.all([
     celebrations ? getBirthdayTemplate() : null,
     celebrations ? getAnniversaryTemplate() : null,
     celebrations ? getAutoEmailFlags() : null,
     Promise.all(EMAIL_TEMPLATE_KEYS.map(async (k) => [k, await getEmailTemplate(k)] as const)),
+    isVenueUsageEnabled(),
   ])
   const templates = Object.fromEntries(tplEntries) as Record<EmailTemplateKey, EmailTemplateFields>
   return (
@@ -28,7 +30,7 @@ export default async function EmailSettingsPage() {
           <AnniversaryEmailForm subject={anniversary.subject} body={anniversary.body} />
         </SettingsCard>
       )}
-      <EmailTemplatesSection templates={templates} keys={visibleEmailTemplateKeys(features)} />
+      <EmailTemplatesSection templates={templates} keys={visibleEmailTemplateKeys(features, { venueUsage })} />
     </>
   )
 }

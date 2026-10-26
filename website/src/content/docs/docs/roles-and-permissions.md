@@ -84,6 +84,8 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | CSV export (accounting) | Yes | Yes | Yes | Yes | No | No |
 | Invoices & customers — create, edit, send | Yes | Yes | No | No | No | No |
 | Invoices — view; recipient contact details and PDF download | Yes | Yes | Yes | Names/totals only, no contact or PDF | No | No |
+| Venue bookings — manage bookings, send requests, approve automatic send (`/venue-usage`) | Yes | Yes | Yes | No | No | No |
+| Venue bookings — settings and calendar link create/reset | Yes | No | No | No | No | No |
 | User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR targets) | No | No | No |
 | Assign ADMIN or PASTOR role | Yes | No | No | No | No | No |
 | Own event: view registrations, check attendees in | Yes | Yes | Yes | No | No | Yes (own events) |

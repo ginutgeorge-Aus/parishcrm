@@ -149,6 +149,7 @@ docs/                   topic docs + specs/plans
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails, invoices (optional GST tax invoices, PDF + email, payment matching, void, GST collected).
 - **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
+- **Venue bookings** — for churches that hire a hall: dated bookings (requested / confirmed / cancelled), booking-request and cancellation emails, a monthly invoice request (manual, or sent automatically from the 1st once an admin approves), and a secret no-login committee calendar.
 - **Membership** — public application form, approval workflow, letters/receipts.
 - **Family self-update** — secure tokenised links let families review and update their own details.
 - **Choose your features** — turn on only what your church uses (Settings → Features tab); switched-off features are hidden and blocked, and their data is kept.

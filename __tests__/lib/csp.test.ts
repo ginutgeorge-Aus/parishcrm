@@ -173,6 +173,13 @@ describe("isPublicPath", () => {
   it("treats the family update form as public", () => {
     expect(isPublicPath("/family/update/abc123")).toBe(true)
   })
+  it("treats only the token-scoped venue calendar as public", () => {
+    expect(isPublicPath("/venue/abc_DEF-123")).toBe(true)
+    expect(isPublicPath("/venue/abc_DEF-123/")).toBe(true)
+    expect(isPublicPath("/venue")).toBe(false)
+    expect(isPublicPath("/venue/a/b")).toBe(false)
+    expect(isPublicPath("/venue-usage")).toBe(false)
+  })
   it("keeps bare /family gated", () => {
     expect(isPublicPath("/family")).toBe(false)
     expect(isPublicPath("/families")).toBe(false)

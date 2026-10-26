@@ -3,7 +3,8 @@ import { PublicFeedbackDialog } from "@/components/public/PublicFeedbackDialog"
 import { submitPublicFeedback } from "@/lib/actions/publicFeedback"
 
 jest.mock("@/lib/actions/publicFeedback", () => ({ submitPublicFeedback: jest.fn() }))
-jest.mock("next/navigation", () => ({ usePathname: () => "/e/carols" }))
+const mockPathname = jest.fn(() => "/e/carols")
+jest.mock("next/navigation", () => ({ usePathname: () => mockPathname() }))
 
 const mockSubmit = submitPublicFeedback as jest.Mock
 
@@ -53,5 +54,18 @@ it("forwards the hidden honeypot value to the action (bot detection)", async () 
     type: "FEEDBACK",
     what: "great app",
     website: "http://spam.example",
+  })
+})
+
+describe("token path redaction", () => {
+  it("never sends a bearer token path segment to the action", async () => {
+    mockPathname.mockReturnValue("/venue/SECRETtoken_123")
+    mockSubmit.mockResolvedValue({ success: "ok" })
+    openFeedback()
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled())
+    expect(mockSubmit.mock.calls[0][0].pageUrl).toBe("/venue/[token]")
+    expect(JSON.stringify(mockSubmit.mock.calls[0][0])).not.toContain("SECRETtoken")
+    mockPathname.mockReturnValue("/e/carols")
   })
 })

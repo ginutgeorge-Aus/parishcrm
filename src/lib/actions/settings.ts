@@ -18,6 +18,7 @@ import { DEFAULT_BIRTHDAY_TEMPLATE, renderBirthdayEmail, type BirthdayTemplate }
 import { DEFAULT_ANNIVERSARY_TEMPLATE, renderAnniversaryEmail, type AnniversaryTemplate } from "@/lib/anniversaryTemplate"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
+import { VENUE_USAGE_SETTING_KEYS, parseCcList } from "@/lib/venueUsage"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
@@ -41,6 +42,7 @@ const ALLOWED_KEYS = new Set<string>([
   ...ANNIVERSARY_TEMPLATE_KEYS,
   ...AUTO_EMAIL_KEYS,
   ...LETTER_SETTING_KEYS,
+  ...VENUE_USAGE_SETTING_KEYS,
 ])
 // Generic-path keys owned by a feature: upsertSetting refuses them while it's
 // off, matching the dedicated actions (updateAutoEmailFlags etc.).
@@ -56,7 +58,9 @@ const KEY_FEATURE = new Map<string, FeatureKey>([
   ...LETTER_SETTING_KEYS.map((k) => [k, "welcomeLetter"] as const),
 ])
 const IDLE_TIMEOUT_OPTIONS = new Set(IDLE_TIMEOUT_OPTIONS_LIST.map(String))
-const EMAIL_KEYS = new Set(["ownerNotificationEmail", "churchEmail"])
+const EMAIL_KEYS = new Set([
+  "ownerNotificationEmail", "churchEmail", "venueUsage.contactEmail", "venueUsage.ccEmail", "venueUsage.replyToEmail",
+])
 // Numeric-valued settings and their sane bounds. Card surcharge rate: a blended
 // domestic percent + a fixed AUD component. Reader lives in cardFeeSettings.ts
 // (cached, busted via the "card-fee" tag below).
@@ -131,6 +135,14 @@ function validateSettingValue(key: string, value: string): { error: string } | {
   if (key === "SESSION_IDLE_TIMEOUT_MINUTES" && !IDLE_TIMEOUT_OPTIONS.has(value)) {
     return { error: "Invalid timeout value" }
   }
+  if (key === "venueUsage.enabled" && value !== "true" && value !== "false") return { error: "Invalid value" }
+  if (key === "venueUsage.bookingCcEmails") {
+    if (value.length > 1000) return { error: "Value is too long" }
+    const list = parseCcList(value)
+    if (!list.ok) return { error: list.error }
+    return { value: list.list.join(", ") }
+  }
+  if (key.startsWith("venueUsage.") && value.length > 254) return { error: "Value is too long" }
   // Email-valued keys must hold a real address (blank clears) — a bad value
   // causes silent sendEmail delivery failures later.
   if (EMAIL_KEYS.has(key) && value !== "" && !z.string().email().max(255).safeParse(value).success) {

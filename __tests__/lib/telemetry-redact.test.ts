@@ -168,3 +168,21 @@ describe("UrlRedactingSpanProcessor", () => {
     await expect(p.shutdown()).resolves.toBeUndefined()
   })
 })
+
+describe("redactUrlAttributes — venue calendar token", () => {
+  it.each([
+    ["url.path", "/venue/abc123", "/venue/[token]"],
+    ["url.full", "https://crm.example.com/venue/abc123", "https://crm.example.com/venue/[token]"],
+    ["http.target", "/venue/abc123", "/venue/[token]"],
+  ])("redacts the /venue/<token> segment in %s", (key, value, expected) => {
+    const attrs: Record<string, unknown> = { [key]: value }
+    redactUrlAttributes(attrs)
+    expect(attrs[key]).toBe(expected)
+  })
+
+  it("does not touch the authenticated /venue-usage page", () => {
+    const attrs: Record<string, unknown> = { "url.path": "/venue-usage" }
+    redactUrlAttributes(attrs)
+    expect(attrs["url.path"]).toBe("/venue-usage")
+  })
+})

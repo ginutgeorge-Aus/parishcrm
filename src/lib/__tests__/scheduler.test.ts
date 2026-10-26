@@ -12,6 +12,8 @@ function state(patch: Partial<Record<keyof SchedulerState, Partial<SchedulerStat
   // `at()` is 2 July, inside the clearance digest's 1st-7th catch-up window, so
   // default it to already-sent unless a test patches clearanceDigest.
   if (!("clearanceDigest" in patch)) s.clearanceDigest.lastSuccessKey = "2026-07"
+  // Same for the venue invoice job (1st-7th window).
+  if (!("venueInvoice" in patch)) s.venueInvoice.lastSuccessKey = "2026-07"
   for (const [k, v] of Object.entries(patch)) Object.assign(s[k as keyof SchedulerState], v)
   return s
 }
@@ -187,5 +189,41 @@ describe("schedulerEnabled", () => {
     [{ NODE_ENV: "test" }, false],
   ])("%j → %s", (env, expected) => {
     expect(schedulerEnabled(env)).toBe(expected)
+  })
+})
+
+describe("dueJobs — venue invoice (monthly, Sydney 1st-7th from 09:00)", () => {
+  // Sydney 1 Jul 2026 at h:m (AEST = UTC+10, so 09:00 is 30 Jun 23:00 UTC)
+  const first = (h: number, m = 0) => new Date(Date.UTC(2026, 5, 30, 14 + h, m))
+  const quiet = { reminders: { running: true }, checkouts: { running: true }, celebrations: { running: true }, clearanceDigest: { running: true } }
+  const open = { venueInvoice: { lastSuccessKey: null }, ...quiet }
+  it("is not due before 09:00 on the 1st", () => {
+    expect(dueJobs(first(8, 55), state(open), {})).toEqual([])
+  })
+  it("is due from 09:00 on the 1st", () => {
+    expect(dueJobs(first(9), state(open), {})).toEqual(["venueInvoice"])
+  })
+  it("is due on the 2nd at 09:00 when the month is not done, but not at 08:55", () => {
+    expect(dueJobs(new Date(Date.UTC(2026, 6, 1, 23, 0)), state(open), {})).toEqual(["venueInvoice"]) // 2 Jul 09:00 AEST
+    expect(dueJobs(new Date(Date.UTC(2026, 6, 1, 22, 55)), state(open), {})).toEqual([]) // 2 Jul 08:55 AEST
+  })
+  it("is not due on the 8th", () => {
+    expect(dueJobs(new Date(Date.UTC(2026, 6, 7, 23, 0)), state(open), {})).toEqual([]) // 8 Jul 09:00 AEST
+  })
+  it("is not due again after a success this Sydney month, but is next month", () => {
+    expect(dueJobs(first(10), state({ ...quiet, venueInvoice: { lastSuccessKey: "2026-07" } }), {})).toEqual([])
+    expect(successKey("venueInvoice", first(10))).toBe("2026-07")
+  })
+  it("retries 30 min apart and stops after 3 attempts that day", () => {
+    const s = state(open)
+    let t = first(9).getTime()
+    for (let i = 0; i < 3; i++) {
+      expect(dueJobs(new Date(t), s, {})).toEqual(["venueInvoice"])
+      recordStart("venueInvoice", s, new Date(t))
+      t += 30 * MIN
+    }
+    expect(dueJobs(new Date(t), s, {})).toEqual([])
+    // Fresh budget at 09:00 the next Sydney day.
+    expect(dueJobs(new Date(first(9).getTime() + 24 * 60 * MIN), s, {})).toEqual(["venueInvoice"])
   })
 })
