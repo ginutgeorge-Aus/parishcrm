@@ -19,7 +19,7 @@ jobs:
     # Forks have no demo secrets.
     if: github.repository == 'ginutgeorge-Aus/parishcrm'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       # Seed and deploy the same release. Fail (demo keeps last night's data)
       # if that release's image never reached GHCR, e.g. a failed publish.
@@ -61,3 +61,25 @@ jobs:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
           IMAGE: ${{ steps.tag.outputs.image }}
         run: curl -fsS -X POST -G "$HOOK" --data-urlencode "imgURL=$IMAGE" > /dev/null
+      # The hook only queues the deploy. Fail the run unless the demo ends up
+      # serving the seeded release: the login page prints "CRM · <version>".
+      # Needs no Render API key (account-wide). If the release was already
+      # live, this passes at once even if the redeploy itself failed; the
+      # schema still matches the seed, so that case is harmless.
+      - name: Wait for demo to serve the release
+        env:
+          DEMO_URL: ${{ vars.DEMO_URL || 'https://parishcrm-demo.onrender.com' }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          url="${DEMO_URL%/}/login"
+          deadline=$((SECONDS + 720))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(curl -fsSL -m 60 "$url" 2>/dev/null) || true
+            if grep -qF "· ${TAG}</p>" <<<"$body"; then
+              echo "Demo is serving $TAG"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::Demo not serving $TAG at $url after 12 min; check the Render deploy log"
+          exit 1

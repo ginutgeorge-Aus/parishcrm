@@ -317,6 +317,7 @@ export function LoginForm({
             className="mx-auto h-auto w-48"
           />
         </CardTitle>
+        {/* demo-reset.yml greps for "· <version></p>" here to confirm the demo redeployed — keep the format. */}
         <p className="text-center text-sm text-muted-foreground mt-1">
           CRM{process.env.NEXT_PUBLIC_APP_VERSION ? ` · ${process.env.NEXT_PUBLIC_APP_VERSION}` : ""}
         </p>
