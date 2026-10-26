@@ -8,6 +8,8 @@ import { upsertSetting } from "@/lib/actions/settings"
 jest.mock("@/lib/actions/settings", () => ({ upsertSetting: jest.fn() }))
 
 describe("EmailFooterForm", () => {
+  beforeEach(() => jest.clearAllMocks())
+
   it("pre-fills the stored footer and posts the emailFooter key", async () => {
     ;(upsertSetting as jest.Mock).mockResolvedValueOnce({ success: true })
     render(<EmailFooterForm footer="Sent via {churchName}" />)

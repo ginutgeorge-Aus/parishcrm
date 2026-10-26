@@ -1,14 +1,14 @@
 /** @jest-environment node */
 import { getEmailFooter, getEmailFooterTemplate } from "@/lib/emailTemplateStore"
 
-const findUnique = jest.fn()
+const mockFindUnique = jest.fn()
 jest.mock("@/lib/prisma", () => ({
-  prisma: { appSetting: { findUnique: (...a: unknown[]) => findUnique(...a) } },
+  prisma: { appSetting: { findUnique: (...a: unknown[]) => mockFindUnique(...a) } },
 }))
 
 /** Mock the per-key AppSetting reads. */
 function rows(map: Record<string, string>) {
-  findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
+  mockFindUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
     where.key in map ? { value: map[where.key] } : null,
   )
 }
@@ -27,7 +27,7 @@ describe("getEmailFooter", () => {
   it("skips the church-name read when the footer has no {churchName}", async () => {
     rows({ emailFooter: "Plain footer" })
     expect(await getEmailFooter()).toBe("Plain footer")
-    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(mockFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it("returns empty string when the row is blank (disabled)", async () => {
@@ -41,7 +41,7 @@ describe("getEmailFooter", () => {
   })
 
   it("sends no footer when the DB throws (fails closed)", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+    mockFindUnique.mockRejectedValue(new Error("db down"))
     expect(await getEmailFooter()).toBe("")
   })
 

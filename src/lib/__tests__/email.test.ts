@@ -23,7 +23,7 @@ jest.mock("nodemailer", () => ({
 
 const appSettingFindUnique = jest.fn<Promise<{ value: string } | null>, [unknown]>(async () => null)
 jest.mock("@/lib/prisma", () => ({
-  prisma: { appSetting: { findUnique: (...a: unknown[]) => appSettingFindUnique(a) } },
+  prisma: { appSetting: { findUnique: (...a: unknown[]) => appSettingFindUnique(a[0]) } },
 }))
 
 describe("email", () => {
@@ -340,7 +340,7 @@ describe("email footer", () => {
 
   it("sendEmail delivers the saved footer in html and text", async () => {
     appSettingFindUnique.mockImplementation(async (args: unknown) =>
-      (args as [{ where: { key: string } }])[0].where.key === "emailFooter"
+      (args as { where: { key: string } }).where.key === "emailFooter"
         ? { value: "This email was sent via the {churchName} CRM application." }
         : null,
     )
@@ -352,7 +352,7 @@ describe("email footer", () => {
 
   it("sendEmail sends unchanged bodies when the footer is disabled", async () => {
     appSettingFindUnique.mockImplementation(async (args: unknown) =>
-      (args as [{ where: { key: string } }])[0].where.key === "emailFooter" ? { value: "" } : null,
+      (args as { where: { key: string } }).where.key === "emailFooter" ? { value: "" } : null,
     )
     await sendEmail("to@example.com", "Subj", "<body>x</body>", "x")
     const call = sendMailMock.mock.calls[0][0]
