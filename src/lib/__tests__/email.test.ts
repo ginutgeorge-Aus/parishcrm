@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import * as React from "react"
 import { render } from "@react-email/render"
-import { sendWelcomeEmail, sendPasswordResetEmail, sendRegistrationConfirmationEmail, sendMembershipNotificationEmail, isTransientSmtpError, isAmbiguousDeliveryError } from "@/lib/email"
+import { sendWelcomeEmail, sendPasswordResetEmail, sendRegistrationConfirmationEmail, sendMembershipNotificationEmail, isTransientSmtpError, isAmbiguousDeliveryError, sendEmail, appendEmailFooter } from "@/lib/email"
 import { WelcomeEmail } from "@/lib/emails/WelcomeEmail"
 import { ReceiptEmail, type ReceiptData } from "@/lib/emails/ReceiptEmail"
 
@@ -298,5 +298,57 @@ describe("email", () => {
       expect(fetchMock).not.toHaveBeenCalled()
       expect(sendMailMock).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe("email footer", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    appSettingFindUnique.mockResolvedValue(null)
+    process.env.GMAIL_USER = "test@gmail.com"
+    process.env.GMAIL_APP_PASSWORD = "test-password"
+    process.env.CHURCH_NAME = "Test Church"
+  })
+
+  describe("appendEmailFooter", () => {
+    it("inserts before </body>", () => {
+      const r = appendEmailFooter("<html><body><p>Hi</p></body></html>", "Hi", "Foot")
+      expect(r.html).toMatch(/<p>Hi<\/p><p style="[^"]*">Foot<\/p><\/body><\/html>$/)
+    })
+    it("matches </BODY> case-insensitively and uses the last one", () => {
+      const r = appendEmailFooter("<BODY>a</BODY>", "a", "Foot")
+      expect(r.html.endsWith("Foot</p></BODY>")).toBe(true)
+    })
+    it("appends when there is no body tag", () => {
+      expect(appendEmailFooter("<p>Hi</p>", "Hi", "Foot").html).toMatch(/^<p>Hi<\/p><p style=.*>Foot<\/p>$/)
+    })
+    it("escapes HTML in the footer", () => {
+      const r = appendEmailFooter("<body></body>", "", "<script>x</script> & co")
+      expect(r.html).toContain("&lt;script&gt;x&lt;/script&gt; &amp; co")
+      expect(r.html).not.toContain("<script>")
+    })
+    it("is a no-op for an empty footer", () => {
+      expect(appendEmailFooter("<body>a</body>", "a", "  ")).toEqual({ html: "<body>a</body>", text: "a" })
+    })
+    it("appends the footer to the text body", () => {
+      expect(appendEmailFooter("<p/>", "Body", "Foot").text).toBe("Body\n\n—\nFoot")
+    })
+  })
+
+  it("sendEmail delivers the default footer in html and text", async () => {
+    await sendEmail("to@example.com", "Subj", "<html><body>x</body></html>", "x")
+    const call = sendMailMock.mock.calls[0][0]
+    expect(String(call.html)).toContain("This email was sent via the Test Church CRM application.</p></body>")
+    expect(call.text).toBe("x\n\n—\nThis email was sent via the Test Church CRM application.")
+  })
+
+  it("sendEmail sends unchanged bodies when the footer is disabled", async () => {
+    appSettingFindUnique.mockImplementation(async (args: unknown) =>
+      (args as [{ where: { key: string } }])[0].where.key === "emailFooter" ? { value: "" } : null,
+    )
+    await sendEmail("to@example.com", "Subj", "<body>x</body>", "x")
+    const call = sendMailMock.mock.calls[0][0]
+    expect(call.html).toBe("<body>x</body>")
+    expect(call.text).toBe("x")
   })
 })

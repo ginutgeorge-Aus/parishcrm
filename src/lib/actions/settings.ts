@@ -20,6 +20,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
 import { VENUE_USAGE_SETTING_KEYS, parseCcList } from "@/lib/venueUsage"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
+import { EMAIL_FOOTER_KEY, EMAIL_FOOTER_MAX } from "@/lib/emailTemplates"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
 import type { FeatureKey } from "@/lib/features"
@@ -37,6 +38,7 @@ const ALLOWED_KEYS = new Set<string>([
   "pettyCashDefaultCustodianId",
   "cardFeePercent",
   "cardFeeFixed",
+  EMAIL_FOOTER_KEY,
   ...CHURCH_INFO_KEYS,
   ...BIRTHDAY_TEMPLATE_KEYS,
   ...ANNIVERSARY_TEMPLATE_KEYS,
@@ -142,6 +144,8 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     if (!list.ok) return { error: list.error }
     return { value: list.list.join(", ") }
   }
+  // Blank is valid: it stores "" = footer disabled (a missing row means the default).
+  if (key === EMAIL_FOOTER_KEY && value.length > EMAIL_FOOTER_MAX) return { error: `Footer must be ${EMAIL_FOOTER_MAX} characters or fewer` }
   if (key.startsWith("venueUsage.") && value.length > 254) return { error: "Value is too long" }
   // Email-valued keys must hold a real address (blank clears) — a bad value
   // causes silent sendEmail delivery failures later.

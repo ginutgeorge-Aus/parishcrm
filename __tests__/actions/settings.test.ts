@@ -368,3 +368,40 @@ describe("updatePettyCashCustodian", () => {
     expect(res).toEqual({ error: "Invalid custodian" })
   })
 })
+
+describe("upsertSetting emailFooter", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  })
+
+  it("rejects non-admins", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "2", role: "PASTOR" } })
+    const result = await upsertSetting(undefined, makeFormData("emailFooter", "hi"))
+    expect(result).toEqual({ error: "Unauthorized" })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it("rejects a footer over 500 characters", async () => {
+    const result = await upsertSetting(undefined, makeFormData("emailFooter", "x".repeat(501)))
+    expect(result).toEqual({ error: expect.stringContaining("500") })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it("stores a blank footer as an empty row (disabled), not a delete", async () => {
+    const result = await upsertSetting(undefined, makeFormData("emailFooter", "   "))
+    expect(result).toEqual({ success: "Settings saved" })
+    expect(mockUpsert).toHaveBeenCalledWith({
+      where: { key: "emailFooter" },
+      create: { key: "emailFooter", value: "" },
+      update: { value: "" },
+    })
+  })
+
+  it("saves a valid footer and audits the key only", async () => {
+    await upsertSetting(undefined, makeFormData("emailFooter", "Sent by {churchName}"))
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { value: "Sent by {churchName}" } }))
+    expect(mockLogAudit).toHaveBeenCalledWith(1, "SETTING_UPDATED", "AppSetting", undefined, { key: "emailFooter" })
+    expect(mockRevalidate).toHaveBeenCalledWith("/settings")
+  })
+})

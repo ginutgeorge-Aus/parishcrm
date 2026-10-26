@@ -123,6 +123,14 @@ Editable subject/body templates for the app's transactional emails
 (receipts, reminders, notifications) — see
 [Email Notifications](/parishcrm/docs/email-notifications/).
 
+#### Email footer
+
+Below the templates, **Email footer** sets a short line of text added to the bottom
+of every email the app sends (HTML and plain-text versions). Use `{churchName}` to
+insert your church name; up to 500 characters, plain text. By default it reads
+"This email was sent via the {churchName} CRM application." Clear the box and save
+to turn the footer off. Only admins can change it.
+
 ### Receipts tab
 
 Donation-receipt wording and options — see [Receipts](/parishcrm/docs/receipts/).

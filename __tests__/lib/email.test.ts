@@ -46,8 +46,8 @@ describe("email", () => {
         expect.objectContaining({
           to: "recipient@example.com",
           subject: "Test Subject",
-          html: "<p>Hello</p>",
-          text: "Hello",
+          html: expect.stringMatching(/^<p>Hello<\/p><p style="[^"]*">This email was sent via the Your Church CRM application\.<\/p>$/),
+          text: "Hello\n\n—\nThis email was sent via the Your Church CRM application.",
         })
       )
     })
