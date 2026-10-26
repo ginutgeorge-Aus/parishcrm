@@ -55,9 +55,8 @@ export class TotpRequired extends CredentialsSignin {
   code = "TotpRequired"
 }
 
-// Real client IP for audit logging. The trusted reverse proxy appends it as the rightmost
-// x-forwarded-for entry (trusted proxy — not spoofable), same convention as
-// src/lib/actions/auth.ts and the public register route.
+// Real client IP for audit logging: CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for
+// entry appended by the trusted proxy (not spoofable) — see src/lib/clientIp.ts.
 function clientIpFrom(request?: Request): string | undefined {
   return auditIpFromHeaders(request?.headers)
 }

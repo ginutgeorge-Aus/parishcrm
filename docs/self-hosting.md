@@ -210,6 +210,14 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.or
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 
+## Behind a proxy that adds hops (Render and similar)
+
+Login throttling and audit-log IPs read the rightmost `x-forwarded-for` entry. If your platform
+appends its own internal hop, that entry is a private address (e.g. `10.x`) and all users share
+one throttle bucket. On Render (behind Cloudflare) set `CLIENT_IP_HEADER=cf-connecting-ip`. Only
+set it if your proxy/CDN always overwrites that header, otherwise clients can spoof it. See
+`docs/environment.md`.
+
 ## Upgrading
 
 1. Back up the database.

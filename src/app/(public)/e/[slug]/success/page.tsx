@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { rateLimit } from "@/lib/rateLimit"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 import { fmtAUD, toCents, centsToNumber } from "@/lib/formatting"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import { QrCode } from "@/components/QrCode"
@@ -28,12 +29,6 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ ref?: 
 const SUCCESS_LOOKUP_LIMIT = 20
 const SUCCESS_LOOKUP_WINDOW_MS = 60_000
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
-
-function getClientIp(h: Headers): string {
-  // Rightmost x-forwarded-for IP is appended by the trusted reverse proxy.
-  const last = h.get("x-forwarded-for")?.split(",").at(-1)?.trim()
-  return last || "unknown"
-}
 
 // Earliest createdAt a token lookup will still match. Kept out of the
 // component body so Date.now() doesn't trip the render-purity lint rule.
@@ -64,7 +59,7 @@ async function checkSuccessPageRateLimit(
   churchEmail: string,
 ): Promise<ReactNode | null> {
   if (!ref && !cardToken) return null
-  const ip = getClientIp(await headers())
+  const ip = clientIpFromHeaders(await headers())
   if (rateLimit(`success:${ip}`, SUCCESS_LOOKUP_LIMIT, SUCCESS_LOOKUP_WINDOW_MS)) return null
   return <RateLimitedNotice churchEmail={churchEmail} />
 }

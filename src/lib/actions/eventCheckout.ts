@@ -9,6 +9,7 @@ import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 /**
  * Public entry point for the optional Stripe event-payments flow: prices the
@@ -27,10 +28,8 @@ export async function startEventCheckout(
   }
 
   const h = await headers()
-  // Rightmost x-forwarded-for entry = trusted reverse-proxy hop, not
-  // client-spoofable — same rule as the register route (getClientIp).
-  const xff = h.get("x-forwarded-for") ?? ""
-  const ip = xff.split(",").map((s) => s.trim()).filter(Boolean).pop() ?? "unknown"
+  // Same rule as the register route (getClientIp): CLIENT_IP_HEADER if set, else rightmost x-forwarded-for.
+  const ip = clientIpFromHeaders(h)
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
@@ -105,8 +104,7 @@ export async function startExistingRegistrationCheckout(
   }
 
   const h = await headers()
-  const xff = h.get("x-forwarded-for") ?? ""
-  const ip = xff.split(",").map((s) => s.trim()).filter(Boolean).pop() ?? "unknown"
+  const ip = clientIpFromHeaders(h)
   if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }

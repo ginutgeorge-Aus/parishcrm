@@ -25,6 +25,7 @@ import type { Gender, FamilyRole } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 const MAX_SIGNATURE_LEN = 300_000 // ~225 KB of base64
 
@@ -50,10 +51,10 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   // Honeypot — silent bots fill hidden field.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
-  // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
+  // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // a client cannot set its own, so we never trust input.ip for throttling.
-  const xff = (await headers()).get("x-forwarded-for")
-  const ip = xff?.split(",").at(-1)?.trim() || undefined
+  const proxyIp = clientIpFromHeaders(await headers())
+  const ip = proxyIp === "unknown" ? undefined : proxyIp
   // Generous in-memory throttle before the feature read, so a flooding host
   // never reaches the settings table. The real quotas below are spent only
   // once a submission is valid and verified.

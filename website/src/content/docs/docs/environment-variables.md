@@ -37,6 +37,7 @@ fallbacks used until an admin fills in the Settings form (see below).
 | Variable | Purpose |
 |---|---|
 | `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. The page disables itself once any user exists; unset it after setup. |
+| `CLIENT_IP_HEADER` | Optional. Name of a request header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip`). Default (unset): the app uses the rightmost `x-forwarded-for` entry, which is correct when your proxy is the last hop. Set it when the platform appends its own internal hop (e.g. Render: the rightmost entry is a private `10.x` address, so every login would share one throttle bucket and audit IPs would be useless). A missing or non-IP value falls back to `x-forwarded-for`. **Security:** only set it if your proxy/CDN always overwrites that header; otherwise clients can spoof it and dodge rate limits. Render sits behind Cloudflare, so `cf-connecting-ip` fits. |
 | `MIGRATE_ON_START` | Default `true`: the container runs `prisma migrate deploy` before starting. Set `false` to manage migrations yourself (e.g. a separate pre-deploy job). |
 
 ## Church identity (fallbacks)

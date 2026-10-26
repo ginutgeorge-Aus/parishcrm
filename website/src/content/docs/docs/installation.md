@@ -129,6 +129,14 @@ Optional next steps: [Regional Configuration](/parishcrm/docs/regional-configura
 year, timezone, currency) and [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/) (reminders,
 cleanup sweeps).
 
+## Behind a proxy that adds hops (Render and similar)
+
+Login throttling and audit-log IPs read the rightmost `x-forwarded-for` entry. If your platform
+appends its own internal hop, that entry is a private address (e.g. `10.x`) and all users share
+one throttle bucket. On Render (behind Cloudflare) set `CLIENT_IP_HEADER=cf-connecting-ip`. Only
+set it if your proxy/CDN always overwrites that header, otherwise clients can spoof it. See
+the Environment variables page.
+
 ## Local development (not for production)
 
 For running the app from source for development/testing:

@@ -12,6 +12,7 @@ import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { redactPagePath } from "@/lib/redactPagePath"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 const RATE_LIMIT = 5
 const RATE_WINDOW_MS = 60 * 60 * 1000
@@ -102,10 +103,10 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
   // path segments must not reach the GitHub issue or the notification email.
   const safePageUrl = redactPagePath(data.pageUrl) ?? null
 
-  // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
+  // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // never trust caller input for throttling.
-  const xff = (await headers()).get("x-forwarded-for")
-  const ip = xff?.split(",").at(-1)?.trim() || undefined
+  const proxyIp = clientIpFromHeaders(await headers())
+  const ip = proxyIp === "unknown" ? undefined : proxyIp
 
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }
   if (!(await dbRateLimit(`pubfeedback:ip:${ip ?? "unknown"}`, RATE_LIMIT, RATE_WINDOW_MS)))

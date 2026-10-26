@@ -8,6 +8,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
@@ -19,13 +20,9 @@ const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
 async function getClientIp(): Promise<string | null> {
-  const xff = (await headers()).get("x-forwarded-for")
-  if (xff) {
-    // Rightmost IP is appended by the trusted reverse proxy — not spoofable by client
-    const last = xff.split(",").at(-1)?.trim()
-    if (last) return last
-  }
-  return null
+  // CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for entry (appended by the trusted proxy)
+  const ip = clientIpFromHeaders(await headers())
+  return ip === "unknown" ? null : ip
 }
 
 // Randomized 200–500 ms delay on fast-return paths so they take roughly as

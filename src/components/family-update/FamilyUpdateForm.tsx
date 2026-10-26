@@ -105,7 +105,7 @@ export function FamilyUpdateForm({
     start(async () => {
       const res = await submitFamilyUpdate({
         token,
-        // Real IP is read server-side from x-forwarded-for; empty here falls
+        // Real IP is read server-side (CLIENT_IP_HEADER or x-forwarded-for); empty here falls
         // through to "unknown" rather than a misleading shared "client" bucket.
         ip: "",
         website,

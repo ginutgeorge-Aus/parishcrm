@@ -20,6 +20,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 // Thrown inside the approval transaction when the atomic PENDING→APPROVED claim
 // matches 0 rows (a concurrent approval already won). Caught to return a clean
@@ -105,10 +106,10 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
   // Honeypot: a real user never fills the hidden "website" field. Generic error.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
-  // Rightmost x-forwarded-for is appended by the trusted reverse proxy (not spoofable);
+  // Proxy-derived IP (CLIENT_IP_HEADER, else rightmost x-forwarded-for; not spoofable);
   // fall back to the explicit input.ip (used in tests) then "unknown".
-  const hdrIp = (await headers()).get("x-forwarded-for")?.split(",").at(-1)?.trim()
-  const ip = hdrIp || input.ip || "unknown"
+  const hdrIp = clientIpFromHeaders(await headers())
+  const ip = hdrIp !== "unknown" ? hdrIp : input.ip || "unknown"
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }

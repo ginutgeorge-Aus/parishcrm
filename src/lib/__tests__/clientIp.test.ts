@@ -40,3 +40,60 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
   })
 })
+
+describe("CLIENT_IP_HEADER", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  const hh = (o: Record<string, string>) => new Headers(o)
+
+  it("unset: ignores the header and keeps rightmost-XFF behaviour", () => {
+    delete process.env.CLIENT_IP_HEADER
+    const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "203.0.113.7" })
+    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+  })
+  it("blank env behaves as unset", () => {
+    process.env.CLIENT_IP_HEADER = "   "
+    expect(clientIpFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("10.0.0.1")
+  })
+  it("set + valid IP header wins over XFF", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": " 203.0.113.7 " })
+    expect(clientIpFromHeaders(headers)).toBe("203.0.113.7")
+    expect(auditIpFromHeaders(headers)).toBe("203.0.113.7")
+    expect(getClientIp(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
+  })
+  it("takes the first entry of a comma-separated value", () => {
+    process.env.CLIENT_IP_HEADER = "true-client-ip"
+    expect(clientIpFromHeaders(hh({ "true-client-ip": "203.0.113.7, 198.51.100.1" }))).toBe("203.0.113.7")
+  })
+  it("set + missing header falls back to rightmost XFF", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" })
+    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+  })
+  it("set + invalid header falls back to rightmost XFF", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "not-an-ip" })
+    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+  })
+  it("set + nothing at all: unknown / undefined", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(clientIpFromHeaders(hh({}))).toBe("unknown")
+    expect(auditIpFromHeaders(hh({}))).toBeUndefined()
+  })
+  it("mixed-case env name matches the header", () => {
+    process.env.CLIENT_IP_HEADER = " CF-Connecting-IP "
+    expect(clientIpFromHeaders(hh({ "cf-connecting-ip": "203.0.113.7" }))).toBe("203.0.113.7")
+  })
+  it("accepts IPv6", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(clientIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
+    expect(auditIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
+  })
+})
