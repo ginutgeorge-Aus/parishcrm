@@ -26,6 +26,12 @@ export type ParseResult = {
   period: { from: string; to: string }
   accountNumber: string
   errors: string[]
+  // Whole-file rejection with a user-facing message (e.g. non-AUD currency,
+  // multi-account OFX). When set, rows is empty and the route returns 400 with it.
+  fatalError?: string
+  // QIF only: every date in the file read the same as DD/MM and MM/DD, so the
+  // parser used the caller's/default order and the UI must let the user confirm.
+  dateFormatAmbiguous?: boolean
 }
 
 const MONTH_MAP: Record<string, string> = {
