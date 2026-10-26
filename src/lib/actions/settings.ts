@@ -20,6 +20,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
 import { VENUE_USAGE_SETTING_KEYS, normaliseCcList } from "@/lib/venueUsage"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
+import { EMAIL_FOOTER_KEY, EMAIL_FOOTER_MAX } from "@/lib/emailTemplates"
 import { assertNotDemo } from "@/lib/demoMode"
 import { featureGuard } from "@/lib/featureFlags"
 import type { FeatureKey } from "@/lib/features"
@@ -37,6 +38,7 @@ const ALLOWED_KEYS = new Set<string>([
   "pettyCashDefaultCustodianId",
   "cardFeePercent",
   "cardFeeFixed",
+  EMAIL_FOOTER_KEY,
   ...CHURCH_INFO_KEYS,
   ...BIRTHDAY_TEMPLATE_KEYS,
   ...ANNIVERSARY_TEMPLATE_KEYS,
@@ -140,6 +142,13 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     if (value.length > 1000) return { error: "Value is too long" }
     const list = normaliseCcList(value)
     return list.ok ? { value: list.value } : { error: list.error }
+  }
+  // Blank is valid: it stores "" = footer off (same as no row).
+  // Form posts textarea newlines as CRLF; normalise first so the length matches the browser's maxLength count.
+  if (key === EMAIL_FOOTER_KEY) {
+    const footer = value.replace(/\r\n?/g, "\n")
+    if (footer.length > EMAIL_FOOTER_MAX) return { error: `Footer must be ${EMAIL_FOOTER_MAX} characters or fewer` }
+    return { value: footer }
   }
   if (key.startsWith("venueUsage.") && value.length > 254) return { error: "Value is too long" }
   // Email-valued keys must hold a real address (blank clears) — a bad value

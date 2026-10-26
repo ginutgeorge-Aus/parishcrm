@@ -19,7 +19,9 @@ jest.mock("@/lib/actions/settings", () => ({
 }))
 jest.mock("@/lib/emailTemplateStore", () => ({
   getEmailTemplate: jest.fn().mockResolvedValue({ subject: "s", intro: "i", body: "b", signoff: "x" }),
+  getEmailFooterTemplate: jest.fn().mockResolvedValue("footer"),
 }))
+jest.mock("@/components/settings/EmailFooterForm", () => stub("EmailFooterForm"))
 jest.mock("@/lib/venueUsageSettings", () => ({ isVenueUsageEnabled: jest.fn(async () => false) }))
 jest.mock("@/components/settings/BirthdayEmailForm", () => stub("BirthdayEmailForm"))
 jest.mock("@/components/settings/AnniversaryEmailForm", () => stub("AnniversaryEmailForm"))

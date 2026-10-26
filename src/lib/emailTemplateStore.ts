@@ -3,6 +3,8 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
   type EmailTemplateKey,
   type EmailTemplateFields,
+  EMAIL_FOOTER_KEY,
+  applyVars,
 } from "@/lib/emailTemplates"
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 
@@ -40,4 +42,29 @@ export async function getEmailTemplate(key: EmailTemplateKey): Promise<EmailTemp
   } catch {
     return def
   }
+}
+
+/**
+ * Stored footer template, or "" when none is saved (the footer is off by default).
+ * Returns "" on DB error, so a failed read never adds a footer to a send.
+ */
+export async function getEmailFooterTemplate(): Promise<string> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: EMAIL_FOOTER_KEY } })
+    return row?.value ?? ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Auth-free reader for the footer appended to every outgoing email.
+ * Reads the church name only when the template uses `{churchName}`.
+ * @returns the rendered footer text, or "" when disabled
+ */
+export async function getEmailFooter(): Promise<string> {
+  const template = await getEmailFooterTemplate()
+  if (!template.trim()) return ""
+  const vars: Record<string, string> = template.includes("{churchName}") ? { churchName: await getChurchName() } : {}
+  return applyVars(template, vars).trim()
 }
