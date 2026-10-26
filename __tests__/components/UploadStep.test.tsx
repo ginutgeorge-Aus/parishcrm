@@ -187,8 +187,44 @@ describe("UploadStep", () => {
     pick("a.ofx")
     await screen.findByText("Auto-matched from file")
     pick("b.ofx")
-    await waitFor(() => expect(screen.queryByText("Auto-matched from file")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue to review" })).toBeEnabled())
+    expect(screen.queryByText("Auto-matched from file")).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Continue to review" }))
     expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 1 }))
+  })
+
+  it("clears the previous parse when a replacement file fails with a network error", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody()) })
+      .mockRejectedValueOnce(new Error("offline")) as never
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("a.ofx")
+    await screen.findByRole("button", { name: "Continue to review" })
+    pick("b.ofx")
+    expect(await screen.findByRole("alert")).toHaveTextContent("Network error")
+    expect(screen.getByRole("button", { name: "Continue to review" })).toBeDisabled()
+  })
+
+  it("QIF: keeps the date-order toggle mounted while a re-read is pending", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(okBody({ dateFormatAmbiguous: true })) })
+      .mockReturnValueOnce(new Promise(() => {})) as never
+    render(<UploadStep source="qif" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("s.qif")
+    const mdy = await screen.findByRole("radio", { name: "MM/DD" })
+    mdy.focus()
+    fireEvent.click(mdy)
+    await screen.findByText(/Reading file/)
+    expect(screen.getByRole("radio", { name: "MM/DD" })).toHaveFocus()
+  })
+
+  it("resets the file input so the same file can be picked again", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody()) }) as never
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    const input = screen.getByLabelText(/Statement file/i) as HTMLInputElement
+    const setValue = jest.spyOn(input, "value", "set")
+    pick("a.ofx")
+    expect(setValue).toHaveBeenCalledWith("")
+    await screen.findByRole("button", { name: "Continue to review" })
   })
 })

@@ -63,6 +63,8 @@ export function UploadStep({
     const seq = ++readSeq.current
     setUploading(true)
     setError(null)
+    // Drop the previous parse up front so a failed read can never leave old rows behind.
+    setParsed(null)
     const fd = new FormData()
     fd.append("file", f)
     fd.append("source", source)
@@ -173,7 +175,11 @@ export function UploadStep({
             type="file"
             accept={cfg.accept}
             className="sr-only"
-            onChange={(e) => accept(e.target.files?.[0])}
+            onChange={(e) => {
+              accept(e.target.files?.[0])
+              // Reset so picking the same file again still fires change.
+              e.target.value = ""
+            }}
           />
         </label>
 
@@ -196,7 +202,7 @@ export function UploadStep({
         )}
 
         {/* Outside the summary so a failed re-read can still be retried or undone. */}
-        {dateAmbiguous && file && !uploading && (
+        {dateAmbiguous && file && (
           <div role="radiogroup" aria-label="Date format" onKeyDown={radioGroupKeyDown} className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">Dates in this file could be either format:</span>
             {(["DMY", "MDY"] as const).map((o) => (
