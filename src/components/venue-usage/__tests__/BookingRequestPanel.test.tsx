@@ -79,3 +79,15 @@ it("calls onSent after a successful send", async () => {
   await user.click(await screen.findByRole("button", { name: /^send$/i }))
   await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1))
 })
+it("names each checkbox with its times so same-date rows are distinct", async () => {
+  render(<BookingRequestPanel />)
+  expect(await screen.findByRole("checkbox", { name: /sunday, 1 november.* to /i })).toBeInTheDocument()
+})
+it("disables sending when no date is ticked", async () => {
+  // Refetched preview with nothing selected and no blockedReason yet.
+  ;(getBookingRequestPreview as jest.Mock).mockResolvedValueOnce(preview).mockResolvedValue({ ...preview, selectedIds: [] })
+  const user = userEvent.setup()
+  render(<BookingRequestPanel />)
+  await user.click(await screen.findByRole("checkbox", { name: /sunday, 1 november/i }))
+  await waitFor(() => expect(screen.getByRole("button", { name: /send request/i })).toBeDisabled())
+})

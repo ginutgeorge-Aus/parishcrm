@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
+import { unstable_rethrow, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -106,13 +106,30 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
     }
   }
 
+  /**
+   * Run a booking action, turning a thrown transport error into a retry message.
+   * @param action the server action call
+   * @returns the action result, or an error result if the call threw
+   */
+  async function runAction(action: () => Promise<VenueMutationResult>): Promise<VenueMutationResult> {
+    try {
+      return await action()
+    } catch (err) {
+      unstable_rethrow(err)
+      return { error: "Could not save the booking. Please try again." }
+    }
+  }
+
   /** Add every Sunday of the selected month using the form's times and purpose. */
   function addAll() {
     startTransition(async () => {
-      const result = await addAllSundays({ month, startTime: form.startTime, endTime: form.endTime, purpose: form.purpose })
-      setFormState(result)
-      handleResult(result)
-      if (result && "success" in result) router.refresh()
+      const result = await runAction(() => addAllSundays({ month, startTime: form.startTime, endTime: form.endTime, purpose: form.purpose }))
+      // State updates after an await need their own transition (React drops the outer one).
+      startTransition(() => {
+        setFormState(result)
+        handleResult(result)
+        if ("success" in result) router.refresh()
+      })
     })
   }
 
@@ -145,14 +162,16 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
       status: form.status, purpose: form.purpose, notes: form.notes,
     }
     startTransition(async () => {
-      const result = form.id === null ? await createVenueUsage(input) : await updateVenueUsage(form.id, input)
-      setFormState(result)
-      handleResult(result)
-      if (result && "success" in result) {
-        setForm(blankForm(nextSunday, today))
-        // Show the month of the saved date so the new row is visible.
-        if (form.date.slice(0, 7) !== month) router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
-      }
+      const result = await runAction(() => (form.id === null ? createVenueUsage(input) : updateVenueUsage(form.id, input)))
+      startTransition(() => {
+        setFormState(result)
+        handleResult(result)
+        if ("success" in result) {
+          setForm(blankForm(nextSunday, today))
+          // Show the month of the saved date so the new row is visible.
+          if (form.date.slice(0, 7) !== month) router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
+        }
+      })
     })
   }
 

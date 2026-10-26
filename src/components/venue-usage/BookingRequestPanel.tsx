@@ -87,7 +87,7 @@ export function BookingRequestPanel({ dataVersion = 0, onSent }: Readonly<{ data
                   <li key={c.id}>
                     <label className="flex min-h-9 items-center gap-2 text-sm">
                       <input
-                        type="checkbox" className="size-5 shrink-0 accent-primary" aria-label={label}
+                        type="checkbox" className="size-5 shrink-0 accent-primary" aria-label={`${label}, ${formatTime12(c.startTime)} to ${formatTime12(c.endTime)}`}
                         checked={ticked.includes(c.id)} onChange={() => toggle(c.id)}
                       />
                       <span className="min-w-0 [overflow-wrap:anywhere]">
@@ -137,6 +137,8 @@ export function BookingRequestPanel({ dataVersion = 0, onSent }: Readonly<{ data
               confirmLabel="Send"
               pendingLabel="Sending…"
               onConfirm={send}
+              disabled={ticked.length === 0}
+              disabledReason="Tick at least one date to send"
             />
           )}
           {result && <FormFeedback state={result} />}

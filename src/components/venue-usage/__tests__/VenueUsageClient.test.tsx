@@ -103,3 +103,10 @@ it("clears the approval notice once the month is re-approved", async () => {
   await user.click(await screen.findByRole("button", { name: /^approve$/i }))
   await waitFor(() => expect(screen.queryByText(/Approval cleared/)).not.toBeInTheDocument())
 })
+it("shows a retry message when saving throws", async () => {
+  ;(createVenueUsage as jest.Mock).mockRejectedValue(new Error("network"))
+  const user = userEvent.setup()
+  setup()
+  await user.click(screen.getByRole("button", { name: "Add booking" }))
+  expect(await screen.findByText("Could not save the booking. Please try again.")).toBeInTheDocument()
+})
