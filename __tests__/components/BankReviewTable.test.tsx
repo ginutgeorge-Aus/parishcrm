@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, within, fireEvent } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { BankReviewTable } from "@/components/accounting/BankReviewTable"
 import type { ReviewRow, Account, Family } from "@/components/accounting/BankReviewTable"
@@ -238,7 +238,7 @@ describe("BankReviewTable split", () => {
     render(<BankReviewTable {...baseProps} rows={[row]} />)
     const table = screen.getByRole("table")
     expect(within(table).getByText(/unallocated/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /^Import/ })).toBeDisabled()
+    expect(screen.getAllByRole("button", { name: /^Import/ })[0]).toBeDisabled()
   })
 
   it("enables import once split allocations sum to the row total", () => {
@@ -251,7 +251,7 @@ describe("BankReviewTable split", () => {
     render(<BankReviewTable {...baseProps} rows={[row]} />)
     const table = screen.getByRole("table")
     expect(within(table).getByText("fully allocated")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /^Import/ })).not.toBeDisabled()
+    expect(screen.getAllByRole("button", { name: /^Import/ })[0]).not.toBeDisabled()
   })
 
   // newly added lines carry a stable client `_key` so a line's row (and
@@ -269,5 +269,37 @@ describe("BankReviewTable split", () => {
     const appended = onUpdateRow.mock.calls.at(-1)![1].splits.at(-1)
     expect(typeof appended._key).toBe("string")
     expect(appended._key.length).toBeGreaterThan(0)
+  })
+})
+
+describe("BankReviewTable — summary + filters", () => {
+  const renderTable = (rows: ReviewRow[]) => render(<BankReviewTable {...baseProps} rows={rows} />)
+
+  it("shows stat tiles", () => {
+    renderTable([
+      makeRow({ bankRef: "a", accountId: null, personId: null }),
+      makeRow({ bankRef: "b", accountId: 1 }),
+    ])
+    expect(screen.getByText("Need category").nextSibling).toHaveTextContent("1")
+  })
+
+  it("filters rows by tab without changing them", () => {
+    renderTable([
+      makeRow({ bankRef: "a", accountId: null, description: "NEEDS ONE", details: "NEEDS ONE" }),
+      makeRow({ bankRef: "b", accountId: 1, description: "DONE ONE", details: "DONE ONE" }),
+    ])
+    fireEvent.click(screen.getByRole("button", { name: /Needs category/ }))
+    expect(screen.getAllByText("NEEDS ONE").length).toBeGreaterThan(0)
+    expect(screen.queryByText("DONE ONE")).not.toBeInTheDocument()
+  })
+
+  it("chips possible duplicates", () => {
+    renderTable([makeRow({ bankRef: "a", isPossibleDuplicate: true, skip: true })])
+    expect(screen.getAllByText("POSSIBLE DUPLICATE").length).toBeGreaterThan(0)
+  })
+
+  it("tells the user how many rows still need a category", () => {
+    renderTable([makeRow({ bankRef: "a", accountId: null }), makeRow({ bankRef: "b", accountId: null })])
+    expect(screen.getByText("2 rows still need a category")).toBeInTheDocument()
   })
 })

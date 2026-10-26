@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { Check, ChevronsUpDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +36,9 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
+import { ReviewSummary } from "./import/ReviewSummary"
+import { ReviewFilterTabs } from "./import/ReviewFilterTabs"
+import { matchesFilter, reviewStats, type ReviewFilter } from "@/lib/bankReviewFilter"
 import { toCents, isSplit, splitIsValid } from "@/lib/bankSplit"
 import type { SplitLine } from "@/lib/bankSplit"
 import type { ReviewRow } from "@/lib/bankTypes"
@@ -166,7 +169,8 @@ export function BankReviewTable({
         !r.ambiguousType &&
         (r.fromPettyCash || (isSplit(r) ? splitIsValid(r) : r.accountId !== null))
     )
-  const duplicateCount = rows.filter((r) => r.isDuplicate).length
+  const [filter, setFilter] = useState<ReviewFilter>("all")
+  const stats = useMemo(() => reviewStats(rows), [rows])
 
   function startSplit(i: number, row: ReviewRow) {
     onUpdateRow(i, {
@@ -218,7 +222,6 @@ export function BankReviewTable({
           </h3>
           <p className="text-sm text-muted-foreground">
             {rows.length} transactions found
-            {duplicateCount > 0 && ` · ${duplicateCount} duplicate${duplicateCount !== 1 ? "s" : ""} (pre-skipped)`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -233,6 +236,9 @@ export function BankReviewTable({
           </Button>
         </div>
       </div>
+
+      <ReviewSummary stats={stats} />
+      <ReviewFilterTabs value={filter} stats={stats} onChange={setFilter} />
 
       {parseErrors.length > 0 && (
         <p className="text-sm text-warning">
@@ -292,6 +298,7 @@ export function BankReviewTable({
           </TableHeader>
           <TableBody>
             {rows.map((row, i) => {
+              if (!matchesFilter(row, filter)) return null
               const split = isSplit(row)
               const allocatedCents = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
               const remainingCents = toCents(row.amount) - allocatedCents
@@ -318,6 +325,11 @@ export function BankReviewTable({
                   {row.isDuplicate && (
                     <Badge variant="secondary" className="text-xs mt-0.5">
                       DUPLICATE
+                    </Badge>
+                  )}
+                  {row.isPossibleDuplicate && !row.isDuplicate && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      POSSIBLE DUPLICATE
                     </Badge>
                   )}
                 </TableCell>
@@ -567,6 +579,7 @@ export function BankReviewTable({
           </li>
         )}
         {rows.map((row, i) => {
+          if (!matchesFilter(row, filter)) return null
           const split = isSplit(row)
           const allocatedCents = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
           const remainingCents = toCents(row.amount) - allocatedCents
@@ -595,6 +608,11 @@ export function BankReviewTable({
                   {row.isDuplicate && (
                     <Badge variant="secondary" className="text-xs mt-0.5">
                       DUPLICATE
+                    </Badge>
+                  )}
+                  {row.isPossibleDuplicate && !row.isDuplicate && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      POSSIBLE DUPLICATE
                     </Badge>
                   )}
                 </div>
@@ -834,6 +852,17 @@ export function BankReviewTable({
           )
         })}
       </ul>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <p className="text-sm text-muted-foreground">
+          {stats.needsCategory > 0
+            ? `${stats.needsCategory} row${stats.needsCategory === 1 ? "" : "s"} still need${stats.needsCategory === 1 ? "s" : ""} a category`
+            : "All rows ready"}
+        </p>
+        <Button onClick={onConfirm} disabled={!canImport || importing}>
+          {importing ? "Importing…" : `Import ${activeRows.length} transaction${activeRows.length !== 1 ? "s" : ""}`}
+        </Button>
+      </div>
     </div>
   )
 }

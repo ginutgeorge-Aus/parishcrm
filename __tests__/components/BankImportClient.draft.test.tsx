@@ -108,7 +108,7 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    await user.click(screen.getByRole("button", { name: /Import 1 transaction/ }))
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
     expect(await screen.findByText("Import Complete")).toBeInTheDocument()
     expect(sessionStorage.getItem("bankImportDraft.v1")).toBeNull()
@@ -124,7 +124,7 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    await user.click(screen.getByRole("button", { name: /Import 1 transaction/ }))
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
     expect(await screen.findByText(/category is inactive/)).toBeInTheDocument()
     expect(sessionStorage.getItem("bankImportDraft.v1")).not.toBeNull()
@@ -137,12 +137,12 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    const importBtn = screen.getByRole("button", { name: /Import 1 transaction/ })
+    const importBtn = screen.getAllByRole("button", { name: /Import 1 transaction/ })[0]
     await user.click(importBtn)
 
     expect(await screen.findByText(/Network error/i)).toBeInTheDocument()
     // Button is no longer stuck disabled — the user can retry.
-    expect(screen.getByRole("button", { name: /Import 1 transaction/ })).toBeEnabled()
+    expect(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0]).toBeEnabled()
     expect(sessionStorage.getItem("bankImportDraft.v1")).not.toBeNull()
   })
 })
