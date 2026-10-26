@@ -410,6 +410,9 @@ export function buildCancellationEmail(input: {
 /** Most addresses an admin may configure in one CC list (invoice CCs or booking CCs). */
 export const MAX_CC_ADDRESSES = 10
 
+/** Longest stored CC list, matching the settings inputs' maxLength. */
+export const MAX_CC_LIST_LENGTH = 1000
+
 /**
  * Parse and validate a comma/semicolon/newline separated CC list (blank entries ignored,
  * duplicates dropped case-insensitively, original casing of the first occurrence kept).
@@ -439,7 +442,12 @@ export function parseCcList(value: string): { ok: true; list: string[] } | { ok:
  */
 export function normaliseCcList(value: string): { ok: true; value: string } | { ok: false; error: string } {
   const r = parseCcList(value)
-  return r.ok ? { ok: true, value: r.list.join(", ") } : r
+  if (!r.ok) return r
+  const joined = r.list.join(", ")
+  // Checked after joining: "a;b" grows to "a, b", and a stored value over the form's
+  // 1000-char limit could not be re-saved unchanged.
+  if (joined.length > MAX_CC_LIST_LENGTH) return { ok: false, error: "CC list is too long" }
+  return { ok: true, value: joined }
 }
 
 /**

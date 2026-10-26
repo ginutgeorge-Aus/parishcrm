@@ -3,7 +3,7 @@ import {
   parseTimeToMinutes, isValidTime, validateTimeRange, durationHours, formatHours, formatTime12,
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
-  parseCcList, MAX_CC_ADDRESSES,
+  parseCcList, MAX_CC_ADDRESSES, MAX_CC_LIST_LENGTH, normaliseCcList,
   sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
   buildBookingRequestEmail, buildCancellationEmail, renderVenueEmail,
 } from "@/lib/venueUsage"
@@ -271,6 +271,19 @@ describe("parseCcList", () => {
   it("rejects more than the maximum", () => {
     const many = Array.from({ length: MAX_CC_ADDRESSES + 1 }, (_, i) => `u${i}@example.com`).join(",")
     expect(parseCcList(many)).toEqual({ ok: false, error: `Add at most ${MAX_CC_ADDRESSES} CC addresses` })
+  })
+})
+
+describe("normaliseCcList", () => {
+  it("joins with comma-space", () => {
+    expect(normaliseCcList("a@example.com;b@example.com\nc@example.com")).toEqual({ ok: true, value: "a@example.com, b@example.com, c@example.com" })
+  })
+  it("rejects a list that grows past the limit once joined", () => {
+    const local = "x".repeat(60)
+    const raw = Array.from({ length: MAX_CC_ADDRESSES }, (_, i) => `${local}${i}@${"d".repeat(32)}${i}.com`).join(";")
+    expect(raw.length).toBeLessThanOrEqual(MAX_CC_LIST_LENGTH)
+    expect(raw.split(";").join(", ").length).toBeGreaterThan(MAX_CC_LIST_LENGTH)
+    expect(normaliseCcList(raw)).toEqual({ ok: false, error: "CC list is too long" })
   })
 })
 
