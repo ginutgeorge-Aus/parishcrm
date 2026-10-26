@@ -183,13 +183,13 @@ export function bankRefContentKey(accountNumber: string, date: string, amount: s
   return `${accountNumber}_${date.replace(/-/g, "")}_${amount}_${desc}`
 }
 
-// Recover the cross-format content key from a stored bankRef of either format
-//. Returns null for a non-ANZ / manually-keyed ref or a petty-cash paired
+// Recover the cross-format content key from a stored bankRef of any imported
+// format (ANZ_, ANZTR_, OFX_, QIF_). Returns null for a manually-keyed ref or a petty-cash paired
 // leg (XFER_OUT_*), which have no bank-line content key. Split-sibling suffixes
 // ("#2", "#3" …) are stripped first.
 export function contentKeyFromBankRef(bankRef: string): string | null {
   if (bankRef.startsWith("XFER_OUT_")) return null
-  const prefix = /^ANZ(?:TR)?_/.exec(bankRef)
+  const prefix = /^(?:ANZ(?:TR)?|OFX|QIF)_/.exec(bankRef)
   if (!prefix) return null
   const body = bankRef.slice(prefix[0].length).replace(/#\d+$/, "")
   const parts = body.split("_")
