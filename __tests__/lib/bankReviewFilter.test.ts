@@ -1,4 +1,4 @@
-import { needsCategory, matchesFilter, reviewStats } from "@/lib/bankReviewFilter"
+import { needsCategory, matchesFilter, reviewStats, applyBulkSkip } from "@/lib/bankReviewFilter"
 import type { ReviewRow } from "@/lib/bankTypes"
 
 const base: ReviewRow = {
@@ -46,5 +46,20 @@ describe("reviewStats", () => {
       r({ amount: "5.00", skip: true, isDuplicate: true }),
     ])
     expect(s).toEqual({ total: 3, needsCategory: 1, matched: 1, duplicates: 1, skipped: 1, incomeCents: 20000, expenseCents: 31240 })
+  })
+})
+
+describe("applyBulkSkip", () => {
+  it("only touches the given indices", () => {
+    const rows = [r({ bankRef: "a" }), r({ bankRef: "b" }), r({ bankRef: "c" })]
+    expect(applyBulkSkip(rows, true, [0, 2]).map((x) => x.skip)).toEqual([true, false, true])
+  })
+  it("unskip never un-skips duplicate or possible-duplicate rows", () => {
+    const rows = [
+      r({ skip: true, isDuplicate: true }),
+      r({ skip: true, isPossibleDuplicate: true }),
+      r({ skip: true }),
+    ]
+    expect(applyBulkSkip(rows, false, [0, 1, 2]).map((x) => x.skip)).toEqual([true, true, false])
   })
 })

@@ -50,3 +50,16 @@ export function reviewStats(rows: ReviewRow[]): ReviewStats {
   }
   return s
 }
+
+/**
+ * Bulk skip/unskip limited to `indices`. Unskipping never touches exact or
+ * possible duplicates: those stay skipped until the user opts in per row.
+ */
+export function applyBulkSkip(rows: ReviewRow[], skip: boolean, indices: readonly number[]): ReviewRow[] {
+  const target = new Set(indices)
+  return rows.map((r, i) => {
+    if (!target.has(i)) return r
+    if (!skip && (r.isDuplicate || r.isPossibleDuplicate === true)) return r
+    return { ...r, skip }
+  })
+}

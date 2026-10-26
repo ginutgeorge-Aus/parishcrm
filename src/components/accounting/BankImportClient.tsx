@@ -10,6 +10,7 @@ import { rememberBankImportAccount } from "@/lib/actions/bankImport"
 import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
+import { applyBulkSkip } from "@/lib/bankReviewFilter"
 import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
@@ -55,10 +56,14 @@ export function matchPerson(
   return { familyId: null, personId: null }
 }
 
-// Applies a bulk category selection only to rows whose type matches the
-// account's type — an INCOME account never lands on an EXPENSE row.
-export function applyCategoryToRows(rows: ReviewRow[], account: Account): ReviewRow[] {
-  return rows.map((r) => (r.type === account.type ? { ...r, accountId: account.id } : r))
+/**
+ * Applies a bulk category selection only to rows whose type matches the
+ * account's type — an INCOME account never lands on an EXPENSE row. When
+ * `indices` is given (the rows visible in the active filter), other rows are untouched.
+ */
+export function applyCategoryToRows(rows: ReviewRow[], account: Account, indices?: readonly number[]): ReviewRow[] {
+  const target = indices ? new Set(indices) : null
+  return rows.map((r, i) => (r.type === account.type && (!target || target.has(i)) ? { ...r, accountId: account.id } : r))
 }
 
 type ImportResult = { imported: number; skipped: number; duplicates: number }
@@ -75,7 +80,8 @@ export function BankImportClient({
   const [view, setView] = useState<WizardStep>("source")
   const [source, setSource] = useState<ImportSource>("anz")
   // Full account number from the parsed file (OFX/ANZ); "" for QIF. Sent to
-  // rememberBankImportAccount after a successful import — never stored client-side.
+  // rememberBankImportAccount after a successful import. Kept in the
+  // session-scoped review draft so a refresh doesn't lose it.
   const [accountNumber, setAccountNumber] = useState("")
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
@@ -94,6 +100,8 @@ export function BankImportClient({
       setRows(clearMismatchedAccountIds(draft.rows, accounts))
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
+      if (draft.accountNumber !== undefined) setAccountNumber(draft.accountNumber)
+      if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
     return () => {
@@ -107,9 +115,9 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId })
+      saveDraft({ rows, period, paymentAccountId, accountNumber, source })
     }
-  }, [view, rows, period, paymentAccountId])
+  }, [view, rows, period, paymentAccountId, accountNumber, source])
 
   /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
   function handleUploadComplete(upload: UploadResult) {
@@ -147,16 +155,18 @@ export function BankImportClient({
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
-  function setAllCategory(accountId: number) {
+  /** Bulk-set a category on the rows at `indices` (the active filter's rows). */
+  function setAllCategory(accountId: number, indices: readonly number[]) {
     if (importing) return
     const account = accounts.find((a) => a.id === accountId)
     if (!account) return
-    setRows((prev) => applyCategoryToRows(prev, account))
+    setRows((prev) => applyCategoryToRows(prev, account, indices))
   }
 
-  function toggleSkipAll(skip: boolean) {
+  /** Bulk skip/unskip the rows at `indices`; unskipping leaves duplicates skipped. */
+  function toggleSkipAll(skip: boolean, indices: readonly number[]) {
     if (importing) return
-    setRows((prev) => prev.map((r) => ({ ...r, skip })))
+    setRows((prev) => applyBulkSkip(prev, skip, indices))
   }
 
   async function handleImport() {
@@ -217,6 +227,8 @@ export function BankImportClient({
     setPeriod(null)
     setResult(null)
     setAccountNumber("")
+    setSource("anz")
+    setPaymentAccountId("")
     setView("source")
   }
 

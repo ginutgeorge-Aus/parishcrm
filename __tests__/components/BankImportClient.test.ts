@@ -233,6 +233,11 @@ describe("applyCategoryToRows", () => {
     expect(result[0].accountId).toBe(8)
   })
 
+  it("limits the change to the given indices", () => {
+    const rows = [makeReviewRow({ type: "INCOME" }), makeReviewRow({ type: "INCOME" })]
+    expect(applyCategoryToRows(rows, incomeAccount, [1]).map((r) => r.accountId)).toEqual([null, 7])
+  })
+
   it("applies expense account only to expense rows", () => {
     const rows = [makeReviewRow({ type: "INCOME", accountId: 7 }), makeReviewRow({ type: "EXPENSE" })]
     const result = applyCategoryToRows(rows, expenseAccount)

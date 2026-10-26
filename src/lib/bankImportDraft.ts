@@ -1,4 +1,5 @@
 import type { ReviewRow } from "@/lib/bankTypes"
+import { isImportSource, type ImportSource } from "@/lib/importSources"
 
 // Bank import review draft, persisted to sessionStorage so per-row
 // selections survive a refresh or accidental navigation. Session-scoped
@@ -52,8 +53,12 @@ export type BankImportDraft = {
   rows: ReviewRow[]
   period: { from: string; to: string } | null
   paymentAccountId: number | ""
+  // Optional: drafts saved before the wizard lack them.
+  accountNumber?: string
+  source?: ImportSource
 }
 
+/** Persist the in-progress review (skipped when this exact content was already imported). */
 export function saveDraft(draft: BankImportDraft): void {
   try {
     // Never re-persist content already imported this session — a late remount
@@ -114,6 +119,8 @@ export function loadDraft(): BankImportDraft | null {
     // category was cleared on restore (deactivated account) still matches its
     // imported tombstone (round-6 codex).
     if (isImported(draftFingerprint(parsed))) return null
+    if (parsed.accountNumber !== undefined && typeof parsed.accountNumber !== "string") return null
+    if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     return parsed
   } catch {
     return null
