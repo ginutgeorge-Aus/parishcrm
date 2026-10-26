@@ -390,25 +390,30 @@ async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageL
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
 
-/** Comma/semicolon/newline-separated address list, validated and normalised to "a@x.com, b@y.com". */
-const CcListSchema = z
-  .string()
-  .max(1000, "CC list is too long")
-  .transform((v, ctx) => {
-    const r = normaliseCcList(v)
-    if (r.ok) return r.value
-    ctx.addIssue({ code: "custom", message: r.error })
-    return z.NEVER
-  })
+/**
+ * Comma/semicolon/newline-separated address list, validated and normalised to "a@x.com, b@y.com".
+ * @param label field name used in error messages, e.g. "Invoice CC"
+ */
+const ccListSchema = (label: string) =>
+  z
+    .string()
+    .max(1000, `${label} list is too long`)
+    .transform((v, ctx) => {
+      const r = normaliseCcList(v, label)
+      if (r.ok) return r.value
+      ctx.addIssue({ code: "custom", message: r.error })
+      return z.NEVER
+    })
+    .default("")
 
 const SettingsSchema = z.object({
   enabled: z.string().optional().transform((v) => v === "on" || v === "true"),
   venueName: z.string().trim().max(200, "Venue name is too long"),
   contactName: z.string().trim().max(200, "Contact name is too long"),
   contactEmail: OptionalEmail,
-  ccEmail: CcListSchema.default(""),
+  ccEmail: ccListSchema("Invoice CC"),
   replyToEmail: OptionalEmail,
-  bookingCcEmails: CcListSchema.default(""),
+  bookingCcEmails: ccListSchema("Booking CC"),
 })
 
 /**

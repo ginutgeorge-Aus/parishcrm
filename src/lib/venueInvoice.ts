@@ -7,7 +7,7 @@ import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
 import { readVenueUsageSettings, type VenueUsageSettings } from "@/lib/venueUsageSettings"
 import {
-  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddresses,
+  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddressesWithDropped,
   type MonthCompleteness, type VenueUsageLine,
 } from "@/lib/venueUsage"
 
@@ -81,6 +81,17 @@ function dedupeAddresses(list: (string | null | undefined)[], exclude: string): 
 }
 
 /**
+ * CC addresses from a stored list, warning (count only, never the addresses) when entries were skipped.
+ * @param stored the saved setting value
+ * @param which which list, for the log line
+ */
+function ccList(stored: string, which: "invoice" | "booking"): string[] {
+  const { list, dropped } = ccAddressesWithDropped(stored)
+  if (dropped > 0) logger.warn(`[venueInvoice] ${which} CC list: skipped invalid, duplicate or over-cap entries`, { dropped })
+  return list
+}
+
+/**
  * To / CC / Reply-To for the invoice request. Reply-To is the configured address, else the acting
  * user's email; the scheduler (no actor) uses the configured address or none.
  * @param settings venue settings
@@ -88,7 +99,7 @@ function dedupeAddresses(list: (string | null | undefined)[], exclude: string): 
  */
 export function invoiceRecipients(settings: VenueUsageSettings, actor: ActorInfo | null): Recipients {
   const replyTo = settings.replyToEmail || actor?.email || ""
-  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccAddresses(settings.ccEmail), replyTo, actor?.email], settings.contactEmail) }
+  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccList(settings.ccEmail, "invoice"), replyTo, actor?.email], settings.contactEmail) }
 }
 
 /**
@@ -98,7 +109,7 @@ export function invoiceRecipients(settings: VenueUsageSettings, actor: ActorInfo
  */
 export function bookingRecipients(settings: VenueUsageSettings, actor: ActorInfo | null): Recipients {
   const replyTo = settings.replyToEmail || actor?.email || ""
-  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccAddresses(settings.bookingCcEmails), replyTo], settings.contactEmail) }
+  return { to: settings.contactEmail, replyTo, cc: dedupeAddresses([...ccList(settings.bookingCcEmails, "booking"), replyTo], settings.contactEmail) }
 }
 
 export type InvoicePrep = {

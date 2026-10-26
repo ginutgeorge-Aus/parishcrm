@@ -32,6 +32,7 @@ import {
   createVenueUsage, updateVenueUsage, deleteVenueUsage, sendVenueUsageRequest,
   getVenueRequestPreview, updateVenueUsageSettings, addAllSundays, setVenueUsageStatus,
 } from "@/lib/actions/venueUsage"
+import { MAX_CC_ADDRESSES } from "@/lib/venueUsage"
 
 const asRole = (role: string | null) =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "7", role } } : null)
@@ -442,7 +443,7 @@ describe("updateVenueUsageSettings bookingCcEmails", () => {
       update: { value: "a@example.com, b@example.com" },
     }))
     fd.set("bookingCcEmails", "a@example.com, nope")
-    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: '"nope" is not a valid email address' })
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: 'Booking CC: "nope" is not a valid email address' })
   })
 })
 
@@ -460,7 +461,36 @@ describe("updateVenueUsageSettings ccEmail", () => {
       update: { value: "a@example.com, b@example.com" },
     }))
     fd.set("ccEmail", "a@example.com, nope")
-    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: '"nope" is not a valid email address' })
+    expect(await updateVenueUsageSettings(undefined, fd)).toEqual({ error: 'Invoice CC: "nope" is not a valid email address' })
+  })
+
+  const formWith = (extra: Record<string, string>) => {
+    const f = new FormData()
+    f.set("enabled", "on"); f.set("venueName", "Example Hall"); f.set("contactName", "Pat Example")
+    f.set("contactEmail", "venue@example.com"); f.set("replyToEmail", "")
+    for (const [k, v] of Object.entries(extra)) f.set(k, v)
+    return f
+  }
+
+  it("saves empty CC lists when the fields are omitted", async () => {
+    asRole("ADMIN")
+    expect(await updateVenueUsageSettings(undefined, formWith({}))).toEqual({ success: "Venue usage settings saved" })
+    const calls = (prisma.appSetting.upsert as jest.Mock).mock.calls.map((c) => c[0])
+    expect(calls).toContainEqual(expect.objectContaining({ where: { key: "venueUsage.ccEmail" }, update: { value: "" } }))
+    expect(calls).toContainEqual(expect.objectContaining({ where: { key: "venueUsage.bookingCcEmails" }, update: { value: "" } }))
+  })
+
+  it("rejects a list over 1000 chars and names the field", async () => {
+    asRole("ADMIN")
+    const long = "a".repeat(1001)
+    expect(await updateVenueUsageSettings(undefined, formWith({ ccEmail: long }))).toEqual({ error: "Invoice CC list is too long" })
+    expect(await updateVenueUsageSettings(undefined, formWith({ bookingCcEmails: long }))).toEqual({ error: "Booking CC list is too long" })
+  })
+
+  it("names the field when too many addresses are given", async () => {
+    asRole("ADMIN")
+    const many = Array.from({ length: MAX_CC_ADDRESSES + 1 }, (_, i) => `p${i}@example.com`).join(",")
+    expect(await updateVenueUsageSettings(undefined, formWith({ bookingCcEmails: many }))).toEqual({ error: `Add at most ${MAX_CC_ADDRESSES} Booking CC addresses` })
   })
 })
 

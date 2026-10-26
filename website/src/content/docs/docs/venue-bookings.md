@@ -16,8 +16,8 @@ Go to **App Settings → General → Venue bookings** (`ADMIN` only):
 - **Enable venue bookings** adds a **Venue bookings** page to the sidebar for editors. It needs a contact email before it can be enabled.
 - **Venue name**, for example "Example Hall".
 - **Contact name** (used in the greeting) and **Contact email** (where requests are sent).
-- **Invoice request CCs** (optional), one or more addresses separated by commas, copied on the monthly invoice request.
-- **Booking request CCs** (optional), copied on booking requests and cancellation notices.
+- **Invoice request CCs** (optional), up to 10 addresses separated by commas, copied on the monthly invoice request. An invalid address is rejected when you save.
+- **Booking request CCs** (optional), up to 10 addresses separated by commas, copied on booking requests and cancellation notices. An invalid address is rejected when you save.
 - **Reply-to email** (optional): where the venue's reply (the invoice) goes. Leave it blank to use the email of whoever sends the request.
 
 ## Booking dates

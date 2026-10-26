@@ -3,7 +3,7 @@ import {
   parseTimeToMinutes, isValidTime, validateTimeRange, durationHours, formatHours, formatTime12,
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
   formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
-  parseCcList, MAX_CC_ADDRESSES, MAX_CC_LIST_LENGTH, normaliseCcList,
+  parseCcList, MAX_CC_ADDRESSES, MAX_CC_LIST_LENGTH, normaliseCcList, ccAddresses, ccAddressesWithDropped,
   sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
   buildBookingRequestEmail, buildCancellationEmail, renderVenueEmail,
 } from "@/lib/venueUsage"
@@ -284,6 +284,39 @@ describe("normaliseCcList", () => {
     expect(raw.length).toBeLessThanOrEqual(MAX_CC_LIST_LENGTH)
     expect(raw.split(";").join(", ").length).toBeGreaterThan(MAX_CC_LIST_LENGTH)
     expect(normaliseCcList(raw)).toEqual({ ok: false, error: "CC list is too long" })
+  })
+})
+
+describe("ccAddresses", () => {
+  it("splits on commas, semicolons and newlines, trimming whitespace", () => {
+    expect(ccAddresses(" a@example.com ;b@example.com\n c@example.com,, ")).toEqual(["a@example.com", "b@example.com", "c@example.com"])
+  })
+  it("dedupes case-insensitively, keeping the first casing", () => {
+    expect(ccAddresses("Pat@Example.com, pat@example.com, PAT@EXAMPLE.COM")).toEqual(["Pat@Example.com"])
+  })
+  it("skips a bad entry but keeps the rest", () => {
+    expect(ccAddresses("a@example.com, nope, b@example.com")).toEqual(["a@example.com", "b@example.com"])
+  })
+  it("caps at MAX_CC_ADDRESSES", () => {
+    const raw = Array.from({ length: MAX_CC_ADDRESSES + 3 }, (_, i) => `p${i}@example.com`).join(",")
+    const out = ccAddresses(raw)
+    expect(out).toHaveLength(MAX_CC_ADDRESSES)
+    expect(out[0]).toBe("p0@example.com")
+  })
+  it("reports how many entries were skipped (count only)", () => {
+    const over = Array.from({ length: MAX_CC_ADDRESSES + 2 }, (_, i) => `p${i}@example.com`).join(",")
+    expect(ccAddressesWithDropped(`nope, ${over}`).dropped).toBe(3)
+    expect(ccAddressesWithDropped("a@example.com").dropped).toBe(0)
+  })
+  it("returns [] for blank input", () => {
+    expect(ccAddresses("  ")).toEqual([])
+  })
+})
+
+describe("parseCcList / normaliseCcList labels", () => {
+  it("names the field in errors when a label is given", () => {
+    expect(parseCcList("nope", "Invoice CC")).toEqual({ ok: false, error: 'Invoice CC: "nope" is not a valid email address' })
+    expect(normaliseCcList("x@example.com", "Booking CC")).toEqual({ ok: true, value: "x@example.com" })
   })
 })
 
