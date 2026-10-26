@@ -1,6 +1,12 @@
 import type { FeatureKey } from "@/lib/features"
 export const EMAIL_TEMPLATE_KEYS = ["welcome", "familyUpdate", "receipt", "dgrReceipt", "venueBookingRequest", "venueInvoiceRequest"] as const
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number]
+/** AppSetting key holding the footer appended to every outgoing email. */
+export const EMAIL_FOOTER_KEY = "emailFooter"
+/** Max length of the stored footer template. */
+export const EMAIL_FOOTER_MAX = 500
+/** Example footer shown as the form placeholder. The footer is off until an admin saves one. */
+export const EMAIL_FOOTER_EXAMPLE = "This email was sent via the {churchName} CRM application."
 export type EmailTemplateFields = { subject: string; intro: string; body: string; signoff: string }
 
 // Templates owned by a feature: hidden in Settings while it's off. Unlisted = core.

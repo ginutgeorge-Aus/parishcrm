@@ -18,9 +18,10 @@ import { MembershipNotificationEmail } from "@/lib/emails/MembershipNotification
 import { WelcomeLetterEmail } from "@/lib/emails/WelcomeLetterEmail"
 import type { WelcomeLetterModel } from "@/lib/welcomeLetter"
 import { prisma } from "@/lib/prisma"
-import { getEmailTemplate, getChurchName } from "@/lib/emailTemplateStore"
+import { getEmailTemplate, getChurchName, getEmailFooter } from "@/lib/emailTemplateStore"
 import { applyVars } from "@/lib/emailTemplates"
 import { withRetry } from "@/lib/retry"
+import { escapeHtml } from "@/lib/venueUsage"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { isResendConfigured, senderAddress } from "@/lib/mailConfig"
@@ -178,14 +179,38 @@ type MailOptions = {
   attachments?: EmailAttachment[]
 }
 
+/**
+ * Append the admin-configured footer to an email's HTML and plain-text bodies.
+ * HTML: escaped paragraph (line breaks kept) inserted before the last `</body>`
+ * (case-insensitive), or appended when there is none. Text: `\n\n—\n<footer>`. Blank footer = no-op.
+ * @param html rendered HTML body
+ * @param text rendered plain-text body
+ * @param footer rendered (vars applied) footer text
+ */
+export function appendEmailFooter(html: string, text: string, footer: string): { html: string; text: string } {
+  const f = footer.trim()
+  if (!f) return { html, text }
+  const para = `<p style="font-size:11px;color:#94a3b8;line-height:1.6;margin-top:16px;white-space:pre-line">${escapeHtml(f)}</p>`
+  const idx = html.toLowerCase().lastIndexOf("</body>")
+  const outHtml = idx === -1 ? html + para : html.slice(0, idx) + para + html.slice(idx)
+  return { html: outHtml, text: `${text}\n\n—\n${f}` }
+}
+
 // Single send chokepoint: bounded transient-retry so a Gmail-SMTP hiccup
 // self-heals instead of blocking the first send, plus a best-effort owner
 // alert when retries are exhausted. EVERY transactional send routes through here —
 // no sender may call transporter.sendMail directly, or it silently loses both.
 async function sendMailWithRetry(
   transporter: MailTransport,
-  options: MailOptions,
+  baseOptions: MailOptions,
 ): Promise<void> {
+  let options = baseOptions
+  try {
+    const footer = await getEmailFooter()
+    options = { ...baseOptions, ...appendEmailFooter(baseOptions.html, baseOptions.text, footer) }
+  } catch {
+    options = baseOptions // a footer failure must never block a send
+  }
   try {
     await withRetry(() => transporter.sendMail(options), {
       attempts: 3,
