@@ -232,6 +232,12 @@ describe("upsertSetting — venueUsage keys", () => {
     expect(await upsertSetting(undefined, fd("venueUsage.bookingCcEmails", "a@example.com, nope")))
       .toEqual({ error: '"nope" is not a valid email address' })
   })
+  it("validates venueUsage.ccEmail as a list and stores it normalised", async () => {
+    expect(await upsertSetting(undefined, fd("venueUsage.ccEmail", "a@example.com; b@example.com"))).toEqual({ success: "Settings saved" })
+    expect(mockUpsert).toHaveBeenLastCalledWith(expect.objectContaining({ update: { value: "a@example.com, b@example.com" } }))
+    expect(await upsertSetting(undefined, fd("venueUsage.ccEmail", "a@example.com, nope")))
+      .toEqual({ error: '"nope" is not a valid email address' })
+  })
   it("does not allow the calendar token through the generic setting action", async () => {
     const r = await upsertSetting(undefined, fd("venueUsage.calendarToken", "weak"))
     expect(r).toEqual({ error: expect.any(String) })

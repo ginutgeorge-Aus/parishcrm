@@ -18,7 +18,7 @@ import { DEFAULT_BIRTHDAY_TEMPLATE, renderBirthdayEmail, type BirthdayTemplate }
 import { DEFAULT_ANNIVERSARY_TEMPLATE, renderAnniversaryEmail, type AnniversaryTemplate } from "@/lib/anniversaryTemplate"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { LETTER_SETTING_KEYS } from "@/lib/letterSettings"
-import { VENUE_USAGE_SETTING_KEYS, parseCcList } from "@/lib/venueUsage"
+import { VENUE_USAGE_SETTING_KEYS, normaliseCcList } from "@/lib/venueUsage"
 import { AUTO_EMAIL_KEYS, readAutoEmailFlags, type AutoEmailFlags } from "@/lib/celebrationSettings"
 import { EMAIL_FOOTER_KEY, EMAIL_FOOTER_MAX } from "@/lib/emailTemplates"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -61,7 +61,7 @@ const KEY_FEATURE = new Map<string, FeatureKey>([
 ])
 const IDLE_TIMEOUT_OPTIONS = new Set(IDLE_TIMEOUT_OPTIONS_LIST.map(String))
 const EMAIL_KEYS = new Set([
-  "ownerNotificationEmail", "churchEmail", "venueUsage.contactEmail", "venueUsage.ccEmail", "venueUsage.replyToEmail",
+  "ownerNotificationEmail", "churchEmail", "venueUsage.contactEmail", "venueUsage.replyToEmail",
 ])
 // Numeric-valued settings and their sane bounds. Card surcharge rate: a blended
 // domestic percent + a fixed AUD component. Reader lives in cardFeeSettings.ts
@@ -138,11 +138,10 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     return { error: "Invalid timeout value" }
   }
   if (key === "venueUsage.enabled" && value !== "true" && value !== "false") return { error: "Invalid value" }
-  if (key === "venueUsage.bookingCcEmails") {
+  if (key === "venueUsage.bookingCcEmails" || key === "venueUsage.ccEmail") {
     if (value.length > 1000) return { error: "Value is too long" }
-    const list = parseCcList(value)
-    if (!list.ok) return { error: list.error }
-    return { value: list.list.join(", ") }
+    const list = normaliseCcList(value)
+    return list.ok ? { value: list.value } : { error: list.error }
   }
   // Blank is valid: it stores "" = footer off (same as no row).
   // Form posts textarea newlines as CRLF; normalise first so the length matches the browser's maxLength count.

@@ -407,29 +407,82 @@ export function buildCancellationEmail(input: {
   return renderVenueEmail(withGreeting(CANCELLATION_TEMPLATE, common.contactName), vars)
 }
 
-/** Most extra booking-request / cancellation CC addresses an admin may configure. */
-export const MAX_BOOKING_CC = 10
+/** Most addresses an admin may configure in one CC list (invoice CCs or booking CCs). */
+export const MAX_CC_ADDRESSES = 10
+
+/** Longest stored CC list, matching the settings inputs' maxLength. */
+export const MAX_CC_LIST_LENGTH = 1000
+
+/**
+ * Split a comma/semicolon/newline separated CC list into trimmed, non-empty entries,
+ * dropping case-insensitive duplicates (the first occurrence's casing is kept).
+ * Entries are not validated here.
+ * @param value raw or stored list text
+ */
+function tokeniseCcList(value: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of value.split(/[,;\n]/)) {
+    const address = raw.trim()
+    if (!address) continue
+    const key = address.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(address)
+  }
+  return out
+}
 
 /**
  * Parse and validate a comma/semicolon/newline separated CC list (blank entries ignored,
  * duplicates dropped case-insensitively, original casing of the first occurrence kept).
  * @param value raw text from the settings form
+ * @param label field name used in error messages (e.g. "Invoice CC"); defaults to "CC"
  * @returns the clean list, or the first validation error
  */
-export function parseCcList(value: string): { ok: true; list: string[] } | { ok: false; error: string } {
-  const seen = new Set<string>()
-  const list: string[] = []
-  for (const raw of value.split(/[,;\n]/)) {
-    const address = raw.trim()
-    if (!address) continue
-    if (!isValidEmail(address)) return { ok: false, error: `"${address}" is not a valid email address` }
-    const key = address.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    list.push(address)
+export function parseCcList(value: string, label?: string): { ok: true; list: string[] } | { ok: false; error: string } {
+  const list = tokeniseCcList(value)
+  for (const address of list) {
+    if (!isValidEmail(address)) return { ok: false, error: `${label ? `${label}: ` : ""}"${address}" is not a valid email address` }
   }
-  if (list.length > MAX_BOOKING_CC) return { ok: false, error: `Add at most ${MAX_BOOKING_CC} booking CC addresses` }
+  if (list.length > MAX_CC_ADDRESSES) return { ok: false, error: `Add at most ${MAX_CC_ADDRESSES} ${label ?? "CC"} addresses` }
   return { ok: true, list }
+}
+
+/**
+ * Validate a CC list and normalise it to the stored "a@x.com, b@y.com" form.
+ * @param value raw text from a settings form or the generic setting action
+ * @param label field name used in error messages (e.g. "Booking CC"); defaults to "CC"
+ * @returns the normalised string, or the first validation error
+ */
+export function normaliseCcList(value: string, label?: string): { ok: true; value: string } | { ok: false; error: string } {
+  const r = parseCcList(value, label)
+  if (!r.ok) return r
+  const joined = r.list.join(", ")
+  // Checked after joining: "a;b" grows to "a, b", and a stored value over the form's
+  // 1000-char limit could not be re-saved unchanged.
+  if (joined.length > MAX_CC_LIST_LENGTH) return { ok: false, error: `${label ?? "CC"} list is too long` }
+  return { ok: true, value: joined }
+}
+
+/**
+ * Addresses to copy from a stored CC list, plus how many entries were skipped. Never drops
+ * the whole list over one bad entry: invalid addresses are skipped, duplicates dropped,
+ * capped at MAX_CC_ADDRESSES. Callers may log `dropped` (a count only, never the addresses).
+ * @param stored the saved setting value
+ */
+export function ccAddressesWithDropped(stored: string): { list: string[]; dropped: number } {
+  const tokens = tokeniseCcList(stored)
+  const list = tokens.filter(isValidEmail).slice(0, MAX_CC_ADDRESSES)
+  return { list, dropped: tokens.length - list.length }
+}
+
+/**
+ * Addresses to copy from a stored CC list (see ccAddressesWithDropped).
+ * @param stored the saved setting value
+ */
+export function ccAddresses(stored: string): string[] {
+  return ccAddressesWithDropped(stored).list
 }
 
 /**

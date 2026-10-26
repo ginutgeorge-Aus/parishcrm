@@ -16,7 +16,7 @@ import { isValidEmail, isValidPgId } from "@/lib/validation"
 import { bookingRecipients, deliverInvoiceRequest, loadActor, MAX_ROWS_PER_MONTH, MONTH_FULL_ERROR, prepareInvoiceRequest } from "@/lib/venueInvoice"
 import { autoSendLabel } from "@/lib/venueSchedule"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { buildCancellationEmail, describeIncomplete, monthRange, parseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
+import { buildCancellationEmail, describeIncomplete, monthRange, normaliseCcList, sundaysInMonth, utcDateToYmd } from "@/lib/venueUsage"
 import type { VenueUsageLine } from "@/lib/venueUsage"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -390,27 +390,36 @@ async function emailCancellation(settings: VenueUsageSettings, rows: VenueUsageL
 
 const OptionalEmail = z.union([z.literal(""), z.string().max(254).refine(isValidEmail, "Enter a valid email address")])
 
+/**
+ * Comma/semicolon/newline-separated address list, validated and normalised to "a@x.com, b@y.com".
+ * @param label field name used in error messages, e.g. "Invoice CC"
+ */
+const ccListSchema = (label: string) =>
+  z
+    .string()
+    .max(1000, `${label} list is too long`)
+    .transform((v, ctx) => {
+      const r = normaliseCcList(v, label)
+      if (r.ok) return r.value
+      ctx.addIssue({ code: "custom", message: r.error })
+      return z.NEVER
+    })
+    .default("")
+
 const SettingsSchema = z.object({
   enabled: z.string().optional().transform((v) => v === "on" || v === "true"),
   venueName: z.string().trim().max(200, "Venue name is too long"),
   contactName: z.string().trim().max(200, "Contact name is too long"),
   contactEmail: OptionalEmail,
-  ccEmail: OptionalEmail,
+  ccEmail: ccListSchema("Invoice CC"),
   replyToEmail: OptionalEmail,
-  bookingCcEmails: z
-    .string()
-    .max(1000, "Booking CC list is too long")
-    .superRefine((v, ctx) => {
-      const r = parseCcList(v)
-      if (!r.ok) ctx.addIssue({ code: "custom", message: r.error })
-    })
-    .default(""),
+  bookingCcEmails: ccListSchema("Booking CC"),
 })
 
 /**
  * Save the venue usage settings (one form). ADMIN only; blocked in demo mode.
- * Enabling requires a venue contact email. The booking CC list is validated and
- * stored normalised (comma-joined, de-duplicated, max 10).
+ * Enabling requires a venue contact email. Both CC lists (invoice and booking) are
+ * validated and stored normalised (comma-joined, de-duplicated, max 10).
  */
 export async function updateVenueUsageSettings(
   _prev: ActionResultWithSuccess,
@@ -433,7 +442,7 @@ export async function updateVenueUsageSettings(
     { key: "venueUsage.contactEmail", value: v.contactEmail },
     { key: "venueUsage.ccEmail", value: v.ccEmail },
     { key: "venueUsage.replyToEmail", value: v.replyToEmail },
-    { key: "venueUsage.bookingCcEmails", value: (parseCcList(v.bookingCcEmails) as { ok: true; list: string[] }).list.join(", ") },
+    { key: "venueUsage.bookingCcEmails", value: v.bookingCcEmails },
   ]
   await Promise.all(
     entries.map((e) =>
