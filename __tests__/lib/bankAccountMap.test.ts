@@ -1,4 +1,3 @@
-// __tests__/lib/bankAccountMap.test.ts
 /** @jest-environment node */
 import { accountSuffix, parseAccountMap, suggestPaymentAccountId, BANK_ACCOUNT_MAP_KEY } from "@/lib/bankAccountMap"
 import { prisma } from "@/lib/prisma"

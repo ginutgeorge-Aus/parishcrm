@@ -1,4 +1,3 @@
-// __tests__/lib/actions/bankImport.test.ts
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
 import { rememberBankImportAccount } from "@/lib/actions/bankImport"

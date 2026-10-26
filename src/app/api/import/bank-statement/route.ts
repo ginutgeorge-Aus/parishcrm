@@ -4,6 +4,11 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { contentKeyFromBankRef, type ParsedRow, type ParseResult } from "@/lib/anzParser"
 import { parseWithRegistry } from "@/lib/bankParsers/registry"
+import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
+import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
+import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
+import { suggestPaymentAccountId } from "@/lib/bankAccountMap"
+import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
 import { actorId } from "@/lib/actor"
@@ -24,10 +29,15 @@ const MAX_IMPORT_ROWS = 1000
 // success branch, which breaks `"error" in x` narrowing.
 type RouteFailure = { ok: false; error: string; status: number }
 
-// Validates + reads the uploaded multipart file: body-size caps (checked
-// before AND after formData() streams the body), file-field presence, and the
-// %PDF magic header.
-async function readUploadedPdf(req: Request): Promise<RouteFailure | { ok: true; buffer: Buffer }> {
+type UploadFields = { source: ImportSource; paymentAccountId: number | null; dateOrder: QifDateOrder | undefined }
+
+/**
+ * Validate + read the uploaded multipart file: body-size caps (checked before
+ * AND after formData() streams the body), file-field presence, and the
+ * source/paymentAccountId/dateOrder fields. `source` defaults to "anz" so a
+ * client that predates the wizard keeps working.
+ */
+async function readUpload(req: Request): Promise<RouteFailure | { ok: true; buffer: Buffer; fields: UploadFields }> {
   // Reject before formData() streams the whole multipart body into memory.
   // 50MB file budget + multipart/encoding overhead; file.size is re-checked below.
   if (isDemoMode() && exceedsBodyLimit(req, DEMO_IMPORT_MAX_BYTES + 16 * 1024)) {
@@ -58,18 +68,43 @@ async function readUploadedPdf(req: Request): Promise<RouteFailure | { ok: true;
 
   const buffer = Buffer.from(await file.arrayBuffer())
 
-  // Reject non-PDF uploads early. file.type is client-supplied and trivially
-  // spoofed, so the %PDF magic header is authoritative — a file claiming
-  // application/pdf without the real header no longer slips through.
-  // Scan the first 1KB rather than offset 0 only: the PDF spec permits leading
-  // bytes (whitespace/BOM) before %PDF, so an exact-offset check false-rejects
-  // otherwise-valid PDFs.
-  const hasPdfMagic = buffer.subarray(0, 1024).toString("latin1").includes("%PDF")
-  if (!hasPdfMagic) {
-    return { ok: false, error: "File must be a PDF", status: 400 }
-  }
+  const rawSource = formData.get("source") ?? "anz"
+  if (!isImportSource(rawSource)) return { ok: false, error: "Unknown import source", status: 400 }
+  const rawAccount = formData.get("paymentAccountId")
+  const accountNum = typeof rawAccount === "string" && /^\d{1,9}$/.test(rawAccount) ? Number.parseInt(rawAccount, 10) : null
+  const rawOrder = formData.get("dateOrder")
+  const dateOrder = rawOrder === "DMY" || rawOrder === "MDY" ? rawOrder : undefined
 
-  return { ok: true, buffer }
+  return { ok: true, buffer, fields: { source: rawSource, paymentAccountId: accountNum && accountNum > 0 ? accountNum : null, dateOrder } }
+}
+
+/**
+ * True when the buffer carries the %PDF magic header. file.type is
+ * client-supplied and trivially spoofed, so the header is authoritative. Scans
+ * the first 1KB rather than offset 0 only: the PDF spec permits leading bytes
+ * (whitespace/BOM) before %PDF, so an exact-offset check false-rejects
+ * otherwise-valid PDFs.
+ */
+function hasPdfMagic(buffer: Buffer): boolean {
+  return buffer.subarray(0, 1024).toString("latin1").includes("%PDF")
+}
+
+/** Decode a text export: strict UTF-8, falling back to latin1 (older bank exports); BOM stripped. */
+function decodeText(buffer: Buffer): string {
+  let text: string
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+  } catch {
+    text = buffer.toString("latin1")
+  }
+  return text.replace(/^\uFEFF/, "")
+}
+
+/** Name the format a text export actually looks like, for a helpful mismatch error. */
+function sniffTextSource(text: string): ImportSource | null {
+  if (detectOfx(text)) return "ofx"
+  if (detectQif(text)) return "qif"
+  return null
 }
 
 async function extractPdfText(buffer: Buffer): Promise<RouteFailure | { ok: true; text: string }> {
@@ -82,14 +117,43 @@ async function extractPdfText(buffer: Buffer): Promise<RouteFailure | { ok: true
   }
 }
 
+/** Parse the upload according to its declared source; the PDF path is the pre-wizard behaviour verbatim. */
+async function parseUpload(buffer: Buffer, fields: UploadFields): Promise<RouteFailure | { ok: true; result: ParseResult }> {
+  if (fields.source === "anz") {
+    if (!hasPdfMagic(buffer)) return { ok: false, error: "File must be a PDF", status: 400 }
+    const textResult = await extractPdfText(buffer)
+    if (!textResult.ok) return textResult
+    // Auto-detect ANZ shape: the registry tries each adapter's detect() in order
+    // (Transaction Report, else statement).
+    return { ok: true, result: parseWithRegistry(textResult.text) }
+  }
+
+  if (hasPdfMagic(buffer)) return { ok: false, error: "This is a PDF — go back and choose ANZ statement", status: 400 }
+  const text = decodeText(buffer)
+  const actual = sniffTextSource(text)
+  if (actual !== fields.source) {
+    const msg = actual
+      ? `This looks like a ${IMPORT_SOURCES[actual].label} file — go back and choose ${IMPORT_SOURCES[actual].label}`
+      : `This doesn't look like a ${IMPORT_SOURCES[fields.source].label} file`
+    return { ok: false, error: msg, status: 400 }
+  }
+  if (fields.source === "ofx") return { ok: true, result: parseOfx(text) }
+
+  if (fields.paymentAccountId === null) {
+    return { ok: false, error: "Choose the bank account before uploading a QIF file", status: 400 }
+  }
+  return { ok: true, result: parseQif(text, { accountKey: `PA${fields.paymentAccountId}`, dateOrder: fields.dateOrder }) }
+}
+
 // Checks the parsed statement is postable (some rows, not over the row cap)
 // and builds the client-facing error summary. Parser errors embed raw
 // statement lines (payees = member names): container logs are PII-readable
 // by anyone with log access, so only the count is logged — never the raw
 // error text. The client gets the same count summary.
 function validateParsedStatement(result: ParseResult): RouteFailure | { ok: true; clientErrors: string[] } {
+  if (result.fatalError) return { ok: false, error: result.fatalError, status: 400 }
   if (result.errors.length > 0) {
-    logger.warn("ANZ parse errors", { count: result.errors.length })
+    logger.warn("Bank import parse errors", { count: result.errors.length })
   }
   const clientErrors =
     result.errors.length > 0
@@ -98,6 +162,9 @@ function validateParsedStatement(result: ParseResult): RouteFailure | { ok: true
 
   if (result.rows.length === 0 && result.errors.length > 0) {
     return { ok: false, error: "Could not parse any transactions from this statement", status: 400 }
+  }
+  if (result.rows.length === 0) {
+    return { ok: false, error: "No transactions found in this file", status: 400 }
   }
 
   if (result.rows.length > MAX_IMPORT_ROWS) {
@@ -150,7 +217,23 @@ async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
     .map((r) => r.bankRef)
 }
 
-/** POST /api/import/bank-statement. ADMIN/PASTOR only. */
+/**
+ * Soft cross-format check over the import's date window: any existing
+ * transaction (bank-imported or manual) with the same date + amount + direction
+ * that the exact/content-key pass did not already catch. The UI pre-unticks
+ * these rows with a "possible duplicate" chip; commit-time dedup is unchanged.
+ */
+async function findPossibleDuplicateBankRefs(rows: ParsedRow[], exact: string[]): Promise<string[]> {
+  const importTimes = rows.map((r) => new Date(r.date).getTime()).filter((n) => !Number.isNaN(n))
+  if (importTimes.length === 0) return []
+  const existing = await prisma.transaction.findMany({
+    where: { date: { gte: new Date(Math.min(...importTimes)), lte: new Date(Math.max(...importTimes)) } },
+    select: { date: true, amount: true, type: true },
+  })
+  return findPossibleDuplicates(rows, new Set(exact), existing)
+}
+
+/** POST /api/import/bank-statement — parse an ANZ PDF, OFX/QFX or QIF upload for review (no save). ADMIN/PASTOR only. */
 export async function POST(req: Request) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -164,26 +247,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  const fileResult = await readUploadedPdf(req)
-  if (!fileResult.ok) return NextResponse.json({ error: fileResult.error }, { status: fileResult.status })
+  const upload = await readUpload(req)
+  if (!upload.ok) return NextResponse.json({ error: upload.error }, { status: upload.status })
 
-  const textResult = await extractPdfText(fileResult.buffer)
-  if (!textResult.ok) return NextResponse.json({ error: textResult.error }, { status: textResult.status })
-
-  // Auto-detect format: the registry tries each adapter's detect() in order and
-  // parses with the first match (ANZ Transaction Report, else ANZ statement).
-  const result = parseWithRegistry(textResult.text)
+  const parsed = await parseUpload(upload.buffer, upload.fields)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status })
+  const result = parsed.result
 
   const validated = validateParsedStatement(result)
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: validated.status })
 
   const duplicateBankRefs = await findDuplicateBankRefs(result.rows)
+  const [possibleDuplicateBankRefs, suggestedPaymentAccountId] = await Promise.all([
+    findPossibleDuplicateBankRefs(result.rows, duplicateBankRefs),
+    suggestPaymentAccountId(result.accountNumber),
+  ])
 
   return NextResponse.json({
     rows: result.rows,
     duplicateBankRefs,
+    possibleDuplicateBankRefs,
     period: result.period,
     accountNumber: result.accountNumber,
+    suggestedPaymentAccountId,
+    dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,
   })
 }
