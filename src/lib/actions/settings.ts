@@ -145,7 +145,12 @@ function validateSettingValue(key: string, value: string): { error: string } | {
     return { value: list.list.join(", ") }
   }
   // Blank is valid: it stores "" = footer disabled (a missing row means the default).
-  if (key === EMAIL_FOOTER_KEY && value.length > EMAIL_FOOTER_MAX) return { error: `Footer must be ${EMAIL_FOOTER_MAX} characters or fewer` }
+  // Form posts textarea newlines as CRLF; normalise first so the length matches the browser's maxLength count.
+  if (key === EMAIL_FOOTER_KEY) {
+    const footer = value.replace(/\r\n?/g, "\n")
+    if (footer.length > EMAIL_FOOTER_MAX) return { error: `Footer must be ${EMAIL_FOOTER_MAX} characters or fewer` }
+    return { value: footer }
+  }
   if (key.startsWith("venueUsage.") && value.length > 254) return { error: "Value is too long" }
   // Email-valued keys must hold a real address (blank clears) — a bad value
   // causes silent sendEmail delivery failures later.

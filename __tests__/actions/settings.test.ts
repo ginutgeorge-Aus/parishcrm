@@ -388,6 +388,13 @@ describe("upsertSetting emailFooter", () => {
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 
+  it("normalises CRLF before the length check and before storing", async () => {
+    const result = await upsertSetting(undefined, makeFormData("emailFooter", `${"x".repeat(249)}\r\n${"y".repeat(250)}`))
+    expect(result).toEqual({ success: "Settings saved" })
+    const value = `${"x".repeat(249)}\n${"y".repeat(250)}`
+    expect(mockUpsert).toHaveBeenCalledWith({ where: { key: "emailFooter" }, create: { key: "emailFooter", value }, update: { value } })
+  })
+
   it("stores a blank footer as an empty row (disabled), not a delete", async () => {
     const result = await upsertSetting(undefined, makeFormData("emailFooter", "   "))
     expect(result).toEqual({ success: "Settings saved" })

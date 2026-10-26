@@ -64,7 +64,13 @@ export async function getEmailFooterTemplate(): Promise<string> {
  * @returns the rendered footer text (`{churchName}` substituted), or "" when disabled
  */
 export async function getEmailFooter(): Promise<string> {
-  const template = await getEmailFooterTemplate()
+  let template: string
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: EMAIL_FOOTER_KEY } })
+    template = row ? row.value : DEFAULT_EMAIL_FOOTER
+  } catch {
+    return "" // fail closed: a DB blip must not resurrect a footer an admin turned off
+  }
   if (!template.trim()) return ""
   return applyVars(template, { churchName: await getChurchName() }).trim()
 }

@@ -327,6 +327,9 @@ describe("email footer", () => {
       expect(r.html).toContain("&lt;script&gt;x&lt;/script&gt; &amp; co")
       expect(r.html).not.toContain("<script>")
     })
+    it("keeps footer line breaks in HTML via pre-line", () => {
+      expect(appendEmailFooter("<body></body>", "", "A\nB").html).toMatch(/white-space:pre-line">A\nB<\/p>/)
+    })
     it("is a no-op for an empty footer", () => {
       expect(appendEmailFooter("<body>a</body>", "a", "  ")).toEqual({ html: "<body>a</body>", text: "a" })
     })

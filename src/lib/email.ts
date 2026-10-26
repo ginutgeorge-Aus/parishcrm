@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma"
 import { getEmailTemplate, getChurchName, getEmailFooter } from "@/lib/emailTemplateStore"
 import { applyVars } from "@/lib/emailTemplates"
 import { withRetry } from "@/lib/retry"
+import { escapeHtml } from "@/lib/venueUsage"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { isResendConfigured, senderAddress } from "@/lib/mailConfig"
@@ -178,20 +179,10 @@ type MailOptions = {
   attachments?: EmailAttachment[]
 }
 
-/** Escape text for safe inclusion in HTML. */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-}
-
 /**
  * Append the admin-configured footer to an email's HTML and plain-text bodies.
- * HTML: escaped paragraph inserted before the last `</body>` (case-insensitive),
- * or appended when there is none. Text: `\n\n—\n<footer>`. Blank footer = no-op.
+ * HTML: escaped paragraph (line breaks kept) inserted before the last `</body>`
+ * (case-insensitive), or appended when there is none. Text: `\n\n—\n<footer>`. Blank footer = no-op.
  * @param html rendered HTML body
  * @param text rendered plain-text body
  * @param footer rendered (vars applied) footer text
@@ -199,8 +190,8 @@ function escapeHtml(s: string): string {
 export function appendEmailFooter(html: string, text: string, footer: string): { html: string; text: string } {
   const f = footer.trim()
   if (!f) return { html, text }
-  const para = `<p style="font-size:11px;color:#94a3b8;line-height:1.6;margin-top:16px">${escapeHtml(f)}</p>`
-  const idx = html.search(/<\/body>(?![\s\S]*<\/body>)/i)
+  const para = `<p style="font-size:11px;color:#94a3b8;line-height:1.6;margin-top:16px;white-space:pre-line">${escapeHtml(f)}</p>`
+  const idx = html.toLowerCase().lastIndexOf("</body>")
   const outHtml = idx === -1 ? html + para : html.slice(0, idx) + para + html.slice(idx)
   return { html: outHtml, text: `${text}\n\n—\n${f}` }
 }

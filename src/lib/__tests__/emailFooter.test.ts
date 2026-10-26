@@ -35,10 +35,9 @@ describe("getEmailFooter", () => {
     expect(await getEmailFooter()).toBe("From Grace Church - {unknown}")
   })
 
-  it("falls back to the default when the DB throws", async () => {
+  it("sends no footer when the DB throws (fails closed)", async () => {
     findUnique.mockRejectedValue(new Error("db down"))
-    process.env.CHURCH_NAME = "Env Church"
-    expect(await getEmailFooter()).toBe("This email was sent via the Env Church CRM application.")
+    expect(await getEmailFooter()).toBe("")
   })
 
   it("template reader returns the raw default / stored value", async () => {
