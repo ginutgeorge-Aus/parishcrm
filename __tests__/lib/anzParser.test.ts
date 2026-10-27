@@ -660,3 +660,18 @@ TOTALS AT END OF PERIOD
     expect(key).toBe("987654321_20260608_300.00_PAYMENTFROMBRUNOTAYL")
   })
 })
+
+describe("contentKeyFromBankRef — OFX/QIF", () => {
+  it("recovers the content key from OFX and QIF refs", () => {
+    const key = bankRefContentKey("000111222333", "2026-09-02", "200.00", "TRANSFER FROM J CITIZEN")
+    expect(contentKeyFromBankRef(`OFX_${key}_2026090201A`)).toBe(key)
+    expect(contentKeyFromBankRef(`OFX_${key}_S1`)).toBe(key)
+    const qkey = bankRefContentKey("PA7", "2026-09-02", "200.00", "X")
+    expect(contentKeyFromBankRef(`QIF_${qkey}_2`)).toBe(qkey)
+    expect(contentKeyFromBankRef(`QIF_${qkey}_2#3`)).toBe(qkey)
+  })
+
+  it("still rejects unknown prefixes", () => {
+    expect(contentKeyFromBankRef("CSV_1_20260902_1.00_X_1")).toBeNull()
+  })
+})
