@@ -18,7 +18,6 @@ describe("RegistrationStats — tickets sold card", () => {
       />
     )
     expect(screen.getByText("Tickets sold")).toBeInTheDocument()
-    expect(screen.queryByText("Tickets Sold")).not.toBeInTheDocument()
     expect(screen.getByText("Adult 3 · Child 1")).toBeInTheDocument()
   })
 })

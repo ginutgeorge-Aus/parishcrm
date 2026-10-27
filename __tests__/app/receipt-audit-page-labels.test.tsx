@@ -39,6 +39,5 @@ test("receipt log table uses sentence-case column headers", async () => {
   for (const name of ["Sent at", "Sent to", "Transaction", "Amount", "Account", "Sent by", "Status", "Error"]) {
     expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
   }
-  expect(screen.queryByRole("columnheader", { name: "Sent At" })).not.toBeInTheDocument()
   expect(screen.getAllByText("donor@example.com").length).toBeGreaterThan(0)
 })

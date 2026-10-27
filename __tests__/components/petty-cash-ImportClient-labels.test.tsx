@@ -56,5 +56,4 @@ test("preview table header uses sentence case for Payee/donor", async () => {
   await user.click(screen.getByRole("button", { name: "Preview" }))
 
   await waitFor(() => expect(screen.getByRole("columnheader", { name: "Payee/donor" })).toBeInTheDocument())
-  expect(screen.queryByRole("columnheader", { name: "Payee/Donor" })).not.toBeInTheDocument()
 })

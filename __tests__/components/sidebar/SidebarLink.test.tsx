@@ -59,7 +59,7 @@ it("gives an informational badge a neutral tone, not the amber action colour", (
   expect(screen.getByRole("link").querySelector(".bg-warning")).toBeNull()
 })
 
-it("marks the active link with a tinted gold pill (bg-gold/15), not a gold border", () => {
+it("marks the active link with an accent tint, not a border", () => {
   render(
     <TooltipProvider>
       <SidebarLink item={item} active={true} collapsed={false} onNavigate={() => {}} />

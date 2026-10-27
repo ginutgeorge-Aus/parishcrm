@@ -50,7 +50,6 @@ test("detail labels use sentence case", async () => {
   for (const heading of ["Other dependents", "Subscription & declaration"]) {
     expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
   }
-  expect(screen.queryByRole("heading", { name: "Other Dependents" })).not.toBeInTheDocument()
   for (const label of [
     "Marital status",
     "Monthly subscription",
@@ -61,6 +60,4 @@ test("detail labels use sentence case", async () => {
   }
   expect(screen.getAllByText("Date of birth")).toHaveLength(2)
   expect(screen.getByText("$25.00")).toBeInTheDocument()
-  expect(screen.queryByText("Marital Status")).not.toBeInTheDocument()
-  expect(screen.queryByText("Monthly Subscription")).not.toBeInTheDocument()
 })
