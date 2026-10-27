@@ -198,7 +198,7 @@ export default async function EventsPage(
         <Table aria-label="Events">
           <TableHeader className="bg-muted">
             <TableRow>
-              {["Event", "Date", "Status", "Tickets Sold", "Revenue", "Actions"].map(h => (
+              {["Event", "Date", "Status", "Tickets sold", "Revenue", "Actions"].map(h => (
                 <TableHead key={h} className="text-xs font-semibold text-muted-foreground">
                   {h}
                 </TableHead>

@@ -104,7 +104,7 @@ export default async function AccountingPage() {
         {stats.map((s) => (
           <Card key={s.label}>
             <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs font-medium text-muted-foreground">
+              <CardTitle as="h3" className="text-xs font-medium text-muted-foreground">
                 {s.label}
               </CardTitle>
             </CardHeader>

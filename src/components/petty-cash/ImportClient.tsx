@@ -96,7 +96,7 @@ export function ImportClient({ custodians }: Readonly<{ custodians: { id: number
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b text-left text-xs text-muted-foreground">
-                <th scope="col" className="py-2 px-2">#</th><th scope="col" className="px-2">Date</th><th scope="col" className="px-2">Type</th><th scope="col" className="px-2">Account</th><th scope="col" className="px-2">Payee/Donor</th><th scope="col" className="px-2 text-right">Amount</th><th scope="col" className="px-2">Status</th>
+                <th scope="col" className="py-2 px-2">#</th><th scope="col" className="px-2">Date</th><th scope="col" className="px-2">Type</th><th scope="col" className="px-2">Account</th><th scope="col" className="px-2">Payee/donor</th><th scope="col" className="px-2 text-right">Amount</th><th scope="col" className="px-2">Status</th>
               </tr></thead>
               <tbody>
                 {preview.rows.map((r) => (
