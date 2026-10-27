@@ -1,4 +1,5 @@
 import type { ReviewRow } from "@/lib/bankTypes"
+import { isImportSource, type ImportSource } from "@/lib/importSources"
 
 // Bank import review draft, persisted to sessionStorage so per-row
 // selections survive a refresh or accidental navigation. Session-scoped
@@ -52,8 +53,19 @@ export type BankImportDraft = {
   rows: ReviewRow[]
   period: { from: string; to: string } | null
   paymentAccountId: number | ""
+  // Optional: drafts saved before the wizard lack them. Only the last 4
+  // digits are kept (all the account map needs); never the full number.
+  accountSuffix?: string
+  source?: ImportSource
 }
 
+/** Last 4 digits of a statement account number for the draft, or undefined when it has fewer. */
+export function draftAccountSuffix(accountNumber: string): string | undefined {
+  const digits = accountNumber.replace(/\D/g, "")
+  return digits.length >= 4 ? digits.slice(-4) : undefined
+}
+
+/** Persist the in-progress review (skipped when this exact content was already imported). */
 export function saveDraft(draft: BankImportDraft): void {
   try {
     // Never re-persist content already imported this session — a late remount
@@ -94,6 +106,7 @@ function isValidRow(r: unknown): r is ReviewRow {
     (row.personId === null || typeof row.personId === "number") &&
     typeof row.skip === "boolean" &&
     typeof row.isDuplicate === "boolean" &&
+    (row.isPossibleDuplicate === undefined || typeof row.isPossibleDuplicate === "boolean") &&
     typeof row.fromPettyCash === "boolean" &&
     (row.splits === undefined ||
       (Array.isArray(row.splits) && row.splits.every(isValidSplit)))
@@ -113,6 +126,8 @@ export function loadDraft(): BankImportDraft | null {
     // category was cleared on restore (deactivated account) still matches its
     // imported tombstone (round-6 codex).
     if (isImported(draftFingerprint(parsed))) return null
+    if (parsed.accountSuffix !== undefined && (typeof parsed.accountSuffix !== "string" || !/^\d{4}$/.test(parsed.accountSuffix))) return null
+    if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     return parsed
   } catch {
     return null
@@ -222,7 +237,7 @@ export function mergeDraftSelections(newRows: ReviewRow[], prevRows: ReviewRow[]
       splits: prev.splits,
       // duplicates flagged by the new upload stay pre-skipped; otherwise the
       // user's skip choice wins
-      skip: r.isDuplicate ? true : prev.skip,
+      skip: r.isDuplicate || r.isPossibleDuplicate ? true : prev.skip,
       fromPettyCash: prev.fromPettyCash,
     }
   })

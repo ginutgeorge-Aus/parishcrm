@@ -9,6 +9,7 @@ import {
   draftFingerprint,
   mergeDraftSelections,
   clearMismatchedAccountIds,
+  draftAccountSuffix,
   type BankImportDraft,
 } from "@/lib/bankImportDraft"
 import type { ReviewRow } from "@/lib/bankTypes"
@@ -50,6 +51,23 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     const draft = makeDraft()
     saveDraft(draft)
     expect(loadDraft()).toEqual(draft)
+  })
+
+  it("stores only the last 4 account digits, never the full number", () => {
+    saveDraft({ ...makeDraft(), accountSuffix: draftAccountSuffix("012-345 6789") })
+    const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v1")!)
+    expect(stored.accountSuffix).toBe("6789")
+    expect(JSON.stringify(stored)).not.toContain("3456789")
+  })
+
+  it("drops a draft whose account suffix is not 4 digits", () => {
+    sessionStorage.setItem("bankImportDraft.v1", JSON.stringify({ ...makeDraft(), accountSuffix: "0123456789" }))
+    expect(loadDraft()).toBeNull()
+  })
+
+  it("drops a draft whose account suffix is a number, not a string", () => {
+    sessionStorage.setItem("bankImportDraft.v1", JSON.stringify({ ...makeDraft(), accountSuffix: 1234 }))
+    expect(loadDraft()).toBeNull()
   })
 
   it("returns null when no draft saved", () => {
@@ -220,6 +238,28 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     ;(bad.rows[0] as unknown as { splits: unknown }).splits = [{ accountId: 1, amount: 60 }]
     sessionStorage.setItem("bankImportDraft.v1", JSON.stringify(bad))
     expect(loadDraft()).toBeNull()
+  })
+})
+
+describe("isPossibleDuplicate flag", () => {
+  it("round-trips a row with isPossibleDuplicate", () => {
+    const draft = makeDraft({ rows: [makeRow({ isPossibleDuplicate: true })] })
+    saveDraft(draft)
+    expect(loadDraft()).toEqual(draft)
+  })
+
+  it("rejects a non-boolean isPossibleDuplicate", () => {
+    sessionStorage.setItem(
+      "bankImportDraft.v1",
+      JSON.stringify(makeDraft({ rows: [makeRow({ isPossibleDuplicate: "yes" as never })] })),
+    )
+    expect(loadDraft()).toBeNull()
+  })
+
+  it("keeps possible duplicates pre-skipped on re-upload", () => {
+    const prev = [makeRow({ bankRef: "ANZ_1", skip: false })]
+    const fresh = [makeRow({ bankRef: "ANZ_1", isPossibleDuplicate: true, skip: true })]
+    expect(mergeDraftSelections(fresh, prev)[0].skip).toBe(true)
   })
 })
 

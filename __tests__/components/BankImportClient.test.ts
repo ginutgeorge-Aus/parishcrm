@@ -4,6 +4,9 @@
 import { applyCategoryToRows, matchPerson } from "@/components/accounting/BankImportClient"
 import type { ReviewRow } from "@/components/accounting/BankReviewTable"
 
+// The client imports a server action (auth/prisma chain); these tests only exercise pure helpers.
+jest.mock("@/lib/actions/bankImport", () => ({ rememberBankImportAccount: jest.fn() }))
+
 const families = [
   {
     id: 1,
@@ -228,6 +231,11 @@ describe("applyCategoryToRows", () => {
     const rows = [makeReviewRow({ type: "EXPENSE", accountId: 8 })]
     const result = applyCategoryToRows(rows, incomeAccount)
     expect(result[0].accountId).toBe(8)
+  })
+
+  it("limits the change to the given indices", () => {
+    const rows = [makeReviewRow({ type: "INCOME" }), makeReviewRow({ type: "INCOME" })]
+    expect(applyCategoryToRows(rows, incomeAccount, [1]).map((r) => r.accountId)).toEqual([null, 7])
   })
 
   it("applies expense account only to expense rows", () => {
