@@ -122,13 +122,13 @@ describe("createUser", () => {
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  // --- P2002 unique-email race backstop: the pre-check findUnique
+  // --- P2002 unique-email race backstop: the pre-check findFirst
   // above is check-then-act too — a concurrent create can slip in between the
   // check and this create() call, so the create itself must also catch the
   // unique-constraint violation instead of throwing an unhandled 500.
   it("returns a clean error when create() hits a concurrent email P2002", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValue(null) // pre-check saw the email as free
+    mockFindFirst.mockResolvedValue(null) // pre-check saw the email as free
     mockCreate.mockRejectedValue({ code: "P2002" }) // but a concurrent create beat this one
     const result = await createUser(undefined, fd(validNewUser))
     expect(result).toEqual({ error: "Email already in use" })
@@ -565,7 +565,7 @@ describe("user actions — OFFICE_ADMIN escalation guards", () => {
   })
   it("OFFICE_ADMIN can create a VIEWER", async () => {
     mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue(null)        // email free
+    prismaMock.findFirst.mockResolvedValue(null)        // email free
     prismaMock.create.mockResolvedValue({ id: 9 } as never)
     mockRedirect.mockImplementationOnce(() => { throw new Error("REDIRECT") })
     await expect(createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "VIEWER" })))
@@ -636,7 +636,7 @@ describe("createUser — invite flow", () => {
 
   it("creates a user without a password input and issues an invite", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue(null)          // email free
+    prismaMock.findFirst.mockResolvedValue(null)          // email free
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     await createUser(undefined, fd({ name: "X", email: "x@y.com", role: "VIEWER" }))
@@ -655,7 +655,7 @@ describe("createUser — invite flow", () => {
 
   it("creates the user even if the email send throws", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue(null)
+    prismaMock.findFirst.mockResolvedValue(null)
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     ;(sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
@@ -666,7 +666,7 @@ describe("createUser — invite flow", () => {
 
   it("still creates the user when storing the invite token fails", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue(null)
+    prismaMock.findFirst.mockResolvedValue(null)
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockRejectedValue(new Error("pg down"))
     mockRedirect.mockImplementationOnce(() => { throw new Error("REDIRECT") })
@@ -682,7 +682,7 @@ describe("createUser — invite flow", () => {
   // create/resend for the same user.
   it("scopes the failure-cleanup clear to the token hash this invocation wrote", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findUnique.mockResolvedValue(null)
+    prismaMock.findFirst.mockResolvedValue(null)
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     ;(sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))

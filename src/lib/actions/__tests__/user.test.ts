@@ -296,7 +296,7 @@ describe("concurrent-write error translation", () => {
 
   it("maps a P2002 on create to a friendly duplicate-email error", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null) // no pre-existing email
+    ;(prisma.user.findFirst as jest.Mock).mockResolvedValue(null) // no pre-existing email
     ;(prisma.user.create as jest.Mock).mockRejectedValue(p2002)
     const r = await createUser(undefined, form(VALID_USER))
     expect(r).toEqual({ error: "Email already in use" })

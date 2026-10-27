@@ -314,6 +314,7 @@ export async function authorizeCredentials(
   // by the same trimmed, lowercased key. Lockout counters are keyed on user.id,
   // so case/space variants resolve to one account and share one counter.
   const trimmedEmail = String(credentials.email).trim()
+  if (!trimmedEmail) return null // whitespace-only: nothing to look up
   const normalizedEmail = trimmedEmail.toLowerCase()
 
   // IP-based throttle on the whole credentials path (password + OTP

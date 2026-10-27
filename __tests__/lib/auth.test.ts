@@ -394,6 +394,13 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(prisma.user.findMany).not.toHaveBeenCalled()
   })
 
+  it("returns null without any DB lookup for a whitespace-only email", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockClear()
+    await expect(authorizeCredentials({ email: "   ", password: "x" })).resolves.toBeNull()
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
   it("OTP path: tries an exact match on the trimmed input first (case kept)", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
     await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })
