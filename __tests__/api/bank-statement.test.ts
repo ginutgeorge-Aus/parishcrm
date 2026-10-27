@@ -87,7 +87,12 @@ describe("POST /api/import/bank-statement", () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.rows).toHaveLength(1)
-    expect(body.duplicateBankRefs).toContain(mockRow.bankRef)
+    // Matched on the full-number ref, returned masked (#446).
+    expect(body.duplicateBankRefs).toEqual(["ANZ_*4321_20250623_60.00_PAYMENTFROMJACK"])
+    expect(body.rows[0].bankRef).toBe("ANZ_*4321_20250623_60.00_PAYMENTFROMJACK")
+    expect(body.rows[0].dedupKey).toBe("*4321_20250623_60.00_PAYMENTFROMJACK")
+    expect(typeof body.accountToken).toBe("string")
+    expect(JSON.stringify(body)).not.toContain("987654321")
     expect(body.period.from).toBe("2025-06-20")
   })
 
@@ -129,7 +134,7 @@ describe("POST /api/import/bank-statement", () => {
     const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body.duplicateBankRefs).toContain("ANZTR_987654321_20260608_300.00_PAYMENTFROMBRUNO_0")
+    expect(body.duplicateBankRefs).toContain("ANZTR_*4321_20260608_300.00_PAYMENTFROMBRUNO_0")
   })
 
   test("rejects a statement that parses to more than the row cap with 413", async () => {

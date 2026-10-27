@@ -7,6 +7,8 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
+import { unsealAccountNumber } from "@/lib/bankAccountToken"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Discriminated result the confirm route maps to a NextResponse. Transport
@@ -68,19 +70,57 @@ const RowSchema = z.object({
     path: ["type"],
   })
 
-const BodySchema = z.array(RowSchema).max(1000, "Too many rows (max 1000)")
+const RowsSchema = z.array(RowSchema).max(1000, "Too many rows (max 1000)")
+// `{ rows, accountToken? }` — the token is the sealed account number from the
+// parse route, needed to restore masked bankRefs. A bare row array (clients
+// that predate masking) is still accepted; its refs carry no mask.
+const BodySchema = z.union([
+  RowsSchema,
+  z.object({
+    rows: RowsSchema,
+    accountToken: z.string().min(1).max(MAX_ACCOUNT_TOKEN_LENGTH).optional(),
+  }),
+])
 
-// Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body.
-// Returns a typed result; never throws for a caller-visible error — a DB fault
-// during a row insert surfaces as { status: 500 } (mirroring the route's prior
-// behaviour), and only unexpected faults propagate.
+type ConfirmRow = z.infer<typeof RowSchema>
+
+/**
+ * Rebuild the real (full account number) bankRef of every masked row in place,
+ * so all dedup/insert logic sees the stored DB format. Rows without a mask pass
+ * through. Returns false — reject the request — when a masked row arrives
+ * without a valid token, or its `*<last4>` doesn't match the sealed number.
+ */
+function restoreMaskedBankRefs(rows: ConfirmRow[], accountToken: string | undefined): boolean {
+  if (!rows.some((r) => bankRefMaskSegment(r.bankRef) !== null)) return true
+  const accountNumber = unsealAccountNumber(accountToken)
+  if (accountNumber === null) return false
+  for (const r of rows) {
+    const real = unmaskBankRef(r.bankRef, accountNumber)
+    if (real === null) return false
+    r.bankRef = real
+  }
+  return true
+}
+
+/**
+ * Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body
+ * (`{ rows, accountToken? }`, or a bare row array). Masked bankRefs are restored
+ * to their full-number form before any dedup/insert.
+ * Returns a typed result; never throws for a caller-visible error — a DB fault
+ * during a row insert surfaces as { status: 500 } (mirroring the route's prior
+ * behaviour), and only unexpected faults propagate.
+ */
 export async function confirmBankImport(rawBody: unknown): Promise<BankImportResult> {
   const parsed = BodySchema.safeParse(rawBody)
   if (!parsed.success) {
     return { ok: false, status: 400, error: "Invalid request data" }
   }
 
-  const rows = parsed.data
+  const body = parsed.data
+  const rows = Array.isArray(body) ? body : body.rows
+  if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
+    return { ok: false, status: 400, error: "Invalid request data" }
+  }
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 
