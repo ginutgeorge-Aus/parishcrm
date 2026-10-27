@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { auditIpFromHeaders, clientIpFromHeaders, getClientIp } from "@/lib/clientIp"
+import { auditIpFromHeaders, clientIpFromHeaders, clientIpHeaderStatus, getClientIp } from "@/lib/clientIp"
 
 const h = (xff?: string) => new Headers(xff === undefined ? {} : { "x-forwarded-for": xff })
 
@@ -95,5 +95,41 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     expect(clientIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
     expect(auditIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
+  })
+})
+
+describe("CLIENT_IP_HEADER — ignored names", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  const headers = () => new Headers({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "203.0.113.7" })
+
+  it("an illegal header name does not throw and falls back to rightmost XFF", () => {
+    process.env.CLIENT_IP_HEADER = "CF Connecting IP"
+    expect(() => clientIpFromHeaders(headers())).not.toThrow()
+    expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
+  })
+  it("x-forwarded-for / forwarded are never honoured (leftmost entry is spoofable)", () => {
+    for (const name of ["x-forwarded-for", "X-Forwarded-For", "forwarded"]) {
+      process.env.CLIENT_IP_HEADER = name
+      expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
+      expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
+    }
+  })
+})
+
+describe("clientIpHeaderStatus", () => {
+  it("classifies env values", () => {
+    expect(clientIpHeaderStatus(undefined)).toBe("unset")
+    expect(clientIpHeaderStatus("  ")).toBe("unset")
+    expect(clientIpHeaderStatus("cf connecting ip")).toBe("invalid")
+    expect(clientIpHeaderStatus("cf-connecting-ip:")).toBe("invalid")
+    expect(clientIpHeaderStatus(" X-Forwarded-For ")).toBe("spoofable")
+    expect(clientIpHeaderStatus("forwarded")).toBe("spoofable")
+    expect(clientIpHeaderStatus(" CF-Connecting-IP ")).toBe("ok")
+    expect(clientIpHeaderStatus("true-client-ip")).toBe("ok")
   })
 })

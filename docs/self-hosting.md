@@ -214,8 +214,12 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.or
 
 Login throttling and audit-log IPs read the rightmost `x-forwarded-for` entry. If your platform
 appends its own internal hop, that entry is a private address (e.g. `10.x`) and all users share
-one throttle bucket. On Render (behind Cloudflare) set `CLIENT_IP_HEADER=cf-connecting-ip`. Only
-set it if your proxy/CDN always overwrites that header, otherwise clients can spoof it. See
+one throttle bucket. Set `CLIENT_IP_HEADER` to a header your edge overwrites on every request,
+e.g. `CLIENT_IP_HEADER=cf-connecting-ip` when every request reaches the app through Cloudflare
+(Render's edge, or your own proxied Cloudflare zone). Only set it if no route to the app bypasses
+that proxy/CDN (a direct origin URL, open port or a second proxy that passes the header through);
+otherwise clients can send the header themselves and dodge the rate limit. `x-forwarded-for`,
+`forwarded` and invalid header names are ignored, with a warning in the boot log. See
 `docs/environment.md`.
 
 ## Upgrading

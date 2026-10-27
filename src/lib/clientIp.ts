@@ -1,17 +1,41 @@
 import { isIP } from "node:net"
 
+// RFC 9110 field-name token (lower-cased). `Headers.get` throws a TypeError on anything else (e.g. a
+// name with a space), which would abort IP resolution, so such names are rejected up front.
+const HEADER_NAME_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/
+
+// Headers whose first entry is client-controlled: reading them via CLIENT_IP_HEADER would key the
+// rate limit on a spoofable value, so they are never honoured (the default XFF path handles XFF).
+const SPOOFABLE_HEADERS = new Set(["x-forwarded-for", "forwarded"])
+
+/**
+ * Why the `CLIENT_IP_HEADER` env value is ignored, if it is. Shared by the runtime lookup and the
+ * boot-time warning in `envCheck.collectEnvWarnings`.
+ * @param raw the raw env value (may be undefined)
+ * @returns "unset" when unset/blank, "invalid" when not a legal header name, "spoofable" for
+ *   `x-forwarded-for`/`forwarded`, or "ok"
+ */
+export function clientIpHeaderStatus(raw: string | undefined): "unset" | "invalid" | "spoofable" | "ok" {
+  const name = raw?.trim().toLowerCase()
+  if (!name) return "unset"
+  if (!HEADER_NAME_TOKEN.test(name)) return "invalid"
+  if (SPOOFABLE_HEADERS.has(name)) return "spoofable"
+  return "ok"
+}
+
 /**
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
- * for proxies that append internal hops to `x-forwarded-for`. Read at call time. The value is trimmed
- * (first entry if comma-separated) and accepted only when it is a well-formed IP.
+ * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
+ * spoofable name (see `clientIpHeaderStatus`) is ignored. The value is trimmed (first entry if
+ * comma-separated) and accepted only when it is a well-formed IP.
  * @param h anything with `get`
- * @returns the IP, or undefined when the env is unset/blank or the header is missing/invalid
+ * @returns the IP, or undefined when the env is unset/ignored or the header is missing/invalid
  */
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
-  const name = process.env.CLIENT_IP_HEADER?.trim().toLowerCase()
-  if (!name) return undefined
-  const candidate = h.get(name)?.split(",")[0]?.trim()
-  return candidate && isIP(candidate) ? candidate : undefined
+  const raw = process.env.CLIENT_IP_HEADER
+  if (raw === undefined || clientIpHeaderStatus(raw) !== "ok") return undefined
+  const candidate = h.get(raw.trim().toLowerCase())?.split(",")[0]?.trim()
+  return candidate && isIP(candidate) !== 0 ? candidate : undefined
 }
 
 /**
@@ -52,5 +76,5 @@ export function auditIpFromHeaders(h?: Pick<Headers, "get"> | null): string | un
   if (configured) return configured
   const candidate = h.get("x-forwarded-for")?.split(",").at(-1)?.trim()
   if (!candidate) return undefined
-  return isIP(candidate) ? candidate : undefined
+  return isIP(candidate) !== 0 ? candidate : undefined
 }

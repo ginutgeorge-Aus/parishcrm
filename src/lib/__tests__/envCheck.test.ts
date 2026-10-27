@@ -161,3 +161,27 @@ describe("collectEnvWarnings — in-app scheduler", () => {
     expect(collectEnvWarnings().some((w) => w.includes("IN_APP_CRON"))).toBe(true)
   })
 })
+
+describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
+  const orig = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    if (orig === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = orig
+  })
+  const ipWarnings = () => collectEnvWarnings().filter((w) => w.startsWith("CLIENT_IP_HEADER"))
+
+  it("does not warn when unset or a valid name", () => {
+    delete process.env.CLIENT_IP_HEADER
+    expect(ipWarnings()).toEqual([])
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(ipWarnings()).toEqual([])
+  })
+  it("warns on an illegal header name", () => {
+    process.env.CLIENT_IP_HEADER = "cf connecting ip"
+    expect(ipWarnings()).toEqual([expect.stringContaining("not a valid HTTP header name")])
+  })
+  it("warns on x-forwarded-for", () => {
+    process.env.CLIENT_IP_HEADER = "X-Forwarded-For"
+    expect(ipWarnings()).toEqual([expect.stringContaining("client-controlled header")])
+  })
+})
