@@ -1,10 +1,15 @@
 import type { ReviewRow } from "@/lib/bankTypes"
 import { isImportSource, type ImportSource } from "@/lib/importSources"
+import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, hasUnmaskedAccount } from "@/lib/bankRefMask"
 
 // Bank import review draft, persisted to sessionStorage so per-row
 // selections survive a refresh or accidental navigation. Session-scoped
 // on purpose — descriptions can contain member names.
-const KEY = "bankImportDraft.v1"
+// v2: row bankRefs are masked (`*<last4>`) and the sealed `accountToken` is kept
+// alongside (#446). v1 drafts held full account numbers in their refs, so they
+// are purged on load rather than resumed.
+const KEY = "bankImportDraft.v2"
+const LEGACY_KEY = "bankImportDraft.v1"
 // Tombstones of draft content already imported this session, held as a SET of
 // compact content hashes (JSON array). Guards against a posted draft being
 // re-offered for confirmation — whether by a plain revisit or by a remounted
@@ -57,6 +62,10 @@ export type BankImportDraft = {
   // digits are kept (all the account map needs); never the full number.
   accountSuffix?: string
   source?: ImportSource
+  // Sealed account number from the parse route, sent back on confirm to restore
+  // masked bankRefs. Opaque to the client (server-only key). Absent for QIF or
+  // a statement with no account number.
+  accountToken?: string
 }
 
 /** Persist the in-progress review (skipped when this exact content was already imported). */
@@ -107,8 +116,26 @@ function isValidRow(r: unknown): r is ReviewRow {
   )
 }
 
+/**
+ * True when the draft's refs are safe and confirmable: no ANZ/ANZTR/OFX ref still
+ * embeds a raw account number, and masked refs come with a plausible token.
+ */
+function hasValidMasking(draft: BankImportDraft): boolean {
+  if (draft.rows.some((r) => hasUnmaskedAccount(r.bankRef))) return false
+  const token = draft.accountToken
+  if (token !== undefined && (typeof token !== "string" || token.length === 0 || token.length > MAX_ACCOUNT_TOKEN_LENGTH)) return false
+  const masked = draft.rows.some((r) => bankRefMaskSegment(r.bankRef) !== null)
+  return !masked || token !== undefined
+}
+
+/**
+ * Restore the pending review draft, or null when there is none or it is
+ * corrupt, already imported, or a pre-masking draft (those are discarded).
+ */
 export function loadDraft(): BankImportDraft | null {
   try {
+    // Pre-masking drafts embed full account numbers — drop, never resume.
+    sessionStorage.removeItem(LEGACY_KEY)
     const raw = sessionStorage.getItem(KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as BankImportDraft
@@ -122,6 +149,7 @@ export function loadDraft(): BankImportDraft | null {
     if (isImported(draftFingerprint(parsed))) return null
     if (parsed.accountSuffix !== undefined && (typeof parsed.accountSuffix !== "string" || !/^\d{4}$/.test(parsed.accountSuffix))) return null
     if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
+    if (!hasValidMasking(parsed)) return null
     return parsed
   } catch {
     return null
@@ -150,9 +178,11 @@ export function clearMismatchedAccountIds(
   })
 }
 
+/** Drop the stored review draft (and any pre-masking legacy one). */
 export function clearDraft(): void {
   try {
     sessionStorage.removeItem(KEY)
+    sessionStorage.removeItem(LEGACY_KEY)
   } catch {
     // ignore
   }
