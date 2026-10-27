@@ -272,7 +272,7 @@ export async function POST(req: Request) {
     period: result.period,
     // Top-level field is the suffix only; the full number is used server-side for matching.
     // Row bankRef/dedupKey values still embed the number (tracked separately).
-    accountSuffix: accountSuffix(result.accountNumber) ?? "",
+    accountSuffix: accountSuffix(result.accountNumber ?? "") ?? "",
     suggestedPaymentAccountId,
     dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,
