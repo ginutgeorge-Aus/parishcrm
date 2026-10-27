@@ -1,5 +1,3 @@
-/** @jest-environment node */
-
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v) }))
 jest.mock("@/lib/prisma", () => ({
@@ -14,7 +12,7 @@ jest.mock("next/navigation", () => ({
   redirect: jest.fn((to: string) => { throw new Error(`REDIRECT:${to}`) }),
 }))
 
-import { renderToStaticMarkup } from "react-dom/server"
+import { render, screen } from "@testing-library/react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getPaymentAccounts } from "@/lib/paymentAccounts"
@@ -32,10 +30,10 @@ beforeEach(() => {
 })
 
 test("renders the FY stat cards as h3 headings", async () => {
-  const html = renderToStaticMarkup(await AccountingPage())
-  expect(html).toMatch(/<h3[^>]*>FY \d{4}–\d{4} Income<\/h3>/)
-  expect(html).toMatch(/<h3[^>]*>Transactions \(FY\)<\/h3>/)
-  expect(html).toContain("No transactions yet.")
+  render(await AccountingPage())
+  expect(screen.getByRole("heading", { level: 3, name: /^FY \d{4}–\d{4} Income$/ })).toBeInTheDocument()
+  expect(screen.getByRole("heading", { level: 3, name: "Transactions (FY)" })).toBeInTheDocument()
+  expect(screen.getByText("No transactions yet.")).toBeInTheDocument()
 })
 
 test("redirects roles that cannot view accounting", async () => {

@@ -51,7 +51,7 @@ export default async function AccountingSettingsPage() {
 
   return (
     <div className="max-w-xl space-y-6">
-      <h1 className="text-xl font-semibold text-foreground">Accounting Settings</h1>
+      <h1 className="text-xl font-semibold text-foreground">Accounting settings</h1>
 
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground mb-1">

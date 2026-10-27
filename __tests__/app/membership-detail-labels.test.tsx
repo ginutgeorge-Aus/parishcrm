@@ -1,5 +1,3 @@
-/** @jest-environment node */
-
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: { membershipApplication: { findUnique: jest.fn() } },
@@ -8,12 +6,20 @@ jest.mock("@/lib/crypto", () => ({ decrypt: jest.fn(() => "data:image/png;base64
 jest.mock("@/lib/membership", () => ({
   overseasFieldLabels: jest.requireActual("@/lib/membership").overseasFieldLabels,
   readPayload: jest.fn(() => ({
-    personal: { name: "Jane Doe", maritalStatus: "Married" },
-    spouse: null,
+    personal: { name: "Jane Doe", maritalStatus: "Married", dateOfBirth: "1980-01-01", qualificationProfession: "Teacher" },
+    spouse: { name: "John Doe", dateOfBirth: "1979-01-01", dateOfMarriage: "2005-01-01" },
     children: [],
     dependents: [{ name: "Sam Example", sex: "M", dateOfBirth: "2010-01-01", relationship: "Nephew" }],
   })),
   buildNotesBlock: jest.fn(() => ""),
+}))
+// The real module pulls in next/cache, which needs TextEncoder in jsdom.
+jest.mock("@/lib/membershipSettings", () => ({
+  getMembershipSettings: jest.fn().mockResolvedValue({
+    parishFields: false,
+    homeAddressLabel: "",
+    arrivalDateLabel: "",
+  }),
 }))
 jest.mock("@/lib/actions/membership", () => ({ findMembershipMatches: jest.fn().mockResolvedValue([]) }))
 jest.mock("@/app/(dashboard)/memberships/[id]/ReviewPanel", () => ({ ReviewPanel: () => null }))
@@ -22,7 +28,7 @@ jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => { throw new Error("REDIRECT") }),
 }))
 
-import { renderToStaticMarkup } from "react-dom/server"
+import { render, screen } from "@testing-library/react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import MembershipDetailPage from "@/app/(dashboard)/memberships/[id]/page"
@@ -39,12 +45,22 @@ test("detail labels use sentence case", async () => {
     signedDate: null,
     anonymizedAt: null,
   })
-  const html = renderToStaticMarkup(await MembershipDetailPage({ params: Promise.resolve({ id: "1" }) }))
-  expect(html).toContain("Marital status")
-  expect(html).toContain("Other dependents")
-  expect(html).toContain("Monthly subscription")
-  expect(html).toContain("$25.00")
-  expect(html).not.toContain("Marital Status")
-  expect(html).not.toContain("Other Dependents")
-  expect(html).not.toContain("Monthly Subscription")
+  render(await MembershipDetailPage({ params: Promise.resolve({ id: "1" }) }))
+
+  for (const heading of ["Other dependents", "Subscription & declaration"]) {
+    expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
+  }
+  expect(screen.queryByRole("heading", { name: "Other Dependents" })).not.toBeInTheDocument()
+  for (const label of [
+    "Marital status",
+    "Monthly subscription",
+    "Qualification & profession",
+    "Date of marriage",
+  ]) {
+    expect(screen.getByText(label)).toBeInTheDocument()
+  }
+  expect(screen.getAllByText("Date of birth")).toHaveLength(2)
+  expect(screen.getByText("$25.00")).toBeInTheDocument()
+  expect(screen.queryByText("Marital Status")).not.toBeInTheDocument()
+  expect(screen.queryByText("Monthly Subscription")).not.toBeInTheDocument()
 })

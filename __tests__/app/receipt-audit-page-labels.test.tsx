@@ -1,5 +1,3 @@
-/** @jest-environment node */
-
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => "1") }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
@@ -11,7 +9,7 @@ jest.mock("next/navigation", () => ({
   redirect: jest.fn((to: string) => { throw new Error(`REDIRECT:${to}`) }),
 }))
 
-import { renderToStaticMarkup } from "react-dom/server"
+import { render, screen } from "@testing-library/react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import ReceiptAuditPage from "@/app/(dashboard)/accounting/receipt-audit/page"
@@ -36,13 +34,11 @@ test("receipt log table uses sentence-case column headers", async () => {
   ])
   ;(prisma.receiptSend.count as jest.Mock).mockResolvedValue(1)
 
-  const html = renderToStaticMarkup(await ReceiptAuditPage({ searchParams: Promise.resolve({}) }))
+  render(await ReceiptAuditPage({ searchParams: Promise.resolve({}) }))
 
-  for (const h of ["Sent at", "Sent to", "Transaction", "Amount", "Account", "Sent by", "Status", "Error"]) {
-    expect(html).toContain(`>${h}</th>`)
+  for (const name of ["Sent at", "Sent to", "Transaction", "Amount", "Account", "Sent by", "Status", "Error"]) {
+    expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
   }
-  expect(html).not.toContain(">Sent At<")
-  expect(html).not.toContain(">Sent To<")
-  expect(html).not.toContain(">Sent By<")
-  expect(html).toContain("donor@example.com")
+  expect(screen.queryByRole("columnheader", { name: "Sent At" })).not.toBeInTheDocument()
+  expect(screen.getAllByText("donor@example.com").length).toBeGreaterThan(0)
 })

@@ -97,7 +97,7 @@ function ReconciliationEquationPanel({
             <span className="tabular text-expense">− {fmtAUD(periodOut)}</span>
           </div>
           <div className="flex items-center border-t pt-1.5 font-semibold">
-            <span className="w-52">Calculated Balance</span>
+            <span className="w-52">Calculated balance</span>
             <span className="tabular">{fmtAUD(calculated)}</span>
           </div>
           <div className="border-t pt-2">

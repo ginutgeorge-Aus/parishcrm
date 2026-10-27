@@ -144,24 +144,24 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
   band("A. Personal Particulars")
   line("Name", pe.name)
   line("Sex", pe.gender)
-  line("Date of Birth", pe.dateOfBirth)
+  line("Date of birth", pe.dateOfBirth)
   line("E-mail ID", pe.email)
   line("Mobile", pe.mobile)
   line("Residential Address", [pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ") || null)
-  line("Qualification & Profession", pe.qualificationProfession)
+  line("Qualification & profession", pe.qualificationProfession)
   if (m.parishFields || pe.motherParish) line("Previous church", pe.motherParish)
   const ol = overseasFieldLabels(p, m)
   line(ol.homeAddress, pe.addressInIndia)
   line(ol.arrivalDate, pe.dateOfArrivalNsw)
-  line("Marital Status", pe.maritalStatus)
+  line("Marital status", pe.maritalStatus)
   if (m.parishFields || pe.transferCertFurnished != null) line("Transfer letter provided", yesNo(pe.transferCertFurnished) || null)
 
   // B. Spouse
   if (p.spouse) {
     band("B. Details of Family (Spouse)")
     line("Name of Spouse", p.spouse.name)
-    line("Date of Birth", p.spouse.dateOfBirth)
-    line("Date of Marriage", p.spouse.dateOfMarriage)
+    line("Date of birth", p.spouse.dateOfBirth)
+    line("Date of marriage", p.spouse.dateOfMarriage)
     if (m.parishFields || p.spouse.parish) line("Spouse's church", p.spouse.parish)
     line("Spouse working", yesNo(p.spouse.working) || null)
     line("Spouse E-mail ID", p.spouse.email)
@@ -171,7 +171,7 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
   if (p.children.length > 0) {
     band("C. Name of Children")
     table(
-      ["#", "Name", "Sex", "Date of Birth", "Occupation", "Phone / Email"],
+      ["#", "Name", "Sex", "Date of birth", "Occupation", "Phone / Email"],
       [0.06, 0.26, 0.1, 0.18, 0.2, 0.2],
       p.children.map((c, i) => [String(i + 1), c.name, c.sex, c.dateOfBirth, c.occupation, c.phoneEmail])
     )
@@ -179,9 +179,9 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
 
   // D. Dependents
   if (p.dependents.length > 0) {
-    band("D. Other Dependents")
+    band("D. Other dependents")
     table(
-      ["#", "Name", "Sex", "Date of Birth", "Relationship", "Phone / Email"],
+      ["#", "Name", "Sex", "Date of birth", "Relationship", "Phone / Email"],
       [0.06, 0.26, 0.1, 0.18, 0.2, 0.2],
       p.dependents.map((d, i) => [String(i + 1), d.name, d.sex, d.dateOfBirth, d.relationship, d.phoneEmail])
     )
@@ -197,9 +197,9 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
     )
   }
 
-  // F. Subscription & Declaration
-  band("F. Subscription & Declaration")
-  line("Monthly Subscription", `$${p.subscription.monthlyAmount}`)
+  // F. Subscription & declaration
+  band("F. Subscription & declaration")
+  line("Monthly subscription", `$${p.subscription.monthlyAmount}`)
   ensure(LINE_H * 2)
   doc.fillColor(SLATE_700).font("Helvetica-Oblique").fontSize(9.5).text(
     "I declare that the above information is true and correct to the best of my knowledge.",

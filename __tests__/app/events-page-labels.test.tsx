@@ -1,8 +1,7 @@
-/** @jest-environment node */
 import Page from "@/app/(dashboard)/events/page"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { renderToStaticMarkup } from "react-dom/server"
+import { render, screen } from "@testing-library/react"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/navigation", () => ({
@@ -35,9 +34,9 @@ describe("EventsPage — table headers", () => {
     ])
     ;(prisma.registration.groupBy as jest.Mock).mockResolvedValue([])
     ;(prisma.registrationItem.groupBy as jest.Mock).mockResolvedValue([])
-    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
-    expect(html).toContain("Tickets sold")
-    expect(html).not.toContain("Tickets Sold")
-    expect(html).toContain("Demo Fundraiser")
+    render(await Page({ searchParams: Promise.resolve({}) }))
+    expect(screen.getByRole("columnheader", { name: "Tickets sold" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Tickets Sold" })).not.toBeInTheDocument()
+    expect(screen.getAllByText("Demo Fundraiser").length).toBeGreaterThan(0)
   })
 })

@@ -1245,6 +1245,16 @@ describe("authorizeCredentials — demo mode", () => {
     expect(prisma.user.updateMany).not.toHaveBeenCalled()
     expect(sendOtpEmail).not.toHaveBeenCalled()
   })
+
+  it("applies the password/otp guard to padded or mixed-case demo emails", async () => {
+    process.env.DEMO_MODE = "true"
+    for (const mode of ["password", "otp", undefined]) {
+      expect(await authorizeCredentials({ email: "  Admin@Demo.Invalid ", password: "wrong", otp: "000000", mode })).toBeNull()
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
 })
 
 describe("authorizePasskey", () => {

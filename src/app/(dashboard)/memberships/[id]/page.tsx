@@ -78,11 +78,11 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
         <h3 className="font-semibold mb-2">Personal</h3>
         <div className="grid gap-x-6 sm:grid-cols-2">
           <Field label="Sex" value={pe.gender} />
-          <Field label="Date of Birth" value={pe.dateOfBirth} />
+          <Field label="Date of birth" value={pe.dateOfBirth} />
           <Field label="Email" value={pe.email} />
           <Field label="Mobile" value={pe.mobile} />
           <Field label="Address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
-          <Field label="Qualification & Profession" value={pe.qualificationProfession} />
+          <Field label="Qualification & profession" value={pe.qualificationProfession} />
           {(parishFields || pe.motherParish) && <Field label="Previous church" value={pe.motherParish} />}
           <Field label="Marital status" value={pe.maritalStatus} />
           <Field label={ol.homeAddress} value={pe.addressInIndia} />
@@ -95,8 +95,8 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
           <h3 className="font-semibold mb-2">Spouse</h3>
           <div className="grid gap-x-6 sm:grid-cols-2">
             <Field label="Name" value={p.spouse.name} />
-            <Field label="Date of Birth" value={p.spouse.dateOfBirth} />
-            <Field label="Date of Marriage" value={p.spouse.dateOfMarriage} />
+            <Field label="Date of birth" value={p.spouse.dateOfBirth} />
+            <Field label="Date of marriage" value={p.spouse.dateOfMarriage} />
             <Field label="Email" value={p.spouse.email} />
             {(parishFields || p.spouse.parish) && <Field label="Spouse's church" value={p.spouse.parish} />}
           </div>
@@ -126,7 +126,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
       )}
 
       <section className="rounded-md border p-4">
-        <h3 className="font-semibold mb-2">Subscription & Declaration</h3>
+        <h3 className="font-semibold mb-2">Subscription & declaration</h3>
         <Field label="Monthly subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : null} />
         <Field label="Signed at" value={[app.placeSigned, app.signedDate?.toLocaleDateString(APP_LOCALE)].filter(Boolean).join(" · ")} />
         <div className="mt-2">

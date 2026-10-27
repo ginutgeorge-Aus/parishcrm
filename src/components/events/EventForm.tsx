@@ -191,7 +191,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="grid gap-1.5">
-                <Label htmlFor="date">Date &amp; Time *</Label>
+                <Label htmlFor="date">Date &amp; time *</Label>
                 <Input
                   id="date"
                   name="date"
@@ -201,7 +201,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="endDate">End Date &amp; Time</Label>
+                <Label htmlFor="endDate">End date &amp; time</Label>
                 <Input
                   id="endDate"
                   name="endDate"
@@ -210,7 +210,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="registrationDeadline">Registration Deadline</Label>
+                <Label htmlFor="registrationDeadline">Registration deadline</Label>
                 <Input
                   id="registrationDeadline"
                   name="registrationDeadline"
@@ -318,7 +318,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             <Input id="bankBsb" name="bankBsb" defaultValue={defaultValues.bankBsb} placeholder="012-345" />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="bankAccount">Account Number</Label>
+            <Label htmlFor="bankAccount">Account number</Label>
             <Input id="bankAccount" name="bankAccount" defaultValue={defaultValues.bankAccount} />
           </div>
         </div>
