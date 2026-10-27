@@ -288,6 +288,10 @@ export async function authorizeCredentials(
 ) {
   const ip = clientIpFrom(request)
   if (!credentials?.email) return null
+  // Normalise once so every path (demo, password, OTP, TOTP) looks the user up
+  // by the same trimmed, lowercased key. Lockout counters are keyed on user.id,
+  // so case/space variants resolve to one account and share one counter.
+  const normalizedEmail = String(credentials.email).trim().toLowerCase()
 
   // IP-based throttle on the whole credentials path (password + OTP
   // steps) — the only prior ceiling was the per-account 5-attempt lock, which
@@ -317,7 +321,7 @@ export async function authorizeCredentials(
   // 10/min password throttle with its own 120/min bucket: on Render the
   // rightmost XFF entry is an internal proxy address (10.x) shared by many
   // visitors, so the password bucket locked the demo for everyone (#95).
-  const demoEmail = String(credentials.email).trim().toLowerCase()
+  const demoEmail = normalizedEmail
   if (credentials.mode === "demo") {
     const email = demoEmail
     if (!isDemoMode() || !isDemoEmail(email)) return null
@@ -338,7 +342,7 @@ export async function authorizeCredentials(
   }
 
   if (credentials.mode === "otp") {
-    const email = credentials.email as string
+    const email = normalizedEmail
     if (typeof credentials.otp !== "string") return null
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
@@ -406,7 +410,7 @@ export async function authorizeCredentials(
     // password check), an authenticator code is valid at any time — so this
     // step MUST re-verify the password in the same request.
     if (typeof credentials.code !== "string" || typeof credentials.password !== "string" || !credentials.password) return null
-    const user = await verifyPassword(credentials.email as string, credentials.password, ip)
+    const user = await verifyPassword(normalizedEmail, credentials.password, ip)
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
@@ -429,7 +433,7 @@ export async function authorizeCredentials(
 
   // Password step (default)
   if (!credentials?.password) return null
-  const user = await verifyPassword(credentials.email as string, credentials.password as string, ip)
+  const user = await verifyPassword(normalizedEmail, credentials.password as string, ip)
   if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.

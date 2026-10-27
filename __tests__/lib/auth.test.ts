@@ -374,6 +374,43 @@ describe("authorizeCredentials", () => {
   })
 })
 
+describe("authorizeCredentials — email normalisation", () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it("password path looks up a padded, mixed-case email in normalised form", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: "  Admin@Example.COM ", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "admin@example.com" } })
+  })
+
+  it("OTP path looks up a padded, mixed-case email in normalised form", async () => {
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
+    await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "secretary@example.com" } })
+  })
+
+  it("counts case variants of one email against the same account's lockout counter", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser, passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+    for (const email of ["admin@example.com", "ADMIN@example.com", " Admin@Example.com "]) {
+      await authorizeCredentials({ email, password: "wrongpassword" })
+    }
+    const lookups = (prisma.user.findUnique as jest.Mock).mock.calls.map((c) => c[0].where.email)
+    expect(lookups).toEqual(["admin@example.com", "admin@example.com", "admin@example.com"])
+    const updates = (prisma.user.update as jest.Mock).mock.calls
+    expect(updates).toHaveLength(3)
+    for (const [arg] of updates) {
+      expect(arg.where).toEqual({ id: baseUser.id })
+      expect(arg.data.failedLoginAttempts).toEqual({ increment: 1 })
+    }
+  })
+})
+
 describe("authorizeCredentials — OTP mode", () => {
   beforeEach(() => jest.clearAllMocks())
 

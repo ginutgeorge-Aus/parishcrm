@@ -60,15 +60,16 @@ async function assertNotLastAdmin(tx: Prisma.TransactionClient, excludeUserId: n
   if (otherAdmins === 0) throw new LastAdminError(message)
 }
 
+// Email is trimmed + lowercased on write so it matches the normalised login lookup in src/auth.ts.
 const CreateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
+  email: z.string().trim().toLowerCase().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   role: z.enum(ROLE_VALUES),
 })
 
 const UpdateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
+  email: z.string().trim().toLowerCase().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   password: z
     .string()
     .max(128, "Password is too long")
