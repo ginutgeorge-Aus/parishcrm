@@ -94,7 +94,6 @@ export async function sendFamilyUpdateInvite(
 
 type SubmitInput = {
   token: string
-  ip: string
   website?: string   // honeypot
   formToken?: string // signed timing token
   payload: unknown
@@ -106,10 +105,9 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
   // Honeypot: a real user never fills the hidden "website" field. Generic error.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
-  // Proxy-derived IP (CLIENT_IP_HEADER, else rightmost x-forwarded-for; not spoofable);
-  // fall back to the explicit input.ip (used in tests) then "unknown".
-  const hdrIp = clientIpFromHeaders(await headers())
-  const ip = hdrIp !== "unknown" ? hdrIp : input.ip || "unknown"
+  // Proxy-derived IP only (CLIENT_IP_HEADER, else rightmost x-forwarded-for); never client-supplied,
+  // so a caller cannot choose its own rate-limit bucket. Keyed on "unknown" when no IP is available.
+  const ip = clientIpFromHeaders(await headers())
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }

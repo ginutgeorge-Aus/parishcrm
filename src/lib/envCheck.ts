@@ -3,7 +3,7 @@ import { currentKeyId } from "@/lib/crypto"
 import { isResendConfigured } from "@/lib/mailConfig"
 import { schedulerEnabled } from "@/lib/schedulerFlag"
 import { isDemoMode } from "@/lib/demoMode"
-import { clientIpHeaderStatus, isPassthroughIpHeader } from "@/lib/clientIp"
+import { clientIpHeaderStatus, isKnownCdnIpHeader, isPassthroughIpHeader } from "@/lib/clientIp"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -274,6 +274,8 @@ export function collectEnvWarnings(): string[] {
     warnings.push("CLIENT_IP_HEADER names a client-controlled header (x-forwarded-for/forwarded) — it is ignored; leave it unset for rightmost x-forwarded-for, or name a header your proxy overwrites (e.g. cf-connecting-ip)")
   } else if (ipHeaderStatus === "ok" && isPassthroughIpHeader(process.env.CLIENT_IP_HEADER)) {
     warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
+  } else if (ipHeaderStatus === "ok" && !isKnownCdnIpHeader(process.env.CLIENT_IP_HEADER)) {
+    warnings.push(`CLIENT_IP_HEADER "${process.env.CLIENT_IP_HEADER!.trim().toLowerCase()}" is not a recognised CDN client-IP header (cf-connecting-ip, true-client-ip, fly-client-ip, x-azure-clientip, fastly-client-ip) — it is honoured, but make sure your outermost proxy overwrites it on every request`)
   }
 
   if (isDemoMode()) {

@@ -1,5 +1,14 @@
 /** @jest-environment node */
-import { auditIpFromHeaders, clientIpFromHeaders, clientIpHeaderStatus, getClientIp } from "@/lib/clientIp"
+import { auditIpFromHeaders, clientIpFromHeaders, clientIpHeaderStatus, getClientIp, isKnownCdnIpHeader } from "@/lib/clientIp"
+import { logger } from "@/lib/logger"
+
+jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
+
+// Every test starts with clean mock call history; the warn-once flag is module state, so the tests
+// that assert on it load a fresh module via jest.isolateModules.
+beforeEach(() => {
+  jest.clearAllMocks()
+})
 
 const h = (xff?: string) => new Headers(xff === undefined ? {} : { "x-forwarded-for": xff })
 
@@ -138,13 +147,12 @@ describe("CLIENT_IP_HEADER — normalisation", () => {
 describe("CLIENT_IP_HEADER — missing header warning", () => {
   const saved = process.env.CLIENT_IP_HEADER
   afterEach(() => {
-    jest.restoreAllMocks()
     if (saved === undefined) delete process.env.CLIENT_IP_HEADER
     else process.env.CLIENT_IP_HEADER = saved
   })
   it("falls back to XFF and warns once per process, without the value", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    const warn = logger.warn as jest.Mock
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
       const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage-value" })
@@ -162,13 +170,12 @@ describe("CLIENT_IP_HEADER — missing header warning", () => {
 describe("CLIENT_IP_HEADER — warning only for proxied requests", () => {
   const saved = process.env.CLIENT_IP_HEADER
   afterEach(() => {
-    jest.restoreAllMocks()
     if (saved === undefined) delete process.env.CLIENT_IP_HEADER
     else process.env.CLIENT_IP_HEADER = saved
   })
   it("does not warn without x-forwarded-for, then warns once on the first proxied request", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    const warn = logger.warn as jest.Mock
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
       expect(mod.clientIpFromHeaders(new Headers())).toBe("unknown")
@@ -201,6 +208,37 @@ describe("CLIENT_IP_HEADER — ignored names", () => {
       expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
       expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
     }
+  })
+})
+
+describe("XFF normalisation (default path)", () => {
+  beforeEach(() => {
+    delete process.env.CLIENT_IP_HEADER
+  })
+  it("normalises ip:port, bracketed and ::ffff: forms to one bucket key", () => {
+    for (const v of ["1.2.3.4", "1.2.3.4:5678", "::ffff:1.2.3.4", "[::ffff:1.2.3.4]:99", "::ffff:102:304"]) {
+      expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
+    }
+  })
+  it("keeps the raw value when it is not a well-formed IP", () => {
+    expect(clientIpFromHeaders(h("garbage"))).toBe("garbage")
+  })
+  it("strips an IPv6 zone id", () => {
+    expect(clientIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
+    expect(auditIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
+  })
+  it("unwraps hex IPv4-mapped IPv6 for the audit IP too", () => {
+    expect(auditIpFromHeaders(h("::ffff:102:304"))).toBe("1.2.3.4")
+  })
+})
+
+describe("isKnownCdnIpHeader", () => {
+  it("recognises the allowlist case-insensitively and rejects others", () => {
+    for (const n of ["cf-connecting-ip", " True-Client-IP ", "fly-client-ip", "x-azure-clientip", "fastly-client-ip", "x-client-ip"]) {
+      expect(isKnownCdnIpHeader(n)).toBe(true)
+    }
+    expect(isKnownCdnIpHeader("x-original-forwarded-for")).toBe(false)
+    expect(isKnownCdnIpHeader(undefined)).toBe(false)
   })
 })
 

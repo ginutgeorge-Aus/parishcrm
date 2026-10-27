@@ -97,7 +97,7 @@ describe("sendFamilyUpdateInvite", () => {
 
 
 const goodInput = {
-  token: "rawtoken", ip: "1.2.3.4", website: "", formToken: "ts.sig",
+  token: "rawtoken", website: "", formToken: "ts.sig",
   payload: { family: { address: "1 St" }, members: [{ firstName: "Jon", lastName: "Smith" }] },
 }
 
@@ -110,6 +110,10 @@ describe("submitFamilyUpdate", () => {
   it("rejects when rate-limited", async () => {
     ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
     expect(await submitFamilyUpdate(goodInput)).toEqual({ error: "Too many requests" })
+  })
+  it("keys the rate limit on the proxy-derived IP, falling back to unknown", async () => {
+    await submitFamilyUpdate(goodInput)
+    expect(rateLimit).toHaveBeenCalledWith("familyUpdate:unknown", 5, 10 * 60_000)
   })
   it("checks honeypot and rate limit before the feature", async () => {
     ;(featureGuard as jest.Mock).mockClear()

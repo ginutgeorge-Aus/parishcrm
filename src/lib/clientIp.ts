@@ -1,4 +1,5 @@
 import { isIP } from "node:net"
+import { logger } from "@/lib/logger"
 
 // RFC 9110 field-name token (lower-cased). `Headers.get` throws a TypeError on anything else (e.g. a
 // name with a space), which would abort IP resolution, so such names are rejected up front.
@@ -11,6 +12,10 @@ const SPOOFABLE_HEADERS = new Set(["x-forwarded-for", "forwarded"])
 // Headers some proxies set but others pass through from the client untouched. Still honoured (nginx
 // commonly overwrites x-real-ip), but surfaced as a boot warning so the operator confirms it.
 const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip"])
+
+// Documented CDN/edge client-IP headers. A CLIENT_IP_HEADER outside this list (and not a passthrough
+// name) is still honoured but flagged at boot so the operator confirms the proxy overwrites it.
+const KNOWN_CDN_HEADERS = new Set(["cf-connecting-ip", "true-client-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip", "x-client-ip"])
 
 /**
  * Why the `CLIENT_IP_HEADER` env value is ignored, if it is. Shared by the runtime lookup and the
@@ -37,22 +42,45 @@ export function isPassthroughIpHeader(raw: string | undefined): boolean {
   return PASSTHROUGH_HEADERS.has(raw?.trim().toLowerCase() ?? "")
 }
 
+/**
+ * Whether `CLIENT_IP_HEADER` names a well-known CDN/edge client-IP header (e.g. `cf-connecting-ip`).
+ * Used for the boot-time "unrecognised header" warning in `envCheck.collectEnvWarnings`.
+ * @param raw the raw env value (may be undefined)
+ * @returns true when the (trimmed, lower-cased) name is on the allowlist
+ */
+export function isKnownCdnIpHeader(raw: string | undefined): boolean {
+  return KNOWN_CDN_HEADERS.has(raw?.trim().toLowerCase() ?? "")
+}
+
 /** Set once the "configured header unusable" warning has fired, so it logs once per process. */
 let warnedConfiguredHeaderMissing = false
 
 /**
- * Rightmost non-empty, trimmed `x-forwarded-for` entry (the one the trusted proxy appended). Empty
- * entries are skipped so a trailing comma (`1.2.3.4,`) still yields `1.2.3.4`.
+ * Rightmost non-empty, trimmed entry of a (possibly comma-separated) header, i.e. the one a trusted
+ * proxy appended. Empty entries are skipped so a trailing comma (`1.2.3.4,`) still yields `1.2.3.4`.
  * @param h anything with `get`
+ * @param name lower-case header name
  * @returns the entry, or undefined when the header is absent or has no non-empty entries
  */
-function rightmostXff(h: Pick<Headers, "get">): string | undefined {
-  return h.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
+function rightmostEntry(h: Pick<Headers, "get">, name: string): string | undefined {
+  return h.get(name)?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
 }
 
 /**
- * Normalises a candidate IP: trims, strips `[v6]`/`[v6]:port` brackets and an IPv4 `:port`, lowercases,
- * and unwraps IPv4-mapped IPv6 (`::ffff:1.2.3.4` becomes `1.2.3.4`).
+ * Rightmost `x-forwarded-for` entry, normalised when it is a well-formed IP; otherwise the raw entry
+ * is kept so odd values still key a bucket rather than collapsing to "unknown".
+ * @param h anything with `get`
+ * @returns the entry, or undefined when absent
+ */
+function rightmostXff(h: Pick<Headers, "get">): string | undefined {
+  const raw = rightmostEntry(h, "x-forwarded-for")
+  return normalizeIp(raw) ?? raw
+}
+
+/**
+ * Normalises a candidate IP: trims, strips `[v6]`/`[v6]:port` brackets, an IPv4 `:port` and an IPv6
+ * zone id, lowercases, and unwraps IPv4-mapped IPv6 in dotted or hex form (`::ffff:1.2.3.4` and
+ * `::ffff:102:304` both become `1.2.3.4`).
  * @param value raw header entry (may be undefined)
  * @returns the canonical IP, or undefined when it is not a well-formed IP
  */
@@ -65,8 +93,15 @@ function normalizeIp(value: string | undefined): string | undefined {
     const v4Port = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(v)
     if (v4Port) v = v4Port[1]
   }
+  v = v.replace(/%[^\s%]+$/, "") // strip an IPv6 zone id (fe80::1%eth0)
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v)
   if (mapped) v = mapped[1]
+  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v)
+  if (hexMapped) {
+    const hi = parseInt(hexMapped[1], 16)
+    const lo = parseInt(hexMapped[2], 16)
+    v = `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`
+  }
   return isIP(v) !== 0 ? v : undefined
 }
 
@@ -86,11 +121,10 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const raw = process.env.CLIENT_IP_HEADER
   if (clientIpHeaderStatus(raw) !== "ok") return undefined
   const name = raw!.trim().toLowerCase()
-  const entry = h.get(name)?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
-  const ip = normalizeIp(entry)
-  if (!ip && !warnedConfiguredHeaderMissing && h.get("x-forwarded-for") !== null) {
+  const ip = normalizeIp(rightmostEntry(h, name))
+  if (!ip && !warnedConfiguredHeaderMissing && h.get("x-forwarded-for") != null) {
     warnedConfiguredHeaderMissing = true
-    console.warn(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
+    logger.warn(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
   return ip
 }

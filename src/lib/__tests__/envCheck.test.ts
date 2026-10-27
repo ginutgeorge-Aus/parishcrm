@@ -188,4 +188,12 @@ describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = " X-Real-IP "
     expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
   })
+  it("warns once (name only) for a header outside the CDN allowlist", () => {
+    process.env.CLIENT_IP_HEADER = "X-Original-Forwarded-For"
+    expect(ipWarnings()).toEqual([expect.stringContaining('"x-original-forwarded-for" is not a recognised CDN')])
+  })
+  it("does not warn for an allowlisted CDN header", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(ipWarnings()).toEqual([])
+  })
 })
