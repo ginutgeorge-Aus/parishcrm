@@ -51,7 +51,8 @@ header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip
 any way that bypasses your trusted proxy (e.g. a direct `*.onrender.com` hostname, an open port);
 otherwise clients can send the header themselves and dodge rate limits. When `CLIENT_IP_HEADER` is
 set, the outermost trusted proxy/CDN must also **overwrite** that header on every request (never
-append to it or pass the client's value through). This holds for any name you choose, not only
+append to it or pass the client's value through). Every proxy behind that edge must pass the header
+through unchanged rather than append its own address. This holds for any name you choose, not only
 `x-forwarded-for`/`forwarded` (e.g. `x-original-forwarded-for`): a header is trusted only if the
 outermost proxy overwrites it on every request. If the header holds several comma-separated
 values the app uses the rightmost, and it must be a valid IP.
