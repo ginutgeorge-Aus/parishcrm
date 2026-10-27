@@ -86,6 +86,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/fund.ts": "accounting",
   "src/lib/actions/paymentAccount.ts": "accounting",
   "src/lib/actions/accountingSettings.ts": "accounting",
+  "src/lib/actions/bankImport.ts": "bankImport",
 }
 
 // Exports deliberately left ungated, with the reason.
