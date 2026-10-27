@@ -307,7 +307,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         <TicketTypesEditor rows={ticketRows} onAdd={addTicket} onRemove={removeTicket} onUpdate={updateTicket} />
       </section>
 
-      {/* Section 3: Bank Details */}
+      {/* Section 3: Payment details */}
       <section>
         <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
           Payment details

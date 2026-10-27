@@ -22,7 +22,7 @@ There is a second, **printable snapshot** version of this same equation at `/acc
 
 ### Book balance vs. bank balance
 
-This is intentional and documented on both pages because it regularly confuses new users: the [Balance Sheet](/parishcrm/docs/financial-reports/) shows the **book balance** — every transaction since the opening-balance date, regardless of whether it's reconciled. The reconciliation equation on this page uses the *same* book-balance formula (that's what "Calculated Balance" is). Only the underlying transaction list's reconciled/pending split cares about the `reconciled` flag. The two pages showing the same account can legitimately display different totals if you're looking at "book balance as of today" vs. "book balance as of the last statement date" — they aren't disagreeing, they're answering different questions.
+This is intentional and documented on both pages because it regularly confuses new users: the [Balance Sheet](/parishcrm/docs/financial-reports/) shows the **book balance** — every transaction since the opening-balance date, regardless of whether it's reconciled. The reconciliation equation on this page uses the *same* book-balance formula (that's what "Calculated balance" is). Only the underlying transaction list's reconciled/pending split cares about the `reconciled` flag. The two pages showing the same account can legitimately display different totals if you're looking at "book balance as of today" vs. "book balance as of the last statement date" — they aren't disagreeing, they're answering different questions.
 
 ### `AccountOpeningBalance`
 
