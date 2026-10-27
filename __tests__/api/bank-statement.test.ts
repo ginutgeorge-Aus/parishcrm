@@ -47,6 +47,16 @@ describe("POST /api/import/bank-statement", () => {
     ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([])
   })
 
+  test("returns only the last four account digits, never the full number", async () => {
+    const formData = new FormData()
+    formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
+    const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.accountSuffix).toBe("4321")
+    expect(body.accountNumber).toBeUndefined()
+  })
+
   test("returns 401 for unauthenticated user", async () => {
     ;(auth as jest.Mock).mockResolvedValue(null)
     const formData = new FormData()

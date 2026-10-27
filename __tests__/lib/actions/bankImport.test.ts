@@ -32,7 +32,7 @@ describe("rememberBankImportAccount", () => {
   })
 
   it("rejects an account number without 4 digits", async () => {
-    await expect(rememberBankImportAccount("12", 3)).resolves.toEqual({ error: "Invalid account number" })
+    await expect(rememberBankImportAccount("12", 3)).resolves.toEqual({ error: "Invalid account suffix" })
   })
 
   it("merges the last-4 mapping into the stored map", async () => {

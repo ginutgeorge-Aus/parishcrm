@@ -16,13 +16,26 @@ export type UploadResult = {
   duplicateBankRefs: string[]
   possibleDuplicateBankRefs: string[]
   period: { from: string; to: string } | null
-  accountNumber: string
+  /** Last 4 digits of the file's account; "" when none. Row bankRefs still embed the full number (tracked separately). */
+  accountSuffix: string
   paymentAccountId: number
   errors: string[]
 }
 
 type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean }
 type DateOrder = "DMY" | "MDY"
+
+/** Why Continue is blocked, shown as its aria-describedby hint; null when it is not blocked. */
+function continueBlockedHint(uploading: boolean, hasFile: boolean, hasAccount: boolean): string | null {
+  if (uploading) return "Reading your file…"
+  if (!hasFile) {
+    return hasAccount
+      ? "Choose a statement file to continue."
+      : "Choose a statement file and the ParishCRM bank account to continue."
+  }
+  if (!hasAccount) return "Select the ParishCRM bank account to continue."
+  return null
+}
 
 /** Step 2: upload one export file, show what was read, and pick/confirm the ParishCRM bank account. */
 export function UploadStep({
@@ -86,7 +99,7 @@ export function UploadStep({
         duplicateBankRefs: data.duplicateBankRefs ?? [],
         possibleDuplicateBankRefs: data.possibleDuplicateBankRefs ?? [],
         period: data.period ?? null,
-        accountNumber: data.accountNumber ?? "",
+        accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
@@ -153,7 +166,12 @@ export function UploadStep({
     </div>
   )
 
-  const suffix = parsed?.accountNumber.replace(/\D/g, "").slice(-4)
+  const suffix = parsed?.accountSuffix
+
+  // aria-disabled (not disabled) keeps Continue focusable so keyboard and
+  // screen-reader users can discover why it is blocked via the hint below.
+  const continueBlocked = !parsed || !paymentAccountId || uploading
+  const continueHint = continueBlockedHint(uploading, !!parsed, !!paymentAccountId)
 
   return (
     <Card>
@@ -178,6 +196,9 @@ export function UploadStep({
           <Upload className="size-5 text-muted-foreground" aria-hidden />
           <span className="text-sm"><strong>Drop file here</strong> or <span className="underline">browse</span></span>
           <span className="text-xs text-muted-foreground">{cfg.acceptLabel} · max {MAX_UPLOAD_LABEL} · one file</span>
+          {/* Deliberately a raw sr-only input, not the shared Input component: the styled
+              label above is the drop zone and shows the focus ring (has-[:focus-visible]),
+              so the native control must stay visually hidden but focusable inside it. */}
           <input
             ref={inputRef}
             id="import-file"
@@ -236,13 +257,15 @@ export function UploadStep({
         <div className="flex justify-between">
           <Button variant="outline" onClick={onBack}>Back</Button>
           <Button
-            disabled={!parsed || !paymentAccountId || uploading}
-            onClick={() => parsed && paymentAccountId && onComplete({
+            aria-disabled={continueBlocked ? "true" : undefined}
+            aria-describedby={continueBlocked ? "import-continue-hint" : undefined}
+            className={cn(continueBlocked && "opacity-50 aria-disabled:pointer-events-none")}
+            onClick={() => !continueBlocked && parsed && paymentAccountId && onComplete({
               rows: parsed.rows,
               duplicateBankRefs: parsed.duplicateBankRefs,
               possibleDuplicateBankRefs: parsed.possibleDuplicateBankRefs,
               period: parsed.period,
-              accountNumber: parsed.accountNumber,
+              accountSuffix: parsed.accountSuffix,
               paymentAccountId,
               errors: parsed.errors,
             })}
@@ -250,6 +273,9 @@ export function UploadStep({
             Continue to review
           </Button>
         </div>
+        {continueHint && (
+          <p id="import-continue-hint" aria-live="polite" className="text-right text-xs text-muted-foreground">{continueHint}</p>
+        )}
       </CardContent>
     </Card>
   )

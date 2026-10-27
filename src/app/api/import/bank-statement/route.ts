@@ -7,7 +7,7 @@ import { parseWithRegistry } from "@/lib/bankParsers/registry"
 import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
 import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
 import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
-import { suggestPaymentAccountId } from "@/lib/bankAccountMap"
+import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -270,7 +270,9 @@ export async function POST(req: Request) {
     duplicateBankRefs,
     possibleDuplicateBankRefs,
     period: result.period,
-    accountNumber: result.accountNumber,
+    // Top-level field is the suffix only; the full number is used server-side for matching.
+    // Row bankRef/dedupKey values still embed the number (tracked separately).
+    accountSuffix: accountSuffix(result.accountNumber ?? "") ?? "",
     suggestedPaymentAccountId,
     dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,
