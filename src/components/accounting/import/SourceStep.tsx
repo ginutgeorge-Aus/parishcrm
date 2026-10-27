@@ -17,7 +17,7 @@ export function SourceStep({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Where is your data from?</CardTitle>
+        <CardTitle as="h3">Where is your data from?</CardTitle>
         <CardDescription>Pick the file type your bank exported.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

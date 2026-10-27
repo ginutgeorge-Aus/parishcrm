@@ -18,6 +18,9 @@ export type ImportSourceConfig = {
 /** Upload size limit as shown to users; mirrors the 50MB cap enforced by the parse route. */
 export const MAX_UPLOAD_LABEL = "50 MB"
 
+/** Upload size limit in bytes; keep in sync with {@link MAX_UPLOAD_LABEL}. */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
 // Order here is the display order on the Source step.
 export const IMPORT_SOURCES: Record<ImportSource, ImportSourceConfig> = {
   anz: {

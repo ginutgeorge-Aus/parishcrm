@@ -126,7 +126,7 @@ export function loadDraft(): BankImportDraft | null {
     // category was cleared on restore (deactivated account) still matches its
     // imported tombstone (round-6 codex).
     if (isImported(draftFingerprint(parsed))) return null
-    if (parsed.accountSuffix !== undefined && !/^\d{4}$/.test(String(parsed.accountSuffix))) return null
+    if (parsed.accountSuffix !== undefined && (typeof parsed.accountSuffix !== "string" || !/^\d{4}$/.test(parsed.accountSuffix))) return null
     if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     return parsed
   } catch {

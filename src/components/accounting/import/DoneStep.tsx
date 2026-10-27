@@ -15,7 +15,7 @@ export function DoneStep({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Import complete</CardTitle>
+        <CardTitle as="h3">Import complete</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <dl className="grid grid-cols-3 gap-2">

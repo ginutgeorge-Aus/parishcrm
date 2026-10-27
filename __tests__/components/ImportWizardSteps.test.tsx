@@ -5,6 +5,8 @@ import { render, screen, fireEvent } from "@testing-library/react"
 import { ImportStepper } from "@/components/accounting/import/ImportStepper"
 import { ReviewFilterTabs } from "@/components/accounting/import/ReviewFilterTabs"
 import { SourceStep } from "@/components/accounting/import/SourceStep"
+import { UploadStep } from "@/components/accounting/import/UploadStep"
+import { DoneStep } from "@/components/accounting/import/DoneStep"
 
 describe("ImportStepper", () => {
   it("marks earlier steps done and the current step active", () => {
@@ -53,5 +55,39 @@ describe("ReviewFilterTabs", () => {
     render(<ReviewFilterTabs value="all" stats={stats} onChange={jest.fn()} />)
     const group = screen.getByRole("group", { name: "Filter rows" })
     expect(group).toContainElement(screen.getByRole("button", { name: /Needs category 1/ }))
+  })
+})
+
+describe("step headings", () => {
+  it("render as h3 for heading navigation", () => {
+    const { unmount } = render(<SourceStep value="anz" onChange={() => {}} onContinue={() => {}} />)
+    expect(screen.getByRole("heading", { level: 3, name: "Where is your data from?" })).toBeTruthy()
+    unmount()
+    const u = render(<UploadStep source="ofx" paymentAccounts={[]} onBack={() => {}} onComplete={() => {}} />)
+    expect(screen.getByRole("heading", { level: 3, name: /Upload your/ })).toBeTruthy()
+    u.unmount()
+    render(<DoneStep result={null} onAgain={() => {}} />)
+    expect(screen.getByRole("heading", { level: 3, name: "Import complete" })).toBeTruthy()
+  })
+})
+
+describe("UploadStep file validation", () => {
+  it("rejects an oversize file client-side without calling the API", () => {
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as unknown as typeof fetch
+    render(<UploadStep source="ofx" paymentAccounts={[]} onBack={() => {}} onComplete={() => {}} />)
+    const big = new File(["x"], "big.ofx")
+    Object.defineProperty(big, "size", { value: 51 * 1024 * 1024 })
+    fireEvent.change(screen.getByLabelText("Statement file"), { target: { files: [big] } })
+    expect(screen.getByRole("alert").textContent).toMatch(/too large/i)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("shows an error and no summary when the response has no rows array", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as unknown as typeof fetch
+    render(<UploadStep source="ofx" paymentAccounts={[]} onBack={() => {}} onComplete={() => {}} />)
+    fireEvent.change(screen.getByLabelText("Statement file"), { target: { files: [new File(["x"], "a.ofx")] } })
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't read/)
+    expect(screen.queryByText("Read")).toBeNull()
   })
 })

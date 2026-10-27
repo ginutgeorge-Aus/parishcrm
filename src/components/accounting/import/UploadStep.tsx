@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import type { ParsedRow } from "@/lib/anzParser"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 import { radioGroupKeyDown } from "./radioKeys"
-import { IMPORT_SOURCES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
+import { IMPORT_SOURCES, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
 
 export type UploadResult = {
   rows: ParsedRow[]
@@ -76,7 +76,7 @@ export function UploadStep({
       const res = await fetch("/api/import/bank-statement", { method: "POST", body: fd })
       const data = await res.json().catch(() => ({}))
       if (seq !== readSeq.current) return
-      if (!res.ok) {
+      if (!res.ok || !Array.isArray(data.rows)) {
         setParsed(null)
         setError(data.error ?? "Couldn't read this file.")
         return
@@ -105,6 +105,10 @@ export function UploadStep({
     if (!f) return
     if (!matchesAccept(f, cfg.accept)) {
       setError(`That file type isn't supported. Please choose a ${cfg.acceptLabel} file.`)
+      return
+    }
+    if (f.size > MAX_UPLOAD_BYTES) {
+      setError(`That file is too large. The maximum size is ${MAX_UPLOAD_LABEL}.`)
       return
     }
     setFile(f)
@@ -148,7 +152,7 @@ export function UploadStep({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Upload your {cfg.label} file</CardTitle>
+        <CardTitle as="h3">Upload your {cfg.label} file</CardTitle>
         <CardDescription>{cfg.exportHelp}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -183,6 +183,8 @@ export function BankReviewTable({
   const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set())
   const isVisible = (row: ReviewRow) => matchesFilter(row, filter) || pinned.has(row.bankRef)
   const visibleIndices = rows.flatMap((r, i) => (isVisible(r) ? [i] : []))
+  // Position among visible rows, so zebra striping stays alternating while a filter is active.
+  const visiblePos = new Map(visibleIndices.map((ri, pos) => [ri, pos]))
 
   /** Switch tabs and drop the sticky rows. */
   function changeFilter(f: ReviewFilter) {
@@ -337,7 +339,7 @@ export function BankReviewTable({
               <Fragment key={row.bankRef}>
               <TableRow
                 className={cn(
-                  row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : i % 2 === 1 && "bg-muted/30"
+                  row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : (visiblePos.get(i) ?? 0) % 2 === 1 && "bg-muted/30"
                 )}
               >
                 <TableCell className="text-sm font-medium">{row.date}</TableCell>

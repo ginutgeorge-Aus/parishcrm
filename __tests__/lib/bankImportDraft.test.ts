@@ -65,6 +65,11 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     expect(loadDraft()).toBeNull()
   })
 
+  it("drops a draft whose account suffix is a number, not a string", () => {
+    sessionStorage.setItem("bankImportDraft.v1", JSON.stringify({ ...makeDraft(), accountSuffix: 1234 }))
+    expect(loadDraft()).toBeNull()
+  })
+
   it("returns null when no draft saved", () => {
     expect(loadDraft()).toBeNull()
   })
