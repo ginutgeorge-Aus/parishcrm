@@ -42,7 +42,7 @@ export const FEATURES: readonly FeatureDef[] = [
   { key: "events", label: "Events", description: "Events, registrations, check-in and online payments.", defaultOn: true, publicWarning: "Public event pages and registration links will stop working." },
   { key: "accounting", label: "Accounting", description: "Transactions, accounts, funds and financial reports.", defaultOn: true },
   { key: "reconciliation", parent: "accounting", label: "Bank reconciliation", description: "Match transactions to bank statements.", defaultOn: true },
-  { key: "bankImport", parent: "accounting", label: "Bank import", description: "Import bank statement PDFs/CSVs.", defaultOn: true },
+  { key: "bankImport", parent: "accounting", label: "Bank import", description: "Import ANZ statement PDFs and OFX/QFX/QIF bank exports.", defaultOn: true },
   { key: "pettyCash", parent: "accounting", label: "Petty cash", description: "Petty cash sessions and counts.", defaultOn: true },
   { key: "dues", parent: "accounting", requires: ["memberships"], label: "Subscription dues", description: "Track member subscription dues.", defaultOn: true },
   { key: "receipts", parent: "accounting", label: "Giving receipts", description: "Email giving receipts and keep a send log.", defaultOn: true },

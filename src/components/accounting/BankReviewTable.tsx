@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { Check, ChevronsUpDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +36,10 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
-import { toCents, isSplit, splitIsValid } from "@/lib/bankSplit"
+import { ReviewSummary } from "./import/ReviewSummary"
+import { ReviewFilterTabs } from "./import/ReviewFilterTabs"
+import { matchesFilter, needsCategory, reviewStats, type ReviewFilter } from "@/lib/bankReviewFilter"
+import { toCents, isSplit } from "@/lib/bankSplit"
 import type { SplitLine } from "@/lib/bankSplit"
 import type { ReviewRow } from "@/lib/bankTypes"
 export type { ReviewRow } from "@/lib/bankTypes"
@@ -60,8 +63,9 @@ interface BankReviewTableProps {
   importError: string | null
   importing: boolean
   onUpdateRow: (index: number, patch: Partial<ReviewRow>) => void
-  onSetAllCategory: (accountId: number) => void
-  onToggleSkipAll: (skip: boolean) => void
+  /** `indices` = positions in `rows` of the rows visible in the active filter. */
+  onSetAllCategory: (accountId: number, indices: number[]) => void
+  onToggleSkipAll: (skip: boolean, indices: number[]) => void
   onConfirm: () => Promise<void>
   onBack: () => void
 }
@@ -143,6 +147,20 @@ function MemberCombobox({
   )
 }
 
+/** Import button shared by the header and footer so they can't drift apart. */
+function ImportButton({
+  count,
+  disabled,
+  importing,
+  onClick,
+}: Readonly<{ count: number; disabled: boolean; importing: boolean; onClick: () => void }>) {
+  return (
+    <Button onClick={onClick} disabled={disabled || importing}>
+      {importing ? "Importing…" : `Import ${count} transaction${count !== 1 ? "s" : ""}`}
+    </Button>
+  )
+}
+
 export function BankReviewTable({
   rows,
   period,
@@ -158,29 +176,45 @@ export function BankReviewTable({
   onBack,
 }: Readonly<BankReviewTableProps>) {
   const activeRows = rows.filter((r) => !r.skip)
-  const canImport =
-    activeRows.length > 0 &&
-    // Rows the parser couldn't classify must have a type chosen first.
-    activeRows.every(
-      (r) =>
-        !r.ambiguousType &&
-        (r.fromPettyCash || (isSplit(r) ? splitIsValid(r) : r.accountId !== null))
-    )
-  const duplicateCount = rows.filter((r) => r.isDuplicate).length
+  const canImport = activeRows.length > 0 && !rows.some(needsCategory)
+  const [filter, setFilter] = useState<ReviewFilter>("all")
+  // Rows edited while a filter is active stay visible until the filter changes,
+  // so a row doesn't vanish from "Needs category" the moment it's categorised.
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set())
+  const isVisible = (row: ReviewRow) => matchesFilter(row, filter) || pinned.has(row.bankRef)
+  const visibleIndices = rows.flatMap((r, i) => (isVisible(r) ? [i] : []))
+  // Position among visible rows, so zebra striping stays alternating while a filter is active.
+  const visiblePos = new Map(visibleIndices.map((ri, pos) => [ri, pos]))
+
+  /** Switch tabs and drop the sticky rows. */
+  function changeFilter(f: ReviewFilter) {
+    setFilter(f)
+    setPinned(new Set())
+  }
+
+  /** Forward a row edit, pinning the row if it is currently shown by the filter. */
+  function updateRow(index: number, patch: Partial<ReviewRow>) {
+    const row = rows[index]
+    if (row && filter !== "all" && matchesFilter(row, filter) && !pinned.has(row.bankRef)) {
+      setPinned((prev) => new Set(prev).add(row.bankRef))
+    }
+    onUpdateRow(index, patch)
+  }
+  const stats = useMemo(() => reviewStats(rows), [rows])
 
   function startSplit(i: number, row: ReviewRow) {
-    onUpdateRow(i, {
+    updateRow(i, {
       splits: [{ accountId: row.accountId, familyId: row.familyId, personId: row.personId, amount: row.amount, _key: nextSplitKey() }],
     })
   }
 
   function clearSplit(i: number) {
-    onUpdateRow(i, { splits: undefined })
+    updateRow(i, { splits: undefined })
   }
 
   function patchSplit(row: ReviewRow, i: number, j: number, patch: Partial<SplitLine>) {
     const splits = (row.splits ?? []).map((s, k) => (k === j ? { ...s, ...patch } : s))
-    onUpdateRow(i, { splits })
+    updateRow(i, { splits })
   }
 
   function selectSplitMember(row: ReviewRow, i: number, j: number, pid: number | null) {
@@ -196,17 +230,17 @@ export function BankReviewTable({
     const allocated = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
     const remainingCents = toCents(row.amount) - allocated
     const amount = remainingCents > 0 ? (remainingCents / 100).toFixed(2) : "0.00"
-    onUpdateRow(i, { splits: [...(row.splits ?? []), { accountId: null, familyId: null, personId: null, amount, _key: nextSplitKey() }] })
+    updateRow(i, { splits: [...(row.splits ?? []), { accountId: null, familyId: null, personId: null, amount, _key: nextSplitKey() }] })
   }
 
   function removeSplitLine(row: ReviewRow, i: number, j: number) {
     const splits = (row.splits ?? []).filter((_, k) => k !== j)
-    onUpdateRow(i, { splits: splits.length ? splits : undefined })
+    updateRow(i, { splits: splits.length ? splits : undefined })
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-semibold">
             Review Transactions
@@ -218,7 +252,6 @@ export function BankReviewTable({
           </h3>
           <p className="text-sm text-muted-foreground">
             {rows.length} transactions found
-            {duplicateCount > 0 && ` · ${duplicateCount} duplicate${duplicateCount !== 1 ? "s" : ""} (pre-skipped)`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -226,13 +259,12 @@ export function BankReviewTable({
           <Button variant="outline" onClick={onBack}>
             ← Back
           </Button>
-          <Button onClick={onConfirm} disabled={!canImport || importing}>
-            {importing
-              ? "Importing…"
-              : `Import ${activeRows.length} transaction${activeRows.length !== 1 ? "s" : ""}`}
-          </Button>
+          <ImportButton count={activeRows.length} disabled={!canImport} importing={importing} onClick={onConfirm} />
         </div>
       </div>
+
+      <ReviewSummary stats={stats} />
+      <ReviewFilterTabs value={filter} stats={stats} onChange={changeFilter} />
 
       {parseErrors.length > 0 && (
         <p className="text-sm text-warning">
@@ -244,7 +276,7 @@ export function BankReviewTable({
         <span className="font-medium text-muted-foreground">Set all:</span>
         {/* Controlled at "" so the placeholder always returns and re-selecting
             the same category still fires onValueChange. */}
-        <Select value="" onValueChange={(v: string) => onSetAllCategory(Number(v))}>
+        <Select value="" onValueChange={(v: string) => onSetAllCategory(Number(v), visibleIndices)}>
           <SelectTrigger id="bank-set-all" className="w-56">
             <SelectValue placeholder="— category —" />
           </SelectTrigger>
@@ -265,13 +297,13 @@ export function BankReviewTable({
         </Select>
         <button
           className="min-h-11 min-w-11 px-2 py-1 text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          onClick={() => onToggleSkipAll(true)}
+          onClick={() => onToggleSkipAll(true, visibleIndices)}
         >
           Skip all
         </button>
         <button
           className="min-h-11 min-w-11 px-2 py-1 text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          onClick={() => onToggleSkipAll(false)}
+          onClick={() => onToggleSkipAll(false, visibleIndices)}
         >
           Include all
         </button>
@@ -291,7 +323,15 @@ export function BankReviewTable({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {rows.length > 0 && visibleIndices.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                  No rows match this filter
+                </TableCell>
+              </TableRow>
+            )}
             {rows.map((row, i) => {
+              if (!isVisible(row)) return null
               const split = isSplit(row)
               const allocatedCents = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
               const remainingCents = toCents(row.amount) - allocatedCents
@@ -299,7 +339,7 @@ export function BankReviewTable({
               <Fragment key={row.bankRef}>
               <TableRow
                 className={cn(
-                  row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : i % 2 === 1 && "bg-muted/30"
+                  row.skip ? "opacity-40" : row.fromPettyCash ? "bg-info/10" : (visiblePos.get(i) ?? 0) % 2 === 1 && "bg-muted/30"
                 )}
               >
                 <TableCell className="text-sm font-medium">{row.date}</TableCell>
@@ -320,6 +360,11 @@ export function BankReviewTable({
                       DUPLICATE
                     </Badge>
                   )}
+                  {row.isPossibleDuplicate && !row.isDuplicate && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      POSSIBLE DUPLICATE
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell className="text-right tabular text-sm">
                   {row.ambiguousType && !row.skip ? (
@@ -328,7 +373,7 @@ export function BankReviewTable({
                       <Select
                         value=""
                         onValueChange={(v: string) =>
-                          onUpdateRow(i, {
+                          updateRow(i, {
                             type: v as "INCOME" | "EXPENSE",
                             ambiguousType: false,
                           })
@@ -374,7 +419,7 @@ export function BankReviewTable({
                       <Select
                         value={row.accountId !== null ? String(row.accountId) : ""}
                         disabled={row.skip}
-                        onValueChange={(v: string) => onUpdateRow(i, { accountId: v ? Number(v) : null })}
+                        onValueChange={(v: string) => updateRow(i, { accountId: v ? Number(v) : null })}
                       >
                         <SelectTrigger
                           className={cn(
@@ -417,11 +462,11 @@ export function BankReviewTable({
                       disabled={row.skip}
                       onSelect={(pid) => {
                         if (pid === null) {
-                          onUpdateRow(i, { personId: null, familyId: null })
+                          updateRow(i, { personId: null, familyId: null })
                           return
                         }
                         const family = families.find((f) => f.people.some((p) => p.id === pid))
-                        onUpdateRow(i, { personId: pid, familyId: family?.id ?? null })
+                        updateRow(i, { personId: pid, familyId: family?.id ?? null })
                       }}
                     />
                   )}
@@ -441,7 +486,7 @@ export function BankReviewTable({
                           aria-label="Mark as petty cash transfer"
                           checked={row.fromPettyCash}
                           disabled={row.skip}
-                          onCheckedChange={(c: boolean | "indeterminate") => onUpdateRow(i, { fromPettyCash: c === true })}
+                          onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { fromPettyCash: c === true })}
                         />
                       </label>
                       {row.fromPettyCash && (
@@ -457,7 +502,7 @@ export function BankReviewTable({
                     <Checkbox
                       aria-label="Skip this transaction"
                       checked={row.skip}
-                      onCheckedChange={(c: boolean | "indeterminate") => onUpdateRow(i, { skip: c === true })}
+                      onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { skip: c === true })}
                     />
                   </label>
                 </TableCell>
@@ -566,7 +611,13 @@ export function BankReviewTable({
             No transactions found
           </li>
         )}
+        {rows.length > 0 && visibleIndices.length === 0 && (
+          <li className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
+            No rows match this filter
+          </li>
+        )}
         {rows.map((row, i) => {
+          if (!isVisible(row)) return null
           const split = isSplit(row)
           const allocatedCents = (row.splits ?? []).reduce((t, s) => t + toCents(s.amount), 0)
           const remainingCents = toCents(row.amount) - allocatedCents
@@ -597,6 +648,11 @@ export function BankReviewTable({
                       DUPLICATE
                     </Badge>
                   )}
+                  {row.isPossibleDuplicate && !row.isDuplicate && (
+                    <Badge variant="outline" className="text-xs mt-0.5 border-warning text-warning">
+                      POSSIBLE DUPLICATE
+                    </Badge>
+                  )}
                 </div>
                 <span className={cn(
                   "shrink-0 tabular text-sm font-semibold whitespace-nowrap",
@@ -612,7 +668,7 @@ export function BankReviewTable({
                   <Select
                     value=""
                     onValueChange={(v: string) =>
-                      onUpdateRow(i, {
+                      updateRow(i, {
                         type: v as "INCOME" | "EXPENSE",
                         ambiguousType: false,
                       })
@@ -654,7 +710,7 @@ export function BankReviewTable({
                   <Select
                     value={row.accountId !== null ? String(row.accountId) : ""}
                     disabled={row.skip}
-                    onValueChange={(v: string) => onUpdateRow(i, { accountId: v ? Number(v) : null })}
+                    onValueChange={(v: string) => updateRow(i, { accountId: v ? Number(v) : null })}
                   >
                     <SelectTrigger
                       className={cn(
@@ -695,11 +751,11 @@ export function BankReviewTable({
                     disabled={row.skip}
                     onSelect={(pid) => {
                       if (pid === null) {
-                        onUpdateRow(i, { personId: null, familyId: null })
+                        updateRow(i, { personId: null, familyId: null })
                         return
                       }
                       const family = families.find((f) => f.people.some((p) => p.id === pid))
-                      onUpdateRow(i, { personId: pid, familyId: family?.id ?? null })
+                      updateRow(i, { personId: pid, familyId: family?.id ?? null })
                     }}
                   />
                 </div>
@@ -808,7 +864,7 @@ export function BankReviewTable({
                       aria-label="Mark as petty cash transfer"
                       checked={row.fromPettyCash}
                       disabled={row.skip}
-                      onCheckedChange={(c: boolean | "indeterminate") => onUpdateRow(i, { fromPettyCash: c === true })}
+                      onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { fromPettyCash: c === true })}
                     />
                     <span className="text-sm">
                       Cash transfer
@@ -825,7 +881,7 @@ export function BankReviewTable({
                   <Checkbox
                     aria-label="Skip this transaction"
                     checked={row.skip}
-                    onCheckedChange={(c: boolean | "indeterminate") => onUpdateRow(i, { skip: c === true })}
+                    onCheckedChange={(c: boolean | "indeterminate") => updateRow(i, { skip: c === true })}
                   />
                   <span className="text-sm text-muted-foreground">Skip this transaction</span>
                 </label>
@@ -834,6 +890,18 @@ export function BankReviewTable({
           )
         })}
       </ul>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <p className="text-sm text-muted-foreground">
+          {stats.needsCategory > 0
+            ? `${stats.needsCategory} row${stats.needsCategory === 1 ? "" : "s"} still need${stats.needsCategory === 1 ? "s" : ""} a category`
+            : "All rows ready"}
+        </p>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}
+          <ImportButton count={activeRows.length} disabled={!canImport} importing={importing} onClick={onConfirm} />
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,15 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { BankUploadStep } from "./BankUploadStep"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { ImportStepper, type WizardStep } from "./import/ImportStepper"
+import { SourceStep } from "./import/SourceStep"
+import { UploadStep, type UploadResult } from "./import/UploadStep"
+import { DoneStep } from "./import/DoneStep"
+import type { ImportSource } from "@/lib/importSources"
+import { rememberBankImportAccount } from "@/lib/actions/bankImport"
 import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
-import type { ParsedRow } from "@/lib/anzParser"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
-import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
+import { applyBulkSkip } from "@/lib/bankReviewFilter"
+import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds, draftAccountSuffix } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
 // Pass-2 bankingName aliases shorter than this are too collision-prone to
@@ -54,10 +56,14 @@ export function matchPerson(
   return { familyId: null, personId: null }
 }
 
-// Applies a bulk category selection only to rows whose type matches the
-// account's type — an INCOME account never lands on an EXPENSE row.
-export function applyCategoryToRows(rows: ReviewRow[], account: Account): ReviewRow[] {
-  return rows.map((r) => (r.type === account.type ? { ...r, accountId: account.id } : r))
+/**
+ * Applies a bulk category selection only to rows whose type matches the
+ * account's type — an INCOME account never lands on an EXPENSE row. When
+ * `indices` is given (the rows visible in the active filter), other rows are untouched.
+ */
+export function applyCategoryToRows(rows: ReviewRow[], account: Account, indices?: readonly number[]): ReviewRow[] {
+  const target = indices ? new Set(indices) : null
+  return rows.map((r, i) => (r.type === account.type && (!target || target.has(i)) ? { ...r, accountId: account.id } : r))
 }
 
 type ImportResult = { imported: number; skipped: number; duplicates: number }
@@ -71,7 +77,12 @@ export function BankImportClient({
   families: Family[]
   paymentAccounts: PaymentAccountLite[]
 }>) {
-  const [view, setView] = useState<"upload" | "review" | "done">("upload")
+  const [view, setView] = useState<WizardStep>("source")
+  const [source, setSource] = useState<ImportSource>("anz")
+  // Full account number from the parsed file (OFX/ANZ); "" for QIF. Sent to
+  // rememberBankImportAccount after a successful import. Kept in the
+  // session-scoped review draft so a refresh doesn't lose it.
+  const [accountNumber, setAccountNumber] = useState("")
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -89,6 +100,8 @@ export function BankImportClient({
       setRows(clearMismatchedAccountIds(draft.rows, accounts))
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
+      if (draft.accountSuffix !== undefined) setAccountNumber(draft.accountSuffix)
+      if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
     return () => {
@@ -102,26 +115,25 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: draftAccountSuffix(accountNumber), source })
     }
-  }, [view, rows, period, paymentAccountId])
+  }, [view, rows, period, paymentAccountId, accountNumber, source])
 
-  function handleUploadComplete(
-    rawRows: ParsedRow[],
-    duplicates: string[],
-    parsedPeriod: { from: string; to: string } | null,
-    account: number,
-    errors: string[]
-  ) {
+  /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
+  function handleUploadComplete(upload: UploadResult) {
     if (activeImport.current !== null) return
-    const dupSet = new Set<string>(duplicates)
-    const fresh = rawRows.map((r) => {
+    const dupSet = new Set<string>(upload.duplicateBankRefs)
+    const possibleSet = new Set<string>(upload.possibleDuplicateBankRefs)
+    const fresh = upload.rows.map((r) => {
       const matched = matchPerson(`${r.description} ${r.details}`, families)
+      const isDuplicate = dupSet.has(r.bankRef)
+      const isPossibleDuplicate = !isDuplicate && possibleSet.has(r.bankRef)
       return {
         ...r,
         accountId: null,
-        skip: dupSet.has(r.bankRef),
-        isDuplicate: dupSet.has(r.bankRef),
+        skip: isDuplicate || isPossibleDuplicate,
+        isDuplicate,
+        isPossibleDuplicate,
         familyId: matched.familyId,
         personId: matched.personId,
         fromPettyCash: false,
@@ -129,9 +141,10 @@ export function BankImportClient({
     })
     // Re-uploading the same statement keeps selections already made
     setRows(mergeDraftSelections(fresh, rows))
-    setPeriod(parsedPeriod)
-    setPaymentAccountId(account)
-    setParseErrors(errors)
+    setPeriod(upload.period)
+    setPaymentAccountId(upload.paymentAccountId)
+    setAccountNumber(upload.accountNumber)
+    setParseErrors(upload.errors)
     setView("review")
   }
 
@@ -142,16 +155,18 @@ export function BankImportClient({
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
-  function setAllCategory(accountId: number) {
+  /** Bulk-set a category on the rows at `indices` (the active filter's rows). */
+  function setAllCategory(accountId: number, indices: readonly number[]) {
     if (importing) return
     const account = accounts.find((a) => a.id === accountId)
     if (!account) return
-    setRows((prev) => applyCategoryToRows(prev, account))
+    setRows((prev) => applyCategoryToRows(prev, account, indices))
   }
 
-  function toggleSkipAll(skip: boolean) {
+  /** Bulk skip/unskip the rows at `indices`; unskipping leaves duplicates skipped. */
+  function toggleSkipAll(skip: boolean, indices: readonly number[]) {
     if (importing) return
-    setRows((prev) => prev.map((r) => ({ ...r, skip })))
+    setRows((prev) => applyBulkSkip(prev, skip, indices))
   }
 
   async function handleImport() {
@@ -186,6 +201,11 @@ export function BankImportClient({
       // Fingerprint-matched so it clears an unchanged imported draft (incl. an
       // identical remount) but never a newer edited/re-uploaded one (codex).
       markImported(submitted)
+      // Remember account-number → bank-account for next time (best effort; a
+      // failure only means the user re-picks the account on the next upload).
+      if (accountNumber && typeof paymentAccountId === "number") {
+        void rememberBankImportAccount(accountNumber, paymentAccountId).catch(() => {})
+      }
       if (activeImport.current !== request) return
       setResult(data)
       setView("done")
@@ -201,46 +221,51 @@ export function BankImportClient({
     }
   }
 
-  if (view === "upload") {
-    return <BankUploadStep paymentAccounts={paymentAccounts} onUploadComplete={handleUploadComplete} />
+  /** Reset to a fresh wizard after a completed import. */
+  function startOver() {
+    setRows([])
+    setPeriod(null)
+    setResult(null)
+    setAccountNumber("")
+    setSource("anz")
+    setPaymentAccountId("")
+    setView("source")
   }
 
-  if (view === "done") {
-    return (
-      <Card className="max-w-sm">
-        <CardHeader>
-          <CardTitle>Import Complete</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm">
-            Imported: <strong>{result?.imported}</strong> · Skipped:{" "}
-            <strong>{result?.skipped}</strong> · Duplicates:{" "}
-            <strong>{result?.duplicates}</strong>
-          </p>
-          <Button asChild variant="outline">
-            <Link href="/accounting/transactions">View Transactions</Link>
-          </Button>
-        </CardContent>
-      </Card>
+  let body: ReactNode
+  if (view === "source") {
+    body = <SourceStep value={source} onChange={setSource} onContinue={() => setView("upload")} />
+  } else if (view === "upload") {
+    body = (
+      <UploadStep source={source} paymentAccounts={paymentAccounts} onBack={() => setView("source")} onComplete={handleUploadComplete} />
+    )
+  } else if (view === "done") {
+    body = <DoneStep result={result} onAgain={startOver} />
+  } else {
+    body = (
+      <BankReviewTable
+        rows={rows}
+        period={period}
+        parseErrors={parseErrors}
+        accounts={accounts}
+        families={families}
+        importError={importError}
+        importing={importing}
+        onUpdateRow={updateRow}
+        onSetAllCategory={setAllCategory}
+        onToggleSkipAll={toggleSkipAll}
+        onConfirm={handleImport}
+        onBack={() => {
+          if (activeImport.current === null) setView("upload")
+        }}
+      />
     )
   }
 
   return (
-    <BankReviewTable
-      rows={rows}
-      period={period}
-      parseErrors={parseErrors}
-      accounts={accounts}
-      families={families}
-      importError={importError}
-      importing={importing}
-      onUpdateRow={updateRow}
-      onSetAllCategory={setAllCategory}
-      onToggleSkipAll={toggleSkipAll}
-      onConfirm={handleImport}
-      onBack={() => {
-        if (activeImport.current === null) setView("upload")
-      }}
-    />
+    <div className="space-y-6">
+      <ImportStepper current={view} />
+      {body}
+    </div>
   )
 }

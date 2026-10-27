@@ -36,7 +36,7 @@ export default async function BankImportPage() {
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Bank Import</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Import transactions from an ANZ bank statement PDF
+          Import transactions from an ANZ statement PDF, or an OFX/QFX or QIF export from any bank
         </p>
       </div>
       <BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />

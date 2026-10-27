@@ -3,11 +3,14 @@
  */
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { rememberBankImportAccount } from "@/lib/actions/bankImport"
 import { BankImportClient } from "@/components/accounting/BankImportClient"
 import type { Account, Family, ReviewRow } from "@/components/accounting/BankReviewTable"
 
-jest.mock("@/components/accounting/BankUploadStep", () => ({
-  BankUploadStep: () => <div data-testid="upload-step" />,
+jest.mock("@/lib/actions/bankImport", () => ({ rememberBankImportAccount: jest.fn().mockResolvedValue({ success: true }) }))
+
+jest.mock("@/components/accounting/import/UploadStep", () => ({
+  UploadStep: ({ source }: { source: string }) => <div data-testid="upload-step" data-source={source} />,
 }))
 
 // Render the shadcn Select as a plain native <select> — this test drives
@@ -57,10 +60,10 @@ function makeRow(overrides: Partial<ReviewRow> = {}): ReviewRow {
   }
 }
 
-function seedDraft(rows: ReviewRow[]) {
+function seedDraft(rows: ReviewRow[], extra: object = {}) {
   sessionStorage.setItem(
     "bankImportDraft.v1",
-    JSON.stringify({ rows, period: { from: "2026-05-01", to: "2026-05-31" }, paymentAccountId: 1 })
+    JSON.stringify({ rows, period: { from: "2026-05-01", to: "2026-05-31" }, paymentAccountId: 1, ...extra })
   )
 }
 
@@ -70,8 +73,11 @@ beforeEach(() => {
 })
 
 describe("BankImportClient draft persistence", () => {
-  it("starts at upload step when no draft exists", () => {
+  it("starts at the source step, then upload, when no draft exists", async () => {
+    const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    expect(screen.queryByTestId("upload-step")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Continue" }))
     expect(screen.getByTestId("upload-step")).toBeInTheDocument()
   })
 
@@ -108,9 +114,9 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    await user.click(screen.getByRole("button", { name: /Import 1 transaction/ }))
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
-    expect(await screen.findByText("Import Complete")).toBeInTheDocument()
+    expect(await screen.findByText("Import complete")).toBeInTheDocument()
     expect(sessionStorage.getItem("bankImportDraft.v1")).toBeNull()
   })
 
@@ -124,9 +130,9 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    await user.click(screen.getByRole("button", { name: /Import 1 transaction/ }))
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
-    expect(await screen.findByText(/category is inactive/)).toBeInTheDocument()
+    expect((await screen.findAllByText(/category is inactive/)).length).toBeGreaterThan(0)
     expect(sessionStorage.getItem("bankImportDraft.v1")).not.toBeNull()
   })
 
@@ -137,12 +143,57 @@ describe("BankImportClient draft persistence", () => {
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
     await screen.findByRole("table")
 
-    const importBtn = screen.getByRole("button", { name: /Import 1 transaction/ })
+    const importBtn = screen.getAllByRole("button", { name: /Import 1 transaction/ })[0]
     await user.click(importBtn)
 
-    expect(await screen.findByText(/Network error/i)).toBeInTheDocument()
+    expect((await screen.findAllByText(/Network error/i)).length).toBeGreaterThan(0)
     // Button is no longer stuck disabled — the user can retry.
-    expect(screen.getByRole("button", { name: /Import 1 transaction/ })).toBeEnabled()
+    expect(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0]).toBeEnabled()
     expect(sessionStorage.getItem("bankImportDraft.v1")).not.toBeNull()
+  })
+
+  it("persists accountNumber and source in the draft", async () => {
+    seedDraft([makeRow({ accountId: null })], { accountSuffix: "0111", source: "ofx" })
+    const user = userEvent.setup()
+    render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    const table = await screen.findByRole("table")
+    await user.selectOptions(within(table).getByText("PAYMENT FROM JOHN").closest("tr")!.querySelector("select")!, "1")
+    await waitFor(() => {
+      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v1")!)
+      expect(stored.accountSuffix).toBe("0111")
+      expect(stored.source).toBe("ofx")
+    })
+  })
+
+  it("restores the saved source when going back to upload", async () => {
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
+    const user = userEvent.setup()
+    render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    await screen.findByRole("table")
+    await user.click(screen.getByRole("button", { name: "← Back" }))
+    expect(screen.getByTestId("upload-step")).toHaveAttribute("data-source", "ofx")
+  })
+
+  it("remembers the restored account number after a successful import", async () => {
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) }) as jest.Mock
+    const user = userEvent.setup()
+    render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    await screen.findByRole("table")
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
+    await screen.findByText("Import complete")
+    expect(rememberBankImportAccount).toHaveBeenCalledWith("0111", 1)
+  })
+
+  it("startOver resets source and account number", async () => {
+    seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) }) as jest.Mock
+    const user = userEvent.setup()
+    render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    await screen.findByRole("table")
+    await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
+    await user.click(await screen.findByRole("button", { name: "Import another file" }))
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    expect(screen.getByTestId("upload-step")).toHaveAttribute("data-source", "anz")
   })
 })
