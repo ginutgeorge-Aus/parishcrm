@@ -304,7 +304,7 @@ describe("concurrent-write error translation", () => {
 
   it("rejects a duplicate email caught by the pre-check on create", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 7 })
+    ;(prisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 7 })
     const r = await createUser(undefined, form(VALID_USER))
     expect(r).toEqual({ error: "Email already in use" })
     expect(prisma.user.create).not.toHaveBeenCalled()

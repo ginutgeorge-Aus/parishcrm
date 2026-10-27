@@ -107,9 +107,18 @@ describe("createUser", () => {
 
   it("returns error for duplicate email", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValue({ id: 10, email: "jane@example.com" })
+    mockFindFirst.mockResolvedValueOnce({ id: 10, email: "jane@example.com" })
     const result = await createUser(undefined, fd(validNewUser))
     expect(result).toEqual({ error: "Email already in use" })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("rejects admin@example.com when a legacy Admin@Example.com row exists (case-insensitive check)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindFirst.mockResolvedValueOnce({ id: 10, email: "Admin@Example.com" })
+    const result = await createUser(undefined, fd({ ...validNewUser, email: " admin@example.com " }))
+    expect(result).toEqual({ error: "Email already in use" })
+    expect(mockFindFirst).toHaveBeenCalledWith({ where: { email: { equals: "admin@example.com", mode: "insensitive" } } })
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
@@ -195,6 +204,16 @@ describe("updateUser", () => {
     mockFindFirst.mockResolvedValue({ id: 99 })
     const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Email already in use" })
+  })
+
+  it("rejects updating to a case variant of another user's email (case-insensitive, excludes self)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindFirst.mockResolvedValue({ id: 99, email: "Taken@X.com" })
+    const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
+    expect(result).toEqual({ error: "Email already in use" })
+    expect(mockFindFirst).toHaveBeenCalledWith({
+      where: { email: { equals: "taken@x.com", mode: "insensitive" }, NOT: { id: 1 } },
+    })
   })
 
   it("does not rehash when no new password", async () => {

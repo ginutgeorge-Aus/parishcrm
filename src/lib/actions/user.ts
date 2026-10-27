@@ -180,7 +180,8 @@ export async function createUser(
     return { error: "Unauthorized" }
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+  // Case-insensitive: legacy rows may be stored mixed-case, and login matches insensitively.
+  const existing = await prisma.user.findFirst({ where: { email: { equals: parsed.data.email, mode: "insensitive" } } })
   if (existing) return { error: "Email already in use" }
 
   // Unusable random password — the account cannot be logged into until the
@@ -192,7 +193,7 @@ export async function createUser(
       data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
     })
   } catch (e) {
-    // The findUnique check above is check-then-act — a concurrent create can
+    // The findFirst check above is check-then-act — a concurrent create can
     // slip in between it and this create() call.
     if (isP2002(e)) return { error: "Email already in use" }
     throw e
@@ -307,7 +308,7 @@ export async function updateUser(
   }
 
   const existing = await prisma.user.findFirst({
-    where: { email: parsed.data.email, NOT: { id } },
+    where: { email: { equals: parsed.data.email, mode: "insensitive" }, NOT: { id } },
   })
   if (existing) return { error: "Email already in use" }
 
