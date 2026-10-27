@@ -24,7 +24,7 @@ const rowLabel = "block text-xs font-medium text-muted-foreground mb-0.5"
 const band = "bg-primary text-primary-foreground text-sm font-semibold px-3 py-1.5 rounded-md mt-8 mb-4"
 
 // DOM-id-safe slug for building unique <label htmlFor>/<input id> pairs from a
-// section title (e.g. "C. Name of Children" → "c-name-of-children") — the three
+// section title (e.g. "C. Name of children" → "c-name-of-children") — the three
 // RowSection instances share column keys ("name", "sex", ...), so the title
 // must be part of the id or they'd collide across sections.
 function slug(s: string) {
@@ -261,7 +261,7 @@ export function MembershipForm({
           className="mx-auto w-full max-w-xl h-auto"
         />
       </header>
-      <h1 className="text-xl font-bold text-center text-foreground">Membership Registration Form</h1>
+      <h1 className="text-xl font-bold text-center text-foreground">Membership registration form</h1>
       <p className="text-center text-sm text-muted-foreground mt-1">Please complete all applicable sections and sign below.</p>
 
       <p className="mt-4 rounded-md bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
@@ -282,7 +282,7 @@ export function MembershipForm({
         aria-hidden="true"
       />
 
-      <h2 className={band}>A. Personal Particulars</h2>
+      <h2 className={band}>A. Personal particulars</h2>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label htmlFor="name" className={label}>Name *</label>
@@ -302,7 +302,7 @@ export function MembershipForm({
           </Select>
         </div>
         <div>
-          <label htmlFor="dob" className={label}>Date of Birth</label>
+          <label htmlFor="dob" className={label}>Date of birth</label>
           <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
         </div>
         <div>
@@ -314,7 +314,7 @@ export function MembershipForm({
           <Input id="mobile" type="tel" inputMode="tel" autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </div>
         <div className="sm:col-span-2">
-          <label htmlFor="address" className={label}>Residential Address *</label>
+          <label htmlFor="address" className={label}>Residential address *</label>
           <Input id="address" autoComplete="street-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street address" required />
         </div>
         <div>
@@ -330,7 +330,7 @@ export function MembershipForm({
           <Input id="postcode" inputMode="numeric" autoComplete="postal-code" value={postcode} onChange={(e) => setPostcode(e.target.value)} required />
         </div>
         <div className="sm:col-span-2">
-          <label htmlFor="profession" className={label}>Qualification &amp; Profession</label>
+          <label htmlFor="profession" className={label}>Qualification &amp; profession</label>
           <Input id="profession" value={profession} onChange={(e) => setProfession(e.target.value)} />
         </div>
         {parishFields && (
@@ -352,7 +352,7 @@ export function MembershipForm({
           </div>
         )}
         <div>
-          <label htmlFor="maritalStatus" className={label}>Marital Status</label>
+          <label htmlFor="maritalStatus" className={label}>Marital status</label>
           <Select value={maritalStatus || undefined} onValueChange={setMaritalStatus}>
             <SelectTrigger id="maritalStatus" className="w-full">
               <SelectValue placeholder="—" />
@@ -379,18 +379,18 @@ export function MembershipForm({
         )}
       </div>
 
-      <h2 className={band}>B. Details of Family (Spouse)</h2>
+      <h2 className={band}>B. Details of family (spouse)</h2>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="spouseName" className={label}>Name of Spouse</label>
+          <label htmlFor="spouseName" className={label}>Name of spouse</label>
           <Input id="spouseName" autoComplete="off" value={spouseName} onChange={(e) => setSpouseName(e.target.value)} />
         </div>
         <div>
-          <label htmlFor="spouseDob" className={label}>Date of Birth</label>
+          <label htmlFor="spouseDob" className={label}>Date of birth</label>
           <Input id="spouseDob" type="date" autoComplete="off" value={spouseDob} onChange={(e) => setSpouseDob(e.target.value)} />
         </div>
         <div>
-          <label htmlFor="marriageDate" className={label}>Date of Marriage</label>
+          <label htmlFor="marriageDate" className={label}>Date of marriage</label>
           <Input id="marriageDate" type="date" autoComplete="off" value={marriageDate} onChange={(e) => setMarriageDate(e.target.value)} />
         </div>
         {parishFields && (
@@ -412,13 +412,13 @@ export function MembershipForm({
           </Select>
         </div>
         <div>
-          <label htmlFor="spouseEmail" className={label}>Spouse E-mail ID</label>
+          <label htmlFor="spouseEmail" className={label}>Spouse e-mail ID</label>
           <Input id="spouseEmail" type="email" autoComplete="off" value={spouseEmail} onChange={(e) => setSpouseEmail(e.target.value)} />
         </div>
       </div>
 
       <RowSection<Child>
-        title="C. Name of Children"
+        title="C. Name of children"
         rows={children}
         empty={emptyChild}
         max={4}
@@ -426,7 +426,7 @@ export function MembershipForm({
         columns={[
           { key: "name", label: "Name" },
           { key: "sex", label: "Sex (M/F)" },
-          { key: "dateOfBirth", label: "Date of Birth", type: "date" },
+          { key: "dateOfBirth", label: "Date of birth", type: "date" },
           { key: "occupation", label: "Occupation" },
           { key: "phoneEmail", label: "Phone / Email" },
         ]}
@@ -434,7 +434,7 @@ export function MembershipForm({
       />
 
       <RowSection<Dependent>
-        title="D. Other Dependents (to be included in the Register)"
+        title="D. Other dependents (to be included in the Register)"
         rows={dependents}
         empty={emptyDependent}
         max={4}
@@ -442,7 +442,7 @@ export function MembershipForm({
         columns={[
           { key: "name", label: "Name" },
           { key: "sex", label: "Sex (M/F)" },
-          { key: "dateOfBirth", label: "Date of Birth", type: "date" },
+          { key: "dateOfBirth", label: "Date of birth", type: "date" },
           { key: "relationship", label: "Relationship" },
           { key: "phoneEmail", label: "Phone / Email" },
         ]}
@@ -450,7 +450,7 @@ export function MembershipForm({
       />
 
       <RowSection<Relative>
-        title="E. Any Other Relatives in Australia"
+        title="E. Any other relatives in Australia"
         rows={relatives}
         empty={emptyRelative}
         max={3}
@@ -464,10 +464,10 @@ export function MembershipForm({
         onChange={setRelative}
       />
 
-      <h2 className={band}>F. Subscription &amp; Declaration</h2>
+      <h2 className={band}>F. Subscription &amp; declaration</h2>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="subscription" className={label}>My Monthly Subscription ($) *{minDues != null ? ` (minimum $${minDues})` : ""}</label>
+          <label htmlFor="subscription" className={label}>My monthly subscription ($) *{minDues != null ? ` (minimum $${minDues})` : ""}</label>
           <Input id="subscription" type="number" min={minDues ?? 0} step="0.01" value={subscription} onChange={(e) => setSubscription(e.target.value)} required />
         </div>
       </div>

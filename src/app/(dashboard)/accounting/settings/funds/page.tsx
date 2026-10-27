@@ -76,7 +76,7 @@ export default async function FundsPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Sort Order</TableHead>
+              <TableHead>Sort order</TableHead>
               <TableHead>Entries</TableHead>
               <TableHead className="w-36" />
             </TableRow>

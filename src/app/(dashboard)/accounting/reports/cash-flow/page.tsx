@@ -200,7 +200,7 @@ export default async function CashFlowPage(props: Readonly<Props>) {
           {missingOb.map((p) => (
             <div key={p.account.id} className="p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
               ⚠ {p.account.name} has no opening balance set.{" "}
-              <Link href="/accounting/settings" className="underline font-medium">Set one in Accounting Settings →</Link>
+              <Link href="/accounting/settings" className="underline font-medium">Set one in Accounting settings →</Link>
             </div>
           ))}
         </div>

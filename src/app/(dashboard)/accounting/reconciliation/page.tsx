@@ -127,7 +127,7 @@ function ReconciliationEquationPanel({
     <div className="mb-4 p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
       Set an opening balance in{" "}
       <a href="/accounting/settings" className="underline font-medium">
-        Accounting Settings
+        Accounting settings
       </a>{" "}
       to use the reconciliation equation.
     </div>
@@ -169,7 +169,7 @@ export default async function ReconciliationPage(props: Readonly<{
         <div className="p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
           No payment accounts configured yet. Add one in{" "}
           <a href="/accounting/settings" className="underline font-medium">
-            Accounting Settings
+            Accounting settings
           </a>.
         </div>
       </div>

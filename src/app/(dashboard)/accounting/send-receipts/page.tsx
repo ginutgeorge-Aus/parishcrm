@@ -16,7 +16,7 @@ export default async function SendReceiptsPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-semibold text-foreground mb-6">Send Receipts</h2>
+      <h2 className="text-2xl font-semibold text-foreground mb-6">Send receipts</h2>
       <SendReceiptsClient accounts={accounts} />
     </div>
   )
