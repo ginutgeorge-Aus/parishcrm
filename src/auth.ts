@@ -316,8 +316,9 @@ export async function authorizeCredentials(
   // 10/min password throttle with its own 120/min bucket: on Render the
   // rightmost XFF entry is an internal proxy address (10.x) shared by many
   // visitors, so the password bucket locked the demo for everyone (#95).
+  const demoEmail = String(credentials.email).trim().toLowerCase()
   if (credentials.mode === "demo") {
-    const email = String(credentials.email)
+    const email = demoEmail
     if (!isDemoMode() || !isDemoEmail(email)) return null
     if (!(await loginIpAllowed(ip, "login:demo", 120))) return null
     const user = await prisma.user.findUnique({ where: { email } })
@@ -329,7 +330,7 @@ export async function authorizeCredentials(
   if (!(await loginIpAllowed(ip))) return null
 
   // Live demo users have no password path (one-click login is handled above).
-  if (isDemoMode() && isDemoEmail(String(credentials.email)) && credentials.mode !== "demo") {
+  if (isDemoMode() && isDemoEmail(demoEmail) && credentials.mode !== "demo") {
     // Shared public users: any password/OTP/TOTP attempt would bump lockout
     // counters and lock every visitor out of that role.
     return null

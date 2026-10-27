@@ -6,17 +6,17 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
-import { BANK_ACCOUNT_MAP_KEY, accountSuffix, parseAccountMap } from "@/lib/bankAccountMap"
+import { BANK_ACCOUNT_MAP_KEY, accountSuffix as toAccountSuffix, parseAccountMap } from "@/lib/bankAccountMap"
 
 /**
- * Remember which ParishCRM bank account a statement's account number belongs
- * to (last 4 digits only), so the next upload pre-selects it. Called by the
+ * Remember which ParishCRM bank account a statement belongs to, keyed by its
+ * account suffix (last 4 digits; a longer number is reduced to its last 4), so the next upload pre-selects it. Called by the
  * import wizard after a successful confirm. ADMIN/PASTOR; blocked in demo mode
  * and while bank import is off. Read-modify-write; a concurrent write from a
  * second admin is last-write-wins, which only costs a re-pick next time.
  */
 export async function rememberBankImportAccount(
-  accountNumber: string,
+  accountSuffix: string,
   paymentAccountId: number,
 ): Promise<{ error: string } | { success: true }> {
   const demo = assertNotDemo()
@@ -26,8 +26,8 @@ export async function rememberBankImportAccount(
   const off = await featureGuard("bankImport")
   if (off) return off
 
-  const suffix = typeof accountNumber === "string" ? accountSuffix(accountNumber) : null
-  if (!suffix) return { error: "Invalid account number" }
+  const suffix = typeof accountSuffix === "string" ? toAccountSuffix(accountSuffix) : null
+  if (!suffix) return { error: "Invalid account suffix" }
   if (!Number.isInteger(paymentAccountId) || paymentAccountId <= 0) return { error: "Invalid bank account" }
   const account = await prisma.paymentAccount.findFirst({
     where: { id: paymentAccountId, kind: "BANK", isActive: true },

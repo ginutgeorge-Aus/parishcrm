@@ -1198,6 +1198,12 @@ describe("authorizeCredentials — demo mode", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
+  it("trims and lowercases the demo email before the user lookup", async () => {
+    process.env.DEMO_MODE = "true"
+    await authorizeCredentials({ email: "  Admin@Demo.Invalid ", mode: "demo" })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "admin@demo.invalid" } })
+  })
+
   it("rejects a missing or archived demo user", async () => {
     process.env.DEMO_MODE = "true"
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce(null)
@@ -1235,6 +1241,17 @@ describe("authorizeCredentials — demo mode", () => {
     for (const mode of ["password", "otp", "totp", undefined]) {
       expect(await authorizeCredentials({ email: "admin@demo.invalid", password: "wrong", otp: "000000", code: "000000", mode })).toBeNull()
     }
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(prisma.user.updateMany).not.toHaveBeenCalled()
+    expect(sendOtpEmail).not.toHaveBeenCalled()
+  })
+
+  it("applies the password/otp guard to padded or mixed-case demo emails", async () => {
+    process.env.DEMO_MODE = "true"
+    for (const mode of ["password", "otp", "totp", undefined]) {
+      expect(await authorizeCredentials({ email: "  Admin@Demo.Invalid ", password: "wrong", otp: "000000", code: "000000", mode })).toBeNull()
+    }
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
     expect(prisma.user.update).not.toHaveBeenCalled()
     expect(prisma.user.updateMany).not.toHaveBeenCalled()
     expect(sendOtpEmail).not.toHaveBeenCalled()

@@ -97,15 +97,15 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
       <div className="band">A. Personal Particulars</div>
       <Line label="Name" value={pe.name} />
       <Line label="Sex" value={pe.gender} />
-      <Line label="Date of Birth" value={pe.dateOfBirth} />
+      <Line label="Date of birth" value={pe.dateOfBirth} />
       <Line label="E-mail ID" value={pe.email} />
       <Line label="Mobile" value={pe.mobile} />
       <Line label="Residential Address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
-      <Line label="Qualification & Profession" value={pe.qualificationProfession} />
+      <Line label="Qualification & profession" value={pe.qualificationProfession} />
       {(parishFields || pe.motherParish) && <Line label="Previous church" value={pe.motherParish} />}
       {(homeAddressLabel || pe.addressInIndia) && <Line label={ol.homeAddress} value={pe.addressInIndia} />}
       {(arrivalDateLabel || pe.dateOfArrivalNsw) && <Line label={ol.arrivalDate} value={pe.dateOfArrivalNsw} />}
-      <Line label="Marital Status" value={pe.maritalStatus} />
+      <Line label="Marital status" value={pe.maritalStatus} />
       {(parishFields || pe.transferCertFurnished != null) && (
         <Line label="Transfer letter provided" value={yesNo(pe.transferCertFurnished)} />
       )}
@@ -114,8 +114,8 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
         <>
           <div className="band">B. Details of Family (Spouse)</div>
           <Line label="Name of Spouse" value={p.spouse.name} />
-          <Line label="Date of Birth" value={p.spouse.dateOfBirth} />
-          <Line label="Date of Marriage" value={p.spouse.dateOfMarriage} />
+          <Line label="Date of birth" value={p.spouse.dateOfBirth} />
+          <Line label="Date of marriage" value={p.spouse.dateOfMarriage} />
           {(parishFields || p.spouse.parish) && <Line label="Spouse's church" value={p.spouse.parish} />}
           <Line label="Spouse working" value={yesNo(p.spouse.working)} />
           <Line label="Spouse E-mail ID" value={p.spouse.email} />
@@ -127,7 +127,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
           <div className="band">C. Name of Children</div>
           <table>
             <thead>
-              <tr><th>#</th><th>Name</th><th>Sex</th><th>Date of Birth</th><th>Occupation</th><th>Phone / Email</th></tr>
+              <tr><th>#</th><th>Name</th><th>Sex</th><th>Date of birth</th><th>Occupation</th><th>Phone / Email</th></tr>
             </thead>
             <tbody>
               {p.children.map((c, i) => (
@@ -140,10 +140,10 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
 
       {p.dependents.length > 0 && (
         <>
-          <div className="band">D. Other Dependents</div>
+          <div className="band">D. Other dependents</div>
           <table>
             <thead>
-              <tr><th>#</th><th>Name</th><th>Sex</th><th>Date of Birth</th><th>Relationship</th><th>Phone / Email</th></tr>
+              <tr><th>#</th><th>Name</th><th>Sex</th><th>Date of birth</th><th>Relationship</th><th>Phone / Email</th></tr>
             </thead>
             <tbody>
               {p.dependents.map((d, i) => (
@@ -170,8 +170,8 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
         </>
       )}
 
-      <div className="band">F. Subscription & Declaration</div>
-      <Line label="Monthly Subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : ""} />
+      <div className="band">F. Subscription & declaration</div>
+      <Line label="Monthly subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : ""} />
       <p style={{ fontStyle: "italic", margin: "8px 0" }}>
         I declare that the above information is true and correct to the best of my knowledge.
       </p>

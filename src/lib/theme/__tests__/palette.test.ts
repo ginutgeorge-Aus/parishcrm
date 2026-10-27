@@ -18,7 +18,7 @@ describe("theme/palette", () => {
     process.env = OLD_ENV
   })
 
-  it("uses neutral monochrome-slate defaults when no THEME_* env is set", async () => {
+  it("falls back to slate primary and terracotta accent when no THEME_* env is set", async () => {
     const p = await import("../palette")
     expect(p.PRIMARY_HEX).toBe("#1e293b") // slate-800
     expect(p.ACCENT_HEX).toBe("#cc6f50") // muted terracotta — visible rule/emphasis

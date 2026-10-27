@@ -32,7 +32,7 @@ export function RegistrationStats({ total, paid, cancelled, revenue, cardRevenue
               : "from paid registrations",
           },
           {
-            label: "Tickets Sold",
+            label: "Tickets sold",
             value: ticketsSold.reduce((s, t) => s + t.count, 0),
             sub: ticketsSold.map(t => `${t.name} ${t.count}`).join(" · "),
           },

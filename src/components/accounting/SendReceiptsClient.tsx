@@ -162,7 +162,7 @@ export function SendReceiptsClient({ accounts }: Readonly<{ accounts: Account[] 
             <table className="w-full min-w-table-wide text-sm">
               <thead className="bg-muted border-b border-border">
                 <tr>
-                  {["", "Date", "Description", "Account", "Amount", "Linked To", "Email", "Last Sent"].map((h) => (
+                  {["", "Date", "Description", "Account", "Amount", "Linked to", "Email", "Last sent"].map((h) => (
                     <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">
                       {h}
                     </th>

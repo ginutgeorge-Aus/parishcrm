@@ -51,7 +51,7 @@ export default async function AccountingSettingsPage() {
 
   return (
     <div className="max-w-xl space-y-6">
-      <h1 className="text-xl font-semibold text-foreground">Accounting Settings</h1>
+      <h1 className="text-xl font-semibold text-foreground">Accounting settings</h1>
 
       <div className="bg-card rounded-lg border border-border p-6">
         <h2 className="text-sm font-semibold text-muted-foreground mb-1">
@@ -62,7 +62,7 @@ export default async function AccountingSettingsPage() {
           The dashboard will show: opening balance + all income − all expenses recorded after that date.
         </p>
         <div className="flex gap-3 text-xs font-medium text-muted-foreground mb-1 ml-24">
-          <span className="w-36">Opening Amount</span>
+          <span className="w-36">Opening amount</span>
           <span>As-of date</span>
         </div>
         <OpeningBalanceForm accounts={accounts} balancesByAccountId={balancesByAccountId} />
