@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.6",
-    "astro": "^7.3.8",
+    "astro": "^7.4.1",
     "sharp": "^0.35.5",
     "starlight-links-validator": "^0.27.0"
   },
@@ -21,9 +21,9 @@
     "@astrojs/starlight-tailwind": "^5.0.0",
     "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
-    "@lucide/astro": "^1.55.0",
+    "@lucide/astro": "^1.59.0",
     "@tailwindcss/vite": "^4.3.3",
-    "playwright": "^1.64.0",
+    "playwright": "^1.64.1",
     "tailwindcss": "^4.3.3"
   },
   "overrides": {
