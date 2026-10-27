@@ -43,7 +43,7 @@ Sub-areas, each documented on its own page:
 
 ### Payment accounts and funds
 
-- **`PaymentAccount`**: a bank or cash account transactions are posted against (`kind`: `BANK` or `CASH`). Exactly one can be the default; only one active `CASH` account is allowed at a time (petty cash posts against it). Managed in Accounting Settings, ADMIN only.
+- **`PaymentAccount`**: a bank or cash account transactions are posted against (`kind`: `BANK` or `CASH`). Exactly one can be the default; only one active `CASH` account is allowed at a time (petty cash posts against it). Managed in Accounting settings, ADMIN only.
 - **`Fund`**: an optional secondary tag (e.g. "Building Fund", "Missions") independent of the account/category, so a gift or expense can be tracked both by category and by fund. The "General" fund cannot be renamed or deleted. A fund can't be deleted while any transaction or petty-cash entry still references it.
 
 ### Money handling
@@ -56,7 +56,7 @@ The FY start month is configurable per install via `APP_FY_START_MONTH` (`src/li
 
 ### Locking a period
 
-An ADMIN can set an **accounting lock date** (Accounting Settings → Period lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
+An ADMIN can set an **accounting lock date** (Accounting settings → Period lock). Any transaction, petty-cash entry, or reconciliation statement dated on or before that date becomes read-only — no create, edit, or delete — enforced server-side in every relevant action (`assertUnlocked` / `isDateLocked` in `src/lib/accountingLock.ts`), not just hidden in the UI. This is how a parish "closes the books" for a period after it's been reviewed.
 
 ### Audit trail
 

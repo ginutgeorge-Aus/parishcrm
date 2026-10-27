@@ -152,7 +152,7 @@ export default async function AccountsPage() {
         <div className="flex gap-3">
           {userIsAdmin && (
             <Button variant="outline" asChild>
-              <Link href="/accounting/accounts/groups">Manage Groups</Link>
+              <Link href="/accounting/accounts/groups">Manage groups</Link>
             </Button>
           )}
           {userIsAdmin && (

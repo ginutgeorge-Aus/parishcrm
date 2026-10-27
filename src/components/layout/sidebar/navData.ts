@@ -78,7 +78,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
           items: [
             { href: "/accounting/invoices", label: "Invoices", icon: FileText, show: isAccountingViewer && on("invoices") },
             { href: "/accounting/customers", label: "Customers", icon: Building2, show: isAccountingViewer && on("invoices") },
-            { href: "/accounting/send-receipts", label: "Send Receipts", icon: Send, show: isAccounting && on("receipts") },
+            { href: "/accounting/send-receipts", label: "Send receipts", icon: Send, show: isAccounting && on("receipts") },
             { href: "/accounting/dgr-receipts", label: "DGR Receipts", icon: ReceiptText, show: isAccountingViewer && on("dgrReceipts") },
             { href: "/accounting/receipt-audit", label: "Receipt Log", icon: History, show: isAccountingViewer && on("receipts") },
           ],
@@ -87,7 +87,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
           subLabel: "Admin",
           items: [
             { href: "/accounting/budget", label: "Budget", icon: PiggyBank, show: isAdmin && on("budget") },
-            { href: "/accounting/settings", label: "Accounting Settings", icon: SlidersHorizontal, show: isAdmin && acct },
+            { href: "/accounting/settings", label: "Accounting settings", icon: SlidersHorizontal, show: isAdmin && acct },
           ],
         },
       ],

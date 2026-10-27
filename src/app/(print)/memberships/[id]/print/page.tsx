@@ -94,13 +94,13 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
       </div>
       <div className="title">MEMBERSHIP REGISTRATION FORM</div>
 
-      <div className="band">A. Personal Particulars</div>
+      <div className="band">A. Personal particulars</div>
       <Line label="Name" value={pe.name} />
       <Line label="Sex" value={pe.gender} />
       <Line label="Date of birth" value={pe.dateOfBirth} />
       <Line label="E-mail ID" value={pe.email} />
       <Line label="Mobile" value={pe.mobile} />
-      <Line label="Residential Address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
+      <Line label="Residential address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
       <Line label="Qualification & profession" value={pe.qualificationProfession} />
       {(parishFields || pe.motherParish) && <Line label="Previous church" value={pe.motherParish} />}
       {(homeAddressLabel || pe.addressInIndia) && <Line label={ol.homeAddress} value={pe.addressInIndia} />}
@@ -112,19 +112,19 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
 
       {p.spouse && (
         <>
-          <div className="band">B. Details of Family (Spouse)</div>
-          <Line label="Name of Spouse" value={p.spouse.name} />
+          <div className="band">B. Details of family (spouse)</div>
+          <Line label="Name of spouse" value={p.spouse.name} />
           <Line label="Date of birth" value={p.spouse.dateOfBirth} />
           <Line label="Date of marriage" value={p.spouse.dateOfMarriage} />
           {(parishFields || p.spouse.parish) && <Line label="Spouse's church" value={p.spouse.parish} />}
           <Line label="Spouse working" value={yesNo(p.spouse.working)} />
-          <Line label="Spouse E-mail ID" value={p.spouse.email} />
+          <Line label="Spouse e-mail ID" value={p.spouse.email} />
         </>
       )}
 
       {p.children.length > 0 && (
         <>
-          <div className="band">C. Name of Children</div>
+          <div className="band">C. Name of children</div>
           <table>
             <thead>
               <tr><th>#</th><th>Name</th><th>Sex</th><th>Date of birth</th><th>Occupation</th><th>Phone / Email</th></tr>
@@ -156,7 +156,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
 
       {p.relativesInAustralia.length > 0 && (
         <>
-          <div className="band">E. Any Other Relatives in Australia</div>
+          <div className="band">E. Any other relatives in Australia</div>
           <table>
             <thead>
               <tr><th>#</th><th>Name</th><th>Place</th><th>Relationship</th><th>Phone / Email</th></tr>
@@ -186,7 +186,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
       <div className="office">
         <div style={{ fontWeight: "bold", color: PRIMARY_HEX }}>FOR OFFICE USE ONLY</div>
         {parishFields && <Line label="Transfer letter / NOC / Affidavit received" value="" />}
-        <Line label="Membership Registration No." value="" />
+        <Line label="Membership registration no." value="" />
         <Line label="Book No." value="" />
         <Line label="Date" value="" />
         <Line label={officeSignatureLabel(signerTitle)} value="" />

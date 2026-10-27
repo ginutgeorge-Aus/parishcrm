@@ -9,7 +9,7 @@ ParishCRM sends two distinct kinds of receipt: a **per-transaction email receipt
 
 ### Per-transaction receipts
 
-From the transaction list or detail page (or the bulk **Send Receipts** screen at `/accounting/send-receipts`), ADMIN/PASTOR can email a receipt for one or more transactions to a chosen address — usually a family's on-file email, but any address can be typed in for a single send. A batch send can cover up to 200 transactions in one go and reports how many succeeded/failed with a reason for each failure.
+From the transaction list or detail page (or the bulk **Send receipts** screen at `/accounting/send-receipts`), ADMIN/PASTOR can email a receipt for one or more transactions to a chosen address — usually a family's on-file email, but any address can be typed in for a single send. A batch send can cover up to 200 transactions in one go and reports how many succeeded/failed with a reason for each failure.
 
 - If the intended recipient's email-consent preference is off, the send is refused with an explicit "not consented" result rather than silently skipped — so an admin doing a batch run can see exactly who was excluded and why.
 - Resending the *same* receipt to the *same* address again within about ten seconds is treated as a no-op (protects against a double-click), and a batch containing the same transaction/recipient pair twice only sends it once.

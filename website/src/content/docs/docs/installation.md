@@ -122,7 +122,7 @@ done). In short, configure:
 - **Settings** — church details, branding (logo, letterhead, colours),
   welcome letter, membership form options, email templates, receipts. See
   [Settings and Branding](/parishcrm/docs/settings-and-branding/).
-- **Accounting → Accounting Settings** — bank/cash accounts, opening balances, period
+- **Accounting → Accounting settings** — bank/cash accounts, opening balances, period
   lock.
 
 Optional next steps: [Regional Configuration](/parishcrm/docs/regional-configuration/) (fiscal

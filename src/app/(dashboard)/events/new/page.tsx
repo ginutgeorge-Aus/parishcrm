@@ -15,7 +15,7 @@ export default async function NewEventPage() {
       <Link href="/events" className="text-xs text-muted-foreground hover:text-muted-foreground mb-1 inline-block">
         ← Events
       </Link>
-      <h1 className="text-2xl font-bold text-foreground mb-6">New Event</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">New event</h1>
       <EventForm action={createEvent} />
     </div>
   )

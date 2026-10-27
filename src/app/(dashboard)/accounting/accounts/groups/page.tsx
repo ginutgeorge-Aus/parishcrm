@@ -44,7 +44,7 @@ export default async function AccountGroupsPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
-              <TableHead>Sort Order</TableHead>
+              <TableHead>Sort order</TableHead>
               <TableHead>Accounts</TableHead>
               <TableHead className="w-36" />
             </TableRow>
@@ -85,7 +85,7 @@ export default async function AccountGroupsPage() {
               <div className="min-w-0">
                 <p className="font-medium">{g.name}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Sort Order: {g.sortOrder} · {g._count.accounts} account{g._count.accounts !== 1 ? "s" : ""}
+                  Sort order: {g.sortOrder} · {g._count.accounts} account{g._count.accounts !== 1 ? "s" : ""}
                 </p>
               </div>
               <Badge variant={g.type === "INCOME" ? "default" : "secondary"} className="shrink-0">{g.type}</Badge>

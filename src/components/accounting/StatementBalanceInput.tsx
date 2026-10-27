@@ -72,7 +72,7 @@ export function StatementBalanceInput({
     <div className="space-y-1">
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground w-52">
-          Statement Closing Balance
+          Statement closing balance
           <span className="block text-xs text-muted-foreground">as of {fmtStatementDate(statementDate)}</span>
         </span>
         {canEdit ? (
