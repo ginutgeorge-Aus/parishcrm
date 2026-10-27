@@ -159,6 +159,28 @@ describe("CLIENT_IP_HEADER — missing header warning", () => {
   })
 })
 
+describe("CLIENT_IP_HEADER — warning only for proxied requests", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  it("does not warn without x-forwarded-for, then warns once on the first proxied request", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    jest.isolateModules(() => {
+      const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
+      expect(mod.clientIpFromHeaders(new Headers())).toBe("unknown")
+      expect(warn).not.toHaveBeenCalled()
+      expect(mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1" }))).toBe("10.0.0.1")
+      expect(warn).toHaveBeenCalledTimes(1)
+      mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.2" }))
+      expect(warn).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
 describe("CLIENT_IP_HEADER — ignored names", () => {
   const saved = process.env.CLIENT_IP_HEADER
   afterEach(() => {

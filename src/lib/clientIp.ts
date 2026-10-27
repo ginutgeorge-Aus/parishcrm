@@ -76,7 +76,9 @@ function normalizeIp(value: string | undefined): string | undefined {
  * spoofable name (see `clientIpHeaderStatus`) is ignored. The rightmost non-empty entry is taken (so a
  * proxy that appends rather than overwrites still wins over a client-sent value), normalised via
  * `normalizeIp`, and accepted only when it is a well-formed IP. When the env is valid but the header
- * is missing/unusable, warns once per process (header name only, never the value) and returns undefined.
+ * is missing/unusable AND the request carries `x-forwarded-for` (i.e. it went through a proxy), warns once
+ * per process (header name only, never the value) and returns undefined. Requests with no proxy headers
+ * (e.g. a local health check) neither warn nor consume the once-only warning.
  * @param h anything with `get`
  * @returns the IP, or undefined when the env is unset/ignored or the header is missing/invalid
  */
@@ -86,7 +88,7 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const name = raw!.trim().toLowerCase()
   const entry = h.get(name)?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
   const ip = normalizeIp(entry)
-  if (!ip && !warnedConfiguredHeaderMissing) {
+  if (!ip && !warnedConfiguredHeaderMissing && h.get("x-forwarded-for") !== null) {
     warnedConfiguredHeaderMissing = true
     console.warn(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
