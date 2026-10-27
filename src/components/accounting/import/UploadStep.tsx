@@ -25,6 +25,18 @@ export type UploadResult = {
 type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean }
 type DateOrder = "DMY" | "MDY"
 
+/** Why Continue is blocked, shown as its aria-describedby hint; null when it is not blocked. */
+function continueBlockedHint(uploading: boolean, hasFile: boolean, hasAccount: boolean): string | null {
+  if (uploading) return "Reading your file…"
+  if (!hasFile) {
+    return hasAccount
+      ? "Choose a statement file to continue."
+      : "Choose a statement file and the ParishCRM bank account to continue."
+  }
+  if (!hasAccount) return "Select the ParishCRM bank account to continue."
+  return null
+}
+
 /** Step 2: upload one export file, show what was read, and pick/confirm the ParishCRM bank account. */
 export function UploadStep({
   source,
@@ -159,13 +171,7 @@ export function UploadStep({
   // aria-disabled (not disabled) keeps Continue focusable so keyboard and
   // screen-reader users can discover why it is blocked via the hint below.
   const continueBlocked = !parsed || !paymentAccountId || uploading
-  const continueHint = uploading
-    ? "Reading your file…"
-    : !parsed
-      ? paymentAccountId ? "Choose a statement file to continue." : "Choose a statement file and the ParishCRM bank account to continue."
-      : !paymentAccountId
-        ? "Select the ParishCRM bank account to continue."
-        : null
+  const continueHint = continueBlockedHint(uploading, !!parsed, !!paymentAccountId)
 
   return (
     <Card>
