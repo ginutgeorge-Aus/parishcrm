@@ -11,7 +11,7 @@ import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
 import { applyBulkSkip } from "@/lib/bankReviewFilter"
-import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds, } from "@/lib/bankImportDraft"
+import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
 // Pass-2 bankingName aliases shorter than this are too collision-prone to
