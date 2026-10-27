@@ -26,15 +26,16 @@ export function clientIpHeaderStatus(raw: string | undefined): "unset" | "invali
 /**
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
  * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
- * spoofable name (see `clientIpHeaderStatus`) is ignored. The value is trimmed (first entry if
- * comma-separated) and accepted only when it is a well-formed IP.
+ * spoofable name (see `clientIpHeaderStatus`) is ignored. The value is trimmed (rightmost entry if
+ * comma-separated, so a proxy that appends rather than overwrites still wins over a client-sent
+ * value) and accepted only when it is a well-formed IP.
  * @param h anything with `get`
  * @returns the IP, or undefined when the env is unset/ignored or the header is missing/invalid
  */
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const raw = process.env.CLIENT_IP_HEADER
   if (raw === undefined || clientIpHeaderStatus(raw) !== "ok") return undefined
-  const candidate = h.get(raw.trim().toLowerCase())?.split(",")[0]?.trim()
+  const candidate = h.get(raw.trim().toLowerCase())?.split(",").at(-1)?.trim()
   return candidate && isIP(candidate) !== 0 ? candidate : undefined
 }
 

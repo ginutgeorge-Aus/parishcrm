@@ -66,9 +66,9 @@ describe("CLIENT_IP_HEADER", () => {
     expect(auditIpFromHeaders(headers)).toBe("203.0.113.7")
     expect(getClientIp(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
   })
-  it("takes the first entry of a comma-separated value", () => {
+  it("takes the rightmost entry of a comma-separated value (client-sent entries come first)", () => {
     process.env.CLIENT_IP_HEADER = "true-client-ip"
-    expect(clientIpFromHeaders(hh({ "true-client-ip": "203.0.113.7, 198.51.100.1" }))).toBe("203.0.113.7")
+    expect(clientIpFromHeaders(hh({ "true-client-ip": "6.6.6.6, 203.0.113.7" }))).toBe("203.0.113.7")
   })
   it("set + missing header falls back to rightmost XFF", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
