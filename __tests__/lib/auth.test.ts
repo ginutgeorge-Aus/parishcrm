@@ -400,6 +400,30 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "Secretary@Example.com" } })
   })
 
+  it("OTP path: authenticates via the case-insensitive fallback and consumes the OTP", async () => {
+    const validOtpExpiry = new Date(Date.now() + 5 * 60 * 1000)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
+    ;(prisma.user.findMany as jest.Mock).mockResolvedValue([{
+      id: 5, name: "Secretary", email: "Admin@Example.com",
+      role: "VIEWER", failedLoginAttempts: 0, lockedUntil: null,
+      otpCode: "hashed:654321", otpExpiresAt: validOtpExpiry,
+    }])
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", otp: "654321" })
+    expect(result).toMatchObject({ id: "5", role: "VIEWER" })
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { email: { equals: "admin@EXAMPLE.com", mode: "insensitive" } },
+      take: 2,
+    })
+    // OTP consumed: guarded updateMany targets this user and clears the code.
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 5 }),
+        data: expect.objectContaining({ otpCode: null }),
+      })
+    )
+  })
+
   it("falls back to a single case-insensitive match (user stored as Admin@Example.com)", async () => {
     const passwordHash = await hash("correctpassword", 10)
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
