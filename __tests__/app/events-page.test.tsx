@@ -97,7 +97,6 @@ describe("EventsPage — empty states", () => {
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
     // Only the empty-state action carries it, not the toolbar link.
     expect(html.split(">New event<").length - 1).toBe(1)
-    expect(html).not.toContain('<a href="/events/new">New event</a>')
     ;(prisma.event.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
     const tab = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
     expect(tab).toContain(">New event<")

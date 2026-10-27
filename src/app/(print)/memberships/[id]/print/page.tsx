@@ -187,7 +187,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
         <div style={{ fontWeight: "bold", color: PRIMARY_HEX }}>FOR OFFICE USE ONLY</div>
         {parishFields && <Line label="Transfer letter / NOC / Affidavit received" value="" />}
         <Line label="Membership registration no." value="" />
-        <Line label="Book No." value="" />
+        <Line label="Book no." value="" />
         <Line label="Date" value="" />
         <Line label={officeSignatureLabel(signerTitle)} value="" />
       </div>

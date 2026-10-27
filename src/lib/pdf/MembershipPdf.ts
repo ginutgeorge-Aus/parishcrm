@@ -233,7 +233,7 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
   band("FOR OFFICE USE ONLY")
   if (m.parishFields) line("Transfer letter / NOC / Affidavit received", " ")
   line("Membership registration no.", " ")
-  line("Book No.", " ")
+  line("Book no.", " ")
   line("Date", " ")
   line(officeSignatureLabel(m.signerTitle), " ")
 }
