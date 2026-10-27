@@ -159,10 +159,10 @@ Sign in as the admin you created, then:
 
 - **Settings** — church details, branding (logo, letterhead), letters,
   membership, email templates, receipts
-- **Accounting → Accounting Settings** — bank/cash accounts, opening balances, period lock
+- **Accounting → Accounting settings** — bank/cash accounts, opening balances, period lock
 - **Accounting → Categories** — if you skipped the starter script, create a
-  group (**Manage Groups**) and a category, and a payment account under
-  **Accounting Settings → Payment Accounts**, before recording the first transaction
+  group (**Manage groups**) and a category, and a payment account under
+  **Accounting settings → Payment Accounts**, before recording the first transaction
 
 ### Passkeys
 

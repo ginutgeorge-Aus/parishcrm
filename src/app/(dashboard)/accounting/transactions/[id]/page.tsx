@@ -151,7 +151,7 @@ export default async function TransactionDetailPage(props: Readonly<Props>) {
       />
 
       <div>
-        <h2 className="text-lg font-semibold mb-3">Receipt History</h2>
+        <h2 className="text-lg font-semibold mb-3">Receipt history</h2>
         {receiptSends.length === 0 ? (
           <p className="text-sm text-muted-foreground">No receipts sent yet.</p>
         ) : (

@@ -53,11 +53,11 @@ export default async function ReconciliationReportPage(props: Readonly<{
   if (!selectedAccount) {
     return (
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-xl font-semibold text-foreground mb-4">Bank Reconciliation Report</h1>
+        <h1 className="text-xl font-semibold text-foreground mb-4">Bank reconciliation report</h1>
         <div className="p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
           No payment accounts configured yet. Add one in{" "}
           <Link href="/accounting/settings" className="underline font-medium">
-            Accounting Settings
+            Accounting settings
           </Link>.
         </div>
       </div>
@@ -231,7 +231,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
     <div className="max-w-3xl mx-auto">
       {/* Screen header */}
       <div className="mb-4 print:hidden">
-        <h1 className="text-xl font-semibold text-foreground">Bank Reconciliation Report</h1>
+        <h1 className="text-xl font-semibold text-foreground">Bank reconciliation report</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           {churchName} · {fyLabel}
         </p>
@@ -248,7 +248,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
 
       {/* Print header */}
       <div className="hidden print:block mb-4">
-        <h1 className="text-xl font-bold">Bank Reconciliation Report</h1>
+        <h1 className="text-xl font-bold">Bank reconciliation report</h1>
         <p className="text-sm text-muted-foreground">
           {churchName} · {selectedAccount.name} · {fyLabel}
         </p>
@@ -259,7 +259,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
         <div className="p-3 bg-warning/10 border border-warning/40 rounded text-sm text-warning">
           Set an opening balance in{" "}
           <Link href="/accounting/settings" className="underline font-medium">
-            Accounting Settings
+            Accounting settings
           </Link>{" "}
           to use this report.
         </div>
@@ -278,7 +278,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
       {openingBalance && savedStatement && calculated !== null && adjusted !== null && (
         <div className="space-y-6 text-sm">
           <div className="flex justify-between items-center p-4 bg-muted rounded-lg border border-border">
-            <span className="font-medium text-muted-foreground">Statement Closing Balance</span>
+            <span className="font-medium text-muted-foreground">Statement closing balance</span>
             <span className="tabular font-semibold">{fmt(statementClosing!)}</span>
           </div>
 
@@ -309,7 +309,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
               </table></div>
             )}
             <div className="px-4 py-2 bg-muted border-t border-border flex justify-between font-semibold">
-              <span>Total Outstanding Deposits</span>
+              <span>Total outstanding deposits</span>
               <span className="tabular text-income">+ {fmt(outstandingDepositsTotal)}</span>
             </div>
           </div>
@@ -341,19 +341,19 @@ export default async function ReconciliationReportPage(props: Readonly<{
               </table></div>
             )}
             <div className="px-4 py-2 bg-muted border-t border-border flex justify-between font-semibold">
-              <span>Total Outstanding Payments</span>
+              <span>Total outstanding payments</span>
               <span className="tabular text-expense">− {fmt(outstandingPaymentsTotal)}</span>
             </div>
           </div>
 
           <div className="flex justify-between items-center p-4 bg-info/10 rounded-lg border border-info/30">
-            <span className="font-semibold text-primary">Adjusted Bank Balance</span>
+            <span className="font-semibold text-primary">Adjusted bank balance</span>
             <span className="tabular font-bold text-primary text-base">{fmt(adjusted)}</span>
           </div>
 
           <div className="border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-2 bg-muted border-b border-border">
-              <h2 className="font-semibold text-muted-foreground">Book Balance (Calculated)</h2>
+              <h2 className="font-semibold text-muted-foreground">Book balance (calculated)</h2>
             </div>
             <div className="px-4 py-3 space-y-1.5">
               <div className="flex justify-between">
@@ -374,7 +374,7 @@ export default async function ReconciliationReportPage(props: Readonly<{
                 <span className="tabular text-expense">− {fmt(clearedOut)}</span>
               </div>
               <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
-                <span>Calculated Balance</span>
+                <span>Calculated balance</span>
                 <span className="tabular">{fmt(calculated)}</span>
               </div>
             </div>

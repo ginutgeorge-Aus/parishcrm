@@ -50,13 +50,13 @@ it("gives every link a unique icon and a unique href", () => {
 it("hides admin-only Accounting items when isAdmin is false", () => {
   const visible = flattenNavItems(groupItems({ ...allTrueFlags, isAdmin: false }, "Accounting")).filter((i) => i.show)
   expect(visible.map((i) => i.label)).not.toContain("Budget")
-  expect(visible.map((i) => i.label)).not.toContain("Accounting Settings")
+  expect(visible.map((i) => i.label)).not.toContain("Accounting settings")
 })
 
 it("shows the Reports hub to read-only accounting viewers (AUDITOR/OFFICE_ADMIN), not just mutation-capable roles", () => {
   const visible = flattenNavItems(groupItems({ ...allTrueFlags, isAccounting: false, isAccountingViewer: true }, "Accounting")).filter((i) => i.show)
   expect(visible.map((i) => i.label)).toContain("Reports")
-  expect(visible.map((i) => i.label)).not.toContain("Bank Import")
+  expect(visible.map((i) => i.label)).not.toContain("Bank import")
 })
 
 it("hides Families/People/Birthdays/Events from a role that can't view people (AUDITOR)", () => {

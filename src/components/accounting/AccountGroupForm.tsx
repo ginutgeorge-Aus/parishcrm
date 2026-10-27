@@ -57,7 +57,7 @@ export function AccountGroupForm({
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="sortOrder">Sort Order</Label>
+        <Label htmlFor="sortOrder">Sort order</Label>
         <Input
           id="sortOrder"
           name="sortOrder"

@@ -102,7 +102,7 @@ export default async function EventsPage(
           {/* With no events at all the empty state carries New event. */}
           {canEdit(session.user.role) && hasAnyEvents && (
             <Button asChild>
-              <Link href="/events/new">New Event</Link>
+              <Link href="/events/new">New event</Link>
             </Button>
           )}
         </div>

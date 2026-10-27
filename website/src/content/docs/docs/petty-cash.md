@@ -48,4 +48,4 @@ The CSV importer stamps each created row with an immutable `importKey` at creati
 
 ## Configuration
 
-The default petty-cash custodian (used by the weekly auto-open) is set in Accounting Settings, not via an environment variable. No dedicated environment variables.
+The default petty-cash custodian (used by the weekly auto-open) is set in Accounting settings, not via an environment variable. No dedicated environment variables.

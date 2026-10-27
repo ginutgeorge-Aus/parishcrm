@@ -62,12 +62,12 @@ export function SendReceiptDialog({
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <Mail className="w-4 h-4 mr-2" />
-          Send Receipt
+          Send receipt
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Send Receipt</DialogTitle>
+          <DialogTitle>Send receipt</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
