@@ -103,6 +103,12 @@ export function UploadStep({
   /** Accept a picked or dropped file and read it straight away. */
   function accept(f: File | undefined) {
     if (!f) return
+    // Drop the previous file's result up front so a rejected pick can't leave it ready to continue;
+    // bumping readSeq also discards any read still in flight.
+    readSeq.current++
+    setUploading(false)
+    setFile(null)
+    setParsed(null)
     if (!matchesAccept(f, cfg.accept)) {
       setError(`That file type isn't supported. Please choose a ${cfg.acceptLabel} file.`)
       return

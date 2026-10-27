@@ -138,6 +138,16 @@ describe("UploadStep", () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
+  it("drops the previous parse when a replacement file is rejected", async () => {
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
+    pick("a.ofx")
+    await screen.findByText(/1 row/)
+    pick("notes.txt")
+    expect(screen.getByRole("alert")).toHaveTextContent(/\.ofx, \.qfx/)
+    expect(screen.queryByText(/1 row/)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Continue to review" })).toBeDisabled()
+  })
+
   it("accepts a PDF by extension for ANZ", async () => {
     render(<UploadStep source="anz" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
     pick("Statement.PDF")

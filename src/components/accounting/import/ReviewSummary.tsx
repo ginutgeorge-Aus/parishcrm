@@ -1,7 +1,5 @@
-import { centsToNumber } from "@/lib/formatting"
+import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import type { ReviewStats } from "@/lib/bankReviewFilter"
-
-const AUD = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" })
 
 /** Stat tiles above the review table: rows, needs category, duplicates, in/out of rows to import. */
 export function ReviewSummary({ stats }: Readonly<{ stats: ReviewStats }>) {
@@ -13,8 +11,8 @@ export function ReviewSummary({ stats }: Readonly<{ stats: ReviewStats }>) {
       label: "In / Out",
       value: (
         <>
-          <span className="text-income">{AUD.format(centsToNumber(stats.incomeCents))}</span>{" "}
-          <span className="text-expense">{AUD.format(centsToNumber(stats.expenseCents))}</span>
+          <span className="text-income">{fmtAUD(centsToNumber(stats.incomeCents))}</span>{" "}
+          <span className="text-expense">{fmtAUD(centsToNumber(stats.expenseCents))}</span>
         </>
       ),
     },
