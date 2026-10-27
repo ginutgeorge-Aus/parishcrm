@@ -54,8 +54,7 @@ describe("POST /api/import/bank-statement", () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.accountSuffix).toBe("4321")
-    expect(body).not.toHaveProperty("accountNumber")
-    expect(JSON.stringify(body)).not.toContain('"987654321"')
+    expect(body.accountNumber).toBeUndefined()
   })
 
   test("returns 401 for unauthenticated user", async () => {

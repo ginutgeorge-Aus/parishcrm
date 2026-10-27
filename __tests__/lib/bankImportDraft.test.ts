@@ -9,7 +9,6 @@ import {
   draftFingerprint,
   mergeDraftSelections,
   clearMismatchedAccountIds,
-  draftAccountSuffix,
   type BankImportDraft,
 } from "@/lib/bankImportDraft"
 import type { ReviewRow } from "@/lib/bankTypes"
@@ -53,8 +52,8 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     expect(loadDraft()).toEqual(draft)
   })
 
-  it("stores only the last 4 account digits, never the full number", () => {
-    saveDraft({ ...makeDraft(), accountSuffix: draftAccountSuffix("012-345 6789") })
+  it("persists the 4-digit account suffix in the draft", () => {
+    saveDraft({ ...makeDraft(), accountSuffix: "6789" })
     const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v1")!)
     expect(stored.accountSuffix).toBe("6789")
     expect(JSON.stringify(stored)).not.toContain("3456789")

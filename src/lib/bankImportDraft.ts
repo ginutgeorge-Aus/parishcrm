@@ -59,12 +59,6 @@ export type BankImportDraft = {
   source?: ImportSource
 }
 
-/** Last 4 digits of a statement account number for the draft, or undefined when it has fewer. */
-export function draftAccountSuffix(accountNumber: string): string | undefined {
-  const digits = accountNumber.replace(/\D/g, "")
-  return digits.length >= 4 ? digits.slice(-4) : undefined
-}
-
 /** Persist the in-progress review (skipped when this exact content was already imported). */
 export function saveDraft(draft: BankImportDraft): void {
   try {

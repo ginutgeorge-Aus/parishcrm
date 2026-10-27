@@ -80,7 +80,7 @@ export function BankImportClient({
   const [view, setView] = useState<WizardStep>("source")
   const [source, setSource] = useState<ImportSource>("anz")
   // Last 4 digits of the parsed file's account (OFX/ANZ); "" for QIF or none.
-  // The full number never reaches the browser. Sent to rememberBankImportAccount
+  // Only the suffix is held here (row bankRefs still embed the number; tracked separately). Sent to rememberBankImportAccount
   // after a successful import and kept in the session-scoped review draft.
   const [accountSuffix, setAccountSuffix] = useState("")
   const [rows, setRows] = useState<ReviewRow[]>([])

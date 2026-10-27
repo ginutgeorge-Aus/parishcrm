@@ -16,7 +16,7 @@ export type UploadResult = {
   duplicateBankRefs: string[]
   possibleDuplicateBankRefs: string[]
   period: { from: string; to: string } | null
-  /** Last 4 digits of the file's account; "" when none. The full number never leaves the server. */
+  /** Last 4 digits of the file's account; "" when none. Row bankRefs still embed the full number (tracked separately). */
   accountSuffix: string
   paymentAccountId: number
   errors: string[]
@@ -87,7 +87,7 @@ export function UploadStep({
         duplicateBankRefs: data.duplicateBankRefs ?? [],
         possibleDuplicateBankRefs: data.possibleDuplicateBankRefs ?? [],
         period: data.period ?? null,
-        accountSuffix: typeof data.accountSuffix === "string" ? data.accountSuffix : "",
+        accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
@@ -162,7 +162,7 @@ export function UploadStep({
   const continueHint = uploading
     ? "Reading your file…"
     : !parsed
-      ? "Choose a statement file to continue."
+      ? paymentAccountId ? "Choose a statement file to continue." : "Choose a statement file and the ParishCRM bank account to continue."
       : !paymentAccountId
         ? "Select the ParishCRM bank account to continue."
         : null
@@ -253,7 +253,7 @@ export function UploadStep({
           <Button
             aria-disabled={continueBlocked ? "true" : undefined}
             aria-describedby={continueBlocked ? "import-continue-hint" : undefined}
-            className={cn(continueBlocked && "cursor-not-allowed opacity-50")}
+            className={cn(continueBlocked && "opacity-50 aria-disabled:pointer-events-none")}
             onClick={() => !continueBlocked && parsed && paymentAccountId && onComplete({
               rows: parsed.rows,
               duplicateBankRefs: parsed.duplicateBankRefs,
@@ -268,7 +268,7 @@ export function UploadStep({
           </Button>
         </div>
         {continueHint && (
-          <p id="import-continue-hint" className="text-right text-xs text-muted-foreground">{continueHint}</p>
+          <p id="import-continue-hint" aria-live="polite" className="text-right text-xs text-muted-foreground">{continueHint}</p>
         )}
       </CardContent>
     </Card>
