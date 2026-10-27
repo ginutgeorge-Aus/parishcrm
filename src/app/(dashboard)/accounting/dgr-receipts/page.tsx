@@ -86,7 +86,7 @@ export default async function DgrReceiptsPage(props: Readonly<Props>) {
             <table className="w-full min-w-table-wide text-sm">
               <thead className="bg-muted border-b border-border">
                 <tr>
-                  {["Receipt No", "FY", "Donor", "Amount", "Status", "Sent", "Actions"].map((h) => (
+                  {["Receipt no", "FY", "Donor", "Amount", "Status", "Sent", "Actions"].map((h) => (
                     <th
                       key={h}
                       className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground"

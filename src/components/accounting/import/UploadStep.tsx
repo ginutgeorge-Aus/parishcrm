@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import type { ParsedRow } from "@/lib/anzParser"
+import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment } from "@/lib/bankRefMask"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 import { radioGroupKeyDown } from "./radioKeys"
 import { IMPORT_SOURCES, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
@@ -16,8 +17,10 @@ export type UploadResult = {
   duplicateBankRefs: string[]
   possibleDuplicateBankRefs: string[]
   period: { from: string; to: string } | null
-  /** Last 4 digits of the file's account; "" when none. Row bankRefs still embed the full number (tracked separately). */
+  /** Last 4 digits of the file's account; "" when none. */
   accountSuffix: string
+  /** Sealed account number for confirm to restore the masked (`*<last4>`) row bankRefs; undefined when none. */
+  accountToken: string | undefined
   paymentAccountId: number
   errors: string[]
 }
@@ -94,12 +97,23 @@ export function UploadStep({
         setError(data.error ?? "Couldn't read this file.")
         return
       }
+      const accountToken: string | undefined =
+        typeof data.accountToken === "string" && data.accountToken.length > 0 && data.accountToken.length <= MAX_ACCOUNT_TOKEN_LENGTH
+          ? data.accountToken
+          : undefined
+      // Masked refs can't be restored at confirm without the token — fail the upload rather than reach review with unusable rows.
+      if (accountToken === undefined && data.rows.some((r: { bankRef?: unknown }) => typeof r?.bankRef === "string" && bankRefMaskSegment(r.bankRef) !== null)) {
+        setParsed(null)
+        setError("Couldn't read this file securely. Please re-upload it.")
+        return
+      }
       setParsed({
         rows: data.rows,
         duplicateBankRefs: data.duplicateBankRefs ?? [],
         possibleDuplicateBankRefs: data.possibleDuplicateBankRefs ?? [],
         period: data.period ?? null,
         accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
+        accountToken,
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
@@ -266,6 +280,7 @@ export function UploadStep({
               possibleDuplicateBankRefs: parsed.possibleDuplicateBankRefs,
               period: parsed.period,
               accountSuffix: parsed.accountSuffix,
+              accountToken: parsed.accountToken,
               paymentAccountId,
               errors: parsed.errors,
             })}

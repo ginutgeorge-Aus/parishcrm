@@ -115,6 +115,16 @@ describe("UploadStep", () => {
     pick()
     expect(await screen.findByRole("alert")).toHaveTextContent("go back and choose QIF")
   })
+  it("fails the upload when masked refs arrive without a usable account token", async () => {
+    const rows = [{ date: "2026-09-02", description: "X", details: "", amount: "1.00", type: "INCOME", bankRef: "OFX_*4321_20260902_1.00_X_1", dedupKey: "*4321_20260902_1.00_X" }]
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody({ rows, accountToken: 42 })) }) as never
+    const onComplete = jest.fn()
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={onComplete} />)
+    pick()
+    expect(await screen.findByRole("alert")).toHaveTextContent("re-upload")
+    expect(onComplete).not.toHaveBeenCalled()
+  })
+
   it("ignores a stale response that resolves after a newer request", async () => {
     let resolveFirst: (v: unknown) => void = () => {}
     const first = new Promise((r) => { resolveFirst = r })

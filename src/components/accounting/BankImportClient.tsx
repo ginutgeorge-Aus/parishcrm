@@ -80,9 +80,12 @@ export function BankImportClient({
   const [view, setView] = useState<WizardStep>("source")
   const [source, setSource] = useState<ImportSource>("anz")
   // Last 4 digits of the parsed file's account (OFX/ANZ); "" for QIF or none.
-  // Only the suffix is held here (row bankRefs still embed the number; tracked separately). Sent to rememberBankImportAccount
+  // Only the suffix is held here (row bankRefs are masked to `*<last4>`). Sent to rememberBankImportAccount
   // after a successful import and kept in the session-scoped review draft.
   const [accountSuffix, setAccountSuffix] = useState("")
+  // Sealed account number from the parse route ("" when none); sent back on
+  // confirm so the server can restore the masked bankRefs. Opaque here.
+  const [accountToken, setAccountToken] = useState<string | undefined>(undefined)
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -101,6 +104,7 @@ export function BankImportClient({
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
       if (draft.accountSuffix !== undefined) setAccountSuffix(draft.accountSuffix)
+      setAccountToken(draft.accountToken)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -115,9 +119,9 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken })
     }
-  }, [view, rows, period, paymentAccountId, accountSuffix, source])
+  }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken])
 
   /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
   function handleUploadComplete(upload: UploadResult) {
@@ -144,6 +148,7 @@ export function BankImportClient({
     setPeriod(upload.period)
     setPaymentAccountId(upload.paymentAccountId)
     setAccountSuffix(upload.accountSuffix)
+    setAccountToken(upload.accountToken)
     setParseErrors(upload.errors)
     setView("review")
   }
@@ -169,6 +174,7 @@ export function BankImportClient({
     setRows((prev) => applyBulkSkip(prev, skip, indices))
   }
 
+  /** POST the reviewed rows plus the sealed account token to the confirm route; clears the draft on success. */
   async function handleImport() {
     if (activeImport.current !== null) return
     const request = Symbol()
@@ -184,7 +190,7 @@ export function BankImportClient({
       const res = await fetch("/api/import/bank-statement/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rows.map((r) => ({ ...r, paymentAccountId }))),
+        body: JSON.stringify({ rows: rows.map((r) => ({ ...r, paymentAccountId })), accountToken }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -227,6 +233,7 @@ export function BankImportClient({
     setPeriod(null)
     setResult(null)
     setAccountSuffix("")
+    setAccountToken("")
     setSource("anz")
     setPaymentAccountId("")
     setView("source")
