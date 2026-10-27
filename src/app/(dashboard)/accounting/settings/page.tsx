@@ -62,7 +62,7 @@ export default async function AccountingSettingsPage() {
           The dashboard will show: opening balance + all income − all expenses recorded after that date.
         </p>
         <div className="flex gap-3 text-xs font-medium text-muted-foreground mb-1 ml-24">
-          <span className="w-36">Opening Amount</span>
+          <span className="w-36">Opening amount</span>
           <span>As-of date</span>
         </div>
         <OpeningBalanceForm accounts={accounts} balancesByAccountId={balancesByAccountId} />

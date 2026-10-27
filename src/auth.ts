@@ -318,7 +318,7 @@ export async function authorizeCredentials(
   // rightmost XFF entry is an internal proxy address (10.x) shared by many
   // visitors, so the password bucket locked the demo for everyone (#95).
   if (credentials.mode === "demo") {
-    const email = String(credentials.email)
+    const email = String(credentials.email).trim().toLowerCase()
     if (!isDemoMode() || !isDemoEmail(email)) return null
     if (!(await loginIpAllowed(ip, "login:demo", 120))) return null
     const user = await prisma.user.findUnique({ where: { email } })

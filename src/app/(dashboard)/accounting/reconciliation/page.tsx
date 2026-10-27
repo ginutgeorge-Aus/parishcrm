@@ -72,7 +72,7 @@ function ReconciliationEquationPanel({
     return (
       <div className="mb-4 p-4 bg-card rounded-lg border border-border">
         <h3 className="text-xs font-semibold text-muted-foreground mb-1">
-          Reconciliation Equation
+          Reconciliation equation
         </h3>
         <p className="text-xs text-muted-foreground mb-3">
           Book balance — opening balance plus every transaction this period. When it matches

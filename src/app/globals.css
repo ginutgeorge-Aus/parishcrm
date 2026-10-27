@@ -110,8 +110,12 @@
        brand colours via THEME_PRIMARY/THEME_ACCENT env (injected as a :root
        override by the root layout) with zero source edits (OSS Phase 2).
        Money has its own semantic green/red, never the accent hue.
-       All text pairs below are >= 4.5:1 (WCAG AA) — ratios are in the PR #316
-       description. */
+       All text pairs below are >= 4.5:1 (WCAG AA). Computed WCAG ratios:
+       foreground on background 15.10, on card 16.05; muted-foreground on
+       background 7.11, card 7.56, muted 6.66; income on card 4.97; expense on
+       card 6.28; warning on card 5.47, on background 5.14; info on card 5.95;
+       gold-foreground on gold 4.96. The terracotta accent as a focus ring or
+       border on card is 3.42:1 (above the 3:1 non-text minimum). */
     --background: 36 30% 93%;         /* warm cream #F2EDE5 */
     --foreground: 30 20% 12%;         /* warm near-black #251F19 */
     --card: 40 30% 99%;               /* warm white #FDFCFA — lighter than the bg, not pure white */

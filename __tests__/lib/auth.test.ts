@@ -1198,6 +1198,12 @@ describe("authorizeCredentials — demo mode", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
+  it("trims and lowercases the demo email before the user lookup", async () => {
+    process.env.DEMO_MODE = "true"
+    await authorizeCredentials({ email: "  Admin@Demo.Invalid ", mode: "demo" })
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "admin@demo.invalid" } })
+  })
+
   it("rejects a missing or archived demo user", async () => {
     process.env.DEMO_MODE = "true"
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValueOnce(null)

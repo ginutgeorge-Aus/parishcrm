@@ -84,7 +84,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
           <Field label="Address" value={[pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ")} />
           <Field label="Qualification & Profession" value={pe.qualificationProfession} />
           {(parishFields || pe.motherParish) && <Field label="Previous church" value={pe.motherParish} />}
-          <Field label="Marital Status" value={pe.maritalStatus} />
+          <Field label="Marital status" value={pe.maritalStatus} />
           <Field label={ol.homeAddress} value={pe.addressInIndia} />
           <Field label={ol.arrivalDate} value={pe.dateOfArrivalNsw} />
         </div>
@@ -116,7 +116,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
 
       {p.dependents.length > 0 && (
         <section className="rounded-md border p-4">
-          <h3 className="font-semibold mb-2">Other Dependents</h3>
+          <h3 className="font-semibold mb-2">Other dependents</h3>
           <ul className="text-sm list-disc pl-5">
             {p.dependents.map((d, i) => (
               <li key={i}>{[d.name, d.sex, d.dateOfBirth, d.relationship].filter(Boolean).join(" · ")}</li>
@@ -127,7 +127,7 @@ export default async function MembershipDetailPage({ params }: Readonly<{ params
 
       <section className="rounded-md border p-4">
         <h3 className="font-semibold mb-2">Subscription & Declaration</h3>
-        <Field label="Monthly Subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : null} />
+        <Field label="Monthly subscription" value={app.monthlyDues ? `$${app.monthlyDues.toString()}` : null} />
         <Field label="Signed at" value={[app.placeSigned, app.signedDate?.toLocaleDateString(APP_LOCALE)].filter(Boolean).join(" · ")} />
         <div className="mt-2">
           <span className="text-xs text-muted-foreground">Signature</span>

@@ -116,7 +116,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
       {/* Section 1: Details */}
       <section>
         <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
-          Event Details
+          Event details
         </h2>
         <div className="flex flex-col gap-4">
           <div className="grid gap-1.5">
@@ -299,10 +299,10 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         </div>
       </section>
 
-      {/* Section 2: Ticket Types */}
+      {/* Section 2: Ticket types */}
       <section>
         <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
-          Ticket Types <span className="text-xs text-muted-foreground font-normal">(optional — add to enable registration)</span>
+          Ticket types <span className="text-xs text-muted-foreground font-normal">(optional — add to enable registration)</span>
         </h2>
         <TicketTypesEditor rows={ticketRows} onAdd={addTicket} onRemove={removeTicket} onUpdate={updateTicket} />
       </section>
@@ -310,7 +310,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
       {/* Section 3: Bank Details */}
       <section>
         <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
-          Payment Details
+          Payment details
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="grid gap-1.5">
@@ -393,10 +393,10 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
         </div>
       </section>
 
-      {/* Section 4: Custom Questions */}
+      {/* Section 4: Custom questions */}
       <section>
         <h2 className="text-base font-semibold text-foreground mb-4 pb-2 border-b border-border">
-          Custom Questions <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+          Custom questions <span className="text-xs text-muted-foreground font-normal">(optional)</span>
         </h2>
         <CustomQuestionsEditor initial={defaultValues.customQuestions ?? []} ticketTypeNames={ticketNames} />
       </section>

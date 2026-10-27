@@ -8,10 +8,10 @@ import { PRODUCT_NAME } from "@/lib/settingsConstants"
 // own wrapper classes via `className` to preserve existing spacing/borders.
 // Server-rendered, so the copyright year is computed server-side (no hydration
 // mismatch) and rolls over automatically.
-// `compactOnMobile` hides the copyright line below the `sm` breakpoint so the
-// footer collapses to the single credit + privacy line on phones (dashboard).
 /**
- * Renders the shared site footer.
+ * Renders the shared site footer. `compactOnMobile` hides the copyright line
+ * below the `sm` breakpoint so the footer collapses to the single credit +
+ * privacy line on phones (dashboard).
  * @param churchName - Church name shown in the copyright line.
  * @param className - Wrapper classes supplied by the host layout.
  * @param compactOnMobile - Hide the copyright line below `sm` (keeps the privacy link).

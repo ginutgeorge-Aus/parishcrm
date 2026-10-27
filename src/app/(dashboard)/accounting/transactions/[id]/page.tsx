@@ -159,7 +159,7 @@ export default async function TransactionDetailPage(props: Readonly<Props>) {
             <table className="w-full text-sm">
               <thead className="bg-muted border-b border-border">
                 <tr>
-                  {["Sent To", "Sent At", "Sent By", "Status", "Error"].map((h) => (
+                  {["Sent to", "Sent at", "Sent by", "Status", "Error"].map((h) => (
                     <th key={h} className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">
                       {h}
                     </th>
