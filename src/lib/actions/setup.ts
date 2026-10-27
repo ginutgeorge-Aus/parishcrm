@@ -24,8 +24,8 @@ const SETUP_WINDOW_MS = 15 * 60_000
 const SetupSchema = z.object({
   token: z.string().max(256),
   name: z.string().trim().min(1, "Name is required").max(200, "Name is too long"),
-  // Not lower-cased: login looks the email up exactly as typed (same as createUser).
-  email: z.string().trim().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
+  // Trimmed + lower-cased on write, same as createUser; login tries an exact match then a case-insensitive one.
+  email: z.string().trim().toLowerCase().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
   password: z.string().max(128, "Password is too long").regex(PASSWORD_REGEX, PASSWORD_MSG),
 })
 

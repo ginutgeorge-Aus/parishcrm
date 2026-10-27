@@ -62,7 +62,7 @@ function clientIpFrom(request?: Request): string | undefined {
   return auditIpFromHeaders(request?.headers)
 }
 
-type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findFirst>>>
+type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
 
 async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
   const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
@@ -122,8 +122,30 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
   }
 }
 
+/**
+ * Resolve the login user for a typed email. `User.email` is unique only
+ * case-sensitively, so case-variant accounts (`Admin@x.com` and `admin@x.com`)
+ * can coexist. Lookup order: (1) exact match on the trimmed input, case kept;
+ * (2) otherwise a case-insensitive match, accepted only when exactly one row
+ * matches. Two or more is ambiguous and returns null (the caller treats it as
+ * invalid credentials); the email is never logged.
+ * @param trimmedEmail the submitted email, trimmed but with its original case
+ * @returns the matching user, or null when not found or ambiguous
+ */
+async function findLoginUser(trimmedEmail: string): Promise<DbUser | null> {
+  const exact = await prisma.user.findUnique({ where: { email: trimmedEmail } })
+  if (exact) return exact
+  const matches = await prisma.user.findMany({
+    where: { email: { equals: trimmedEmail, mode: "insensitive" } },
+    take: 2,
+  })
+  if (matches.length === 1) return matches[0]
+  if (matches.length > 1) logger.warn("credential login rejected", { reason: "ambiguous_email_case" })
+  return null
+}
+
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
-  const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { id: "asc" } })
+  const user = await findLoginUser(email)
   if (!user) {
     // burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
@@ -291,7 +313,8 @@ export async function authorizeCredentials(
   // Normalise once so every path (demo, password, OTP, TOTP) looks the user up
   // by the same trimmed, lowercased key. Lockout counters are keyed on user.id,
   // so case/space variants resolve to one account and share one counter.
-  const normalizedEmail = String(credentials.email).trim().toLowerCase()
+  const trimmedEmail = String(credentials.email).trim()
+  const normalizedEmail = trimmedEmail.toLowerCase()
 
   // IP-based throttle on the whole credentials path (password + OTP
   // steps) — the only prior ceiling was the per-account 5-attempt lock, which
@@ -342,12 +365,12 @@ export async function authorizeCredentials(
   }
 
   if (credentials.mode === "otp") {
-    const email = normalizedEmail
+    const email = trimmedEmail
     if (typeof credentials.otp !== "string") return null
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { id: "asc" } })
+    const user = await findLoginUser(email)
     if (!user) return null
     // a soft-deleted user must never authenticate. (Its email is also
     // tombstoned on archive, so this is defence-in-depth.)
@@ -410,7 +433,7 @@ export async function authorizeCredentials(
     // password check), an authenticator code is valid at any time — so this
     // step MUST re-verify the password in the same request.
     if (typeof credentials.code !== "string" || typeof credentials.password !== "string" || !credentials.password) return null
-    const user = await verifyPassword(normalizedEmail, credentials.password, ip)
+    const user = await verifyPassword(trimmedEmail, credentials.password, ip)
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
@@ -433,7 +456,7 @@ export async function authorizeCredentials(
 
   // Password step (default)
   if (!credentials?.password) return null
-  const user = await verifyPassword(normalizedEmail, credentials.password as string, ip)
+  const user = await verifyPassword(trimmedEmail, credentials.password as string, ip)
   if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.
