@@ -217,9 +217,11 @@ appends its own internal hop, that entry is a private address (e.g. `10.x`) and 
 one throttle bucket. Set `CLIENT_IP_HEADER` to a header your edge overwrites on every request,
 e.g. `CLIENT_IP_HEADER=cf-connecting-ip` when every request reaches the app through Cloudflare
 (e.g. your own proxied Cloudflare zone). Render's edge sends `cf-connecting-ip` too, but Render
-does not document it, so confirm the header on your own deployment first. Only set it if no route to the app bypasses
-that proxy/CDN (a direct origin URL, open port or a second proxy that passes the header through);
-otherwise clients can send the header themselves and dodge the rate limit. `x-forwarded-for`,
+does not document it, so confirm the header on your own deployment first. Only set it if no route
+to the app bypasses that proxy/CDN (a direct origin URL, open port or a second proxy that passes the
+header through); otherwise clients can send the header themselves and dodge the rate limit. If the
+header holds several values the app uses the rightmost, so a proxy behind your edge must pass it
+through unchanged, not append its own address. `x-forwarded-for`,
 `forwarded` and invalid header names are ignored, with a warning in the boot log. See
 `docs/environment.md`.
 
