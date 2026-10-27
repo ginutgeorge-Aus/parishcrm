@@ -23,20 +23,60 @@ export function clientIpHeaderStatus(raw: string | undefined): "unset" | "invali
   return "ok"
 }
 
+/** Set once the "configured header unusable" warning has fired, so it logs once per process. */
+let warnedConfiguredHeaderMissing = false
+
+/**
+ * Rightmost non-empty, trimmed `x-forwarded-for` entry (the one the trusted proxy appended). Empty
+ * entries are skipped so a trailing comma (`1.2.3.4,`) still yields `1.2.3.4`.
+ * @param h anything with `get`
+ * @returns the entry, or undefined when the header is absent or has no non-empty entries
+ */
+function rightmostXff(h: Pick<Headers, "get">): string | undefined {
+  return h.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
+}
+
+/**
+ * Normalises a candidate IP: trims, strips `[v6]`/`[v6]:port` brackets and an IPv4 `:port`, lowercases,
+ * and unwraps IPv4-mapped IPv6 (`::ffff:1.2.3.4` becomes `1.2.3.4`).
+ * @param value raw header entry (may be undefined)
+ * @returns the canonical IP, or undefined when it is not a well-formed IP
+ */
+function normalizeIp(value: string | undefined): string | undefined {
+  let v = value?.trim().toLowerCase()
+  if (!v) return undefined
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(v)
+  if (bracketed) v = bracketed[1]
+  else {
+    const v4Port = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(v)
+    if (v4Port) v = v4Port[1]
+  }
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v)
+  if (mapped) v = mapped[1]
+  return isIP(v) !== 0 ? v : undefined
+}
+
 /**
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
  * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
- * spoofable name (see `clientIpHeaderStatus`) is ignored. The value is trimmed (rightmost entry if
- * comma-separated, so a proxy that appends rather than overwrites still wins over a client-sent
- * value) and accepted only when it is a well-formed IP.
+ * spoofable name (see `clientIpHeaderStatus`) is ignored. The rightmost non-empty entry is taken (so a
+ * proxy that appends rather than overwrites still wins over a client-sent value), normalised via
+ * `normalizeIp`, and accepted only when it is a well-formed IP. When the env is valid but the header
+ * is missing/unusable, warns once per process (header name only, never the value) and returns undefined.
  * @param h anything with `get`
  * @returns the IP, or undefined when the env is unset/ignored or the header is missing/invalid
  */
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const raw = process.env.CLIENT_IP_HEADER
-  if (raw === undefined || clientIpHeaderStatus(raw) !== "ok") return undefined
-  const candidate = h.get(raw.trim().toLowerCase())?.split(",").at(-1)?.trim()
-  return candidate && isIP(candidate) !== 0 ? candidate : undefined
+  if (clientIpHeaderStatus(raw) !== "ok") return undefined
+  const name = raw!.trim().toLowerCase()
+  const entry = h.get(name)?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
+  const ip = normalizeIp(entry)
+  if (!ip && !warnedConfiguredHeaderMissing) {
+    warnedConfiguredHeaderMissing = true
+    console.warn(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
+  }
+  return ip
 }
 
 /**
@@ -48,8 +88,7 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
   const configured = configuredHeaderIp(h)
   if (configured) return configured
-  const last = h.get("x-forwarded-for")?.split(",").at(-1)?.trim()
-  return last || "unknown"
+  return rightmostXff(h) || "unknown"
 }
 
 /**
@@ -75,7 +114,5 @@ export function auditIpFromHeaders(h?: Pick<Headers, "get"> | null): string | un
   if (!h) return undefined
   const configured = configuredHeaderIp(h)
   if (configured) return configured
-  const candidate = h.get("x-forwarded-for")?.split(",").at(-1)?.trim()
-  if (!candidate) return undefined
-  return isIP(candidate) !== 0 ? candidate : undefined
+  return normalizeIp(rightmostXff(h))
 }

@@ -9,11 +9,12 @@ describe("auditIpFromHeaders", () => {
   })
   it("accepts IPv6", () => {
     expect(auditIpFromHeaders(h("2001:db8::1"))).toBe("2001:db8::1")
-    expect(auditIpFromHeaders(h("::ffff:192.0.2.128"))).toBe("::ffff:192.0.2.128")
+    expect(auditIpFromHeaders(h("::ffff:192.0.2.128"))).toBe("192.0.2.128")
   })
   it("drops malformed values", () => {
     expect(auditIpFromHeaders(h("1.2.3.4, not-an-ip"))).toBeUndefined()
-    expect(auditIpFromHeaders(h("1.2.3.4,"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4, "))).toBe("1.2.3.4")
+    expect(auditIpFromHeaders(h(","))).toBeUndefined()
     expect(auditIpFromHeaders(h("999.999.999.999"))).toBeUndefined()
     expect(auditIpFromHeaders(h(":"))).toBeUndefined()
     expect(auditIpFromHeaders(h("1::2::3"))).toBeUndefined()
@@ -37,7 +38,11 @@ describe("clientIpFromHeaders", () => {
   })
   it("falls back to unknown when absent or empty", () => {
     expect(clientIpFromHeaders(h())).toBe("unknown")
-    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
+    expect(clientIpFromHeaders(h(","))).toBe("unknown")
+  })
+  it("skips empty entries (trailing comma)", () => {
+    expect(clientIpFromHeaders(h("1.2.3.4,"))).toBe("1.2.3.4")
+    expect(auditIpFromHeaders(h("1.2.3.4,"))).toBe("1.2.3.4")
   })
 })
 
@@ -95,6 +100,62 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     expect(clientIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
     expect(auditIpFromHeaders(hh({ "cf-connecting-ip": "2001:db8::1" }))).toBe("2001:db8::1")
+  })
+})
+
+describe("CLIENT_IP_HEADER — normalisation", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  beforeEach(() => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  const cases: [string, string][] = [
+    ["203.0.113.7:51234", "203.0.113.7"],
+    ["[2001:db8::1]:443", "2001:db8::1"],
+    ["[2001:db8::1]", "2001:db8::1"],
+    ["2001:DB8::A", "2001:db8::a"],
+    ["::ffff:1.2.3.4", "1.2.3.4"],
+    ["::FFFF:1.2.3.4", "1.2.3.4"],
+    ["6.6.6.6, 203.0.113.7,", "203.0.113.7"],
+  ]
+  it.each(cases)("%s -> %s", (input, expected) => {
+    const headers = new Headers({ "cf-connecting-ip": input })
+    expect(clientIpFromHeaders(headers)).toBe(expected)
+    expect(auditIpFromHeaders(headers)).toBe(expected)
+  })
+  it("rejects a non-IP with a port-like suffix", () => {
+    expect(auditIpFromHeaders(new Headers({ "cf-connecting-ip": "evil:80" }))).toBeUndefined()
+  })
+  it("audit XFF fallback is normalised too", () => {
+    delete process.env.CLIENT_IP_HEADER
+    expect(auditIpFromHeaders(h("::ffff:1.2.3.4"))).toBe("1.2.3.4")
+  })
+})
+
+describe("CLIENT_IP_HEADER — missing header warning", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  it("falls back to XFF and warns once per process, without the value", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    jest.isolateModules(() => {
+      const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
+      const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage-value" })
+      expect(mod.clientIpFromHeaders(headers)).toBe("10.0.0.1")
+      expect(mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.2" }))).toBe("10.0.0.2")
+    })
+    expect(warn).toHaveBeenCalledTimes(1)
+    const msg = String(warn.mock.calls[0][0])
+    expect(msg).toContain("cf-connecting-ip")
+    expect(msg).toContain("x-forwarded-for")
+    expect(msg).not.toContain("garbage-value")
   })
 })
 
