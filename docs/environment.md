@@ -39,15 +39,21 @@ NEXT_PUBLIC_GIT_SHA       # commit SHA shown in Settings
 ## CLIENT_IP_HEADER
 
 Login throttling and audit-log IPs use the client IP. By default the app reads the rightmost
-`x-forwarded-for` entry, which is correct when your reverse proxy is the last hop. Some platforms
+`x-forwarded-for` entry. That is only trustworthy when your trusted reverse proxy appends or sets the
+real client IP as that rightmost entry (e.g. nginx `proxy_set_header X-Forwarded-For
+$proxy_add_x_forwarded_for;` or `$remote_addr`); a proxy that passes the client's own header through
+unchanged makes it spoofable. Some platforms
 append their own internal hop (e.g. Render: the rightmost entry is a private `10.x` address), so every
 login shares one throttle bucket and audit IPs are useless. Set `CLIENT_IP_HEADER` to the name of a
 header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip`) to use that instead.
 
-**Security rule:** the outermost trusted proxy/CDN must **overwrite** that header on every request
-(never append to it or pass the client's value through), and the app must not be reachable any other
-way that bypasses that proxy (e.g. a direct `*.onrender.com` hostname, an open port). Otherwise clients
-can send the header themselves and dodge rate limits. If the header holds several comma-separated
+**Security rule (applies whether or not `CLIENT_IP_HEADER` is set):** the app must not be reachable
+any way that bypasses your trusted proxy (e.g. a direct `*.onrender.com` hostname, an open port);
+otherwise clients can send the header themselves and dodge rate limits. When `CLIENT_IP_HEADER` is
+set, the outermost trusted proxy/CDN must also **overwrite** that header on every request (never
+append to it or pass the client's value through). This holds for any name you choose, not only
+`x-forwarded-for`/`forwarded` (e.g. `x-original-forwarded-for`): a header is trusted only if the
+outermost proxy overwrites it on every request. If the header holds several comma-separated
 values the app uses the rightmost, and it must be a valid IP.
 
 - A missing or non-IP header value falls back to `x-forwarded-for`. A one-time warning is logged only
