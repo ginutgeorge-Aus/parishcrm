@@ -3,7 +3,7 @@ import { currentKeyId } from "@/lib/crypto"
 import { isResendConfigured } from "@/lib/mailConfig"
 import { schedulerEnabled } from "@/lib/schedulerFlag"
 import { isDemoMode } from "@/lib/demoMode"
-import { clientIpHeaderStatus } from "@/lib/clientIp"
+import { clientIpHeaderStatus, isPassthroughIpHeader } from "@/lib/clientIp"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -272,6 +272,8 @@ export function collectEnvWarnings(): string[] {
     warnings.push("CLIENT_IP_HEADER is not a valid HTTP header name — it is ignored and the client IP comes from the rightmost x-forwarded-for entry")
   } else if (ipHeaderStatus === "spoofable") {
     warnings.push("CLIENT_IP_HEADER names a client-controlled header (x-forwarded-for/forwarded) — it is ignored; leave it unset for rightmost x-forwarded-for, or name a header your proxy overwrites (e.g. cf-connecting-ip)")
+  } else if (ipHeaderStatus === "ok" && isPassthroughIpHeader(process.env.CLIENT_IP_HEADER)) {
+    warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
   }
 
   if (isDemoMode()) {

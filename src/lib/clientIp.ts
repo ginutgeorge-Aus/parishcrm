@@ -8,6 +8,10 @@ const HEADER_NAME_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/
 // rate limit on a spoofable value, so they are never honoured (the default XFF path handles XFF).
 const SPOOFABLE_HEADERS = new Set(["x-forwarded-for", "forwarded"])
 
+// Headers some proxies set but others pass through from the client untouched. Still honoured (nginx
+// commonly overwrites x-real-ip), but surfaced as a boot warning so the operator confirms it.
+const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip"])
+
 /**
  * Why the `CLIENT_IP_HEADER` env value is ignored, if it is. Shared by the runtime lookup and the
  * boot-time warning in `envCheck.collectEnvWarnings`.
@@ -21,6 +25,16 @@ export function clientIpHeaderStatus(raw: string | undefined): "unset" | "invali
   if (!HEADER_NAME_TOKEN.test(name)) return "invalid"
   if (SPOOFABLE_HEADERS.has(name)) return "spoofable"
   return "ok"
+}
+
+/**
+ * Whether `CLIENT_IP_HEADER` names a header that is only safe when the outermost proxy overwrites it
+ * (e.g. `x-real-ip`). Used for the boot-time warning in `envCheck.collectEnvWarnings`.
+ * @param raw the raw env value (may be undefined)
+ * @returns true for a known passthrough-prone header name
+ */
+export function isPassthroughIpHeader(raw: string | undefined): boolean {
+  return PASSTHROUGH_HEADERS.has(raw?.trim().toLowerCase() ?? "")
 }
 
 /** Set once the "configured header unusable" warning has fired, so it logs once per process. */

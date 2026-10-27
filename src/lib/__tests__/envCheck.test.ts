@@ -184,4 +184,8 @@ describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "X-Forwarded-For"
     expect(ipWarnings()).toEqual([expect.stringContaining("client-controlled header")])
   })
+  it("warns (but still honours) a passthrough-prone header like x-real-ip", () => {
+    process.env.CLIENT_IP_HEADER = " X-Real-IP "
+    expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
+  })
 })
