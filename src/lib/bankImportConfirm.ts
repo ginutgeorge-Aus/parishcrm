@@ -119,7 +119,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const body = parsed.data
   const rows = Array.isArray(body) ? body : body.rows
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
-    return { ok: false, status: 400, error: "Invalid request data" }
+    return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
   }
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length

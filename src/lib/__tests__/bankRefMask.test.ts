@@ -5,6 +5,7 @@ import {
   accountMask,
   bankRefMaskSegment,
   hasUnmaskedAccount,
+  IMPORT_REF_PREFIX_RE,
   maskBankRef,
   maskContentKey,
   unmaskBankRef,
@@ -49,6 +50,13 @@ describe("maskBankRef / unmaskBankRef", () => {
   it("accountMask keeps only the last 4 characters", () => {
     expect(accountMask(ACCT)).toBe("*4321")
     expect(accountMask("12")).toBe("*12")
+  })
+
+  it("only recognises masks under ANZ_/ANZTR_/OFX_ (QIF passes through)", () => {
+    expect(bankRefMaskSegment("QIF_*1234_1_2_3_4")).toBeNull()
+    expect(unmaskBankRef("QIF_*1234_1_2_3_4", ACCT)).toBe("QIF_*1234_1_2_3_4")
+    expect(bankRefMaskSegment("OFX_*4321_1_2_3_4")).toBe("*4321")
+    expect(IMPORT_REF_PREFIX_RE.test("QIF_x")).toBe(true)
   })
 
   it("hasUnmaskedAccount flags raw ANZ/ANZTR/OFX account segments only", () => {

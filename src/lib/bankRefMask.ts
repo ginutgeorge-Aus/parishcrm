@@ -12,7 +12,8 @@
 // `*` never occurs in a real account segment (ANZ strips to digits, OFX to
 // [A-Za-z0-9]) and the mask holds no `_`, so field positions are unchanged.
 
-const PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
+/** Every import-ref prefix (ANZ/ANZTR/OFX/QIF); shared with `contentKeyFromBankRef` in anzParser.ts. */
+export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
 // Prefixes whose account segment is a real bank account number. QIF uses
 // `PA<paymentAccountId>` (an internal id), which is never sensitive.
 const SENSITIVE_PREFIX_RE = /^(?:ANZ|ANZTR|OFX)_/
@@ -53,14 +54,14 @@ export function maskContentKey(key: string, accountNumber: string): string {
  * masked refs (the draft merge keys on bankRef). Non-import refs pass through.
  */
 export function maskBankRef(ref: string, accountNumber: string): string {
-  const prefix = PREFIX_RE.exec(ref)
+  const prefix = IMPORT_REF_PREFIX_RE.exec(ref)
   if (!prefix) return ref
   return prefix[0] + maskContentKey(ref.slice(prefix[0].length), accountNumber)
 }
 
-/** The `*<last4>` mask segment of a masked import bankRef, or null when the ref carries no mask. */
+/** The `*<last4>` mask segment of a masked ANZ_/ANZTR_/OFX_ bankRef, or null when the ref carries no mask (QIF refs never do). */
 export function bankRefMaskSegment(ref: string): string | null {
-  const prefix = PREFIX_RE.exec(ref)
+  const prefix = SENSITIVE_PREFIX_RE.exec(ref)
   if (!prefix) return null
   const parts = splitFirstSegment(ref.slice(prefix[0].length))
   return parts && MASK_SEGMENT_RE.test(parts.head) ? parts.head : null
@@ -75,7 +76,7 @@ export function unmaskBankRef(ref: string, accountNumber: string): string | null
   const segment = bankRefMaskSegment(ref)
   if (segment === null) return ref
   if (!accountNumber || segment !== accountMask(accountNumber)) return null
-  const prefix = PREFIX_RE.exec(ref)![0]
+  const prefix = SENSITIVE_PREFIX_RE.exec(ref)![0]
   return prefix + accountNumber + ref.slice(prefix.length + segment.length)
 }
 

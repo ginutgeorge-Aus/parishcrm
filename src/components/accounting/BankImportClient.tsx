@@ -85,7 +85,7 @@ export function BankImportClient({
   const [accountSuffix, setAccountSuffix] = useState("")
   // Sealed account number from the parse route ("" when none); sent back on
   // confirm so the server can restore the masked bankRefs. Opaque here.
-  const [accountToken, setAccountToken] = useState("")
+  const [accountToken, setAccountToken] = useState<string | undefined>(undefined)
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -104,7 +104,7 @@ export function BankImportClient({
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
       if (draft.accountSuffix !== undefined) setAccountSuffix(draft.accountSuffix)
-      if (draft.accountToken !== undefined) setAccountToken(draft.accountToken)
+      setAccountToken(draft.accountToken)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -119,7 +119,7 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken: accountToken || undefined })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken })
     }
   }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken])
 
@@ -190,7 +190,7 @@ export function BankImportClient({
       const res = await fetch("/api/import/bank-statement/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: rows.map((r) => ({ ...r, paymentAccountId })), accountToken: accountToken || undefined }),
+        body: JSON.stringify({ rows: rows.map((r) => ({ ...r, paymentAccountId })), accountToken }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))

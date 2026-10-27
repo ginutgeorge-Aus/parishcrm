@@ -186,7 +186,7 @@ describe("confirm token validation", () => {
     paymentAccountId: 1,
     skip: false,
   }
-  const invalid = { ok: false, status: 400, error: "Invalid request data" }
+  const invalid = { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
 
   it("rejects masked rows with no token", async () => {
     expect(await confirmBankImport({ rows: [maskedRow] })).toEqual(invalid)
@@ -210,6 +210,15 @@ describe("confirm token validation", () => {
     const result = await confirmBankImport({ rows: [maskedRow], accountToken: sealAccountNumber("111122223333") })
     expect(result).toEqual(invalid)
     expect(createMany).not.toHaveBeenCalled()
+  })
+
+  it("keeps the generic error for schema failures", async () => {
+    expect(await confirmBankImport({ rows: "nope" })).toEqual({ ok: false, status: 400, error: "Invalid request data" })
+  })
+
+  it("treats a QIF ref with a mask-looking segment as an ordinary ref", async () => {
+    const result = await confirmBankImport({ rows: [{ ...maskedRow, bankRef: "QIF_*1234_20260905_10.00_SHOP_1" }] })
+    expect(result).toEqual({ ok: true, imported: 1, skipped: 0, duplicates: 0 })
   })
 
   it("passes unmasked rows through without a token", async () => {
