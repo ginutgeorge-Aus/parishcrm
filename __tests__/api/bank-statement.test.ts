@@ -8,7 +8,11 @@ import { parseAnzStatement } from "@/lib/anzParser"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
-  prisma: { transaction: { findMany: jest.fn() } },
+  prisma: {
+    transaction: { findMany: jest.fn() },
+    appSetting: { findUnique: jest.fn().mockResolvedValue(null) },
+    paymentAccount: { findFirst: jest.fn().mockResolvedValue(null) },
+  },
 }))
 jest.mock("unpdf", () => ({
   extractText: jest.fn().mockResolvedValue({ text: ["MOCK PDF TEXT"] }),
@@ -66,7 +70,7 @@ describe("POST /api/import/bank-statement", () => {
   })
 
   test("returns parsed rows and marks existing bankRefs as duplicates", async () => {
-    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([{ bankRef: mockRow.bankRef }])
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValueOnce([{ bankRef: mockRow.bankRef }])
     const formData = new FormData()
     formData.append("file", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "test.pdf")
     const res = await POST(new Request("http://localhost", { method: "POST", body: formData, headers: { "content-length": "1024" } }))
@@ -107,7 +111,7 @@ describe("POST /api/import/bank-statement", () => {
       accountNumber: "987654321",
       errors: [],
     })
-    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValueOnce([
       { bankRef: "ANZ_987654321_20260608_300.00_PAYMENTFROMBRUNO_1030000" },
     ])
     const formData = new FormData()
