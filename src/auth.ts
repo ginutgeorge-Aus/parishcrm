@@ -62,7 +62,7 @@ function clientIpFrom(request?: Request): string | undefined {
   return auditIpFromHeaders(request?.headers)
 }
 
-type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
+type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findFirst>>>
 
 async function recordOtpFailure(userId: number, reason: string, ip: string | undefined): Promise<void> {
   const { failedOtpAttempts: newOtpAttempts } = await prisma.user.update({
@@ -123,7 +123,7 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
 }
 
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
-  const user = await prisma.user.findUnique({ where: { email } })
+  const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { id: "asc" } })
   if (!user) {
     // burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
@@ -347,7 +347,7 @@ export async function authorizeCredentials(
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const user = await prisma.user.findUnique({ where: { email } })
+    const user = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { id: "asc" } })
     if (!user) return null
     // a soft-deleted user must never authenticate. (Its email is also
     // tombstoned on archive, so this is defence-in-depth.)
