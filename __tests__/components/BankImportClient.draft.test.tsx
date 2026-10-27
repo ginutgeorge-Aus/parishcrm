@@ -152,7 +152,7 @@ describe("BankImportClient draft persistence", () => {
     expect(sessionStorage.getItem("bankImportDraft.v1")).not.toBeNull()
   })
 
-  it("persists accountNumber and source in the draft", async () => {
+  it("persists accountSuffix and source in the draft", async () => {
     seedDraft([makeRow({ accountId: null })], { accountSuffix: "0111", source: "ofx" })
     const user = userEvent.setup()
     render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
@@ -174,7 +174,7 @@ describe("BankImportClient draft persistence", () => {
     expect(screen.getByTestId("upload-step")).toHaveAttribute("data-source", "ofx")
   })
 
-  it("remembers the restored account number after a successful import", async () => {
+  it("remembers the restored account suffix after a successful import", async () => {
     seedDraft([makeRow()], { accountSuffix: "0111", source: "ofx" })
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) }) as jest.Mock
     const user = userEvent.setup()

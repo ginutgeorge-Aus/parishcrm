@@ -33,7 +33,7 @@ beforeEach(() => {
     return Promise.resolve({ ok: true, json: () => Promise.resolve({
       rows: [{ date: "2026-09-02", description: "X", details: "", amount: "1.00", type: "INCOME", bankRef: "OFX_a", dedupKey: "a" }],
       duplicateBankRefs: [], possibleDuplicateBankRefs: [], period: { from: "2026-09-01", to: "2026-09-30" },
-      accountNumber: "000111224821", suggestedPaymentAccountId: null, dateFormatAmbiguous: false, errors: [],
+      accountSuffix: "4821", suggestedPaymentAccountId: null, dateFormatAmbiguous: false, errors: [],
     }) })
   }) as never
 })
@@ -52,14 +52,14 @@ it("walks Source → Upload → Review → Done and remembers the account", asyn
   fireEvent.click(screen.getAllByRole("button", { name: "Import 1 transaction" })[0])
   expect(await screen.findByText(/Step 4 of 4/)).toBeInTheDocument()
   expect(screen.getByText("Import complete")).toBeInTheDocument()
-  await waitFor(() => expect(rememberBankImportAccount).toHaveBeenCalledWith("000111224821", 1))
+  await waitFor(() => expect(rememberBankImportAccount).toHaveBeenCalledWith("4821", 1))
 })
 
 it("marks possible duplicates skipped on upload", async () => {
   ;(global.fetch as jest.Mock).mockImplementationOnce(() => Promise.resolve({ ok: true, json: () => Promise.resolve({
     rows: [{ date: "2026-09-02", description: "X", details: "", amount: "1.00", type: "INCOME", bankRef: "OFX_a", dedupKey: "a" }],
     duplicateBankRefs: [], possibleDuplicateBankRefs: ["OFX_a"], period: null,
-    accountNumber: "", suggestedPaymentAccountId: null, dateFormatAmbiguous: false, errors: [],
+    accountSuffix: "", suggestedPaymentAccountId: null, dateFormatAmbiguous: false, errors: [],
   }) }))
   render(<BankImportClient accounts={accounts} families={[]} paymentAccounts={paymentAccounts} />)
   fireEvent.click(screen.getByRole("radio", { name: /OFX \/ QFX/ }))

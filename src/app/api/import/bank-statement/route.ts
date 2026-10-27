@@ -7,7 +7,7 @@ import { parseWithRegistry } from "@/lib/bankParsers/registry"
 import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
 import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
 import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
-import { suggestPaymentAccountId } from "@/lib/bankAccountMap"
+import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -270,7 +270,8 @@ export async function POST(req: Request) {
     duplicateBankRefs,
     possibleDuplicateBankRefs,
     period: result.period,
-    accountNumber: result.accountNumber,
+    // Last 4 digits only — the full number stays on the server (used above for account matching).
+    accountSuffix: accountSuffix(result.accountNumber) ?? "",
     suggestedPaymentAccountId,
     dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,

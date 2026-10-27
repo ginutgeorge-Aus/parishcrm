@@ -27,7 +27,7 @@ const accounts = [
 const okBody = (extra: object = {}) => ({
   rows: [{ date: "2026-09-02", description: "X", details: "", amount: "1.00", type: "INCOME", bankRef: "OFX_a", dedupKey: "a" }],
   duplicateBankRefs: [], possibleDuplicateBankRefs: [], period: { from: "2026-09-01", to: "2026-09-30" },
-  accountNumber: "000111224821", suggestedPaymentAccountId: 3, dateFormatAmbiguous: false, errors: [], ...extra,
+  accountSuffix: "4821", suggestedPaymentAccountId: 3, dateFormatAmbiguous: false, errors: [], ...extra,
 })
 
 function pick(name = "s.ofx") {
@@ -56,11 +56,31 @@ describe("UploadStep", () => {
     const body = (global.fetch as jest.Mock).mock.calls[0][1].body as FormData
     expect(body.get("source")).toBe("ofx")
     fireEvent.click(screen.getByRole("button", { name: "Continue to review" }))
-    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 3, accountNumber: "000111224821" }))
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 3, accountSuffix: "4821" }))
+  })
+
+  it("Continue is aria-disabled (focusable), explains why, and no-ops until ready", async () => {
+    const onComplete = jest.fn()
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody()) }) as never
+    render(<UploadStep source="ofx" paymentAccounts={accounts} onBack={jest.fn()} onComplete={onComplete} />)
+    const btn = screen.getByRole("button", { name: "Continue to review" })
+    expect(btn).not.toBeDisabled()
+    expect(btn).toHaveAttribute("aria-disabled", "true")
+    btn.focus()
+    expect(btn).toHaveFocus()
+    expect(btn).toHaveAccessibleDescription("Choose a statement file to continue.")
+    fireEvent.click(btn)
+    expect(onComplete).not.toHaveBeenCalled()
+    pick()
+    await screen.findByText(/1 row/)
+    expect(btn).not.toHaveAttribute("aria-disabled")
+    expect(btn).not.toHaveAttribute("aria-describedby")
+    fireEvent.click(btn)
+    expect(onComplete).toHaveBeenCalledTimes(1)
   })
 
   it("QIF: requires an account first and sends it", async () => {
-    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: null, accountNumber: "" })) }) as never
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(okBody({ suggestedPaymentAccountId: null, accountSuffix: "" })) }) as never
     render(<UploadStep source="qif" paymentAccounts={accounts} onBack={jest.fn()} onComplete={jest.fn()} />)
     pick("s.qif")
     await waitFor(() => expect(global.fetch).toHaveBeenCalled())
@@ -145,7 +165,7 @@ describe("UploadStep", () => {
     pick("notes.txt")
     expect(screen.getByRole("alert")).toHaveTextContent(/\.ofx, \.qfx/)
     expect(screen.queryByText(/1 row/)).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Continue to review" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Continue to review" })).toHaveAttribute("aria-disabled", "true")
   })
 
   it("accepts a PDF by extension for ANZ", async () => {
@@ -197,7 +217,7 @@ describe("UploadStep", () => {
     pick("a.ofx")
     await screen.findByText("Auto-matched from file")
     pick("b.ofx")
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue to review" })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue to review" })).not.toHaveAttribute("aria-disabled"))
     expect(screen.queryByText("Auto-matched from file")).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Continue to review" }))
     expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ paymentAccountId: 1 }))
@@ -212,7 +232,7 @@ describe("UploadStep", () => {
     await screen.findByRole("button", { name: "Continue to review" })
     pick("b.ofx")
     expect(await screen.findByRole("alert")).toHaveTextContent("Network error")
-    expect(screen.getByRole("button", { name: "Continue to review" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Continue to review" })).toHaveAttribute("aria-disabled", "true")
   })
 
   it("QIF: keeps the date-order toggle mounted while a re-read is pending", async () => {

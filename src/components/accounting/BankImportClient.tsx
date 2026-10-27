@@ -11,7 +11,7 @@ import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
 import { applyBulkSkip } from "@/lib/bankReviewFilter"
-import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds, draftAccountSuffix } from "@/lib/bankImportDraft"
+import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds, } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
 // Pass-2 bankingName aliases shorter than this are too collision-prone to
@@ -79,10 +79,10 @@ export function BankImportClient({
 }>) {
   const [view, setView] = useState<WizardStep>("source")
   const [source, setSource] = useState<ImportSource>("anz")
-  // Full account number from the parsed file (OFX/ANZ); "" for QIF. Sent to
-  // rememberBankImportAccount after a successful import. Kept in the
-  // session-scoped review draft so a refresh doesn't lose it.
-  const [accountNumber, setAccountNumber] = useState("")
+  // Last 4 digits of the parsed file's account (OFX/ANZ); "" for QIF or none.
+  // The full number never reaches the browser. Sent to rememberBankImportAccount
+  // after a successful import and kept in the session-scoped review draft.
+  const [accountSuffix, setAccountSuffix] = useState("")
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -100,7 +100,7 @@ export function BankImportClient({
       setRows(clearMismatchedAccountIds(draft.rows, accounts))
       setPeriod(draft.period)
       setPaymentAccountId(draft.paymentAccountId)
-      if (draft.accountSuffix !== undefined) setAccountNumber(draft.accountSuffix)
+      if (draft.accountSuffix !== undefined) setAccountSuffix(draft.accountSuffix)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -115,9 +115,9 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountSuffix: draftAccountSuffix(accountNumber), source })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source })
     }
-  }, [view, rows, period, paymentAccountId, accountNumber, source])
+  }, [view, rows, period, paymentAccountId, accountSuffix, source])
 
   /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
   function handleUploadComplete(upload: UploadResult) {
@@ -143,7 +143,7 @@ export function BankImportClient({
     setRows(mergeDraftSelections(fresh, rows))
     setPeriod(upload.period)
     setPaymentAccountId(upload.paymentAccountId)
-    setAccountNumber(upload.accountNumber)
+    setAccountSuffix(upload.accountSuffix)
     setParseErrors(upload.errors)
     setView("review")
   }
@@ -203,8 +203,8 @@ export function BankImportClient({
       markImported(submitted)
       // Remember account-number → bank-account for next time (best effort; a
       // failure only means the user re-picks the account on the next upload).
-      if (accountNumber && typeof paymentAccountId === "number") {
-        void rememberBankImportAccount(accountNumber, paymentAccountId).catch(() => {})
+      if (accountSuffix && typeof paymentAccountId === "number") {
+        void rememberBankImportAccount(accountSuffix, paymentAccountId).catch(() => {})
       }
       if (activeImport.current !== request) return
       setResult(data)
@@ -226,7 +226,7 @@ export function BankImportClient({
     setRows([])
     setPeriod(null)
     setResult(null)
-    setAccountNumber("")
+    setAccountSuffix("")
     setSource("anz")
     setPaymentAccountId("")
     setView("source")
