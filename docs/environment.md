@@ -33,8 +33,33 @@ NEXT_PUBLIC_GIT_SHA       # commit SHA shown in Settings
 |----------|---------|
 | `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. Page self-disables once any user exists; unset it after setup. |
 | `MIGRATE_ON_START` | Default `true`: the container runs `prisma migrate deploy` before starting. Set `false` to manage migrations yourself (e.g. a separate pre-deploy job). |
-| `CLIENT_IP_HEADER` | Optional. Name of a request header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip`). Default (unset): the app uses the rightmost `x-forwarded-for` entry, which is correct when your proxy is the last hop. Set it when the platform appends its own internal hop (e.g. Render: the rightmost entry is a private `10.x` address, so every login would share one throttle bucket and audit IPs would be useless). If the header holds several comma-separated values, the rightmost is used, so any proxy behind your edge must pass the header through unchanged rather than append its own address. A missing or non-IP header value falls back to `x-forwarded-for`. `x-forwarded-for`, `forwarded` (client-controlled first entry) and invalid header names are ignored, with a boot-log warning. **Security:** only set it if your proxy/CDN always overwrites that header **and** no route to the app bypasses it (direct origin URL, open port); otherwise clients can spoof it and dodge rate limits. `cf-connecting-ip` fits when every request goes through Cloudflare. Render's edge appears to send it, but Render does not document this, so confirm it on your deployment first. |
+| `CLIENT_IP_HEADER` | Optional. Name of a request header carrying the real client IP (e.g. `cf-connecting-ip`), used for login throttling and audit-log IPs when your platform adds proxy hops. Unset: rightmost `x-forwarded-for` entry. **Security-sensitive:** see [the full explanation](#client_ip_header). |
 | `DEMO_MODE` | Public live demo only. `true` enables one-click demo logins and blocks account/settings changes; see `docs/live-demo.md`. Never set on a real deployment. |
+
+## CLIENT_IP_HEADER
+
+Login throttling and audit-log IPs use the client IP. By default the app reads the rightmost
+`x-forwarded-for` entry, which is correct when your reverse proxy is the last hop. Some platforms
+append their own internal hop (e.g. Render: the rightmost entry is a private `10.x` address), so every
+login shares one throttle bucket and audit IPs are useless. Set `CLIENT_IP_HEADER` to the name of a
+header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip`) to use that instead.
+
+**Security rule:** the outermost trusted proxy/CDN must **overwrite** that header on every request
+(never append to it or pass the client's value through), and the app must not be reachable any other
+way that bypasses that proxy (e.g. a direct `*.onrender.com` hostname, an open port). Otherwise clients
+can send the header themselves and dodge rate limits. If the header holds several comma-separated
+values the app uses the rightmost, and it must be a valid IP.
+
+- A missing or non-IP header value falls back to `x-forwarded-for`. A one-time warning is logged only
+  when a proxied request (one carrying `x-forwarded-for`) lacks a usable header.
+- `x-forwarded-for` and `forwarded` (client-controlled first entry) and invalid header names are
+  ignored, with a boot-log warning.
+- Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
+  `x-originating-ip`, `x-cluster-client-ip`) are honoured, with a boot-log warning so you confirm your
+  proxy overwrites them.
+- `cf-connecting-ip` fits when every request goes through Cloudflare (e.g. your own proxied zone).
+  Render's edge appears to send it too, but Render does not document this, so confirm the header on
+  your own deployment first.
 
 ## Seed Credentials
 

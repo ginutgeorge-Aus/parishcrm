@@ -131,18 +131,9 @@ cleanup sweeps).
 
 ## Behind a proxy that adds hops (Render and similar)
 
-Login throttling and audit-log IPs read the rightmost `x-forwarded-for` entry. If your platform
-appends its own internal hop, that entry is a private address (e.g. `10.x`) and all users share
-one throttle bucket. Set `CLIENT_IP_HEADER` to a header your edge overwrites on every request,
-e.g. `CLIENT_IP_HEADER=cf-connecting-ip` when every request reaches the app through Cloudflare
-(e.g. your own proxied Cloudflare zone). Render's edge appears to send `cf-connecting-ip` too, but Render
-does not document it, so confirm the header on your own deployment first. Only set it if no route
-to the app bypasses that proxy/CDN (a direct origin URL, open port or a second proxy that passes the
-header through); otherwise clients can send the header themselves and dodge the rate limit. If the
-header holds several values the app uses the rightmost, so a proxy behind your edge must pass it
-through unchanged, not append its own address. `x-forwarded-for`,
-`forwarded` and invalid header names are ignored, with a warning in the boot log. See
-the Environment variables page.
+If your platform appends its own internal hop to `x-forwarded-for`, set `CLIENT_IP_HEADER` so login
+throttling and audit IPs see the real client. This is security-sensitive: see the
+[full explanation](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/environment.md#client_ip_header).
 
 ## Local development (not for production)
 
