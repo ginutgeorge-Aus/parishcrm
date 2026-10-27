@@ -84,7 +84,7 @@ export function TransactionMobileList({
               {isPettyCash ? (
                 pcSessionId != null && (
                   <Button variant="ghost" size="sm" asChild>
-                    <Link href={`/accounting/petty-cash/sessions/${pcSessionId}`}>View Session</Link>
+                    <Link href={`/accounting/petty-cash/sessions/${pcSessionId}`}>View session</Link>
                   </Button>
                 )
               ) : (

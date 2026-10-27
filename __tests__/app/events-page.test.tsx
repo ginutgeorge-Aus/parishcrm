@@ -91,14 +91,15 @@ describe("EventsPage — empty states", () => {
     expect(props?.actions.map((a) => a.href)).toEqual(["/events/new"])
   })
 
-  it("hides the toolbar New Event while the first-run empty state offers it", async () => {
+  it("hides the toolbar New event while the first-run empty state offers it", async () => {
     ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
-    expect(html).not.toContain(">New Event<")
+    // Only the empty-state action carries it, not the toolbar link.
+    expect(html.split(">New event<").length - 1).toBe(1)
     ;(prisma.event.findFirst as jest.Mock).mockResolvedValue({ id: 3 })
     const tab = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }))
-    expect(tab).toContain(">New Event<")
+    expect(tab).toContain(">New event<")
   })
 
   it("shows a VIEWER the first-run text without actions", async () => {

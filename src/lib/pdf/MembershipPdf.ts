@@ -141,13 +141,13 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
   }
 
   // A. Personal
-  band("A. Personal Particulars")
+  band("A. Personal particulars")
   line("Name", pe.name)
   line("Sex", pe.gender)
   line("Date of birth", pe.dateOfBirth)
   line("E-mail ID", pe.email)
   line("Mobile", pe.mobile)
-  line("Residential Address", [pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ") || null)
+  line("Residential address", [pe.address, pe.suburb, pe.state, pe.postcode].filter(Boolean).join(", ") || null)
   line("Qualification & profession", pe.qualificationProfession)
   if (m.parishFields || pe.motherParish) line("Previous church", pe.motherParish)
   const ol = overseasFieldLabels(p, m)
@@ -158,18 +158,18 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
 
   // B. Spouse
   if (p.spouse) {
-    band("B. Details of Family (Spouse)")
-    line("Name of Spouse", p.spouse.name)
+    band("B. Details of family (spouse)")
+    line("Name of spouse", p.spouse.name)
     line("Date of birth", p.spouse.dateOfBirth)
     line("Date of marriage", p.spouse.dateOfMarriage)
     if (m.parishFields || p.spouse.parish) line("Spouse's church", p.spouse.parish)
     line("Spouse working", yesNo(p.spouse.working) || null)
-    line("Spouse E-mail ID", p.spouse.email)
+    line("Spouse e-mail ID", p.spouse.email)
   }
 
   // C. Children
   if (p.children.length > 0) {
-    band("C. Name of Children")
+    band("C. Name of children")
     table(
       ["#", "Name", "Sex", "Date of birth", "Occupation", "Phone / Email"],
       [0.06, 0.26, 0.1, 0.18, 0.2, 0.2],
@@ -189,7 +189,7 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
 
   // E. Relatives
   if (p.relativesInAustralia.length > 0) {
-    band("E. Any Other Relatives in Australia")
+    band("E. Any other relatives in Australia")
     table(
       ["#", "Name", "Place", "Relationship", "Phone / Email"],
       [0.06, 0.3, 0.24, 0.2, 0.2],
@@ -232,8 +232,8 @@ function draw(doc: PDFKit.PDFDocument, m: MembershipPdfModel, letterhead: Letter
   doc.y = boxY + 6
   band("FOR OFFICE USE ONLY")
   if (m.parishFields) line("Transfer letter / NOC / Affidavit received", " ")
-  line("Membership Registration No.", " ")
-  line("Book No.", " ")
+  line("Membership registration no.", " ")
+  line("Book no.", " ")
   line("Date", " ")
   line(officeSignatureLabel(m.signerTitle), " ")
 }

@@ -26,7 +26,7 @@ This is intentional and documented on both pages because it regularly confuses n
 
 ### `AccountOpeningBalance`
 
-One row per payment account (`amount`, `asOfDate`), set by an ADMIN in Accounting Settings. It's the anchor every book-balance calculation (reconciliation, balance sheet) sums forward from — there is no "balance before this date" concept, by design; everything before the opening-balance date is out of scope for the ledger.
+One row per payment account (`amount`, `asOfDate`), set by an ADMIN in Accounting settings. It's the anchor every book-balance calculation (reconciliation, balance sheet) sums forward from — there is no "balance before this date" concept, by design; everything before the opening-balance date is out of scope for the ledger.
 
 ### `ReconciliationStatement`
 

@@ -205,7 +205,7 @@ export default async function BalanceSheetPage(props: Readonly<{
             >
               ⚠ {account.name} has no opening balance set.{" "}
               <Link href="/accounting/settings" className="underline font-medium">
-                Set one in Accounting Settings →
+                Set one in Accounting settings →
               </Link>
             </div>
           ))}

@@ -411,7 +411,7 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
 
       <div className="flex items-center gap-3">
         <Button type="submit" size="lg" disabled={isPending}>
-          {isPending ? "Saving…" : "Save Event"}
+          {isPending ? "Saving…" : "Save event"}
         </Button>
         <Button asChild variant="outline" size="lg">
           <Link href="/events">Cancel</Link>

@@ -16,8 +16,8 @@ it("greets with the configured church name, not a hardcoded one", () => {
 
 it("renders the form sections", () => {
   render(<MembershipForm churchName="Demo Church" churchWebsite="https://demo.example.com" parishFields={false} minDues={null} homeAddressLabel="" arrivalDateLabel="" />)
-  expect(screen.getByText("A. Personal Particulars")).toBeInTheDocument()
-  expect(screen.getByText("F. Subscription & Declaration")).toBeInTheDocument()
+  expect(screen.getByText("A. Personal particulars")).toBeInTheDocument()
+  expect(screen.getByText("F. Subscription & declaration")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: /submit membership form/i })).toBeInTheDocument()
 })
 
@@ -32,22 +32,22 @@ it("associates every visible label with its control", () => {
   render(<MembershipForm churchName="Demo Church" churchWebsite="https://demo.example.com" parishFields={false} minDues={null} homeAddressLabel="" arrivalDateLabel="" />)
   expect(screen.getByLabelText("Name *")).toHaveProperty("tagName", "INPUT")
   expect(screen.getByLabelText("E-mail ID *")).toHaveProperty("tagName", "INPUT")
-  // Sex/Marital Status are shadcn Select (Radix) — the labelled control is the
+  // Sex/Marital status are shadcn Select (Radix) — the labelled control is the
   // trigger button, not a native <select> ( swapped raw controls for shadcn).
   expect(screen.getByLabelText("Sex")).toHaveProperty("tagName", "BUTTON")
-  expect(screen.getByLabelText("Marital Status")).toHaveProperty("tagName", "BUTTON")
+  expect(screen.getByLabelText("Marital status")).toHaveProperty("tagName", "BUTTON")
 })
 
 it("renders section dividers as navigable headings", () => {
   render(<MembershipForm churchName="Demo Church" churchWebsite="https://demo.example.com" parishFields={false} minDues={null} homeAddressLabel="" arrivalDateLabel="" />)
-  expect(screen.getByRole("heading", { name: "A. Personal Particulars" })).toBeInTheDocument()
-  expect(screen.getByRole("heading", { name: "C. Name of Children" })).toBeInTheDocument()
+  expect(screen.getByRole("heading", { name: "A. Personal particulars" })).toBeInTheDocument()
+  expect(screen.getByRole("heading", { name: "C. Name of children" })).toBeInTheDocument()
 })
 
 it("gives repeating-row cells distinct accessible names", () => {
   render(<MembershipForm churchName="Demo Church" churchWebsite="https://demo.example.com" parishFields={false} minDues={null} homeAddressLabel="" arrivalDateLabel="" />)
   // Children section, first row — column identity + row number, not a bare placeholder
-  expect(screen.getByLabelText("C. Name of Children, row 1 Occupation")).toBeInTheDocument()
+  expect(screen.getByLabelText("C. Name of children, row 1 Occupation")).toBeInTheDocument()
 })
 
 it("keeps each repeating-row column identifiable by a visible label, not just a placeholder", () => {
@@ -76,7 +76,7 @@ describe("mobile & conversion polish", () => {
     expect(mobileInput).toHaveAttribute("type", "tel")
     expect(mobileInput).toHaveAttribute("autoComplete", "tel")
     expect(mobileInput).toHaveAttribute("inputMode", "tel")
-    expect(screen.getByLabelText("Residential Address *")).toHaveAttribute("autoComplete", "street-address")
+    expect(screen.getByLabelText("Residential address *")).toHaveAttribute("autoComplete", "street-address")
     expect(screen.getByLabelText("Suburb *")).toHaveAttribute("autoComplete", "address-level2")
     expect(screen.getByLabelText("State *")).toHaveAttribute("autoComplete", "address-level1")
     const postcodeInput = screen.getByLabelText("Postcode *")
@@ -86,8 +86,8 @@ describe("mobile & conversion polish", () => {
 
   it("opts spouse fields out of autofill so the registrant's own details aren't offered", () => {
     render(<MembershipForm churchName="Demo Church" churchWebsite="https://demo.example.com" parishFields={false} minDues={null} homeAddressLabel="" arrivalDateLabel="" />)
-    expect(screen.getByLabelText("Name of Spouse")).toHaveAttribute("autoComplete", "off")
-    expect(screen.getByLabelText("Spouse E-mail ID")).toHaveAttribute("autoComplete", "off")
+    expect(screen.getByLabelText("Name of spouse")).toHaveAttribute("autoComplete", "off")
+    expect(screen.getByLabelText("Spouse e-mail ID")).toHaveAttribute("autoComplete", "off")
   })
 })
 

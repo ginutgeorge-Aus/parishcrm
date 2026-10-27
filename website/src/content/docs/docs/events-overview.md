@@ -15,7 +15,7 @@ payment flow, [Registrations Management](/parishcrm/docs/registrations-managemen
 
 ### Creating and editing an event (staff)
 
-From the sidebar, staff with edit access go to **Events** (`/events`) and click **New Event**.
+From the sidebar, staff with edit access go to **Events** (`/events`) and click **New event**.
 The form (`/events/new`, and `/events/[id]/edit` for editing) covers:
 
 - **Basics** — title, slug (used in the public URL `/e/<slug>`, lowercase letters/numbers/hyphens

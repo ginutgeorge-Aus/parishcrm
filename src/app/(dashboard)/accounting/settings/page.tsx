@@ -122,7 +122,7 @@ export default async function AccountingSettingsPage() {
           funds (e.g. General, Building). Manage the fund list, active status, and sort order here.
         </p>
         <Button asChild>
-          <Link href="/accounting/settings/funds">Manage Funds</Link>
+          <Link href="/accounting/settings/funds">Manage funds</Link>
         </Button>
       </div>
     </div>
