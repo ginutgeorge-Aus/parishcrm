@@ -7,7 +7,9 @@ import { parseWithRegistry } from "@/lib/bankParsers/registry"
 import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
 import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
 import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
-import { suggestPaymentAccountId } from "@/lib/bankAccountMap"
+import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
+import { maskBankRef, maskContentKey } from "@/lib/bankRefMask"
+import { sealAccountNumber } from "@/lib/bankAccountToken"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -265,12 +267,21 @@ export async function POST(req: Request) {
     suggestPaymentAccountId(result.accountNumber),
   ])
 
+  // Dedup above ran on the real (full-number) refs, matching the stored DB
+  // format. Everything sent to the browser is masked (`*<last4>`); the confirm
+  // step rebuilds the real refs from the sealed `accountToken`.
+  const accountNumber = result.accountNumber ?? ""
+  const mask = (ref: string) => maskBankRef(ref, accountNumber)
+
   return NextResponse.json({
-    rows: result.rows,
-    duplicateBankRefs,
-    possibleDuplicateBankRefs,
+    rows: result.rows.map((r) => ({ ...r, bankRef: mask(r.bankRef), dedupKey: maskContentKey(r.dedupKey, accountNumber) })),
+    duplicateBankRefs: duplicateBankRefs.map(mask),
+    possibleDuplicateBankRefs: possibleDuplicateBankRefs.map(mask),
     period: result.period,
-    accountNumber: result.accountNumber,
+    // Suffix only for the account map; the full number never leaves the server
+    // except sealed inside accountToken.
+    accountSuffix: accountSuffix(accountNumber) ?? "",
+    ...(accountNumber ? { accountToken: sealAccountNumber(accountNumber) } : {}),
     suggestedPaymentAccountId,
     dateFormatAmbiguous: result.dateFormatAmbiguous === true,
     errors: validated.clientErrors,

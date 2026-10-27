@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import type { ParsedRow } from "@/lib/anzParser"
+import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment } from "@/lib/bankRefMask"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 import { radioGroupKeyDown } from "./radioKeys"
 import { IMPORT_SOURCES, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
@@ -16,13 +17,28 @@ export type UploadResult = {
   duplicateBankRefs: string[]
   possibleDuplicateBankRefs: string[]
   period: { from: string; to: string } | null
-  accountNumber: string
+  /** Last 4 digits of the file's account; "" when none. */
+  accountSuffix: string
+  /** Sealed account number for confirm to restore the masked (`*<last4>`) row bankRefs; undefined when none. */
+  accountToken: string | undefined
   paymentAccountId: number
   errors: string[]
 }
 
 type Parsed = Omit<UploadResult, "paymentAccountId"> & { autoMatched: boolean }
 type DateOrder = "DMY" | "MDY"
+
+/** Why Continue is blocked, shown as its aria-describedby hint; null when it is not blocked. */
+function continueBlockedHint(uploading: boolean, hasFile: boolean, hasAccount: boolean): string | null {
+  if (uploading) return "Reading your file…"
+  if (!hasFile) {
+    return hasAccount
+      ? "Choose a statement file to continue."
+      : "Choose a statement file and the ParishCRM bank account to continue."
+  }
+  if (!hasAccount) return "Select the ParishCRM bank account to continue."
+  return null
+}
 
 /** Step 2: upload one export file, show what was read, and pick/confirm the ParishCRM bank account. */
 export function UploadStep({
@@ -81,12 +97,23 @@ export function UploadStep({
         setError(data.error ?? "Couldn't read this file.")
         return
       }
+      const accountToken: string | undefined =
+        typeof data.accountToken === "string" && data.accountToken.length > 0 && data.accountToken.length <= MAX_ACCOUNT_TOKEN_LENGTH
+          ? data.accountToken
+          : undefined
+      // Masked refs can't be restored at confirm without the token — fail the upload rather than reach review with unusable rows.
+      if (accountToken === undefined && data.rows.some((r: { bankRef?: unknown }) => typeof r?.bankRef === "string" && bankRefMaskSegment(r.bankRef) !== null)) {
+        setParsed(null)
+        setError("Couldn't read this file securely. Please re-upload it.")
+        return
+      }
       setParsed({
         rows: data.rows,
         duplicateBankRefs: data.duplicateBankRefs ?? [],
         possibleDuplicateBankRefs: data.possibleDuplicateBankRefs ?? [],
         period: data.period ?? null,
-        accountNumber: data.accountNumber ?? "",
+        accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
+        accountToken,
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
@@ -153,7 +180,12 @@ export function UploadStep({
     </div>
   )
 
-  const suffix = parsed?.accountNumber.replace(/\D/g, "").slice(-4)
+  const suffix = parsed?.accountSuffix
+
+  // aria-disabled (not disabled) keeps Continue focusable so keyboard and
+  // screen-reader users can discover why it is blocked via the hint below.
+  const continueBlocked = !parsed || !paymentAccountId || uploading
+  const continueHint = continueBlockedHint(uploading, !!parsed, !!paymentAccountId)
 
   return (
     <Card>
@@ -178,6 +210,9 @@ export function UploadStep({
           <Upload className="size-5 text-muted-foreground" aria-hidden />
           <span className="text-sm"><strong>Drop file here</strong> or <span className="underline">browse</span></span>
           <span className="text-xs text-muted-foreground">{cfg.acceptLabel} · max {MAX_UPLOAD_LABEL} · one file</span>
+          {/* Deliberately a raw sr-only input, not the shared Input component: the styled
+              label above is the drop zone and shows the focus ring (has-[:focus-visible]),
+              so the native control must stay visually hidden but focusable inside it. */}
           <input
             ref={inputRef}
             id="import-file"
@@ -236,13 +271,16 @@ export function UploadStep({
         <div className="flex justify-between">
           <Button variant="outline" onClick={onBack}>Back</Button>
           <Button
-            disabled={!parsed || !paymentAccountId || uploading}
-            onClick={() => parsed && paymentAccountId && onComplete({
+            aria-disabled={continueBlocked ? "true" : undefined}
+            aria-describedby={continueBlocked ? "import-continue-hint" : undefined}
+            className={cn(continueBlocked && "opacity-50 aria-disabled:pointer-events-none")}
+            onClick={() => !continueBlocked && parsed && paymentAccountId && onComplete({
               rows: parsed.rows,
               duplicateBankRefs: parsed.duplicateBankRefs,
               possibleDuplicateBankRefs: parsed.possibleDuplicateBankRefs,
               period: parsed.period,
-              accountNumber: parsed.accountNumber,
+              accountSuffix: parsed.accountSuffix,
+              accountToken: parsed.accountToken,
               paymentAccountId,
               errors: parsed.errors,
             })}
@@ -250,6 +288,9 @@ export function UploadStep({
             Continue to review
           </Button>
         </div>
+        {continueHint && (
+          <p id="import-continue-hint" aria-live="polite" className="text-right text-xs text-muted-foreground">{continueHint}</p>
+        )}
       </CardContent>
     </Card>
   )

@@ -1,4 +1,5 @@
 import { toCents } from "@/lib/formatting"
+import { IMPORT_REF_PREFIX_RE } from "@/lib/bankRefMask"
 
 export type ParsedRow = {
   date: string
@@ -189,7 +190,7 @@ export function bankRefContentKey(accountNumber: string, date: string, amount: s
 // ("#2", "#3" …) are stripped first.
 export function contentKeyFromBankRef(bankRef: string): string | null {
   if (bankRef.startsWith("XFER_OUT_")) return null
-  const prefix = /^(?:ANZ(?:TR)?|OFX|QIF)_/.exec(bankRef)
+  const prefix = IMPORT_REF_PREFIX_RE.exec(bankRef)
   if (!prefix) return null
   const body = bankRef.slice(prefix[0].length).replace(/#\d+$/, "")
   const parts = body.split("_")
