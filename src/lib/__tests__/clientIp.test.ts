@@ -234,7 +234,7 @@ describe("XFF normalisation (default path)", () => {
 
 describe("isKnownCdnIpHeader", () => {
   it("recognises the allowlist case-insensitively and rejects others", () => {
-    for (const n of ["cf-connecting-ip", " True-Client-IP ", "fly-client-ip", "x-azure-clientip", "fastly-client-ip", "x-client-ip"]) {
+    for (const n of ["cf-connecting-ip", " True-Client-IP ", "fly-client-ip", "x-azure-clientip", "fastly-client-ip"]) {
       expect(isKnownCdnIpHeader(n)).toBe(true)
     }
     expect(isKnownCdnIpHeader("x-original-forwarded-for")).toBe(false)

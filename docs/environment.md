@@ -62,7 +62,7 @@ values the app uses the rightmost, and it must be a valid IP.
 - `x-forwarded-for` and `forwarded` (client-controlled first entry) and invalid header names are
   ignored, with a boot-log warning.
 - A name outside the known CDN headers (`cf-connecting-ip`, `true-client-ip`, `fly-client-ip`,
-  `x-azure-clientip`, `fastly-client-ip`, `x-client-ip`) is honoured, with a boot-log warning (header
+  `x-azure-clientip`, `fastly-client-ip`) is honoured, with a boot-log warning (header
   name only) so you confirm your proxy overwrites it.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
   `x-originating-ip`, `x-cluster-client-ip`) are honoured, with a boot-log warning so you confirm your

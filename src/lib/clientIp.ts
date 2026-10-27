@@ -15,7 +15,7 @@ const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x
 
 // Documented CDN/edge client-IP headers. A CLIENT_IP_HEADER outside this list (and not a passthrough
 // name) is still honoured but flagged at boot so the operator confirms the proxy overwrites it.
-const KNOWN_CDN_HEADERS = new Set(["cf-connecting-ip", "true-client-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip", "x-client-ip"])
+const KNOWN_CDN_HEADERS = new Set(["cf-connecting-ip", "true-client-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip"])
 
 /**
  * Why the `CLIENT_IP_HEADER` env value is ignored, if it is. Shared by the runtime lookup and the
