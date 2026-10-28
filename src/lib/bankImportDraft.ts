@@ -296,7 +296,7 @@ export function mergeDraftSelections(
 /**
  * True when `mergeDraftSelections` skipped rows only because the account
  * fingerprints differ — some fresh row has the same (masked) bankRef as a
- * previous one, so without the guard its selections would have carried over.
+ * previous row the user had made a selection on, so without the guard its selections would have carried over.
  * The client shows a notice instead of dropping them silently (#449).
  */
 export function selectionsDroppedByAccountGuard(
@@ -305,6 +305,19 @@ export function selectionsDroppedByAccountGuard(
   accounts: { prevFingerprint?: string; nextFingerprint?: string }
 ): boolean {
   if (accounts.prevFingerprint === accounts.nextFingerprint || prevRows.length === 0) return false
-  const prevRefs = new Set(prevRows.map((r) => r.bankRef))
+  // Only rows where the user actually chose something count as "dropped".
+  const prevRefs = new Set(
+    prevRows
+      .filter(
+        (r) =>
+          r.accountId != null ||
+          r.familyId != null ||
+          r.personId != null ||
+          r.skip ||
+          r.fromPettyCash ||
+          (r.splits?.length ?? 0) > 0
+      )
+      .map((r) => r.bankRef)
+  )
   return newRows.some((r) => prevRefs.has(r.bankRef))
 }

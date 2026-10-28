@@ -483,4 +483,9 @@ describe("selectionsDroppedByAccountGuard (#449 round 2)", () => {
     expect(selectionsDroppedByAccountGuard([makeRow({ bankRef: "ANZ_*4321_OTHER" })], prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(false)
     expect(selectionsDroppedByAccountGuard(fresh, [], { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(false)
   })
+
+  it("is false when the previous matching row had no selection", () => {
+    const untouched = [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1" })]
+    expect(selectionsDroppedByAccountGuard(fresh, untouched, { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(false)
+  })
 })
