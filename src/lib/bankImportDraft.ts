@@ -8,8 +8,11 @@ import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, hasUnmaskedAccount } from
 // v2: row bankRefs are masked (`*<last4>`) and the sealed `accountToken` is kept
 // alongside (#446). v1 drafts held full account numbers in their refs, so they
 // are purged on load rather than resumed.
-const KEY = "bankImportDraft.v2"
-const LEGACY_KEY = "bankImportDraft.v1"
+// v3 (#449): every account-number occurrence (FITID, description segment,
+// details text) is masked and the account fingerprint is stored; v2 drafts only
+// masked the leading segment, so they are purged like v1.
+const KEY = "bankImportDraft.v3"
+const LEGACY_KEYS = ["bankImportDraft.v1", "bankImportDraft.v2"]
 // Tombstones of draft content already imported this session, held as a SET of
 // compact content hashes (JSON array). Guards against a posted draft being
 // re-offered for confirmation — whether by a plain revisit or by a remounted
@@ -66,6 +69,16 @@ export type BankImportDraft = {
   // masked bankRefs. Opaque to the client (server-only key). Absent for QIF or
   // a statement with no account number.
   accountToken?: string
+  // Keyed HMAC of the account number (#449). Masked refs collide for two
+  // accounts sharing their last 4, so re-upload merges require this to match.
+  accountFingerprint?: string
+}
+
+const FINGERPRINT_RE = /^[0-9a-f]{64}$/
+
+/** True for a well-formed account fingerprint (64 lowercase hex, see hmacBankAccount). */
+export function isAccountFingerprint(value: unknown): value is string {
+  return typeof value === "string" && FINGERPRINT_RE.test(value)
 }
 
 /** Persist the in-progress review (skipped when this exact content was already imported). */
@@ -118,14 +131,15 @@ function isValidRow(r: unknown): r is ReviewRow {
 
 /**
  * True when the draft's refs are safe and confirmable: no ANZ/ANZTR/OFX ref still
- * embeds a raw account number, and masked refs come with a plausible token.
+ * embeds a raw account number, and masked refs come with a plausible token and
+ * an account fingerprint (the re-upload merge guard, #449).
  */
 function hasValidMasking(draft: BankImportDraft): boolean {
   if (draft.rows.some((r) => hasUnmaskedAccount(r.bankRef))) return false
   const token = draft.accountToken
   if (token !== undefined && (typeof token !== "string" || token.length === 0 || token.length > MAX_ACCOUNT_TOKEN_LENGTH)) return false
   const masked = draft.rows.some((r) => bankRefMaskSegment(r.bankRef) !== null)
-  return !masked || token !== undefined
+  return !masked || (token !== undefined && isAccountFingerprint(draft.accountFingerprint))
 }
 
 /**
@@ -134,8 +148,8 @@ function hasValidMasking(draft: BankImportDraft): boolean {
  */
 export function loadDraft(): BankImportDraft | null {
   try {
-    // Pre-masking drafts embed full account numbers — drop, never resume.
-    sessionStorage.removeItem(LEGACY_KEY)
+    // Pre-#449 drafts may embed full account numbers — drop, never resume.
+    for (const legacy of LEGACY_KEYS) sessionStorage.removeItem(legacy)
     const raw = sessionStorage.getItem(KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as BankImportDraft
@@ -150,6 +164,7 @@ export function loadDraft(): BankImportDraft | null {
     if (parsed.accountSuffix !== undefined && (typeof parsed.accountSuffix !== "string" || !/^\d{4}$/.test(parsed.accountSuffix))) return null
     if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     if (!hasValidMasking(parsed)) return null
+    if (parsed.accountFingerprint !== undefined && !isAccountFingerprint(parsed.accountFingerprint)) return null
     return parsed
   } catch {
     return null
@@ -178,11 +193,11 @@ export function clearMismatchedAccountIds(
   })
 }
 
-/** Drop the stored review draft (and any pre-masking legacy one). */
+/** Drop the stored review draft (and any legacy pre-#449 one). */
 export function clearDraft(): void {
   try {
     sessionStorage.removeItem(KEY)
-    sessionStorage.removeItem(LEGACY_KEY)
+    for (const legacy of LEGACY_KEYS) sessionStorage.removeItem(legacy)
   } catch {
     // ignore
   }
@@ -244,11 +259,22 @@ export function markImported(fingerprint: string): void {
   }
 }
 
-// After a re-upload, carry the user's selections (category, member, skip,
-// cash-transfer flag) onto the freshly parsed rows, matched by bankRef.
-// Parsed fields (description, amount, isDuplicate, …) come from the fresh row.
-export function mergeDraftSelections(newRows: ReviewRow[], prevRows: ReviewRow[]): ReviewRow[] {
+/**
+ * After a re-upload, carry the user's selections (category, member, skip,
+ * cash-transfer flag) onto the freshly parsed rows, matched by bankRef.
+ * Parsed fields (description, amount, isDuplicate, …) come from the fresh row.
+ * Only merges when both uploads have the same account fingerprint (#449) —
+ * masked refs (`*<last4>`) are identical for two accounts sharing their last 4,
+ * so a mismatch (or a fingerprint on only one side) starts the review fresh.
+ * Both absent (QIF, statements with no account line) keeps the old behaviour.
+ */
+export function mergeDraftSelections(
+  newRows: ReviewRow[],
+  prevRows: ReviewRow[],
+  accounts: { prevFingerprint?: string; nextFingerprint?: string } = {}
+): ReviewRow[] {
   if (prevRows.length === 0) return newRows
+  if (accounts.prevFingerprint !== accounts.nextFingerprint) return newRows
   const byRef = new Map(prevRows.map((r) => [r.bankRef, r]))
   return newRows.map((r) => {
     const prev = byRef.get(r.bankRef)
@@ -265,4 +291,33 @@ export function mergeDraftSelections(newRows: ReviewRow[], prevRows: ReviewRow[]
       fromPettyCash: prev.fromPettyCash,
     }
   })
+}
+
+/**
+ * True when `mergeDraftSelections` skipped rows only because the account
+ * fingerprints differ — some fresh row has the same (masked) bankRef as a
+ * previous row the user had made a selection on, so without the guard its selections would have carried over.
+ * The client shows a notice instead of dropping them silently (#449).
+ */
+export function selectionsDroppedByAccountGuard(
+  newRows: ReviewRow[],
+  prevRows: ReviewRow[],
+  accounts: { prevFingerprint?: string; nextFingerprint?: string }
+): boolean {
+  if (accounts.prevFingerprint === accounts.nextFingerprint || prevRows.length === 0) return false
+  // Only rows where the user actually chose something count as "dropped".
+  const prevRefs = new Set(
+    prevRows
+      .filter(
+        (r) =>
+          r.accountId != null ||
+          r.familyId != null ||
+          r.personId != null ||
+          r.skip ||
+          r.fromPettyCash ||
+          (r.splits?.length ?? 0) > 0
+      )
+      .map((r) => r.bankRef)
+  )
+  return newRows.some((r) => prevRefs.has(r.bankRef))
 }

@@ -226,3 +226,73 @@ describe("confirm token validation", () => {
     expect(result).toEqual({ ok: true, imported: 1, skipped: 0, duplicates: 0 })
   })
 })
+
+// #449: the account number also hides in the OFX FITID and the memo/details
+// text, and a same-last-4 account must not inherit another account's draft.
+describe("other client-bound fields (#449)", () => {
+  const ofxWithAcctInText = (acct: string) => `OFXHEADER:100
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>AUD
+<BANKACCTFROM><ACCTID>${acct}</BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><DTPOSTED>20260902<TRNAMT>200.00<FITID>${acct}0001<NAME>TRANSFER FROM J CITIZEN<MEMO>TO ACCT ${acct.slice(0, 6)} ${acct.slice(6)}</STMTTRN>
+<STMTTRN><DTPOSTED>20260903<TRNAMT>-50.00<FITID>${acct}0002<NAME>DEBIT ${acct} EXAMPLE SHOP</STMTTRN>
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
+
+  it("masks the account in FITID suffixes, descriptions and details", async () => {
+    const { status, body } = await parse(ofxWithAcctInText(OFX_ACCT), "s.ofx", "ofx")
+    expect(status).toBe(200)
+    expect(JSON.stringify(body)).not.toContain(OFX_ACCT)
+    expect(JSON.stringify(body)).not.toContain(`${OFX_ACCT.slice(0, 6)} ${OFX_ACCT.slice(6)}`)
+    expect(body.rows[0].bankRef).toMatch(/_\*48210001$/)
+    expect(body.rows[0].details).toBe("TO ACCT *4821")
+    expect(body.rows[1].description).toBe("DEBIT *4821 EXAMPLE SHOP")
+  })
+
+  it("confirm restores the full FITID ref; stored format is unchanged", async () => {
+    const { body } = await parse(ofxWithAcctInText(OFX_ACCT), "s.ofx", "ofx")
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: true, imported: 2, skipped: 0, duplicates: 0 })
+    const inserted = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
+    expect(inserted).toEqual(parseOfx(ofxWithAcctInText(OFX_ACCT)).rows.map((r) => r.bankRef))
+    expect(inserted[0]).toBe(`OFX_${OFX_ACCT}_20260902_200.00_TRANSFERFROMJCITIZEN_${OFX_ACCT}0001`)
+  })
+
+  it("re-import against stored full-number FITID refs is all duplicates", async () => {
+    const stored = parseOfx(ofxWithAcctInText(OFX_ACCT)).rows.map((r) => ({ bankRef: r.bankRef, type: r.type, date: new Date(r.date), amount: r.amount }))
+    txFindMany.mockResolvedValue(stored)
+    const { body } = await parse(ofxWithAcctInText(OFX_ACCT), "s.ofx", "ofx")
+    expect(body.duplicateBankRefs).toHaveLength(2)
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
+  })
+
+  it("returns a deterministic account fingerprint that differs for a same-last-4 account", async () => {
+    const a1 = (await parse(OFX, "s.ofx", "ofx")).body
+    const a2 = (await parse(OFX, "s.ofx", "ofx")).body
+    const b = (await parse(OFX.replace(OFX_ACCT, "999911224821"), "s.ofx", "ofx")).body
+    expect(a1.accountFingerprint).toMatch(/^[0-9a-f]{64}$/)
+    expect(a1.accountFingerprint).toBe(a2.accountFingerprint)
+    // Same `*4821` masked refs, different account.
+    expect(b.rows[0].bankRef).toBe(a1.rows[0].bankRef)
+    expect(b.accountFingerprint).not.toBe(a1.accountFingerprint)
+  })
+})
+
+// #449 item 3: Transaction.bankRef is stored with the full account number (no
+// migration yet — see docs/operations.md). These pin the at-rest format so a
+// future keyed-hash migration must keep dual-format matching.
+describe("at-rest bankRef format stays dedup-compatible (#449)", () => {
+  it("stored refs keep the full account number in the first segment", async () => {
+    const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
+    await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    const inserted: string[] = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
+    for (const ref of inserted) expect(ref.startsWith(`ANZ_${ACCT}_`)).toBe(true)
+  })
+
+  it("an ANZTR_-format DB row with the full number dedups an OFX re-upload of the same lines", async () => {
+    const ofxRows = parseOfx(OFX).rows
+    txFindMany.mockResolvedValue(ofxRows.map((r) => ({ bankRef: `ANZTR_${r.dedupKey}_0`, type: r.type, date: new Date(r.date), amount: r.amount })))
+    const { body } = await parse(OFX, "s.ofx", "ofx")
+    expect(body.duplicateBankRefs).toHaveLength(2)
+  })
+})
