@@ -278,8 +278,15 @@ export function collectEnvWarnings(): string[] {
     case "passthrough":
       warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
       break
-    default:
-      break // unset, cdn, custom: nothing to flag
+    case "unset":
+    case "cdn":
+    case "custom":
+      break // nothing to flag
+    default: {
+      // Compile-time exhaustiveness: a new ClientIpHeaderKind must be handled above.
+      const _exhaustive: never = ipHeader
+      void _exhaustive
+    }
   }
 
   if (isDemoMode()) {
