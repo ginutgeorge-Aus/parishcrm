@@ -48,6 +48,16 @@ Planned migration (tracked in #459, not yet done):
 Until then, `__tests__/api/bank-statement-mask.test.ts` pins the current at-rest format as
 dedup-compatible.
 
+## Upgrading: case-insensitive unique User email
+
+Migration `20261028000000_user_email_lower_unique` adds a unique index on `lower("User".email)`. It aborts with a clear error if case-variant duplicates exist (e.g. `Admin@x.com` and `admin@x.com`). Before upgrading, run:
+
+```sql
+SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;
+```
+
+Any rows returned must be resolved first (rename or delete the extra accounts). Archiving is not enough: the index covers archived users too, so an archived row keeps its email unless it is tombstoned (`archived+<id>+<email>`) or renamed. No rows means it is safe to upgrade.
+
 ## Health Stack
 
 - typecheck: `npx tsc --noEmit`
