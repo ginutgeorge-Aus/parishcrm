@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { createHash } from "node:crypto"
+import { hmacEmail } from "@/lib/crypto"
 import { logger } from "@/lib/logger"
 import { logAudit } from "@/lib/audit"
 import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
@@ -38,29 +38,37 @@ export type EmailLookup = {
 
 /**
  * Find a user by email, tolerating legacy mixed-case rows. `User.email` is
- * unique only case-sensitively, so `Admin@x.com` and `admin@x.com` can coexist.
- * Order: (1) exact match on the lower-cased input (hits the unique index);
- * (2) only on a miss, `lower(email) = $1` via a raw query. Raw SQL is used
- * instead of Prisma's `mode: "insensitive"` because that compiles to ILIKE, so
- * `_` and `%` in the input would act as wildcards. Fallback matches are ids
- * only (LIMIT 2); exactly one is accepted, two or more is ambiguous and yields
- * no user, and an `AUTH_EMAIL_AMBIGUOUS` audit row (truncated SHA-256 of the
- * normalised email, no raw address) is written so locked-out twin pairs can be
- * found. The fallback compares `lower(email) = lower($input)` so both sides use
- * Postgres' own lower() (JS and Postgres can differ on non-ASCII case folding);
- * the JS-lowercased exact step is only a fast path.
+ * unique only case-sensitively, so `Admin@x.com` and `admin@x.com` can coexist,
+ * and a legacy account may exist only in mixed case (no lowercase twin).
+ * Order: (1) exact match on the trimmed RAW input (case preserved, unique
+ * index) so a mixed-case-only account still logs in; (2) if the lower-cased
+ * form differs, exact match on it (unique index); (3) only on a double miss,
+ * `lower(email) = lower($input)` via a raw query. Raw SQL is used instead of
+ * Prisma's `mode: "insensitive"` because that compiles to ILIKE, so `_` and `%`
+ * in the input would act as wildcards. Fallback matches are ids only (LIMIT 2);
+ * exactly one is accepted, two or more is ambiguous and yields no user, and an
+ * `AUTH_EMAIL_AMBIGUOUS` audit row (truncated keyed HMAC of the normalised
+ * email via `hmacEmail`, no raw address) is written so locked-out twin pairs
+ * can be found. The fallback compares both sides with Postgres' own lower() (JS
+ * and Postgres can differ on non-ASCII case folding). Input longer than 254
+ * chars (the schema max) returns no user without touching the DB.
  * @param email raw email input (any case, surrounding whitespace allowed)
  * @returns the user (or null) and whether the match was ambiguous
  */
 export async function findUserByEmailInsensitive(email: string): Promise<EmailLookup> {
+  const trimmed = email.trim()
   const normalized = normalizeEmail(email)
-  if (!normalized) return { user: null, ambiguous: false }
-  const exact = await prisma.user.findUnique({ where: { email: normalized } })
-  if (exact) return { user: exact, ambiguous: false }
+  if (!normalized || normalized.length > 254) return { user: null, ambiguous: false }
+  const exactRaw = await prisma.user.findUnique({ where: { email: trimmed } })
+  if (exactRaw) return { user: exactRaw, ambiguous: false }
+  if (normalized !== trimmed) {
+    const exact = await prisma.user.findUnique({ where: { email: normalized } })
+    if (exact) return { user: exact, ambiguous: false }
+  }
   // nosemgrep: crm-no-raw-sql — lower() equality; Prisma mode:"insensitive" is ILIKE and treats _ and % as wildcards
-  const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${email.trim()}) LIMIT 2`
+  const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${trimmed}) LIMIT 2`
   if (rows.length > 1) {
-    const emailHash = createHash("sha256").update(normalized).digest("hex").slice(0, 16)
+    const emailHash = hmacEmail(normalized).slice(0, 16)
     logger.warn("email lookup ambiguous", { reason: "ambiguous_email_case", emailHash })
     await logAudit(null, "AUTH_EMAIL_AMBIGUOUS", "User", undefined, { emailHash })
     return { user: null, ambiguous: true }

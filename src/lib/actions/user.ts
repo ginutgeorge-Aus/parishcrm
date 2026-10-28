@@ -313,7 +313,9 @@ export async function updateUser(
   // edits). Anything else is an explicit change, including a case-only one (admin
   // normalising a row), and is written lower-cased unless ANOTHER user matches
   // case-insensitively.
-  const rawEmail = String(formData.get("email") ?? "").trim()
+  // Read from the same source the schema parsed (Object.fromEntries keeps the
+  // LAST duplicate entry), so a duplicated "email" field can't desync the two.
+  const rawEmail = String(Object.fromEntries(formData).email ?? "").trim()
   if (rawEmail === target.email) {
     parsed.data.email = target.email
   } else if (await isEmailTaken(parsed.data.email, id)) {

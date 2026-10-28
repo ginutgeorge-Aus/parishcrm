@@ -71,6 +71,7 @@ jest.mock("@/lib/notifications", () => ({
 
 jest.mock("@/lib/totpVerify", () => ({ verifySecondFactor: jest.fn() }))
 
+jest.mock("@/lib/crypto", () => ({ hmacEmail: jest.fn(() => "0123456789abcdef0123456789abcdef") }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 
 jest.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: jest.fn() }))
@@ -102,6 +103,7 @@ import { authorizeCredentials, authorizePasskey, AccountLocked, OtpSent, OtpDeli
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
+import { hmacEmail } from "@/lib/crypto"
 import { verifyAuthenticationResponse } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
@@ -399,7 +401,25 @@ describe("authorizeCredentials — email normalisation", () => {
     await expect(
       authorizeCredentials({ email: "  Admin@Example.COM ", password: "correctpassword" })
     ).rejects.toBeInstanceOf(OtpSent)
-    expect(findUnique).toHaveBeenCalledWith({ where: { email: "admin@example.com" } })
+    expect(findUnique).toHaveBeenCalledWith({ where: { email: "Admin@Example.COM" } })
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("password path: a mixed-case-only legacy account (no lowercase twin) matches on the exact raw email, no fallback", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    findUnique.mockResolvedValueOnce({ ...baseUser, id: 5, email: "Admin@Example.com", passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: " Admin@Example.com ", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findUnique).toHaveBeenCalledWith({ where: { email: "Admin@Example.com" } })
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("returns null without any DB lookup when the email exceeds 254 chars", async () => {
+    expect(await authorizeCredentials({ email: "a".repeat(250) + "@x.com", password: "x" })).toBeNull()
+    expect(findUnique).not.toHaveBeenCalled()
     expect(queryRaw).not.toHaveBeenCalled()
   })
 
@@ -458,7 +478,7 @@ describe("authorizeCredentials — email normalisation", () => {
     const [strings, ...values] = queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
     expect(strings.join("?")).toMatch(/lower\(email\) = lower\(\?\)/)
     expect(strings.join("?")).not.toMatch(/ILIKE/i)
-    expect(values).toEqual(["a_min@example.com"]) // bound parameter; Postgres lower() folds both sides
+    expect(values).toEqual(["A_min@Example.com"]) // bound parameter; Postgres lower() folds both sides
   })
 
   it("exact lowercase match wins when case variants exist (no fallback query)", async () => {
@@ -479,6 +499,7 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(prisma.user.update).not.toHaveBeenCalled()
     // discoverable audit row: hashed email only, never the raw address
     expect(logAudit).toHaveBeenCalledWith(null, "AUTH_EMAIL_AMBIGUOUS", "User", undefined, { emailHash: expect.stringMatching(/^[0-9a-f]{16}$/) })
+    expect(hmacEmail).toHaveBeenCalledWith("admin@example.com") // keyed HMAC, not unkeyed sha256
   })
 
   it("TOTP path: resolves a legacy mixed-case account via the shared lookup", async () => {

@@ -227,6 +227,17 @@ describe("updateUser", () => {
     })
   })
 
+  it("duplicate email entries: compares the LAST entry (the one the schema parsed), not the first", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // lowercase twin exists
+    const f = fd({ name: "N", email: "Legacy@X.com", role: "VIEWER" })
+    f.append("email", "other@x.com") // last wins in Object.fromEntries
+    const result = await updateUser(1, undefined, f)
+    expect(result).toEqual({ error: "Email already in use" }) // changed email => duplicate check ran
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
   it("honours an explicit case-only email change when no OTHER user matches", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })

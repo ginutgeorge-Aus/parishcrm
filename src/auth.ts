@@ -123,6 +123,14 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
   }
 }
 
+/**
+ * Look up a user by email and verify the password, with a dummy bcrypt compare
+ * on a miss to keep timing uniform.
+ * @param email trimmed RAW email (case preserved so mixed-case-only legacy accounts resolve)
+ * @param password submitted plaintext password
+ * @param ip client IP for log context, if known
+ * @returns the user on success, else null
+ */
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
   const { user } = await findUserByEmailInsensitive(email)
   if (!user) {
@@ -292,7 +300,10 @@ export async function authorizeCredentials(
   // Normalise once so every path (demo, password, OTP, TOTP) looks the user up
   // by the same trimmed, lowercased key. Lockout counters are keyed on user.id,
   // so case/space variants resolve to one account and share one counter.
-  const normalizedEmail = normalizeEmail(String(credentials.email))
+  // rawEmail (trimmed, case kept) goes to the lookup, which tries it exact-first;
+  // normalizedEmail is for demo checks only.
+  const rawEmail = String(credentials.email).trim()
+  const normalizedEmail = normalizeEmail(rawEmail)
   if (!normalizedEmail) return null // whitespace-only: nothing to look up
 
   // IP-based throttle on the whole credentials path (password + OTP
@@ -346,7 +357,7 @@ export async function authorizeCredentials(
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const { user } = await findUserByEmailInsensitive(normalizedEmail)
+    const { user } = await findUserByEmailInsensitive(rawEmail)
     if (!user) return null
     // a soft-deleted user must never authenticate. (Its email is also
     // tombstoned on archive, so this is defence-in-depth.)
@@ -409,7 +420,7 @@ export async function authorizeCredentials(
     // password check), an authenticator code is valid at any time — so this
     // step MUST re-verify the password in the same request.
     if (typeof credentials.code !== "string" || typeof credentials.password !== "string" || !credentials.password) return null
-    const user = await verifyPassword(normalizedEmail, credentials.password, ip)
+    const user = await verifyPassword(rawEmail, credentials.password, ip)
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
@@ -432,7 +443,7 @@ export async function authorizeCredentials(
 
   // Password step (default)
   if (!credentials?.password) return null
-  const user = await verifyPassword(normalizedEmail, credentials.password as string, ip)
+  const user = await verifyPassword(rawEmail, credentials.password as string, ip)
   if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.
