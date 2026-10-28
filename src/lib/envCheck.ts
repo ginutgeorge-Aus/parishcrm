@@ -3,7 +3,7 @@ import { currentKeyId } from "@/lib/crypto"
 import { isResendConfigured } from "@/lib/mailConfig"
 import { schedulerEnabled } from "@/lib/schedulerFlag"
 import { isDemoMode } from "@/lib/demoMode"
-import { clientIpHeaderStatus, isKnownCdnIpHeader, isPassthroughIpHeader } from "@/lib/clientIp"
+import { classifyClientIpHeader } from "@/lib/clientIp"
 
 // Loopback AUTH_URL hosts that identify a non-production (e2e/local) deployment.
 // A real production AUTH_URL is a public domain — a loopback host would break
@@ -265,17 +265,21 @@ export function collectEnvWarnings(): string[] {
   }
 
   // CLIENT_IP_HEADER (src/lib/clientIp.ts) silently falls back to rightmost x-forwarded-for when the
-  // name is not a legal header token or names a client-controlled header (x-forwarded-for/forwarded,
-  // whose first entry is spoofable). Either is a deploy mistake worth surfacing at boot.
-  const ipHeaderStatus = clientIpHeaderStatus(process.env.CLIENT_IP_HEADER)
-  if (ipHeaderStatus === "invalid") {
-    warnings.push("CLIENT_IP_HEADER is not a valid HTTP header name — it is ignored and the client IP comes from the rightmost x-forwarded-for entry")
-  } else if (ipHeaderStatus === "spoofable") {
-    warnings.push("CLIENT_IP_HEADER names a client-controlled header (x-forwarded-for/forwarded) — it is ignored; leave it unset for rightmost x-forwarded-for, or name a header your proxy overwrites (e.g. cf-connecting-ip)")
-  } else if (ipHeaderStatus === "ok" && isPassthroughIpHeader(process.env.CLIENT_IP_HEADER)) {
-    warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
-  } else if (ipHeaderStatus === "ok" && !isKnownCdnIpHeader(process.env.CLIENT_IP_HEADER)) {
-    warnings.push(`CLIENT_IP_HEADER "${process.env.CLIENT_IP_HEADER!.trim().toLowerCase()}" is not a recognised CDN client-IP header (cf-connecting-ip, true-client-ip, fly-client-ip, x-azure-clientip, fastly-client-ip) — it is honoured, but make sure your outermost proxy overwrites it on every request`)
+  // name is not a legal header token or names a spoofable header (x-forwarded-for, forwarded, ...).
+  // Either is a deploy mistake worth surfacing at boot; custom names are honoured without a warning.
+  const ipHeader = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
+  switch (ipHeader.kind) {
+    case "invalid":
+      warnings.push("CLIENT_IP_HEADER is not a valid HTTP header name — it is ignored and the client IP comes from the rightmost x-forwarded-for entry")
+      break
+    case "spoofable":
+      warnings.push(`CLIENT_IP_HEADER "${ipHeader.name}" is a client-controlled or append-list header — it is ignored; leave it unset for rightmost x-forwarded-for, or name a header your proxy overwrites (e.g. cf-connecting-ip)`)
+      break
+    case "passthrough":
+      warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
+      break
+    default:
+      break // unset, cdn, custom: nothing to flag
   }
 
   if (isDemoMode()) {

@@ -180,17 +180,21 @@ describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf connecting ip"
     expect(ipWarnings()).toEqual([expect.stringContaining("not a valid HTTP header name")])
   })
-  it("warns on x-forwarded-for", () => {
-    process.env.CLIENT_IP_HEADER = "X-Forwarded-For"
-    expect(ipWarnings()).toEqual([expect.stringContaining("client-controlled header")])
+  it("warns on spoofable headers", () => {
+    for (const n of ["X-Forwarded-For", "forwarded", "x-original-forwarded-for"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([expect.stringContaining("client-controlled or append-list header")])
+    }
   })
   it("warns (but still honours) a passthrough-prone header like x-real-ip", () => {
     process.env.CLIENT_IP_HEADER = " X-Real-IP "
     expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
   })
-  it("warns once (name only) for a header outside the CDN allowlist", () => {
-    process.env.CLIENT_IP_HEADER = "X-Original-Forwarded-For"
-    expect(ipWarnings()).toEqual([expect.stringContaining('"x-original-forwarded-for" is not a recognised CDN')])
+  it("does not warn for legitimate custom proxy headers", () => {
+    for (const n of ["x-envoy-external-address", "x-azure-socketip", "x-my-proxy-ip"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([])
+    }
   })
   it("does not warn for an allowlisted CDN header", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"

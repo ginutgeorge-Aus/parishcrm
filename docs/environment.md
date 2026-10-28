@@ -52,21 +52,29 @@ any way that bypasses your trusted proxy (e.g. a direct `*.onrender.com` hostnam
 otherwise clients can send the header themselves and dodge rate limits. When `CLIENT_IP_HEADER` is
 set, the outermost trusted proxy/CDN must also **overwrite** that header on every request (never
 append to it or pass the client's value through). Every proxy behind that edge must pass the header
-through unchanged rather than append its own address. This holds for any name you choose, not only
-`x-forwarded-for`/`forwarded` (e.g. `x-original-forwarded-for`): a header is trusted only if the
-outermost proxy overwrites it on every request. If the header holds several comma-separated
+through unchanged rather than append its own address. This holds for any name you choose: a header
+is trusted only if the outermost proxy overwrites it on every request. If the header holds several comma-separated
 values the app uses the rightmost, and it must be a valid IP.
 
-- A missing or non-IP header value falls back to `x-forwarded-for`. A one-time warning is logged only
-  when a proxied request (one carrying `x-forwarded-for`) lacks a usable header.
-- `x-forwarded-for` and `forwarded` (client-controlled first entry) and invalid header names are
-  ignored, with a boot-log warning.
-- A name outside the known CDN headers (`cf-connecting-ip`, `true-client-ip`, `fly-client-ip`,
-  `x-azure-clientip`, `fastly-client-ip`) is honoured, with a boot-log warning (header
-  name only) so you confirm your proxy overwrites it.
+- The header is honoured only on requests that also carry `x-forwarded-for` (i.e. that went through a
+  proxy). A request with the header but no `x-forwarded-for` reached the origin directly, so the
+  header is ignored and a warning is logged. **Residual risk:** an attacker who can reach the origin
+  *and* sends both headers still spoofs the IP, so the origin must not be reachable except through
+  your proxy (this is the security rule above; the check is a mitigation, not a substitute).
+- A missing or non-IP header value falls back to `x-forwarded-for`. The warning for that (and for the
+  direct-hit case) is logged at most once every 10 minutes per process, header name only.
+- Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
+  (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,
+  `x-original-forwarded-for`).
+- Known CDN/proxy headers (`cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, `x-azure-clientip`,
+  `x-azure-socketip`, `fastly-client-ip`, `x-envoy-external-address`, `x-appengine-user-ip`,
+  `cloudfront-viewer-address`) and any other custom name are honoured without a boot warning; confirm
+  your proxy overwrites the header.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
   `x-originating-ip`, `x-cluster-client-ip`) are honoured, with a boot-log warning so you confirm your
   proxy overwrites them.
+- IPv6 values are canonicalised (case, zero compression, `::ffff:a.b.c.d` unwrapped to IPv4, zone id
+  and port stripped) so equivalent spellings share one rate-limit bucket.
 - `cf-connecting-ip` fits when every request goes through Cloudflare (e.g. your own proxied zone).
   Render's edge appears to send it too, but Render does not document this, so confirm the header on
   your own deployment first.

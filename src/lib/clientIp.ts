@@ -5,55 +5,71 @@ import { logger } from "@/lib/logger"
 // name with a space), which would abort IP resolution, so such names are rejected up front.
 const HEADER_NAME_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/
 
-// Headers whose first entry is client-controlled: reading them via CLIENT_IP_HEADER would key the
-// rate limit on a spoofable value, so they are never honoured (the default XFF path handles XFF).
-const SPOOFABLE_HEADERS = new Set(["x-forwarded-for", "forwarded"])
+// Headers whose value is client-controlled or an append-list: reading them via CLIENT_IP_HEADER would
+// key the rate limit on a spoofable value, so they are never honoured (the default XFF path handles
+// x-forwarded-for itself).
+const SPOOFABLE_HEADERS = new Set([
+  "x-forwarded-for",
+  "forwarded",
+  "x-forwarded",
+  "forwarded-for",
+  "x-forwarded-client-ip",
+  "x-original-forwarded-for",
+])
 
 // Headers some proxies set but others pass through from the client untouched. Still honoured (nginx
 // commonly overwrites x-real-ip), but surfaced as a boot warning so the operator confirms it.
 const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip"])
 
-// Documented CDN/edge client-IP headers. A CLIENT_IP_HEADER outside this list (and not a passthrough
-// name) is still honoured but flagged at boot so the operator confirms the proxy overwrites it.
-const KNOWN_CDN_HEADERS = new Set(["cf-connecting-ip", "true-client-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip"])
+// Documented CDN/edge/proxy client-IP headers, which the platform overwrites on every request.
+const KNOWN_CDN_HEADERS = new Set([
+  "cf-connecting-ip",
+  "true-client-ip",
+  "fly-client-ip",
+  "x-azure-clientip",
+  "x-azure-socketip",
+  "fastly-client-ip",
+  "x-envoy-external-address",
+  "x-appengine-user-ip",
+  "cloudfront-viewer-address",
+])
+
+/** How `CLIENT_IP_HEADER` is classified; see {@link classifyClientIpHeader}. */
+export type ClientIpHeaderKind = "unset" | "invalid" | "spoofable" | "passthrough" | "cdn" | "custom"
 
 /**
- * Why the `CLIENT_IP_HEADER` env value is ignored, if it is. Shared by the runtime lookup and the
- * boot-time warning in `envCheck.collectEnvWarnings`.
+ * Single classifier for the `CLIENT_IP_HEADER` env value, shared by the runtime lookup and the
+ * boot-time check in `envCheck.collectEnvWarnings`. `unset`, `invalid` and `spoofable` values are
+ * ignored at runtime; `passthrough`, `cdn` and `custom` are honoured.
  * @param raw the raw env value (may be undefined)
- * @returns "unset" when unset/blank, "invalid" when not a legal header name, "spoofable" for
- *   `x-forwarded-for`/`forwarded`, or "ok"
+ * @returns the kind plus the trimmed, lower-cased header name (empty when unset)
  */
-export function clientIpHeaderStatus(raw: string | undefined): "unset" | "invalid" | "spoofable" | "ok" {
-  const name = raw?.trim().toLowerCase()
-  if (!name) return "unset"
-  if (!HEADER_NAME_TOKEN.test(name)) return "invalid"
-  if (SPOOFABLE_HEADERS.has(name)) return "spoofable"
-  return "ok"
+export function classifyClientIpHeader(raw: string | undefined): { kind: ClientIpHeaderKind; name: string } {
+  const name = raw?.trim().toLowerCase() ?? ""
+  if (!name) return { kind: "unset", name }
+  if (!HEADER_NAME_TOKEN.test(name)) return { kind: "invalid", name }
+  if (SPOOFABLE_HEADERS.has(name)) return { kind: "spoofable", name }
+  if (PASSTHROUGH_HEADERS.has(name)) return { kind: "passthrough", name }
+  if (KNOWN_CDN_HEADERS.has(name)) return { kind: "cdn", name }
+  return { kind: "custom", name }
 }
+
+/** Minimum gap between "configured header unusable" warnings, so a misconfig cannot flood logs. */
+const WARN_INTERVAL_MS = 10 * 60_000
+
+/** Timestamp (ms) of the last "configured header unusable" warning; 0 = never. */
+let lastConfiguredHeaderWarnAt = 0
 
 /**
- * Whether `CLIENT_IP_HEADER` names a header that is only safe when the outermost proxy overwrites it
- * (e.g. `x-real-ip`). Used for the boot-time warning in `envCheck.collectEnvWarnings`.
- * @param raw the raw env value (may be undefined)
- * @returns true for a known passthrough-prone header name
+ * Logs a CLIENT_IP_HEADER warning at most once per `WARN_INTERVAL_MS` per process.
+ * @param message the warning text (header name only, never a request value)
  */
-export function isPassthroughIpHeader(raw: string | undefined): boolean {
-  return PASSTHROUGH_HEADERS.has(raw?.trim().toLowerCase() ?? "")
+function warnConfiguredHeaderRateLimited(message: string): void {
+  const now = Date.now()
+  if (lastConfiguredHeaderWarnAt && now - lastConfiguredHeaderWarnAt < WARN_INTERVAL_MS) return
+  lastConfiguredHeaderWarnAt = now
+  logger.warn(message)
 }
-
-/**
- * Whether `CLIENT_IP_HEADER` names a well-known CDN/edge client-IP header (e.g. `cf-connecting-ip`).
- * Used for the boot-time "unrecognised header" warning in `envCheck.collectEnvWarnings`.
- * @param raw the raw env value (may be undefined)
- * @returns true when the (trimmed, lower-cased) name is on the allowlist
- */
-export function isKnownCdnIpHeader(raw: string | undefined): boolean {
-  return KNOWN_CDN_HEADERS.has(raw?.trim().toLowerCase() ?? "")
-}
-
-/** Set once the "configured header unusable" warning has fired, so it logs once per process. */
-let warnedConfiguredHeaderMissing = false
 
 /**
  * Rightmost non-empty, trimmed entry of a (possibly comma-separated) header, i.e. the one a trusted
@@ -78,9 +94,10 @@ function rightmostXff(h: Pick<Headers, "get">): string | undefined {
 }
 
 /**
- * Normalises a candidate IP: trims, strips `[v6]`/`[v6]:port` brackets, an IPv4 `:port` and an IPv6
- * zone id, lowercases, and unwraps IPv4-mapped IPv6 in dotted or hex form (`::ffff:1.2.3.4` and
- * `::ffff:102:304` both become `1.2.3.4`).
+ * Normalises a candidate IP to one canonical spelling: trims, strips `[v6]`/`[v6]:port` brackets, an
+ * IPv4 `:port` and (IPv6 only) a zone id, then canonicalises IPv6 via the WHATWG URL parser
+ * (lower-case, zero-compressed) and unwraps IPv4-mapped addresses in any spelling
+ * (`::ffff:1.2.3.4`, `0:0:0:0:0:ffff:1.2.3.4`, `::ffff:102:304` all become `1.2.3.4`).
  * @param value raw header entry (may be undefined)
  * @returns the canonical IP, or undefined when it is not a well-formed IP
  */
@@ -93,40 +110,67 @@ function normalizeIp(value: string | undefined): string | undefined {
     const v4Port = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(v)
     if (v4Port) v = v4Port[1]
   }
-  v = v.replace(/%[^\s%]+$/, "") // strip an IPv6 zone id (fe80::1%eth0)
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v)
-  if (mapped) v = mapped[1]
-  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v)
-  if (hexMapped) {
-    const hi = parseInt(hexMapped[1], 16)
-    const lo = parseInt(hexMapped[2], 16)
-    v = `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`
+  if (v.includes(":")) v = v.replace(/%[^\s%]+$/, "") // zone id (fe80::1%eth0) is only legal on IPv6
+  const family = isIP(v)
+  if (family === 4) return v
+  if (family !== 6) return undefined
+  let canonical: string
+  try {
+    canonical = new URL(`http://[${v}]/`).hostname.slice(1, -1)
+  } catch {
+    return undefined
   }
-  return isIP(v) !== 0 ? v : undefined
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical)
+  if (mapped) {
+    const hi = parseInt(mapped[1], 16)
+    const lo = parseInt(mapped[2], 16)
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`
+  }
+  return canonical
 }
 
 /**
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
  * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
- * spoofable name (see `clientIpHeaderStatus`) is ignored. The rightmost non-empty entry is taken (so a
- * proxy that appends rather than overwrites still wins over a client-sent value), normalised via
- * `normalizeIp`, and accepted only when it is a well-formed IP. When the env is valid but the header
- * is missing/unusable AND the request carries `x-forwarded-for` (i.e. it went through a proxy), warns once
- * per process (header name only, never the value) and returns undefined. Requests with no proxy headers
- * (e.g. a local health check) neither warn nor consume the once-only warning.
+ * spoofable name (see `classifyClientIpHeader`) is ignored. The header is honoured only when the
+ * request also carries `x-forwarded-for` (i.e. it traversed a proxy): a request without it reached the
+ * origin directly, so the configured header is attacker-controlled and the default path is used
+ * instead. The rightmost non-empty entry is taken, normalised via `normalizeIp`, and accepted only
+ * when it is a well-formed IP. Falling back while the header is missing/unusable (proxied) or present
+ * on a non-proxied request logs a rate-limited warning (header name only, never the value). Requests
+ * with neither header (e.g. a local health check) do not warn.
  * @param h anything with `get`
- * @returns the IP, or undefined when the env is unset/ignored or the header is missing/invalid
+ * @returns the IP, or undefined when the env is unset/ignored or the header is not usable
  */
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
-  const raw = process.env.CLIENT_IP_HEADER
-  if (clientIpHeaderStatus(raw) !== "ok") return undefined
-  const name = raw!.trim().toLowerCase()
+  const { kind, name } = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
+  if (kind === "unset" || kind === "invalid" || kind === "spoofable") return undefined
+  const proxied = h.get("x-forwarded-for") != null
+  const present = h.get(name) != null
+  if (!proxied) {
+    if (present) {
+      warnConfiguredHeaderRateLimited(
+        `clientIp: CLIENT_IP_HEADER "${name}" is present but the request has no x-forwarded-for (origin reached directly?); ignoring it. The origin must not be reachable except through your proxy`,
+      )
+    }
+    return undefined
+  }
   const ip = normalizeIp(rightmostEntry(h, name))
-  if (!ip && !warnedConfiguredHeaderMissing && h.get("x-forwarded-for") != null) {
-    warnedConfiguredHeaderMissing = true
-    logger.warn(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
+  if (!ip) {
+    warnConfiguredHeaderRateLimited(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
   return ip
+}
+
+/**
+ * Client IP, or undefined when the request carries none (no usable header/XFF entry). Prefer this over
+ * comparing `clientIpFromHeaders` to the "unknown" sentinel: a literal `unknown` XFF entry is returned
+ * as the string "unknown" (it still keys its own bucket), never confused with "no IP".
+ * @param h anything with `get`
+ * @returns the IP/key, or undefined when absent
+ */
+export function clientIpOrUndefined(h: Pick<Headers, "get">): string | undefined {
+  return configuredHeaderIp(h) ?? rightmostXff(h)
 }
 
 /**
@@ -136,9 +180,7 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
  * @param h anything with `get`
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
-  const configured = configuredHeaderIp(h)
-  if (configured) return configured
-  return rightmostXff(h) || "unknown"
+  return clientIpOrUndefined(h) ?? "unknown"
 }
 
 /**
@@ -162,7 +204,5 @@ export function getClientIp(req: Request): string {
  */
 export function auditIpFromHeaders(h?: Pick<Headers, "get"> | null): string | undefined {
   if (!h) return undefined
-  const configured = configuredHeaderIp(h)
-  if (configured) return configured
-  return normalizeIp(rightmostXff(h))
+  return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }
