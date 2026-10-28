@@ -386,13 +386,17 @@ describe("authorizeCredentials — email normalisation", () => {
   // clearAllMocks keeps implementations: don't leak per-test rows into later suites.
   afterEach(() => queryRaw.mockResolvedValue([]))
 
-  /** Mocks the lowercase-exact miss, the raw id lookup and the fetch-by-id. */
-  const legacyRow = (row: Record<string, unknown>) => {
-    findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(row)
+  /**
+   * Mocks `exactMisses` unique-index misses (raw, then lowercased when the input
+   * differs in case), the raw id lookup and the fetch-by-id.
+   */
+  const legacyRow = (row: Record<string, unknown>, exactMisses = 1) => {
+    for (let i = 0; i < exactMisses; i++) findUnique.mockResolvedValueOnce(null)
+    findUnique.mockResolvedValueOnce(row)
     queryRaw.mockResolvedValue([{ id: row.id }])
   }
 
-  it("password path: tries the trimmed, lower-cased email on the unique index first", async () => {
+  it("password path: tries the trimmed raw email on the unique index first", async () => {
     const passwordHash = await hash("correctpassword", 10)
     findUnique.mockResolvedValue({ ...baseUser, passwordHash })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({})
@@ -427,10 +431,11 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(queryRaw).not.toHaveBeenCalled()
   })
 
-  it("OTP path: tries the lower-cased email on the unique index first", async () => {
+  it("OTP path: tries the trimmed raw email, then the lower-cased one, before the fallback", async () => {
     findUnique.mockResolvedValue(null)
     await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })
-    expect(findUnique).toHaveBeenCalledWith({ where: { email: "secretary@example.com" } })
+    expect(findUnique).toHaveBeenNthCalledWith(1, { where: { email: "Secretary@Example.com" } })
+    expect(findUnique).toHaveBeenNthCalledWith(2, { where: { email: "secretary@example.com" } })
   })
 
   it("OTP path: authenticates via the case-insensitive fallback and consumes the OTP", async () => {
@@ -439,9 +444,10 @@ describe("authorizeCredentials — email normalisation", () => {
       id: 5, name: "Secretary", email: "Admin@Example.com",
       role: "VIEWER", failedLoginAttempts: 0, lockedUntil: null,
       otpCode: "hashed:654321", otpExpiresAt: validOtpExpiry,
-    })
+    }, 2)
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", otp: "654321" })
+    expect(queryRaw).toHaveBeenCalledTimes(1) // only the lower() fallback matched
     expect(result).toMatchObject({ id: "5", role: "VIEWER" })
     expect(prisma.user.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -484,11 +490,17 @@ describe("authorizeCredentials — email normalisation", () => {
 
   it("TOTP path: resolves a legacy mixed-case account via the shared lookup", async () => {
     const passwordHash = await hash("correctpassword", 10)
-    legacyRow({ ...baseUser, email: "Admin@Example.com", passwordHash, totpEnabledAt: new Date("2026-09-01"), totpSecret: "enc:secret", otpLockedUntil: null })
+    legacyRow({ ...baseUser, email: "Admin@Example.com", passwordHash, totpEnabledAt: new Date("2026-09-01"), totpSecret: "enc:secret", otpLockedUntil: null }, 2)
     ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
     const result = await authorizeCredentials({ email: " ADMIN@example.com ", password: "correctpassword", mode: "totp", code: "123456" })
     expect(result).toMatchObject({ id: "1" })
+    expect(queryRaw).toHaveBeenCalledTimes(1) // only the lower() fallback matched
     expect(verifySecondFactor).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), "123456", { resetLockouts: true })
+  })
+
+  it("returns null without a lookup when the password is not a string", async () => {
+    expect(await authorizeCredentials({ email: "admin@example.com", password: 12345 as unknown as string })).toBeNull()
+    expect(findUnique).not.toHaveBeenCalled()
   })
 
   it("demo path: looks up the normalised email directly (no fallback query)", async () => {

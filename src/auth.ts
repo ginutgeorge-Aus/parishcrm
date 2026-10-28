@@ -297,11 +297,11 @@ export async function authorizeCredentials(
 ) {
   const ip = clientIpFrom(request)
   if (!credentials?.email) return null
-  // Normalise once so every path (demo, password, OTP, TOTP) looks the user up
-  // by the same trimmed, lowercased key. Lockout counters are keyed on user.id,
-  // so case/space variants resolve to one account and share one counter.
-  // rawEmail (trimmed, case kept) goes to the lookup, which tries it exact-first;
-  // normalizedEmail is for demo checks only.
+  // Password, OTP and TOTP paths pass rawEmail (trimmed, case kept) to the
+  // lookup, which tries it exact-first, then lowercased, then a lower() match.
+  // normalizedEmail (trimmed + lowercased) is used only for the demo checks and
+  // the whitespace-only early exit. Lockout counters are keyed on user.id, so
+  // case/space variants resolve to one account and share one counter.
   const rawEmail = String(credentials.email).trim()
   const normalizedEmail = normalizeEmail(rawEmail)
   if (!normalizedEmail) return null // whitespace-only: nothing to look up
@@ -442,8 +442,8 @@ export async function authorizeCredentials(
   }
 
   // Password step (default)
-  if (!credentials?.password) return null
-  const user = await verifyPassword(rawEmail, credentials.password as string, ip)
+  if (typeof credentials?.password !== "string" || !credentials.password) return null
+  const user = await verifyPassword(rawEmail, credentials.password, ip)
   if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.
