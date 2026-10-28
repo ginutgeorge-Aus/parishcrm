@@ -4,6 +4,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
     user: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -40,7 +41,7 @@ import { createUser, updateUser, deleteUser, unlockUser, resendWelcome, resetUse
 
 const mockSession = auth as jest.Mock
 const mockFindUnique = prisma.user.findUnique as jest.Mock
-const mockFindFirst = prisma.user.findFirst as jest.Mock
+const mockQueryRaw = prisma.$queryRaw as jest.Mock
 const mockCreate = prisma.user.create as jest.Mock
 const mockUpdate = prisma.user.update as jest.Mock
 const mockDelete = prisma.user.delete as jest.Mock
@@ -107,7 +108,7 @@ describe("createUser", () => {
 
   it("returns error for duplicate email", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValueOnce({ id: 10, email: "jane@example.com" })
+    mockQueryRaw.mockResolvedValueOnce([{ id: 10, email: "jane@example.com" }])
     const result = await createUser(undefined, fd(validNewUser))
     expect(result).toEqual({ error: "Email already in use" })
     expect(mockCreate).not.toHaveBeenCalled()
@@ -115,10 +116,10 @@ describe("createUser", () => {
 
   it("rejects admin@example.com when a legacy Admin@Example.com row exists (case-insensitive check)", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValueOnce({ id: 10, email: "Admin@Example.com" })
+    mockQueryRaw.mockResolvedValueOnce([{ id: 10, email: "Admin@Example.com" }])
     const result = await createUser(undefined, fd({ ...validNewUser, email: " admin@example.com " }))
     expect(result).toEqual({ error: "Email already in use" })
-    expect(mockFindFirst).toHaveBeenCalledWith({ where: { email: { equals: "admin@example.com", mode: "insensitive" } } })
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
@@ -128,7 +129,7 @@ describe("createUser", () => {
   // unique-constraint violation instead of throwing an unhandled 500.
   it("returns a clean error when create() hits a concurrent email P2002", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null) // pre-check saw the email as free
+    mockQueryRaw.mockResolvedValue([]) // pre-check saw the email as free
     mockCreate.mockRejectedValue({ code: "P2002" }) // but a concurrent create beat this one
     const result = await createUser(undefined, fd(validNewUser))
     expect(result).toEqual({ error: "Email already in use" })
@@ -171,7 +172,7 @@ describe("createUser", () => {
 describe("updateUser", () => {
   // Target exists by default; the not-found test overrides this. updateUser
   // looks the target up by id (existence) before the email-collision findFirst.
-  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 1 }))
+  beforeEach(() => mockFindUnique.mockResolvedValue({ id: 1, email: "old@x.com" }))
 
   it("returns error when target user not found", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
@@ -201,24 +202,46 @@ describe("updateUser", () => {
 
   it("returns error for email collision", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue({ id: 99 })
+    mockQueryRaw.mockResolvedValue([{ id: 99 }])
     const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Email already in use" })
   })
 
   it("rejects updating to a case variant of another user's email (case-insensitive, excludes self)", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue({ id: 99, email: "Taken@X.com" })
+    mockQueryRaw.mockResolvedValue([{ id: 99, email: "Taken@X.com" }])
     const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Email already in use" })
-    expect(mockFindFirst).toHaveBeenCalledWith({
-      where: { email: { equals: "taken@x.com", mode: "insensitive" }, NOT: { id: 1 } },
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
+  })
+
+  it("case-only edit of own email keeps the stored value and skips the duplicate check (twin not blocked)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // a lowercase twin exists
+    await updateUser(1, undefined, fd({ name: "New name", email: "legacy@x.com", role: "VIEWER" }))
+    expect(mockQueryRaw).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ name: "New name", email: "Legacy@X.com" }),
+    })
+  })
+
+  it("runs the duplicate check when the email really changes", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockQueryRaw.mockResolvedValue([])
+    await updateUser(1, undefined, fd({ name: "N", email: " Fresh@X.com ", role: "VIEWER" }))
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ email: "fresh@x.com" }),
     })
   })
 
   it("does not rehash when no new password", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockHash).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith({
@@ -230,7 +253,7 @@ describe("updateUser", () => {
 
   it("rehashes when new password provided", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
     expect(mockHash).toHaveBeenCalledWith("Newpass9!", 12)
     expect(mockUpdate).toHaveBeenCalledWith({
@@ -242,7 +265,7 @@ describe("updateUser", () => {
 
   it("invalidates target user's sessions when password changes", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -252,14 +275,14 @@ describe("updateUser", () => {
 
   it("removes the target's passkeys when an admin changes their password", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
     expect(prisma.passkey.deleteMany).toHaveBeenCalledWith({ where: { userId: 1 } })
   })
 
   it("drops credentials inside the password-update transaction", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     const order: string[] = []
     mockTransaction.mockImplementationOnce(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
       order.push("tx:start")
@@ -274,14 +297,14 @@ describe("updateUser", () => {
 
   it("keeps passkeys when the admin edit has no new password", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(prisma.passkey.deleteMany).not.toHaveBeenCalled()
   })
 
   it("clears all four lockout fields on admin-forced password change", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER", password: "Newpass9!" }))
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -296,7 +319,7 @@ describe("updateUser", () => {
 
   it("does not touch lockout fields when no password change", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -306,7 +329,7 @@ describe("updateUser", () => {
 
   it("does not touch sessionsValidFrom when no password change", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -316,7 +339,7 @@ describe("updateUser", () => {
 
   it("audit-logs USER_UPDATED with role and passwordChanged", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(5, undefined, fd({ name: "X", email: "x@x.com", role: "ADMIN", password: "Newpass9!" }))
     expect(mockLogAudit).toHaveBeenCalledWith(42, "USER_UPDATED", "User", 5, {
       targetUserId: 5,
@@ -327,7 +350,7 @@ describe("updateUser", () => {
 
   it("audit-logs USER_UPDATED with passwordChanged=false when no password", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "42" } })
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(5, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockLogAudit).toHaveBeenCalledWith(42, "USER_UPDATED", "User", 5, {
       targetUserId: 5,
@@ -339,7 +362,7 @@ describe("updateUser", () => {
   // --- last-admin demotion guard ---
   it("blocks demoting the last remaining ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN" })
+    mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN", email: "old@x.com" })
     mockCount.mockResolvedValue(0) // no other admins
     const result = await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Cannot remove the last administrator" })
@@ -348,9 +371,9 @@ describe("updateUser", () => {
 
   it("allows demoting an ADMIN when another ADMIN remains", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN" })
+    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN", email: "old@x.com" })
     mockCount.mockResolvedValue(1) // one other admin survives
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(2, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockUpdate).toHaveBeenCalled()
     expect(mockRedirect).toHaveBeenCalledWith("/users")
@@ -358,8 +381,8 @@ describe("updateUser", () => {
 
   it("does not count admins when role stays ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN" })
-    mockFindFirst.mockResolvedValue(null)
+    mockFindUnique.mockResolvedValue({ id: 1, role: "ADMIN", email: "old@x.com" })
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(1, undefined, fd({ name: "X", email: "x@x.com", role: "ADMIN" }))
     expect(mockCount).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalled()
@@ -371,9 +394,9 @@ describe("updateUser", () => {
   // check before either write commits, leaving zero ADMINs.
   it("runs the recount and the demote write inside one Serializable transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN" })
+    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN", email: "old@x.com" })
     mockCount.mockResolvedValue(1)
-    mockFindFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     await updateUser(2, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(mockTransaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
     // the recount must happen after $transaction is invoked (i.e. inside it),
@@ -385,7 +408,7 @@ describe("updateUser", () => {
 
   it("surfaces a clean retry error when a concurrent demote wins the Serializable race", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN" })
+    mockFindUnique.mockResolvedValue({ id: 2, role: "ADMIN", email: "old@x.com" })
     // Both concurrent transactions' pre-write counts looked safe; Postgres
     // aborts the loser with a Serializable write-conflict (P2034) instead of
     // letting both writes land and drop the ADMIN count to zero.
@@ -398,8 +421,8 @@ describe("updateUser", () => {
   // --- P2002 unique-email race backstop ---
   it("returns a clean error when the write hits a concurrent email P2002", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
-    mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER" })
-    mockFindFirst.mockResolvedValue(null) // pre-check saw the email as free
+    mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER", email: "old@x.com" })
+    mockQueryRaw.mockResolvedValue([]) // pre-check saw the email as free
     mockTransaction.mockRejectedValue({ code: "P2002" }) // but a concurrent write beat this one
     const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Email already in use" })
@@ -565,7 +588,7 @@ describe("user actions — OFFICE_ADMIN escalation guards", () => {
   })
   it("OFFICE_ADMIN can create a VIEWER", async () => {
     mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
-    prismaMock.findFirst.mockResolvedValue(null)        // email free
+    mockQueryRaw.mockResolvedValue([])        // email free
     prismaMock.create.mockResolvedValue({ id: 9 } as never)
     mockRedirect.mockImplementationOnce(() => { throw new Error("REDIRECT") })
     await expect(createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "VIEWER" })))
@@ -636,7 +659,7 @@ describe("createUser — invite flow", () => {
 
   it("creates a user without a password input and issues an invite", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findFirst.mockResolvedValue(null)          // email free
+    mockQueryRaw.mockResolvedValue([])          // email free
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     await createUser(undefined, fd({ name: "X", email: "x@y.com", role: "VIEWER" }))
@@ -655,7 +678,7 @@ describe("createUser — invite flow", () => {
 
   it("creates the user even if the email send throws", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     ;(sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
@@ -666,7 +689,7 @@ describe("createUser — invite flow", () => {
 
   it("still creates the user when storing the invite token fails", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockRejectedValue(new Error("pg down"))
     mockRedirect.mockImplementationOnce(() => { throw new Error("REDIRECT") })
@@ -682,7 +705,7 @@ describe("createUser — invite flow", () => {
   // create/resend for the same user.
   it("scopes the failure-cleanup clear to the token hash this invocation wrote", async () => {
     mockAuth({ user: { id: "1", role: "ADMIN" } })
-    prismaMock.findFirst.mockResolvedValue(null)
+    mockQueryRaw.mockResolvedValue([])
     prismaMock.create.mockResolvedValue({ id: 9, email: "x@y.com", name: "X", role: "VIEWER" } as never)
     prismaMock.update.mockResolvedValue({ id: 9 } as never)
     ;(sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))

@@ -24,7 +24,9 @@ async function main() {
   // old literal union silently dropped AUDITOR, the one role with no seeded user.
   const role = (process.env.USER_ROLE as UserRole) || UserRole.ADMIN
 
-  const existing = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } })
+  // Same rule as src/lib/userLookup.ts::isEmailTaken (lower(email) = lower, no ILIKE
+  // wildcards). Inlined: this script owns its PrismaClient and runs outside the app's `@/` aliases.
+  const [existing] = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = ${email} LIMIT 1`
   if (existing) {
     console.log(`User ${email} already exists (id=${existing.id})`)
     return
