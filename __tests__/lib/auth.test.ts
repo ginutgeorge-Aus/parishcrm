@@ -451,14 +451,14 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(queryRaw).toHaveBeenCalledTimes(1)
   })
 
-  it("fallback is a raw lower(email) = $1 query, so `_` and `%` are literal, not ILIKE wildcards", async () => {
+  it("fallback is a raw lower(email) = lower($1) query, so `_` and `%` are literal, not ILIKE wildcards", async () => {
     findUnique.mockResolvedValue(null)
     queryRaw.mockResolvedValue([])
-    expect(await authorizeCredentials({ email: "A_min@Example.com", password: "x" })).toBeNull()
+    expect(await authorizeCredentials({ email: " A_min@Example.com ", password: "x" })).toBeNull()
     const [strings, ...values] = queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
-    expect(strings.join("?")).toMatch(/lower\(email\) = \?/)
+    expect(strings.join("?")).toMatch(/lower\(email\) = lower\(\?\)/)
     expect(strings.join("?")).not.toMatch(/ILIKE/i)
-    expect(values).toEqual(["a_min@example.com"]) // passed as a bound parameter, never interpolated
+    expect(values).toEqual(["a_min@example.com"]) // bound parameter; Postgres lower() folds both sides
   })
 
   it("exact lowercase match wins when case variants exist (no fallback query)", async () => {
@@ -477,6 +477,8 @@ describe("authorizeCredentials — email normalisation", () => {
     queryRaw.mockResolvedValue([{ id: 1 }, { id: 2 }])
     expect(await authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })).toBeNull()
     expect(prisma.user.update).not.toHaveBeenCalled()
+    // discoverable audit row: hashed email only, never the raw address
+    expect(logAudit).toHaveBeenCalledWith(null, "AUTH_EMAIL_AMBIGUOUS", "User", undefined, { emailHash: expect.stringMatching(/^[0-9a-f]{16}$/) })
   })
 
   it("TOTP path: resolves a legacy mixed-case account via the shared lookup", async () => {

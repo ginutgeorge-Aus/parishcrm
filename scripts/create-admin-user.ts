@@ -26,7 +26,8 @@ async function main() {
 
   // Same rule as src/lib/userLookup.ts::isEmailTaken (lower(email) = lower, no ILIKE
   // wildcards). Inlined: this script owns its PrismaClient and runs outside the app's `@/` aliases.
-  const [existing] = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = ${email} LIMIT 1`
+  // nosemgrep: crm-no-raw-sql — lower() equality (not ILIKE); userLookup.ts imports the app prisma singleton so it can't be reused here
+  const [existing] = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${email}) LIMIT 1`
   if (existing) {
     console.log(`User ${email} already exists (id=${existing.id})`)
     return

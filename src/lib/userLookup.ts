@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
+import { createHash } from "node:crypto"
 import { logger } from "@/lib/logger"
+import { logAudit } from "@/lib/audit"
 import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
 
 /**
@@ -42,7 +44,11 @@ export type EmailLookup = {
  * instead of Prisma's `mode: "insensitive"` because that compiles to ILIKE, so
  * `_` and `%` in the input would act as wildcards. Fallback matches are ids
  * only (LIMIT 2); exactly one is accepted, two or more is ambiguous and yields
- * no user. The email is never logged.
+ * no user, and an `AUTH_EMAIL_AMBIGUOUS` audit row (truncated SHA-256 of the
+ * normalised email, no raw address) is written so locked-out twin pairs can be
+ * found. The fallback compares `lower(email) = lower($input)` so both sides use
+ * Postgres' own lower() (JS and Postgres can differ on non-ASCII case folding);
+ * the JS-lowercased exact step is only a fast path.
  * @param email raw email input (any case, surrounding whitespace allowed)
  * @returns the user (or null) and whether the match was ambiguous
  */
@@ -51,9 +57,12 @@ export async function findUserByEmailInsensitive(email: string): Promise<EmailLo
   if (!normalized) return { user: null, ambiguous: false }
   const exact = await prisma.user.findUnique({ where: { email: normalized } })
   if (exact) return { user: exact, ambiguous: false }
-  const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = ${normalized} LIMIT 2`
+  // nosemgrep: crm-no-raw-sql — lower() equality; Prisma mode:"insensitive" is ILIKE and treats _ and % as wildcards
+  const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${email.trim()}) LIMIT 2`
   if (rows.length > 1) {
-    logger.warn("email lookup ambiguous", { reason: "ambiguous_email_case" })
+    const emailHash = createHash("sha256").update(normalized).digest("hex").slice(0, 16)
+    logger.warn("email lookup ambiguous", { reason: "ambiguous_email_case", emailHash })
+    await logAudit(null, "AUTH_EMAIL_AMBIGUOUS", "User", undefined, { emailHash })
     return { user: null, ambiguous: true }
   }
   if (rows.length === 0) return { user: null, ambiguous: false }
@@ -70,9 +79,13 @@ export async function findUserByEmailInsensitive(email: string): Promise<EmailLo
  * @returns true when another row matches
  */
 export async function isEmailTaken(email: string, excludeId?: number): Promise<boolean> {
-  const normalized = normalizeEmail(email)
-  const rows = excludeId === undefined
-    ? await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = ${normalized} LIMIT 1`
-    : await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = ${normalized} AND id <> ${excludeId} LIMIT 1`
+  const trimmed = email.trim()
+  if (excludeId === undefined) {
+    // nosemgrep: crm-no-raw-sql — lower() equality; Prisma mode:"insensitive" is ILIKE and treats _ and % as wildcards
+    const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${trimmed}) LIMIT 1`
+    return rows.length > 0
+  }
+  // nosemgrep: crm-no-raw-sql — lower() equality; Prisma mode:"insensitive" is ILIKE and treats _ and % as wildcards
+  const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${trimmed}) AND id <> ${excludeId} LIMIT 1`
   return rows.length > 0
 }

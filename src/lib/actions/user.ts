@@ -18,7 +18,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { assertNotDemo } from "@/lib/demoMode"
-import { userEmailField, normalizeEmail, isEmailTaken } from "@/lib/userLookup"
+import { userEmailField, isEmailTaken } from "@/lib/userLookup"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
 
@@ -307,10 +307,14 @@ export async function updateUser(
     return { error: "Unauthorized" }
   }
 
-  // Only check for duplicates when the email really changes. A case-only edit
-  // keeps the stored value, so a legacy mixed-case email isn't silently
-  // rewritten and a case-variant twin doesn't block unrelated edits.
-  if (normalizeEmail(target.email) === parsed.data.email) {
+  // The schema lower-cases the email, so compare the RAW submitted value with the
+  // stored one: identical = unchanged (keep the stored legacy mixed-case value and
+  // skip the duplicate check, so a case-variant twin doesn't block unrelated
+  // edits). Anything else is an explicit change, including a case-only one (admin
+  // normalising a row), and is written lower-cased unless ANOTHER user matches
+  // case-insensitively.
+  const rawEmail = String(formData.get("email") ?? "").trim()
+  if (rawEmail === target.email) {
     parsed.data.email = target.email
   } else if (await isEmailTaken(parsed.data.email, id)) {
     return { error: "Email already in use" }
@@ -357,7 +361,7 @@ export async function unlockUser(id: number): Promise<ActionResult> {
   if (!isValidPgId(id)) return { error: "User not found" }
   if (actorId(session) === id) return { error: "Cannot unlock your own account" }
 
-  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, email: true, archivedAt: true } })
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
@@ -385,7 +389,7 @@ export async function resetUserTotp(id: number): Promise<ActionResult> {
   if (!isValidPgId(id)) return { error: "User not found" }
   if (actorId(session) === id) return { error: "Use My Account to manage your own authenticator" }
 
-  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, email: true, archivedAt: true } })
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
@@ -421,7 +425,7 @@ export async function revokeUserPasskeys(id: number): Promise<ActionResult> {
   if (!isValidPgId(id)) return { error: "User not found" }
   if (actorId(session) === id) return { error: "Use My Account to manage your own passkeys" }
 
-  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, email: true, archivedAt: true } })
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
   if (!target || target.archivedAt) return { error: "User not found" }
   if (!canAssignRole(session?.user?.role, target.role)) return { error: "Unauthorized" }
 
