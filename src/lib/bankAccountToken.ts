@@ -1,5 +1,5 @@
 import "server-only"
-import { decrypt, encrypt, keyIdOf } from "@/lib/crypto"
+import { decrypt, encrypt, hmacBankAccount, keyIdOf } from "@/lib/crypto"
 import { MAX_ACCOUNT_TOKEN_LENGTH } from "@/lib/bankRefMask"
 
 // Sealed bank-account token (#446). The parse route hands the browser masked
@@ -36,4 +36,14 @@ export function unsealAccountNumber(token: unknown): string | null {
   if (!plaintext.startsWith(PURPOSE)) return null
   const accountNumber = plaintext.slice(PURPOSE.length)
   return ACCOUNT_RE.test(accountNumber) ? accountNumber : null
+}
+
+/**
+ * Deterministic, non-reversible fingerprint of the statement's account number
+ * (#449), returned with the parse response so the review draft only merges
+ * selections from a re-upload of the SAME account — masked refs (`*<last4>`)
+ * alone collide for two accounts sharing their last 4 digits.
+ */
+export function fingerprintAccountNumber(accountNumber: string): string {
+  return hmacBankAccount(accountNumber)
 }

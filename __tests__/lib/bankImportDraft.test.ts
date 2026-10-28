@@ -408,3 +408,43 @@ describe("account-number masking (#446)", () => {
     expect(mergeDraftSelections(fresh, prev)[0].accountId).toBe(9)
   })
 })
+
+// #449: masked refs are `*<last4>`, so two accounts sharing the last 4 produce
+// identical refs — selections only carry over when the account fingerprint matches.
+describe("mergeDraftSelections account fingerprint guard (#449)", () => {
+  const prev = [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1", accountId: 7, personId: 10 })]
+  const fresh = [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1", accountId: null, personId: null })]
+
+  it("merges when the fingerprints match", () => {
+    const merged = mergeDraftSelections(fresh, prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "a".repeat(64) })
+    expect(merged[0]).toMatchObject({ accountId: 7, personId: 10 })
+  })
+
+  it("does not merge across accounts that share the last 4", () => {
+    const merged = mergeDraftSelections(fresh, prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })
+    expect(merged).toEqual(fresh)
+  })
+
+  it("does not merge when only one side has a fingerprint (pre-#449 draft)", () => {
+    expect(mergeDraftSelections(fresh, prev, { prevFingerprint: undefined, nextFingerprint: "b".repeat(64) })).toEqual(fresh)
+    expect(mergeDraftSelections(fresh, prev, { prevFingerprint: "a".repeat(64), nextFingerprint: undefined })).toEqual(fresh)
+  })
+})
+
+describe("draft accountFingerprint persistence (#449)", () => {
+  const masked = "ANZ_*4321_20250623_60.00_X_1"
+
+  it("round-trips the fingerprint", () => {
+    const draft = makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: "enc:v1:a:b:c", accountFingerprint: "f".repeat(64) })
+    saveDraft(draft)
+    expect(loadDraft()?.accountFingerprint).toBe("f".repeat(64))
+  })
+
+  it("rejects a malformed fingerprint", () => {
+    sessionStorage.setItem(
+      "bankImportDraft.v2",
+      JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: "enc:v1:a:b:c", accountFingerprint: "nope" }))
+    )
+    expect(loadDraft()).toBeNull()
+  })
+})

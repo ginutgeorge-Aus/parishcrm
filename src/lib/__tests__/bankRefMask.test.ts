@@ -1,8 +1,9 @@
 /** @jest-environment node */
 import { encrypt } from "@/lib/crypto"
-import { sealAccountNumber, unsealAccountNumber } from "@/lib/bankAccountToken"
+import { fingerprintAccountNumber, sealAccountNumber, unsealAccountNumber } from "@/lib/bankAccountToken"
 import {
   accountMask,
+  maskAccountInText,
   bankRefMaskSegment,
   hasUnmaskedAccount,
   IMPORT_REF_PREFIX_RE,
@@ -100,5 +101,57 @@ describe("sealAccountNumber / unsealAccountNumber", () => {
     expect(unsealAccountNumber(42)).toBeNull()
     expect(unsealAccountNumber("")).toBeNull()
     expect(unsealAccountNumber("e".repeat(600))).toBeNull()
+  })
+})
+
+// #449: the account number can also appear in the OFX FITID suffix or the
+// description segment of a ref — every occurrence is masked, and unmasking is
+// exact (`*` never occurs in a genuine ref segment).
+describe("inline account masking (#449)", () => {
+  it("masks the account number in the FITID suffix and restores it", () => {
+    const real = `OFX_${ACCT}_20260902_200.00_TRANSFER_${ACCT}0001`
+    const masked = maskBankRef(real, ACCT)
+    expect(masked).toBe("OFX_*4321_20260902_200.00_TRANSFER_*43210001")
+    expect(masked).not.toContain(ACCT)
+    expect(unmaskBankRef(masked, ACCT)).toBe(real)
+  })
+
+  it("masks the account number inside the description segment of a content key", () => {
+    const key = `${ACCT}_20260902_200.00_TFR${ACCT}`
+    expect(maskContentKey(key, ACCT)).toBe("*4321_20260902_200.00_TFR*4321")
+  })
+
+  it("rejects a ref carrying a stray mask that does not match the account", () => {
+    expect(unmaskBankRef("OFX_*4321_20260902_200.00_X_*9999", ACCT)).toBeNull()
+  })
+
+  it("does not inline-mask very short account numbers (would mangle refs)", () => {
+    expect(maskBankRef("OFX_12345_20260902_12345.00_X_12345", "12345")).toBe("OFX_*2345_20260902_12345.00_X_12345")
+  })
+})
+
+describe("maskAccountInText (#449)", () => {
+  it("masks plain and separator-formatted occurrences", () => {
+    expect(maskAccountInText(`TFR FROM ${ACCT} REF 7`, ACCT)).toBe("TFR FROM *4321 REF 7")
+    expect(maskAccountInText("Acct 9876-54321 and 98765 4321", ACCT)).toBe("Acct *4321 and *4321")
+  })
+
+  it("leaves text without the account number untouched", () => {
+    expect(maskAccountInText("PAYMENT FROM JACK 012345678901234", ACCT)).toBe("PAYMENT FROM JACK 012345678901234")
+    expect(maskAccountInText("anything", "")).toBe("anything")
+    expect(maskAccountInText("ref 12345", "12345")).toBe("ref 12345")
+  })
+})
+
+describe("fingerprintAccountNumber (#449)", () => {
+  it("is deterministic, hex, and does not reveal the number", () => {
+    const fp = fingerprintAccountNumber(ACCT)
+    expect(fp).toBe(fingerprintAccountNumber(ACCT))
+    expect(fp).toMatch(/^[0-9a-f]{64}$/)
+    expect(fp).not.toContain(ACCT)
+  })
+
+  it("differs for two accounts sharing the same last 4", () => {
+    expect(fingerprintAccountNumber("111114321")).not.toBe(fingerprintAccountNumber(ACCT))
   })
 })

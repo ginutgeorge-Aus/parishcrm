@@ -66,6 +66,16 @@ export type BankImportDraft = {
   // masked bankRefs. Opaque to the client (server-only key). Absent for QIF or
   // a statement with no account number.
   accountToken?: string
+  // Keyed HMAC of the account number (#449). Masked refs collide for two
+  // accounts sharing their last 4, so re-upload merges require this to match.
+  accountFingerprint?: string
+}
+
+const FINGERPRINT_RE = /^[0-9a-f]{64}$/
+
+/** True for a well-formed account fingerprint (64 lowercase hex, see hmacBankAccount). */
+export function isAccountFingerprint(value: unknown): value is string {
+  return typeof value === "string" && FINGERPRINT_RE.test(value)
 }
 
 /** Persist the in-progress review (skipped when this exact content was already imported). */
@@ -150,6 +160,7 @@ export function loadDraft(): BankImportDraft | null {
     if (parsed.accountSuffix !== undefined && (typeof parsed.accountSuffix !== "string" || !/^\d{4}$/.test(parsed.accountSuffix))) return null
     if (parsed.source !== undefined && !isImportSource(parsed.source)) return null
     if (!hasValidMasking(parsed)) return null
+    if (parsed.accountFingerprint !== undefined && !isAccountFingerprint(parsed.accountFingerprint)) return null
     return parsed
   } catch {
     return null
@@ -244,11 +255,22 @@ export function markImported(fingerprint: string): void {
   }
 }
 
-// After a re-upload, carry the user's selections (category, member, skip,
-// cash-transfer flag) onto the freshly parsed rows, matched by bankRef.
-// Parsed fields (description, amount, isDuplicate, …) come from the fresh row.
-export function mergeDraftSelections(newRows: ReviewRow[], prevRows: ReviewRow[]): ReviewRow[] {
+/**
+ * After a re-upload, carry the user's selections (category, member, skip,
+ * cash-transfer flag) onto the freshly parsed rows, matched by bankRef.
+ * Parsed fields (description, amount, isDuplicate, …) come from the fresh row.
+ * Only merges when both uploads have the same account fingerprint (#449) —
+ * masked refs (`*<last4>`) are identical for two accounts sharing their last 4,
+ * so a mismatch (or a fingerprint on only one side) starts the review fresh.
+ * Both absent (QIF, statements with no account line) keeps the old behaviour.
+ */
+export function mergeDraftSelections(
+  newRows: ReviewRow[],
+  prevRows: ReviewRow[],
+  accounts: { prevFingerprint?: string; nextFingerprint?: string } = {}
+): ReviewRow[] {
   if (prevRows.length === 0) return newRows
+  if (accounts.prevFingerprint !== accounts.nextFingerprint) return newRows
   const byRef = new Map(prevRows.map((r) => [r.bankRef, r]))
   return newRows.map((r) => {
     const prev = byRef.get(r.bankRef)

@@ -11,6 +11,12 @@
 // `hasUnmaskedAccount` to discard drafts saved before masking existed.
 // `*` never occurs in a real account segment (ANZ strips to digits, OFX to
 // [A-Za-z0-9]) and the mask holds no `_`, so field positions are unchanged.
+//
+// #449: the number can also appear later in a ref (OFX FITID suffix, the
+// description segment) and in row description/details text. Every occurrence
+// in a ref is masked; since `*` never occurs in a genuine ref (descriptions
+// and FITIDs are stripped to [A-Za-z0-9]), unmasking is an exact reverse.
+// Free text is masked one-way (`maskAccountInText`) — confirm stores it as sent.
 
 /** Every import-ref prefix (ANZ/ANZTR/OFX/QIF); shared with `contentKeyFromBankRef` in anzParser.ts. */
 export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
@@ -18,6 +24,10 @@ export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
 // `PA<paymentAccountId>` (an internal id), which is never sensitive.
 const SENSITIVE_PREFIX_RE = /^(?:ANZ|ANZTR|OFX)_/
 const MASK_SEGMENT_RE = /^\*[A-Za-z0-9]{1,4}$/
+// Occurrences beyond the leading account segment are only masked for numbers
+// at least this long — a short value would match arbitrary digits elsewhere.
+const MIN_INLINE_MASK_LENGTH = 6
+const ACCOUNT_CHARS_RE = /^[A-Za-z0-9]+$/
 
 // Upper bound on a sealed account token's length (bankAccountToken.ts), checked
 // by the confirm schema and the draft loader. A sealed ≤64-char number is ~120.
@@ -35,16 +45,38 @@ function splitFirstSegment(key: string): { head: string; rest: string } | null {
   return { head: key.slice(0, i), rest: key.slice(i) }
 }
 
+/** Replace every later occurrence of a long-enough account number in `s` with its mask (ref text only: case-sensitive, exact). */
+function maskInline(s: string, accountNumber: string): string {
+  return accountNumber.length >= MIN_INLINE_MASK_LENGTH ? s.replaceAll(accountNumber, accountMask(accountNumber)) : s
+}
+
 /**
  * Mask a content key (`<acct>_<date>_<amount>_<desc>`, i.e. ParsedRow.dedupKey):
  * replaces the leading account segment with `*<last4>` when it equals
- * `accountNumber`. Anything else (empty account, other key) is returned as-is.
+ * `accountNumber`, plus any later occurrence (description segment, OFX FITID
+ * suffix when called via `maskBankRef`) for numbers of 6+ characters.
+ * Anything else (empty account, other key) is returned as-is.
  */
 export function maskContentKey(key: string, accountNumber: string): string {
   if (!accountNumber) return key
   const parts = splitFirstSegment(key)
   if (parts?.head !== accountNumber) return key
-  return `${accountMask(accountNumber)}${parts.rest}`
+  return `${accountMask(accountNumber)}${maskInline(parts.rest, accountNumber)}`
+}
+
+/**
+ * Mask the account number wherever it appears in free text sent to the browser
+ * (row description/details, #449). Tolerates the usual separators between
+ * digits ("9876-54321", "98765 4321") and ignores case. One-way: the masked
+ * text is what the review shows and what confirm stores. Numbers under 6
+ * characters are left alone to avoid mangling ordinary text.
+ */
+export function maskAccountInText(text: string, accountNumber: string): string {
+  if (accountNumber.length < MIN_INLINE_MASK_LENGTH || !ACCOUNT_CHARS_RE.test(accountNumber)) return text
+  // Built only from [A-Za-z0-9] plus a fixed optional separator class: no
+  // metacharacters, no nested quantifiers (linear match).
+  const pattern = new RegExp([...accountNumber].join(String.raw`[\s.-]?`), "gi") // nosemgrep
+  return text.replace(pattern, accountMask(accountNumber))
 }
 
 /**
@@ -68,16 +100,19 @@ export function bankRefMaskSegment(ref: string): string | null {
 }
 
 /**
- * Reverse of `maskBankRef`: rebuild the full-number bankRef. Returns the ref
- * unchanged when it carries no mask, and null when the mask does not match
- * `accountNumber`'s last 4 (a forged or cross-statement ref).
+ * Reverse of `maskBankRef`: rebuild the full-number bankRef, restoring every
+ * masked occurrence (leading segment and any inline ones). Returns the ref
+ * unchanged when it carries no leading mask, and null when the mask does not
+ * match `accountNumber`'s last 4 or a stray `*` is left over (a forged or
+ * cross-statement ref).
  */
 export function unmaskBankRef(ref: string, accountNumber: string): string | null {
   const segment = bankRefMaskSegment(ref)
   if (segment === null) return ref
   if (!accountNumber || segment !== accountMask(accountNumber)) return null
   const prefix = SENSITIVE_PREFIX_RE.exec(ref)![0]
-  return prefix + accountNumber + ref.slice(prefix.length + segment.length)
+  const restored = prefix + ref.slice(prefix.length).replaceAll(segment, accountNumber)
+  return restored.includes("*") ? null : restored
 }
 
 /**

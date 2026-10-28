@@ -86,6 +86,8 @@ export function BankImportClient({
   // Sealed account number from the parse route ("" when none); sent back on
   // confirm so the server can restore the masked bankRefs. Opaque here.
   const [accountToken, setAccountToken] = useState<string | undefined>(undefined)
+  // Keyed account fingerprint (#449): guards the re-upload merge across same-last-4 accounts.
+  const [accountFingerprint, setAccountFingerprint] = useState<string | undefined>(undefined)
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -105,6 +107,7 @@ export function BankImportClient({
       setPaymentAccountId(draft.paymentAccountId)
       if (draft.accountSuffix !== undefined) setAccountSuffix(draft.accountSuffix)
       setAccountToken(draft.accountToken)
+      setAccountFingerprint(draft.accountFingerprint)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -119,9 +122,9 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken, accountFingerprint })
     }
-  }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken])
+  }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken, accountFingerprint])
 
   /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
   function handleUploadComplete(upload: UploadResult) {
@@ -144,11 +147,12 @@ export function BankImportClient({
       }
     })
     // Re-uploading the same statement keeps selections already made
-    setRows(mergeDraftSelections(fresh, rows))
+    setRows(mergeDraftSelections(fresh, rows, { prevFingerprint: accountFingerprint, nextFingerprint: upload.accountFingerprint }))
     setPeriod(upload.period)
     setPaymentAccountId(upload.paymentAccountId)
     setAccountSuffix(upload.accountSuffix)
     setAccountToken(upload.accountToken)
+    setAccountFingerprint(upload.accountFingerprint)
     setParseErrors(upload.errors)
     setView("review")
   }
