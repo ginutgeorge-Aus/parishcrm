@@ -4,4 +4,4 @@ import "server-only"
 // build, so the encryption keyring can never be bundled into client code.
 // The logic lives in ./crypto-core, which Node ops scripts import directly
 // (server-only throws under plain Node/tsx). Keep both entrypoints in sync.
-export { encrypt, decrypt, safeDecrypt, encryptBytes, decryptBytes, keyIdOf, currentKeyId, assertKeyringHealthy, hmacEmail, hmacMobile } from "./cryptoCore"
+export { encrypt, decrypt, safeDecrypt, encryptBytes, decryptBytes, keyIdOf, currentKeyId, assertKeyringHealthy, hmacEmail, hmacMobile, hmacBankAccount } from "./cryptoCore"

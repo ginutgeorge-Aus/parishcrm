@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils"
 import type { ParsedRow } from "@/lib/anzParser"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment } from "@/lib/bankRefMask"
+import { isAccountFingerprint } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 import { radioGroupKeyDown } from "./radioKeys"
 import { IMPORT_SOURCES, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, matchesAccept, type ImportSource } from "@/lib/importSources"
@@ -21,6 +22,8 @@ export type UploadResult = {
   accountSuffix: string
   /** Sealed account number for confirm to restore the masked (`*<last4>`) row bankRefs; undefined when none. */
   accountToken: string | undefined
+  /** Keyed account fingerprint (#449) for the same-account draft merge guard; undefined when none. */
+  accountFingerprint: string | undefined
   paymentAccountId: number
   errors: string[]
 }
@@ -114,6 +117,7 @@ export function UploadStep({
         period: data.period ?? null,
         accountSuffix: typeof data.accountSuffix === "string" && /^\d{4}$/.test(data.accountSuffix) ? data.accountSuffix : "",
         accountToken,
+        accountFingerprint: isAccountFingerprint(data.accountFingerprint) ? data.accountFingerprint : undefined,
         errors: data.errors ?? [],
         autoMatched: typeof data.suggestedPaymentAccountId === "number",
       })
@@ -281,6 +285,7 @@ export function UploadStep({
               period: parsed.period,
               accountSuffix: parsed.accountSuffix,
               accountToken: parsed.accountToken,
+              accountFingerprint: parsed.accountFingerprint,
               paymentAccountId,
               errors: parsed.errors,
             })}

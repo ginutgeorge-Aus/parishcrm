@@ -240,6 +240,17 @@ export function hmacMobile(mobile: string): string {
   return createHmac("sha256", blindIndexKey("mobile")).update(normaliseMobile(mobile)).digest("hex")
 }
 
+/**
+ * Keyed, deterministic fingerprint of a bank account number (#449) — same
+ * v1-derived blind-index pattern as hmacEmail, domain-separated by its own
+ * label. Lets the browser tell two accounts apart (e.g. same last 4 digits)
+ * without ever holding the number; the key is server-only, so the short,
+ * low-entropy account space can't be brute-forced client-side.
+ */
+export function hmacBankAccount(accountNumber: string): string {
+  return createHmac("sha256", blindIndexKey("bank-account")).update(accountNumber).digest("hex")
+}
+
 function isWeakKey(key: Buffer): boolean {
   // A real 256-bit random key has ~30 distinct byte values; all-zero, single
   // repeated-byte, or short-pattern keys have very few. Threshold kept low to

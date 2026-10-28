@@ -10,7 +10,12 @@ import type { Account, Family, ReviewRow } from "@/components/accounting/BankRev
 jest.mock("@/lib/actions/bankImport", () => ({ rememberBankImportAccount: jest.fn().mockResolvedValue({ success: true }) }))
 
 jest.mock("@/components/accounting/import/UploadStep", () => ({
-  UploadStep: ({ source }: { source: string }) => <div data-testid="upload-step" data-source={source} />,
+  // "mock-complete" hands BankImportClient whatever upload the test parked on globalThis.
+  UploadStep: ({ source, onComplete }: { source: string; onComplete: (u: unknown) => void }) => (
+    <div data-testid="upload-step" data-source={source}>
+      <button onClick={() => onComplete((globalThis as { mockNextUpload?: unknown }).mockNextUpload)}>mock-complete</button>
+    </div>
+  ),
 }))
 
 // Render the shadcn Select as a plain native <select> — this test drives
@@ -62,7 +67,7 @@ function makeRow(overrides: Partial<ReviewRow> = {}): ReviewRow {
 
 function seedDraft(rows: ReviewRow[], extra: object = {}) {
   sessionStorage.setItem(
-    "bankImportDraft.v2",
+    "bankImportDraft.v3",
     JSON.stringify({ rows, period: { from: "2026-05-01", to: "2026-05-31" }, paymentAccountId: 1, ...extra })
   )
 }
@@ -99,7 +104,7 @@ describe("BankImportClient draft persistence", () => {
     await user.selectOptions(tr.querySelector("select")!, "1")
 
     await waitFor(() => {
-      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v2")!)
+      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v3")!)
       expect(stored.rows[0].accountId).toBe(1)
     })
   })
@@ -117,11 +122,11 @@ describe("BankImportClient draft persistence", () => {
     await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
     expect(await screen.findByText("Import complete")).toBeInTheDocument()
-    expect(sessionStorage.getItem("bankImportDraft.v2")).toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).toBeNull()
   })
 
   it("sends masked rows plus the sealed account token on confirm (#446)", async () => {
-    seedDraft([makeRow({ bankRef: "ANZ_*4321_20260501_100.00_PAYMENTFROMJOHN_1" })], { accountToken: "enc:v1:aXY=:dGFn:Y3Q=" })
+    seedDraft([makeRow({ bankRef: "ANZ_*4321_20260501_100.00_PAYMENTFROMJOHN_1" })], { accountToken: "enc:v1:aXY=:dGFn:Y3Q=", accountFingerprint: "a".repeat(64) })
     const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ imported: 1, skipped: 0, duplicates: 0 }) })
     global.fetch = fetchMock as jest.Mock
     const user = userEvent.setup()
@@ -150,7 +155,7 @@ describe("BankImportClient draft persistence", () => {
     await user.click(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0])
 
     expect((await screen.findAllByText(/category is inactive/)).length).toBeGreaterThan(0)
-    expect(sessionStorage.getItem("bankImportDraft.v2")).not.toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).not.toBeNull()
   })
 
   it("recovers from a network throw — shows an error and re-enables Import", async () => {
@@ -166,7 +171,7 @@ describe("BankImportClient draft persistence", () => {
     expect((await screen.findAllByText(/Network error/i)).length).toBeGreaterThan(0)
     // Button is no longer stuck disabled — the user can retry.
     expect(screen.getAllByRole("button", { name: /Import 1 transaction/ })[0]).toBeEnabled()
-    expect(sessionStorage.getItem("bankImportDraft.v2")).not.toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).not.toBeNull()
   })
 
   it("persists accountSuffix and source in the draft", async () => {
@@ -176,7 +181,7 @@ describe("BankImportClient draft persistence", () => {
     const table = await screen.findByRole("table")
     await user.selectOptions(within(table).getByText("PAYMENT FROM JOHN").closest("tr")!.querySelector("select")!, "1")
     await waitFor(() => {
-      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v2")!)
+      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v3")!)
       expect(stored.accountSuffix).toBe("0111")
       expect(stored.source).toBe("ofx")
     })
@@ -212,5 +217,34 @@ describe("BankImportClient draft persistence", () => {
     await user.click(await screen.findByRole("button", { name: "Import another file" }))
     await user.click(screen.getByRole("button", { name: "Continue" }))
     expect(screen.getByTestId("upload-step")).toHaveAttribute("data-source", "anz")
+  })
+
+  // #449 round 2: a re-upload for a different account (same masked refs) must
+  // not inherit selections — and must say so instead of dropping them silently.
+  it("tells the user when a re-upload for another account drops their selections", async () => {
+    const ref = "ANZ_*4321_20260501_100.00_PAYMENTFROMJOHN_1"
+    seedDraft([makeRow({ bankRef: ref, accountId: 1 })], { accountToken: "enc:v1:a:b:c", accountFingerprint: "a".repeat(64) })
+    ;(globalThis as { mockNextUpload?: unknown }).mockNextUpload = {
+      rows: [{ date: "2026-05-01", description: "PAYMENT FROM JOHN", details: "", amount: "100.00", type: "INCOME", bankRef: ref, dedupKey: "" }],
+      duplicateBankRefs: [],
+      possibleDuplicateBankRefs: [],
+      period: { from: "2026-05-01", to: "2026-05-31" },
+      paymentAccountId: 1,
+      accountSuffix: "4321",
+      accountToken: "enc:v1:d:e:f",
+      accountFingerprint: "b".repeat(64),
+      errors: [],
+    }
+    const user = userEvent.setup()
+    render(<BankImportClient accounts={accounts} families={families} paymentAccounts={paymentAccounts} />)
+    await screen.findByRole("table")
+    await user.click(screen.getByRole("button", { name: "← Back" }))
+    await user.click(screen.getByRole("button", { name: "mock-complete" }))
+    expect(await screen.findByText(/different bank account/i)).toBeInTheDocument()
+    await waitFor(() => {
+      const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v3")!)
+      expect(stored.rows[0].accountId).toBeNull()
+      expect(stored.accountFingerprint).toBe("b".repeat(64))
+    })
   })
 })

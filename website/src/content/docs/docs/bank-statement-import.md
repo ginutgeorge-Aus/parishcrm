@@ -39,6 +39,10 @@ PDF text extraction uses `unpdf`; the ANZ format handles both a plain statement 
 
 Each imported row gets a `bankRef` built from the bank, account, date, amount, a description fragment, and the running balance (the balance figure is what prevents two same-day, same-amount transactions from colliding on the same key). A separate **content key** (independent of exactly which parser produced the row) lets the importer recognise "this same statement line was already imported once, even via a different statement format," so re-uploading an overlapping date range doesn't double-post.
 
+### Account number privacy
+
+The full bank account number never reaches the browser. Wherever it appears in a row (its reference, the description or the extra details), the review shows `*` plus its last four digits instead, and that masked text is what gets saved. Re-uploading a statement during review keeps your category, member and skip choices only when the file is for the **same** account, so two accounts that share their last four digits never swap selections. If a re-upload is for a different account, the review tells you your earlier selections were not carried over.
+
 ### Member auto-match
 
 `matchPerson()` runs two passes over the statement text: first a whole-word match on each person's first+last name, then — only if that finds nothing — a match against their optional `bankingName` alias. Both passes enforce a word-boundary match (so, for example, a shorter surname can't accidentally match as a substring of a longer one) and are case-insensitive.
