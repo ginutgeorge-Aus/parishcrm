@@ -109,7 +109,7 @@ model User {
   name                         String
   // Also unique case-insensitively via the raw-SQL index "User_email_lower_key" ON (lower(email))
   // (migration 20261028000000_user_email_lower_unique; Prisma can't model expression indexes).
-  // Always lowercase on write.
+  // App code should lowercase on write (see the login-email normalisation work); the index is the backstop.
   email                        String                   @unique
   passwordHash                String
   role                         UserRole                 @default(VIEWER)

@@ -34,7 +34,7 @@ Migration `20261028000000_user_email_lower_unique` adds a unique index on `lower
 SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;
 ```
 
-Any rows returned must be resolved first (archive, rename, or delete the extra accounts). No rows means it is safe to upgrade.
+Any rows returned must be resolved first (rename or delete the extra accounts). Archiving is not enough: the index covers archived users too, so an archived row keeps its email unless it is tombstoned (`archived+<id>+<email>`) or renamed. No rows means it is safe to upgrade.
 
 ## Health Stack
 
