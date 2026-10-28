@@ -26,6 +26,16 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `prep-release` | CI/release tooling — mechanical release prep (`CHANGELOG.md` rename, `whatsNew.ts` entry, test bump). Not a data script. It does not write `/verify` checkpoints — add those by hand to `src/lib/testCheckpoints.ts` on the release PR (a test gates it) |
 | `codebase-review` / `file-findings` | CI tooling — optional weekly full-codebase AI review that files findings as `weekly-review`-labelled issues. Not data scripts |
 
+## Upgrading: case-insensitive unique User email
+
+Migration `20261028000000_user_email_lower_unique` adds a unique index on `lower("User".email)`. It aborts with a clear error if case-variant duplicates exist (e.g. `Admin@x.com` and `admin@x.com`). Before upgrading, run:
+
+```sql
+SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;
+```
+
+Any rows returned must be resolved first (archive, rename, or delete the extra accounts). No rows means it is safe to upgrade.
+
 ## Health Stack
 
 - typecheck: `npx tsc --noEmit`

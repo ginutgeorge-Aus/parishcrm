@@ -107,8 +107,11 @@ model Person {
 model User {
   id                           Int                      @id @default(autoincrement())
   name                         String
+  // Also unique case-insensitively via the raw-SQL index "User_email_lower_key" ON (lower(email))
+  // (migration 20261028000000_user_email_lower_unique; Prisma can't model expression indexes).
+  // Always lowercase on write.
   email                        String                   @unique
-  passwordHash                 String
+  passwordHash                String
   role                         UserRole                 @default(VIEWER)
   failedLoginAttempts          Int                      @default(0)
   lockedUntil                  DateTime?
