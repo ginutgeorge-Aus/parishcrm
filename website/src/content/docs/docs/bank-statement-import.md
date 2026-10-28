@@ -41,7 +41,7 @@ Each imported row gets a `bankRef` built from the bank, account, date, amount, a
 
 ### Account number privacy
 
-The full bank account number never reaches the browser. Wherever it appears in a row (its reference, the description or the extra details), the review shows `*` plus its last four digits instead, and that masked text is what gets saved. Re-uploading a statement during review keeps your category, member and skip choices only when the file is for the **same** account, so two accounts that share their last four digits never swap selections.
+The full bank account number never reaches the browser. Wherever it appears in a row (its reference, the description or the extra details), the review shows `*` plus its last four digits instead, and that masked text is what gets saved. Re-uploading a statement during review keeps your category, member and skip choices only when the file is for the **same** account, so two accounts that share their last four digits never swap selections. If a re-upload is for a different account, the review tells you your earlier selections were not carried over.
 
 ### Member auto-match
 

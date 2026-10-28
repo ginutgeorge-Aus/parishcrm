@@ -8,7 +8,7 @@ import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
 import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
 import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
 import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
-import { maskAccountInText, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
+import { makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
 import { fingerprintAccountNumber, sealAccountNumber } from "@/lib/bankAccountToken"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
@@ -274,12 +274,13 @@ export async function POST(req: Request) {
   // from the sealed `accountToken`.
   const accountNumber = result.accountNumber ?? ""
   const mask = (ref: string) => maskBankRef(ref, accountNumber)
+  const maskText = makeAccountTextMasker(accountNumber)
 
   return NextResponse.json({
     rows: result.rows.map((r) => ({
       ...r,
-      description: maskAccountInText(r.description, accountNumber),
-      details: maskAccountInText(r.details, accountNumber),
+      description: maskText(r.description),
+      details: maskText(r.details),
       bankRef: mask(r.bankRef),
       dedupKey: maskContentKey(r.dedupKey, accountNumber),
     })),

@@ -8,6 +8,7 @@ import {
   markImported,
   draftFingerprint,
   mergeDraftSelections,
+  selectionsDroppedByAccountGuard,
   clearMismatchedAccountIds,
   type BankImportDraft,
 } from "@/lib/bankImportDraft"
@@ -54,18 +55,18 @@ describe("saveDraft / loadDraft / clearDraft", () => {
 
   it("persists the 4-digit account suffix in the draft", () => {
     saveDraft({ ...makeDraft(), accountSuffix: "6789" })
-    const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v2")!)
+    const stored = JSON.parse(sessionStorage.getItem("bankImportDraft.v3")!)
     expect(stored.accountSuffix).toBe("6789")
     expect(JSON.stringify(stored)).not.toContain("3456789")
   })
 
   it("drops a draft whose account suffix is not 4 digits", () => {
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify({ ...makeDraft(), accountSuffix: "0123456789" }))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify({ ...makeDraft(), accountSuffix: "0123456789" }))
     expect(loadDraft()).toBeNull()
   })
 
   it("drops a draft whose account suffix is a number, not a string", () => {
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify({ ...makeDraft(), accountSuffix: 1234 }))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify({ ...makeDraft(), accountSuffix: 1234 }))
     expect(loadDraft()).toBeNull()
   })
 
@@ -74,14 +75,14 @@ describe("saveDraft / loadDraft / clearDraft", () => {
   })
 
   it("returns null for corrupt JSON", () => {
-    sessionStorage.setItem("bankImportDraft.v2", "{not json")
+    sessionStorage.setItem("bankImportDraft.v3", "{not json")
     expect(loadDraft()).toBeNull()
   })
 
   it("returns null when rows is missing or empty", () => {
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify({ rows: [], period: null, paymentAccountId: "" }))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify({ rows: [], period: null, paymentAccountId: "" }))
     expect(loadDraft()).toBeNull()
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify({ period: null }))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify({ period: null }))
     expect(loadDraft()).toBeNull()
   })
 
@@ -110,7 +111,7 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     const draft = makeDraft()
     markImported(draftFingerprint(draft))
     // A late remount persistence effect writes the identical draft back...
-    sessionStorage.setItem("bankImportDraft.v2", draftFingerprint(draft))
+    sessionStorage.setItem("bankImportDraft.v3", draftFingerprint(draft))
     // ...but loadDraft treats already-imported content as absent.
     expect(loadDraft()).toBeNull()
   })
@@ -119,7 +120,7 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     const draft = makeDraft()
     markImported(draftFingerprint(draft))
     saveDraft(draft) // late remount persistence attempt
-    expect(sessionStorage.getItem("bankImportDraft.v2")).toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).toBeNull()
   })
 
   it("tombstone: a different (edited) draft still persists and restores after an import", () => {
@@ -159,7 +160,7 @@ describe("saveDraft / loadDraft / clearDraft", () => {
     // success response lands.
     saveDraft(makeDraft({ rows: [makeRow({ accountId: null })] }))
     markImported(submitted)
-    expect(sessionStorage.getItem("bankImportDraft.v2")).toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).toBeNull()
   })
 
   it("tombstone: still drops the live draft when the tombstone write fails under quota (round-5 codex)", () => {
@@ -178,26 +179,26 @@ describe("saveDraft / loadDraft / clearDraft", () => {
       spy.mockRestore()
     }
     // Cleanup of the imported draft landed despite the tombstone write throwing.
-    expect(sessionStorage.getItem("bankImportDraft.v2")).toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v3")).toBeNull()
   })
 
   it("returns null when a row has a wrong-typed field", () => {
     const bad = makeDraft()
     ;(bad.rows[0] as unknown as { amount: number }).amount = 100
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(bad))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(bad))
     expect(loadDraft()).toBeNull()
   })
 
   it("returns null when a row has an invalid type value", () => {
     const bad = makeDraft()
     ;(bad.rows[0] as unknown as { type: string }).type = "TRANSFER"
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(bad))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(bad))
     expect(loadDraft()).toBeNull()
   })
 
   it("returns null when a row is not an object", () => {
     sessionStorage.setItem(
-      "bankImportDraft.v2",
+      "bankImportDraft.v3",
       JSON.stringify({ rows: ["nope"], period: null, paymentAccountId: "" })
     )
     expect(loadDraft()).toBeNull()
@@ -205,7 +206,7 @@ describe("saveDraft / loadDraft / clearDraft", () => {
 
   it("returns null for an invalid paymentAccountId value", () => {
     const bad = makeDraft({ paymentAccountId: "EVIL" as unknown as BankImportDraft["paymentAccountId"] })
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(bad))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(bad))
     expect(loadDraft()).toBeNull()
   })
 
@@ -235,7 +236,7 @@ describe("saveDraft / loadDraft / clearDraft", () => {
   it("returns null when a split line is malformed", () => {
     const bad = makeDraft({ rows: [makeRow()] })
     ;(bad.rows[0] as unknown as { splits: unknown }).splits = [{ accountId: 1, amount: 60 }]
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(bad))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(bad))
     expect(loadDraft()).toBeNull()
   })
 })
@@ -249,7 +250,7 @@ describe("isPossibleDuplicate flag", () => {
 
   it("rejects a non-boolean isPossibleDuplicate", () => {
     sessionStorage.setItem(
-      "bankImportDraft.v2",
+      "bankImportDraft.v3",
       JSON.stringify(makeDraft({ rows: [makeRow({ isPossibleDuplicate: "yes" as never })] })),
     )
     expect(loadDraft()).toBeNull()
@@ -357,19 +358,19 @@ describe("account-number masking (#446)", () => {
   const token = "enc:v1:aXY=:dGFn:Y3Q="
 
   it("round-trips masked rows with their sealed account token", () => {
-    const draft = makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: token })
+    const draft = makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: token, accountFingerprint: "c".repeat(64) })
     saveDraft(draft)
     expect(loadDraft()).toEqual(draft)
   })
 
   it("discards a stale draft whose refs embed the full account number", () => {
     sessionStorage.setItem(
-      "bankImportDraft.v2",
+      "bankImportDraft.v3",
       JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: "ANZ_987654321_20250623_60.00_PAYMENTFROMJACK_5176894" })] }))
     )
     expect(loadDraft()).toBeNull()
     sessionStorage.setItem(
-      "bankImportDraft.v2",
+      "bankImportDraft.v3",
       JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: "OFX_000111224821_20260902_200.00_X_F1" })] }))
     )
     expect(loadDraft()).toBeNull()
@@ -385,14 +386,14 @@ describe("account-number masking (#446)", () => {
   })
 
   it("discards masked rows with no token (unconfirmable)", () => {
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })] })))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })] })))
     expect(loadDraft()).toBeNull()
   })
 
   it("discards a non-string or oversized token", () => {
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify({ ...makeDraft({ rows: [makeRow({ bankRef: masked })] }), accountToken: 7 }))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify({ ...makeDraft({ rows: [makeRow({ bankRef: masked })] }), accountToken: 7 }))
     expect(loadDraft()).toBeNull()
-    sessionStorage.setItem("bankImportDraft.v2", JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: "e".repeat(600) })))
+    sessionStorage.setItem("bankImportDraft.v3", JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: "e".repeat(600) })))
     expect(loadDraft()).toBeNull()
   })
 
@@ -442,9 +443,44 @@ describe("draft accountFingerprint persistence (#449)", () => {
 
   it("rejects a malformed fingerprint", () => {
     sessionStorage.setItem(
-      "bankImportDraft.v2",
+      "bankImportDraft.v3",
       JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: masked })], accountToken: "enc:v1:a:b:c", accountFingerprint: "nope" }))
     )
     expect(loadDraft()).toBeNull()
+  })
+})
+
+describe("pre-#449 drafts are discarded (#449 round 2)", () => {
+  it("drops a v2 draft (refs only leading-masked; FITID/desc/details may hold the number)", () => {
+    sessionStorage.setItem(
+      "bankImportDraft.v2",
+      JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: "OFX_*4321_20260902_200.00_X_987654321" })], accountToken: "enc:v1:a:b:c" }))
+    )
+    expect(loadDraft()).toBeNull()
+    expect(sessionStorage.getItem("bankImportDraft.v2")).toBeNull()
+  })
+
+  it("rejects a masked draft that has no account fingerprint", () => {
+    sessionStorage.setItem(
+      "bankImportDraft.v3",
+      JSON.stringify(makeDraft({ rows: [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1" })], accountToken: "enc:v1:a:b:c" }))
+    )
+    expect(loadDraft()).toBeNull()
+  })
+})
+
+describe("selectionsDroppedByAccountGuard (#449 round 2)", () => {
+  const prev = [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1", accountId: 7 })]
+  const fresh = [makeRow({ bankRef: "ANZ_*4321_20250623_60.00_X_1" })]
+
+  it("is true when matching rows were not merged because the account differs", () => {
+    expect(selectionsDroppedByAccountGuard(fresh, prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(true)
+    expect(selectionsDroppedByAccountGuard(fresh, prev, { prevFingerprint: undefined, nextFingerprint: "b".repeat(64) })).toBe(true)
+  })
+
+  it("is false when the accounts match or no row would have merged", () => {
+    expect(selectionsDroppedByAccountGuard(fresh, prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "a".repeat(64) })).toBe(false)
+    expect(selectionsDroppedByAccountGuard([makeRow({ bankRef: "ANZ_*4321_OTHER" })], prev, { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(false)
+    expect(selectionsDroppedByAccountGuard(fresh, [], { prevFingerprint: "a".repeat(64), nextFingerprint: "b".repeat(64) })).toBe(false)
   })
 })

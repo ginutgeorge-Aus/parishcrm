@@ -1,4 +1,5 @@
 import "server-only"
+import { randomBytes } from "node:crypto"
 import { decrypt, encrypt, hmacBankAccount, keyIdOf } from "@/lib/crypto"
 import { MAX_ACCOUNT_TOKEN_LENGTH } from "@/lib/bankRefMask"
 
@@ -45,5 +46,13 @@ export function unsealAccountNumber(token: unknown): string | null {
  * alone collide for two accounts sharing their last 4 digits.
  */
 export function fingerprintAccountNumber(accountNumber: string): string {
-  return hmacBankAccount(accountNumber)
+  try {
+    return hmacBankAccount(accountNumber)
+  } catch {
+    // The blind-index key derives from the v1 encryption key (cryptoCore
+    // blindIndexKey). If v1 was ever retired the HMAC throws; fail closed with
+    // a random per-request value so the merge guard never matches, rather than
+    // 500ing the whole parse.
+    return randomBytes(32).toString("hex")
+  }
 }

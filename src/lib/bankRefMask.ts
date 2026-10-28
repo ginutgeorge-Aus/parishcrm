@@ -12,11 +12,19 @@
 // `*` never occurs in a real account segment (ANZ strips to digits, OFX to
 // [A-Za-z0-9]) and the mask holds no `_`, so field positions are unchanged.
 //
-// #449: the number can also appear later in a ref (OFX FITID suffix, the
-// description segment) and in row description/details text. Every occurrence
-// in a ref is masked; since `*` never occurs in a genuine ref (descriptions
-// and FITIDs are stripped to [A-Za-z0-9]), unmasking is an exact reverse.
-// Free text is masked one-way (`maskAccountInText`) — confirm stores it as sent.
+// #449: the number can also appear later in a ref (the upper-cased, 20-char
+// description segment — possibly cut off part-way — and the OFX FITID suffix)
+// and in row description/details text. Every occurrence in a ref is masked
+// case-insensitively, as a token that records how to restore it exactly:
+//   `*<last4>`        the account number as-is
+//   `*<last4>.U|.D`   its upper/lower-cased form
+//   `*<last4>.M<bits>` mixed case (one 1/0 per character: upper/lower)
+//   `*<last4>.P<n>`   the first n characters (upper-cased), cut off at the
+//                      end of a truncated description segment
+// `*` and `.` never occur in a genuine description/suffix segment (both are
+// stripped to [A-Za-z0-9]; pinned by a test across every parser), so the
+// tokens are unambiguous and unmasking is an exact reverse. Free text is
+// masked one-way (`makeAccountTextMasker`) — confirm stores it as sent.
 
 /** Every import-ref prefix (ANZ/ANZTR/OFX/QIF); shared with `contentKeyFromBankRef` in anzParser.ts. */
 export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
@@ -28,6 +36,12 @@ const MASK_SEGMENT_RE = /^\*[A-Za-z0-9]{1,4}$/
 // at least this long — a short value would match arbitrary digits elsewhere.
 const MIN_INLINE_MASK_LENGTH = 6
 const ACCOUNT_CHARS_RE = /^[A-Za-z0-9]+$/
+/** Max length of the description segment of a content key (`bankRefContentKey` truncates to this). */
+export const DESC_SEGMENT_MAX = 20
+// Content-key segment index of the description; later segments are the ref suffix.
+const DESC_SEGMENT_INDEX = 3
+// Shortest cut-off account prefix worth masking at the end of a truncated description.
+const MIN_PARTIAL_MASK_LENGTH = 4
 
 // Upper bound on a sealed account token's length (bankAccountToken.ts), checked
 // by the confirm schema and the draft loader. A sealed ≤64-char number is ~120.
@@ -45,38 +59,84 @@ function splitFirstSegment(key: string): { head: string; rest: string } | null {
   return { head: key.slice(0, i), rest: key.slice(i) }
 }
 
-/** Replace every later occurrence of a long-enough account number in `s` with its mask (ref text only: case-sensitive, exact). */
-function maskInline(s: string, accountNumber: string): string {
-  return accountNumber.length >= MIN_INLINE_MASK_LENGTH ? s.replaceAll(accountNumber, accountMask(accountNumber)) : s
+/** Case tag for a case-insensitive match `m` of `accountNumber` (see the token table above). */
+function caseTag(m: string, accountNumber: string): string {
+  if (m === accountNumber) return ""
+  if (m === accountNumber.toUpperCase()) return ".U"
+  if (m === accountNumber.toLowerCase()) return ".D"
+  return `.M${[...m].map((c) => (c === c.toLowerCase() ? "0" : "1")).join("")}`
+}
+
+/** Replace every case-insensitive occurrence of `accountNumber` in one ref segment with its restorable token. */
+function maskSegmentOccurrences(segment: string, accountNumber: string): string {
+  const mask = accountMask(accountNumber)
+  const haystack = segment.toLowerCase()
+  const needle = accountNumber.toLowerCase()
+  let out = ""
+  let from = 0
+  for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, from)) {
+    out += segment.slice(from, at) + mask + caseTag(segment.slice(at, at + needle.length), accountNumber)
+    from = at + needle.length
+  }
+  return out + segment.slice(from)
 }
 
 /**
- * Mask a content key (`<acct>_<date>_<amount>_<desc>`, i.e. ParsedRow.dedupKey):
- * replaces the leading account segment with `*<last4>` when it equals
- * `accountNumber`, plus any later occurrence (description segment, OFX FITID
- * suffix when called via `maskBankRef`) for numbers of 6+ characters.
- * Anything else (empty account, other key) is returned as-is.
+ * Mask a description or suffix segment: every full occurrence, plus — for a
+ * description cut at `DESC_SEGMENT_MAX` — a trailing prefix of the (upper-cased)
+ * account number of at least `MIN_PARTIAL_MASK_LENGTH` characters.
+ */
+function maskTailSegment(segment: string, accountNumber: string, isDesc: boolean): string {
+  if (isDesc && segment.length === DESC_SEGMENT_MAX) {
+    const upper = accountNumber.toUpperCase()
+    for (let n = Math.min(upper.length - 1, segment.length); n >= MIN_PARTIAL_MASK_LENGTH; n--) {
+      if (segment.endsWith(upper.slice(0, n))) {
+        return `${maskSegmentOccurrences(segment.slice(0, -n), accountNumber)}${accountMask(accountNumber)}.P${n}`
+      }
+    }
+  }
+  return maskSegmentOccurrences(segment, accountNumber)
+}
+
+/**
+ * Mask a content key (`<acct>_<date>_<amount>_<desc>`, i.e. ParsedRow.dedupKey,
+ * or the same plus `_<suffix>` when called via `maskBankRef`): the leading
+ * account segment becomes `*<last4>` when it equals `accountNumber`, and for
+ * numbers of 6+ characters every occurrence in the description and suffix
+ * segments (incl. one cut off by description truncation) becomes a restorable
+ * token. Anything else (empty account, other key) is returned as-is.
  */
 export function maskContentKey(key: string, accountNumber: string): string {
   if (!accountNumber) return key
-  const parts = splitFirstSegment(key)
-  if (parts?.head !== accountNumber) return key
-  return `${accountMask(accountNumber)}${maskInline(parts.rest, accountNumber)}`
+  const parts = key.split("_")
+  if (parts.length < 2 || parts[0] !== accountNumber) return key
+  parts[0] = accountMask(accountNumber)
+  if (accountNumber.length >= MIN_INLINE_MASK_LENGTH) {
+    for (let i = DESC_SEGMENT_INDEX; i < parts.length; i++) {
+      parts[i] = maskTailSegment(parts[i], accountNumber, i === DESC_SEGMENT_INDEX)
+    }
+  }
+  return parts.join("_")
 }
 
 /**
- * Mask the account number wherever it appears in free text sent to the browser
- * (row description/details, #449). Tolerates the usual separators between
- * digits ("9876-54321", "98765 4321") and ignores case. One-way: the masked
- * text is what the review shows and what confirm stores. Numbers under 6
- * characters are left alone to avoid mangling ordinary text.
+ * Build a one-way masker for free text sent to the browser (row
+ * description/details, #449), compiled once per statement. Masks the account
+ * number as a whole token — not part of a longer alphanumeric run, so
+ * "1987654321-005" is left alone — case-insensitively, allowing a short run of
+ * any non-alphanumeric separators between characters ("9876-54321",
+ * "987/654/321", "98765_4321"). The masked text is what the review shows and
+ * what confirm stores. Numbers under 6 characters are never masked (would
+ * mangle ordinary text). null/undefined text yields "".
  */
-export function maskAccountInText(text: string, accountNumber: string): string {
-  if (accountNumber.length < MIN_INLINE_MASK_LENGTH || !ACCOUNT_CHARS_RE.test(accountNumber)) return text
-  // Built only from [A-Za-z0-9] plus a fixed optional separator class: no
-  // metacharacters, no nested quantifiers (linear match).
-  const pattern = new RegExp([...accountNumber].join(String.raw`[\s.-]?`), "gi") // nosemgrep
-  return text.replace(pattern, accountMask(accountNumber))
+export function makeAccountTextMasker(accountNumber: string): (text: string | null | undefined) => string {
+  if (accountNumber.length < MIN_INLINE_MASK_LENGTH || !ACCOUNT_CHARS_RE.test(accountNumber)) return (text) => text ?? ""
+  // Built only from [A-Za-z0-9] literals plus a fixed, bounded separator class
+  // between them: no metacharacters from input, no nested quantifiers.
+  const body = [...accountNumber].join("[^A-Za-z0-9]{0,3}")
+  const pattern = new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi") // nosemgrep
+  const mask = accountMask(accountNumber)
+  return (text) => (text ? text.replace(pattern, mask) : "")
 }
 
 /**
@@ -99,11 +159,21 @@ export function bankRefMaskSegment(ref: string): string | null {
   return parts && MASK_SEGMENT_RE.test(parts.head) ? parts.head : null
 }
 
+/** Undo one inline token (see the table above): `tag` is the text after `.`, if any. */
+function restoreToken(accountNumber: string, tag: string | undefined): string {
+  if (!tag) return accountNumber
+  if (tag === "U") return accountNumber.toUpperCase()
+  if (tag === "D") return accountNumber.toLowerCase()
+  if (tag.startsWith("P")) return accountNumber.toUpperCase().slice(0, Number(tag.slice(1)))
+  const bits = tag.slice(1)
+  return [...accountNumber].map((c, i) => (bits[i] === "1" ? c.toUpperCase() : c.toLowerCase())).join("")
+}
+
 /**
- * Reverse of `maskBankRef`: rebuild the full-number bankRef, restoring every
- * masked occurrence (leading segment and any inline ones). Returns the ref
- * unchanged when it carries no leading mask, and null when the mask does not
- * match `accountNumber`'s last 4 or a stray `*` is left over (a forged or
+ * Reverse of `maskBankRef`: rebuild the full-number bankRef, restoring the
+ * leading segment and every inline token. Returns the ref unchanged when it
+ * carries no leading mask, and null when the mask does not match
+ * `accountNumber`'s last 4 or a stray `*` is left over (a forged or
  * cross-statement ref).
  */
 export function unmaskBankRef(ref: string, accountNumber: string): string | null {
@@ -111,7 +181,15 @@ export function unmaskBankRef(ref: string, accountNumber: string): string | null
   if (segment === null) return ref
   if (!accountNumber || segment !== accountMask(accountNumber)) return null
   const prefix = SENSITIVE_PREFIX_RE.exec(ref)![0]
-  const restored = prefix + ref.slice(prefix.length).replaceAll(segment, accountNumber)
+  const body = ref.slice(prefix.length + segment.length)
+  // The mask is `*` + up to 4 [A-Za-z0-9] (account charset), so the only
+  // metacharacter to escape is the `*`. The M tag carries exactly one bit per
+  // account character, so it can't swallow suffix text after it.
+  const token = new RegExp( // nosemgrep
+    String.raw`\*${segment.slice(1)}(?:\.(U|D|P\d{1,2}|M[01]{${accountNumber.length}}))?`,
+    "g"
+  )
+  const restored = prefix + accountNumber + body.replace(token, (_m, tag: string | undefined) => restoreToken(accountNumber, tag))
   return restored.includes("*") ? null : restored
 }
 
