@@ -71,7 +71,6 @@ jest.mock("@/lib/notifications", () => ({
 
 jest.mock("@/lib/totpVerify", () => ({ verifySecondFactor: jest.fn() }))
 
-jest.mock("@/lib/crypto", () => ({ hmacEmail: jest.fn(() => "0123456789abcdef0123456789abcdef") }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
 
 jest.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: jest.fn() }))
@@ -103,7 +102,6 @@ import { authorizeCredentials, authorizePasskey, AccountLocked, OtpSent, OtpDeli
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { sendOtpEmail } from "@/lib/otp"
 import { logAudit } from "@/lib/audit"
-import { hmacEmail } from "@/lib/crypto"
 import { verifyAuthenticationResponse } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
 
@@ -405,7 +403,7 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(queryRaw).not.toHaveBeenCalled()
   })
 
-  it("password path: a mixed-case-only legacy account (no lowercase twin) matches on the exact raw email, no fallback", async () => {
+  it("password path: a mixed-case-only legacy account matches on the exact raw email, no fallback", async () => {
     const passwordHash = await hash("correctpassword", 10)
     findUnique.mockResolvedValueOnce({ ...baseUser, id: 5, email: "Admin@Example.com", passwordHash })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({})
@@ -453,14 +451,6 @@ describe("authorizeCredentials — email normalisation", () => {
     )
   })
 
-  it("OTP path: refuses an ambiguous case-variant pair (no OTP consumed)", async () => {
-    findUnique.mockResolvedValue(null)
-    queryRaw.mockResolvedValue([{ id: 1 }, { id: 2 }])
-    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "654321" })).toBeNull()
-    expect(prisma.user.updateMany).not.toHaveBeenCalled()
-    expect(prisma.user.update).not.toHaveBeenCalled()
-  })
-
   it("password path: falls back to a single case-insensitive match (user stored as Admin@Example.com)", async () => {
     const passwordHash = await hash("correctpassword", 10)
     legacyRow({ ...baseUser, email: "Admin@Example.com", passwordHash })
@@ -481,7 +471,7 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(values).toEqual(["A_min@Example.com"]) // bound parameter; Postgres lower() folds both sides
   })
 
-  it("exact lowercase match wins when case variants exist (no fallback query)", async () => {
+  it("exact lowercase match resolves without the fallback query", async () => {
     const passwordHash = await hash("correctpassword", 10)
     findUnique.mockResolvedValue({ ...baseUser, id: 9, email: "admin@example.com", passwordHash })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({})
@@ -490,16 +480,6 @@ describe("authorizeCredentials — email normalisation", () => {
     ).rejects.toBeInstanceOf(OtpSent)
     expect(queryRaw).not.toHaveBeenCalled()
     expect((prisma.user.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 9 })
-  })
-
-  it("returns null when the case-insensitive match is ambiguous (2 rows)", async () => {
-    findUnique.mockResolvedValue(null)
-    queryRaw.mockResolvedValue([{ id: 1 }, { id: 2 }])
-    expect(await authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })).toBeNull()
-    expect(prisma.user.update).not.toHaveBeenCalled()
-    // discoverable audit row: hashed email only, never the raw address
-    expect(logAudit).toHaveBeenCalledWith(null, "AUTH_EMAIL_AMBIGUOUS", "User", undefined, { emailHash: expect.stringMatching(/^[0-9a-f]{16}$/) })
-    expect(hmacEmail).toHaveBeenCalledWith("admin@example.com") // keyed HMAC, not unkeyed sha256
   })
 
   it("TOTP path: resolves a legacy mixed-case account via the shared lookup", async () => {

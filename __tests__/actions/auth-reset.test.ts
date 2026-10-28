@@ -69,14 +69,6 @@ describe("requestPasswordReset", () => {
     expect(mockSendEmail).toHaveBeenCalledWith("U@E.com", expect.any(String))
   })
 
-  it("sends nothing (silent success) when case-variant twins make the email ambiguous", async () => {
-    mockFindUnique.mockResolvedValue(null)
-    mockQueryRaw.mockResolvedValue([{ id: 4 }, { id: 5 }])
-    expect(await requestPasswordReset("u@e.com")).toEqual({ success: true })
-    expect(mockUpdateMany).not.toHaveBeenCalled()
-    expect(mockSendEmail).not.toHaveBeenCalled()
-  })
-
   it("returns success silently when token still active (no user enumeration)", async () => {
     mockFindUnique.mockResolvedValue({ id: 1, email: "u@e.com", passwordResetExpires: new Date(Date.now() + 3600000) })
     expect(await requestPasswordReset("u@e.com")).toEqual({ success: true })

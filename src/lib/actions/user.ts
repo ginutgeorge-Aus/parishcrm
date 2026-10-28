@@ -309,7 +309,7 @@ export async function updateUser(
 
   // The schema lower-cases the email, so compare the RAW submitted value with the
   // stored one: identical = unchanged (keep the stored legacy mixed-case value and
-  // skip the duplicate check, so a case-variant twin doesn't block unrelated
+  // skip the duplicate check, so legacy mixed-case rows don't trip it on unrelated
   // edits). Anything else is an explicit change, including a case-only one (admin
   // normalising a row), and is written lower-cased unless ANOTHER user matches
   // case-insensitively.

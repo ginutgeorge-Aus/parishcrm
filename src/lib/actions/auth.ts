@@ -57,8 +57,7 @@ export async function requestPasswordReset(
     return { error: "Too many requests. Please try again later." }
   }
 
-  // Case-insensitive (legacy mixed-case rows can still reset). Ambiguous
-  // case-variant twins resolve to no user: no email is sent, same silent success.
+  // Case-insensitive (legacy mixed-case rows can still reset).
   const { user } = await findUserByEmailInsensitive(email)
 
   if (!user) {
