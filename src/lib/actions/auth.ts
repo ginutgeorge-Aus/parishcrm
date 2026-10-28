@@ -20,7 +20,7 @@ const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
 async function getClientIp(): Promise<string | null> {
-  // CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for entry (appended by the trusted proxy)
+  // Validated IP (CLIENT_IP_HEADER, else rightmost x-forwarded-for) or null: no throttle key without one
   return clientIpOrUndefined(await headers()) ?? null
 }
 

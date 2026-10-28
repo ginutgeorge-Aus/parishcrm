@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canEdit } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { clientIpOrUndefined } from "@/lib/clientIp"
 import { decrypt } from "@/lib/crypto"
 import { readPayload, officeSignatureLabel, overseasFieldLabels } from "@/lib/membership"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -55,7 +55,7 @@ export default async function MembershipPrintPage(props: Readonly<Props>) {
   const p = readPayload(app.payload as string)
   const signature = decrypt(app.signature)
   const pe = p.personal
-  await logAudit(actorId(session), "MEMBERSHIP_PRINTED", "MembershipApplication", id, undefined, auditIpFromHeaders(headersList))
+  await logAudit(actorId(session), "MEMBERSHIP_PRINTED", "MembershipApplication", id, undefined, clientIpOrUndefined(headersList))
 
   const [{ name: churchName, address: churchAddress }, membershipSettings, { signerTitle }] = await Promise.all([
     getChurchSettings(),

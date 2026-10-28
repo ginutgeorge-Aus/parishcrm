@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canManageEvent } from "@/lib/eventManager"
 import { logAudit } from "@/lib/audit"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { clientIpOrUndefined } from "@/lib/clientIp"
 import { safeDecrypt } from "@/lib/crypto"
 import { toAnswerMap } from "@/lib/eventAnswers"
 import { fmtAUD } from "@/lib/formatting"
@@ -44,7 +44,7 @@ export default async function PrintPage(props: Readonly<Props>) {
 
   // Decrypts + prints registrant PII — audit on access, matching the P&L and
   // directory print pages.
-  const ip = auditIpFromHeaders(await headers())
+  const ip = clientIpOrUndefined(await headers())
   await logAudit(actorId(session), "EXPORT_EVENT_REGISTRATIONS", "Event", eventId, { eventTitle: event.title }, ip)
 
   // Validate customQuestions shape (same guard as CSV export,/AUDIT-068).

@@ -12,7 +12,7 @@ import { logAudit } from "@/lib/audit"
 import { parseTrustedDeviceCookie, hashDeviceToken, generateDeviceToken, DEVICE_TRUST_GRANT_PREFIX, DEVICE_TRUST_GRANT_TTL_MS } from "@/lib/trustedDevice"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { clientIpOrUndefined } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
@@ -58,7 +58,7 @@ export class TotpRequired extends CredentialsSignin {
 // Real client IP for audit logging: CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for
 // entry appended by the trusted proxy (not spoofable) — see src/lib/clientIp.ts.
 function clientIpFrom(request?: Request): string | undefined {
-  return auditIpFromHeaders(request?.headers)
+  return clientIpOrUndefined(request?.headers)
 }
 
 type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>

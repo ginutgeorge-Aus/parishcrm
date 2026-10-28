@@ -57,40 +57,47 @@ export function classifyClientIpHeader(raw: string | undefined): { kind: ClientI
 /** Minimum gap between "configured header unusable" warnings, so a misconfig cannot flood logs. */
 const WARN_INTERVAL_MS = 10 * 60_000
 
-/** Timestamp (ms) of the last "configured header unusable" warning; 0 = never. */
-let lastConfiguredHeaderWarnAt = 0
+/** Timestamp (ms) of the last warning per message kind; absent = never. */
+const lastWarnAt = new Map<string, number>()
 
 /**
- * Logs a CLIENT_IP_HEADER warning at most once per `WARN_INTERVAL_MS` per process.
+ * Logs a CLIENT_IP_HEADER warning at most once per `WARN_INTERVAL_MS` per process per kind, so one
+ * kind of misconfiguration cannot hide another.
+ * @param kind throttle key (e.g. "direct", "fallback")
  * @param message the warning text (header name only, never a request value)
  */
-function warnConfiguredHeaderRateLimited(message: string): void {
+function warnConfiguredHeaderRateLimited(kind: string, message: string): void {
   const now = Date.now()
-  if (lastConfiguredHeaderWarnAt && now - lastConfiguredHeaderWarnAt < WARN_INTERVAL_MS) return
-  lastConfiguredHeaderWarnAt = now
+  const last = lastWarnAt.get(kind)
+  if (last !== undefined && now - last < WARN_INTERVAL_MS) return
+  lastWarnAt.set(kind, now)
   logger.warn(message)
 }
 
 /**
- * Rightmost non-empty, trimmed entry of a (possibly comma-separated) header, i.e. the one a trusted
- * proxy appended. Empty entries are skipped so a trailing comma (`1.2.3.4,`) still yields `1.2.3.4`.
+ * Rightmost entry of a (possibly comma-separated) header, trimmed: the one a trusted proxy appended.
+ * An empty rightmost entry (`6.6.6.6,`) is NOT skipped: it means the value was passed through or
+ * tampered with rather than appended by a trusted hop, so it yields undefined (untrusted).
  * @param h anything with `get`
  * @param name lower-case header name
- * @returns the entry, or undefined when the header is absent or has no non-empty entries
+ * @returns the entry, or undefined when the header is absent or its rightmost entry is empty
  */
 function rightmostEntry(h: Pick<Headers, "get">, name: string): string | undefined {
-  return h.get(name)?.split(",").map((s) => s.trim()).filter(Boolean).at(-1)
+  return h.get(name)?.split(",").at(-1)?.trim() || undefined
 }
 
 /**
- * Rightmost `x-forwarded-for` entry, normalised when it is a well-formed IP; otherwise the raw entry
- * is kept so odd values still key a bucket rather than collapsing to "unknown".
- * @param h anything with `get`
- * @returns the entry, or undefined when absent
+ * Strips the `:port` from a `cloudfront-viewer-address` value (`ip:port`). Unbracketed IPv6 has no
+ * bracket to delimit the port (`2600:1f18:abcd::1:46532`), so the final colon-separated group is cut
+ * rather than read as a hextet. Bracketed values are left for `normalizeIp`.
+ * @param value raw header entry (may be undefined)
+ * @returns the value without its port
  */
-function rightmostXff(h: Pick<Headers, "get">): string | undefined {
-  const raw = rightmostEntry(h, "x-forwarded-for")
-  return normalizeIp(raw) ?? raw
+function stripViewerPort(value: string | undefined): string | undefined {
+  const v = value?.trim()
+  if (!v || v.startsWith("[")) return v
+  const i = v.lastIndexOf(":")
+  return i === -1 ? v : v.slice(0, i)
 }
 
 /**
@@ -135,8 +142,8 @@ function normalizeIp(value: string | undefined): string | undefined {
  * spoofable name (see `classifyClientIpHeader`) is ignored. The header is honoured only when the
  * request also carries `x-forwarded-for` (i.e. it traversed a proxy): a request without it reached the
  * origin directly, so the configured header is attacker-controlled and the default path is used
- * instead. The rightmost non-empty entry is taken, normalised via `normalizeIp`, and accepted only
- * when it is a well-formed IP. Falling back while the header is missing/unusable (proxied) or present
+ * instead. The rightmost entry is taken (port stripped for `cloudfront-viewer-address`), normalised via
+ * `normalizeIp`, and accepted only when it is a well-formed IP. Falling back while the header is missing/unusable (proxied) or present
  * on a non-proxied request logs a rate-limited warning (header name only, never the value). Requests
  * with neither header (e.g. a local health check) do not warn.
  * @param h anything with `get`
@@ -150,33 +157,37 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   if (!proxied) {
     if (present) {
       warnConfiguredHeaderRateLimited(
+        "direct",
         `clientIp: CLIENT_IP_HEADER "${name}" is present but the request has no x-forwarded-for (origin reached directly?); ignoring it. The origin must not be reachable except through your proxy`,
       )
     }
     return undefined
   }
-  const ip = normalizeIp(rightmostEntry(h, name))
+  const raw = rightmostEntry(h, name)
+  const ip = normalizeIp(name === "cloudfront-viewer-address" ? stripViewerPort(raw) : raw)
   if (!ip) {
-    warnConfiguredHeaderRateLimited(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
+    warnConfiguredHeaderRateLimited("fallback", `clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
   return ip
 }
 
 /**
- * Client IP, or undefined when the request carries none (no usable header/XFF entry). Prefer this over
- * comparing `clientIpFromHeaders` to the "unknown" sentinel: a literal `unknown` XFF entry is returned
- * as the string "unknown" (it still keys its own bucket), never confused with "no IP".
- * @param h anything with `get`
- * @returns the IP/key, or undefined when absent
+ * The single client-IP resolver: the `CLIENT_IP_HEADER` IP when configured and valid, else the
+ * rightmost `x-forwarded-for` entry (appended by the trusted proxy; earlier entries are
+ * attacker-controlled). Only a well-formed, canonicalised IP is returned: a crafted/odd value
+ * (`unknown`, `evil:80`, an empty trailing entry) yields undefined so it never reaches
+ * `AuditLog.ip`, a Turnstile `remoteip` or a rate-limit key. Callers needing a non-empty key
+ * apply their own "unknown" fallback.
+ * @param h anything with `get` (Server Components pass `await headers()`); null/undefined allowed
+ * @returns the validated IP, or undefined
  */
-export function clientIpOrUndefined(h: Pick<Headers, "get">): string | undefined {
-  return configuredHeaderIp(h) ?? rightmostXff(h)
+export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | undefined {
+  if (!h) return undefined
+  return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }
 
 /**
- * Client IP from a headers object (Server Components receive `await headers()`, not a Request): the
- * `CLIENT_IP_HEADER` header when that env is set and holds a valid IP, else the rightmost
- * `x-forwarded-for` entry (appended by the trusted proxy), else "unknown".
+ * Client IP from a headers object, or "unknown" when none is resolvable (see `clientIpOrUndefined`).
  * @param h anything with `get`
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
@@ -184,25 +195,10 @@ export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
 }
 
 /**
- * Client IP for rate-limiting and audit trails (see `clientIpFromHeaders`: optional `CLIENT_IP_HEADER`,
- * else the rightmost `x-forwarded-for` entry, which the trusted reverse proxy appends and the client
- * cannot spoof; earlier entries are attacker-controlled). Falls back to "unknown".
- *
- * Typed against `Request` (the `NextRequest` supertype) so it accepts both — it
- * only reads `headers`.
+ * Client IP for rate-limiting keys (see `clientIpOrUndefined`); falls back to "unknown".
+ * Typed against `Request` (the `NextRequest` supertype) so it accepts both; it only reads `headers`.
+ * @param req the request
  */
 export function getClientIp(req: Request): string {
   return clientIpFromHeaders(req.headers)
-}
-
-/**
- * Client IP for AuditLog.ip: the `CLIENT_IP_HEADER` IP when configured and valid, else the rightmost
- * `x-forwarded-for` entry, but only when it is a well-formed IP — a crafted/misconfigured XFF value
- * would otherwise persist an arbitrary string that pollutes log analysis. Returns
- * undefined (not "unknown") so the audit row simply has no IP. Takes the
- * headers object so Server Components can pass `await headers()`.
- */
-export function auditIpFromHeaders(h?: Pick<Headers, "get"> | null): string | undefined {
-  if (!h) return undefined
-  return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }

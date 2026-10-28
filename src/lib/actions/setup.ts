@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { safeEqual } from "@/lib/safeEqual"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { clientIpOrUndefined } from "@/lib/clientIp"
 import { isSetupOpen } from "@/lib/setupState"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
@@ -52,7 +52,7 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   }
 
   // Rate-limit only well-formed submissions, so policy typos don't lock the operator out.
-  const ip = auditIpFromHeaders(await headers())
+  const ip = clientIpOrUndefined(await headers())
   if (!(await dbRateLimit(`setup:${ip ?? "unknown"}`, SETUP_LIMIT, SETUP_WINDOW_MS))) {
     return { error: "Too many attempts. Try again later." }
   }

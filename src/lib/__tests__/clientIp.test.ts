@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { auditIpFromHeaders, classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -12,31 +12,31 @@ beforeEach(() => {
 
 const h = (xff?: string) => new Headers(xff === undefined ? {} : { "x-forwarded-for": xff })
 
-describe("auditIpFromHeaders", () => {
+describe("clientIpOrUndefined", () => {
   it("takes the rightmost proxy-appended entry", () => {
-    expect(auditIpFromHeaders(h("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9")
+    expect(clientIpOrUndefined(h("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9")
   })
   it("accepts IPv6", () => {
-    expect(auditIpFromHeaders(h("2001:db8::1"))).toBe("2001:db8::1")
-    expect(auditIpFromHeaders(h("::ffff:192.0.2.128"))).toBe("192.0.2.128")
+    expect(clientIpOrUndefined(h("2001:db8::1"))).toBe("2001:db8::1")
+    expect(clientIpOrUndefined(h("::ffff:192.0.2.128"))).toBe("192.0.2.128")
   })
   it("drops malformed values", () => {
-    expect(auditIpFromHeaders(h("1.2.3.4, not-an-ip"))).toBeUndefined()
-    expect(auditIpFromHeaders(h("1.2.3.4, "))).toBe("1.2.3.4")
-    expect(auditIpFromHeaders(h(","))).toBeUndefined()
-    expect(auditIpFromHeaders(h("999.999.999.999"))).toBeUndefined()
-    expect(auditIpFromHeaders(h(":"))).toBeUndefined()
-    expect(auditIpFromHeaders(h("1::2::3"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("1.2.3.4, not-an-ip"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("1.2.3.4, "))).toBeUndefined()
+    expect(clientIpOrUndefined(h(","))).toBeUndefined()
+    expect(clientIpOrUndefined(h("999.999.999.999"))).toBeUndefined()
+    expect(clientIpOrUndefined(h(":"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("1::2::3"))).toBeUndefined()
   })
   it("returns undefined when absent", () => {
-    expect(auditIpFromHeaders(h())).toBeUndefined()
-    expect(auditIpFromHeaders(undefined)).toBeUndefined()
+    expect(clientIpOrUndefined(h())).toBeUndefined()
+    expect(clientIpOrUndefined(undefined)).toBeUndefined()
   })
 })
 
 describe("getClientIp", () => {
   it("keeps its rightmost/unknown behaviour", () => {
-    expect(getClientIp(new Request("http://x", { headers: { "x-forwarded-for": "a, b" } }))).toBe("b")
+    expect(getClientIp(new Request("http://x", { headers: { "x-forwarded-for": "a, 2.2.2.2" } }))).toBe("2.2.2.2")
     expect(getClientIp(new Request("http://x"))).toBe("unknown")
   })
 })
@@ -49,9 +49,10 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(h())).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
-  it("skips empty entries (trailing comma)", () => {
-    expect(clientIpFromHeaders(h("1.2.3.4,"))).toBe("1.2.3.4")
-    expect(auditIpFromHeaders(h("1.2.3.4,"))).toBe("1.2.3.4")
+  it("an empty trailing entry is untrusted (pass-through), not skipped", () => {
+    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("unknown")
+    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
+    expect(clientIpOrUndefined(h("6.6.6.6, "))).toBeUndefined()
   })
 })
 
@@ -67,7 +68,7 @@ describe("CLIENT_IP_HEADER", () => {
     delete process.env.CLIENT_IP_HEADER
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "203.0.113.7" })
     expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
   })
   it("blank env behaves as unset", () => {
     process.env.CLIENT_IP_HEADER = "   "
@@ -77,7 +78,7 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": " 203.0.113.7 " })
     expect(clientIpFromHeaders(headers)).toBe("203.0.113.7")
-    expect(auditIpFromHeaders(headers)).toBe("203.0.113.7")
+    expect(clientIpOrUndefined(headers)).toBe("203.0.113.7")
     expect(getClientIp(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
   })
   it("takes the rightmost entry of a comma-separated value (client-sent entries come first)", () => {
@@ -88,18 +89,18 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" })
     expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
   })
   it("set + invalid header falls back to rightmost XFF", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "not-an-ip" })
     expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
+    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
   })
   it("set + nothing at all: unknown / undefined", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     expect(clientIpFromHeaders(hh({}))).toBe("unknown")
-    expect(auditIpFromHeaders(hh({}))).toBeUndefined()
+    expect(clientIpOrUndefined(hh({}))).toBeUndefined()
   })
   it("mixed-case env name matches the header", () => {
     process.env.CLIENT_IP_HEADER = " CF-Connecting-IP "
@@ -109,7 +110,7 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "2001:db8::1" })
     expect(clientIpFromHeaders(headers)).toBe("2001:db8::1")
-    expect(auditIpFromHeaders(headers)).toBe("2001:db8::1")
+    expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
   })
 })
 
@@ -133,19 +134,19 @@ describe("CLIENT_IP_HEADER — normalisation", () => {
     ["0000:0000:0000:0000:0000:FFFF:0102:0304", "1.2.3.4"],
     ["2001:0db8:0000:0000:0000:0000:0000:0001", "2001:db8::1"],
     ["2001:DB8:0:0:0:0:0:1", "2001:db8::1"],
-    ["6.6.6.6, 203.0.113.7,", "203.0.113.7"],
+    ["6.6.6.6, 203.0.113.7", "203.0.113.7"],
   ]
   it.each(cases)("%s -> %s", (input, expected) => {
     const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": input })
     expect(clientIpFromHeaders(headers)).toBe(expected)
-    expect(auditIpFromHeaders(headers)).toBe(expected)
+    expect(clientIpOrUndefined(headers)).toBe(expected)
   })
   it("rejects a non-IP with a port-like suffix (falls back to XFF)", () => {
-    expect(auditIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "evil:80" }))).toBe("10.0.0.1")
+    expect(clientIpOrUndefined(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "evil:80" }))).toBe("10.0.0.1")
   })
   it("audit XFF fallback is normalised too", () => {
     delete process.env.CLIENT_IP_HEADER
-    expect(auditIpFromHeaders(h("::ffff:1.2.3.4"))).toBe("1.2.3.4")
+    expect(clientIpOrUndefined(h("::ffff:1.2.3.4"))).toBe("1.2.3.4")
   })
 })
 
@@ -162,7 +163,7 @@ describe("CLIENT_IP_HEADER — XFF required to honour the header", () => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
       const headers = new Headers({ "cf-connecting-ip": "6.6.6.6" })
       expect(mod.clientIpFromHeaders(headers)).toBe("unknown")
-      expect(mod.auditIpFromHeaders(headers)).toBeUndefined()
+      expect(mod.clientIpOrUndefined(headers)).toBeUndefined()
       expect(mod.clientIpOrUndefined(headers)).toBeUndefined()
     })
     expect(warn).toHaveBeenCalledTimes(1)
@@ -228,13 +229,13 @@ describe("CLIENT_IP_HEADER — ignored names", () => {
     process.env.CLIENT_IP_HEADER = "CF Connecting IP"
     expect(() => clientIpFromHeaders(headers())).not.toThrow()
     expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
-    expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
+    expect(clientIpOrUndefined(headers())).toBe("10.0.0.1")
   })
   it("x-forwarded-for / forwarded are never honoured (leftmost entry is spoofable)", () => {
     for (const name of ["x-forwarded-for", "X-Forwarded-For", "forwarded", "x-forwarded", "forwarded-for", "x-forwarded-client-ip", "x-original-forwarded-for"]) {
       process.env.CLIENT_IP_HEADER = name
       expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
-      expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
+      expect(clientIpOrUndefined(headers())).toBe("10.0.0.1")
     }
   })
 })
@@ -248,8 +249,8 @@ describe("XFF normalisation (default path)", () => {
       expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
     }
   })
-  it("keeps the raw value when it is not a well-formed IP", () => {
-    expect(clientIpFromHeaders(h("garbage"))).toBe("garbage")
+  it("falls back to unknown when the value is not a well-formed IP", () => {
+    expect(clientIpFromHeaders(h("garbage"))).toBe("unknown")
   })
   it("canonicalises equivalent IPv6 spellings to one key", () => {
     for (const v of ["2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", "[2001:db8::1]:8080", "2001:db8::1%eth0"]) {
@@ -259,15 +260,15 @@ describe("XFF normalisation (default path)", () => {
     expect(clientIpFromHeaders(h("0:0:0:0:0:ffff:102:304"))).toBe("1.2.3.4")
   })
   it("rejects a zone id on an IPv4 address", () => {
-    expect(auditIpFromHeaders(h("1.2.3.4%junk"))).toBeUndefined()
-    expect(auditIpFromHeaders(h("1.2.3.4%eth0"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("1.2.3.4%junk"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("1.2.3.4%eth0"))).toBeUndefined()
   })
   it("strips an IPv6 zone id", () => {
     expect(clientIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
-    expect(auditIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
+    expect(clientIpOrUndefined(h("fe80::1%eth0"))).toBe("fe80::1")
   })
   it("unwraps hex IPv4-mapped IPv6 for the audit IP too", () => {
-    expect(auditIpFromHeaders(h("::ffff:102:304"))).toBe("1.2.3.4")
+    expect(clientIpOrUndefined(h("::ffff:102:304"))).toBe("1.2.3.4")
   })
 })
 
@@ -280,8 +281,10 @@ describe("clientIpOrUndefined", () => {
     expect(clientIpOrUndefined(h(","))).toBeUndefined()
     expect(clientIpOrUndefined(h("1.2.3.4"))).toBe("1.2.3.4")
   })
-  it("a literal 'unknown' XFF entry is a value, not the absent-IP case", () => {
-    expect(clientIpOrUndefined(h("unknown"))).toBe("unknown")
+  it("non-IP values (unknown, evil:80) are rejected, never passed through", () => {
+    expect(clientIpOrUndefined(h("unknown"))).toBeUndefined()
+    expect(clientIpOrUndefined(h("evil:80"))).toBeUndefined()
+    expect(clientIpOrUndefined(null)).toBeUndefined()
   })
 })
 
@@ -299,5 +302,47 @@ describe("classifyClientIpHeader", () => {
       expect(classifyClientIpHeader(n).kind).toBe("cdn")
     }
     expect(classifyClientIpHeader("x-my-proxy-ip")).toEqual({ kind: "custom", name: "x-my-proxy-ip" })
+  })
+})
+
+describe("CLIENT_IP_HEADER=cloudfront-viewer-address (ip:port)", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  beforeEach(() => {
+    process.env.CLIENT_IP_HEADER = "cloudfront-viewer-address"
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  const cases: [string, string][] = [
+    ["203.0.113.7:5678", "203.0.113.7"],
+    ["2600:1f18:abcd::1:46532", "2600:1f18:abcd::1"], // 5-digit port
+    ["2600:1f18:abcd::1:4653", "2600:1f18:abcd::1"], // 4-digit port
+    ["[2600:1f18:abcd::1]:46532", "2600:1f18:abcd::1"],
+  ]
+  it.each(cases)("%s -> %s", (input, expected) => {
+    const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cloudfront-viewer-address": input })
+    expect(clientIpFromHeaders(headers)).toBe(expected)
+    expect(clientIpOrUndefined(headers)).toBe(expected)
+  })
+})
+
+describe("CLIENT_IP_HEADER — warning throttle is per kind", () => {
+  const saved = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (saved === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = saved
+  })
+  it("a fallback warning does not suppress a direct-hit warning", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const warn = logger.warn as jest.Mock
+    jest.spyOn(Date, "now").mockImplementation(() => 1_000_000)
+    jest.isolateModules(() => {
+      const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
+      mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage" }))
+      mod.clientIpFromHeaders(new Headers({ "cf-connecting-ip": "6.6.6.6" }))
+      expect(warn).toHaveBeenCalledTimes(2)
+    })
   })
 })
