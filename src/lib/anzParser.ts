@@ -1,5 +1,5 @@
 import { toCents } from "@/lib/formatting"
-import { IMPORT_REF_PREFIX_RE } from "@/lib/bankRefMask"
+import { DESC_SEGMENT_MAX, IMPORT_REF_PREFIX_RE } from "@/lib/bankRefMask"
 
 export type ParsedRow = {
   date: string
@@ -180,7 +180,7 @@ function amountMagnitude(raw: string): string {
 // contains only the field separators added here — making it unambiguously
 // recoverable from a stored bankRef via contentKeyFromBankRef.
 export function bankRefContentKey(accountNumber: string, date: string, amount: string, description: string): string {
-  const desc = description.replace(/[^A-Za-z0-9]/g, "").slice(0, 20).toUpperCase()
+  const desc = description.replace(/[^A-Za-z0-9]/g, "").slice(0, DESC_SEGMENT_MAX).toUpperCase()
   return `${accountNumber}_${date.replace(/-/g, "")}_${amount}_${desc}`
 }
 

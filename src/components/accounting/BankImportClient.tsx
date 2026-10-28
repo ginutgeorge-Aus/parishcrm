@@ -11,7 +11,7 @@ import { BankReviewTable } from "./BankReviewTable"
 import type { Account, Family, ReviewRow } from "./BankReviewTable"
 import { wordBoundaryMatch } from "@/lib/bankMatch"
 import { applyBulkSkip } from "@/lib/bankReviewFilter"
-import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
+import { saveDraft, loadDraft, markImported, draftFingerprint, mergeDraftSelections, selectionsDroppedByAccountGuard, clearMismatchedAccountIds } from "@/lib/bankImportDraft"
 import type { PaymentAccountLite } from "@/lib/paymentAccounts"
 
 // Pass-2 bankingName aliases shorter than this are too collision-prone to
@@ -86,6 +86,10 @@ export function BankImportClient({
   // Sealed account number from the parse route ("" when none); sent back on
   // confirm so the server can restore the masked bankRefs. Opaque here.
   const [accountToken, setAccountToken] = useState<string | undefined>(undefined)
+  // Keyed account fingerprint (#449): guards the re-upload merge across same-last-4 accounts.
+  const [accountFingerprint, setAccountFingerprint] = useState<string | undefined>(undefined)
+  // Shown when a re-upload is for a different account than the review it replaced (#449).
+  const [mergeNotice, setMergeNotice] = useState<string | null>(null)
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [period, setPeriod] = useState<{ from: string; to: string } | null>(null)
   const [paymentAccountId, setPaymentAccountId] = useState<number | "">("")
@@ -105,6 +109,7 @@ export function BankImportClient({
       setPaymentAccountId(draft.paymentAccountId)
       if (draft.accountSuffix !== undefined) setAccountSuffix(draft.accountSuffix)
       setAccountToken(draft.accountToken)
+      setAccountFingerprint(draft.accountFingerprint)
       if (draft.source !== undefined) setSource(draft.source)
       setView("review")
     }
@@ -119,9 +124,9 @@ export function BankImportClient({
   // Persist the draft while reviewing
   useEffect(() => {
     if (view === "review" && rows.length > 0) {
-      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken })
+      saveDraft({ rows, period, paymentAccountId, accountSuffix: accountSuffix || undefined, source, accountToken, accountFingerprint })
     }
-  }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken])
+  }, [view, rows, period, paymentAccountId, accountSuffix, source, accountToken, accountFingerprint])
 
   /** Build review rows from an Upload step result: auto-match members, pre-skip exact and possible duplicates. */
   function handleUploadComplete(upload: UploadResult) {
@@ -144,11 +149,18 @@ export function BankImportClient({
       }
     })
     // Re-uploading the same statement keeps selections already made
-    setRows(mergeDraftSelections(fresh, rows))
+    const fingerprints = { prevFingerprint: accountFingerprint, nextFingerprint: upload.accountFingerprint }
+    setMergeNotice(
+      selectionsDroppedByAccountGuard(fresh, rows, fingerprints)
+        ? "This file is for a different bank account, so your earlier selections were not carried over."
+        : null
+    )
+    setRows(mergeDraftSelections(fresh, rows, fingerprints))
     setPeriod(upload.period)
     setPaymentAccountId(upload.paymentAccountId)
     setAccountSuffix(upload.accountSuffix)
     setAccountToken(upload.accountToken)
+    setAccountFingerprint(upload.accountFingerprint)
     setParseErrors(upload.errors)
     setView("review")
   }
@@ -234,6 +246,8 @@ export function BankImportClient({
     setResult(null)
     setAccountSuffix("")
     setAccountToken("")
+    setAccountFingerprint(undefined)
+    setMergeNotice(null)
     setSource("anz")
     setPaymentAccountId("")
     setView("source")
@@ -272,6 +286,11 @@ export function BankImportClient({
   return (
     <div className="space-y-6">
       <ImportStepper current={view} />
+      {view === "review" && mergeNotice && (
+        <p role="status" className="text-sm text-warning">
+          {mergeNotice}
+        </p>
+      )}
       {body}
     </div>
   )

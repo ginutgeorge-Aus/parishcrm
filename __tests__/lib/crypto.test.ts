@@ -502,3 +502,28 @@ describe("hmacMobile ( mobile blind index)", () => {
     expect(hmacMobile("0412345678")).not.toBe(hmacMobile("0412345679"))
   })
 })
+
+// #449: keyed, deterministic bank-account fingerprint for the import draft
+// merge guard — same blind-index derivation, its own domain label.
+describe("hmacBankAccount", () => {
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString("base64")
+  })
+  afterEach(() => {
+    delete process.env.ENCRYPTION_KEY
+    jest.resetModules()
+  })
+
+  it("is deterministic, 64-hex, and distinct per account", async () => {
+    const { hmacBankAccount } = await import("@/lib/crypto")
+    expect(hmacBankAccount("111122223333")).toBe(hmacBankAccount("111122223333"))
+    expect(hmacBankAccount("111122223333")).toMatch(/^[0-9a-f]{64}$/)
+    expect(hmacBankAccount("111122223333")).not.toBe(hmacBankAccount("999922223333"))
+  })
+
+  it("is domain-separated from the email/mobile indexes", async () => {
+    const { hmacBankAccount, hmacEmail, hmacMobile } = await import("@/lib/crypto")
+    expect(hmacBankAccount("0400111222")).not.toBe(hmacEmail("0400111222"))
+    expect(hmacBankAccount("0400111222")).not.toBe(hmacMobile("0400111222"))
+  })
+})

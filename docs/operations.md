@@ -26,6 +26,28 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `prep-release` | CI/release tooling — mechanical release prep (`CHANGELOG.md` rename, `whatsNew.ts` entry, test bump). Not a data script. It does not write `/verify` checkpoints — add those by hand to `src/lib/testCheckpoints.ts` on the release PR (a test gates it) |
 | `codebase-review` / `file-findings` | CI tooling — optional weekly full-codebase AI review that files findings as `weekly-review`-labelled issues. Not data scripts |
 
+## Bank import: `bankRef` at rest
+
+Imported `Transaction.bankRef` values (`ANZ_`/`ANZTR_`/`OFX_`) still embed the full bank account
+number in plaintext: `<PREFIX>_<acct>_<YYYYMMDD>_<amount>_<desc20>_<suffix>` (an OFX FITID suffix or
+the description segment can hold it too). The browser never sees it — parse responses mask every
+occurrence to `*<last4>` and confirm restores the real ref from a sealed token — but the stored
+format is unchanged so re-import dedup (exact ref + cross-format content key) keeps working.
+
+Planned migration (tracked in #459, not yet done):
+
+1. **Dual-format matching first** — parse and confirm dedup look up both the legacy full-number
+   refs/content keys and a hashed form where each account-number occurrence becomes
+   `h<hmacBankAccount(acct) prefix>` (keyed, v1-derived blind index; deterministic, so dedup still
+   works). New imports write the hashed form in the same release.
+2. **Backfill** — an idempotent, dry-run-default script rewrites legacy refs (including `#n` split
+   siblings and `XFER_OUT_` pairs), conditional on the value it read (same pattern as
+   `rotate-encryption-key`). Needs a human-reviewed prod bump.
+3. **Drop the legacy branch** once `audit-data-integrity` reports zero legacy refs.
+
+Until then, `__tests__/api/bank-statement-mask.test.ts` pins the current at-rest format as
+dedup-compatible.
+
 ## Upgrading: case-insensitive unique User email
 
 Migration `20261028000000_user_email_lower_unique` adds a unique index on `lower("User".email)`. It aborts with a clear error if case-variant duplicates exist (e.g. `Admin@x.com` and `admin@x.com`). Before upgrading, run:
