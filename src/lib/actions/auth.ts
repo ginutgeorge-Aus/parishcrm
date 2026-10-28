@@ -58,7 +58,11 @@ export async function requestPasswordReset(
   }
 
   // Case-insensitive (legacy mixed-case rows can still reset).
-  const { user } = await findUserByEmailInsensitive(email)
+  const { user } = await findUserByEmailInsensitive(email, {
+    id: true,
+    email: true,
+    passwordResetExpires: true,
+  })
 
   if (!user) {
     await randomDelay()

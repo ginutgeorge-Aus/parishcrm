@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
 
 /**
@@ -22,7 +23,7 @@ export const userEmailField = z
   .toLowerCase()
   .email("Invalid email")
   .max(254, "Email is too long")
-  .refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED)
+  .refine((v) => !isDemoEmail(v), { error: DEMO_DOMAIN_RESERVED })
 
 /**
  * Result of a user email lookup.
@@ -45,23 +46,29 @@ export type EmailLookup = {
  * non-ASCII case folding). Input longer than 254 chars (the schema max) returns
  * no user without touching the DB.
  * @param email raw email input (any case, surrounding whitespace allowed)
+ * @param select optional Prisma `select` so callers load only the columns they use (default: full row)
  * @returns the user, or null when none matches
  */
-export async function findUserByEmailInsensitive(email: string): Promise<EmailLookup> {
+export async function findUserByEmailInsensitive(email: string): Promise<EmailLookup>
+export async function findUserByEmailInsensitive<S extends Prisma.UserSelect>(
+  email: string,
+  select: S,
+): Promise<{ user: Prisma.UserGetPayload<{ select: S }> | null }>
+export async function findUserByEmailInsensitive(email: string, select?: Prisma.UserSelect): Promise<{ user: unknown }> {
   const trimmed = email.trim()
   const normalized = normalizeEmail(email)
   if (!normalized || normalized.length > 254) return { user: null }
-  const exactRaw = await prisma.user.findUnique({ where: { email: trimmed } })
+  const exactRaw = await prisma.user.findUnique({ where: { email: trimmed }, ...(select && { select }) })
   if (exactRaw) return { user: exactRaw }
   if (normalized !== trimmed) {
-    const exact = await prisma.user.findUnique({ where: { email: normalized } })
+    const exact = await prisma.user.findUnique({ where: { email: normalized }, ...(select && { select }) })
     if (exact) return { user: exact }
   }
   // nosemgrep: crm-no-raw-sql — lower() equality; Prisma mode:"insensitive" is ILIKE and treats _ and % as wildcards
   const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${trimmed}) LIMIT 1`
   if (rows.length === 0) return { user: null }
-  const user = await prisma.user.findUnique({ where: { id: rows[0].id } })
-  return { user }
+  const user = await prisma.user.findUnique({ where: { id: rows[0].id }, ...(select && { select }) })
+  return { user: user }
 }
 
 /**

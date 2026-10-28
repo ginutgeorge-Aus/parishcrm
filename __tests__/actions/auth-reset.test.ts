@@ -54,8 +54,8 @@ describe("requestPasswordReset", () => {
   it("looks up the trimmed raw email first, then the lower-cased one (unique index)", async () => {
     mockFindUnique.mockResolvedValue(null)
     await requestPasswordReset("  U@E.com ")
-    expect(mockFindUnique).toHaveBeenNthCalledWith(1, { where: { email: "U@E.com" } })
-    expect(mockFindUnique).toHaveBeenNthCalledWith(2, { where: { email: "u@e.com" } })
+    expect(mockFindUnique).toHaveBeenNthCalledWith(1, { where: { email: "U@E.com" }, select: { id: true, email: true, passwordResetExpires: true } })
+    expect(mockFindUnique).toHaveBeenNthCalledWith(2, { where: { email: "u@e.com" }, select: { id: true, email: true, passwordResetExpires: true } })
   })
 
   it("resets a legacy mixed-case user found via the case-insensitive fallback", async () => {
