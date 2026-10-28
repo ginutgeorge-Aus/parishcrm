@@ -284,7 +284,7 @@ export function collectEnvWarnings(): string[] {
       break // nothing to flag
     default: {
       // Compile-time exhaustiveness: a new ClientIpHeaderKind must be handled above.
-      const _exhaustive: never = ipHeader
+      const _exhaustive: never = ipHeader.kind
       void _exhaustive
     }
   }
