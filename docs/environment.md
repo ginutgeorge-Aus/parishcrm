@@ -65,9 +65,10 @@ values the app uses the rightmost, and it must be a valid IP.
   limit: if your proxy fails to set the header, the rightmost XFF entry, often a proxy hop, is used
   instead). Each kind of warning (fallback, direct hit) is logged at most once every 10 minutes per
   process, header name only.
-- Only a well-formed IP is ever used. An empty rightmost entry (e.g. `x-forwarded-for: 6.6.6.6,`)
-  is treated as untrusted and yields no IP; non-IP values are never used as an IP, a Turnstile
-  `remoteip` or a rate-limit key.
+- Only a well-formed IP is ever used as an IP (audit log, Turnstile `remoteip`). An empty rightmost
+  entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. For rate-limit
+  keys only, a non-IP rightmost `x-forwarded-for` entry is used as-is (as before), never the
+  whole header; a non-IP `CLIENT_IP_HEADER` value is never used.
 - `cloudfront-viewer-address` carries `ip:port`; the port is stripped (including for unbracketed IPv6).
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
   (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,

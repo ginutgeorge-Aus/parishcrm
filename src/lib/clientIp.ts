@@ -187,11 +187,15 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
 }
 
 /**
- * Client IP from a headers object, or "unknown" when none is resolvable (see `clientIpOrUndefined`).
+ * Rate-limit key from a headers object: the validated IP when resolvable (see `clientIpOrUndefined`);
+ * otherwise, on the default x-forwarded-for path only, the raw trimmed rightmost entry (so distinct
+ * odd values do not collapse into one shared bucket, as before strict validation existed); else
+ * "unknown". The raw value is a bucket key only, never persisted as an IP. A configured
+ * `CLIENT_IP_HEADER` is never read raw.
  * @param h anything with `get`
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
-  return clientIpOrUndefined(h) ?? "unknown"
+  return clientIpOrUndefined(h) ?? rightmostEntry(h, "x-forwarded-for") ?? "unknown"
 }
 
 /**

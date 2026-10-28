@@ -249,8 +249,16 @@ describe("XFF normalisation (default path)", () => {
       expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
     }
   })
-  it("falls back to unknown when the value is not a well-formed IP", () => {
-    expect(clientIpFromHeaders(h("garbage"))).toBe("unknown")
+  it("keys on the raw trimmed rightmost XFF entry when it is not a well-formed IP", () => {
+    expect(clientIpFromHeaders(h("garbage"))).toBe("garbage")
+    expect(clientIpFromHeaders(h("1.1.1.1, evil:80 "))).toBe("evil:80")
+    expect(clientIpOrUndefined(h("garbage"))).toBeUndefined()
+  })
+  it("a non-IP configured CLIENT_IP_HEADER value is never used as a key", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    const hh = new Headers({ "x-forwarded-for": "9.9.9.9", "cf-connecting-ip": "evil:80" })
+    expect(clientIpFromHeaders(hh)).toBe("9.9.9.9")
+    delete process.env.CLIENT_IP_HEADER
   })
   it("canonicalises equivalent IPv6 spellings to one key", () => {
     for (const v of ["2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", "[2001:db8::1]:8080", "2001:db8::1%eth0"]) {
