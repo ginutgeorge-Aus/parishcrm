@@ -25,6 +25,8 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
       pettyCashTransferId: null,
     },
     select: { bankRef: true },
+    orderBy: { date: "desc" },
+    take: 100,
   })
   const depositRefs = legs.flatMap((l) => (l.bankRef ? [l.bankRef.slice(XFER_OUT_PREFIX.length)] : []))
   if (!depositRefs.length) return []
