@@ -150,16 +150,16 @@ describe("deleteTransfer — adopted leg", () => {
     const tx = {
       pettyCashSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       transaction: { findUnique: jest.fn().mockResolvedValue(mirror), update },
-      pettyCashTransfer: { delete: jest.fn() },
+      pettyCashTransfer: { findUnique: jest.fn().mockResolvedValue({ id: 5 }), delete: jest.fn() },
     }
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     return update
   }
 
-  it("derives adopted from the in-tx mirror read, unlinks, clears title reference and audits", async () => {
+  it("derives adopted from the in-tx mirror read, unlinks (keeps reference) and audits", async () => {
     const update = setup({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: "Sess" })
     await deleteTransfer(5)
-    expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null, reference: null } })
+    expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null } })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "unlinked-from-transfer" }))
     expect(logAudit).not.toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.anything())
   })
