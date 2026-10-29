@@ -584,6 +584,17 @@ describe("deleteTransaction", () => {
     expect(mockDelete).not.toHaveBeenCalled()
   })
 
+  it("blocks deleting an imported deposit whose XFER_OUT leg is adopted by a petty cash transfer", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique
+      .mockResolvedValueOnce({ id: 1, bankRef: "ANZ_1" })
+      .mockResolvedValueOnce({ pettyCashTransferId: 7 })
+    const result = await deleteTransaction(1)
+    expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
+    expect(mockFindUnique).toHaveBeenLastCalledWith({ where: { bankRef: "XFER_OUT_ANZ_1" }, select: { pettyCashTransferId: true } })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
   it("deletes and revalidates for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })

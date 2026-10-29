@@ -617,10 +617,19 @@ describe("deleteReceipt", () => {
       id: 1, sessionId: 5, amount: { toString: () => "250" },
       session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: false, bankRef: "XFER_OUT_ANZ_1" },
     })
-    mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: null })
+    mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1" })
     await deleteTransfer(1)
     expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
     expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
+  })
+
+  it("returns a clean error when the transfer vanishes mid-delete", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindTransfer
+      .mockResolvedValueOnce({ id: 1, sessionId: 5, amount: { toString: () => "250" }, session: { id: 5, status: "OPEN" }, transaction: null })
+      .mockResolvedValueOnce(null)
+    expect(await deleteTransfer(1)).toEqual({ error: "Transfer not found" })
+    expect(prisma.pettyCashTransfer.delete).not.toHaveBeenCalled()
   })
 
   it("audit-logs TRANSACTION_DELETED for the cascaded mirror ledger row", async () => {

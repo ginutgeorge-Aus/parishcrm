@@ -10,6 +10,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
+import { XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
@@ -326,9 +327,19 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true },
+    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
   })
   if (!existing) return { error: "Not found" }
+  // An imported deposit whose XFER_OUT leg was adopted by a petty cash transfer
+  // must stay until that transfer is deleted.
+  if (existing.bankRef) {
+    const pairedLeg = await prisma.transaction.findUnique({
+      where: { bankRef: `${XFER_OUT_PREFIX}${existing.bankRef}` },
+      select: { pettyCashTransferId: true },
+    })
+    if (pairedLeg?.pettyCashTransferId != null)
+      return { error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." }
+  }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
     return { error: "Petty cash transactions cannot be deleted here — delete via the petty cash session" }
   if (existing.invoiceId != null) return { error: INVOICE_LINKED_ERROR }
