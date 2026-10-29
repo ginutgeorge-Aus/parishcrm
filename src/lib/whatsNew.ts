@@ -20,6 +20,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.11.0",
+    date: "2026-10-29",
+    highlights: [
+      "New 4-step bank import wizard: upload a statement, review and match each row, then confirm. Now also reads OFX/QFX and QIF files.",
+      "Every outgoing email can carry a footer you set in Settings.",
+      "Venue invoice requests can be copied to several CC addresses.",
+      "Each email can only be used once, regardless of capitals, and logging in works however the email is typed.",
+    ],
+  },
+  {
     version: "v1.10.0",
     date: "2026-10-26",
     highlights: [

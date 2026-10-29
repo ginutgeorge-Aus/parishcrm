@@ -369,18 +369,36 @@ describe("POST /api/import/bank-statement/confirm", () => {
     expect(arg).toHaveLength(2)
   })
 
-  test("split row: returns 400 when the same member is assigned to two allocations", async () => {
+  test("split row: returns 400 when the same member is assigned twice in the same category", async () => {
     ;(prisma.account.findMany as jest.Mock).mockResolvedValue([
       { id: 1, type: "INCOME", isActive: true },
-      { id: 3, type: "INCOME", isActive: true },
     ])
     const dup = { ...splitRow, splits: [
       { accountId: 1, amount: "60.00", familyId: 2, personId: 10 },
-      { accountId: 3, amount: "40.00", familyId: 2, personId: 10 },
+      { accountId: 1, amount: "40.00", familyId: 2, personId: 10 },
     ] }
     const res = await POST(makeRequest([dup]))
     expect(res.status).toBe(400)
     expect(prisma.transaction.create).not.toHaveBeenCalled()
+  })
+
+  test("split row: allows the same member in different categories", async () => {
+    ;(prisma.account.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, type: "INCOME", isActive: true },
+      { id: 3, type: "INCOME", isActive: true },
+    ])
+    const ok = { ...splitRow, splits: [
+      { accountId: 1, amount: "60.00", familyId: 2, personId: 10 },
+      { accountId: 3, amount: "40.00", familyId: 2, personId: 10 },
+    ] }
+    const res = await POST(makeRequest([ok]))
+    expect(res.status).toBe(200)
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(2)
+    for (const accountId of [1, 3]) {
+      expect(prisma.transaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ accountId, familyId: 2, personId: 10 }),
+      })
+    }
   })
 
   test("split row: returns 400 when an allocation pairs a person with a family they don't belong to", async () => {

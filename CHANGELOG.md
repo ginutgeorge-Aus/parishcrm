@@ -12,6 +12,37 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.11.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.10.0...v1.11.0) (2026-10-29)
+
+
+### Added
+
+* **bank-import:** 4-step import wizard ([#434](https://github.com/ginutgeorge-Aus/parishcrm/issues/434)) ([b297aa9](https://github.com/ginutgeorge-Aus/parishcrm/commit/b297aa9b6ba8feae9cd5dd6415acaaf3d9ec8929))
+* **email:** add configurable footer to every outgoing email ([#429](https://github.com/ginutgeorge-Aus/parishcrm/issues/429)) ([285fdce](https://github.com/ginutgeorge-Aus/parishcrm/commit/285fdcef72f0e3f79cbb638440f6e5f9265f6d4d))
+* **import:** OFX/QFX + QIF bank import backend ([#432](https://github.com/ginutgeorge-Aus/parishcrm/issues/432)) ([70f5124](https://github.com/ginutgeorge-Aus/parishcrm/commit/70f5124dbc457886f46a7c5a78497f82d6f8675f))
+* **venue:** allow multiple invoice request CC addresses ([#428](https://github.com/ginutgeorge-Aus/parishcrm/issues/428)) ([19b9364](https://github.com/ginutgeorge-Aus/parishcrm/commit/19b9364d90143256440d880d8b0f8c11db3c0df0))
+
+
+### Fixed
+
+* **auth:** normalize login email on password and OTP paths ([#454](https://github.com/ginutgeorge-Aus/parishcrm/issues/454)) ([eade927](https://github.com/ginutgeorge-Aus/parishcrm/commit/eade927dd3ef1a39da452c4531133697da7bcf0b))
+* **bank-import:** import wizard review follow-ups ([#445](https://github.com/ginutgeorge-Aus/parishcrm/issues/445)) ([e06b16c](https://github.com/ginutgeorge-Aus/parishcrm/commit/e06b16cb8c704a02bdc77599d1b5bcd7177c2bb6))
+* **bank-import:** mask account number in all client fields, guard draft merge by account ([#460](https://github.com/ginutgeorge-Aus/parishcrm/issues/460)) ([0232824](https://github.com/ginutgeorge-Aus/parishcrm/commit/0232824fb8df90692c43a3ffe4e74f5c27af33a0))
+* **bank-import:** mask account number in client-bound bankRefs ([#448](https://github.com/ginutgeorge-Aus/parishcrm/issues/448)) ([efbfaf6](https://github.com/ginutgeorge-Aus/parishcrm/commit/efbfaf63bdf1f1e59692b27656fb2dde2bd9a541))
+* **ci:** fail demo-reset when the demo does not serve the seeded release ([#431](https://github.com/ginutgeorge-Aus/parishcrm/issues/431)) ([fa20adf](https://github.com/ginutgeorge-Aus/parishcrm/commit/fa20adf80a5755de4619bb81de22544d90009890))
+* **db:** enforce case-insensitive unique User.email ([#458](https://github.com/ginutgeorge-Aus/parishcrm/issues/458)) ([cd15e3d](https://github.com/ginutgeorge-Aus/parishcrm/commit/cd15e3dcfc23a6b46c2f6ccc35b2716d599d55cc))
+
+
+### Dependencies
+
+* bump pdfjs-dist from 6.3.289 to 6.4.299 ([#440](https://github.com/ginutgeorge-Aus/parishcrm/issues/440)) ([158a73a](https://github.com/ginutgeorge-Aus/parishcrm/commit/158a73a062a1ef5f2a44959fae2432a04c5adf57))
+* bump postcss from 8.5.29 to 8.5.31 ([#441](https://github.com/ginutgeorge-Aus/parishcrm/issues/441)) ([3bb02f1](https://github.com/ginutgeorge-Aus/parishcrm/commit/3bb02f1ab912f8de5d12cd9fdba819f4d045fa40))
+* bump the prisma-ecosystem group with 3 updates ([#438](https://github.com/ginutgeorge-Aus/parishcrm/issues/438)) ([79f5428](https://github.com/ginutgeorge-Aus/parishcrm/commit/79f542884e684402d074b6f1afea1a3e7ed16486))
+* bump the react-ecosystem group with 2 updates ([#436](https://github.com/ginutgeorge-Aus/parishcrm/issues/436)) ([6ae39ef](https://github.com/ginutgeorge-Aus/parishcrm/commit/6ae39ef1df445cc85a0043ee7346840350333136))
+* bump the website group in /website with 3 updates ([#437](https://github.com/ginutgeorge-Aus/parishcrm/issues/437)) ([4d30e03](https://github.com/ginutgeorge-Aus/parishcrm/commit/4d30e03829bd40cb7b16b855bb932183b115359c))
+* bump unpdf from 1.8.1 to 1.9.1 ([#439](https://github.com/ginutgeorge-Aus/parishcrm/issues/439)) ([735540a](https://github.com/ginutgeorge-Aus/parishcrm/commit/735540a4d59485de2427cc02e1681da5652ba9b5))
+* bump zod and shadcn ([#447](https://github.com/ginutgeorge-Aus/parishcrm/issues/447)) ([8216e3f](https://github.com/ginutgeorge-Aus/parishcrm/commit/8216e3fcf9017d854224fa9e105e2b0b0a6aa6d6))
+
 ## [1.10.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.9.1...v1.10.0) (2026-10-26)
 
 
