@@ -140,38 +140,22 @@ function normalizeIp(value: string | undefined): string | undefined {
 /**
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
  * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
- * spoofable name (see `classifyClientIpHeader`) is ignored. The header is honoured only when the
- * request also carries `x-forwarded-for`: a heuristic that it traversed a proxy, NOT a security
- * check (a client can send that header itself). A request without it is treated as direct, so the
- * configured header is ignored and the default path is used
- * instead. The rightmost entry is taken (port stripped for `cloudfront-viewer-address`), normalised via
- * `normalizeIp`, and accepted only when it is a well-formed IP. Falling back while the header is missing/unusable (proxied) or present
- * on a non-proxied request logs a rate-limited warning (header name only, never the value). Requests
- * with neither header (e.g. a local health check) do not warn.
+ * spoofable name (see `classifyClientIpHeader`) is ignored. A configured header is honoured whether
+ * or not `x-forwarded-for` is present (many proxies set only e.g. `x-real-ip`); the origin must not
+ * be reachable except through the proxy (see docs/environment.md). The rightmost entry is taken
+ * (port stripped for `cloudfront-viewer-address`), normalised via `normalizeIp`, and accepted only
+ * when it is a well-formed IP. Falling back while the header is unusable logs a rate-limited warning
+ * (header name only, never the value); a request with neither it nor `x-forwarded-for` does not warn.
  * @param h anything with `get`
  * @returns the IP, or undefined when the env is unset/ignored or the header is not usable
  */
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const { kind, name } = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
   if (kind === "unset" || kind === "invalid" || kind === "spoofable") return undefined
-  // Presence of x-forwarded-for is NOT spoofing protection: a client can send it itself. It only
-  // rejects a bare request carrying the configured header with no x-forwarded-for at all. The
-  // residual risk (attacker reaching the origin directly with both headers) is closed only by not
-  // exposing the origin except through the proxy (see docs/environment.md).
-  const proxied = h.get("x-forwarded-for") != null
-  const present = h.get(name) != null
-  if (!proxied) {
-    if (present) {
-      warnConfiguredHeaderRateLimited(
-        "direct",
-        `clientIp: CLIENT_IP_HEADER "${name}" is present but the request has no x-forwarded-for (origin reached directly?); ignoring it. The origin must not be reachable except through your proxy`,
-      )
-    }
-    return undefined
-  }
   const raw = rightmostEntry(h, name)
   const ip = normalizeIp(name === "cloudfront-viewer-address" ? stripViewerPort(raw) : raw)
-  if (!ip) {
+  // Stay quiet for a request carrying neither the header nor x-forwarded-for (e.g. a local health check).
+  if (!ip && (h.get(name) != null || h.get("x-forwarded-for") != null)) {
     warnConfiguredHeaderRateLimited("fallback", `clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
   return ip

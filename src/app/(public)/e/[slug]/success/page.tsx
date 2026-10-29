@@ -53,6 +53,14 @@ function RateLimitedNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
 
 // Throttle the token lookup: only the ?ref=/?token= paths are an oracle, so
 // count a request against the per-IP budget only when one is supplied.
+/**
+ * Per-IP throttle for the success-page token lookup (the ?ref=/?token= paths are an oracle).
+ * Only counts a request when a ref or card token is supplied.
+ * @param ref registration reference from the query string ("" when absent)
+ * @param cardToken card-return token from the query string, or null
+ * @param churchEmail contact address shown in the rate-limited notice
+ * @returns the rate-limited notice to render, or null when the request may proceed
+ */
 async function checkSuccessPageRateLimit(
   ref: string,
   cardToken: string | null,

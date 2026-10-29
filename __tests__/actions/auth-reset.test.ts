@@ -7,6 +7,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
     user: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     trustedDevice: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     passkey: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -20,6 +21,7 @@ import { headers } from "next/headers"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 
 const mockFindUnique = prisma.user.findUnique as jest.Mock
+const mockQueryRaw = prisma.$queryRaw as jest.Mock
 const mockUpdate = prisma.user.update as jest.Mock
 const mockUpdateMany = prisma.user.updateMany as jest.Mock
 const mockSendEmail = sendPasswordResetEmail as jest.Mock
@@ -39,6 +41,7 @@ import { requestPasswordReset, resetPassword } from "@/lib/actions/auth"
 describe("requestPasswordReset", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockQueryRaw.mockResolvedValue([]) // clearAllMocks keeps implementations
     process.env.AUTH_URL = "http://localhost:3000"
   })
 
@@ -46,6 +49,25 @@ describe("requestPasswordReset", () => {
     mockFindUnique.mockResolvedValue(null)
     expect(await requestPasswordReset("nobody@example.com")).toEqual({ success: true })
     expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it("looks up the trimmed raw email first, then the lower-cased one (unique index)", async () => {
+    mockFindUnique.mockResolvedValue(null)
+    await requestPasswordReset("  U@E.com ")
+    expect(mockFindUnique).toHaveBeenNthCalledWith(1, { where: { email: "U@E.com" }, select: { id: true, email: true, passwordResetExpires: true } })
+    expect(mockFindUnique).toHaveBeenNthCalledWith(2, { where: { email: "u@e.com" }, select: { id: true, email: true, passwordResetExpires: true } })
+  })
+
+  it("resets a legacy mixed-case user found via the case-insensitive fallback", async () => {
+    mockFindUnique
+      .mockResolvedValueOnce(null) // lowercase exact miss
+      .mockResolvedValueOnce({ id: 4, email: "U@E.com", passwordResetExpires: null }) // fetch by id
+    mockQueryRaw.mockResolvedValue([{ id: 4 }])
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    mockSendEmail.mockResolvedValue(undefined)
+    expect(await requestPasswordReset("u@e.com")).toEqual({ success: true })
+    expect(mockUpdateMany.mock.calls[0][0].where.id).toBe(4)
+    expect(mockSendEmail).toHaveBeenCalledWith("U@E.com", expect.any(String))
   })
 
   it("returns success silently when token still active (no user enumeration)", async () => {

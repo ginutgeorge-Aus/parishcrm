@@ -99,6 +99,24 @@ describe("POST /api/events/[slug]/waitlist", () => {
     expect(prisma.waitlist.create).not.toHaveBeenCalled()
   })
 
+  it("passes the validated client IP (not the rate-limit key) to Turnstile as remoteip", async () => {
+    soldOut()
+    await POST(req({ ticketTypeId: 7, name: "Ann", email: "a@b.com", formToken: "t", turnstileToken: "tok" }), ctx("camp"))
+    expect(verifyTurnstile).toHaveBeenCalledWith("tok", "1.1.1.1")
+  })
+
+  it("passes undefined remoteip when the forwarded entry is not a valid IP", async () => {
+    soldOut()
+    const body = { ticketTypeId: 7, name: "Ann", email: "a@b.com", formToken: "t", turnstileToken: "tok" }
+    const r = new NextRequest("http://localhost/api/events/camp/waitlist", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "x-forwarded-for": "not-an-ip", "content-length": String(Buffer.byteLength(JSON.stringify(body))) },
+    })
+    await POST(r, ctx("camp"))
+    expect(verifyTurnstile).toHaveBeenCalledWith("tok", undefined)
+  })
+
   it("rejects a failed Turnstile check with 400 and no insert", async () => {
     soldOut()
     ;(verifyTurnstile as jest.Mock).mockResolvedValueOnce(false)

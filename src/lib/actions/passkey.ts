@@ -206,6 +206,12 @@ export async function removePasskey(id: string): Promise<{ error: string } | { s
 // passkey it holds for this RP and the server resolves the user from the
 // credential in authorizeCredentials. Per-IP throttled, skipped under
 // E2E_ALLOW_TEST_OVERRIDES for the same reason as the credentials path.
+/**
+ * Starts a usernameless passkey login: issues a WebAuthn challenge the browser answers with any
+ * passkey it holds for this relying party. Public (pre-login), per-IP throttled (skipped under
+ * E2E_ALLOW_TEST_OVERRIDES), and unavailable in demo mode.
+ * @returns the challenge id plus request options, or an error message
+ */
 export async function startPasskeyLogin(): Promise<
   { error: string } | { challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }
 > {

@@ -91,6 +91,12 @@ async function notifyChurch(opts: {
   await sendEmail(setting.value, subject, html, text)
 }
 
+/**
+ * Public-page feedback/bug-report submission: validates the input, throttles per client IP,
+ * files an issue and emails the church contact.
+ * @param input the submitted feedback form fields
+ * @returns success, or an error message safe to show the visitor
+ */
 export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<ActionResultWithSuccess> {
   // Honeypot — silent bots fill the hidden field.
   const website = input.website

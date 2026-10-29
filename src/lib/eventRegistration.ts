@@ -9,13 +9,12 @@ import { isRegistrationClosed } from "@/lib/eventClose"
 export type { RegisterResult }
 
 // Core public-registration pipeline. `rawBody` is the already-parsed JSON body;
-// `ip` is the resolved client IP (used for the Turnstile check + confirmation
-// mail throttle). Returns a typed result; never throws for a caller-visible
+// `ip` is the VALIDATED client IP or undefined (Turnstile `remoteip` only, never a rate-limit key). Returns a typed result; never throws for a caller-visible
 // error — only unexpected/DB faults propagate (→ 500 at the route).
 export async function createEventRegistration(
   slug: string,
   rawBody: unknown,
-  ip: string,
+  ip: string | undefined,
 ): Promise<RegisterResult> {
   const event = await fetchEventWithTickets(slug)
   // Unpublished must be indistinguishable from not-found, or the status-code

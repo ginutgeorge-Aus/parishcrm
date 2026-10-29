@@ -9,7 +9,7 @@ import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
-import { clientIpFromHeaders } from "@/lib/clientIp"
+import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
 
 /**
  * Public entry point for the optional Stripe event-payments flow: prices the
@@ -64,7 +64,7 @@ export async function startEventCheckout(
     return { ok: false, status: 400, error: "Online payment not enabled for this event" }
   }
 
-  const v = await validateAndPriceRegistration(event, rawBody, ip)
+  const v = await validateAndPriceRegistration(event, rawBody, clientIpOrUndefined(h))
   if (!v.ok) return v
 
   if (v.priced.totalAmount <= 0) {

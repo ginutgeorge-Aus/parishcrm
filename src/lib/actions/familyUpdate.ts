@@ -101,6 +101,12 @@ type SubmitInput = {
 
 class InviteNoLongerValid extends Error {}
 
+/**
+ * Applies a family's self-service update submitted through an invite link: validates the invite
+ * and payload, throttles per client IP and records the change for staff review.
+ * @param input the invite token plus the submitted payload
+ * @returns success, or an error message safe to show the submitter
+ */
 export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResultWithSuccess> {
   // Honeypot: a real user never fills the hidden "website" field. Generic error.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }

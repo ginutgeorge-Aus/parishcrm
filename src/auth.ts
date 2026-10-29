@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger"
 import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
+import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 import { verifyAuthenticationResponse, type AuthenticationResponseJSON } from "@simplewebauthn/server"
 import { consumeChallenge, getRelyingParty } from "@/lib/webauthn"
@@ -126,8 +127,16 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
   }
 }
 
+/**
+ * Look up a user by email and verify the password, with a dummy bcrypt compare
+ * on a miss to keep timing uniform.
+ * @param email trimmed RAW email (case preserved so mixed-case-only legacy accounts resolve)
+ * @param password submitted plaintext password
+ * @param ip client IP for log context, if known
+ * @returns the user on success, else null
+ */
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
-  const user = await prisma.user.findUnique({ where: { email } })
+  const { user } = await findUserByEmailInsensitive(email)
   if (!user) {
     // burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
@@ -189,16 +198,24 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   return user
 }
 
-// Per-IP throttle shared by both providers (the e2e exemption and its rationale
-// are documented at the call site in authorizeCredentials). `bucket`/`limit`
-// let demo one-click logins use their own, larger bucket. Keyed on the shared rate-limit resolver
-// (clientIpFromHeaders), not the validated-only audit IP, so odd XFF values do not share one bucket.
+/**
+ * Per-IP throttle shared by both providers (the e2e exemption and its rationale are documented at
+ * the call site in authorizeCredentials). Keyed on the shared rate-limit resolver
+ * (clientIpFromHeaders), not the validated-only audit IP, so odd XFF values do not share one bucket.
+ * @param request the NextAuth request, if any ("unknown" bucket when absent)
+ * @param bucket rate-limit key prefix; demo one-click logins use their own
+ * @param limit max attempts per minute for this bucket
+ * @returns true when the attempt is allowed
+ */
 async function loginIpAllowed(request: Request | undefined, bucket = "login:ip", limit = 10): Promise<boolean> {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
   if (await dbRateLimit(`${bucket}:${request ? clientIpFromHeaders(request.headers) : "unknown"}`, limit, 60_000)) return true
   // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
   // diagnosable from container logs. No PII beyond the ip already logged.
-  logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
+  logger.warn("credential login rejected", {
+    reason: "ip_rate_limited",
+    ipPresent: Boolean(clientIpOrUndefined(request?.headers)),
+  })
   return false
 }
 
@@ -293,6 +310,14 @@ export async function authorizeCredentials(
 ) {
   const ip = clientIpFrom(request)
   if (!credentials?.email) return null
+  // Password, OTP and TOTP paths pass rawEmail (trimmed, case kept) to the
+  // lookup, which tries it exact-first, then lowercased, then a lower() match.
+  // normalizedEmail (trimmed + lowercased) is used only for the demo checks and
+  // the whitespace-only early exit. Lockout counters are keyed on user.id, so
+  // case/space variants resolve to one account and share one counter.
+  const rawEmail = String(credentials.email).trim()
+  const normalizedEmail = normalizeEmail(rawEmail)
+  if (!normalizedEmail) return null // whitespace-only: nothing to look up
 
   // IP-based throttle on the whole credentials path (password + OTP
   // steps) — the only prior ceiling was the per-account 5-attempt lock, which
@@ -322,12 +347,10 @@ export async function authorizeCredentials(
   // 10/min password throttle with its own 120/min bucket: on Render the
   // rightmost XFF entry is an internal proxy address (10.x) shared by many
   // visitors, so the password bucket locked the demo for everyone (#95).
-  const demoEmail = String(credentials.email).trim().toLowerCase()
   if (credentials.mode === "demo") {
-    const email = demoEmail
-    if (!isDemoMode() || !isDemoEmail(email)) return null
+    if (!isDemoMode() || !isDemoEmail(normalizedEmail)) return null
     if (!(await loginIpAllowed(request, "login:demo", 120))) return null
-    const user = await prisma.user.findUnique({ where: { email } })
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
     if (!user || user.archivedAt) return null
     void logAudit(user.id, "USER_LOGIN", "User", user.id, { demo: true }, ip)
     return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: false }
@@ -336,19 +359,18 @@ export async function authorizeCredentials(
   if (!(await loginIpAllowed(request))) return null
 
   // Live demo users have no password path (one-click login is handled above).
-  if (isDemoMode() && isDemoEmail(demoEmail) && credentials.mode !== "demo") {
+  if (isDemoMode() && isDemoEmail(normalizedEmail) && credentials.mode !== "demo") {
     // Shared public users: any password/OTP/TOTP attempt would bump lockout
     // counters and lock every visitor out of that role.
     return null
   }
 
   if (credentials.mode === "otp") {
-    const email = credentials.email as string
     if (typeof credentials.otp !== "string") return null
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const user = await prisma.user.findUnique({ where: { email } })
+    const { user } = await findUserByEmailInsensitive(rawEmail)
     if (!user) return null
     // a soft-deleted user must never authenticate. (Its email is also
     // tombstoned on archive, so this is defence-in-depth.)
@@ -411,7 +433,7 @@ export async function authorizeCredentials(
     // password check), an authenticator code is valid at any time — so this
     // step MUST re-verify the password in the same request.
     if (typeof credentials.code !== "string" || typeof credentials.password !== "string" || !credentials.password) return null
-    const user = await verifyPassword(credentials.email as string, credentials.password, ip)
+    const user = await verifyPassword(rawEmail, credentials.password, ip)
     if (!user || !user.totpEnabledAt) return null
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) throw new AccountLocked()
 
@@ -433,8 +455,8 @@ export async function authorizeCredentials(
   }
 
   // Password step (default)
-  if (!credentials?.password) return null
-  const user = await verifyPassword(credentials.email as string, credentials.password as string, ip)
+  if (typeof credentials?.password !== "string" || !credentials.password) return null
+  const user = await verifyPassword(rawEmail, credentials.password, ip)
   if (!user) return null
 
   // Dev-only bypass: set DISABLE_OTP=true in .env.local to skip OTP during local dev/demo.

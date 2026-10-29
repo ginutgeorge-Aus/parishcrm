@@ -150,26 +150,18 @@ describe("CLIENT_IP_HEADER — normalisation", () => {
   })
 })
 
-describe("CLIENT_IP_HEADER — XFF required to honour the header", () => {
+describe("CLIENT_IP_HEADER — honoured without x-forwarded-for", () => {
   const saved = process.env.CLIENT_IP_HEADER
   afterEach(() => {
     if (saved === undefined) delete process.env.CLIENT_IP_HEADER
     else process.env.CLIENT_IP_HEADER = saved
   })
-  it("ignores a spoofed configured header when the request has no x-forwarded-for, and warns", () => {
-    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
-    const warn = logger.warn as jest.Mock
-    jest.isolateModules(() => {
-      const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
-      const headers = new Headers({ "cf-connecting-ip": "6.6.6.6" })
-      expect(mod.clientIpFromHeaders(headers)).toBe("unknown")
-      expect(mod.clientIpOrUndefined(headers)).toBeUndefined()
-      expect(mod.clientIpOrUndefined(headers)).toBeUndefined()
-    })
-    expect(warn).toHaveBeenCalledTimes(1)
-    const msg = String(warn.mock.calls[0][0])
-    expect(msg).toContain("cf-connecting-ip")
-    expect(msg).not.toContain("6.6.6.6")
+  it("honours the configured header even when the request has no x-forwarded-for", () => {
+    process.env.CLIENT_IP_HEADER = "x-real-ip"
+    const headers = new Headers({ "x-real-ip": "203.0.113.9" })
+    expect(clientIpFromHeaders(headers)).toBe("203.0.113.9")
+    expect(clientIpOrUndefined(headers)).toBe("203.0.113.9")
+    expect(logger.warn).not.toHaveBeenCalled()
   })
   it("does not warn when neither header is present (health check)", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
@@ -335,23 +327,24 @@ describe("CLIENT_IP_HEADER=cloudfront-viewer-address (ip:port)", () => {
   })
 })
 
-describe("CLIENT_IP_HEADER — warning throttle is per kind", () => {
+describe("CLIENT_IP_HEADER — warning throttle", () => {
   const saved = process.env.CLIENT_IP_HEADER
   afterEach(() => {
     jest.restoreAllMocks()
     if (saved === undefined) delete process.env.CLIENT_IP_HEADER
     else process.env.CLIENT_IP_HEADER = saved
   })
-  it("a fallback warning does not suppress a direct-hit warning", () => {
+  it("warns once for a missing header on a proxied request, without the value", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const warn = logger.warn as jest.Mock
     jest.spyOn(Date, "now").mockImplementation(() => 1_000_000)
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
+      mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1" }))
       mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage" }))
-      mod.clientIpFromHeaders(new Headers({ "cf-connecting-ip": "6.6.6.6" }))
-      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn).toHaveBeenCalledTimes(1)
     })
+    expect(String(warn.mock.calls[0][0])).not.toContain("garbage")
   })
 })
 

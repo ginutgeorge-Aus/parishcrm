@@ -145,7 +145,7 @@ export interface PricedRegistration {
 export async function validateAndPriceRegistration(
   event: EventWithTickets,
   rawBody: unknown,
-  ip: string,
+  ip: string | undefined,
 ): Promise<{ ok: true; priced: PricedRegistration } | { ok: false; status: number; error: string }> {
   const parsed = BodySchema.safeParse(rawBody)
   if (!parsed.success) return { ok: false, status: 400, error: parsed.error.issues[0].message }

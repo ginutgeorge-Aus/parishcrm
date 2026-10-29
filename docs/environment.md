@@ -56,14 +56,15 @@ through unchanged rather than append its own address. This holds for any name yo
 is trusted only if the outermost proxy overwrites it on every request. If the header holds several comma-separated
 values the app uses the rightmost, and it must be a valid IP.
 
-- The header is honoured only on requests that also carry `x-forwarded-for` (i.e. that went through a
-  proxy). A request with the header but no `x-forwarded-for` reached the origin directly, so the
-  header is ignored and a warning is logged. **Residual risk:** an attacker who can reach the origin
-  *and* sends both headers still spoofs the IP, so the origin must not be reachable except through
-  your proxy (this is the security rule above; the check is a mitigation, not a substitute).
-- A missing or non-IP header value on a proxied request falls back to `x-forwarded-for` (a known
-  limit: if your proxy fails to set the header, the rightmost XFF entry, often a proxy hop, is used
-  instead). Each kind of warning (fallback, direct hit) is logged at most once every 10 minutes per
+- A configured header is honoured whether or not the request carries `x-forwarded-for` (many proxies
+  set only e.g. `X-Real-IP`). Nothing here authenticates the request: if an attacker can reach the
+  origin directly they can send the header themselves, so the origin must not be reachable except
+  through your proxy (the security rule above).
+- **Fallback order:** when `CLIENT_IP_HEADER` is set but the header is missing or not a valid IP, the
+  resolver falls back to the rightmost `x-forwarded-for` entry, and if that is absent too, to one
+  shared `unknown` rate-limit bucket. On platforms such as Render the rightmost `x-forwarded-for` entry
+  can be the proxy's own hop, so every such request shares one throttle bucket: make sure your edge
+  sends the header on every request. The fallback warning is logged at most once every 10 minutes per
   process, header name only.
 - Only a well-formed IP is ever persisted as an IP (audit log) or sent as Turnstile `remoteip` by the membership and public-feedback forms (event registration and waitlist send their rate-limit key, which may be the raw value, as before). An empty rightmost
   entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. For rate-limit

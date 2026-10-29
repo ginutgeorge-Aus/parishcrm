@@ -119,6 +119,11 @@ development. `db push` records no migration history, so later
 passwords are public in this repo (it refuses to run unless
 `ALLOW_DEMO_SEED=true` is set — never set that here).
 
+Note for local dev: the case-insensitive unique index `User_email_lower_key` is
+raw SQL, so it only exists after `prisma migrate deploy`. A database built with
+`npm run db:push` lacks it, so case-variant duplicate emails can exist there and
+login lookups may pick either row.
+
 ## 4. Run
 
 `docker --env-file` keeps quotes as part of each value, so strip them first:
