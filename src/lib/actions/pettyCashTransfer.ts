@@ -14,7 +14,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem, xferOutRef } from "@/lib/pettyCashAdoption"
-import { MONEY_DECIMAL_RE, isP2034, isValidPgId } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
@@ -60,8 +60,9 @@ const TransferSchema = z.object({
   importedTransactionId: z
     .string()
     .optional()
-    .transform((v) => (v ? Number(v) : undefined))
-    .refine((v) => v === undefined || isValidPgId(v), "Invalid imported deposit"),
+    // Strict digits-only parse: Number() would accept "0x10", "1e1" or " 12 ".
+    .transform((v) => (v ? (parseRouteId(v) ?? NaN) : undefined))
+    .refine((v) => v === undefined || !Number.isNaN(v), "Invalid imported deposit"),
 })
 
 /** Record a petty cash transfer. ADMIN/PASTOR only. */

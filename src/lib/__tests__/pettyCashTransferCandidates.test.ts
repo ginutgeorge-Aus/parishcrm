@@ -76,7 +76,7 @@ it("returns [] without creating when XFER account is absent", async () => {
   expect(findMany).not.toHaveBeenCalled()
 })
 
-it("starts the leg query the day after the lock and fetches both lists without a take", async () => {
+it("starts the leg query the day after the lock and caps the leg list newest-first", async () => {
   const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
   const lock = new Date("2026-06-30")
   getAccountingLockDate.mockResolvedValueOnce(lock)
@@ -85,7 +85,8 @@ it("starts the leg query the day after the lock and fetches both lists without a
     .mockResolvedValueOnce([depRow({ id: 1, bankRef: "A", date: new Date("2026-07-31"), amount: amt("50.00"), description: "x" })])
   await listImportedTransferCandidates()
   expect(findMany.mock.calls[0][0].where.date).toEqual({ gte: new Date("2026-07-01") })
-  expect(findMany.mock.calls[0][0].take).toBeUndefined()
+  expect(findMany.mock.calls[0][0].take).toBe(1000)
+  expect(findMany.mock.calls[0][0].orderBy).toEqual({ date: "desc" })
   expect(findMany.mock.calls[1][0].take).toBeUndefined()
 })
 
@@ -102,12 +103,20 @@ it("drops a leg that turned reconciled or off the cash account", async () => {
   await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: false })
 })
 
-it("excludes a leg on the lock day itself even with a time component", async () => {
+it("excludes a leg on the lock day itself (even at 05:00Z) via the query bound", async () => {
   const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
   getAccountingLockDate.mockResolvedValueOnce(new Date("2026-06-30"))
-  findMany.mockResolvedValueOnce([legRow({ date: new Date("2026-06-30T05:00:00Z") })])
-  await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: false })
-  expect(findMany).toHaveBeenCalledTimes(1)
+  findMany.mockResolvedValueOnce([])
+  await listImportedTransferCandidates()
+  const gte = findMany.mock.calls[0][0].where.date.gte as Date
+  expect(new Date("2026-06-30T05:00:00Z").getTime()).toBeLessThan(gte.getTime())
+  expect(new Date("2026-07-01T00:00:00Z").getTime()).toBeGreaterThanOrEqual(gte.getTime())
+})
+
+it("flags truncation when the leg cap is hit, even with no valid pairs", async () => {
+  findMany.mockResolvedValueOnce(Array.from({ length: 1000 }, (_, i) => legRow({ bankRef: `XFER_OUT_R${i}` })))
+  findMany.mockResolvedValueOnce([])
+  await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: true })
 })
 
 it("keeps older valid pairs and caps only the final list, flagging truncation", async () => {

@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
-import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
+import { getAccountingLockDate } from "@/lib/accountingLock"
 import { adoptionProblem, depositRefOfLeg, ymd } from "@/lib/pettyCashAdoption"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { findXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 /** Max options returned to the picker (newest first); beyond this `truncated` is set. */
 const OPTION_LIMIT = 200
+/** Max unlinked cash-out legs read per render (newest first); legs that never pair can't grow the read without bound. */
+const LEG_LIMIT = 1000
 
 export type ImportedTransferOption = {
   id: number
@@ -23,7 +25,7 @@ export type ImportedTransferCandidates = { options: ImportedTransferOption[]; tr
  * Selecting one in the Record transfer form adopts that leg as the transfer's
  * ledger mirror instead of booking a second cash-out. Pairs are matched in
  * memory with the same `adoptionProblem` check createTransfer uses; only the
- * final list is capped (`truncated` is set when valid pairs were dropped).
+ * final list is capped (`truncated` is set when valid pairs or legs were dropped).
  */
 export async function listImportedTransferCandidates(): Promise<ImportedTransferCandidates> {
   // Independent lookups; read-only XFER lookup so a GET render never creates the account.
@@ -37,7 +39,8 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
   const empty: ImportedTransferCandidates = { options: [], truncated: false }
   if (xferAccountId === null) return empty
   const cashAccountId = cashAccount?.id ?? null
-  // Bounded by construction: only unreconciled, unlinked cash-side XFER_OUT legs.
+  // Only unreconciled, unlinked cash-side XFER_OUT legs, newest first and capped at LEG_LIMIT: legs whose
+  // deposit never arrives (or never pairs) would otherwise accumulate. Hitting the cap sets `truncated`.
   const legs = await prisma.transaction.findMany({
     where: {
       accountId: xferAccountId,
@@ -47,17 +50,21 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
       reconciled: false,
       paymentAccountId: cashAccountId,
       // Locked periods are read-only (lock day inclusive, by UTC calendar day): start
-      // the day after the lock, matching isDateLocked.
+      // the day after the lock, matching isDateLocked. This is the only lock check (it also keeps
+      // locked legs from using up the LEG_LIMIT cap).
       ...(lockDate ? { date: { gte: new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) } } : {}),
     },
     select: {
       type: true, accountId: true, bankRef: true, date: true, amount: true, reconciled: true,
       paymentAccountId: true, pettyCashTransferId: true,
     },
+    orderBy: { date: "desc" },
+    take: LEG_LIMIT,
   })
+  const legsTruncated = legs.length >= LEG_LIMIT
   const legByDepositRef = new Map<string, (typeof legs)[number]>()
-  for (const l of legs) if (l.bankRef && !isDateLocked(l.date, lockDate)) legByDepositRef.set(depositRefOfLeg(l.bankRef), l)
-  if (!legByDepositRef.size) return empty
+  for (const l of legs) if (l.bankRef) legByDepositRef.set(depositRefOfLeg(l.bankRef), l)
+  if (!legByDepositRef.size) return { options: [], truncated: legsTruncated }
   const deposits = await prisma.transaction.findMany({
     where: { accountId: xferAccountId, type: "INCOME", bankRef: { in: [...legByDepositRef.keys()] } },
     select: { id: true, bankRef: true, accountId: true, type: true, date: true, amount: true, description: true },
@@ -69,7 +76,7 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
     return !!leg && adoptionProblem(d, leg, { amount: d.amount.toFixed(2), date: d.date }, { xferAccountId, cashAccountId }) === null
   })
   return {
-    truncated: valid.length > OPTION_LIMIT,
+    truncated: legsTruncated || valid.length > OPTION_LIMIT,
     options: valid.slice(0, OPTION_LIMIT).map((d) => ({
       id: d.id,
       date: ymd(d.date),

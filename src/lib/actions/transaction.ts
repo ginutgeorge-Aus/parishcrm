@@ -22,6 +22,10 @@ import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const BUSY = { error: "Couldn't save the transaction. Try again." }
+/** Delete-specific: a conflict while deleting is not a failed "save". */
+const DELETE_BUSY = { error: "Couldn't delete the transaction because it was being changed at the same time. Try again." }
+/** Delete-specific: an FK violation on delete means another record still points at this row. */
+const DELETE_REFERENCED = { error: "Can't delete this transaction because other records still reference it." }
 const GONE = { error: "A fund, payment account, family or person on this transaction was just removed. Reload and try again." }
 
 // Report pages cache transaction-derived figures, so every transaction
@@ -384,7 +388,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
     if (existing.bankRef && (await depositLinkedToTransfer(tx, existing.bankRef))) return { error: DEPOSIT_LINKED_ERROR }
     return tx.transaction.deleteMany({ where: { id, invoiceId: null } })
-  }, BUSY, GONE)
+  }, DELETE_BUSY, DELETE_REFERENCED)
   if ("error" in result) return result
   const removed = result
   if (removed.count === 0) {

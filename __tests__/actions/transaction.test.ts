@@ -650,6 +650,24 @@ describe("deleteTransaction", () => {
     expect(mockFindUnique).toHaveBeenCalledTimes(1)
   })
 
+  it("uses delete-specific messages for conflicts and FK violations", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1 })
+    const txMock = prisma.$transaction as unknown as jest.Mock
+    const p2034 = Object.assign(new Error("write conflict"), { code: "P2034" })
+    const p2003 = Object.assign(new Error("fk violation"), { code: "P2003" })
+
+    txMock.mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034).mockRejectedValueOnce(p2034)
+    const busy = await deleteTransaction(1)
+    expect(busy).toEqual({ error: expect.stringMatching(/delete/i) })
+    expect(busy).not.toEqual({ error: expect.stringMatching(/save/i) })
+
+    txMock.mockRejectedValueOnce(p2003).mockRejectedValueOnce(p2003)
+    const ref = await deleteTransaction(1)
+    expect(ref).toEqual({ error: "Can't delete this transaction because other records still reference it." })
+    expect(JSON.stringify(ref)).not.toMatch(/just removed/)
+  })
+
   it("deletes and revalidates for ADMIN", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })

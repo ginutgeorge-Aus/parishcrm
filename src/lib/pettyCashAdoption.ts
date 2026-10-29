@@ -1,11 +1,10 @@
 import { toCents } from "@/lib/formatting"
+import { XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 /** Calendar day (YYYY-MM-DD) of a date stored at UTC midnight; robust to a time component. */
 export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
-
-import { XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 /** Bank ref of the XFER_OUT cash-out leg paired with the imported deposit `depositBankRef`. */
 export function xferOutRef(depositBankRef: string): string {

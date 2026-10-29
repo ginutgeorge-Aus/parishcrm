@@ -116,6 +116,10 @@ describe("createTransfer — imported deposit", () => {
     await expect(createTransfer(1, undefined, fd)).resolves.toEqual({ error: "Invalid imported deposit" })
     fd.set("importedTransactionId", "99999999999")
     await expect(createTransfer(1, undefined, fd)).resolves.toEqual({ error: "Invalid imported deposit" })
+    for (const bad of ["0x10", "1e1", " 12 "]) {
+      fd.set("importedTransactionId", bad)
+      await expect(createTransfer(1, undefined, fd)).resolves.toEqual({ error: "Invalid imported deposit" })
+    }
   })
 
   it("rejects when the leg falls on a different day than the transfer", async () => {

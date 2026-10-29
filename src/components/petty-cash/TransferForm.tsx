@@ -28,18 +28,21 @@ export function TransferForm({
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
   const [importedId, setImportedId] = useState("")
-  const [date, setDate] = useState(sydneyTodayYMD())
+  const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
   // Cents computed once so option comparisons are exact (no float drift).
   const maxCents = toCents(maxAmount.toFixed(2))
 
-  /** Picking an imported deposit prefills date + amount; clearing keeps manual values. */
+  /** Picking an imported deposit prefills date + amount; choosing "None" resets them so stale prefill can't pass as manual entry. */
   function pickImported(id: string) {
     setImportedId(id)
     const opt = imported.find((o) => String(o.id) === id)
     if (opt) {
       setDate(opt.date)
       setAmount(opt.amount)
+    } else {
+      setDate(sydneyTodayYMD())
+      setAmount("")
     }
   }
 
