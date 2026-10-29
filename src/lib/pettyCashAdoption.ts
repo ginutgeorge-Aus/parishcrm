@@ -1,15 +1,6 @@
 import { toCents } from "@/lib/formatting"
-import { XFER_OUT_PREFIX } from "@/lib/xferAccount"
-
-/** Calendar day (YYYY-MM-DD) of a date stored at UTC midnight; robust to a time component. */
-export function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-/** Bank ref of the XFER_OUT cash-out leg paired with the imported deposit `depositBankRef`. */
-export function xferOutRef(depositBankRef: string): string {
-  return `${XFER_OUT_PREFIX}${depositBankRef}`
-}
+import { ymd } from "@/lib/dates"
+import { XFER_OUT_PREFIX } from "@/lib/xferRefs"
 
 /** Inverse of {@link xferOutRef}: the deposit bank ref a leg's `XFER_OUT_` bank ref points at. */
 export function depositRefOfLeg(legBankRef: string): string {

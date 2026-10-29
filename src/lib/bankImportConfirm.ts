@@ -2,7 +2,8 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { contentKeyFromBankRef } from "@/lib/anzParser"
 import { encrypt } from "@/lib/crypto"
-import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
+import { getXferAccountId } from "@/lib/xferAccount"
+import { XFER_OUT_PREFIX, xferOutRef } from "@/lib/xferRefs"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
@@ -335,7 +336,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   const bankRefs = toImport.map((r) => r.bankRef)
   const pairRefs = toImport
     .filter((r) => r.fromPettyCash)
-    .map((r) => `XFER_OUT_${r.bankRef}`)
+    .map((r) => xferOutRef(r.bankRef))
   const existing = await prisma.transaction.findMany({
     where: { bankRef: { in: [...bankRefs, ...pairRefs] } },
     select: { bankRef: true },
@@ -545,7 +546,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     // commit together in one $transaction — a mid-pair failure must never
     // record the deposit without its matching cash-out (or vice versa).
     if (row.fromPettyCash) {
-      const pairRef = `${XFER_OUT_PREFIX}${row.bankRef}`
+      const pairRef = xferOutRef(row.bankRef)
       const destLabel =
         (row.paymentAccountId != null ? paymentAccountNameById.get(row.paymentAccountId) : undefined) ??
         "the selected bank account"

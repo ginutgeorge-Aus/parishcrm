@@ -1,5 +1,7 @@
 /** @jest-environment node */
-import { adoptionProblem, depositRefOfLeg, xferOutRef, ymd } from "../pettyCashAdoption"
+import { adoptionProblem, depositRefOfLeg } from "../pettyCashAdoption"
+import { xferOutRef } from "../xferRefs"
+import { ymd } from "../dates"
 
 const amt = (v: string) => ({ toFixed: () => v })
 const deposit = { accountId: 9, type: "INCOME", amount: amt("50.00"), date: new Date("2026-07-31") }

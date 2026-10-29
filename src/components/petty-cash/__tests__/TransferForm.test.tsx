@@ -30,15 +30,18 @@ test("clearing the pick makes fields editable again", () => {
   expect(screen.getByLabelText(/amount deposited/i)).not.toHaveAttribute("readonly")
 })
 
-test("choosing None after a pick resets the prefilled date and amount", () => {
+test("choosing None after a pick restores the manually entered date and amount", () => {
   render(<TransferForm action={noop} maxAmount={100} imported={imported} />)
   const select = screen.getByLabelText(/imported bank deposit/i)
-  fireEvent.change(select, { target: { value: "7" } })
-  fireEvent.change(select, { target: { value: "" } })
   const date = screen.getByLabelText(/transfer date/i) as HTMLInputElement
   const amount = screen.getByLabelText(/amount deposited/i) as HTMLInputElement
-  expect(amount.value).toBe("")
-  expect(date.value).not.toBe("2026-07-31")
+  fireEvent.change(date, { target: { value: "2026-06-01" } })
+  fireEvent.change(amount, { target: { value: "12.50" } })
+  fireEvent.change(select, { target: { value: "7" } })
+  expect(date.value).toBe("2026-07-31")
+  fireEvent.change(select, { target: { value: "" } })
+  expect(amount.value).toBe("12.50")
+  expect(date.value).toBe("2026-06-01")
   expect(date).not.toHaveAttribute("readonly")
   expect(amount).not.toHaveAttribute("readonly")
 })

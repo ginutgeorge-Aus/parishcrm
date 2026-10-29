@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,19 +30,23 @@ export function TransferForm({
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
+  // Manual date/amount stashed before the first imported pick, restored on "None".
+  const manualRef = useRef<{ date: string; amount: string } | null>(null)
   // Cents computed once so option comparisons are exact (no float drift).
   const maxCents = toCents(maxAmount.toFixed(2))
 
-  /** Picking an imported deposit prefills date + amount; choosing "None" resets them so stale prefill can't pass as manual entry. */
+  /** Picking an imported deposit prefills date + amount; choosing "None" restores the manually entered values stashed before the first pick. */
   function pickImported(id: string) {
     setImportedId(id)
     const opt = imported.find((o) => String(o.id) === id)
     if (opt) {
+      if (importedId === "") manualRef.current = { date, amount }
       setDate(opt.date)
       setAmount(opt.amount)
     } else {
-      setDate(sydneyTodayYMD())
-      setAmount("")
+      setDate(manualRef.current?.date ?? sydneyTodayYMD())
+      setAmount(manualRef.current?.amount ?? "")
+      manualRef.current = null
     }
   }
 

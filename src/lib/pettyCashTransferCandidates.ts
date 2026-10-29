@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
 import { getAccountingLockDate } from "@/lib/accountingLock"
-import { adoptionProblem, depositRefOfLeg, ymd } from "@/lib/pettyCashAdoption"
+import { adoptionProblem, depositRefOfLeg } from "@/lib/pettyCashAdoption"
+import { ymd } from "@/lib/dates"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { findXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 

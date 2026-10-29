@@ -13,7 +13,8 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { ADOPTION_ERRORS, adoptionProblem, xferOutRef } from "@/lib/pettyCashAdoption"
+import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
+import { xferOutRef } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -148,39 +149,36 @@ export async function createTransfer(
       if (adoptLegId !== null) {
         await tx.transaction.update({
           where: { id: adoptLegId },
-          // Keep an existing reference; only fill an empty one (unlink leaves it).
+          // Keep an existing reference; only fill an empty one (unlink restores it when it still equals the title).
           data: { pettyCashTransferId: transfer.id, ...(adoptLegReference ? {} : { reference: existing.title }) },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptLegId, {
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
           importedTransactionId: parsed.data.importedTransactionId,
         })
-        await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
-          amount: parsed.data.amount, sessionId,
-          importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: adoptLegId,
+      } else {
+        // Mirror the transfer into the Transaction ledger (symmetric with
+        // receipt/expense mirrors) so the dashboard PETTY_CASH balance
+        // reflects session transfers and agrees with the session running balance
+        //. Uses the shared XFER account, like the bank-import transfer leg.
+        await tx.transaction.create({
+          data: {
+            date: transfer.date,
+            amount: transfer.amount,
+            type: "EXPENSE",
+            accountId: xferAccountId,
+            isGiving: false,
+            paymentAccountId: cashAccount?.id ?? null,
+            bankRef: `PC_T_${transfer.id}`,
+            description: encrypt("Transfer to bank"),
+            reference: existing.title,
+            pettyCashTransferId: transfer.id,
+          },
         })
-        return
       }
-      // Mirror the transfer into the Transaction ledger (symmetric with
-      // receipt/expense mirrors) so the dashboard PETTY_CASH balance
-      // reflects session transfers and agrees with the session running balance
-      //. Uses the shared XFER account, like the bank-import transfer leg.
-      await tx.transaction.create({
-        data: {
-          date: transfer.date,
-          amount: transfer.amount,
-          type: "EXPENSE",
-          accountId: xferAccountId,
-          isGiving: false,
-          paymentAccountId: cashAccount?.id ?? null,
-          bankRef: `PC_T_${transfer.id}`,
-          description: encrypt("Transfer to bank"),
-          reference: existing.title,
-          pettyCashTransferId: transfer.id,
-        },
-      })
       await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
         amount: parsed.data.amount, sessionId,
+        ...(adoptLegId !== null ? { importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: adoptLegId } : {}),
       })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
@@ -225,20 +223,27 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
       // Derived inside the tx (not from the pre-read) so a concurrent change to the
       // mirror can't leave `adopted` stale.
       let isAdopted = false
+      let mirrorReference: string | null = null
       if (transfer.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true, bankRef: true } })
+        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true, bankRef: true, reference: true } })
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
         isAdopted = mirror?.bankRef?.startsWith(XFER_OUT_PREFIX) ?? false
+        mirrorReference = mirror?.reference ?? null
       }
       // An adopted bank-import XFER_OUT leg is the import's own cash-out for a
       // deposit that stays in the ledger — unlink it so the cascade doesn't
       // delete it and leave the deposit without its matching cash-out.
-      // The reference is left as-is: adoption may have filled an empty one with the
-      // session title, but a pre-existing identical value can't be told apart.
+      // Adoption fills an empty reference with the session title, so a reference
+      // still equal to the title is cleared on unlink (re-adoption then refills it
+      // from the new session). Imported legs carry no reference of their own, so a
+      // title match is the adoption's doing; any other value is left untouched.
       if (isAdopted) {
         await tx.transaction.update({
           where: { id: transfer.transaction!.id },
-          data: { pettyCashTransferId: null },
+          data: {
+            pettyCashTransferId: null,
+            ...(mirrorReference !== null && mirrorReference === transfer.session.title ? { reference: null } : {}),
+          },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", transfer.transaction!.id, {
           source: "petty-cash", pettyCashTransferId: id, action: "unlinked-from-transfer",
@@ -250,9 +255,11 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         sessionId: transfer.sessionId,
       })
       return isAdopted
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof SessionClosedError || e instanceof TransferError) return { error: e.message }
+    // P2034 = Serializable serialization failure: a concurrent reconcile/close beat this delete.
+    if (isP2034(e)) return { error: "Transfer conflict — please try again." }
     throw e
   }
   const userId = actorId(session)

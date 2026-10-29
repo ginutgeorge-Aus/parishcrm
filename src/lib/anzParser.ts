@@ -1,4 +1,5 @@
 import { toCents } from "@/lib/formatting"
+import { XFER_OUT_PREFIX } from "@/lib/xferRefs"
 import { DESC_SEGMENT_MAX, IMPORT_REF_PREFIX_RE } from "@/lib/bankRefMask"
 
 export type ParsedRow = {
@@ -189,7 +190,7 @@ export function bankRefContentKey(accountNumber: string, date: string, amount: s
 // leg (XFER_OUT_*), which have no bank-line content key. Split-sibling suffixes
 // ("#2", "#3" …) are stripped first.
 export function contentKeyFromBankRef(bankRef: string): string | null {
-  if (bankRef.startsWith("XFER_OUT_")) return null
+  if (bankRef.startsWith(XFER_OUT_PREFIX)) return null
   const prefix = IMPORT_REF_PREFIX_RE.exec(bankRef)
   if (!prefix) return null
   const body = bankRef.slice(prefix[0].length).replace(/#\d+$/, "")
