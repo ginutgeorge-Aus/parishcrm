@@ -10,7 +10,7 @@ jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
-jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9) }))
+jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9), XFER_OUT_PREFIX: "XFER_OUT_" }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
 jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn() } }))
 
@@ -55,6 +55,7 @@ describe("createTransfer — imported deposit", () => {
     fd.set("importedTransactionId", "7")
     return createTransfer(1, undefined, fd)
   }
+  const okLeg = { id: 11, type: "EXPENSE", accountId: 9, amount: { toFixed: () => "50.00" }, paymentAccountId: 2, pettyCashTransferId: null, reconciled: false }
   const base = () => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3 }) },
@@ -65,7 +66,7 @@ describe("createTransfer — imported deposit", () => {
     const create = jest.fn()
     const findUnique = jest.fn()
       .mockResolvedValueOnce(deposit)
-      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: null, reconciled: false })
+      .mockResolvedValueOnce(okLeg)
     await run({ ...base(), transaction: { findUnique, update, create } })
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11 }, data: expect.objectContaining({ pettyCashTransferId: 3 }) }))
     expect(create).not.toHaveBeenCalled()
@@ -74,7 +75,7 @@ describe("createTransfer — imported deposit", () => {
   it("rejects when the leg is already linked", async () => {
     const findUnique = jest.fn()
       .mockResolvedValueOnce(deposit)
-      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: 2, reconciled: false })
+      .mockResolvedValueOnce({ ...okLeg, pettyCashTransferId: 2 })
     await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
       .resolves.toEqual({ error: "Imported deposit is not available for transfer" })
   })
@@ -82,8 +83,22 @@ describe("createTransfer — imported deposit", () => {
   it("rejects an amount mismatch", async () => {
     const findUnique = jest.fn()
       .mockResolvedValueOnce({ ...deposit, amount: { toFixed: () => "60.00" } })
-      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: null, reconciled: false })
+      .mockResolvedValueOnce(okLeg)
     await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
       .resolves.toEqual({ error: "Date and amount must match the imported deposit" })
   })
+
+  const rejects = (name: string, dep: unknown, leg: unknown, error: string) =>
+    it(name, async () => {
+      const findUnique = jest.fn().mockResolvedValueOnce(dep).mockResolvedValueOnce(leg)
+      await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } })).resolves.toEqual({ error })
+    })
+  const NA = "Imported deposit is not available for transfer"
+  rejects("rejects a missing deposit", null, null, NA)
+  rejects("rejects a deposit on the wrong account", { ...deposit, accountId: 4 }, okLeg, NA)
+  rejects("rejects a non-INCOME deposit", { ...deposit, type: "EXPENSE" }, okLeg, NA)
+  rejects("rejects a deposit with no bankRef", { ...deposit, bankRef: null }, null, NA)
+  rejects("rejects a date mismatch", { ...deposit, date: new Date("2026-07-30") }, okLeg, "Date and amount must match the imported deposit")
+  rejects("rejects a reconciled leg", deposit, { ...okLeg, reconciled: true }, "Imported deposit's cash-out is already reconciled")
+  rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: null }, "Imported deposit's cash-out entry does not match this transfer")
 })

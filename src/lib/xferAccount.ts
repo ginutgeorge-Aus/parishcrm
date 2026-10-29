@@ -1,6 +1,9 @@
 import type { Prisma, PrismaClient } from "@/lib/generated/prisma/client"
 import { logger } from "@/lib/logger"
 
+/** Prefix of the paired petty-cash cash-out leg written by bank import (`XFER_OUT_<bankRef>`). */
+export const XFER_OUT_PREFIX = "XFER_OUT_"
+
 type Client = PrismaClient | Prisma.TransactionClient
 
 // Resolve (or lazily create) the petty-cash / bank internal-transfer account.

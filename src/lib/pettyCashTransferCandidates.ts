@@ -1,9 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
-import { getXferAccountId } from "@/lib/xferAccount"
-
-/** Prefix of the paired petty-cash cash-out leg written by bank import. */
-export const XFER_OUT_PREFIX = "XFER_OUT_"
+import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 export type ImportedTransferOption = {
   id: number

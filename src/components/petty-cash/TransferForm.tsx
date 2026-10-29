@@ -61,8 +61,8 @@ export function TransferForm({
           >
             <option value="">— None (enter manually) —</option>
             {imported.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.date} · {fmtAUD(Number(o.amount))} · {o.description}
+              <option key={o.id} value={o.id} disabled={Number(o.amount) > maxAmount}>
+                {o.date} · {fmtAUD(Number(o.amount))} · {o.description}{Number(o.amount) > maxAmount ? " (exceeds cash in hand)" : ""}
               </option>
             ))}
           </select>

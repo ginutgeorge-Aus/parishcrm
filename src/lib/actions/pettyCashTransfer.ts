@@ -14,12 +14,11 @@ import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
-import { getXferAccountId } from "@/lib/xferAccount"
+import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
-import { XFER_OUT_PREFIX } from "@/lib/pettyCashTransferCandidates"
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -133,7 +132,7 @@ export async function createTransfer(
           deposit?.bankRef
             ? await tx.transaction.findUnique({
                 where: { bankRef: `${XFER_OUT_PREFIX}${deposit.bankRef}` },
-                select: { id: true, pettyCashTransferId: true, reconciled: true },
+                select: { id: true, type: true, accountId: true, amount: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true },
               })
             : null
         if (
@@ -141,6 +140,15 @@ export async function createTransfer(
           !leg || leg.pettyCashTransferId !== null
         )
           throw new TransferError("Imported deposit is not available for transfer")
+        if (leg.reconciled) throw new TransferError("Imported deposit's cash-out is already reconciled")
+        // The leg is what moves petty cash — it must be a cash-side XFER expense
+        // for the same amount, or the transfer and its mirror would disagree.
+        if (
+          leg.type !== "EXPENSE" || leg.accountId !== xferAccountId ||
+          leg.paymentAccountId !== (cashAccount?.id ?? null) ||
+          toCents(leg.amount.toFixed(2)) !== toCents(parsed.data.amount)
+        )
+          throw new TransferError("Imported deposit's cash-out entry does not match this transfer")
         if (
           toCents(deposit.amount.toFixed(2)) !== toCents(parsed.data.amount) ||
           // Calendar-day compare (both stored at UTC midnight) — robust to a time component.
