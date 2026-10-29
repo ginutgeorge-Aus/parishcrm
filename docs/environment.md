@@ -77,12 +77,12 @@ values the app uses the rightmost, and it must be a valid IP.
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
   (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,
   `x-original-forwarded-for`).
-- Known CDN/proxy headers (`cf-connecting-ip`, `fly-client-ip`, `x-azure-clientip`,
+- Known CDN/proxy headers (`cf-connecting-ip`, `fly-client-ip`,
   `fastly-client-ip`, `x-appengine-user-ip`,
   `cloudfront-viewer-address`) and any other custom name are honoured without a boot warning; confirm
   your proxy overwrites the header.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
-  `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through, `x-envoy-external-address`, `x-azure-socketip`) are honoured, with a boot-log warning so you confirm your
+  `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through, `x-envoy-external-address`, `x-azure-clientip`, `x-azure-socketip`) are honoured, with a boot-log warning so you confirm your
   proxy overwrites them.
 - IPv6 values are canonicalised (case, zero compression, `::ffff:a.b.c.d` unwrapped to IPv4, zone id
   and port stripped) so equivalent spellings share one rate-limit bucket.

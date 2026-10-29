@@ -111,7 +111,6 @@ describe("CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "2001:db8::1" })
     expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
-    expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
   })
 })
 
@@ -305,10 +304,10 @@ describe("classifyClientIpHeader", () => {
     }
     expect(classifyClientIpHeader(" True-Client-IP ").kind).toBe("passthrough")
     expect(classifyClientIpHeader(" X-Real-IP ")).toEqual({ kind: "passthrough", name: "x-real-ip" })
-    for (const n of ["cf-connecting-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip"]) {
+    for (const n of ["cf-connecting-ip", "fly-client-ip", "fastly-client-ip"]) {
       expect(classifyClientIpHeader(n).kind).toBe("cdn")
     }
-    for (const n of ["x-azure-socketip", "x-envoy-external-address"]) {
+    for (const n of ["x-azure-clientip", "x-azure-socketip", "x-envoy-external-address"]) {
       expect(classifyClientIpHeader(n).kind).toBe("passthrough")
     }
     expect(classifyClientIpHeader("x-my-proxy-ip")).toEqual({ kind: "custom", name: "x-my-proxy-ip" })

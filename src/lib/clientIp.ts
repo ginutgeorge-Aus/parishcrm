@@ -27,6 +27,7 @@ const PASSTHROUGH_HEADERS = new Set([
   "x-cluster-client-ip",
   "true-client-ip",
   "x-envoy-external-address", // Envoy only sets it when it is the edge; behind another proxy a client value survives
+  "x-azure-clientip", // Azure docs: derived from client-supplied XFF, so a user can overwrite it
   "x-azure-socketip", // socket peer as seen by Azure; not guaranteed to be the end client behind further hops
 ])
 
@@ -34,7 +35,6 @@ const PASSTHROUGH_HEADERS = new Set([
 const KNOWN_CDN_HEADERS = new Set([
   "cf-connecting-ip",
   "fly-client-ip",
-  "x-azure-clientip",
   "fastly-client-ip",
   "x-appengine-user-ip",
   "cloudfront-viewer-address",

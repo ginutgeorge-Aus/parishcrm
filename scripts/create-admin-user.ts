@@ -11,7 +11,7 @@ const adapter = new PrismaPg({ connectionString: DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
 
 /**
- * Creates (or promotes) an ADMIN user from the required ADMIN_EMAIL / ADMIN_PASSWORD env vars.
+ * Creates a user (ADMIN unless `USER_ROLE` is set) from the required USER_EMAIL / USER_PASSWORD env vars; an existing user is left unchanged.
  * @returns resolves when the user has been written
  */
 async function main() {
