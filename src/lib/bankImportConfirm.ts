@@ -269,7 +269,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     const donorKeys = new Set<string>()
     for (const s of r.splits) {
       if (s.familyId == null && s.personId == null) continue
-      const key = `${s.accountId}-${s.familyId ?? ""}-${s.personId ?? ""}`
+      const key = JSON.stringify([s.accountId, s.familyId, s.personId])
       if (donorKeys.has(key)) {
         return {
           ok: false,
