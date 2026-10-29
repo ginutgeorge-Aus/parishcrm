@@ -458,7 +458,8 @@ describe("updateUser", () => {
     // letting both writes land and drop the ADMIN count to zero.
     mockTransaction.mockRejectedValue({ code: "P2034" })
     const result = await updateUser(2, undefined, fd({ name: "X", email: "x@x.com", role: "VIEWER" }))
-    expect(result?.error).toMatch(/try again/i)
+    expect(result?.error).toBe("Could not save changes because of a concurrent update. Please try again.")
+    expect(result?.error).not.toMatch(/administrator/i)
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 

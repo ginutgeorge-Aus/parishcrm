@@ -278,7 +278,9 @@ function updateUserErrorMessage(e: unknown): string | undefined {
   if (e instanceof TargetGoneError) return e.message
   if (e instanceof LastAdminError) return e.message
   if (isP2002(e)) return "Email already in use"
-  if (isP2034(e)) return "Cannot remove the last administrator — please try again."
+  // A Serializable abort can come from the last-admin recount or any concurrent
+  // write (e.g. an email race), so the message must not claim a cause.
+  if (isP2034(e)) return "Could not save changes because of a concurrent update. Please try again."
   return undefined
 }
 
