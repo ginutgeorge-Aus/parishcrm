@@ -64,9 +64,9 @@ These are deliberate and already reviewed; reporting them again only adds noise.
   account and duplicate case-variant users cannot exist. Each such raw query carries a
   `nosemgrep: crm-no-raw-sql` justification. Collapsing the multi-query lookup is tracked in #464.
 - **Client IP resolution.** Presence of `x-forwarded-for` as the "request came through a proxy" check is a
-  documented heuristic, not spoofing protection; the residual risk is in `docs/environment.md`. IPv6
+  documented heuristic, not spoofing protection; the residual risk is covered in the reverse-proxy notes in `docs/self-hosting.md`. IPv6
   `/64` bucketing is tracked in #462.
-- **`cloudfront-viewer-address`.** The header always carries `:port`, so `stripViewerPort` dropping the
+- **`cloudfront-viewer-address`** (lands with #430; `stripViewerPort` is not on `main` yet). The header always carries `:port`, so `stripViewerPort` dropping the
   last group is correct, including for unbracketed IPv6.
 - **IPv4-mapped IPv6.** WHATWG URL always serializes these as hex (`::ffff:102:304`); a dotted-decimal
   branch would be unreachable.
