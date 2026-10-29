@@ -14,7 +14,7 @@ async function main() {
   // No hardcoded fallbacks: the old hardcoded admin email / admin123 defaults
   // are publicly known seed creds, so running this against prod without
   // env vars would mint a known-credential ADMIN. Require both explicitly.
-  const email = process.env.USER_EMAIL
+  const email = process.env.USER_EMAIL?.trim().toLowerCase()
   const password = process.env.USER_PASSWORD
   if (!email || !password) {
     throw new Error("USER_EMAIL and USER_PASSWORD must be set")
@@ -24,7 +24,10 @@ async function main() {
   // old literal union silently dropped AUDITOR, the one role with no seeded user.
   const role = (process.env.USER_ROLE as UserRole) || UserRole.ADMIN
 
-  const existing = await prisma.user.findUnique({ where: { email } })
+  // Same rule as src/lib/userLookup.ts::isEmailTaken (lower(email) = lower, no ILIKE
+  // wildcards). Inlined: this script owns its PrismaClient and runs outside the app's `@/` aliases.
+  // nosemgrep: crm-no-raw-sql — lower() equality (not ILIKE); userLookup.ts imports the app prisma singleton so it can't be reused here
+  const [existing] = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${email}) LIMIT 1`
   if (existing) {
     console.log(`User ${email} already exists (id=${existing.id})`)
     return

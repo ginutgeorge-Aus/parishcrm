@@ -8,6 +8,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
+import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
 
 
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
@@ -45,7 +46,7 @@ export async function requestPasswordReset(
 
   // Primary: per-target-email limit (always present).
   const emailKey = `pwreset:email:${createHash("sha256")
-    .update(email.trim().toLowerCase())
+    .update(normalizeEmail(email))
     .digest("hex")}`
   if (!(await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
@@ -56,9 +57,11 @@ export async function requestPasswordReset(
     return { error: "Too many requests. Please try again later." }
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
-    select: { id: true, email: true, passwordResetExpires: true },
+  // Case-insensitive (legacy mixed-case rows can still reset).
+  const { user } = await findUserByEmailInsensitive(email, {
+    id: true,
+    email: true,
+    passwordResetExpires: true,
   })
 
   if (!user) {
