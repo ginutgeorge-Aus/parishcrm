@@ -41,6 +41,7 @@ jest.mock("@/lib/prisma", () => ({
     },
     transaction: {
       create: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
       findUnique: jest.fn(),
     },
@@ -85,12 +86,12 @@ jest.mock("@/lib/crypto", () => ({
     return v.replace(/^enc:/, "")
   }),
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
 import { assertUnlocked } from "@/lib/accountingLock"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
@@ -138,6 +139,7 @@ const mockPrismaTransaction = prisma.$transaction as jest.Mock
 const mockCreateTransaction = prisma.transaction.create as jest.Mock
 const mockFindTransaction = prisma.transaction.findUnique as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
 
 function fd(fields: Record<string, string>) {
@@ -610,6 +612,27 @@ describe("deleteReceipt", () => {
     })
   })
 
+  it("unlinks an adopted bank-import XFER_OUT leg instead of cascading its deletion", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindTransfer.mockResolvedValue({
+      id: 1, sessionId: 5, amount: { toString: () => "250" },
+      session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: false, bankRef: "XFER_OUT_ANZ_1" },
+    })
+    mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1" })
+    await deleteTransfer(1)
+    expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
+    expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
+  })
+
+  it("returns a clean error when the transfer vanishes mid-delete", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindTransfer
+      .mockResolvedValueOnce({ id: 1, sessionId: 5, amount: { toString: () => "250" }, session: { id: 5, status: "OPEN" }, transaction: null })
+      .mockResolvedValueOnce(null)
+    expect(await deleteTransfer(1)).toEqual({ error: "Transfer not found" })
+    expect(prisma.pettyCashTransfer.delete).not.toHaveBeenCalled()
+  })
+
   it("audit-logs TRANSACTION_DELETED for the cascaded mirror ledger row", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindReceipt.mockResolvedValue({
@@ -724,7 +747,7 @@ describe("deleteTransfer", () => {
       session: { id: 5, status: "OPEN" },
     })
     await deleteTransfer(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", 1, {
       amount: 250,
       sessionId: 5,
     })
@@ -1379,7 +1402,7 @@ describe("createTransfer", () => {
     mockCalcBalance.mockReturnValue(500)
     mockCreateTransfer.mockResolvedValue({ id: 3 })
     await createTransfer(5, undefined, fd({ date: "2026-05-12", amount: "400", depositedByName: "John" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3, {
       amount: "400",
       sessionId: 5,
     })

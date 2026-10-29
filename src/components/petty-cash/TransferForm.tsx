@@ -1,25 +1,54 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState } from "react"
+import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { fmtAUD } from "@/lib/formatting"
+import { fmtAUD, toCents } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 
 export function TransferForm({
   action,
   maxAmount,
+  imported = [],
+  importedTruncated = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
+  /** Bank-import deposits marked "from petty cash" not yet linked to a transfer. */
+  imported?: ImportedTransferOption[]
+  /** True when more matching imported deposits exist than the list shows. */
+  importedTruncated?: boolean
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
+  const [importedId, setImportedId] = useState("")
+  const [date, setDate] = useState(() => sydneyTodayYMD())
+  const [amount, setAmount] = useState("")
+  // Manual date/amount stashed before the first imported pick, restored on "None".
+  const manualRef = useRef<{ date: string; amount: string } | null>(null)
+  // Cents computed once so option comparisons are exact (no float drift).
+  const maxCents = toCents(maxAmount.toFixed(2))
+
+  /** Picking an imported deposit prefills date + amount; choosing "None" restores the manually entered values stashed before the first pick. */
+  function pickImported(id: string) {
+    setImportedId(id)
+    const opt = imported.find((o) => String(o.id) === id)
+    if (opt) {
+      if (importedId === "") manualRef.current = { date, amount }
+      setDate(opt.date)
+      setAmount(opt.amount)
+    } else {
+      setDate(manualRef.current?.date ?? sydneyTodayYMD())
+      setAmount(manualRef.current?.amount ?? "")
+      manualRef.current = null
+    }
+  }
 
   return (
     <form action={formAction} className="max-w-lg space-y-4">
@@ -29,6 +58,38 @@ export function TransferForm({
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>
       </div>
 
+      {imported.length > 0 && (
+        <div className="space-y-1">
+          <Label htmlFor="importedTransactionId">
+            Imported bank deposit{" "}
+            <span className="text-muted-foreground text-xs">(optional — marked as cash transfer on import)</span>
+          </Label>
+          <select
+            id="importedTransactionId"
+            value={importedId}
+            onChange={(e) => pickImported(e.target.value)}
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="">— None (enter manually) —</option>
+            {imported.map((o) => {
+              const exceeds = toCents(o.amount) > maxCents
+              return (
+                <option key={o.id} value={o.id} disabled={exceeds}>
+                  {o.date} · {fmtAUD(Number(o.amount))} · {o.description}{exceeds ? " (exceeds cash in hand)" : ""}
+                </option>
+              )
+            })}
+          </select>
+          {importedTruncated && (
+            <p className="text-xs text-muted-foreground">Showing the newest {imported.length} deposits; older ones are not listed.</p>
+          )}
+        </div>
+      )}
+
+      {/* State is the source of truth: React resets uncontrolled form fields after a
+          failed action, which would revert the select and drop the id on resubmit. */}
+      <input type="hidden" name="importedTransactionId" value={importedId} />
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
           <Label htmlFor="date">Transfer date</Label>
@@ -36,7 +97,9 @@ export function TransferForm({
             id="date"
             name="date"
             type="date"
-            defaultValue={sydneyTodayYMD()}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            readOnly={importedId !== ""}
             required
           />
         </div>
@@ -50,6 +113,9 @@ export function TransferForm({
             min="0.01"
             max={maxAmount.toFixed(2)}
             placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            readOnly={importedId !== ""}
             required
           />
         </div>

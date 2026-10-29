@@ -10,6 +10,8 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
+import { xferOutRef } from "@/lib/xferRefs"
+import { ymd } from "@/lib/dates"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
@@ -21,6 +23,10 @@ import type { ActionResult } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 
 const BUSY = { error: "Couldn't save the transaction. Try again." }
+/** Delete-specific: a conflict while deleting is not a failed "save". */
+const DELETE_BUSY = { error: "Couldn't delete the transaction because it was being changed at the same time. Try again." }
+/** Delete-specific: an FK violation on delete means another record still points at this row. */
+const DELETE_REFERENCED = { error: "Can't delete this transaction because other records still reference it." }
 const GONE = { error: "A fund, payment account, family or person on this transaction was just removed. Reload and try again." }
 
 // Report pages cache transaction-derived figures, so every transaction
@@ -186,9 +192,37 @@ function invoicePaymentChanged(
   existing: { amount: { toString(): string }; type: string; date: Date; accountId: number; fundId: number | null },
   next: { amount: string; type: string; date: Date; accountId: number; fundId?: number | null },
 ): boolean {
-  const day = (d: Date) => d.toISOString().slice(0, 10)
-  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || day(existing.date) !== day(next.date)
-    || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
+  return adoptionFieldsChanged(existing, next) || existing.fundId !== (next.fundId ?? null)
+}
+
+/**
+ * True when an edit changes what a petty cash transfer's adoption of this deposit's
+ * XFER_OUT leg depends on: amount, day, type or category. Fund is irrelevant to it.
+ */
+function adoptionFieldsChanged(
+  existing: { amount: { toString(): string }; type: string; date: Date; accountId: number },
+  next: { amount: string; type: string; date: Date; accountId: number },
+): boolean {
+  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || ymd(existing.date) !== ymd(next.date)
+    || existing.accountId !== next.accountId
+}
+
+const PETTY_CASH_EDIT_ERROR = "Petty cash transactions cannot be edited here — edit via the petty cash session"
+const DEPOSIT_LINKED_ERROR = "This imported deposit is linked to a petty cash transfer. Delete the transfer first."
+
+/**
+ * True when the bank-import XFER_OUT leg paired with the deposit `bankRef` has been
+ * adopted by a petty cash transfer. Pass the transaction client to read inside a tx.
+ */
+async function depositLinkedToTransfer(
+  db: { transaction: { findUnique: typeof prisma.transaction.findUnique } },
+  bankRef: string,
+): Promise<boolean> {
+  const leg = await db.transaction.findUnique({
+    where: { bankRef: xferOutRef(bankRef) },
+    select: { pettyCashTransferId: true },
+  })
+  return leg?.pettyCashTransferId != null
 }
 
 /** Update a transaction. ADMIN/PASTOR only. */
@@ -206,12 +240,12 @@ export async function updateTransaction(
     where: { id },
     select: {
       id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true,
-      invoiceId: true, amount: true, type: true, accountId: true, fundId: true,
+      invoiceId: true, amount: true, type: true, accountId: true, fundId: true, bankRef: true,
     },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
-    return { error: "Petty cash transactions cannot be edited here — edit via the petty cash session" }
+    return { error: PETTY_CASH_EDIT_ERROR }
   // Editing a reconciled row would silently un-balance a period that was marked
   // reconciled while leaving every row still flagged reconciled. Force a
   // deliberate re-open via the reconciliation page's un-reconcile toggle first.
@@ -278,6 +312,18 @@ export async function updateTransaction(
   const seenAt = parseOptimisticUpdatedAt(formData)
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
     if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
+    // An imported deposit whose cash-out leg a petty cash transfer adopted must keep
+    // matching it (amount, date, type, category). Read in-tx so a concurrent adoption can't slip past.
+    // The change test uses the row as read in this tx, not the pre-read, so a concurrent edit can't make it stale.
+    const current = await tx.transaction.findUnique({
+      where: { id },
+      select: { date: true, amount: true, type: true, accountId: true, bankRef: true, pettyCashTransferId: true },
+    })
+    if (!current) return { error: "Not found" }
+    // A petty cash link that landed after the pre-read (incl. an adopted XFER_OUT leg) blocks the edit: such rows are edited via the session.
+    if (current.pettyCashTransferId != null) return { error: PETTY_CASH_EDIT_ERROR }
+    if (current.bankRef && adoptionFieldsChanged(current, parsed.data) && (await depositLinkedToTransfer(tx, current.bankRef)))
+      return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
       where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
       data: {
@@ -326,7 +372,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true },
+    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
@@ -346,7 +392,27 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // invoiceId: null): whichever commits first wins. If the link lands after the read above, this delete matches
   // 0 rows and conflicts instead of removing a just-linked payment (which would leave the invoice PAID with none);
   // if the delete commits first, the link's own guarded write matches 0 rows and rolls the PAID flip back.
-  const removed = await prisma.transaction.deleteMany({ where: { id, invoiceId: null } })
+  // The paired-leg check and the delete share one Serializable transaction so a concurrent
+  // createTransfer adoption of this deposit's XFER_OUT leg can't commit between them. Rows
+  // without a bankRef have no paired leg, so skip that query.
+  const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
+    // Eligibility comes from the row as read in this tx (not the pre-read). Only an imported deposit (INCOME
+    // on the XFER account with a bankRef) can have an adoptable leg; any bankRef, including an XFER_OUT_-prefixed
+    // one, can pair with a leg, so no prefix exclusion. Every other row skips the lookup.
+    const row = await tx.transaction.findUnique({
+      where: { id },
+      select: { type: true, bankRef: true, account: { select: { code: true } } },
+    })
+    if (row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER" && (await depositLinkedToTransfer(tx, row.bankRef)))
+      return { error: DEPOSIT_LINKED_ERROR }
+    // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
+    // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
+    return tx.transaction.deleteMany({
+      where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
+    })
+  }, DELETE_BUSY, DELETE_REFERENCED)
+  if ("error" in result) return result
+  const removed = result
   if (removed.count === 0) {
     return { error: "This transaction was changed by someone else since you opened it. Reload the page and try again." }
   }

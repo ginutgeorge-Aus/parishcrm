@@ -341,3 +341,12 @@ export function zoneLabel(at: Date = new Date()): string {
     .formatToParts(at)
     .find((p) => p.type === "timeZoneName")!.value
 }
+
+/**
+ * Calendar day (YYYY-MM-DD) of a date stored at UTC midnight; robust to a time component.
+ * @param d date to format
+ * @returns the UTC calendar day
+ */
+export function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
