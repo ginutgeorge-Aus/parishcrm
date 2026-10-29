@@ -73,7 +73,7 @@ describe("createTransfer — imported deposit", () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11 }, data: expect.objectContaining({ pettyCashTransferId: 3 }) }))
     expect(create).not.toHaveBeenCalled()
     // Audit: transfer metadata carries the deposit + leg ids; leg gets TRANSACTION_UPDATED.
-    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3,
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3,
       expect.objectContaining({ importedTransactionId: 7, adoptedLegId: 11 }))
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "adopted-as-transfer-mirror" }))
   })

@@ -170,6 +170,10 @@ export async function createTransfer(
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
           importedTransactionId: parsed.data.importedTransactionId,
         })
+        await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
+          amount: parsed.data.amount, sessionId,
+          importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: leg.id,
+        })
         return { transferId: transfer.id, adoptedLegId: leg.id }
       }
       // Mirror the transfer into the Transaction ledger (symmetric with
@@ -190,6 +194,9 @@ export async function createTransfer(
           pettyCashTransferId: transfer.id,
         },
       })
+      await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
+        amount: parsed.data.amount, sessionId,
+      })
       return { transferId: transfer.id, adoptedLegId: null }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
@@ -200,15 +207,7 @@ export async function createTransfer(
       return { error: "Transfer conflict — please try again." }
     throw e
   }
-  const { transferId, adoptedLegId } = created
-  await logAudit(actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transferId, {
-    amount: parsed.data.amount,
-    sessionId,
-    ...(adoptedLegId !== null && {
-      importedTransactionId: parsed.data.importedTransactionId,
-      adoptedLegId,
-    }),
-  })
+  const { transferId } = created
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -263,6 +262,10 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         })
       }
       await tx.pettyCashTransfer.delete({ where: { id } })
+      await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", id, {
+        amount: Number(transfer.amount),
+        sessionId: transfer.sessionId,
+      })
       return isAdopted
     })
   } catch (e) {
@@ -270,10 +273,6 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
     throw e
   }
   const userId = actorId(session)
-  await logAudit(userId, "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", id, {
-    amount: Number(transfer.amount),
-    sessionId: transfer.sessionId,
-  })
   // The mirrored XFER ledger row is removed by FK cascade (Transaction
   // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
   // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).

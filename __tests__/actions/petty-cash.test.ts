@@ -91,7 +91,7 @@ jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolve
 
 import { auth } from "@/auth"
 import { assertUnlocked } from "@/lib/accountingLock"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
@@ -139,6 +139,7 @@ const mockPrismaTransaction = prisma.$transaction as jest.Mock
 const mockCreateTransaction = prisma.transaction.create as jest.Mock
 const mockFindTransaction = prisma.transaction.findUnique as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
+const mockLogAuditTx = logAuditTx as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
 
 function fd(fields: Record<string, string>) {
@@ -746,7 +747,7 @@ describe("deleteTransfer", () => {
       session: { id: 5, status: "OPEN" },
     })
     await deleteTransfer(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_TRANSFER_DELETED", "PettyCashTransfer", 1, {
       amount: 250,
       sessionId: 5,
     })
@@ -1401,7 +1402,7 @@ describe("createTransfer", () => {
     mockCalcBalance.mockReturnValue(500)
     mockCreateTransfer.mockResolvedValue({ id: 3 })
     await createTransfer(5, undefined, fd({ date: "2026-05-12", amount: "400", depositedByName: "John" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3, {
       amount: "400",
       sessionId: 5,
     })
