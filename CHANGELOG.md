@@ -12,6 +12,25 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.12.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.11.0...v1.12.0) (2026-10-29)
+
+
+### Added
+
+* **petty-cash:** pick imported cash-transfer deposit when recording a transfer ([#471](https://github.com/ginutgeorge-Aus/parishcrm/issues/471)) ([b574b42](https://github.com/ginutgeorge-Aus/parishcrm/commit/b574b42033761147a31caeeb6dbc449fd889117b))
+
+
+### Fixed
+
+* **auth:** optional CLIENT_IP_HEADER for proxies that append internal hops ([#430](https://github.com/ginutgeorge-Aus/parishcrm/issues/430)) ([762296e](https://github.com/ginutgeorge-Aus/parishcrm/commit/762296e5b3863a692731f20c9c0cb383750ff90c))
+* **bank-import:** allow same member in different categories of a split ([#470](https://github.com/ginutgeorge-Aus/parishcrm/issues/470)) ([cd9e608](https://github.com/ginutgeorge-Aus/parishcrm/commit/cd9e60885eb8ac20a4a0caac89032839dd687bbd))
+* **security:** upgrade zlib+musl in image, annotate nudge issue_comment trigger ([#477](https://github.com/ginutgeorge-Aus/parishcrm/issues/477)) ([38cc075](https://github.com/ginutgeorge-Aus/parishcrm/commit/38cc075f273b744bffd96424c455af512de1d85a))
+
+
+### Dependencies
+
+* bump @hono/node-server from 2.0.12 to 2.1.5 ([#468](https://github.com/ginutgeorge-Aus/parishcrm/issues/468)) ([a633b1e](https://github.com/ginutgeorge-Aus/parishcrm/commit/a633b1e53e6233623d5e96b03779323736309ff6))
+
 ## [1.11.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.10.0...v1.11.0) (2026-10-29)
 
 
