@@ -21,6 +21,22 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.12.0-petty-cash-transfer-deposit",
+    version: "v1.12.0",
+    area: "Petty cash",
+    title: "Pick imported deposit for a cash transfer",
+    steps:
+      "Import a bank statement with a cash deposit → open Petty cash → record a transfer → pick the imported deposit → confirm the transfer links to it and the deposit is no longer offered again.",
+  },
+  {
+    id: "v1.12.0-split-same-member",
+    version: "v1.12.0",
+    area: "Accounting",
+    title: "Same member in several split categories",
+    steps:
+      "In the bank import review, split one row into two categories → assign the same member to both → confirm the import accepts it and both lines save.",
+  },
+  {
     id: "v1.11.0-bank-import-wizard",
     version: "v1.11.0",
     area: "Accounting",
