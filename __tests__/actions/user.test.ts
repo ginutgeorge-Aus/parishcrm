@@ -230,7 +230,7 @@ describe("updateUser", () => {
   it("duplicate email entries: compares the LAST entry (the one the schema parsed), not the first", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
-    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // lowercase twin exists
+    mockQueryRaw.mockResolvedValue([{ id: 2 }])
     const f = fd({ name: "N", email: "Legacy@X.com", role: "VIEWER" })
     f.append("email", "other@x.com") // last wins in Object.fromEntries
     const result = await updateUser(1, undefined, f)
@@ -238,25 +238,16 @@ describe("updateUser", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it("honours an explicit case-only email change when no OTHER user matches", async () => {
-    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
-    mockQueryRaw.mockResolvedValue([])
-    await updateUser(1, undefined, fd({ name: "N", email: "legacy@x.com", role: "VIEWER" }))
-    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: expect.objectContaining({ email: "legacy@x.com" }),
-    })
-  })
-
-  it("rejects an explicit case-only email change when another user already holds the address", async () => {
+  it("treats a case-only or whitespace-padded resubmit as unchanged: keeps the stored value, no duplicate check", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
     mockQueryRaw.mockResolvedValue([{ id: 2 }])
-    const result = await updateUser(1, undefined, fd({ name: "N", email: "legacy@x.com", role: "VIEWER" }))
-    expect(result).toEqual({ error: "Email already in use" })
-    expect(mockUpdate).not.toHaveBeenCalled()
+    await updateUser(1, undefined, fd({ name: "N", email: "  legacy@x.com ", role: "VIEWER" }))
+    expect(mockQueryRaw).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ email: "Legacy@X.com" }),
+    })
   })
 
   it("runs the duplicate check when the email really changes", async () => {
