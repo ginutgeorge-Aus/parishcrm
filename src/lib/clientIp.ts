@@ -19,13 +19,12 @@ const SPOOFABLE_HEADERS = new Set([
 ])
 
 // Headers some proxies set but others pass through from the client untouched. Still honoured (nginx
-// commonly overwrites x-real-ip), but surfaced as a boot warning so the operator confirms it.
-const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip"])
+// commonly overwrites x-real-ip; Cloudflare Free/Pro passes a client-sent true-client-ip through), but surfaced as a boot warning so the operator confirms it.
+const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip", "true-client-ip"])
 
 // Documented CDN/edge/proxy client-IP headers, which the platform overwrites on every request.
 const KNOWN_CDN_HEADERS = new Set([
   "cf-connecting-ip",
-  "true-client-ip",
   "fly-client-ip",
   "x-azure-clientip",
   "x-azure-socketip",
@@ -58,20 +57,17 @@ export function classifyClientIpHeader(raw: string | undefined): { kind: ClientI
 /** Minimum gap between "configured header unusable" warnings, so a misconfig cannot flood logs. */
 const WARN_INTERVAL_MS = 10 * 60_000
 
-/** Timestamp (ms) of the last warning per message kind; absent = never. */
-const lastWarnAt = new Map<string, number>()
+/** Timestamp (ms) of the last "falling back" warning; undefined = never. */
+let lastWarnAt: number | undefined
 
 /**
- * Logs a CLIENT_IP_HEADER warning at most once per `WARN_INTERVAL_MS` per process per kind, so one
- * kind of misconfiguration cannot hide another.
- * @param kind throttle key (e.g. "direct", "fallback")
+ * Logs the CLIENT_IP_HEADER "falling back" warning at most once per `WARN_INTERVAL_MS` per process.
  * @param message the warning text (header name only, never a request value)
  */
-function warnConfiguredHeaderRateLimited(kind: string, message: string): void {
+function warnConfiguredHeaderRateLimited(message: string): void {
   const now = Date.now()
-  const last = lastWarnAt.get(kind)
-  if (last !== undefined && now - last < WARN_INTERVAL_MS) return
-  lastWarnAt.set(kind, now)
+  if (lastWarnAt !== undefined && now - lastWarnAt < WARN_INTERVAL_MS) return
+  lastWarnAt = now
   logger.warn(message)
 }
 
@@ -156,7 +152,7 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const ip = normalizeIp(name === "cloudfront-viewer-address" ? stripViewerPort(raw) : raw)
   // Stay quiet for a request carrying neither the header nor x-forwarded-for (e.g. a local health check).
   if (!ip && (h.get(name) != null || h.get("x-forwarded-for") != null)) {
-    warnConfiguredHeaderRateLimited("fallback", `clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
+    warnConfiguredHeaderRateLimited(`clientIp: CLIENT_IP_HEADER "${name}" is missing or not a valid IP on a request; falling back to x-forwarded-for`)
   }
   return ip
 }
@@ -179,12 +175,19 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
 /** Raw rate-limit keys longer than this are replaced by a short hash so attacker data stays bounded. */
 const MAX_RAW_KEY_LENGTH = 64
 
+/** IP-shaped: only hex digits, `.`, `:`, brackets, `%` and contains a `.` or `:` (so `a1`, `evil`, `unknown` fail). */
+const IP_SHAPED = /^(?=.*[.:])[0-9a-f.:[\]%]+$/i
+
 /**
  * Rightmost NON-empty `x-forwarded-for` entry (empty trailing entries such as `203.0.113.5,` are
- * skipped), for rate-limit keys only. Values over `MAX_RAW_KEY_LENGTH` chars become `h:` + 16 hex
- * of their sha256, so an attacker cannot write kilobytes into the rate-limit table.
+ * skipped), for rate-limit keys only, and only when it is IP-shaped (e.g. `203.0.113.9:8080`,
+ * `[2001:db8::1]:443`, or a malformed-but-IP-looking value). Anything else (`a1`, `evil`, junk)
+ * yields undefined and so collapses into the shared `unknown` bucket, so an attacker cannot mint a
+ * bucket (and a rate-limit row) per request. A literal `unknown` entry shares the no-IP bucket by
+ * design. Values over `MAX_RAW_KEY_LENGTH` chars become `h:` + 16 hex of their sha256 so attacker
+ * data stays bounded.
  * @param h anything with `get`
- * @returns the (possibly hashed) raw entry, or undefined when there is none
+ * @returns the (possibly hashed) raw entry, or undefined when there is none or it is not IP-shaped
  */
 function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
   const entry = h
@@ -193,14 +196,14 @@ function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
     .map((s) => s.trim())
     .filter(Boolean)
     .at(-1)
-  if (!entry) return undefined
+  if (!entry || !IP_SHAPED.test(entry)) return undefined
   return entry.length > MAX_RAW_KEY_LENGTH ? `h:${createHash("sha256").update(entry).digest("hex").slice(0, 16)}` : entry
 }
 
 /**
  * Rate-limit key from a headers object, or undefined when the request carries nothing usable: the
  * validated IP when resolvable (see `clientIpOrUndefined`); otherwise, on the default
- * x-forwarded-for path only, the raw non-empty rightmost entry (length-capped, see
+ * x-forwarded-for path only, the raw non-empty IP-shaped rightmost entry (length-capped, see
  * `rawRateLimitEntry`) so distinct odd values do not collapse into one shared bucket. A configured
  * `CLIENT_IP_HEADER` is never read raw. A bucket key only: never persist it.
  * @param h anything with `get`

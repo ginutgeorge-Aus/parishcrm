@@ -1048,10 +1048,10 @@ describe("authorizeCredentials — IP rate limit", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
-  it("keys the login throttle on the raw rightmost XFF entry when it is not a valid IP", async () => {
+  it("keys the login throttle on the raw rightmost XFF entry when it is IP-shaped but not valid", async () => {
     ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
-    await authorizeCredentials({ email: "admin@example.com", password: "x" }, reqWithIp("evil:80"))
-    expect(dbRateLimit).toHaveBeenCalledWith("login:ip:evil:80", 10, 60_000)
+    await authorizeCredentials({ email: "admin@example.com", password: "x" }, reqWithIp("999.1.1.1"))
+    expect(dbRateLimit).toHaveBeenCalledWith("login:ip:999.1.1.1", 10, 60_000)
   })
 
   it("falls back to a shared bucket when no client IP is available", async () => {

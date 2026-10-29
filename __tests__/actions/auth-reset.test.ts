@@ -255,18 +255,18 @@ describe("requestPasswordReset — rate limit", () => {
     expect(mockDbRateLimit.mock.calls[0][0]).toMatch(/^pwreset:email:/)
   })
 
-  it("keys the IP limiter on the raw rightmost XFF entry when it is not a valid IP (as before)", async () => {
+  it("keys the IP limiter on the raw rightmost XFF entry when it is IP-shaped but not valid", async () => {
     mockFindUnique.mockResolvedValue(null)
-    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "garbage" }))
+    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "999.1.1.1" }))
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:garbage")
+    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:999.1.1.1")
   })
 
-  it("still applies the per-IP guard for a literal 'unknown' XFF entry", async () => {
+  it("treats a literal 'unknown' XFF entry as no IP (per-IP guard skipped, like an absent header)", async () => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "unknown" }))
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:unknown")
+    expect(mockDbRateLimit).toHaveBeenCalledTimes(1) // email limiter only
   })
 
   it("blocks when the IP limiter denies (email allowed)", async () => {

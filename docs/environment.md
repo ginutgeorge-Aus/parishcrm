@@ -45,7 +45,7 @@ $proxy_add_x_forwarded_for;` or `$remote_addr`); a proxy that passes the client'
 unchanged makes it spoofable. Some platforms
 append their own internal hop (e.g. Render: the rightmost entry is a private `10.x` address), so every
 login shares one throttle bucket and audit IPs are useless. Set `CLIENT_IP_HEADER` to the name of a
-header that carries the real client IP (e.g. `cf-connecting-ip`, `true-client-ip`) to use that instead.
+header that carries the real client IP (e.g. `cf-connecting-ip`) to use that instead.
 
 **Security rule (applies whether or not `CLIENT_IP_HEADER` is set):** the app must not be reachable
 any way that bypasses your trusted proxy (e.g. a direct `*.onrender.com` hostname, an open port);
@@ -66,21 +66,22 @@ values the app uses the rightmost, and it must be a valid IP.
   can be the proxy's own hop, so every such request shares one throttle bucket: make sure your edge
   sends the header on every request. The fallback warning is logged at most once every 10 minutes per
   process, header name only.
-- Only a well-formed IP is ever persisted as an IP (audit log) or sent as Turnstile `remoteip` by the membership and public-feedback forms (event registration and waitlist send their rate-limit key, which may be the raw value, as before). An empty rightmost
+- Only a well-formed IP is ever persisted as an IP (audit log) or sent as Turnstile `remoteip` by the membership and public-feedback forms (event registration and waitlist send the validated IP, or no `remoteip` when there is none). An empty rightmost
   entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. For rate-limit
-  keys only, a non-IP rightmost `x-forwarded-for` entry is used as-is (as before; empty trailing
-  entries are skipped, and values over 64 characters are replaced by a short hash), never the
+  keys only, a malformed but IP-shaped rightmost `x-forwarded-for` entry is used as-is (empty trailing
+  entries are skipped, and values over 64 characters are replaced by a short hash); anything not
+  IP-shaped (`a1`, `evil`, a literal `unknown`) shares the single `unknown` bucket, never the
   whole header; a non-IP `CLIENT_IP_HEADER` value is never used.
 - `cloudfront-viewer-address` carries `ip:port`; the port is stripped (including for unbracketed IPv6).
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
   (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,
   `x-original-forwarded-for`).
-- Known CDN/proxy headers (`cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, `x-azure-clientip`,
+- Known CDN/proxy headers (`cf-connecting-ip`, `fly-client-ip`, `x-azure-clientip`,
   `x-azure-socketip`, `fastly-client-ip`, `x-envoy-external-address`, `x-appengine-user-ip`,
   `cloudfront-viewer-address`) and any other custom name are honoured without a boot warning; confirm
   your proxy overwrites the header.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
-  `x-originating-ip`, `x-cluster-client-ip`) are honoured, with a boot-log warning so you confirm your
+  `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through) are honoured, with a boot-log warning so you confirm your
   proxy overwrites them.
 - IPv6 values are canonicalised (case, zero compression, `::ffff:a.b.c.d` unwrapped to IPv4, zone id
   and port stripped) so equivalent spellings share one rate-limit bucket.
