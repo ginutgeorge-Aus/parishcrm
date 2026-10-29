@@ -18,7 +18,7 @@ name: CodeRabbit Nudge
 # for the reset (--wait) and decides again; a newer event cancels the waiting
 # run, so only one ever sleeps.
 on:
-  issue_comment:
+  issue_comment:  # zizmor: ignore[dangerous-triggers] no checkout; guarded to CodeRabbit comments on main
     types: [created, edited]
   schedule:
     # Every 90 min (backstop): cron has no 90-min step, so two 3-hourly
