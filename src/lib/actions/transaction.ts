@@ -388,7 +388,11 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // without a bankRef have no paired leg, so skip that query.
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
     if (existing.bankRef && (await depositLinkedToTransfer(tx, existing.bankRef))) return { error: DEPOSIT_LINKED_ERROR }
-    return tx.transaction.deleteMany({ where: { id, invoiceId: null } })
+    // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
+    // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
+    return tx.transaction.deleteMany({
+      where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
+    })
   }, DELETE_BUSY, DELETE_REFERENCED)
   if ("error" in result) return result
   const removed = result

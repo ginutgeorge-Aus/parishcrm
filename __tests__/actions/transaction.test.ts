@@ -643,7 +643,7 @@ describe("deleteTransaction", () => {
     mockFindUnique.mockResolvedValueOnce({ id: 1, bankRef: "ANZ_1" }).mockResolvedValueOnce({ pettyCashTransferId: null })
     await deleteTransaction(1)
     expect(mockFindUnique).toHaveBeenCalledTimes(2)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
     mockFindUnique.mockClear()
     mockFindUnique.mockResolvedValueOnce({ id: 1, bankRef: null })
     await deleteTransaction(1)
@@ -672,7 +672,7 @@ describe("deleteTransaction", () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })
     await deleteTransaction(1)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting")
     expect(mockRevalidate).toHaveBeenCalledWith("/accounting/transactions")
   })
@@ -719,7 +719,7 @@ describe("deleteTransaction", () => {
     oldDate.setFullYear(oldDate.getFullYear() - 8) // 8 years ago, past the floor
     mockFindUnique.mockResolvedValue({ id: 1, date: oldDate, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null })
     await deleteTransaction(1)
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
   })
 
   it("returns a conflict (and does not audit) when a payment link landed after the read (0 rows)", async () => {
@@ -728,7 +728,7 @@ describe("deleteTransaction", () => {
     mockDelete.mockResolvedValue({ count: 0 })
     const result = await deleteTransaction(1)
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null } })
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
     expect(mockLogAudit).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
