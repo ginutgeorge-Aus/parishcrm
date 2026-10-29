@@ -140,8 +140,9 @@ function normalizeIp(value: string | undefined): string | undefined {
  * Client IP from the header named by the optional `CLIENT_IP_HEADER` env (e.g. `cf-connecting-ip`),
  * for proxies that append internal hops to `x-forwarded-for`. Read at call time. An invalid or
  * spoofable name (see `classifyClientIpHeader`) is ignored. The header is honoured only when the
- * request also carries `x-forwarded-for` (i.e. it traversed a proxy): a request without it reached the
- * origin directly, so the configured header is attacker-controlled and the default path is used
+ * request also carries `x-forwarded-for`: a heuristic that it traversed a proxy, NOT a security
+ * check (a client can send that header itself). A request without it is treated as direct, so the
+ * configured header is ignored and the default path is used
  * instead. The rightmost entry is taken (port stripped for `cloudfront-viewer-address`), normalised via
  * `normalizeIp`, and accepted only when it is a well-formed IP. Falling back while the header is missing/unusable (proxied) or present
  * on a non-proxied request logs a rate-limited warning (header name only, never the value). Requests
@@ -152,6 +153,10 @@ function normalizeIp(value: string | undefined): string | undefined {
 function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
   const { kind, name } = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
   if (kind === "unset" || kind === "invalid" || kind === "spoofable") return undefined
+  // Presence of x-forwarded-for is NOT spoofing protection: a client can send it itself. It only
+  // rejects a bare request carrying the configured header with no x-forwarded-for at all. The
+  // residual risk (attacker reaching the origin directly with both headers) is closed only by not
+  // exposing the origin except through the proxy (see docs/environment.md).
   const proxied = h.get("x-forwarded-for") != null
   const present = h.get(name) != null
   if (!proxied) {
@@ -176,8 +181,8 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
  * rightmost `x-forwarded-for` entry (appended by the trusted proxy; earlier entries are
  * attacker-controlled). Only a well-formed, canonicalised IP is returned: a crafted/odd value
  * (`unknown`, `evil:80`, an empty trailing entry) yields undefined so it never reaches
- * `AuditLog.ip`, a Turnstile `remoteip` or a rate-limit key. Callers needing a non-empty key
- * apply their own "unknown" fallback.
+ * `AuditLog.ip` or a validated-IP consumer. Callers needing a rate-limit key use
+ * `clientIpFromHeaders` instead.
  * @param h anything with `get` (Server Components pass `await headers()`); null/undefined allowed
  * @returns the validated IP, or undefined
  */
@@ -190,19 +195,34 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
  * Rate-limit key from a headers object: the validated IP when resolvable (see `clientIpOrUndefined`);
  * otherwise, on the default x-forwarded-for path only, the raw trimmed rightmost entry (so distinct
  * odd values do not collapse into one shared bucket, as before strict validation existed); else
- * "unknown". The raw value is a bucket key only, never persisted as an IP. A configured
+ * "unknown". Every rate-limit caller must use this (or `getClientIp`) rather than
+ * `clientIpOrUndefined`, so malformed entries behave the same everywhere. The raw value is a bucket
+ * key only: it must never be persisted (use `clientIpOrUndefined` for `AuditLog.ip`). A configured
  * `CLIENT_IP_HEADER` is never read raw.
  * @param h anything with `get`
+ * @returns the bucket key (never empty)
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
   return clientIpOrUndefined(h) ?? rightmostEntry(h, "x-forwarded-for") ?? "unknown"
 }
 
 /**
- * Client IP for rate-limiting keys (see `clientIpOrUndefined`); falls back to "unknown".
+ * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`; may be a raw non-IP string or
+ * "unknown"). Never use this for audit logs: use {@link getValidatedClientIp}.
  * Typed against `Request` (the `NextRequest` supertype) so it accepts both; it only reads `headers`.
  * @param req the request
+ * @returns the bucket key (never empty)
  */
 export function getClientIp(req: Request): string {
   return clientIpFromHeaders(req.headers)
+}
+
+/**
+ * Validated client IP for persistence (`AuditLog.ip`): a well-formed canonical IP or undefined, never
+ * a raw header value. Typed against `Request` (the `NextRequest` supertype).
+ * @param req the request
+ * @returns the validated IP, or undefined
+ */
+export function getValidatedClientIp(req: Request): string | undefined {
+  return clientIpOrUndefined(req.headers)
 }

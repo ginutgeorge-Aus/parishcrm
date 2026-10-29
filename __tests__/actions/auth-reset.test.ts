@@ -233,6 +233,13 @@ describe("requestPasswordReset — rate limit", () => {
     expect(mockDbRateLimit.mock.calls[0][0]).toMatch(/^pwreset:email:/)
   })
 
+  it("keys the IP limiter on the raw rightmost XFF entry when it is not a valid IP (as before)", async () => {
+    mockFindUnique.mockResolvedValue(null)
+    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "garbage" }))
+    await requestPasswordReset("u@e.com")
+    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:garbage")
+  })
+
   it("blocks when the IP limiter denies (email allowed)", async () => {
     mockDbRateLimit
       .mockResolvedValueOnce(true) // email allowed

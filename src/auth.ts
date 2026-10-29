@@ -55,8 +55,13 @@ export class TotpRequired extends CredentialsSignin {
   code = "TotpRequired"
 }
 
-// Real client IP for audit logging: CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for
-// entry appended by the trusted proxy (not spoofable) — see src/lib/clientIp.ts.
+/**
+ * Validated client IP for audit logging and OTP/lockout records: CLIENT_IP_HEADER if set, else the
+ * rightmost x-forwarded-for entry (trustworthy only behind a proxy that appends it; see
+ * src/lib/clientIp.ts and docs/environment.md). Only a well-formed IP, never a raw header value.
+ * @param request the NextAuth request, if any
+ * @returns the validated IP, or undefined
+ */
 function clientIpFrom(request?: Request): string | undefined {
   return clientIpOrUndefined(request?.headers)
 }

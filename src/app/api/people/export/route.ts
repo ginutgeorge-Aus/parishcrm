@@ -5,7 +5,7 @@ import { isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { Classification, FamilyRole } from "@/lib/generated/prisma/enums"
 import { MONTH_ABBR } from "@/lib/formatting"
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
     .map((row) => row.map(escapeCsv).join(","))
     .join("\n")
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(
     actorId(session),
     "EXPORT_CSV",

@@ -12,7 +12,7 @@ import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { redactPagePath } from "@/lib/redactPagePath"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
 
 const RATE_LIMIT = 5
 const RATE_WINDOW_MS = 60 * 60 * 1000
@@ -105,10 +105,12 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
 
   // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // never trust caller input for throttling.
-  const ip = clientIpOrUndefined(await headers())
+  const h = await headers()
+  const ip = clientIpOrUndefined(h) // validated: Turnstile remoteip
+  const rateKey = clientIpFromHeaders(h) // bucket key (raw fallback), never persisted
 
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }
-  if (!(await dbRateLimit(`pubfeedback:ip:${ip ?? "unknown"}`, RATE_LIMIT, RATE_WINDOW_MS)))
+  if (!(await dbRateLimit(`pubfeedback:ip:${rateKey}`, RATE_LIMIT, RATE_WINDOW_MS)))
     return { error: "Too many reports. Please try again later." }
 
   const submittedAt = new Date()

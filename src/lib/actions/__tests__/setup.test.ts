@@ -139,7 +139,7 @@ describe("createFirstAdmin", () => {
   it("drops a malformed x-forwarded-for from the audit row", async () => {
     ;(headers as jest.Mock).mockResolvedValueOnce(new Map([["x-forwarded-for", "garbage<script>"]]))
     await createFirstAdmin(fd(valid))
-    expect(dbRateLimit).toHaveBeenCalledWith("setup:unknown", 10, 15 * 60_000)
+    expect(dbRateLimit).toHaveBeenCalledWith("setup:garbage<script>", 10, 15 * 60_000)
     expect(logAudit).toHaveBeenCalledWith(1, "SETUP_FIRST_ADMIN", "User", 1, undefined, undefined)
   })
   it.each([["P2034", "serialization conflict"], ["P2002", "same-email unique violation"]])(

@@ -8,7 +8,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 
 // Password-reset rate limit: 5 requests per 15 minutes. Keyed primarily
@@ -19,9 +19,16 @@ import { clientIpOrUndefined } from "@/lib/clientIp"
 const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
+/**
+ * Per-IP throttle key for the password-reset DoS guard: the same rate-limit key resolver as every
+ * other limiter (validated IP, else the raw rightmost x-forwarded-for entry), or null when the
+ * request carries no usable value at all (no throttle key, so the per-IP guard is skipped).
+ * A bucket key only, never persisted.
+ * @returns the key, or null when none is available
+ */
 async function getClientIp(): Promise<string | null> {
-  // Validated IP (CLIENT_IP_HEADER, else rightmost x-forwarded-for) or null: no throttle key without one
-  return clientIpOrUndefined(await headers()) ?? null
+  const key = clientIpFromHeaders(await headers())
+  return key === "unknown" ? null : key
 }
 
 // Randomized 200–500 ms delay on fast-return paths so they take roughly as

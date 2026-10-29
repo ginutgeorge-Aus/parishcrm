@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { generateBudgetVsActualCsv, type BudgetVsActualRow } from "@/lib/reports/budgetVsActualExport"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
 import { toCents, type Money } from "@/lib/formatting"
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
     netActualCents: incomeActualCents - expenseActualCents,
   })
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "Transaction", undefined, { report: "budget-vs-actual", year, rowCount: rows.length }, ip)
 
   return new NextResponse(csv, {

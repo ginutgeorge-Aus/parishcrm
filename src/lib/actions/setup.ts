@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { safeEqual } from "@/lib/safeEqual"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
 import { isSetupOpen } from "@/lib/setupState"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
@@ -34,6 +34,17 @@ type SetupResult = { error: string; field?: SetupField } | { success: true }
 
 class SetupClosedError extends Error {}
 
+/**
+ * Resolves the caller's IP for `/setup`: `ip` is the validated IP (undefined when none, which
+ * triggers the shared-bucket warning), `key` the rate-limit bucket key (validated IP, else the raw
+ * rightmost x-forwarded-for entry, else "unknown"), consistent with the other limiters.
+ * @returns the validated IP and the bucket key
+ */
+async function setupClientIp(): Promise<{ ip: string | undefined; key: string }> {
+  const h = await headers()
+  return { ip: clientIpOrUndefined(h), key: clientIpFromHeaders(h) }
+}
+
 export async function createFirstAdmin(formData: FormData): Promise<SetupResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -52,8 +63,8 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   }
 
   // Rate-limit only well-formed submissions, so policy typos don't lock the operator out.
-  const ip = clientIpOrUndefined(await headers())
-  if (!(await dbRateLimit(`setup:${ip ?? "unknown"}`, SETUP_LIMIT, SETUP_WINDOW_MS))) {
+  const { ip, key } = await setupClientIp()
+  if (!(await dbRateLimit(`setup:${key}`, SETUP_LIMIT, SETUP_WINDOW_MS))) {
     return { error: "Too many attempts. Try again later." }
   }
   // No usable client IP from CLIENT_IP_HEADER or X-Forwarded-For (no reverse proxy, or a malformed
@@ -62,7 +73,7 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   // address; warn the operator instead. Logged after the limit so the shared
   // bucket also caps how often this can be written.
   if (!ip) {
-    logger.warn("setup: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For — all /setup clients share one rate-limit bucket", {
+    logger.warn("setup: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For — /setup clients without a distinct raw x-forwarded-for entry share one rate-limit bucket", {
       hint: "run behind a reverse proxy that sets X-Forwarded-For (or set CLIENT_IP_HEADER), or use scripts/create-admin-user.ts",
     })
   }

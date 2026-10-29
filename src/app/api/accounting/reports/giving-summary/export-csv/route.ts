@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canViewAccounting, canViewPeople } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { getGivingSummary, generateGivingSummaryCsv } from "@/lib/givingSummary"
 import { currentFYYear } from "@/lib/fiscalYear"
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const rows = await getGivingSummary(year, showEmail)
   const csv = generateGivingSummaryCsv(rows, showEmail)
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "Transaction", undefined, {
     report: "giving-summary",
     year,

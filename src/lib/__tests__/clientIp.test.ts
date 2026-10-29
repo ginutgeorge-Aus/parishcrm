@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -352,5 +352,20 @@ describe("CLIENT_IP_HEADER — warning throttle is per kind", () => {
       mod.clientIpFromHeaders(new Headers({ "cf-connecting-ip": "6.6.6.6" }))
       expect(warn).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+describe("audit vs rate-limit resolvers disagree only on malformed entries", () => {
+  beforeEach(() => {
+    delete process.env.CLIENT_IP_HEADER
+  })
+  const req = (xff: string) => new Request("http://x.test/", { headers: { "x-forwarded-for": xff } })
+  it("getValidatedClientIp never returns a raw value; getClientIp keeps the raw bucket key", () => {
+    expect(getValidatedClientIp(req("garbage"))).toBeUndefined()
+    expect(getClientIp(req("garbage"))).toBe("garbage")
+    expect(getValidatedClientIp(req("6.6.6.6,"))).toBeUndefined()
+    expect(getValidatedClientIp(req("1.1.1.1, 203.0.113.9"))).toBe("203.0.113.9")
+    expect(getValidatedClientIp(new Request("http://x.test/"))).toBeUndefined()
+    expect(getClientIp(new Request("http://x.test/"))).toBe("unknown")
   })
 })

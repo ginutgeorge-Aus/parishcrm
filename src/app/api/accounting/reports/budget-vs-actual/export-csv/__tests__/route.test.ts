@@ -64,7 +64,7 @@ it("200 + EXPORT_FINANCIAL_REPORT audit for ADMIN", async () => {
     "Transaction",
     undefined,
     expect.objectContaining({ report: "budget-vs-actual" }),
-    "unknown",
+    undefined,
   )
 })
 
