@@ -86,7 +86,7 @@ jest.mock("@/lib/crypto", () => ({
     return v.replace(/^enc:/, "")
   }),
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 
 import { auth } from "@/auth"
@@ -617,6 +617,7 @@ describe("deleteReceipt", () => {
       id: 1, sessionId: 5, amount: { toString: () => "250" },
       session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: false, bankRef: "XFER_OUT_ANZ_1" },
     })
+    mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: null })
     await deleteTransfer(1)
     expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
     expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
