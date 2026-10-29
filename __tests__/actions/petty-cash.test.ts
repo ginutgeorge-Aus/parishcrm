@@ -41,6 +41,7 @@ jest.mock("@/lib/prisma", () => ({
     },
     transaction: {
       create: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
       findUnique: jest.fn(),
     },
@@ -608,6 +609,17 @@ describe("deleteReceipt", () => {
       accountId: 2,
       sessionId: 5,
     })
+  })
+
+  it("unlinks an adopted bank-import XFER_OUT leg instead of cascading its deletion", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindTransfer.mockResolvedValue({
+      id: 1, sessionId: 5, amount: { toString: () => "250" },
+      session: { id: 5, status: "OPEN" }, transaction: { id: 99, reconciled: false, bankRef: "XFER_OUT_ANZ_1" },
+    })
+    await deleteTransfer(1)
+    expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
+    expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
   })
 
   it("audit-logs TRANSACTION_DELETED for the cascaded mirror ledger row", async () => {

@@ -143,7 +143,8 @@ export async function createTransfer(
           throw new TransferError("Imported deposit is not available for transfer")
         if (
           toCents(deposit.amount.toFixed(2)) !== toCents(parsed.data.amount) ||
-          deposit.date.getTime() !== parsed.data.date.getTime()
+          // Calendar-day compare (both stored at UTC midnight) — robust to a time component.
+          deposit.date.toISOString().slice(0, 10) !== parsed.data.date.toISOString().slice(0, 10)
         )
           throw new TransferError("Date and amount must match the imported deposit")
         await tx.transaction.update({
@@ -196,7 +197,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (off) return off
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
-    include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true } } },
+    include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true, bankRef: true } } },
   })
   if (!transfer) return { error: "Transfer not found" }
   if (transfer.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
@@ -206,6 +207,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (transfer.date >= retentionFloor()) return { error: retentionError(transfer.date) }
+  const adopted = transfer.transaction?.bankRef?.startsWith(XFER_OUT_PREFIX) ?? false
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
@@ -215,6 +217,11 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true } })
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
       }
+      // An adopted bank-import XFER_OUT leg is the import's own cash-out for a
+      // deposit that stays in the ledger — unlink it so the cascade doesn't
+      // delete it and leave the deposit without its matching cash-out.
+      if (adopted)
+        await tx.transaction.update({ where: { id: transfer.transaction!.id }, data: { pettyCashTransferId: null } })
       await tx.pettyCashTransfer.delete({ where: { id } })
     })
   } catch (e) {
@@ -229,7 +236,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   // The mirrored XFER ledger row is removed by FK cascade (Transaction
   // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
   // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).
-  if (transfer.transaction)
+  if (transfer.transaction && !adopted)
     await logAudit(userId, "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
       source: "petty-cash", pettyCashTransferId: id,
     })
