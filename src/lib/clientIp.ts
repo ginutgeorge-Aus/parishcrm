@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { isIP } from "node:net"
 import { logger } from "@/lib/logger"
 
@@ -172,22 +171,15 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
   return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }
 
-/** Raw rate-limit keys longer than this are replaced by a short hash so attacker data stays bounded. */
-const MAX_RAW_KEY_LENGTH = 64
-
-/** IP-shaped: only hex digits, `.`, `:`, brackets, `%` and contains a `.` or `:` (so `a1`, `evil`, `unknown` fail). */
-const IP_SHAPED = /^(?=.*[.:])[0-9a-f.:[\]%]+$/i
-
 /**
  * Rightmost NON-empty `x-forwarded-for` entry (empty trailing entries such as `203.0.113.5,` are
- * skipped), for rate-limit keys only, and only when it is IP-shaped (e.g. `203.0.113.9:8080`,
- * `[2001:db8::1]:443`, or a malformed-but-IP-looking value). Anything else (`a1`, `evil`, junk)
+ * skipped), for rate-limit keys only, and only when it parses as a real IP via `normalizeIp` (e.g. `203.0.113.9:8080`,
+ * `[2001:db8::1]:443`, returned canonicalised). Anything else (`a1`, `1:2`, `1.2.3.4.5`, junk)
  * yields undefined and so collapses into the shared `unknown` bucket, so an attacker cannot mint a
  * bucket (and a rate-limit row) per request. A literal `unknown` entry shares the no-IP bucket by
- * design. Values over `MAX_RAW_KEY_LENGTH` chars become `h:` + 16 hex of their sha256 so attacker
- * data stays bounded.
+ * design.  A valid IP is at most 45 chars, so keys stay bounded.
  * @param h anything with `get`
- * @returns the (possibly hashed) raw entry, or undefined when there is none or it is not IP-shaped
+ * @returns the canonical IP of the entry, or undefined when there is none or it is not a valid IP
  */
 function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
   const entry = h
@@ -196,8 +188,12 @@ function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
     .map((s) => s.trim())
     .filter(Boolean)
     .at(-1)
-  if (!entry || !IP_SHAPED.test(entry)) return undefined
-  return entry.length > MAX_RAW_KEY_LENGTH ? `h:${createHash("sha256").update(entry).digest("hex").slice(0, 16)}` : entry
+  if (!entry) return undefined
+  // Real parse (isIP via normalizeIp), not a shape regex: `1:2`, `a:b`, `1.2.3.4.5`, `dead:beef` are junk
+  // an attacker could vary per request to mint a bucket each. Invalid entries share the `unknown` bucket.
+  const ip = normalizeIp(entry)
+  if (!ip) return undefined
+  return ip
 }
 
 /**

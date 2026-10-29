@@ -241,14 +241,13 @@ describe("XFF normalisation (default path)", () => {
       expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
     }
   })
-  it("keys on the raw trimmed rightmost XFF entry when IP-shaped but not a well-formed IP", () => {
-    expect(clientIpFromHeaders(h("1.1.1.1, 999.1.1.1 "))).toBe("999.1.1.1")
-    expect(clientIpFromHeaders(h("1.2.3.4.5"))).toBe("1.2.3.4.5")
+  it("keys on the real parsed IP of the rightmost non-empty XFF entry", () => {
+    expect(clientIpFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("203.0.113.5")
     expect(clientIpFromHeaders(h("203.0.113.9:8080"))).toBe("203.0.113.9")
     expect(clientIpFromHeaders(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
   })
   it("non-IP-shaped rightmost entries collapse into the shared unknown bucket", () => {
-    for (const v of ["a1", "a2", "evil", "evil:80", "garbage", "unknown", "x".repeat(8000)]) {
+    for (const v of ["1:1", "1:2", "a:b", "1.2.3.4.5", "dead:beef", "999.1.1.1", "a1", "a2", "evil", "evil:80", "garbage", "unknown", "x".repeat(8000)]) {
       expect(clientIpFromHeaders(h(v))).toBe("unknown")
     }
     expect(clientIpOrUndefined(h("garbage"))).toBeUndefined()
@@ -364,7 +363,7 @@ describe("audit vs rate-limit resolvers disagree only on malformed entries", () 
   it("getValidatedClientIp never returns a raw value; getClientIp keeps the raw bucket key", () => {
     expect(getValidatedClientIp(req("garbage"))).toBeUndefined()
     expect(getClientIp(req("garbage"))).toBe("unknown")
-    expect(getClientIp(req("999.1.1.1"))).toBe("999.1.1.1")
+    expect(getClientIp(req("999.1.1.1"))).toBe("unknown")
     expect(getValidatedClientIp(req("6.6.6.6,"))).toBeUndefined()
     expect(getValidatedClientIp(req("1.1.1.1, 203.0.113.9"))).toBe("203.0.113.9")
     expect(getValidatedClientIp(new Request("http://x.test/"))).toBeUndefined()
@@ -378,7 +377,7 @@ describe("rate-limit key edge cases", () => {
   })
   it("skips empty trailing XFF entries for the key (as before strict validation)", () => {
     expect(clientIpFromHeaders(h("203.0.113.5,"))).toBe("203.0.113.5")
-    expect(clientIpFromHeaders(h("999.1.1.1, ,"))).toBe("999.1.1.1")
+    expect(clientIpFromHeaders(h("999.1.1.1, ,"))).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
   it("clientIpKeyOrUndefined returns undefined only when nothing is usable; 'unknown' is a real key", () => {
@@ -387,12 +386,8 @@ describe("rate-limit key edge cases", () => {
     expect(clientIpKeyOrUndefined(h("unknown"))).toBeUndefined()
     expect(clientIpFromHeaders(h("unknown"))).toBe("unknown")
   })
-  it("replaces an oversized raw entry with a short stable hash", () => {
-    const big = "1.".repeat(4000)
-    const key = clientIpFromHeaders(h(big))
-    expect(key).toMatch(/^h:[0-9a-f]{16}$/)
-    expect(clientIpFromHeaders(h(big))).toBe(key)
-    expect(clientIpFromHeaders(h("2.".repeat(4000)))).not.toBe(key)
-    expect(clientIpFromHeaders(h("3.".repeat(32)))).toBe("3.".repeat(32))
+  it("an oversized junk entry collapses into the unknown bucket", () => {
+    expect(clientIpFromHeaders(h("1.".repeat(4000)))).toBe("unknown")
+    expect(clientIpFromHeaders(h("3.".repeat(32)))).toBe("unknown")
   })
 })

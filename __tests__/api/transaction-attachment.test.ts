@@ -80,7 +80,7 @@ it("decrypts and serves an attachment with its content type and a filename", asy
     "Transaction",
     1,
     { attachmentId: 5 },
-    "unknown",
+    undefined,
   )
 })
 

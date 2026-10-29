@@ -277,7 +277,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
       "Transaction",
       undefined,
       expect.objectContaining({ reason: expect.stringContaining("no longer exists") }),
-      "unknown",
+      undefined,
     )
   })
 
