@@ -46,3 +46,44 @@ describe("createTransfer — serialization conflicts", () => {
     await expect(createTransfer(1, undefined, form())).rejects.toThrow("connection lost")
   })
 })
+
+describe("createTransfer — imported deposit", () => {
+  const deposit = { accountId: 9, type: "INCOME", amount: { toFixed: () => "50.00" }, date: new Date("2026-07-31"), bankRef: "ANZ_1" }
+  function run(txMock: Record<string, unknown>) {
+    mock$tx.mockImplementation((fn: (tx: unknown) => unknown) => fn(txMock))
+    const fd = form()
+    fd.set("importedTransactionId", "7")
+    return createTransfer(1, undefined, fd)
+  }
+  const base = () => ({
+    pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
+    pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3 }) },
+  })
+
+  it("links the existing XFER_OUT leg instead of creating a mirror", async () => {
+    const update = jest.fn()
+    const create = jest.fn()
+    const findUnique = jest.fn()
+      .mockResolvedValueOnce(deposit)
+      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: null, reconciled: false })
+    await run({ ...base(), transaction: { findUnique, update, create } })
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11 }, data: expect.objectContaining({ pettyCashTransferId: 3 }) }))
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("rejects when the leg is already linked", async () => {
+    const findUnique = jest.fn()
+      .mockResolvedValueOnce(deposit)
+      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: 2, reconciled: false })
+    await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
+      .resolves.toEqual({ error: "Imported deposit is not available for transfer" })
+  })
+
+  it("rejects an amount mismatch", async () => {
+    const findUnique = jest.fn()
+      .mockResolvedValueOnce({ ...deposit, amount: { toFixed: () => "60.00" } })
+      .mockResolvedValueOnce({ id: 11, pettyCashTransferId: null, reconciled: false })
+    await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
+      .resolves.toEqual({ error: "Date and amount must match the imported deposit" })
+  })
+})

@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,16 +10,33 @@ import { sydneyTodayYMD } from "@/lib/dates"
 import { fmtAUD } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 
 export function TransferForm({
   action,
   maxAmount,
+  imported = [],
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
+  /** Bank-import deposits marked "from petty cash" not yet linked to a transfer. */
+  imported?: ImportedTransferOption[]
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
+  const [importedId, setImportedId] = useState("")
+  const [date, setDate] = useState(sydneyTodayYMD())
+  const [amount, setAmount] = useState("")
+
+  /** Picking an imported deposit prefills date + amount; clearing keeps manual values. */
+  function pickImported(id: string) {
+    setImportedId(id)
+    const opt = imported.find((o) => String(o.id) === id)
+    if (opt) {
+      setDate(opt.date)
+      setAmount(opt.amount)
+    }
+  }
 
   return (
     <form action={formAction} className="max-w-lg space-y-4">
@@ -29,6 +46,29 @@ export function TransferForm({
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>
       </div>
 
+      {imported.length > 0 && (
+        <div className="space-y-1">
+          <Label htmlFor="importedTransactionId">
+            Imported bank deposit{" "}
+            <span className="text-muted-foreground text-xs">(optional — marked as cash transfer on import)</span>
+          </Label>
+          <select
+            id="importedTransactionId"
+            name="importedTransactionId"
+            value={importedId}
+            onChange={(e) => pickImported(e.target.value)}
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="">— None (enter manually) —</option>
+            {imported.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.date} · {fmtAUD(Number(o.amount))} · {o.description}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
           <Label htmlFor="date">Transfer date</Label>
@@ -36,7 +76,9 @@ export function TransferForm({
             id="date"
             name="date"
             type="date"
-            defaultValue={sydneyTodayYMD()}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            readOnly={importedId !== ""}
             required
           />
         </div>
@@ -50,6 +92,9 @@ export function TransferForm({
             min="0.01"
             max={maxAmount.toFixed(2)}
             placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            readOnly={importedId !== ""}
             required
           />
         </div>

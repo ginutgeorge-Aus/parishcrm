@@ -19,6 +19,7 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
+import { XFER_OUT_PREFIX } from "@/lib/pettyCashTransferCandidates"
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -55,6 +56,12 @@ const TransferSchema = z.object({
   depositSlipRef: z.string().max(100).optional().transform((v) => v || undefined),
   depositedByName: z.string().min(1, "Deposited by is required").max(200),
   notes: z.string().max(1000).optional().transform((v) => v || undefined),
+  // Bank-import deposit (marked "from petty cash") this transfer records.
+  importedTransactionId: z
+    .string()
+    .optional()
+    .transform((v) => (v ? Number(v) : undefined))
+    .refine((v) => v === undefined || Number.isInteger(v), "Invalid imported deposit"),
 })
 
 /** Record a petty cash transfer. ADMIN/PASTOR only. */
@@ -114,6 +121,37 @@ export async function createTransfer(
           notes: parsed.data.notes ? encrypt(parsed.data.notes) : null,
         },
       })
+      // Imported deposit picked: adopt its already-booked XFER_OUT cash-out leg
+      // as this transfer's ledger mirror — creating a second one would reduce
+      // petty cash twice. The deposit must match the entered date + amount.
+      if (parsed.data.importedTransactionId !== undefined) {
+        const deposit = await tx.transaction.findUnique({
+          where: { id: parsed.data.importedTransactionId },
+          select: { accountId: true, type: true, amount: true, date: true, bankRef: true },
+        })
+        const leg =
+          deposit?.bankRef
+            ? await tx.transaction.findUnique({
+                where: { bankRef: `${XFER_OUT_PREFIX}${deposit.bankRef}` },
+                select: { id: true, pettyCashTransferId: true, reconciled: true },
+              })
+            : null
+        if (
+          !deposit || deposit.accountId !== xferAccountId || deposit.type !== "INCOME" ||
+          !leg || leg.pettyCashTransferId !== null
+        )
+          throw new TransferError("Imported deposit is not available for transfer")
+        if (
+          toCents(deposit.amount.toFixed(2)) !== toCents(parsed.data.amount) ||
+          deposit.date.getTime() !== parsed.data.date.getTime()
+        )
+          throw new TransferError("Date and amount must match the imported deposit")
+        await tx.transaction.update({
+          where: { id: leg.id },
+          data: { pettyCashTransferId: transfer.id, reference: existing.title },
+        })
+        return transfer.id
+      }
       // Mirror the transfer into the Transaction ledger (symmetric with
       // receipt/expense mirrors) so the dashboard PETTY_CASH balance
       // reflects session transfers and agrees with the session running balance
