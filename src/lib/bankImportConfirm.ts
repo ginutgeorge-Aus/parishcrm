@@ -392,7 +392,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
           pettyCashTransferId: { not: null },
           // Exclude XFER_OUT legs adopted by a picked session transfer — they are
           // another deposit's cash-out, not an independent session-transfer mirror.
-          NOT: { bankRef: { startsWith: XFER_OUT_PREFIX } },
+          // SQL `NOT startsWith` drops NULL bankRef rows, so allow them explicitly.
+          OR: [{ bankRef: null }, { NOT: { bankRef: { startsWith: XFER_OUT_PREFIX } } }],
           paymentAccountId: cashAccount?.id ?? null,
           date: {
             gte: new Date(Math.min(...pettyCashTimes) - XFER_WINDOW_MS),

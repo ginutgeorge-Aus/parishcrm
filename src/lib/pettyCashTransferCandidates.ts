@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
+import { getCashAccount } from "@/lib/paymentAccounts"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 export type ImportedTransferOption = {
@@ -17,12 +18,17 @@ export type ImportedTransferOption = {
  */
 export async function listImportedTransferCandidates(): Promise<ImportedTransferOption[]> {
   const xferAccountId = await getXferAccountId(prisma)
+  // Same cash-account lookup createTransfer validates the leg against.
+  const cashAccount = await getCashAccount()
   const legs = await prisma.transaction.findMany({
     where: {
       accountId: xferAccountId,
       type: "EXPENSE",
       bankRef: { startsWith: XFER_OUT_PREFIX },
       pettyCashTransferId: null,
+      // Only legs createTransfer would accept: unreconciled and on the cash account.
+      reconciled: false,
+      paymentAccountId: cashAccount?.id ?? null,
     },
     select: { bankRef: true },
     orderBy: { date: "desc" },

@@ -87,9 +87,9 @@ export async function createTransfer(
   // Read balance, validate and insert inside one Serializable transaction so two
   // concurrent transfers can't both pass the same balance check and together
   // overdraw the float — the second hits a serialization conflict.
-  let transferId: number
+  let created: { transferId: number; adoptedLegId: number | null }
   try {
-    transferId = await prisma.$transaction(async (tx) => {
+    created = await prisma.$transaction(async (tx) => {
       const existing = await tx.pettyCashSession.findUnique({
         where: { id: sessionId },
         include: {
@@ -132,7 +132,7 @@ export async function createTransfer(
           deposit?.bankRef
             ? await tx.transaction.findUnique({
                 where: { bankRef: `${XFER_OUT_PREFIX}${deposit.bankRef}` },
-                select: { id: true, type: true, accountId: true, amount: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true },
+                select: { id: true, type: true, accountId: true, amount: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
               })
             : null
         if (
@@ -157,9 +157,11 @@ export async function createTransfer(
           throw new TransferError("Date and amount must match the imported deposit")
         await tx.transaction.update({
           where: { id: leg.id },
-          data: { pettyCashTransferId: transfer.id, reference: existing.title },
+          // Keep an existing reference; only fill an empty one (unlink clears it
+          // again only if it still equals the session title).
+          data: { pettyCashTransferId: transfer.id, ...(leg.reference ? {} : { reference: existing.title }) },
         })
-        return transfer.id
+        return { transferId: transfer.id, adoptedLegId: leg.id }
       }
       // Mirror the transfer into the Transaction ledger (symmetric with
       // receipt/expense mirrors) so the dashboard PETTY_CASH balance
@@ -179,7 +181,7 @@ export async function createTransfer(
           pettyCashTransferId: transfer.id,
         },
       })
-      return transfer.id
+      return { transferId: transfer.id, adoptedLegId: null }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof TransferError) return { error: e.message }
@@ -189,10 +191,19 @@ export async function createTransfer(
       return { error: "Transfer conflict — please try again." }
     throw e
   }
+  const { transferId, adoptedLegId } = created
   await logAudit(actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transferId, {
     amount: parsed.data.amount,
     sessionId,
+    ...(adoptedLegId !== null && {
+      importedTransactionId: parsed.data.importedTransactionId,
+      adoptedLegId,
+    }),
   })
+  if (adoptedLegId !== null)
+    await logAudit(actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptedLegId, {
+      source: "petty-cash", pettyCashTransferId: transferId, action: "adopted-as-transfer-mirror",
+    })
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -205,7 +216,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (off) return off
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
-    include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true, bankRef: true } } },
+    include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true, bankRef: true } } },
   })
   if (!transfer) return { error: "Transfer not found" }
   if (transfer.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
@@ -215,22 +226,37 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (transfer.date >= retentionFloor()) return { error: retentionError(transfer.date) }
-  const adopted = transfer.transaction?.bankRef?.startsWith(XFER_OUT_PREFIX) ?? false
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
+  let adopted = false
   try {
-    await prisma.$transaction(async (tx) => {
+    adopted = await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
+      // Derived inside the tx (not from the pre-read) so a concurrent change to the
+      // mirror can't leave `adopted` stale.
+      let isAdopted = false
+      let mirrorReference: string | null = null
       if (transfer.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true } })
+        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true, bankRef: true, reference: true } })
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
+        isAdopted = mirror?.bankRef?.startsWith(XFER_OUT_PREFIX) ?? false
+        mirrorReference = mirror?.reference ?? null
       }
       // An adopted bank-import XFER_OUT leg is the import's own cash-out for a
       // deposit that stays in the ledger — unlink it so the cascade doesn't
       // delete it and leave the deposit without its matching cash-out.
-      if (adopted)
-        await tx.transaction.update({ where: { id: transfer.transaction!.id }, data: { pettyCashTransferId: null } })
+      // Adoption only filled an empty reference with the session title — clear
+      // it back, but leave any other (original) reference alone.
+      if (isAdopted)
+        await tx.transaction.update({
+          where: { id: transfer.transaction!.id },
+          data: {
+            pettyCashTransferId: null,
+            ...(mirrorReference === transfer.session.title ? { reference: null } : {}),
+          },
+        })
       await tx.pettyCashTransfer.delete({ where: { id } })
+      return isAdopted
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
@@ -247,6 +273,10 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (transfer.transaction && !adopted)
     await logAudit(userId, "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
       source: "petty-cash", pettyCashTransferId: id,
+    })
+  if (transfer.transaction && adopted)
+    await logAudit(userId, "TRANSACTION_UPDATED", "Transaction", transfer.transaction.id, {
+      source: "petty-cash", pettyCashTransferId: id, action: "unlinked-from-transfer",
     })
   revalidatePettyCashPaths(transfer.sessionId)
 }

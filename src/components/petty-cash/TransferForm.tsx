@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { sydneyTodayYMD } from "@/lib/dates"
-import { fmtAUD } from "@/lib/formatting"
+import { fmtAUD, toCents } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
@@ -27,6 +27,8 @@ export function TransferForm({
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(sydneyTodayYMD())
   const [amount, setAmount] = useState("")
+  // Cents computed once so option comparisons are exact (no float drift).
+  const maxCents = toCents(maxAmount.toFixed(2))
 
   /** Picking an imported deposit prefills date + amount; clearing keeps manual values. */
   function pickImported(id: string) {
@@ -60,11 +62,14 @@ export function TransferForm({
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
           >
             <option value="">— None (enter manually) —</option>
-            {imported.map((o) => (
-              <option key={o.id} value={o.id} disabled={Number(o.amount) > maxAmount}>
-                {o.date} · {fmtAUD(Number(o.amount))} · {o.description}{Number(o.amount) > maxAmount ? " (exceeds cash in hand)" : ""}
-              </option>
-            ))}
+            {imported.map((o) => {
+              const exceeds = toCents(o.amount) > maxCents
+              return (
+                <option key={o.id} value={o.id} disabled={exceeds}>
+                  {o.date} · {fmtAUD(Number(o.amount))} · {o.description}{exceeds ? " (exceeds cash in hand)" : ""}
+                </option>
+              )
+            })}
           </select>
         </div>
       )}

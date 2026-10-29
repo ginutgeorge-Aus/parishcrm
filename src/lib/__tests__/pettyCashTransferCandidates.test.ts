@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9), XFER_OUT_PREFIX: "XFER_OUT_" }))
+jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
 jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v.replace("enc:", "")) }))
 jest.mock("@/lib/prisma", () => ({ prisma: { transaction: { findMany: jest.fn() } } }))
 
@@ -27,4 +28,12 @@ it("maps deposits of unlinked legs, decrypting the description", async () => {
     { id: 7, date: "2026-07-31", amount: "50.00", description: "Cash deposit" },
   ])
   expect(findMany.mock.calls[1][0].where.bankRef).toEqual({ in: ["ANZ_1"] })
+})
+
+it("only lists unreconciled legs on the cash payment account", async () => {
+  findMany.mockResolvedValueOnce([])
+  await listImportedTransferCandidates()
+  expect(findMany.mock.calls[0][0].where).toEqual(
+    expect.objectContaining({ reconciled: false, paymentAccountId: 2, pettyCashTransferId: null })
+  )
 })

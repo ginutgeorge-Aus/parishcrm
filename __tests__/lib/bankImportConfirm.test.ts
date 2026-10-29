@@ -6,7 +6,7 @@
 // confirmBankImport must now reject it as a validation error.
 
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
-jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn() }))
+jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn(), XFER_OUT_PREFIX: "XFER_OUT_" }))
 jest.mock("@/lib/accountingLock", () => ({
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
   isDateLocked: jest.fn(() => false),
@@ -280,6 +280,18 @@ describe("confirmBankImport — notes encryption petty cash", () => {
     // First create() call is the deposit leg (accountId = xferAccountId).
     const depositCall = mockCreate.mock.calls.find((c) => c[0].data.accountId === 99 && c[0].data.type === "INCOME")
     expect(depositCall[0].data.notes).toBe("enc:DEPOSIT PETTY CASH FLOAT")
+  })
+})
+
+describe("confirmBankImport — session-transfer mirror lookup", () => {
+  it("keeps null-bankRef mirrors while excluding adopted XFER_OUT legs", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    await confirmBankImport([
+      { ...baseRow, accountId: null, fromPettyCash: true, paymentAccountId: 1 },
+    ])
+    const call = mockTxFindMany.mock.calls.find((c) => c[0]?.where?.pettyCashTransferId)
+    expect(call?.[0].where.OR).toEqual([{ bankRef: null }, { NOT: { bankRef: { startsWith: "XFER_OUT_" } } }])
+    expect(call?.[0].where.NOT).toBeUndefined()
   })
 })
 
