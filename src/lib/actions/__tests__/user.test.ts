@@ -23,9 +23,9 @@ jest.mock("next/navigation", () => ({
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     user: {
       findUnique: jest.fn(),
-      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       count: jest.fn(),
@@ -82,7 +82,7 @@ describe("OFFICE_ADMIN cannot touch or create ADMIN accounts (self-escalation bl
 
   it("blocks OFFICE_ADMIN from editing an existing ADMIN target", async () => {
     ;(auth as jest.Mock).mockResolvedValue(OFFICE)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
     const r = await updateUser(3, undefined, form(VALID_USER))
     expect(r).toEqual({ error: "Unauthorized" })
     expect(prisma.$transaction).not.toHaveBeenCalled()
@@ -90,7 +90,7 @@ describe("OFFICE_ADMIN cannot touch or create ADMIN accounts (self-escalation bl
 
   it("blocks OFFICE_ADMIN from promoting a user to ADMIN", async () => {
     ;(auth as jest.Mock).mockResolvedValue(OFFICE)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "old@x.com" })
     const r = await updateUser(3, undefined, form({ ...VALID_USER, role: "ADMIN" }))
     expect(r).toEqual({ error: "Unauthorized" })
     expect(prisma.$transaction).not.toHaveBeenCalled()
@@ -108,14 +108,14 @@ describe("OFFICE_ADMIN cannot touch or create ADMIN accounts (self-escalation bl
   // kill its sessions. Must match updateUser's canAssignRole target gate.
   it("blocks OFFICE_ADMIN from deleting an ADMIN target", async () => {
     ;(auth as jest.Mock).mockResolvedValue(OFFICE)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
     expect(await deleteUser(3)).toEqual({ error: "Unauthorized" })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
   it("blocks OFFICE_ADMIN from deleting a PASTOR target", async () => {
     ;(auth as jest.Mock).mockResolvedValue(OFFICE)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "PASTOR" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "PASTOR", email: "old@x.com" })
     expect(await deleteUser(3)).toEqual({ error: "Unauthorized" })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
@@ -202,8 +202,8 @@ describe("last-admin guard", () => {
 
   it("blocks demoting the last ADMIN", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
-    ;(prisma.user.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])
     ;(prisma.$transaction as jest.Mock).mockImplementation(txWithOtherAdmins(0))
     const r = await updateUser(3, undefined, form({ name: "X", email: "x@x.com", role: "VIEWER" }))
     expect(r).toEqual({ error: "Cannot remove the last administrator" })
@@ -211,7 +211,7 @@ describe("last-admin guard", () => {
 
   it("blocks deleting the last ADMIN", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
     ;(prisma.$transaction as jest.Mock).mockImplementation(txWithOtherAdmins(0))
     const r = await deleteUser(3)
     expect(r).toEqual({ error: "Cannot delete the last administrator" })
@@ -219,8 +219,8 @@ describe("last-admin guard", () => {
 
   it("allows demoting an ADMIN when another ADMIN remains", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
-    ;(prisma.user.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])
     ;(prisma.$transaction as jest.Mock).mockImplementation(txWithOtherAdmins(1))
     await expect(updateUser(3, undefined, form({ name: "X", email: "x@x.com", role: "VIEWER" }))).rejects.toThrow(
       "NEXT_REDIRECT"
@@ -235,8 +235,8 @@ describe("last-admin guard", () => {
   // ADMIN (the target is now the sole admin), so the guard must still fire.
   it("reloads the target role inside the transaction, so a concurrent promotion still triggers the last-admin guard", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", archivedAt: null })
-    ;(prisma.user.findFirst as jest.Mock).mockResolvedValue(null)
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "VIEWER", email: "old@x.com", archivedAt: null })
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([])
     const txCount = jest.fn().mockResolvedValue(0) // tx-local: no other admins survive
     const txUpdate = jest.fn().mockResolvedValue({})
     ;(prisma.$transaction as jest.Mock).mockImplementation((cb: (tx: unknown) => unknown) =>
@@ -288,7 +288,7 @@ describe("deleteUser soft-delete", () => {
 describe("concurrent-write error translation", () => {
   it("maps a P2034 serialization abort to a retry prompt on delete", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN" })
+    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 3, role: "ADMIN", email: "old@x.com" })
     ;(prisma.$transaction as jest.Mock).mockRejectedValue(p2034)
     const r = await deleteUser(3)
     expect(r).toEqual({ error: "Cannot delete the last administrator — please try again." })
@@ -296,7 +296,7 @@ describe("concurrent-write error translation", () => {
 
   it("maps a P2002 on create to a friendly duplicate-email error", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null) // no pre-existing email
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([]) // no pre-existing email
     ;(prisma.user.create as jest.Mock).mockRejectedValue(p2002)
     const r = await createUser(undefined, form(VALID_USER))
     expect(r).toEqual({ error: "Email already in use" })
@@ -304,7 +304,7 @@ describe("concurrent-write error translation", () => {
 
   it("rejects a duplicate email caught by the pre-check on create", async () => {
     ;(auth as jest.Mock).mockResolvedValue(ADMIN)
-    ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 7 })
+    ;(prisma.$queryRaw as jest.Mock).mockResolvedValue([{ id: 7 }])
     const r = await createUser(undefined, form(VALID_USER))
     expect(r).toEqual({ error: "Email already in use" })
     expect(prisma.user.create).not.toHaveBeenCalled()

@@ -111,9 +111,9 @@ describe("createFirstAdmin", () => {
     expect(tx.appSetting.upsert).not.toHaveBeenCalled()
   })
 
-  it("trims but keeps the email's case (login matches it exactly as typed)", async () => {
+  it("trims and lowercases the email on write", async () => {
     await createFirstAdmin(fd({ ...valid, email: "  Admin@Example.com " }))
-    expect(tx.user.create.mock.calls[0][0].data.email).toBe("Admin@Example.com")
+    expect(tx.user.create.mock.calls[0][0].data.email).toBe("admin@example.com")
   })
   it("rejects a wrong token without touching the DB", async () => {
     const res = await createFirstAdmin(fd({ ...valid, token: "x".repeat(32) }))

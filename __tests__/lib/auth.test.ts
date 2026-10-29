@@ -18,6 +18,7 @@ jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -371,6 +372,163 @@ describe("authorizeCredentials", () => {
       otp: "654321",
     })
     expect(result).toMatchObject({ role: "VIEWER" })
+  })
+})
+
+describe("authorizeCredentials — email normalisation", () => {
+  const findUnique = prisma.user.findUnique as jest.Mock
+  const queryRaw = prisma.$queryRaw as jest.Mock
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.DISABLE_OTP
+    queryRaw.mockResolvedValue([])
+  })
+  // clearAllMocks keeps implementations: don't leak per-test rows into later suites.
+  afterEach(() => queryRaw.mockResolvedValue([]))
+
+  /**
+   * Mocks `exactMisses` unique-index misses (raw, then lowercased when the input
+   * differs in case), the raw id lookup and the fetch-by-id.
+   */
+  const legacyRow = (row: Record<string, unknown>, exactMisses = 1) => {
+    for (let i = 0; i < exactMisses; i++) findUnique.mockResolvedValueOnce(null)
+    findUnique.mockResolvedValueOnce(row)
+    queryRaw.mockResolvedValue([{ id: row.id }])
+  }
+
+  it("password path: tries the trimmed raw email on the unique index first", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    findUnique.mockResolvedValue({ ...baseUser, passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: "  Admin@Example.COM ", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(findUnique).toHaveBeenCalledWith({ where: { email: "Admin@Example.COM" } })
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("password path: a mixed-case-only legacy account matches on the exact raw email, no fallback", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    findUnique.mockResolvedValueOnce({ ...baseUser, id: 5, email: "Admin@Example.com", passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: " Admin@Example.com ", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(findUnique).toHaveBeenCalledTimes(1)
+    expect(findUnique).toHaveBeenCalledWith({ where: { email: "Admin@Example.com" } })
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("returns null without any DB lookup when the email exceeds 254 chars", async () => {
+    expect(await authorizeCredentials({ email: "a".repeat(250) + "@x.com", password: "x" })).toBeNull()
+    expect(findUnique).not.toHaveBeenCalled()
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("returns null without any DB lookup for a whitespace-only email", async () => {
+    await expect(authorizeCredentials({ email: "   ", password: "x" })).resolves.toBeNull()
+    expect(findUnique).not.toHaveBeenCalled()
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("OTP path: tries the trimmed raw email, then the lower-cased one, before the fallback", async () => {
+    findUnique.mockResolvedValue(null)
+    await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })
+    expect(findUnique).toHaveBeenNthCalledWith(1, { where: { email: "Secretary@Example.com" } })
+    expect(findUnique).toHaveBeenNthCalledWith(2, { where: { email: "secretary@example.com" } })
+  })
+
+  it("OTP path: authenticates via the case-insensitive fallback and consumes the OTP", async () => {
+    const validOtpExpiry = new Date(Date.now() + 5 * 60 * 1000)
+    legacyRow({
+      id: 5, name: "Secretary", email: "Admin@Example.com",
+      role: "VIEWER", failedLoginAttempts: 0, lockedUntil: null,
+      otpCode: "hashed:654321", otpExpiresAt: validOtpExpiry,
+    }, 2)
+    ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", otp: "654321" })
+    expect(queryRaw).toHaveBeenCalledTimes(1) // only the lower() fallback matched
+    expect(result).toMatchObject({ id: "5", role: "VIEWER" })
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 5 }),
+        data: expect.objectContaining({ otpCode: null }),
+      })
+    )
+  })
+
+  it("password path: falls back to a single case-insensitive match (user stored as Admin@Example.com)", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    legacyRow({ ...baseUser, email: "Admin@Example.com", passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(queryRaw).toHaveBeenCalledTimes(1)
+  })
+
+  it("fallback is a raw lower(email) = lower($1) query, so `_` and `%` are literal, not ILIKE wildcards", async () => {
+    findUnique.mockResolvedValue(null)
+    queryRaw.mockResolvedValue([])
+    expect(await authorizeCredentials({ email: " A_min@Example.com ", password: "x" })).toBeNull()
+    const [strings, ...values] = queryRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+    expect(strings.join("?")).toMatch(/lower\(email\) = lower\(\?\)/)
+    expect(strings.join("?")).not.toMatch(/ILIKE/i)
+    expect(values).toEqual(["A_min@Example.com"]) // bound parameter; Postgres lower() folds both sides
+  })
+
+  it("exact lowercase match resolves without the fallback query", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    findUnique.mockResolvedValue({ ...baseUser, id: 9, email: "admin@example.com", passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({})
+    await expect(
+      authorizeCredentials({ email: "admin@example.com", password: "correctpassword" })
+    ).rejects.toBeInstanceOf(OtpSent)
+    expect(queryRaw).not.toHaveBeenCalled()
+    expect((prisma.user.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 9 })
+  })
+
+  it("TOTP path: resolves a legacy mixed-case account via the shared lookup", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    legacyRow({ ...baseUser, email: "Admin@Example.com", passwordHash, totpEnabledAt: new Date("2026-09-01"), totpSecret: "enc:secret", otpLockedUntil: null }, 2)
+    ;(verifySecondFactor as jest.Mock).mockResolvedValue({ ok: true, via: "totp" })
+    const result = await authorizeCredentials({ email: " ADMIN@example.com ", password: "correctpassword", mode: "totp", code: "123456" })
+    expect(result).toMatchObject({ id: "1" })
+    expect(queryRaw).toHaveBeenCalledTimes(1) // only the lower() fallback matched
+    expect(verifySecondFactor).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), "123456", { resetLockouts: true })
+  })
+
+  it("returns null without a lookup when the password is not a string", async () => {
+    expect(await authorizeCredentials({ email: "admin@example.com", password: 12345 as unknown as string })).toBeNull()
+    expect(findUnique).not.toHaveBeenCalled()
+  })
+
+  it("demo path: looks up the normalised email directly (no fallback query)", async () => {
+    process.env.DEMO_MODE = "true"
+    try {
+      findUnique.mockResolvedValue({ id: 7, name: "Demo", email: "admin@demo.invalid", role: "ADMIN", archivedAt: null })
+      const result = await authorizeCredentials({ email: " Admin@Demo.Invalid ", mode: "demo" })
+      expect(result).toMatchObject({ id: "7" })
+      expect(findUnique).toHaveBeenCalledWith({ where: { email: "admin@demo.invalid" } })
+      expect(queryRaw).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.DEMO_MODE
+    }
+  })
+
+  it("counts case variants of one email against the same account's lockout counter", async () => {
+    const passwordHash = await hash("correctpassword", 10)
+    findUnique.mockResolvedValue({ ...baseUser, passwordHash })
+    ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+    for (const email of ["admin@example.com", "ADMIN@example.com", " Admin@Example.com "]) {
+      await authorizeCredentials({ email, password: "wrongpassword" })
+    }
+    const updates = (prisma.user.update as jest.Mock).mock.calls
+    expect(updates).toHaveLength(3)
+    for (const [arg] of updates) {
+      expect(arg.where).toEqual({ id: baseUser.id })
+      expect(arg.data.failedLoginAttempts).toEqual({ increment: 1 })
+    }
   })
 })
 
