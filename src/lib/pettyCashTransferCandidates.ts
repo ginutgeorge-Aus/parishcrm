@@ -60,9 +60,11 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
       paymentAccountId: true, pettyCashTransferId: true,
     },
     orderBy: { date: "desc" },
-    take: LEG_LIMIT,
+    // One extra row detects truncation without a false positive at exactly LEG_LIMIT.
+    take: LEG_LIMIT + 1,
   })
-  const legsTruncated = legs.length >= LEG_LIMIT
+  const legsTruncated = legs.length > LEG_LIMIT
+  if (legsTruncated) legs.length = LEG_LIMIT
   const legByDepositRef = new Map<string, (typeof legs)[number]>()
   for (const l of legs) if (l.bankRef) legByDepositRef.set(depositRefOfLeg(l.bankRef), l)
   if (!legByDepositRef.size) return { options: [], truncated: legsTruncated }

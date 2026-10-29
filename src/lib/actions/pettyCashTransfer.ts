@@ -114,7 +114,6 @@ export async function createTransfer(
       // as this transfer's ledger mirror — creating a second one would reduce
       // petty cash twice. All validation runs before any write.
       let adoptLegId: number | null = null
-      let adoptLegReference: string | null = null
       if (parsed.data.importedTransactionId !== undefined) {
         const deposit = await tx.transaction.findUnique({
           where: { id: parsed.data.importedTransactionId },
@@ -124,7 +123,7 @@ export async function createTransfer(
           deposit?.bankRef
             ? await tx.transaction.findUnique({
                 where: { bankRef: xferOutRef(deposit.bankRef) },
-                select: { id: true, type: true, accountId: true, amount: true, date: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
+                select: { id: true, type: true, accountId: true, amount: true, date: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true },
               })
             : null
         const problem = adoptionProblem(deposit, leg, { amount: parsed.data.amount, date: parsed.data.date }, {
@@ -132,7 +131,6 @@ export async function createTransfer(
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
         adoptLegId = leg!.id
-        adoptLegReference = leg!.reference
       }
       const transfer = await tx.pettyCashTransfer.create({
         data: {
@@ -149,8 +147,8 @@ export async function createTransfer(
       if (adoptLegId !== null) {
         await tx.transaction.update({
           where: { id: adoptLegId },
-          // Keep an existing reference; only fill an empty one (unlink restores it when it still equals the title).
-          data: { pettyCashTransferId: transfer.id, ...(adoptLegReference ? {} : { reference: existing.title }) },
+          // Link only: the leg's own reference is never touched, so unlink needs no restore.
+          data: { pettyCashTransferId: transfer.id },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptLegId, {
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
@@ -201,7 +199,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (off) return off
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
-    include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true } } },
+    include: { session: { select: { id: true, status: true } }, transaction: { select: { id: true, reconciled: true } } },
   })
   if (!transfer) return { error: "Transfer not found" }
   if (transfer.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
@@ -223,27 +221,19 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
       // Derived inside the tx (not from the pre-read) so a concurrent change to the
       // mirror can't leave `adopted` stale.
       let isAdopted = false
-      let mirrorReference: string | null = null
       if (transfer.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true, bankRef: true, reference: true } })
+        const mirror = await tx.transaction.findUnique({ where: { id: transfer.transaction.id }, select: { reconciled: true, bankRef: true } })
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
         isAdopted = mirror?.bankRef?.startsWith(XFER_OUT_PREFIX) ?? false
-        mirrorReference = mirror?.reference ?? null
       }
       // An adopted bank-import XFER_OUT leg is the import's own cash-out for a
       // deposit that stays in the ledger — unlink it so the cascade doesn't
       // delete it and leave the deposit without its matching cash-out.
-      // Adoption fills an empty reference with the session title, so a reference
-      // still equal to the title is cleared on unlink (re-adoption then refills it
-      // from the new session). Imported legs carry no reference of their own, so a
-      // title match is the adoption's doing; any other value is left untouched.
+      // Adoption only sets the link, so unlink only clears it.
       if (isAdopted) {
         await tx.transaction.update({
           where: { id: transfer.transaction!.id },
-          data: {
-            pettyCashTransferId: null,
-            ...(mirrorReference !== null && mirrorReference === transfer.session.title ? { reference: null } : {}),
-          },
+          data: { pettyCashTransferId: null },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", transfer.transaction!.id, {
           source: "petty-cash", pettyCashTransferId: id, action: "unlinked-from-transfer",

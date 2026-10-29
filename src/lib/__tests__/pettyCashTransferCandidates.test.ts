@@ -85,7 +85,7 @@ it("starts the leg query the day after the lock and caps the leg list newest-fir
     .mockResolvedValueOnce([depRow({ id: 1, bankRef: "A", date: new Date("2026-07-31"), amount: amt("50.00"), description: "x" })])
   await listImportedTransferCandidates()
   expect(findMany.mock.calls[0][0].where.date).toEqual({ gte: new Date("2026-07-01") })
-  expect(findMany.mock.calls[0][0].take).toBe(1000)
+  expect(findMany.mock.calls[0][0].take).toBe(1001)
   expect(findMany.mock.calls[0][0].orderBy).toEqual({ date: "desc" })
   expect(findMany.mock.calls[1][0].take).toBeUndefined()
 })
@@ -114,9 +114,15 @@ it("excludes a leg on the lock day itself (even at 05:00Z) via the query bound",
 })
 
 it("flags truncation when the leg cap is hit, even with no valid pairs", async () => {
-  findMany.mockResolvedValueOnce(Array.from({ length: 1000 }, (_, i) => legRow({ bankRef: `XFER_OUT_R${i}` })))
+  findMany.mockResolvedValueOnce(Array.from({ length: 1001 }, (_, i) => legRow({ bankRef: `XFER_OUT_R${i}` })))
   findMany.mockResolvedValueOnce([])
   await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: true })
+})
+
+it("does not flag truncation at exactly the leg cap", async () => {
+  findMany.mockResolvedValueOnce(Array.from({ length: 1000 }, (_, i) => legRow({ bankRef: `XFER_OUT_R${i}` })))
+  findMany.mockResolvedValueOnce([])
+  await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: false })
 })
 
 it("keeps older valid pairs and caps only the final list, flagging truncation", async () => {

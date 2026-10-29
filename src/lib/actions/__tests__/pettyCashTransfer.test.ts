@@ -87,9 +87,9 @@ describe("createTransfer — imported deposit", () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it("keeps an existing leg reference when adopting", async () => {
+  it("only sets the link when adopting (never touches reference)", async () => {
     const update = jest.fn()
-    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, reference: "Orig" })
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce(okLeg)
     await run({ ...base(), transaction: { findUnique, update, create: jest.fn() } })
     expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3 })
   })
@@ -158,10 +158,10 @@ describe("createTransfer — imported deposit", () => {
 describe("deleteTransfer — adopted leg", () => {
   const findTransfer = prisma.pettyCashTransfer.findUnique as jest.Mock
   const old = new Date("2015-01-01")
-  function setup(mirror: { reconciled: boolean; bankRef: string | null; reference: string | null }) {
+  function setup(mirror: { reconciled: boolean; bankRef: string | null }) {
     findTransfer.mockResolvedValue({
       id: 5, date: old, amount: 50, sessionId: 1,
-      session: { id: 1, status: "OPEN", title: "Sess" },
+      session: { id: 1, status: "OPEN" },
       transaction: { id: 11, reconciled: false }, // stale pre-read: not adopted
     })
     const update = jest.fn()
@@ -174,22 +174,16 @@ describe("deleteTransfer — adopted leg", () => {
     return update
   }
 
-  it("derives adopted from the in-tx mirror read, unlinks (clears the title we set) and audits", async () => {
-    const update = setup({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: "Sess" })
+  it("derives adopted from the in-tx mirror read, unlinks (link only) and audits", async () => {
+    const update = setup({ reconciled: false, bankRef: "XFER_OUT_ANZ_1" })
     await deleteTransfer(5)
-    expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null, reference: null } })
+    expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null } })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "unlinked-from-transfer" }))
     expect(logAudit).not.toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.anything())
   })
 
-  it("leaves a different original reference untouched", async () => {
-    const update = setup({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: "Orig" })
-    await deleteTransfer(5)
-    expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null } })
-  })
-
   it("treats a normal mirror as not adopted (cascade delete audited)", async () => {
-    const update = setup({ reconciled: false, bankRef: "PC_T_5", reference: "Sess" })
+    const update = setup({ reconciled: false, bankRef: "PC_T_5" })
     await deleteTransfer(5)
     expect(update).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))

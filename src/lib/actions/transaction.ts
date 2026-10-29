@@ -10,7 +10,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
-import { xferOutRef } from "@/lib/xferRefs"
+import { xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
 import { ymd } from "@/lib/dates"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
@@ -313,7 +313,13 @@ export async function updateTransaction(
     if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
     // An imported deposit whose cash-out leg a petty cash transfer adopted must keep
     // matching it (amount, date, type, category). Read in-tx so a concurrent adoption can't slip past.
-    if (existing.bankRef && adoptionFieldsChanged(existing, parsed.data) && (await depositLinkedToTransfer(tx, existing.bankRef)))
+    // The change test uses the row as read in this tx, not the pre-read, so a concurrent edit can't make it stale.
+    const current = await tx.transaction.findUnique({
+      where: { id },
+      select: { date: true, amount: true, type: true, accountId: true, bankRef: true },
+    })
+    if (!current) return { error: "Not found" }
+    if (current.bankRef && adoptionFieldsChanged(current, parsed.data) && (await depositLinkedToTransfer(tx, current.bankRef)))
       return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
       where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
@@ -363,7 +369,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
+    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true, account: { select: { code: true } } },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
@@ -386,8 +392,12 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // The paired-leg check and the delete share one Serializable transaction so a concurrent
   // createTransfer adoption of this deposit's XFER_OUT leg can't commit between them. Rows
   // without a bankRef have no paired leg, so skip that query.
+  // Only an imported deposit (INCOME on the XFER account, bankRef not itself an XFER_OUT leg) can have an
+  // adoptable leg; every other row skips the lookup.
+  const mayHaveAdoptedLeg = !!existing.bankRef && existing.type === "INCOME" && existing.account?.code === "XFER"
+    && !existing.bankRef.startsWith(XFER_OUT_PREFIX)
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
-    if (existing.bankRef && (await depositLinkedToTransfer(tx, existing.bankRef))) return { error: DEPOSIT_LINKED_ERROR }
+    if (mayHaveAdoptedLeg && (await depositLinkedToTransfer(tx, existing.bankRef!))) return { error: DEPOSIT_LINKED_ERROR }
     // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
     // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
     return tx.transaction.deleteMany({
