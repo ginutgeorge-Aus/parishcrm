@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { isIP } from "node:net"
 import { logger } from "@/lib/logger"
 
@@ -191,19 +192,50 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
   return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }
 
+/** Raw rate-limit keys longer than this are replaced by a short hash so attacker data stays bounded. */
+const MAX_RAW_KEY_LENGTH = 64
+
 /**
- * Rate-limit key from a headers object: the validated IP when resolvable (see `clientIpOrUndefined`);
- * otherwise, on the default x-forwarded-for path only, the raw trimmed rightmost entry (so distinct
- * odd values do not collapse into one shared bucket, as before strict validation existed); else
- * "unknown". Every rate-limit caller must use this (or `getClientIp`) rather than
- * `clientIpOrUndefined`, so malformed entries behave the same everywhere. The raw value is a bucket
- * key only: it must never be persisted (use `clientIpOrUndefined` for `AuditLog.ip`). A configured
- * `CLIENT_IP_HEADER` is never read raw.
+ * Rightmost NON-empty `x-forwarded-for` entry (empty trailing entries such as `203.0.113.5,` are
+ * skipped), for rate-limit keys only. Values over `MAX_RAW_KEY_LENGTH` chars become `h:` + 16 hex
+ * of their sha256, so an attacker cannot write kilobytes into the rate-limit table.
+ * @param h anything with `get`
+ * @returns the (possibly hashed) raw entry, or undefined when there is none
+ */
+function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
+  const entry = h
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .at(-1)
+  if (!entry) return undefined
+  return entry.length > MAX_RAW_KEY_LENGTH ? `h:${createHash("sha256").update(entry).digest("hex").slice(0, 16)}` : entry
+}
+
+/**
+ * Rate-limit key from a headers object, or undefined when the request carries nothing usable: the
+ * validated IP when resolvable (see `clientIpOrUndefined`); otherwise, on the default
+ * x-forwarded-for path only, the raw non-empty rightmost entry (length-capped, see
+ * `rawRateLimitEntry`) so distinct odd values do not collapse into one shared bucket. A configured
+ * `CLIENT_IP_HEADER` is never read raw. A bucket key only: never persist it.
+ * @param h anything with `get`
+ * @returns the key, or undefined when none is available
+ */
+export function clientIpKeyOrUndefined(h?: Pick<Headers, "get"> | null): string | undefined {
+  if (!h) return undefined
+  return clientIpOrUndefined(h) ?? rawRateLimitEntry(h)
+}
+
+/**
+ * Rate-limit key from a headers object (see `clientIpKeyOrUndefined`), "unknown" when none.
+ * Every rate-limit caller must use this (or `getClientIp`) rather than `clientIpOrUndefined`, so
+ * malformed entries behave the same everywhere; use `clientIpOrUndefined` for `AuditLog.ip`.
  * @param h anything with `get`
  * @returns the bucket key (never empty)
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
-  return clientIpOrUndefined(h) ?? rightmostEntry(h, "x-forwarded-for") ?? "unknown"
+  return clientIpKeyOrUndefined(h) ?? "unknown"
 }
 
 /**

@@ -243,6 +243,12 @@ describe("removePasskey", () => {
 })
 
 describe("startPasskeyLogin", () => {
+  it("keys the throttle on the raw rightmost XFF entry when it is not a valid IP", async () => {
+    const { headers } = jest.requireMock("next/headers") as { headers: jest.Mock }
+    headers.mockResolvedValueOnce(new Headers({ "x-forwarded-for": "evil:80" }))
+    await startPasskeyLogin()
+    expect(dbRateLimit).toHaveBeenCalledWith("passkey:login:ip:evil:80", 10, 60_000)
+  })
   it("issues a usernameless, user-verified login challenge", async () => {
     await expect(startPasskeyLogin()).resolves.toEqual({ challengeId: "ch1", options: { challenge: "auth-ch" } })
     expect(generateAuthenticationOptions).toHaveBeenCalledWith({ rpID: RP.rpID, userVerification: "required", allowCredentials: [] })

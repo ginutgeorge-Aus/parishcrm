@@ -12,7 +12,7 @@ import { logAudit } from "@/lib/audit"
 import { parseTrustedDeviceCookie, hashDeviceToken, generateDeviceToken, DEVICE_TRUST_GRANT_PREFIX, DEVICE_TRUST_GRANT_TTL_MS } from "@/lib/trustedDevice"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
@@ -191,10 +191,11 @@ async function verifyPassword(email: string, password: string, ip: string | unde
 
 // Per-IP throttle shared by both providers (the e2e exemption and its rationale
 // are documented at the call site in authorizeCredentials). `bucket`/`limit`
-// let demo one-click logins use their own, larger bucket.
-async function loginIpAllowed(ip: string | undefined, bucket = "login:ip", limit = 10): Promise<boolean> {
+// let demo one-click logins use their own, larger bucket. Keyed on the shared rate-limit resolver
+// (clientIpFromHeaders), not the validated-only audit IP, so odd XFF values do not share one bucket.
+async function loginIpAllowed(request: Request | undefined, bucket = "login:ip", limit = 10): Promise<boolean> {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
-  if (await dbRateLimit(`${bucket}:${ip ?? "unknown"}`, limit, 60_000)) return true
+  if (await dbRateLimit(`${bucket}:${request ? clientIpFromHeaders(request.headers) : "unknown"}`, limit, 60_000)) return true
   // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
   // diagnosable from container logs. No PII beyond the ip already logged.
   logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
@@ -210,7 +211,7 @@ export async function authorizePasskey(
   request?: Request,
 ) {
   const ip = clientIpFrom(request)
-  if (!(await loginIpAllowed(ip))) return null
+  if (!(await loginIpAllowed(request))) return null
   const rp = getRelyingParty()
   if (!rp || typeof credentials.assertion !== "string" || credentials.assertion.length > 16_384) return null
   // Consume first: a malformed or unknown-credential attempt still burns the challenge.
@@ -325,14 +326,14 @@ export async function authorizeCredentials(
   if (credentials.mode === "demo") {
     const email = demoEmail
     if (!isDemoMode() || !isDemoEmail(email)) return null
-    if (!(await loginIpAllowed(ip, "login:demo", 120))) return null
+    if (!(await loginIpAllowed(request, "login:demo", 120))) return null
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user || user.archivedAt) return null
     void logAudit(user.id, "USER_LOGIN", "User", user.id, { demo: true }, ip)
     return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: false }
   }
 
-  if (!(await loginIpAllowed(ip))) return null
+  if (!(await loginIpAllowed(request))) return null
 
   // Live demo users have no password path (one-click login is handled above).
   if (isDemoMode() && isDemoEmail(demoEmail) && credentials.mode !== "demo") {

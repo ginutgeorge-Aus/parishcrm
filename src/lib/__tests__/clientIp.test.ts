@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp, getValidatedClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpKeyOrUndefined, clientIpOrUndefined, getClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -49,9 +49,9 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(h())).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
-  it("an empty trailing entry is untrusted (pass-through), not skipped", () => {
-    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("unknown")
-    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
+  it("an empty trailing entry gives no validated IP (audit) but the rate-limit key skips it", () => {
+    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("6.6.6.6")
+    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("1.1.1.1")
     expect(clientIpOrUndefined(h("6.6.6.6, "))).toBeUndefined()
   })
 })
@@ -367,5 +367,29 @@ describe("audit vs rate-limit resolvers disagree only on malformed entries", () 
     expect(getValidatedClientIp(req("1.1.1.1, 203.0.113.9"))).toBe("203.0.113.9")
     expect(getValidatedClientIp(new Request("http://x.test/"))).toBeUndefined()
     expect(getClientIp(new Request("http://x.test/"))).toBe("unknown")
+  })
+})
+
+describe("rate-limit key edge cases", () => {
+  beforeEach(() => {
+    delete process.env.CLIENT_IP_HEADER
+  })
+  it("skips empty trailing XFF entries for the key (as before strict validation)", () => {
+    expect(clientIpFromHeaders(h("203.0.113.5,"))).toBe("203.0.113.5")
+    expect(clientIpFromHeaders(h("garbage, ,"))).toBe("garbage")
+    expect(clientIpFromHeaders(h(","))).toBe("unknown")
+  })
+  it("clientIpKeyOrUndefined returns undefined only when nothing is usable; 'unknown' is a real key", () => {
+    expect(clientIpKeyOrUndefined(h())).toBeUndefined()
+    expect(clientIpKeyOrUndefined(h(","))).toBeUndefined()
+    expect(clientIpKeyOrUndefined(h("unknown"))).toBe("unknown")
+  })
+  it("replaces an oversized raw entry with a short stable hash", () => {
+    const big = "x".repeat(8000)
+    const key = clientIpFromHeaders(h(big))
+    expect(key).toMatch(/^h:[0-9a-f]{16}$/)
+    expect(clientIpFromHeaders(h(big))).toBe(key)
+    expect(clientIpFromHeaders(h("y".repeat(8000)))).not.toBe(key)
+    expect(clientIpFromHeaders(h("z".repeat(64)))).toBe("z".repeat(64))
   })
 })

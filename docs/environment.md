@@ -67,7 +67,8 @@ values the app uses the rightmost, and it must be a valid IP.
   process, header name only.
 - Only a well-formed IP is ever persisted as an IP (audit log) or sent as Turnstile `remoteip` by the membership and public-feedback forms (event registration and waitlist send their rate-limit key, which may be the raw value, as before). An empty rightmost
   entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. For rate-limit
-  keys only, a non-IP rightmost `x-forwarded-for` entry is used as-is (as before), never the
+  keys only, a non-IP rightmost `x-forwarded-for` entry is used as-is (as before; empty trailing
+  entries are skipped, and values over 64 characters are replaced by a short hash), never the
   whole header; a non-IP `CLIENT_IP_HEADER` value is never used.
 - `cloudfront-viewer-address` carries `ip:port`; the port is stripped (including for unbracketed IPv6).
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
