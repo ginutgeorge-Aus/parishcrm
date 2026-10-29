@@ -111,7 +111,7 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
 
   // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // never trust caller input for throttling.
-  // ip: validated (Turnstile remoteip); rateKey: bucket key, never persisted.
+  // ip: validated (Turnstile remoteip); rateKey: bucket key (IPv4 or IPv6 /64, else "unknown").
   const { ip, key: rateKey } = resolveClientIp(await headers())
 
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }

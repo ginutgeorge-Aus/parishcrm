@@ -239,7 +239,7 @@ describe("requestPasswordReset — rate limit", () => {
     expect(emailKey).toMatch(/^pwreset:email:[0-9a-f]{64}$/)
   })
 
-  it("checks the IP limiter only when an IP is present", async () => {
+  it("checks the per-IP limiter keyed on the client IP", async () => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "9.9.9.9" }))
     await requestPasswordReset("u@e.com")
@@ -247,26 +247,20 @@ describe("requestPasswordReset — rate limit", () => {
     expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:9.9.9.9")
   })
 
-  it("skips the IP limiter when no XFF header is present (no 'unknown' bucket)", async () => {
+  it("applies the shared 'unknown' per-IP bucket when no XFF header is present", async () => {
     mockFindUnique.mockResolvedValue(null)
     mockHeaders.mockResolvedValue(new Headers()) // no x-forwarded-for
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(1)
-    expect(mockDbRateLimit.mock.calls[0][0]).toMatch(/^pwreset:email:/)
+    expect(mockDbRateLimit).toHaveBeenCalledTimes(2)
+    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:unknown")
   })
 
-  it("skips the per-IP guard (no usable IP) when the rightmost XFF entry is not a valid IP", async () => {
+  it.each(["999.1.1.1", "unknown"])("uses the 'unknown' per-IP bucket when the rightmost XFF entry (%s) is not a valid IP", async (xff) => {
     mockFindUnique.mockResolvedValue(null)
-    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "999.1.1.1" }))
+    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": xff }))
     await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(1) // email limiter only; invalid IP is no IP
-  })
-
-  it("treats a literal 'unknown' XFF entry as no IP (per-IP guard skipped, like an absent header)", async () => {
-    mockFindUnique.mockResolvedValue(null)
-    mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "unknown" }))
-    await requestPasswordReset("u@e.com")
-    expect(mockDbRateLimit).toHaveBeenCalledTimes(1) // email limiter only
+    expect(mockDbRateLimit).toHaveBeenCalledTimes(2)
+    expect(mockDbRateLimit.mock.calls[1][0]).toBe("pwreset:ip:unknown")
   })
 
   it("blocks when the IP limiter denies (email allowed)", async () => {

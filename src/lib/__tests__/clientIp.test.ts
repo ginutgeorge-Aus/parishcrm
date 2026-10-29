@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpKeyOrUndefined, clientIpOrUndefined, getClientIp, resolveClientIp, getValidatedClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp, resolveClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -53,7 +53,6 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("unknown")
     expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
     expect(clientIpOrUndefined(h("6.6.6.6,"))).toBeUndefined()
-    expect(clientIpKeyOrUndefined(h("6.6.6.6,"))).toBeUndefined()
     expect(clientIpOrUndefined(h("6.6.6.6, "))).toBeUndefined()
   })
 })
@@ -111,7 +110,7 @@ describe("CLIENT_IP_HEADER", () => {
   it("accepts IPv6", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "2001:db8::1" })
-    expect(clientIpFromHeaders(headers)).toBe("2001:db8::1")
+    expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
     expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
   })
 })
@@ -140,7 +139,6 @@ describe("CLIENT_IP_HEADER — normalisation", () => {
   ]
   it.each(cases)("%s -> %s", (input, expected) => {
     const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": input })
-    expect(clientIpFromHeaders(headers)).toBe(expected)
     expect(clientIpOrUndefined(headers)).toBe(expected)
   })
   it("rejects a non-IP with a port-like suffix (falls back to XFF)", () => {
@@ -246,7 +244,7 @@ describe("XFF normalisation (default path)", () => {
   it("keys on the real parsed IP of the rightmost XFF entry (a trailing empty entry is untrusted)", () => {
     expect(clientIpFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("unknown")
     expect(clientIpFromHeaders(h("203.0.113.9:8080"))).toBe("203.0.113.9")
-    expect(clientIpFromHeaders(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
+    expect(clientIpOrUndefined(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
   })
   it("non-IP-shaped rightmost entries collapse into the shared unknown bucket", () => {
     for (const v of ["1:1", "1:2", "a:b", "1.2.3.4.5", "dead:beef", "999.1.1.1", "a1", "a2", "evil", "evil:80", "garbage", "unknown", "x".repeat(8000)]) {
@@ -262,7 +260,7 @@ describe("XFF normalisation (default path)", () => {
   })
   it("canonicalises equivalent IPv6 spellings to one key", () => {
     for (const v of ["2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", "[2001:db8::1]:8080", "2001:db8::1%eth0"]) {
-      expect(clientIpFromHeaders(h(v))).toBe("2001:db8::1")
+      expect(clientIpOrUndefined(h(v))).toBe("2001:db8::1")
     }
     expect(clientIpFromHeaders(h("0:0:0:0:0:ffff:1.2.3.4"))).toBe("1.2.3.4")
     expect(clientIpFromHeaders(h("0:0:0:0:0:ffff:102:304"))).toBe("1.2.3.4")
@@ -272,7 +270,7 @@ describe("XFF normalisation (default path)", () => {
     expect(clientIpOrUndefined(h("1.2.3.4%eth0"))).toBeUndefined()
   })
   it("strips an IPv6 zone id", () => {
-    expect(clientIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
+    expect(clientIpOrUndefined(h("fe80::1%eth0"))).toBe("fe80::1")
     expect(clientIpOrUndefined(h("fe80::1%eth0"))).toBe("fe80::1")
   })
   it("unwraps hex IPv4-mapped IPv6 for the audit IP too", () => {
@@ -307,8 +305,11 @@ describe("classifyClientIpHeader", () => {
     }
     expect(classifyClientIpHeader(" True-Client-IP ").kind).toBe("passthrough")
     expect(classifyClientIpHeader(" X-Real-IP ")).toEqual({ kind: "passthrough", name: "x-real-ip" })
-    for (const n of ["cf-connecting-ip", "fly-client-ip", "x-azure-clientip", "x-azure-socketip", "fastly-client-ip", "x-envoy-external-address"]) {
+    for (const n of ["cf-connecting-ip", "fly-client-ip", "x-azure-clientip", "fastly-client-ip"]) {
       expect(classifyClientIpHeader(n).kind).toBe("cdn")
+    }
+    for (const n of ["x-azure-socketip", "x-envoy-external-address"]) {
+      expect(classifyClientIpHeader(n).kind).toBe("passthrough")
     }
     expect(classifyClientIpHeader("x-my-proxy-ip")).toEqual({ kind: "custom", name: "x-my-proxy-ip" })
   })
@@ -331,7 +332,6 @@ describe("CLIENT_IP_HEADER=cloudfront-viewer-address (ip:port)", () => {
   ]
   it.each(cases)("%s -> %s", (input, expected) => {
     const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cloudfront-viewer-address": input })
-    expect(clientIpFromHeaders(headers)).toBe(expected)
     expect(clientIpOrUndefined(headers)).toBe(expected)
   })
 })
@@ -382,11 +382,23 @@ describe("rate-limit key edge cases", () => {
     expect(clientIpFromHeaders(h("999.1.1.1, ,"))).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
-  it("clientIpKeyOrUndefined returns undefined only when nothing is usable; 'unknown' is a real key", () => {
-    expect(clientIpKeyOrUndefined(h())).toBeUndefined()
-    expect(clientIpKeyOrUndefined(h(","))).toBeUndefined()
-    expect(clientIpKeyOrUndefined(h("unknown"))).toBeUndefined()
+  it("a literal 'unknown' entry is no IP and keys on the shared bucket", () => {
+    expect(clientIpOrUndefined(h("unknown"))).toBeUndefined()
     expect(clientIpFromHeaders(h("unknown"))).toBe("unknown")
+  })
+  it("IPv6 keys on its /64 prefix; IPv4 is unchanged; the audit ip stays the full address", () => {
+    const a = resolveClientIp(h("2001:db8:1:2::1"))
+    const b = resolveClientIp(h("2001:DB8:1:2:aaaa:bbbb:cccc:dddd"))
+    const c = resolveClientIp(h("2001:db8:1:3::1"))
+    expect(a.key).toBe("2001:db8:1:2::/64")
+    expect(b.key).toBe(a.key)
+    expect(c.key).not.toBe(a.key)
+    expect(resolveClientIp(h("[2001:db8::7]:443")).key).toBe("2001:db8:0:0::/64")
+    expect(resolveClientIp(h("::1")).key).toBe("0:0:0:0::/64")
+    expect(resolveClientIp(h("203.0.113.5")).key).toBe("203.0.113.5")
+    expect(a.ip).toBe("2001:db8:1:2::1")
+    expect(b.ip).toBe("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
+    expect(clientIpFromHeaders(h("2001:db8:1:2::9"))).toBe(a.key)
   })
   it("an oversized junk entry collapses into the unknown bucket", () => {
     expect(clientIpFromHeaders(h("1.".repeat(4000)))).toBe("unknown")

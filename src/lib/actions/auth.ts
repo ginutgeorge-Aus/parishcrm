@@ -8,7 +8,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
-import { clientIpKeyOrUndefined } from "@/lib/clientIp"
+import { resolveClientIp } from "@/lib/clientIp"
 import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
 
 
@@ -21,14 +21,12 @@ const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
 /**
- * Per-IP throttle key for the password-reset DoS guard: the same rate-limit key resolver as every
- * other limiter (validated IP, else the raw rightmost x-forwarded-for entry), or null when the
- * request carries no usable value at all (no throttle key, so the per-IP guard is skipped).
- * A bucket key only, never persisted.
- * @returns the key, or null when none is available
+ * Per-IP throttle key for the password-reset DoS guard: the shared rate-limit key (IPv4, or the IPv6
+ * /64 prefix), or "unknown" when the request carries no valid IP, like the other limiters.
+ * @returns the bucket key (never empty)
  */
-async function resetRateLimitKey(): Promise<string | null> {
-  return clientIpKeyOrUndefined(await headers()) ?? null
+async function resetRateLimitKey(): Promise<string> {
+  return resolveClientIp(await headers()).key
 }
 
 // Randomized 200–500 ms delay on fast-return paths so they take roughly as
@@ -60,9 +58,9 @@ export async function requestPasswordReset(
   if (!(await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
   }
-  // Secondary: per-IP DoS guard, only when a real client IP is available.
+  // Secondary: per-IP DoS guard; requests with no valid IP share the "unknown" bucket.
   const ip = await resetRateLimitKey()
-  if (ip && !(await dbRateLimit(`pwreset:ip:${ip}`, RESET_LIMIT, RESET_WINDOW_MS))) {
+  if (!(await dbRateLimit(`pwreset:ip:${ip}`, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
   }
 

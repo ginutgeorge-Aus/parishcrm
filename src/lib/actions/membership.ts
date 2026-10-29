@@ -52,8 +52,8 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
   // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
-  // a client cannot set its own, so we never trust input.ip for throttling.
-  // ip: validated (Turnstile remoteip); rateKey: bucket key, never persisted.
+  // a client cannot set its own, so input.ip is never used.
+  // ip: validated (Turnstile remoteip); rateKey: bucket key (IPv4 or IPv6 /64, else "unknown").
   const { ip, key: rateKey } = resolveClientIp(await headers())
   // Generous in-memory throttle before the feature read, so a flooding host
   // never reaches the settings table. The real quotas below are spent only

@@ -79,7 +79,7 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   // address; warn the operator instead. Logged after the limit so the shared
   // bucket also caps how often this can be written.
   if (!ip) {
-    logger.warn("setup: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For — /setup clients without a distinct raw x-forwarded-for entry share one rate-limit bucket", {
+    logger.warn("setup: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For — requests with no valid IP share the `unknown` rate-limit bucket", {
       hint: "run behind a reverse proxy that sets X-Forwarded-For (or set CLIENT_IP_HEADER), or use scripts/create-admin-user.ts",
     })
   }

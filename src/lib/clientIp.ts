@@ -19,16 +19,23 @@ const SPOOFABLE_HEADERS = new Set([
 
 // Headers some proxies set but others pass through from the client untouched. Still honoured (nginx
 // commonly overwrites x-real-ip; Cloudflare Free/Pro passes a client-sent true-client-ip through), but surfaced as a boot warning so the operator confirms it.
-const PASSTHROUGH_HEADERS = new Set(["x-real-ip", "x-client-ip", "client-ip", "x-originating-ip", "x-cluster-client-ip", "true-client-ip"])
+const PASSTHROUGH_HEADERS = new Set([
+  "x-real-ip",
+  "x-client-ip",
+  "client-ip",
+  "x-originating-ip",
+  "x-cluster-client-ip",
+  "true-client-ip",
+  "x-envoy-external-address", // Envoy only sets it when it is the edge; behind another proxy a client value survives
+  "x-azure-socketip", // socket peer as seen by Azure; not guaranteed to be the end client behind further hops
+])
 
 // Documented CDN/edge/proxy client-IP headers, which the platform overwrites on every request.
 const KNOWN_CDN_HEADERS = new Set([
   "cf-connecting-ip",
   "fly-client-ip",
   "x-azure-clientip",
-  "x-azure-socketip",
   "fastly-client-ip",
-  "x-envoy-external-address",
   "x-appengine-user-ip",
   "cloudfront-viewer-address",
 ])
@@ -161,8 +168,8 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
  * rightmost `x-forwarded-for` entry (appended by the trusted proxy; earlier entries are
  * attacker-controlled). Only a well-formed, canonicalised IP is returned: a crafted/odd value
  * (`unknown`, `evil:80`, an empty trailing entry) yields undefined so it never reaches
- * `AuditLog.ip` or a validated-IP consumer. Callers needing a rate-limit key use
- * `clientIpFromHeaders` instead.
+ * `AuditLog.ip` or a validated-IP consumer. Rate limiters use the bucket key from
+ * `resolveClientIp` / `clientIpFromHeaders`.
  * @param h anything with `get` (Server Components pass `await headers()`); null/undefined allowed
  * @returns the validated IP, or undefined
  */
@@ -172,36 +179,37 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
 }
 
 /**
- * Rate-limit key from a headers object, or undefined when the request carries no usable IP. It is
- * the same trusted entry as the audit IP (`clientIpOrUndefined`): the `CLIENT_IP_HEADER` IP when
- * configured and valid, else the rightmost `x-forwarded-for` entry. Any entry that is not a
- * well-formed IP (`a1`, `evil`, `unknown`, an empty trailing entry such as `6.6.6.6,`) yields
- * undefined and so shares the single `unknown` bucket, so an attacker cannot mint a bucket (and a
- * rate-limit row) per request. Valid forms (IPv4, IPv4:port, `[v6]:port`) key on the canonical IP.
- * A bucket key only: never persist it.
- * @param h anything with `get`
- * @returns the key, or undefined when none is available
+ * Rate-limit bucket for a canonical IP: IPv4 as-is; IPv6 collapses to its /64 prefix (the first four
+ * hextets of the expanded address, e.g. `2001:db8:1:2::/64`) because one subscriber typically controls
+ * a whole /64 and could otherwise mint unlimited buckets.
+ * @param ip a canonical IP from `normalizeIp`
+ * @returns the bucket key
  */
-export function clientIpKeyOrUndefined(h?: Pick<Headers, "get"> | null): string | undefined {
-  return clientIpOrUndefined(h)
+function bucketFor(ip: string): string {
+  if (!ip.includes(":")) return ip
+  const [head, tail = ""] = ip.split("::")
+  const headParts = head ? head.split(":") : []
+  const tailParts = tail ? tail.split(":") : []
+  const parts = ip.includes("::") ? [...headParts, ...Array<string>(8 - headParts.length - tailParts.length).fill("0"), ...tailParts] : headParts
+  return `${parts.slice(0, 4).map((x) => parseInt(x, 16).toString(16)).join(":")}::/64`
 }
 
 /**
- * Resolves headers once into both the validated IP (audit / Turnstile `remoteip`; undefined when
- * none) and the rate-limit bucket key (that IP, else "unknown"). The two always agree on the
- * trusted entry.
+ * Resolves headers once into the validated IP (audit / Turnstile `remoteip`; undefined when none,
+ * full canonical address) and the rate-limit bucket key (IPv4 as-is, IPv6 its /64 prefix, else
+ * "unknown"). The two always agree on the trusted entry; resolve once per request and reuse both.
  * @param h anything with `get`
  * @returns the validated IP (or undefined) and the bucket key (never empty)
  */
 export function resolveClientIp(h: Pick<Headers, "get">): { ip: string | undefined; key: string } {
   const ip = clientIpOrUndefined(h)
-  return { ip, key: ip ?? "unknown" }
+  return { ip, key: ip ? bucketFor(ip) : "unknown" }
 }
 
 /**
- * Rate-limit key from a headers object (see `clientIpKeyOrUndefined`), "unknown" when none.
+ * Rate-limit bucket key from a headers object (see `resolveClientIp`), "unknown" when none.
  * Every rate-limit caller must use this (or `getClientIp`) so malformed entries behave the same
- * everywhere; use `clientIpOrUndefined` for `AuditLog.ip`.
+ * everywhere; `AuditLog.ip` uses `clientIpOrUndefined`.
  * @param h anything with `get`
  * @returns the bucket key (never empty)
  */
@@ -210,8 +218,9 @@ export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
 }
 
 /**
- * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`; a canonical IP or "unknown"). Never use this for audit logs: use {@link getValidatedClientIp}.
- * Typed against `Request` (the `NextRequest` supertype) so it accepts both; it only reads `headers`.
+ * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`). Audit logs use
+ * {@link getValidatedClientIp}. Typed against `Request` (the `NextRequest` supertype) so it accepts
+ * both; it only reads `headers`.
  * @param req the request
  * @returns the bucket key (never empty)
  */

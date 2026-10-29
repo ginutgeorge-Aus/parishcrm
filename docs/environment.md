@@ -71,17 +71,18 @@ values the app uses the rightmost, and it must be a valid IP.
   the same trusted entry as the audit IP: any rightmost `x-forwarded-for` entry that is not a
   well-formed IP (`a1`, `evil`, a literal `unknown`, an empty trailing entry) shares the single
   `unknown` bucket, never the whole header; valid IPv4, `ip:port` and `[v6]:port` forms key on the
-  canonical IP. A non-IP `CLIENT_IP_HEADER` value is never used.
+  canonical IP, except IPv6, which keys on its /64 prefix (one subscriber typically controls a whole /64).
+  The audit IP stays the full address. A non-IP `CLIENT_IP_HEADER` value is never used.
 - `cloudfront-viewer-address` carries `ip:port`; the port is stripped (including for unbracketed IPv6).
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
   (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,
   `x-original-forwarded-for`).
 - Known CDN/proxy headers (`cf-connecting-ip`, `fly-client-ip`, `x-azure-clientip`,
-  `x-azure-socketip`, `fastly-client-ip`, `x-envoy-external-address`, `x-appengine-user-ip`,
+  `fastly-client-ip`, `x-appengine-user-ip`,
   `cloudfront-viewer-address`) and any other custom name are honoured without a boot warning; confirm
   your proxy overwrites the header.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
-  `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through) are honoured, with a boot-log warning so you confirm your
+  `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through, `x-envoy-external-address`, `x-azure-socketip`) are honoured, with a boot-log warning so you confirm your
   proxy overwrites them.
 - IPv6 values are canonicalised (case, zero compression, `::ffff:a.b.c.d` unwrapped to IPv4, zone id
   and port stripped) so equivalent spellings share one rate-limit bucket.

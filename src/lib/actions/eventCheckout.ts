@@ -9,7 +9,7 @@ import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
-import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
+import { clientIpFromHeaders, resolveClientIp } from "@/lib/clientIp"
 
 /**
  * Public entry point for the optional Stripe event-payments flow: prices the
@@ -28,9 +28,9 @@ export async function startEventCheckout(
   }
 
   const h = await headers()
-  // Same rule as the register route (getClientIp): CLIENT_IP_HEADER if set, else rightmost x-forwarded-for.
-  const ip = clientIpFromHeaders(h)
-  if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
+  // Resolved once, same rule as the register route: `key` (IPv4 or IPv6 /64) feeds the limiter, `ip` is the validated address.
+  const { ip, key } = resolveClientIp(h)
+  if (!rateLimit(`checkout:${key}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
@@ -64,7 +64,7 @@ export async function startEventCheckout(
     return { ok: false, status: 400, error: "Online payment not enabled for this event" }
   }
 
-  const v = await validateAndPriceRegistration(event, rawBody, clientIpOrUndefined(h))
+  const v = await validateAndPriceRegistration(event, rawBody, ip)
   if (!v.ok) return v
 
   if (v.priced.totalAmount <= 0) {
@@ -104,8 +104,8 @@ export async function startExistingRegistrationCheckout(
   }
 
   const h = await headers()
-  const ip = clientIpFromHeaders(h)
-  if (!rateLimit(`checkout:${ip}`, 10, 60_000)) {
+  const key = clientIpFromHeaders(h)
+  if (!rateLimit(`checkout:${key}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.

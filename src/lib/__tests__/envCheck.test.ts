@@ -190,8 +190,14 @@ describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
     process.env.CLIENT_IP_HEADER = " X-Real-IP "
     expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
   })
+  it("warns for x-envoy-external-address and x-azure-socketip (not guaranteed overwritten)", () => {
+    for (const n of ["x-envoy-external-address", "x-azure-socketip"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
+    }
+  })
   it("does not warn for legitimate custom proxy headers", () => {
-    for (const n of ["x-envoy-external-address", "x-azure-socketip", "x-my-proxy-ip"]) {
+    for (const n of ["x-my-proxy-ip"]) {
       process.env.CLIENT_IP_HEADER = n
       expect(ipWarnings()).toEqual([])
     }
