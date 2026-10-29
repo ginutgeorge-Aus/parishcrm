@@ -393,6 +393,12 @@ describe("POST /api/import/bank-statement/confirm", () => {
     ] }
     const res = await POST(makeRequest([ok]))
     expect(res.status).toBe(200)
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(2)
+    for (const accountId of [1, 3]) {
+      expect(prisma.transaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ accountId, familyId: 2, personId: 10 }),
+      })
+    }
   })
 
   test("split row: returns 400 when an allocation pairs a person with a family they don't belong to", async () => {
