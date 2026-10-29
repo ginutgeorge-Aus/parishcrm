@@ -41,3 +41,10 @@ test("submits the picked id via a hidden input that survives a form reset", () =
   expect(hidden.value).toBe("7")
   expect(screen.getByLabelText(/imported bank deposit/i)).not.toHaveAttribute("name")
 })
+
+test("shows a truncation notice only when the list was capped", () => {
+  const { rerender } = render(<TransferForm action={noop} maxAmount={100} imported={imported} />)
+  expect(screen.queryByText(/older ones are not listed/i)).not.toBeInTheDocument()
+  rerender(<TransferForm action={noop} maxAmount={100} imported={imported} importedTruncated />)
+  expect(screen.getByText(/older ones are not listed/i)).toBeInTheDocument()
+})

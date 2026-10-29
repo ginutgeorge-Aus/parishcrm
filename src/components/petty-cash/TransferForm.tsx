@@ -16,11 +16,14 @@ export function TransferForm({
   action,
   maxAmount,
   imported = [],
+  importedTruncated = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
   /** Bank-import deposits marked "from petty cash" not yet linked to a transfer. */
   imported?: ImportedTransferOption[]
+  /** True when more matching imported deposits exist than the list shows. */
+  importedTruncated?: boolean
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
@@ -70,6 +73,9 @@ export function TransferForm({
               )
             })}
           </select>
+          {importedTruncated && (
+            <p className="text-xs text-muted-foreground">Showing the newest {imported.length} deposits; older ones are not listed.</p>
+          )}
         </div>
       )}
 

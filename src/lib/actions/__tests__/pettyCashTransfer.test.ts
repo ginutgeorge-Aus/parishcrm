@@ -78,6 +78,15 @@ describe("createTransfer — imported deposit", () => {
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "adopted-as-transfer-mirror" }))
   })
 
+  it("does no writes when adoption validation fails", async () => {
+    const base0 = base()
+    const update = jest.fn()
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, reconciled: true })
+    await run({ ...base0, transaction: { findUnique, update, create: jest.fn() } })
+    expect(base0.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it("keeps an existing leg reference when adopting", async () => {
     const update = jest.fn()
     const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, reference: "Orig" })

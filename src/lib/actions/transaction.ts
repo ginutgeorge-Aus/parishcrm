@@ -10,7 +10,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
-import { XFER_OUT_PREFIX } from "@/lib/xferAccount"
+import { xferOutRef, ymd } from "@/lib/pettyCashAdoption"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
@@ -187,9 +187,19 @@ function invoicePaymentChanged(
   existing: { amount: { toString(): string }; type: string; date: Date; accountId: number; fundId: number | null },
   next: { amount: string; type: string; date: Date; accountId: number; fundId?: number | null },
 ): boolean {
-  const day = (d: Date) => d.toISOString().slice(0, 10)
-  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || day(existing.date) !== day(next.date)
-    || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
+  return adoptionFieldsChanged(existing, next) || existing.fundId !== (next.fundId ?? null)
+}
+
+/**
+ * True when an edit changes what a petty cash transfer's adoption of this deposit's
+ * XFER_OUT leg depends on: amount, day, type or category. Fund is irrelevant to it.
+ */
+function adoptionFieldsChanged(
+  existing: { amount: { toString(): string }; type: string; date: Date; accountId: number },
+  next: { amount: string; type: string; date: Date; accountId: number },
+): boolean {
+  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || ymd(existing.date) !== ymd(next.date)
+    || existing.accountId !== next.accountId
 }
 
 const DEPOSIT_LINKED_ERROR = "This imported deposit is linked to a petty cash transfer. Delete the transfer first."
@@ -203,7 +213,7 @@ async function depositLinkedToTransfer(
   bankRef: string,
 ): Promise<boolean> {
   const leg = await db.transaction.findUnique({
-    where: { bankRef: `${XFER_OUT_PREFIX}${bankRef}` },
+    where: { bankRef: xferOutRef(bankRef) },
     select: { pettyCashTransferId: true },
   })
   return leg?.pettyCashTransferId != null
@@ -298,7 +308,7 @@ export async function updateTransaction(
     if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
     // An imported deposit whose cash-out leg a petty cash transfer adopted must keep
     // matching it (amount, date, type, category). Read in-tx so a concurrent adoption can't slip past.
-    if (existing.bankRef && invoicePaymentChanged(existing, parsed.data) && (await depositLinkedToTransfer(tx, existing.bankRef)))
+    if (existing.bankRef && adoptionFieldsChanged(existing, parsed.data) && (await depositLinkedToTransfer(tx, existing.bankRef)))
       return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
       where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },

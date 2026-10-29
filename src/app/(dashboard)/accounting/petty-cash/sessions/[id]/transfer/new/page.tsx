@@ -28,7 +28,7 @@ export default async function NewTransferPage(props: Readonly<{ params: Promise<
     pcSession.transfers
   )
 
-  const imported = await listImportedTransferCandidates()
+  const { options: imported, truncated: importedTruncated } = await listImportedTransferCandidates()
 
   const action = createTransfer.bind(null, sessionId)
 
@@ -36,7 +36,7 @@ export default async function NewTransferPage(props: Readonly<{ params: Promise<
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-1">Record bank transfer</h2>
       <p className="text-muted-foreground mb-6">{pcSession.title}</p>
-      <TransferForm action={action} maxAmount={balance} imported={imported} />
+      <TransferForm action={action} maxAmount={balance} imported={imported} importedTruncated={importedTruncated} />
     </div>
   )
 }

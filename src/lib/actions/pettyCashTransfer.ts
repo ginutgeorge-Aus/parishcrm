@@ -13,7 +13,7 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { adoptionMismatch, ymd } from "@/lib/pettyCashAdoption"
+import { ADOPTION_ERRORS, adoptionProblem, xferOutRef } from "@/lib/pettyCashAdoption"
 import { MONEY_DECIMAL_RE, isP2034, isValidPgId } from "@/lib/validation"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -108,6 +108,30 @@ export async function createTransfer(
       )
       if (toCents(parsed.data.amount) > toCents(balance))
         throw new TransferError(`Transfer amount exceeds balance of ${balance.toFixed(2)}`)
+      // Imported deposit picked: adopt its already-booked XFER_OUT cash-out leg
+      // as this transfer's ledger mirror — creating a second one would reduce
+      // petty cash twice. All validation runs before any write.
+      let adoptLegId: number | null = null
+      let adoptLegReference: string | null = null
+      if (parsed.data.importedTransactionId !== undefined) {
+        const deposit = await tx.transaction.findUnique({
+          where: { id: parsed.data.importedTransactionId },
+          select: { accountId: true, type: true, amount: true, date: true, bankRef: true },
+        })
+        const leg =
+          deposit?.bankRef
+            ? await tx.transaction.findUnique({
+                where: { bankRef: xferOutRef(deposit.bankRef) },
+                select: { id: true, type: true, accountId: true, amount: true, date: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
+              })
+            : null
+        const problem = adoptionProblem(deposit, leg, { amount: parsed.data.amount, date: parsed.data.date }, {
+          xferAccountId, cashAccountId: cashAccount?.id ?? null,
+        })
+        if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
+        adoptLegId = leg!.id
+        adoptLegReference = leg!.reference
+      }
       const transfer = await tx.pettyCashTransfer.create({
         data: {
           sessionId,
@@ -120,53 +144,19 @@ export async function createTransfer(
           notes: parsed.data.notes ? encrypt(parsed.data.notes) : null,
         },
       })
-      // Imported deposit picked: adopt its already-booked XFER_OUT cash-out leg
-      // as this transfer's ledger mirror — creating a second one would reduce
-      // petty cash twice. The deposit must match the entered date + amount.
-      if (parsed.data.importedTransactionId !== undefined) {
-        const deposit = await tx.transaction.findUnique({
-          where: { id: parsed.data.importedTransactionId },
-          select: { accountId: true, type: true, amount: true, date: true, bankRef: true },
-        })
-        const leg =
-          deposit?.bankRef
-            ? await tx.transaction.findUnique({
-                where: { bankRef: `${XFER_OUT_PREFIX}${deposit.bankRef}` },
-                select: { id: true, type: true, accountId: true, amount: true, date: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
-              })
-            : null
-        if (
-          !deposit || deposit.accountId !== xferAccountId || deposit.type !== "INCOME" ||
-          !leg || leg.pettyCashTransferId !== null
-        )
-          throw new TransferError("Imported deposit is not available for transfer")
-        // The leg is what moves petty cash: it must be an unreconciled cash-side XFER
-        // expense for the same amount, on the transfer's day, or the transfer and its
-        // mirror would disagree.
-        const mismatch = adoptionMismatch(leg, { amount: parsed.data.amount, date: parsed.data.date }, cashAccount?.id ?? null)
-        if (mismatch === "reconciled") throw new TransferError("Imported deposit's cash-out is already reconciled")
-        if (leg.type !== "EXPENSE" || leg.accountId !== xferAccountId || mismatch === "account" || mismatch === "amount")
-          throw new TransferError("Imported deposit's cash-out entry does not match this transfer")
-        if (
-          toCents(deposit.amount.toFixed(2)) !== toCents(parsed.data.amount) ||
-          ymd(deposit.date) !== ymd(parsed.data.date)
-        )
-          throw new TransferError("Date and amount must match the imported deposit")
-        // Transfer date was lock-checked before the tx and the leg is on that same day.
-        if (mismatch === "date")
-          throw new TransferError("Imported deposit's cash-out date does not match this transfer")
+      if (adoptLegId !== null) {
         await tx.transaction.update({
-          where: { id: leg.id },
+          where: { id: adoptLegId },
           // Keep an existing reference; only fill an empty one (unlink leaves it).
-          data: { pettyCashTransferId: transfer.id, ...(leg.reference ? {} : { reference: existing.title }) },
+          data: { pettyCashTransferId: transfer.id, ...(adoptLegReference ? {} : { reference: existing.title }) },
         })
-        await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", leg.id, {
+        await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptLegId, {
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
           importedTransactionId: parsed.data.importedTransactionId,
         })
         await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
           amount: parsed.data.amount, sessionId,
-          importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: leg.id,
+          importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: adoptLegId,
         })
         return
       }

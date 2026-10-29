@@ -450,6 +450,20 @@ describe("updateTransaction", () => {
       expect(mockUpdateMany).not.toHaveBeenCalled()
     })
 
+    it("allows a fund-only change without reading the leg", async () => {
+      mockFindUnique.mockResolvedValueOnce({ ...deposit, fundId: 5 }) // form clears the fund
+      await updateTransaction(1, undefined, fd(validTx))
+      expect(mockFindUnique).toHaveBeenCalledTimes(1)
+      expect(mockUpdateMany).toHaveBeenCalled()
+    })
+
+    it("blocks changing the date", async () => {
+      mockFindUnique.mockResolvedValueOnce(deposit).mockResolvedValueOnce({ pettyCashTransferId: 7 })
+      const result = await updateTransaction(1, undefined, fd({ ...validTx, date: "2026-05-18" }))
+      expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
+      expect(mockUpdateMany).not.toHaveBeenCalled()
+    })
+
     it("allows description-only edits without reading the leg", async () => {
       mockFindUnique.mockResolvedValueOnce(deposit)
       await updateTransaction(1, undefined, fd({ ...validTx, description: "New text" }))
