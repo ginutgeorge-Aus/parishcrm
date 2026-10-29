@@ -12,6 +12,7 @@ import type { ActionResultWithSuccess } from "./types"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { zoneLabel } from "@/lib/dates"
 import { redactPagePath } from "@/lib/redactPagePath"
+import { resolveClientIp } from "@/lib/clientIp"
 
 const RATE_LIMIT = 5
 const RATE_WINDOW_MS = 60 * 60 * 1000
@@ -90,6 +91,12 @@ async function notifyChurch(opts: {
   await sendEmail(setting.value, subject, html, text)
 }
 
+/**
+ * Public-page feedback/bug-report submission: validates the input, throttles per client IP,
+ * files an issue and emails the church contact.
+ * @param input the submitted feedback form fields
+ * @returns success, or an error message safe to show the visitor
+ */
 export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<ActionResultWithSuccess> {
   // Honeypot — silent bots fill the hidden field.
   const website = input.website
@@ -102,13 +109,13 @@ export async function submitPublicFeedback(input: PublicFeedbackInput): Promise<
   // path segments must not reach the GitHub issue or the notification email.
   const safePageUrl = redactPagePath(data.pageUrl) ?? null
 
-  // Real client IP from the trusted reverse proxy (rightmost x-forwarded-for) —
+  // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // never trust caller input for throttling.
-  const xff = (await headers()).get("x-forwarded-for")
-  const ip = xff?.split(",").at(-1)?.trim() || undefined
+  // ip: validated (Turnstile remoteip); rateKey: bucket key (IPv4 or IPv6 /64, else "unknown").
+  const { ip, key: rateKey } = resolveClientIp(await headers())
 
   if (!(await verifyTurnstile(data.turnstileToken, ip))) return { error: "Verification failed. Please try again." }
-  if (!(await dbRateLimit(`pubfeedback:ip:${ip ?? "unknown"}`, RATE_LIMIT, RATE_WINDOW_MS)))
+  if (!(await dbRateLimit(`pubfeedback:ip:${rateKey}`, RATE_LIMIT, RATE_WINDOW_MS)))
     return { error: "Too many reports. Please try again later." }
 
   const submittedAt = new Date()

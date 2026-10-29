@@ -8,6 +8,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { sendPasswordResetEmail } from "@/lib/email"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { assertNotDemo } from "@/lib/demoMode"
+import { resolveClientIp } from "@/lib/clientIp"
 import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
 
 
@@ -19,14 +20,13 @@ import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
 const RESET_LIMIT = 5
 const RESET_WINDOW_MS = 15 * 60_000
 
-async function getClientIp(): Promise<string | null> {
-  const xff = (await headers()).get("x-forwarded-for")
-  if (xff) {
-    // Rightmost IP is appended by the trusted reverse proxy — not spoofable by client
-    const last = xff.split(",").at(-1)?.trim()
-    if (last) return last
-  }
-  return null
+/**
+ * Per-IP throttle key for the password-reset DoS guard: the shared rate-limit key (IPv4, or the IPv6
+ * /64 prefix), or "unknown" when the request carries no valid IP, like the other limiters.
+ * @returns the bucket key (never empty)
+ */
+async function resetRateLimitKey(): Promise<string> {
+  return resolveClientIp(await headers()).key
 }
 
 // Randomized 200–500 ms delay on fast-return paths so they take roughly as
@@ -35,6 +35,13 @@ function randomDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300))
 }
 
+/**
+ * Starts a password reset: emails a single-use reset link when the address belongs to an active user.
+ * Always returns the same silent success for unknown emails, throttled senders and bad config, so it
+ * cannot be used to probe which emails exist.
+ * @param email the address entered on the forgot-password form
+ * @returns `{ success: true }`, or `{ error }` for demo mode / invalid input
+ */
 export async function requestPasswordReset(
   email: string
 ): Promise<{ success?: true; error?: string }> {
@@ -51,9 +58,9 @@ export async function requestPasswordReset(
   if (!(await dbRateLimit(emailKey, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
   }
-  // Secondary: per-IP DoS guard, only when a real client IP is available.
-  const ip = await getClientIp()
-  if (ip && !(await dbRateLimit(`pwreset:ip:${ip}`, RESET_LIMIT, RESET_WINDOW_MS))) {
+  // Secondary: per-IP DoS guard; requests with no valid IP share the "unknown" bucket.
+  const ip = await resetRateLimitKey()
+  if (!(await dbRateLimit(`pwreset:ip:${ip}`, RESET_LIMIT, RESET_WINDOW_MS))) {
     return { error: "Too many requests. Please try again later." }
   }
 

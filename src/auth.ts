@@ -12,7 +12,7 @@ import { logAudit } from "@/lib/audit"
 import { parseTrustedDeviceCookie, hashDeviceToken, generateDeviceToken, DEVICE_TRUST_GRANT_PREFIX, DEVICE_TRUST_GRANT_TTL_MS } from "@/lib/trustedDevice"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { logger } from "@/lib/logger"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { resolveClientIp } from "@/lib/clientIp"
 import { verifySecondFactor } from "@/lib/totpVerify"
 import { isDemoMode, isDemoEmail } from "@/lib/demoMode"
 import { findUserByEmailInsensitive, normalizeEmail } from "@/lib/userLookup"
@@ -56,11 +56,15 @@ export class TotpRequired extends CredentialsSignin {
   code = "TotpRequired"
 }
 
-// Real client IP for audit logging. The trusted reverse proxy appends it as the rightmost
-// x-forwarded-for entry (trusted proxy — not spoofable), same convention as
-// src/lib/actions/auth.ts and the public register route.
-function clientIpFrom(request?: Request): string | undefined {
-  return auditIpFromHeaders(request?.headers)
+/**
+ * Resolves the request's client IP once per login attempt: `ip` is the validated address for audit
+ * logging and OTP/lockout records (CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for
+ * entry; see src/lib/clientIp.ts and docs/environment.md), `key` the rate-limit bucket.
+ * @param request the NextAuth request, if any
+ * @returns the validated IP (or undefined) and the bucket key ("unknown" when no request)
+ */
+function clientIpFrom(request?: Request): { ip: string | undefined; key: string } {
+  return request ? resolveClientIp(request.headers) : { ip: undefined, key: "unknown" }
 }
 
 type DbUser = NonNullable<Awaited<ReturnType<typeof prisma.user.findUnique>>>
@@ -194,15 +198,24 @@ async function verifyPassword(email: string, password: string, ip: string | unde
   return user
 }
 
-// Per-IP throttle shared by both providers (the e2e exemption and its rationale
-// are documented at the call site in authorizeCredentials). `bucket`/`limit`
-// let demo one-click logins use their own, larger bucket.
-async function loginIpAllowed(ip: string | undefined, bucket = "login:ip", limit = 10): Promise<boolean> {
+/**
+ * Per-IP throttle shared by both providers (the e2e exemption and its rationale are documented at
+ * the call site in authorizeCredentials). Keyed on the already-resolved bucket key (IPv4 or IPv6
+ * /64); requests with no valid IP share the "unknown" bucket.
+ * @param client the `{ ip, key }` from one `clientIpFrom` call for this attempt
+ * @param bucket rate-limit key prefix; demo one-click logins use their own
+ * @param limit max attempts per minute for this bucket
+ * @returns true when the attempt is allowed
+ */
+async function loginIpAllowed(client: { ip: string | undefined; key: string }, bucket = "login:ip", limit = 10): Promise<boolean> {
   if (process.env.E2E_ALLOW_TEST_OVERRIDES === "true") return true
-  if (await dbRateLimit(`${bucket}:${ip ?? "unknown"}`, limit, 60_000)) return true
+  if (await dbRateLimit(`${bucket}:${client.key}`, limit, 60_000)) return true
   // reason-coded so a valid-cred rejection (e2e flake, prod incident) is
   // diagnosable from container logs. No PII beyond the ip already logged.
-  logger.warn("credential login rejected", { reason: "ip_rate_limited", ipPresent: true })
+  logger.warn("credential login rejected", {
+    reason: "ip_rate_limited",
+    ipPresent: Boolean(client.ip),
+  })
   return false
 }
 
@@ -214,8 +227,9 @@ export async function authorizePasskey(
   credentials: Partial<Record<"challengeId" | "assertion" | "remember", unknown>>,
   request?: Request,
 ) {
-  const ip = clientIpFrom(request)
-  if (!(await loginIpAllowed(ip))) return null
+  const client = clientIpFrom(request)
+  const { ip } = client
+  if (!(await loginIpAllowed(client))) return null
   const rp = getRelyingParty()
   if (!rp || typeof credentials.assertion !== "string" || credentials.assertion.length > 16_384) return null
   // Consume first: a malformed or unknown-credential attempt still burns the challenge.
@@ -291,11 +305,19 @@ export async function authorizePasskey(
   return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: credentials.remember === "true" }
 }
 
+/**
+ * NextAuth `authorize` callback for the Credentials provider: applies the per-IP throttle, then the
+ * password / OTP / backup-code / email-fallback steps with their lockouts.
+ * @param credentials the submitted form fields
+ * @param request the incoming request, used only to derive the client IP for throttling and audit
+ * @returns the session user, or null when authentication fails or is throttled
+ */
 export async function authorizeCredentials(
   credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember" | "code" | "emailFallback", unknown>>,
   request?: Request,
 ) {
-  const ip = clientIpFrom(request)
+  const client = clientIpFrom(request)
+  const { ip } = client
   if (!credentials?.email) return null
   // Password, OTP and TOTP paths pass rawEmail (trimmed, case kept) to the
   // lookup, which tries it exact-first, then lowercased, then a lower() match.
@@ -324,9 +346,9 @@ export async function authorizeCredentials(
   // so gating the throttle on it adds no new prod exposure; the guarantee that
   // it is never set on a real deployment is operational, not enforced. Systemic
   // hardening of the flag against prod misuse is tracked in.
-  // key on `ip ?? "unknown"` so a request whose XFF is missing or fails
-  // the IP regex falls back to a shared bucket rather than skipping the throttle
-  // entirely — matches the sibling limiters (publicFeedback.ts, membership.ts).
+  // Keyed on the resolved bucket key (IPv4 or IPv6 /64), so a request with no
+  // valid IP falls back to a shared "unknown" bucket rather than skipping the
+  // throttle — matches the sibling limiters (publicFeedback.ts, membership.ts).
   // Live demo one-click login (/login role buttons). Honoured ONLY when
   // DEMO_MODE=true AND the email is on the reserved @demo.invalid domain, so a
   // real deployment that sets the flag by mistake still has no account this can
@@ -336,14 +358,14 @@ export async function authorizeCredentials(
   // visitors, so the password bucket locked the demo for everyone (#95).
   if (credentials.mode === "demo") {
     if (!isDemoMode() || !isDemoEmail(normalizedEmail)) return null
-    if (!(await loginIpAllowed(ip, "login:demo", 120))) return null
+    if (!(await loginIpAllowed(client, "login:demo", 120))) return null
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
     if (!user || user.archivedAt) return null
     void logAudit(user.id, "USER_LOGIN", "User", user.id, { demo: true }, ip)
     return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: false }
   }
 
-  if (!(await loginIpAllowed(ip))) return null
+  if (!(await loginIpAllowed(client))) return null
 
   // Live demo users have no password path (one-click login is handled above).
   if (isDemoMode() && isDemoEmail(normalizedEmail) && credentials.mode !== "demo") {

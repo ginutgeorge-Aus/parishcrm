@@ -25,7 +25,8 @@ jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/formToken", () => ({ verifyFormToken: jest.fn(() => "ok") }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn(() => true) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("next/headers", () => ({ headers: async () => new Map() }))
+const mockRequestHeaders = new Map<string, string>()
+jest.mock("next/headers", () => ({ headers: async () => mockRequestHeaders }))
 
 import { auth } from "@/auth"
 import { verifyFormToken } from "@/lib/formToken"
@@ -36,6 +37,7 @@ const mockAuth = auth as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockRequestHeaders.clear()
   process.env.AUTH_URL = "https://crm.test"
 })
 
@@ -97,7 +99,7 @@ describe("sendFamilyUpdateInvite", () => {
 
 
 const goodInput = {
-  token: "rawtoken", ip: "1.2.3.4", website: "", formToken: "ts.sig",
+  token: "rawtoken", website: "", formToken: "ts.sig",
   payload: { family: { address: "1 St" }, members: [{ firstName: "Jon", lastName: "Smith" }] },
 }
 
@@ -110,6 +112,15 @@ describe("submitFamilyUpdate", () => {
   it("rejects when rate-limited", async () => {
     ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
     expect(await submitFamilyUpdate(goodInput)).toEqual({ error: "Too many requests" })
+  })
+  it("keys the rate limit on the proxy-derived IP, falling back to unknown", async () => {
+    mockRequestHeaders.set("x-forwarded-for", "203.0.113.7")
+    await submitFamilyUpdate(goodInput)
+    expect(rateLimit).toHaveBeenCalledWith("familyUpdate:203.0.113.7", 5, 10 * 60_000)
+
+    mockRequestHeaders.clear()
+    await submitFamilyUpdate(goodInput)
+    expect(rateLimit).toHaveBeenCalledWith("familyUpdate:unknown", 5, 10 * 60_000)
   })
   it("checks honeypot and rate limit before the feature", async () => {
     ;(featureGuard as jest.Mock).mockClear()

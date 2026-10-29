@@ -163,6 +163,12 @@ async function issueWelcomeInvite(
   }
 }
 
+/**
+ * Creates a user account (ADMIN, or OFFICE_ADMIN for non-ADMIN roles) from the user-management form.
+ * @param _prev previous action state (unused; required by `useActionState`)
+ * @param formData the new user's fields
+ * @returns the `ActionResult`
+ */
 export async function createUser(
   _prev: ActionResult,
   formData: FormData
@@ -282,6 +288,13 @@ function updateUserErrorMessage(e: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * Updates a user's name, email, role and active state from the user-management form.
+ * @param id the user to update
+ * @param _prev previous action state (unused; required by `useActionState`)
+ * @param formData the edited fields
+ * @returns the `ActionResult`
+ */
 export async function updateUser(
   id: number,
   _prev: ActionResult,

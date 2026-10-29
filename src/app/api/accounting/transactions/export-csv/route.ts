@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { generateTransactionCsv } from "@/lib/transactionExport"
 import { parseISODate } from "@/lib/formatting"
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
   const csv = generateTransactionCsv(rows)
 
   const userId = actorId(session)
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(userId, "EXPORT_TRANSACTION_CSV", "Transaction", undefined, { rowCount: rows.length }, ip)
 
   const today = sydneyTodayYMD()

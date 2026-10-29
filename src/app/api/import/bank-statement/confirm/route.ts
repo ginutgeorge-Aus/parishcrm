@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   }
 
   const userId = actorId(session)
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
 
   let payload: unknown
   try {

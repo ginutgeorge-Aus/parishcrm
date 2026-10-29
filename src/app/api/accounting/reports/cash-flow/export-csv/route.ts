@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { fyYearParamOr400, guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { generateCashFlowCsv, type CashFlowOperatingRow, type CashFlowPositionRow } from "@/lib/reports/cashFlowExport"
 import { groupByAccountGroup, type AccountGroup } from "@/lib/reports/accountGrouping"
 import { fyDateRange } from "@/lib/fiscalYear"
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
     totalClosing,
   )
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "CashFlow", undefined, { report: "cash-flow", year }, ip)
 
   return new NextResponse(csv, {

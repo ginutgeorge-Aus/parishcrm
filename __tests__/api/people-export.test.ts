@@ -270,7 +270,7 @@ describe("GET /api/people/[id]/export", () => {
       "Person",
       1,
       expect.any(Object),
-      "unknown"
+      undefined
     )
   })
 

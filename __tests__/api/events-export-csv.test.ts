@@ -123,7 +123,7 @@ describe("GET /api/events/[slug]/export-csv", () => {
       "Event",
       1,
       { rowCount: 0 },
-      "unknown"
+      undefined
     )
   })
 

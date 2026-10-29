@@ -88,6 +88,6 @@ describe("GET /api/clearances/export", () => {
     const res = await GET(req("?status=expired"))
     expect((await res.text()).split("\n")).toHaveLength(2) // header + the one expired person
     expect(res.headers.get("X-Export-Truncated")).toBeNull()
-    expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_EXPORTED", "Person", undefined, { rowCount: 1, filter: "expired" }, expect.any(String))
+    expect(logAudit).toHaveBeenCalledWith(7, "CLEARANCE_EXPORTED", "Person", undefined, { rowCount: 1, filter: "expired" }, undefined)
   })
 })
