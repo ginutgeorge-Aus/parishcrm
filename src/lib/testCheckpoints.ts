@@ -21,6 +21,38 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.11.0-bank-import-wizard",
+    version: "v1.11.0",
+    area: "Accounting",
+    title: "Bank statement import wizard",
+    steps:
+      "Open the bank import → upload an ANZ PDF, then an OFX or QIF file → step through upload, review, match and confirm → confirm rows land in the right accounts and a re-import flags possible duplicates.",
+  },
+  {
+    id: "v1.11.0-email-footer",
+    version: "v1.11.0",
+    area: "Settings",
+    title: "Configurable email footer",
+    steps:
+      "Set a footer in Settings → trigger any outgoing email (for example a test or booking email) → confirm the footer appears at the bottom → clear it and confirm it disappears.",
+  },
+  {
+    id: "v1.11.0-venue-invoice-cc",
+    version: "v1.11.0",
+    area: "Venue",
+    title: "Multiple invoice request CC addresses",
+    steps:
+      "In Settings add two CC addresses for venue invoices → send an invoice request → confirm both addresses receive a copy.",
+  },
+  {
+    id: "v1.11.0-email-case-login",
+    version: "v1.11.0",
+    area: "Users",
+    title: "Case-insensitive email login and uniqueness",
+    steps:
+      "Log in with your email typed in different capitals (password and OTP) → confirm it works → try creating a user whose email differs only by capitals → confirm it is rejected.",
+  },
+  {
     id: "v1.10.0-venue-bookings",
     version: "v1.10.0",
     area: "Venue",

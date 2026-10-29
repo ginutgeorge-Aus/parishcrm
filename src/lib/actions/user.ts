@@ -17,7 +17,8 @@ import { isP2002, isP2034, isValidPgId } from "@/lib/validation"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { assertNotDemo, isDemoEmail, DEMO_DOMAIN_RESERVED } from "@/lib/demoMode"
+import { assertNotDemo } from "@/lib/demoMode"
+import { userEmailField, isEmailTaken, normalizeEmail } from "@/lib/userLookup"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
 
@@ -60,15 +61,16 @@ async function assertNotLastAdmin(tx: Prisma.TransactionClient, excludeUserId: n
   if (otherAdmins === 0) throw new LastAdminError(message)
 }
 
+// Email is trimmed + lowercased on write so it matches the normalised login lookup in src/auth.ts.
 const CreateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
+  email: userEmailField,
   role: z.enum(ROLE_VALUES),
 })
 
 const UpdateUserSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
-  email: z.string().email("Invalid email").max(254, "Email is too long").refine((v) => !isDemoEmail(v), DEMO_DOMAIN_RESERVED),
+  email: userEmailField,
   password: z
     .string()
     .max(128, "Password is too long")
@@ -179,8 +181,8 @@ export async function createUser(
     return { error: "Unauthorized" }
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
-  if (existing) return { error: "Email already in use" }
+  // Case-insensitive: legacy rows may be stored mixed-case, and login matches insensitively.
+  if (await isEmailTaken(parsed.data.email)) return { error: "Email already in use" }
 
   // Unusable random password — the account cannot be logged into until the
   // user completes the set-password invite below.
@@ -191,7 +193,7 @@ export async function createUser(
       data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
     })
   } catch (e) {
-    // The findUnique check above is check-then-act — a concurrent create can
+    // The isEmailTaken check above is check-then-act — a concurrent create can
     // slip in between it and this create() call.
     if (isP2002(e)) return { error: "Email already in use" }
     throw e
@@ -294,7 +296,7 @@ export async function updateUser(
   const parsed = UpdateUserSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
-  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, archivedAt: true } })
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, email: true, archivedAt: true } })
   if (!target || target.archivedAt) return { error: "User not found" }
 
   // Non-ADMIN actors may not touch an elevated (ADMIN/PASTOR) account, nor grant
@@ -305,15 +307,21 @@ export async function updateUser(
     return { error: "Unauthorized" }
   }
 
-  const existing = await prisma.user.findFirst({
-    where: { email: parsed.data.email, NOT: { id } },
-  })
-  if (existing) return { error: "Email already in use" }
+  // parsed.data.email is already normalised (trimmed + lower-cased). Compare it with
+  // the normalised stored email: equal = unchanged (including a case-only edit), so
+  // keep the stored legacy mixed-case value and skip the duplicate check; legacy rows
+  // are not rewritten on unrelated edits. Otherwise it's a real change: reject when
+  // ANOTHER user already holds it (exclude-self lookup).
+  if (normalizeEmail(target.email) === parsed.data.email) {
+    parsed.data.email = target.email
+  } else if (await isEmailTaken(parsed.data.email, id)) {
+    return { error: "Email already in use" }
+  }
 
   const data = await buildUserUpdateData(parsed.data)
 
   // The P2002 catch below is a backstop for the email-collision race: the
-  // findFirst check above is itself check-then-act.
+  // isEmailTaken check above is itself check-then-act.
   try {
     await prisma.$transaction(
       async (tx) => {
