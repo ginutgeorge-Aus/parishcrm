@@ -29,3 +29,15 @@ test("clearing the pick makes fields editable again", () => {
   fireEvent.change(select, { target: { value: "" } })
   expect(screen.getByLabelText(/amount deposited/i)).not.toHaveAttribute("readonly")
 })
+
+test("submits the picked id via a hidden input that survives a form reset", () => {
+  const { container } = render(<TransferForm action={noop} maxAmount={100} imported={imported} />)
+  fireEvent.change(screen.getByLabelText(/imported bank deposit/i), { target: { value: "7" } })
+  const hidden = container.querySelector('input[name="importedTransactionId"]') as HTMLInputElement
+  expect(hidden.type).toBe("hidden")
+  expect(hidden.value).toBe("7")
+  // React 19 resets the form after a failed action; state (not the DOM) must carry the id.
+  container.querySelector("form")!.reset()
+  expect(hidden.value).toBe("7")
+  expect(screen.getByLabelText(/imported bank deposit/i)).not.toHaveAttribute("name")
+})

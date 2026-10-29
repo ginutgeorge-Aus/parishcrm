@@ -10,10 +10,10 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034, isValidPgId } from "@/lib/validation"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
@@ -60,7 +60,7 @@ const TransferSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ? Number(v) : undefined))
-    .refine((v) => v === undefined || Number.isInteger(v), "Invalid imported deposit"),
+    .refine((v) => v === undefined || isValidPgId(v), "Invalid imported deposit"),
 })
 
 /** Record a petty cash transfer. ADMIN/PASTOR only. */
@@ -132,7 +132,7 @@ export async function createTransfer(
           deposit?.bankRef
             ? await tx.transaction.findUnique({
                 where: { bankRef: `${XFER_OUT_PREFIX}${deposit.bankRef}` },
-                select: { id: true, type: true, accountId: true, amount: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
+                select: { id: true, type: true, accountId: true, amount: true, date: true, paymentAccountId: true, pettyCashTransferId: true, reconciled: true, reference: true },
               })
             : null
         if (
@@ -155,11 +155,21 @@ export async function createTransfer(
           deposit.date.toISOString().slice(0, 10) !== parsed.data.date.toISOString().slice(0, 10)
         )
           throw new TransferError("Date and amount must match the imported deposit")
+        // The leg is the row that actually moves petty cash: it must sit on the
+        // transfer's calendar day and in an unlocked period.
+        if (leg.date.toISOString().slice(0, 10) !== parsed.data.date.toISOString().slice(0, 10))
+          throw new TransferError("Imported deposit's cash-out date does not match this transfer")
+        const legLockError = await assertUnlocked(leg.date)
+        if (legLockError) throw new TransferError(legLockError)
         await tx.transaction.update({
           where: { id: leg.id },
           // Keep an existing reference; only fill an empty one (unlink clears it
           // again only if it still equals the session title).
           data: { pettyCashTransferId: transfer.id, ...(leg.reference ? {} : { reference: existing.title }) },
+        })
+        await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", leg.id, {
+          source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
+          importedTransactionId: parsed.data.importedTransactionId,
         })
         return { transferId: transfer.id, adoptedLegId: leg.id }
       }
@@ -200,10 +210,6 @@ export async function createTransfer(
       adoptedLegId,
     }),
   })
-  if (adoptedLegId !== null)
-    await logAudit(actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptedLegId, {
-      source: "petty-cash", pettyCashTransferId: transferId, action: "adopted-as-transfer-mirror",
-    })
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -216,7 +222,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (off) return off
   const transfer = await prisma.pettyCashTransfer.findUnique({
     where: { id },
-    include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true, bankRef: true } } },
+    include: { session: { select: { id: true, status: true, title: true } }, transaction: { select: { id: true, reconciled: true } } },
   })
   if (!transfer) return { error: "Transfer not found" }
   if (transfer.session.status === "CLOSED") return { error: "Cannot delete from closed session" }
@@ -247,7 +253,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
       // delete it and leave the deposit without its matching cash-out.
       // Adoption only filled an empty reference with the session title — clear
       // it back, but leave any other (original) reference alone.
-      if (isAdopted)
+      if (isAdopted) {
         await tx.transaction.update({
           where: { id: transfer.transaction!.id },
           data: {
@@ -255,6 +261,10 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
             ...(mirrorReference === transfer.session.title ? { reference: null } : {}),
           },
         })
+        await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", transfer.transaction!.id, {
+          source: "petty-cash", pettyCashTransferId: id, action: "unlinked-from-transfer",
+        })
+      }
       await tx.pettyCashTransfer.delete({ where: { id } })
       return isAdopted
     })
@@ -273,10 +283,6 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (transfer.transaction && !adopted)
     await logAudit(userId, "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
       source: "petty-cash", pettyCashTransferId: id,
-    })
-  if (transfer.transaction && adopted)
-    await logAudit(userId, "TRANSACTION_UPDATED", "Transaction", transfer.transaction.id, {
-      source: "petty-cash", pettyCashTransferId: id, action: "unlinked-from-transfer",
     })
   revalidatePettyCashPaths(transfer.sessionId)
 }

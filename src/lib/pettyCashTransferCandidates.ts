@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
+import { toCents } from "@/lib/formatting"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
+import { findXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 
 export type ImportedTransferOption = {
   id: number
@@ -17,9 +18,13 @@ export type ImportedTransferOption = {
  * ledger mirror instead of booking a second cash-out.
  */
 export async function listImportedTransferCandidates(): Promise<ImportedTransferOption[]> {
-  const xferAccountId = await getXferAccountId(prisma)
-  // Same cash-account lookup createTransfer validates the leg against.
-  const cashAccount = await getCashAccount()
+  // Independent lookups; read-only XFER lookup so a GET render never creates the account.
+  const [xferAccountId, cashAccount] = await Promise.all([
+    findXferAccountId(prisma),
+    // Same cash-account lookup createTransfer validates the leg against.
+    getCashAccount(),
+  ])
+  if (xferAccountId === null) return []
   const legs = await prisma.transaction.findMany({
     where: {
       accountId: xferAccountId,
@@ -30,22 +35,30 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
       reconciled: false,
       paymentAccountId: cashAccount?.id ?? null,
     },
-    select: { bankRef: true },
+    select: { bankRef: true, date: true, amount: true },
     orderBy: { date: "desc" },
     take: 100,
   })
-  const depositRefs = legs.flatMap((l) => (l.bankRef ? [l.bankRef.slice(XFER_OUT_PREFIX.length)] : []))
-  if (!depositRefs.length) return []
+  const legByDepositRef = new Map<string, (typeof legs)[number]>()
+  for (const l of legs) if (l.bankRef) legByDepositRef.set(l.bankRef.slice(XFER_OUT_PREFIX.length), l)
+  if (!legByDepositRef.size) return []
   const deposits = await prisma.transaction.findMany({
-    where: { accountId: xferAccountId, type: "INCOME", bankRef: { in: depositRefs } },
-    select: { id: true, date: true, amount: true, description: true },
+    where: { accountId: xferAccountId, type: "INCOME", bankRef: { in: [...legByDepositRef.keys()] } },
+    select: { id: true, bankRef: true, date: true, amount: true, description: true },
     orderBy: { date: "desc" },
     take: 100,
   })
-  return deposits.map((d) => ({
-    id: d.id,
-    date: d.date.toISOString().slice(0, 10),
-    amount: d.amount.toFixed(2),
-    description: safeDecrypt(d.description),
-  }))
+  const day = (d: Date) => d.toISOString().slice(0, 10)
+  return deposits
+    .filter((d) => {
+      // Mirror createTransfer: the leg must agree with its deposit on amount + day.
+      const leg = d.bankRef ? legByDepositRef.get(d.bankRef) : undefined
+      return !!leg && toCents(leg.amount.toFixed(2)) === toCents(d.amount.toFixed(2)) && day(leg.date) === day(d.date)
+    })
+    .map((d) => ({
+      id: d.id,
+      date: day(d.date),
+      amount: d.amount.toFixed(2),
+      description: safeDecrypt(d.description),
+    }))
 }

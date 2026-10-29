@@ -7,7 +7,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9), XFER_OUT_PREFIX: "XFER_OUT_" }))
@@ -15,8 +15,9 @@ jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolv
 jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn(), pettyCashTransfer: { findUnique: jest.fn() } } }))
 
 import { auth } from "@/auth"
+import { assertUnlocked } from "@/lib/accountingLock"
 import { prisma } from "@/lib/prisma"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 const mock$tx = prisma.$transaction as jest.Mock
 
 function form() {
@@ -56,7 +57,7 @@ describe("createTransfer — imported deposit", () => {
     fd.set("importedTransactionId", "7")
     return createTransfer(1, undefined, fd)
   }
-  const okLeg = { id: 11, type: "EXPENSE", accountId: 9, amount: { toFixed: () => "50.00" }, paymentAccountId: 2, pettyCashTransferId: null, reconciled: false }
+  const okLeg = { id: 11, type: "EXPENSE", accountId: 9, amount: { toFixed: () => "50.00" }, date: new Date("2026-07-31"), paymentAccountId: 2, pettyCashTransferId: null, reconciled: false }
   const base = () => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3 }) },
@@ -74,7 +75,7 @@ describe("createTransfer — imported deposit", () => {
     // Audit: transfer metadata carries the deposit + leg ids; leg gets TRANSACTION_UPDATED.
     expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3,
       expect.objectContaining({ importedTransactionId: 7, adoptedLegId: 11 }))
-    expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_UPDATED", "Transaction", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "adopted-as-transfer-mirror" }))
   })
 
   it("keeps an existing leg reference when adopting", async () => {
@@ -100,6 +101,27 @@ describe("createTransfer — imported deposit", () => {
       .resolves.toEqual({ error: "Date and amount must match the imported deposit" })
   })
 
+  it("rejects an invalid (non-positive) imported id before any transaction", async () => {
+    const fd = form()
+    fd.set("importedTransactionId", "0")
+    await expect(createTransfer(1, undefined, fd)).resolves.toEqual({ error: "Invalid imported deposit" })
+    fd.set("importedTransactionId", "99999999999")
+    await expect(createTransfer(1, undefined, fd)).resolves.toEqual({ error: "Invalid imported deposit" })
+  })
+
+  it("rejects when the leg falls on a different day than the transfer", async () => {
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, date: new Date("2026-07-30") })
+    await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
+      .resolves.toEqual({ error: "Imported deposit's cash-out date does not match this transfer" })
+  })
+
+  it("rejects when the leg's period is locked", async () => {
+    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce("Period locked")
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce(okLeg)
+    await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
+      .resolves.toEqual({ error: "Period locked" })
+  })
+
   const rejects = (name: string, dep: unknown, leg: unknown, error: string) =>
     it(name, async () => {
       const findUnique = jest.fn().mockResolvedValueOnce(dep).mockResolvedValueOnce(leg)
@@ -122,7 +144,7 @@ describe("deleteTransfer — adopted leg", () => {
     findTransfer.mockResolvedValue({
       id: 5, date: old, amount: 50, sessionId: 1,
       session: { id: 1, status: "OPEN", title: "Sess" },
-      transaction: { id: 11, reconciled: false, bankRef: "PC_T_5" }, // stale pre-read: not adopted
+      transaction: { id: 11, reconciled: false }, // stale pre-read: not adopted
     })
     const update = jest.fn()
     const tx = {
@@ -138,7 +160,7 @@ describe("deleteTransfer — adopted leg", () => {
     const update = setup({ reconciled: false, bankRef: "XFER_OUT_ANZ_1", reference: "Sess" })
     await deleteTransfer(5)
     expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null, reference: null } })
-    expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_UPDATED", "Transaction", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "unlinked-from-transfer" }))
     expect(logAudit).not.toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.anything())
   })
 

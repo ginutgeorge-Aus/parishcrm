@@ -6,6 +6,16 @@ export const XFER_OUT_PREFIX = "XFER_OUT_"
 
 type Client = PrismaClient | Prisma.TransactionClient
 
+/**
+ * Read-only lookup of the XFER account id — never creates it (safe for GET renders).
+ * @param client Prisma client or transaction client
+ * @returns the account id, or null when XFER hasn't been created yet
+ */
+export async function findXferAccountId(client: Client): Promise<number | null> {
+  const existing = await client.account.findUnique({ where: { code: "XFER" }, select: { id: true } })
+  return existing?.id ?? null
+}
+
 // Resolve (or lazily create) the petty-cash / bank internal-transfer account.
 // XFER is pre-seeded by `npm run db:seed`; self-heal-create with a warning if a
 // given DB hasn't been seeded. Inactive + EXPENSE so it stays out of the P&L

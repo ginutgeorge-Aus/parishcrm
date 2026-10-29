@@ -56,7 +56,6 @@ export function TransferForm({
           </Label>
           <select
             id="importedTransactionId"
-            name="importedTransactionId"
             value={importedId}
             onChange={(e) => pickImported(e.target.value)}
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -73,6 +72,10 @@ export function TransferForm({
           </select>
         </div>
       )}
+
+      {/* State is the source of truth: React resets uncontrolled form fields after a
+          failed action, which would revert the select and drop the id on resubmit. */}
+      <input type="hidden" name="importedTransactionId" value={importedId} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
