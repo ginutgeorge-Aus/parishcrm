@@ -138,14 +138,19 @@ export interface PricedRegistration {
   capacityChecks: CapacityCheck[]
 }
 
-// Validates + prices a registration request against an already-fetched event.
-// Pure w.r.t. persistence — never touches the database. Every early-return
-// error shape (`{ ok: false, status, error }`) matches createEventRegistration's
-// pre-extraction behavior exactly.
+/**
+ * Validates + prices a registration request against an already-fetched event. Pure w.r.t.
+ * persistence: never writes to the database. Every early-return error shape
+ * (`{ ok: false, status, error }`) matches createEventRegistration's pre-extraction behavior exactly.
+ * @param event the already-fetched event with its ticket types
+ * @param rawBody the already-parsed JSON body
+ * @param ip the validated client IP (canonical, Turnstile `remoteip` / audit) or undefined
+ * @returns the priced registration, or a typed error
+ */
 export async function validateAndPriceRegistration(
   event: EventWithTickets,
   rawBody: unknown,
-  ip: string,
+  ip: string | undefined,
 ): Promise<{ ok: true; priced: PricedRegistration } | { ok: false; status: number; error: string }> {
   const parsed = BodySchema.safeParse(rawBody)
   if (!parsed.success) return { ok: false, status: 400, error: parsed.error.issues[0].message }

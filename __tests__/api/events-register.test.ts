@@ -778,6 +778,21 @@ describe("POST /api/events/[slug]/register — bot protection", () => {
     }
   })
 
+  it("sends the validated IP, not the raw rate-limit key, as Turnstile remoteip", async () => {
+    process.env.TURNSTILE_SECRET_KEY = "sk"
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ success: false })))
+    try {
+      await POST(makeRequest({ ...base, formToken: validToken(), turnstileToken: "tok" }, "203.0.113.5"), params)
+      expect((fetchMock.mock.calls[0][1]!.body as URLSearchParams).get("remoteip")).toBe("203.0.113.5")
+      fetchMock.mockClear()
+      await POST(makeRequest({ ...base, formToken: validToken(), turnstileToken: "tok" }, "not-an-ip"), params)
+      expect((fetchMock.mock.calls[0][1]!.body as URLSearchParams).has("remoteip")).toBe(false)
+    } finally {
+      fetchMock.mockRestore()
+      delete process.env.TURNSTILE_SECRET_KEY
+    }
+  })
+
   it("accepts when Turnstile is disabled (default) with no token", async () => {
     // Guards the off-by-default contract: unset secret must not gate registration.
     const res = await POST(makeRequest({ ...base, formToken: validToken() }), params)

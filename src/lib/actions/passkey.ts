@@ -19,7 +19,7 @@ import { actorId } from "@/lib/actor"
 import { sendEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
-import { auditIpFromHeaders } from "@/lib/clientIp"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 import { assertNotDemo, isDemoMode } from "@/lib/demoMode"
 import {
   MAX_PASSKEYS_PER_USER, consumeChallenge, createChallenge, getRelyingParty, normalisePasskeyName,
@@ -202,10 +202,12 @@ export async function removePasskey(id: string): Promise<{ error: string } | { s
   return { success: true }
 }
 
-// Public (pre-login): issues a usernameless challenge — the browser offers every
-// passkey it holds for this RP and the server resolves the user from the
-// credential in authorizeCredentials. Per-IP throttled, skipped under
-// E2E_ALLOW_TEST_OVERRIDES for the same reason as the credentials path.
+/**
+ * Starts a usernameless passkey login: issues a WebAuthn challenge the browser answers with any
+ * passkey it holds for this relying party. Public (pre-login), per-IP throttled (skipped under
+ * E2E_ALLOW_TEST_OVERRIDES), and unavailable in demo mode.
+ * @returns the challenge id plus request options, or an error message
+ */
 export async function startPasskeyLogin(): Promise<
   { error: string } | { challengeId: string; options: PublicKeyCredentialRequestOptionsJSON }
 > {
@@ -213,10 +215,10 @@ export async function startPasskeyLogin(): Promise<
   if (demo) return { error: "Passkeys are not available in the demo" }
   const rp = getRelyingParty()
   if (!rp) return UNAVAILABLE
-  const ip = auditIpFromHeaders(await headers())
+  const ip = clientIpFromHeaders(await headers()) // rate-limit bucket key
   if (
     process.env.E2E_ALLOW_TEST_OVERRIDES !== "true" &&
-    !(await dbRateLimit(`passkey:login:ip:${ip ?? "unknown"}`, 10, 60_000))
+    !(await dbRateLimit(`passkey:login:ip:${ip}`, 10, 60_000))
   ) {
     return { error: "Too many attempts. Try again shortly." }
   }

@@ -37,6 +37,7 @@ fallbacks used until an admin fills in the Settings form (see below).
 | Variable | Purpose |
 |---|---|
 | `SETUP_TOKEN` | Enables `/setup` (create the first ADMIN) while the database has zero users. The page disables itself once any user exists; unset it after setup. |
+| `CLIENT_IP_HEADER` | Optional. Name of a request header carrying the real client IP (e.g. `cf-connecting-ip`), used for login throttling and audit-log IPs when your platform adds proxy hops. Unset: rightmost `x-forwarded-for` entry. If set but the header is missing or invalid, the app falls back to the rightmost `x-forwarded-for` entry, then to one shared bucket; on platforms like Render that entry can be the proxy hop, so make sure your edge sends the header. **Security-sensitive:** see [the full explanation](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/environment.md#client_ip_header). |
 | `MIGRATE_ON_START` | Default `true`: the container runs `prisma migrate deploy` before starting. Set `false` to manage migrations yourself (e.g. a separate pre-deploy job). |
 
 ## Church identity (fallbacks)

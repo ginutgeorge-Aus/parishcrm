@@ -10,6 +10,10 @@ if (!DATABASE_URL) throw new Error("DATABASE_URL not set")
 const adapter = new PrismaPg({ connectionString: DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
 
+/**
+ * Creates a user (ADMIN unless `USER_ROLE` is set) from the required USER_EMAIL / USER_PASSWORD env vars; an existing user is left unchanged.
+ * @returns resolves when the user has been written
+ */
 async function main() {
   // No hardcoded fallbacks: the old hardcoded admin email / admin123 defaults
   // are publicly known seed creds, so running this against prod without

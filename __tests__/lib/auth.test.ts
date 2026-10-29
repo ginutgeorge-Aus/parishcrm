@@ -1048,6 +1048,12 @@ describe("authorizeCredentials — IP rate limit", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
+  it("keys the login throttle on the shared unknown bucket when the rightmost XFF entry is not a valid IP", async () => {
+    ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
+    await authorizeCredentials({ email: "admin@example.com", password: "x" }, reqWithIp("999.1.1.1"))
+    expect(dbRateLimit).toHaveBeenCalledWith("login:ip:unknown", 10, 60_000)
+  })
+
   it("falls back to a shared bucket when no client IP is available", async () => {
     // Previously the throttle was skipped entirely when the IP couldn't be
     // parsed; keys it on `login:ip:unknown` so unparseable-IP requests

@@ -243,6 +243,12 @@ describe("removePasskey", () => {
 })
 
 describe("startPasskeyLogin", () => {
+  it("keys the throttle on the shared unknown bucket when the rightmost XFF entry is not a valid IP", async () => {
+    const { headers } = jest.requireMock("next/headers") as { headers: jest.Mock }
+    headers.mockResolvedValueOnce(new Headers({ "x-forwarded-for": "999.1.1.1" }))
+    await startPasskeyLogin()
+    expect(dbRateLimit).toHaveBeenCalledWith("passkey:login:ip:unknown", 10, 60_000)
+  })
   it("issues a usernameless, user-verified login challenge", async () => {
     await expect(startPasskeyLogin()).resolves.toEqual({ challengeId: "ch1", options: { challenge: "auth-ch" } })
     expect(generateAuthenticationOptions).toHaveBeenCalledWith({ rpID: RP.rpID, userVerification: "required", allowCredentials: [] })

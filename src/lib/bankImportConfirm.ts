@@ -263,18 +263,19 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         error: `Split amounts for "${r.description}" (${r.date}) must total ${r.amount}`,
       }
     }
-    // The same member must not appear in two allocations of one line — that
-    // would post two giving rows for one donor and inflate their record.
+    // The same member must not appear twice under the same category in one
+    // line — that is a duplicate giving row, so combine them. The same member
+    // under different categories (e.g. tithe + building fund) is legitimate.
     // Allocations with no member (general fund) may repeat freely.
     const donorKeys = new Set<string>()
     for (const s of r.splits) {
       if (s.familyId == null && s.personId == null) continue
-      const key = `${s.familyId ?? ""}-${s.personId ?? ""}`
+      const key = JSON.stringify([s.accountId, s.familyId, s.personId])
       if (donorKeys.has(key)) {
         return {
           ok: false,
           status: 400,
-          error: `"${r.description}" (${r.date}) assigns the same member to more than one allocation — combine them into a single split`,
+          error: `"${r.description}" (${r.date}) assigns the same member to more than one allocation in the same category — combine them into a single split`,
         }
       }
       donorKeys.add(key)

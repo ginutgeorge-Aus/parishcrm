@@ -161,3 +161,49 @@ describe("collectEnvWarnings — in-app scheduler", () => {
     expect(collectEnvWarnings().some((w) => w.includes("IN_APP_CRON"))).toBe(true)
   })
 })
+
+describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
+  const orig = process.env.CLIENT_IP_HEADER
+  afterEach(() => {
+    if (orig === undefined) delete process.env.CLIENT_IP_HEADER
+    else process.env.CLIENT_IP_HEADER = orig
+  })
+  const ipWarnings = () => collectEnvWarnings().filter((w) => w.startsWith("CLIENT_IP_HEADER"))
+
+  it("does not warn when unset or a valid name", () => {
+    delete process.env.CLIENT_IP_HEADER
+    expect(ipWarnings()).toEqual([])
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(ipWarnings()).toEqual([])
+  })
+  it("warns on an illegal header name", () => {
+    process.env.CLIENT_IP_HEADER = "cf connecting ip"
+    expect(ipWarnings()).toEqual([expect.stringContaining("not a valid HTTP header name")])
+  })
+  it("warns on spoofable headers", () => {
+    for (const n of ["X-Forwarded-For", "forwarded", "x-original-forwarded-for"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([expect.stringContaining("client-controlled or append-list header")])
+    }
+  })
+  it("warns (but still honours) a passthrough-prone header like x-real-ip", () => {
+    process.env.CLIENT_IP_HEADER = " X-Real-IP "
+    expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
+  })
+  it("warns for x-envoy-external-address and x-azure-socketip (not guaranteed overwritten)", () => {
+    for (const n of ["x-envoy-external-address", "x-azure-socketip"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
+    }
+  })
+  it("does not warn for legitimate custom proxy headers", () => {
+    for (const n of ["x-my-proxy-ip"]) {
+      process.env.CLIENT_IP_HEADER = n
+      expect(ipWarnings()).toEqual([])
+    }
+  })
+  it("does not warn for an allowlisted CDN header", () => {
+    process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
+    expect(ipWarnings()).toEqual([])
+  })
+})

@@ -64,7 +64,7 @@ it("200 + EXPORT_FINANCIAL_REPORT audit for ADMIN", async () => {
     "GeneralLedger",
     undefined,
     expect.objectContaining({ report: "general-ledger", accountId: 1, year: 2026 }),
-    "unknown",
+    undefined,
   )
 })
 

@@ -215,6 +215,12 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.or
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://crm.example.org/api/cron/error-issues
 ```
 
+## Behind a proxy that adds hops (Render and similar)
+
+If your platform appends its own internal hop to `x-forwarded-for`, set `CLIENT_IP_HEADER` so login
+throttling and audit IPs see the real client. This is security-sensitive: see
+[`docs/environment.md`](environment.md#client_ip_header) for the full explanation.
+
 ## Upgrading
 
 1. Back up the database.

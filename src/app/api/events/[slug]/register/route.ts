@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { rateLimit } from "@/lib/rateLimit"
-import { getClientIp } from "@/lib/clientIp"
+import { getClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { createEventRegistration } from "@/lib/eventRegistration"
 import { featureNotFound } from "@/lib/featureFlags"
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
     return NextResponse.json({ error: "Invalid request" }, { status: 400 })
   }
 
-  const result = await createEventRegistration(params.slug, body, ip)
+  const result = await createEventRegistration(params.slug, body, getValidatedClientIp(req))
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }

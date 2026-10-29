@@ -6,7 +6,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { parseCsv } from "@/lib/csv"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(actorId(session), "IMPORT_CSV", "Family", undefined, { imported, skipped }, ip)
 
   return NextResponse.json({ imported, skipped, errors: importErrors })

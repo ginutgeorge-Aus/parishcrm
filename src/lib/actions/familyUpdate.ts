@@ -20,6 +20,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
+import { clientIpFromHeaders } from "@/lib/clientIp"
 
 // Thrown inside the approval transaction when the atomic PENDING→APPROVED claim
 // matches 0 rows (a concurrent approval already won). Caught to return a clean
@@ -93,7 +94,6 @@ export async function sendFamilyUpdateInvite(
 
 type SubmitInput = {
   token: string
-  ip: string
   website?: string   // honeypot
   formToken?: string // signed timing token
   payload: unknown
@@ -101,14 +101,19 @@ type SubmitInput = {
 
 class InviteNoLongerValid extends Error {}
 
+/**
+ * Applies a family's self-service update submitted through an invite link: validates the invite
+ * and payload, throttles per client IP and records the change for staff review.
+ * @param input the invite token plus the submitted payload
+ * @returns success, or an error message safe to show the submitter
+ */
 export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResultWithSuccess> {
   // Honeypot: a real user never fills the hidden "website" field. Generic error.
   if (input.website && input.website.trim().length > 0) return { error: "Submission failed" }
 
-  // Rightmost x-forwarded-for is appended by the trusted reverse proxy (not spoofable);
-  // fall back to the explicit input.ip (used in tests) then "unknown".
-  const hdrIp = (await headers()).get("x-forwarded-for")?.split(",").at(-1)?.trim()
-  const ip = hdrIp || input.ip || "unknown"
+  // Proxy-derived IP only (CLIENT_IP_HEADER, else rightmost x-forwarded-for); never client-supplied,
+  // so a caller cannot choose its own rate-limit bucket. Keyed on "unknown" when no IP is available.
+  const ip = clientIpFromHeaders(await headers())
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }

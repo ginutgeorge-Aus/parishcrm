@@ -129,6 +129,12 @@ Optional next steps: [Regional Configuration](/parishcrm/docs/regional-configura
 year, timezone, currency) and [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/) (reminders,
 cleanup sweeps).
 
+## Behind a proxy that adds hops (Render and similar)
+
+If your platform appends its own internal hop to `x-forwarded-for`, set `CLIENT_IP_HEADER` so login
+throttling and audit IPs see the real client. This is security-sensitive: see the
+[full explanation](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/environment.md#client_ip_header).
+
 ## Local development (not for production)
 
 For running the app from source for development/testing:

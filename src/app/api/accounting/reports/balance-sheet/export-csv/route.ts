@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { guardAccountingExport } from "@/lib/reports/exportGuard"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
-import { getClientIp } from "@/lib/clientIp"
+import { getValidatedClientIp } from "@/lib/clientIp"
 import { generateBalanceSheetCsv, type BalanceSheetRow } from "@/lib/reports/balanceSheetExport"
 import { toCents, type Money } from "@/lib/formatting"
 import { TransactionType } from "@/lib/generated/prisma/enums"
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
 
   const csv = generateBalanceSheetCsv(rows, totalBalanceCents)
 
-  const ip = getClientIp(req)
+  const ip = getValidatedClientIp(req)
   await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "BalanceSheet", undefined, { report: "balance-sheet", date: toYMD(asAtDate) }, ip)
 
   return new NextResponse(csv, {

@@ -6,7 +6,7 @@ import { encrypt, hmacEmail } from "@/lib/crypto"
 import { verifyFormToken } from "@/lib/formToken"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { rateLimit } from "@/lib/rateLimit"
-import { getClientIp } from "@/lib/clientIp"
+import { getClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { isRegistrationClosed } from "@/lib/eventClose"
 import { featureNotFound } from "@/lib/featureFlags"
@@ -48,7 +48,7 @@ async function antiBotRejection(
   website: string | undefined,
   formToken: string | undefined,
   turnstileToken: string | undefined,
-  ip: string,
+  remoteIp: string | undefined,
 ): Promise<NextResponse | null> {
   if (website && website.trim().length > 0) return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
   switch (verifyFormToken(formToken, Date.now())) {
@@ -64,7 +64,7 @@ async function antiBotRejection(
   // No-op unless TURNSTILE_SECRET_KEY is configured; when enabled, a missing/
   // invalid token is rejected like the honeypot — generic error, no hint which
   // check failed.
-  if (!(await verifyTurnstile(turnstileToken, ip))) {
+  if (!(await verifyTurnstile(turnstileToken, remoteIp))) {
     return NextResponse.json({ error: "Waitlist failed" }, { status: 400 })
   }
   return null
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   const { ticketTypeId, name, email, website, formToken, turnstileToken } = parsed.data
 
-  const botRejection = await antiBotRejection(website, formToken, turnstileToken, ip)
+  const botRejection = await antiBotRejection(website, formToken, turnstileToken, getValidatedClientIp(req))
   if (botRejection) return botRejection
 
   const ticketType = event.ticketTypes.find(t => t.id === ticketTypeId)
