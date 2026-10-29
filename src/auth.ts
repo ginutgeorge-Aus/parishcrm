@@ -304,7 +304,12 @@ export async function authorizeCredentials(
   // case/space variants resolve to one account and share one counter.
   const rawEmail = String(credentials.email).trim()
   const normalizedEmail = normalizeEmail(rawEmail)
-  if (!normalizedEmail) return null // whitespace-only: nothing to look up
+  if (!normalizedEmail) {
+    // whitespace-only: nothing to look up, but still consume a per-IP token so
+    // blank-email probes can't dodge the throttle below.
+    await loginIpAllowed(ip)
+    return null
+  }
 
   // IP-based throttle on the whole credentials path (password + OTP
   // steps) — the only prior ceiling was the per-account 5-attempt lock, which

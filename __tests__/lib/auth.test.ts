@@ -431,6 +431,13 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(queryRaw).not.toHaveBeenCalled()
   })
 
+  it("a whitespace-only email still consumes a per-IP throttle token", async () => {
+    const { dbRateLimit } = await import("@/lib/dbRateLimit")
+    ;(dbRateLimit as jest.Mock).mockClear()
+    await expect(authorizeCredentials({ email: "   ", password: "x" }, reqWithIp("7.7.7.7"))).resolves.toBeNull()
+    expect(dbRateLimit).toHaveBeenCalledWith("login:ip:7.7.7.7", 10, 60_000)
+  })
+
   it("OTP path: tries the trimmed raw email, then the lower-cased one, before the fallback", async () => {
     findUnique.mockResolvedValue(null)
     await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })

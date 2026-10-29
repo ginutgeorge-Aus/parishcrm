@@ -18,7 +18,7 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { assertNotDemo } from "@/lib/demoMode"
-import { userEmailField, isEmailTaken, normalizeEmail } from "@/lib/userLookup"
+import { userEmailField, isEmailTaken } from "@/lib/userLookup"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
 
@@ -307,12 +307,15 @@ export async function updateUser(
     return { error: "Unauthorized" }
   }
 
-  // parsed.data.email is already normalised (trimmed + lower-cased). Compare it with
-  // the normalised stored email: equal = unchanged (including a case-only edit), so
-  // keep the stored legacy mixed-case value and skip the duplicate check; legacy rows
-  // are not rewritten on unrelated edits. Otherwise it's a real change: reject when
-  // ANOTHER user already holds it (exclude-self lookup).
-  if (normalizeEmail(target.email) === parsed.data.email) {
+  // The schema lower-cases the email, so compare the submitted value (trimmed, case
+  // kept) with the stored one: identical = unchanged, keep the stored legacy
+  // mixed-case value and skip the duplicate check. Anything else, including a
+  // case-only change, is an explicit change: written lower-cased unless ANOTHER user
+  // matches case-insensitively (isEmailTaken excludes this user, so a self
+  // case-rename passes). Read from the same source the schema parsed
+  // (Object.fromEntries keeps the LAST duplicate entry).
+  const submittedEmail = String(Object.fromEntries(formData).email ?? "").trim()
+  if (submittedEmail === target.email) {
     parsed.data.email = target.email
   } else if (await isEmailTaken(parsed.data.email, id)) {
     return { error: "Email already in use" }

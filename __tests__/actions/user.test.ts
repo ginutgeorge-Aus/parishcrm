@@ -238,16 +238,37 @@ describe("updateUser", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it("treats a case-only or whitespace-padded resubmit as unchanged: keeps the stored value, no duplicate check", async () => {
+  it("whitespace-only difference with the same case keeps the stored value, no duplicate check", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
     mockQueryRaw.mockResolvedValue([{ id: 2 }])
-    await updateUser(1, undefined, fd({ name: "N", email: "  legacy@x.com ", role: "VIEWER" }))
+    await updateUser(1, undefined, fd({ name: "N", email: "  Legacy@X.com ", role: "VIEWER" }))
     expect(mockQueryRaw).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
       data: expect.objectContaining({ email: "Legacy@X.com" }),
     })
+  })
+
+  it("honours an explicit case-only email change (self excluded from the duplicate check)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockQueryRaw.mockResolvedValue([])
+    await updateUser(1, undefined, fd({ name: "N", email: "legacy@x.com", role: "VIEWER" }))
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ email: "legacy@x.com" }),
+    })
+  })
+
+  it("rejects an explicit case-only email change when another user already holds the address", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockQueryRaw.mockResolvedValue([{ id: 2 }])
+    const result = await updateUser(1, undefined, fd({ name: "N", email: "legacy@x.com", role: "VIEWER" }))
+    expect(result).toEqual({ error: "Email already in use" })
+    expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it("runs the duplicate check when the email really changes", async () => {
@@ -447,6 +468,15 @@ describe("updateUser", () => {
     mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER", email: "old@x.com" })
     mockQueryRaw.mockResolvedValue([]) // pre-check saw the email as free
     mockTransaction.mockRejectedValue({ code: "P2002" }) // but a concurrent write beat this one
+    const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
+    expect(result).toEqual({ error: "Email already in use" })
+  })
+
+  it("maps an adapter-pg unique violation (User_email_lower_key, no code) to the friendly error", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, role: "VIEWER", email: "old@x.com" })
+    mockQueryRaw.mockResolvedValue([])
+    mockTransaction.mockRejectedValue({ cause: { kind: "UniqueConstraintViolation", constraint: { index: "User_email_lower_key" } } })
     const result = await updateUser(1, undefined, fd({ name: "X", email: "taken@x.com", role: "VIEWER" }))
     expect(result).toEqual({ error: "Email already in use" })
   })
