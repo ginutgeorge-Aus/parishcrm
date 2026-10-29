@@ -10,7 +10,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
-import { xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
+import { xferOutRef } from "@/lib/xferRefs"
 import { ymd } from "@/lib/dates"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
@@ -207,6 +207,7 @@ function adoptionFieldsChanged(
     || existing.accountId !== next.accountId
 }
 
+const PETTY_CASH_EDIT_ERROR = "Petty cash transactions cannot be edited here — edit via the petty cash session"
 const DEPOSIT_LINKED_ERROR = "This imported deposit is linked to a petty cash transfer. Delete the transfer first."
 
 /**
@@ -244,7 +245,7 @@ export async function updateTransaction(
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
-    return { error: "Petty cash transactions cannot be edited here — edit via the petty cash session" }
+    return { error: PETTY_CASH_EDIT_ERROR }
   // Editing a reconciled row would silently un-balance a period that was marked
   // reconciled while leaving every row still flagged reconciled. Force a
   // deliberate re-open via the reconciliation page's un-reconcile toggle first.
@@ -316,9 +317,11 @@ export async function updateTransaction(
     // The change test uses the row as read in this tx, not the pre-read, so a concurrent edit can't make it stale.
     const current = await tx.transaction.findUnique({
       where: { id },
-      select: { date: true, amount: true, type: true, accountId: true, bankRef: true },
+      select: { date: true, amount: true, type: true, accountId: true, bankRef: true, pettyCashTransferId: true },
     })
     if (!current) return { error: "Not found" }
+    // A petty cash link that landed after the pre-read (incl. an adopted XFER_OUT leg) blocks the edit: such rows are edited via the session.
+    if (current.pettyCashTransferId != null) return { error: PETTY_CASH_EDIT_ERROR }
     if (current.bankRef && adoptionFieldsChanged(current, parsed.data) && (await depositLinkedToTransfer(tx, current.bankRef)))
       return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
@@ -369,7 +372,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   const existing = await prisma.transaction.findUnique({
     where: { id },
-    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true, account: { select: { code: true } } },
+    select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
   })
   if (!existing) return { error: "Not found" }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
@@ -392,12 +395,16 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // The paired-leg check and the delete share one Serializable transaction so a concurrent
   // createTransfer adoption of this deposit's XFER_OUT leg can't commit between them. Rows
   // without a bankRef have no paired leg, so skip that query.
-  // Only an imported deposit (INCOME on the XFER account, bankRef not itself an XFER_OUT leg) can have an
-  // adoptable leg; every other row skips the lookup.
-  const mayHaveAdoptedLeg = !!existing.bankRef && existing.type === "INCOME" && existing.account?.code === "XFER"
-    && !existing.bankRef.startsWith(XFER_OUT_PREFIX)
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
-    if (mayHaveAdoptedLeg && (await depositLinkedToTransfer(tx, existing.bankRef!))) return { error: DEPOSIT_LINKED_ERROR }
+    // Eligibility comes from the row as read in this tx (not the pre-read). Only an imported deposit (INCOME
+    // on the XFER account with a bankRef) can have an adoptable leg; any bankRef, including an XFER_OUT_-prefixed
+    // one, can pair with a leg, so no prefix exclusion. Every other row skips the lookup.
+    const row = await tx.transaction.findUnique({
+      where: { id },
+      select: { type: true, bankRef: true, account: { select: { code: true } } },
+    })
+    if (row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER" && (await depositLinkedToTransfer(tx, row.bankRef)))
+      return { error: DEPOSIT_LINKED_ERROR }
     // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
     // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
     return tx.transaction.deleteMany({

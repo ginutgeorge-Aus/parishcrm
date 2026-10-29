@@ -470,6 +470,13 @@ describe("updateTransaction", () => {
       expect(mockFindUnique).toHaveBeenCalledTimes(2)
     })
 
+    it("blocks an edit when a petty cash link landed on the row after the pre-read", async () => {
+      mockFindUnique.mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...deposit, pettyCashTransferId: 9 })
+      const result = await updateTransaction(1, undefined, fd(validTx))
+      expect(result).toEqual({ error: "Petty cash transactions cannot be edited here — edit via the petty cash session" })
+      expect(mockUpdateMany).not.toHaveBeenCalled()
+    })
+
     it("computes the change from the in-tx row, not the stale pre-read", async () => {
       // Pre-read matches the form (no change); a concurrent edit moved the amount before the tx re-read.
       mockFindUnique
@@ -642,7 +649,8 @@ describe("deleteTransaction", () => {
   it("blocks deleting an imported deposit whose XFER_OUT leg is adopted by a petty cash transfer", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique
-      .mockResolvedValueOnce(importedDeposit)
+      .mockResolvedValueOnce({ id: 1 }) // pre-read (eligibility is not derived from it)
+      .mockResolvedValueOnce(importedDeposit) // in-tx row
       .mockResolvedValueOnce({ pettyCashTransferId: 7 })
     const result = await deleteTransaction(1)
     expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
@@ -650,23 +658,33 @@ describe("deleteTransaction", () => {
     expect(mockDelete).not.toHaveBeenCalled()
   })
 
+  it("looks up the paired leg for a prefixed deposit bankRef (XFER_OUT_CUSTOM pairs with XFER_OUT_XFER_OUT_CUSTOM)", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique
+      .mockResolvedValueOnce({ id: 1 })
+      .mockResolvedValueOnce({ ...importedDeposit, bankRef: "XFER_OUT_CUSTOM" })
+      .mockResolvedValueOnce({ pettyCashTransferId: 7 })
+    const result = await deleteTransaction(1)
+    expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
+    expect(mockFindUnique).toHaveBeenLastCalledWith({ where: { bankRef: "XFER_OUT_XFER_OUT_CUSTOM" }, select: { pettyCashTransferId: true } })
+  })
+
   it("reads the paired leg inside the delete transaction only for XFER-account INCOME deposits", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValueOnce(importedDeposit).mockResolvedValueOnce({ pettyCashTransferId: null })
+    mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(importedDeposit).mockResolvedValueOnce({ pettyCashTransferId: null })
     await deleteTransaction(1)
-    expect(mockFindUnique).toHaveBeenCalledTimes(2)
+    expect(mockFindUnique).toHaveBeenCalledTimes(3)
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
-    // Skipped: no bankRef, non-XFER account, EXPENSE type, or an XFER_OUT_ leg itself.
+    // Skipped (pre-read + in-tx row only): no bankRef, non-XFER account, or EXPENSE type.
     for (const row of [
       { id: 1, bankRef: null, type: "INCOME", account: { code: "XFER" } },
       { id: 1, bankRef: "ANZ_1", type: "INCOME", account: { code: "4001" } },
       { id: 1, bankRef: "ANZ_1", type: "EXPENSE", account: { code: "XFER" } },
-      { id: 1, bankRef: "XFER_OUT_ANZ_1", type: "INCOME", account: { code: "XFER" } },
     ]) {
       mockFindUnique.mockClear()
-      mockFindUnique.mockResolvedValueOnce(row)
+      mockFindUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(row)
       await deleteTransaction(1)
-      expect(mockFindUnique).toHaveBeenCalledTimes(1)
+      expect(mockFindUnique).toHaveBeenCalledTimes(2)
     }
   })
 
