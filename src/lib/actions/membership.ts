@@ -25,7 +25,7 @@ import type { Gender, FamilyRole } from "@/lib/generated/prisma/enums"
 import type { ActionResultWithSuccess } from "./types"
 import { assertFeature, featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
-import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
+import { resolveClientIp } from "@/lib/clientIp"
 
 const MAX_SIGNATURE_LEN = 300_000 // ~225 KB of base64
 
@@ -53,9 +53,8 @@ export async function submitMembershipApplication(input: SubmitMembershipInput):
 
   // Real client IP from the trusted reverse proxy (CLIENT_IP_HEADER, else rightmost x-forwarded-for) —
   // a client cannot set its own, so we never trust input.ip for throttling.
-  const h = await headers()
-  const ip = clientIpOrUndefined(h) // validated: Turnstile remoteip
-  const rateKey = clientIpFromHeaders(h) // bucket key (raw fallback), never persisted
+  // ip: validated (Turnstile remoteip); rateKey: bucket key, never persisted.
+  const { ip, key: rateKey } = resolveClientIp(await headers())
   // Generous in-memory throttle before the feature read, so a flooding host
   // never reaches the settings table. The real quotas below are spent only
   // once a submission is valid and verified.

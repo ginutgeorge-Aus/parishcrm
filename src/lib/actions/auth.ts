@@ -37,6 +37,13 @@ function randomDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300))
 }
 
+/**
+ * Starts a password reset: emails a single-use reset link when the address belongs to an active user.
+ * Always returns the same silent success for unknown emails, throttled senders and bad config, so it
+ * cannot be used to probe which emails exist.
+ * @param email the address entered on the forgot-password form
+ * @returns `{ success: true }`, or `{ error }` for demo mode / invalid input
+ */
 export async function requestPasswordReset(
   email: string
 ): Promise<{ success?: true; error?: string }> {

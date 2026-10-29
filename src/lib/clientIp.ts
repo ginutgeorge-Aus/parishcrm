@@ -172,58 +172,45 @@ export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | u
 }
 
 /**
- * Rightmost NON-empty `x-forwarded-for` entry (empty trailing entries such as `203.0.113.5,` are
- * skipped), for rate-limit keys only, and only when it parses as a real IP via `normalizeIp` (e.g. `203.0.113.9:8080`,
- * `[2001:db8::1]:443`, returned canonicalised). Anything else (`a1`, `1:2`, `1.2.3.4.5`, junk)
- * yields undefined and so collapses into the shared `unknown` bucket, so an attacker cannot mint a
- * bucket (and a rate-limit row) per request. A literal `unknown` entry shares the no-IP bucket by
- * design.  A valid IP is at most 45 chars, so keys stay bounded.
- * @param h anything with `get`
- * @returns the canonical IP of the entry, or undefined when there is none or it is not a valid IP
- */
-function rawRateLimitEntry(h: Pick<Headers, "get">): string | undefined {
-  const entry = h
-    .get("x-forwarded-for")
-    ?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .at(-1)
-  if (!entry) return undefined
-  // Real parse (isIP via normalizeIp), not a shape regex: `1:2`, `a:b`, `1.2.3.4.5`, `dead:beef` are junk
-  // an attacker could vary per request to mint a bucket each. Invalid entries share the `unknown` bucket.
-  const ip = normalizeIp(entry)
-  if (!ip) return undefined
-  return ip
-}
-
-/**
- * Rate-limit key from a headers object, or undefined when the request carries nothing usable: the
- * validated IP when resolvable (see `clientIpOrUndefined`); otherwise, on the default
- * x-forwarded-for path only, the raw non-empty IP-shaped rightmost entry (length-capped, see
- * `rawRateLimitEntry`) so distinct odd values do not collapse into one shared bucket. A configured
- * `CLIENT_IP_HEADER` is never read raw. A bucket key only: never persist it.
+ * Rate-limit key from a headers object, or undefined when the request carries no usable IP. It is
+ * the same trusted entry as the audit IP (`clientIpOrUndefined`): the `CLIENT_IP_HEADER` IP when
+ * configured and valid, else the rightmost `x-forwarded-for` entry. Any entry that is not a
+ * well-formed IP (`a1`, `evil`, `unknown`, an empty trailing entry such as `6.6.6.6,`) yields
+ * undefined and so shares the single `unknown` bucket, so an attacker cannot mint a bucket (and a
+ * rate-limit row) per request. Valid forms (IPv4, IPv4:port, `[v6]:port`) key on the canonical IP.
+ * A bucket key only: never persist it.
  * @param h anything with `get`
  * @returns the key, or undefined when none is available
  */
 export function clientIpKeyOrUndefined(h?: Pick<Headers, "get"> | null): string | undefined {
-  if (!h) return undefined
-  return clientIpOrUndefined(h) ?? rawRateLimitEntry(h)
+  return clientIpOrUndefined(h)
+}
+
+/**
+ * Resolves headers once into both the validated IP (audit / Turnstile `remoteip`; undefined when
+ * none) and the rate-limit bucket key (that IP, else "unknown"). The two always agree on the
+ * trusted entry.
+ * @param h anything with `get`
+ * @returns the validated IP (or undefined) and the bucket key (never empty)
+ */
+export function resolveClientIp(h: Pick<Headers, "get">): { ip: string | undefined; key: string } {
+  const ip = clientIpOrUndefined(h)
+  return { ip, key: ip ?? "unknown" }
 }
 
 /**
  * Rate-limit key from a headers object (see `clientIpKeyOrUndefined`), "unknown" when none.
- * Every rate-limit caller must use this (or `getClientIp`) rather than `clientIpOrUndefined`, so
- * malformed entries behave the same everywhere; use `clientIpOrUndefined` for `AuditLog.ip`.
+ * Every rate-limit caller must use this (or `getClientIp`) so malformed entries behave the same
+ * everywhere; use `clientIpOrUndefined` for `AuditLog.ip`.
  * @param h anything with `get`
  * @returns the bucket key (never empty)
  */
 export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
-  return clientIpKeyOrUndefined(h) ?? "unknown"
+  return resolveClientIp(h).key
 }
 
 /**
- * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`; may be a raw non-IP string or
- * "unknown"). Never use this for audit logs: use {@link getValidatedClientIp}.
+ * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`; a canonical IP or "unknown"). Never use this for audit logs: use {@link getValidatedClientIp}.
  * Typed against `Request` (the `NextRequest` supertype) so it accepts both; it only reads `headers`.
  * @param req the request
  * @returns the bucket key (never empty)

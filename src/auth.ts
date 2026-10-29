@@ -304,6 +304,13 @@ export async function authorizePasskey(
   return { id: String(user.id), name: user.name, email: user.email, role: user.role, remember: credentials.remember === "true" }
 }
 
+/**
+ * NextAuth `authorize` callback for the Credentials provider: applies the per-IP throttle, then the
+ * password / OTP / backup-code / email-fallback steps with their lockouts.
+ * @param credentials the submitted form fields
+ * @param request the incoming request, used only to derive the client IP for throttling and audit
+ * @returns the session user, or null when authentication fails or is throttled
+ */
 export async function authorizeCredentials(
   credentials: Partial<Record<"email" | "password" | "otp" | "mode" | "remember" | "code" | "emailFallback", unknown>>,
   request?: Request,

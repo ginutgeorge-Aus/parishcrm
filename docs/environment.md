@@ -67,11 +67,11 @@ values the app uses the rightmost, and it must be a valid IP.
   sends the header on every request. The fallback warning is logged at most once every 10 minutes per
   process, header name only.
 - Only a well-formed IP is ever persisted as an IP (audit log) or sent as Turnstile `remoteip` by the membership and public-feedback forms (event registration and waitlist send the validated IP, or no `remoteip` when there is none). An empty rightmost
-  entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. For rate-limit
-  keys only, a malformed but IP-shaped rightmost `x-forwarded-for` entry is used as-is (empty trailing
-  entries are skipped, and values over 64 characters are replaced by a short hash); anything not
-  IP-shaped (`a1`, `evil`, a literal `unknown`) shares the single `unknown` bucket, never the
-  whole header; a non-IP `CLIENT_IP_HEADER` value is never used.
+  entry (e.g. `x-forwarded-for: 6.6.6.6,`) is treated as untrusted and yields no IP. The rate-limit key uses
+  the same trusted entry as the audit IP: any rightmost `x-forwarded-for` entry that is not a
+  well-formed IP (`a1`, `evil`, a literal `unknown`, an empty trailing entry) shares the single
+  `unknown` bucket, never the whole header; valid IPv4, `ip:port` and `[v6]:port` forms key on the
+  canonical IP. A non-IP `CLIENT_IP_HEADER` value is never used.
 - `cloudfront-viewer-address` carries `ip:port`; the port is stripped (including for unbracketed IPv6).
 - Ignored with a boot-log warning: invalid header names and spoofable/append-list headers
   (`x-forwarded-for`, `forwarded`, `x-forwarded`, `forwarded-for`, `x-forwarded-client-ip`,

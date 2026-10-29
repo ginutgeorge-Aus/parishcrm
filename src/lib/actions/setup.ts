@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { safeEqual } from "@/lib/safeEqual"
-import { clientIpFromHeaders, clientIpOrUndefined } from "@/lib/clientIp"
+import { resolveClientIp } from "@/lib/clientIp"
 import { isSetupOpen } from "@/lib/setupState"
 import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import { isP2002, isP2034 } from "@/lib/validation"
@@ -37,15 +37,20 @@ class SetupClosedError extends Error {}
 
 /**
  * Resolves the caller's IP for `/setup`: `ip` is the validated IP (undefined when none, which
- * triggers the shared-bucket warning), `key` the rate-limit bucket key (validated IP, else the raw
- * rightmost x-forwarded-for entry, else "unknown"), consistent with the other limiters.
+ * triggers the shared-bucket warning), `key` the rate-limit bucket key (validated IP, else
+ * "unknown"), consistent with the other limiters.
  * @returns the validated IP and the bucket key
  */
 async function setupClientIp(): Promise<{ ip: string | undefined; key: string }> {
-  const h = await headers()
-  return { ip: clientIpOrUndefined(h), key: clientIpFromHeaders(h) }
+  return resolveClientIp(await headers())
 }
 
+/**
+ * Creates the first ADMIN from the one-time `/setup` form. Gated by the setup token, only open while
+ * no users exist, and rate-limited per client IP.
+ * @param formData the setup form (token, name, email, password, confirm)
+ * @returns `{ success: true }`, or `{ error, field? }`
+ */
 export async function createFirstAdmin(formData: FormData): Promise<SetupResult> {
   const demo = assertNotDemo()
   if (demo) return demo

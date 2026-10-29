@@ -51,8 +51,6 @@ function RateLimitedNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
   )
 }
 
-// Throttle the token lookup: only the ?ref=/?token= paths are an oracle, so
-// count a request against the per-IP budget only when one is supplied.
 /**
  * Per-IP throttle for the success-page token lookup (the ?ref=/?token= paths are an oracle).
  * Only counts a request when a ref or card token is supplied.

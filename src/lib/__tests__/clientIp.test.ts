@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpKeyOrUndefined, clientIpOrUndefined, getClientIp, getValidatedClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpKeyOrUndefined, clientIpOrUndefined, getClientIp, resolveClientIp, getValidatedClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -49,9 +49,11 @@ describe("clientIpFromHeaders", () => {
     expect(clientIpFromHeaders(h())).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
-  it("an empty trailing entry gives no validated IP (audit) but the rate-limit key skips it", () => {
-    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("6.6.6.6")
-    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("1.1.1.1")
+  it("an empty trailing entry is untrusted for both the audit IP and the rate-limit key", () => {
+    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("unknown")
+    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
+    expect(clientIpOrUndefined(h("6.6.6.6,"))).toBeUndefined()
+    expect(clientIpKeyOrUndefined(h("6.6.6.6,"))).toBeUndefined()
     expect(clientIpOrUndefined(h("6.6.6.6, "))).toBeUndefined()
   })
 })
@@ -241,8 +243,8 @@ describe("XFF normalisation (default path)", () => {
       expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
     }
   })
-  it("keys on the real parsed IP of the rightmost non-empty XFF entry", () => {
-    expect(clientIpFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("203.0.113.5")
+  it("keys on the real parsed IP of the rightmost XFF entry (a trailing empty entry is untrusted)", () => {
+    expect(clientIpFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("unknown")
     expect(clientIpFromHeaders(h("203.0.113.9:8080"))).toBe("203.0.113.9")
     expect(clientIpFromHeaders(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
   })
@@ -375,8 +377,8 @@ describe("rate-limit key edge cases", () => {
   beforeEach(() => {
     delete process.env.CLIENT_IP_HEADER
   })
-  it("skips empty trailing XFF entries for the key (as before strict validation)", () => {
-    expect(clientIpFromHeaders(h("203.0.113.5,"))).toBe("203.0.113.5")
+  it("empty trailing XFF entries share the unknown bucket, matching the audit IP", () => {
+    expect(clientIpFromHeaders(h("203.0.113.5,"))).toBe("unknown")
     expect(clientIpFromHeaders(h("999.1.1.1, ,"))).toBe("unknown")
     expect(clientIpFromHeaders(h(","))).toBe("unknown")
   })
@@ -389,5 +391,15 @@ describe("rate-limit key edge cases", () => {
   it("an oversized junk entry collapses into the unknown bucket", () => {
     expect(clientIpFromHeaders(h("1.".repeat(4000)))).toBe("unknown")
     expect(clientIpFromHeaders(h("3.".repeat(32)))).toBe("unknown")
+  })
+})
+
+describe("resolveClientIp", () => {
+  it("returns the validated ip and the same value as the bucket key", () => {
+    expect(resolveClientIp(h("1.1.1.1, 203.0.113.9:8080"))).toEqual({ ip: "203.0.113.9", key: "203.0.113.9" })
+  })
+  it("returns no ip and the unknown bucket for untrusted or missing entries", () => {
+    expect(resolveClientIp(h("6.6.6.6,"))).toEqual({ ip: undefined, key: "unknown" })
+    expect(resolveClientIp(h())).toEqual({ ip: undefined, key: "unknown" })
   })
 })
