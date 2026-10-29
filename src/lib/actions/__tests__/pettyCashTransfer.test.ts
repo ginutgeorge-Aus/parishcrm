@@ -115,11 +115,16 @@ describe("createTransfer — imported deposit", () => {
       .resolves.toEqual({ error: "Imported deposit's cash-out date does not match this transfer" })
   })
 
-  it("rejects when the leg's period is locked", async () => {
-    ;(assertUnlocked as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce("Period locked")
+  it("checks the lock once, before the transaction (leg is on the transfer day)", async () => {
     const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce(okLeg)
+    await run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } })
+    expect(assertUnlocked).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects an already-reconciled leg", async () => {
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, reconciled: true })
     await expect(run({ ...base(), transaction: { findUnique, update: jest.fn(), create: jest.fn() } }))
-      .resolves.toEqual({ error: "Period locked" })
+      .resolves.toEqual({ error: "Imported deposit's cash-out is already reconciled" })
   })
 
   const rejects = (name: string, dep: unknown, leg: unknown, error: string) =>

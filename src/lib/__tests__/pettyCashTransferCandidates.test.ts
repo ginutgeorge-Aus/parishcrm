@@ -3,6 +3,7 @@
 jest.mock("@/lib/xferAccount", () => ({ findXferAccountId: jest.fn().mockResolvedValue(9), XFER_OUT_PREFIX: "XFER_OUT_" }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
 jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v.replace("enc:", "")) }))
+jest.mock("@/lib/accountingLock", () => ({ getAccountingLockDate: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/prisma", () => ({ prisma: { transaction: { findMany: jest.fn() } } }))
 
 import { prisma } from "@/lib/prisma"
@@ -23,8 +24,8 @@ const amt = (v: string) => ({ toFixed: () => v })
 it("maps deposits of unlinked legs, decrypting the description", async () => {
   findMany
     .mockResolvedValueOnce([
-      { bankRef: "XFER_OUT_ANZ_1", date: new Date("2026-07-31"), amount: amt("50.00") },
-      { bankRef: null, date: new Date("2026-07-31"), amount: amt("1.00") },
+      { reconciled: false, paymentAccountId: 2, bankRef: "XFER_OUT_ANZ_1", date: new Date("2026-07-31"), amount: amt("50.00") },
+      { reconciled: false, paymentAccountId: 2, bankRef: null, date: new Date("2026-07-31"), amount: amt("1.00") },
     ])
     .mockResolvedValueOnce([
       { id: 7, bankRef: "ANZ_1", date: new Date("2026-07-31"), amount: amt("50.00"), description: "enc:Cash deposit" },
@@ -46,8 +47,8 @@ it("only lists unreconciled legs on the cash payment account", async () => {
 it("drops deposits whose leg amount or date disagrees", async () => {
   findMany
     .mockResolvedValueOnce([
-      { bankRef: "XFER_OUT_A", date: new Date("2026-07-31"), amount: amt("50.00") },
-      { bankRef: "XFER_OUT_B", date: new Date("2026-07-31"), amount: amt("50.00") },
+      { reconciled: false, paymentAccountId: 2, bankRef: "XFER_OUT_A", date: new Date("2026-07-31"), amount: amt("50.00") },
+      { reconciled: false, paymentAccountId: 2, bankRef: "XFER_OUT_B", date: new Date("2026-07-31"), amount: amt("50.00") },
     ])
     .mockResolvedValueOnce([
       { id: 1, bankRef: "A", date: new Date("2026-07-31"), amount: amt("60.00"), description: "x" },
@@ -61,4 +62,29 @@ it("returns [] without creating when XFER account is absent", async () => {
   findXferAccountId.mockResolvedValueOnce(null)
   await expect(listImportedTransferCandidates()).resolves.toEqual([])
   expect(findMany).not.toHaveBeenCalled()
+})
+
+it("excludes locked periods in the leg query and fetches deposits without a separate take", async () => {
+  const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
+  const lock = new Date("2026-06-30")
+  getAccountingLockDate.mockResolvedValueOnce(lock)
+  findMany
+    .mockResolvedValueOnce([{ reconciled: false, paymentAccountId: 2, bankRef: "XFER_OUT_A", date: new Date("2026-07-31"), amount: amt("50.00") }])
+    .mockResolvedValueOnce([{ id: 1, bankRef: "A", date: new Date("2026-07-31"), amount: amt("50.00"), description: "x" }])
+  await listImportedTransferCandidates()
+  expect(findMany.mock.calls[0][0].where.date).toEqual({ gt: lock })
+  expect(findMany.mock.calls[1][0].take).toBeUndefined()
+})
+
+it("drops a leg that turned reconciled or off the cash account", async () => {
+  findMany
+    .mockResolvedValueOnce([
+      { reconciled: true, paymentAccountId: 2, bankRef: "XFER_OUT_A", date: new Date("2026-07-31"), amount: amt("50.00") },
+      { reconciled: false, paymentAccountId: 5, bankRef: "XFER_OUT_B", date: new Date("2026-07-31"), amount: amt("50.00") },
+    ])
+    .mockResolvedValueOnce([
+      { id: 1, bankRef: "A", date: new Date("2026-07-31"), amount: amt("50.00"), description: "x" },
+      { id: 2, bankRef: "B", date: new Date("2026-07-31"), amount: amt("50.00"), description: "y" },
+    ])
+  await expect(listImportedTransferCandidates()).resolves.toEqual([])
 })

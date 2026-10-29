@@ -192,6 +192,23 @@ function invoicePaymentChanged(
     || existing.accountId !== next.accountId || existing.fundId !== (next.fundId ?? null)
 }
 
+const DEPOSIT_LINKED_ERROR = "This imported deposit is linked to a petty cash transfer. Delete the transfer first."
+
+/**
+ * True when the bank-import XFER_OUT leg paired with the deposit `bankRef` has been
+ * adopted by a petty cash transfer. Pass the transaction client to read inside a tx.
+ */
+async function depositLinkedToTransfer(
+  db: { transaction: { findUnique: typeof prisma.transaction.findUnique } },
+  bankRef: string,
+): Promise<boolean> {
+  const leg = await db.transaction.findUnique({
+    where: { bankRef: `${XFER_OUT_PREFIX}${bankRef}` },
+    select: { pettyCashTransferId: true },
+  })
+  return leg?.pettyCashTransferId != null
+}
+
 /** Update a transaction. ADMIN/PASTOR only. */
 export async function updateTransaction(
   id: number,
@@ -207,7 +224,7 @@ export async function updateTransaction(
     where: { id },
     select: {
       id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true,
-      invoiceId: true, amount: true, type: true, accountId: true, fundId: true,
+      invoiceId: true, amount: true, type: true, accountId: true, fundId: true, bankRef: true,
     },
   })
   if (!existing) return { error: "Not found" }
@@ -279,6 +296,10 @@ export async function updateTransaction(
   const seenAt = parseOptimisticUpdatedAt(formData)
   const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
     if (!(await accountMatches(tx, rest.accountId, rest.type, { allowInactive: true }))) return { error: "Invalid category" }
+    // An imported deposit whose cash-out leg a petty cash transfer adopted must keep
+    // matching it (amount, date, type, category). Read in-tx so a concurrent adoption can't slip past.
+    if (existing.bankRef && invoicePaymentChanged(existing, parsed.data) && (await depositLinkedToTransfer(tx, existing.bankRef)))
+      return { error: DEPOSIT_LINKED_ERROR }
     const updated = await tx.transaction.updateMany({
       where: { id, invoiceId: existing.invoiceId, ...(seenAt ? { updatedAt: seenAt } : {}) },
       data: {
@@ -330,16 +351,6 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
     select: { id: true, date: true, reconciled: true, pettyCashReceiptId: true, pettyCashExpenseId: true, pettyCashTransferId: true, amount: true, type: true, accountId: true, invoiceId: true, bankRef: true },
   })
   if (!existing) return { error: "Not found" }
-  // An imported deposit whose XFER_OUT leg was adopted by a petty cash transfer
-  // must stay until that transfer is deleted.
-  if (existing.bankRef) {
-    const pairedLeg = await prisma.transaction.findUnique({
-      where: { bankRef: `${XFER_OUT_PREFIX}${existing.bankRef}` },
-      select: { pettyCashTransferId: true },
-    })
-    if (pairedLeg?.pettyCashTransferId != null)
-      return { error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." }
-  }
   if (existing.pettyCashReceiptId != null || existing.pettyCashExpenseId != null || existing.pettyCashTransferId != null)
     return { error: "Petty cash transactions cannot be deleted here — delete via the petty cash session" }
   if (existing.invoiceId != null) return { error: INVOICE_LINKED_ERROR }
@@ -357,7 +368,15 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // invoiceId: null): whichever commits first wins. If the link lands after the read above, this delete matches
   // 0 rows and conflicts instead of removing a just-linked payment (which would leave the invoice PAID with none);
   // if the delete commits first, the link's own guarded write matches 0 rows and rolls the PAID flip back.
-  const removed = await prisma.transaction.deleteMany({ where: { id, invoiceId: null } })
+  // The paired-leg check and the delete share one Serializable transaction so a concurrent
+  // createTransfer adoption of this deposit's XFER_OUT leg can't commit between them. Rows
+  // without a bankRef have no paired leg, so skip that query.
+  const result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
+    if (existing.bankRef && (await depositLinkedToTransfer(tx, existing.bankRef))) return { error: DEPOSIT_LINKED_ERROR }
+    return tx.transaction.deleteMany({ where: { id, invoiceId: null } })
+  }, BUSY, GONE)
+  if ("error" in result) return result
+  const removed = result
   if (removed.count === 0) {
     return { error: "This transaction was changed by someone else since you opened it. Reload the page and try again." }
   }

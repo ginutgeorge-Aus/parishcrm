@@ -434,6 +434,35 @@ describe("updateTransaction", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  describe("imported deposit adopted by a petty cash transfer", () => {
+    const deposit = { id: 1, bankRef: "ANZ_1", date: new Date("2026-05-17"), amount: { toString: () => "500" }, type: "INCOME", accountId: 4001, fundId: null, reconciled: false, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null }
+    beforeEach(() => {
+      mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+      mockAccountFindUnique.mockResolvedValue({ type: "INCOME", isActive: true })
+      mockPaymentAccountFindUnique.mockResolvedValue({ kind: "BANK", isActive: true })
+      mockUpdateMany.mockResolvedValue({ count: 1 })
+    })
+
+    it("blocks changing the amount", async () => {
+      mockFindUnique.mockResolvedValueOnce(deposit).mockResolvedValueOnce({ pettyCashTransferId: 7 })
+      const result = await updateTransaction(1, undefined, fd({ ...validTx, amount: "600" }))
+      expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
+      expect(mockUpdateMany).not.toHaveBeenCalled()
+    })
+
+    it("allows description-only edits without reading the leg", async () => {
+      mockFindUnique.mockResolvedValueOnce(deposit)
+      await updateTransaction(1, undefined, fd({ ...validTx, description: "New text" }))
+      expect(mockFindUnique).toHaveBeenCalledTimes(1)
+    })
+
+    it("allows key-field edits when the leg is not adopted", async () => {
+      mockFindUnique.mockResolvedValueOnce(deposit).mockResolvedValueOnce({ pettyCashTransferId: null })
+      await updateTransaction(1, undefined, fd({ ...validTx, amount: "600" }))
+      expect(mockUpdateMany).toHaveBeenCalled()
+    })
+  })
+
   it("rejects editing a reconciled transaction", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: true })
@@ -593,6 +622,18 @@ describe("deleteTransaction", () => {
     expect(result).toEqual({ error: "This imported deposit is linked to a petty cash transfer. Delete the transfer first." })
     expect(mockFindUnique).toHaveBeenLastCalledWith({ where: { bankRef: "XFER_OUT_ANZ_1" }, select: { pettyCashTransferId: true } })
     expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it("reads the paired leg inside the delete transaction and skips it for rows without a bankRef", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValueOnce({ id: 1, bankRef: "ANZ_1" }).mockResolvedValueOnce({ pettyCashTransferId: null })
+    await deleteTransaction(1)
+    expect(mockFindUnique).toHaveBeenCalledTimes(2)
+    expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null } })
+    mockFindUnique.mockClear()
+    mockFindUnique.mockResolvedValueOnce({ id: 1, bankRef: null })
+    await deleteTransaction(1)
+    expect(mockFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it("deletes and revalidates for ADMIN", async () => {

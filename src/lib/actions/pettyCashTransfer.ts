@@ -13,6 +13,7 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
+import { adoptionMismatch, ymd } from "@/lib/pettyCashAdoption"
 import { MONEY_DECIMAL_RE, isP2034, isValidPgId } from "@/lib/validation"
 import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -87,9 +88,8 @@ export async function createTransfer(
   // Read balance, validate and insert inside one Serializable transaction so two
   // concurrent transfers can't both pass the same balance check and together
   // overdraw the float — the second hits a serialization conflict.
-  let created: { transferId: number; adoptedLegId: number | null }
   try {
-    created = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const existing = await tx.pettyCashSession.findUnique({
         where: { id: sessionId },
         include: {
@@ -140,27 +140,21 @@ export async function createTransfer(
           !leg || leg.pettyCashTransferId !== null
         )
           throw new TransferError("Imported deposit is not available for transfer")
-        if (leg.reconciled) throw new TransferError("Imported deposit's cash-out is already reconciled")
-        // The leg is what moves petty cash — it must be a cash-side XFER expense
-        // for the same amount, or the transfer and its mirror would disagree.
-        if (
-          leg.type !== "EXPENSE" || leg.accountId !== xferAccountId ||
-          leg.paymentAccountId !== (cashAccount?.id ?? null) ||
-          toCents(leg.amount.toFixed(2)) !== toCents(parsed.data.amount)
-        )
+        // The leg is what moves petty cash: it must be an unreconciled cash-side XFER
+        // expense for the same amount, on the transfer's day, or the transfer and its
+        // mirror would disagree.
+        const mismatch = adoptionMismatch(leg, { amount: parsed.data.amount, date: parsed.data.date }, cashAccount?.id ?? null)
+        if (mismatch === "reconciled") throw new TransferError("Imported deposit's cash-out is already reconciled")
+        if (leg.type !== "EXPENSE" || leg.accountId !== xferAccountId || mismatch === "account" || mismatch === "amount")
           throw new TransferError("Imported deposit's cash-out entry does not match this transfer")
         if (
           toCents(deposit.amount.toFixed(2)) !== toCents(parsed.data.amount) ||
-          // Calendar-day compare (both stored at UTC midnight) — robust to a time component.
-          deposit.date.toISOString().slice(0, 10) !== parsed.data.date.toISOString().slice(0, 10)
+          ymd(deposit.date) !== ymd(parsed.data.date)
         )
           throw new TransferError("Date and amount must match the imported deposit")
-        // The leg is the row that actually moves petty cash: it must sit on the
-        // transfer's calendar day and in an unlocked period.
-        if (leg.date.toISOString().slice(0, 10) !== parsed.data.date.toISOString().slice(0, 10))
+        // Transfer date was lock-checked before the tx and the leg is on that same day.
+        if (mismatch === "date")
           throw new TransferError("Imported deposit's cash-out date does not match this transfer")
-        const legLockError = await assertUnlocked(leg.date)
-        if (legLockError) throw new TransferError(legLockError)
         await tx.transaction.update({
           where: { id: leg.id },
           // Keep an existing reference; only fill an empty one (unlink leaves it).
@@ -174,7 +168,7 @@ export async function createTransfer(
           amount: parsed.data.amount, sessionId,
           importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: leg.id,
         })
-        return { transferId: transfer.id, adoptedLegId: leg.id }
+        return
       }
       // Mirror the transfer into the Transaction ledger (symmetric with
       // receipt/expense mirrors) so the dashboard PETTY_CASH balance
@@ -197,7 +191,6 @@ export async function createTransfer(
       await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
         amount: parsed.data.amount, sessionId,
       })
-      return { transferId: transfer.id, adoptedLegId: null }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof TransferError) return { error: e.message }
@@ -207,7 +200,6 @@ export async function createTransfer(
       return { error: "Transfer conflict — please try again." }
     throw e
   }
-  const { transferId } = created
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -238,7 +230,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
       // Concurrent delete: return a clean error instead of a P2025 from the delete below.
       if (!(await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true } })))
-        throw new SessionClosedError("Transfer not found")
+        throw new TransferError("Transfer not found")
       // Derived inside the tx (not from the pre-read) so a concurrent change to the
       // mirror can't leave `adopted` stale.
       let isAdopted = false
@@ -269,7 +261,7 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
       return isAdopted
     })
   } catch (e) {
-    if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof SessionClosedError || e instanceof TransferError) return { error: e.message }
     throw e
   }
   const userId = actorId(session)
