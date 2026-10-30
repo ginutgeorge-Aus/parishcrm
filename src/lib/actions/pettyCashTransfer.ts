@@ -14,9 +14,9 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
-import { xferOutRef } from "@/lib/xferRefs"
+import { xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
-import { getXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
+import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
@@ -83,9 +83,8 @@ export async function createTransfer(
 
   // Resolve the shared XFER account before the Serializable transaction — its
   // self-heal create would otherwise risk a serialization conflict.
-  const xferAccountId = await getXferAccountId(prisma)
-  // Resolved once, not per row — same reasoning as xferAccountId above.
-  const cashAccount = await getCashAccount()
+  // Resolved once, not per row — same reasoning; independent lookups run in parallel.
+  const [xferAccountId, cashAccount] = await Promise.all([getXferAccountId(prisma), getCashAccount()])
 
   // Read balance, validate and insert inside one Serializable transaction so two
   // concurrent transfers can't both pass the same balance check and together

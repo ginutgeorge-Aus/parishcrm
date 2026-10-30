@@ -2,9 +2,10 @@ import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
 import { getAccountingLockDate } from "@/lib/accountingLock"
 import { adoptionProblem, depositRefOfLeg } from "@/lib/pettyCashAdoption"
-import { ymd } from "@/lib/dates"
+import { utcYmd } from "@/lib/dates"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { findXferAccountId, XFER_OUT_PREFIX } from "@/lib/xferAccount"
+import { findXferAccountId } from "@/lib/xferAccount"
+import { XFER_OUT_PREFIX } from "@/lib/xferRefs"
 
 /** Max options returned to the picker (newest first); beyond this `truncated` is set. */
 const OPTION_LIMIT = 200
@@ -82,7 +83,7 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
     truncated: legsTruncated || valid.length > OPTION_LIMIT,
     options: valid.slice(0, OPTION_LIMIT).map((d) => ({
       id: d.id,
-      date: ymd(d.date),
+      date: utcYmd(d.date),
       amount: d.amount.toFixed(2),
       description: safeDecrypt(d.description),
     })),

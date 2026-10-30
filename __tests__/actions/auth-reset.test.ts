@@ -41,7 +41,9 @@ import { requestPasswordReset, resetPassword } from "@/lib/actions/auth"
 describe("requestPasswordReset", () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockQueryRaw.mockResolvedValue([]) // clearAllMocks keeps implementations
+    // clearAllMocks keeps implementations. Default the lower(email) id query to a
+    // hit so each test's findUnique (fetch-by-id) mock decides hit vs miss.
+    mockQueryRaw.mockResolvedValue([{ id: 1 }])
     process.env.AUTH_URL = "http://localhost:3000"
   })
 
@@ -51,21 +53,20 @@ describe("requestPasswordReset", () => {
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
-  it("looks up the trimmed raw email first, then the lower-cased one (unique index)", async () => {
-    mockFindUnique.mockResolvedValue(null)
-    await requestPasswordReset("  U@E.com ")
-    expect(mockFindUnique).toHaveBeenNthCalledWith(1, { where: { email: "U@E.com" }, select: { id: true, email: true, passwordResetExpires: true } })
-    expect(mockFindUnique).toHaveBeenNthCalledWith(2, { where: { email: "u@e.com" }, select: { id: true, email: true, passwordResetExpires: true } })
+  it("miss: one lower(email) id query, no row fetch", async () => {
+    mockQueryRaw.mockResolvedValue([])
+    expect(await requestPasswordReset("  U@E.com ")).toEqual({ success: true })
+    expect(mockQueryRaw).toHaveBeenCalledTimes(1)
+    expect(mockFindUnique).not.toHaveBeenCalled()
   })
 
-  it("resets a legacy mixed-case user found via the case-insensitive fallback", async () => {
-    mockFindUnique
-      .mockResolvedValueOnce(null) // lowercase exact miss
-      .mockResolvedValueOnce({ id: 4, email: "U@E.com", passwordResetExpires: null }) // fetch by id
+  it("resets a legacy mixed-case user, loading only id/email/passwordResetExpires", async () => {
     mockQueryRaw.mockResolvedValue([{ id: 4 }])
+    mockFindUnique.mockResolvedValueOnce({ id: 4, email: "U@E.com", passwordResetExpires: null })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockSendEmail.mockResolvedValue(undefined)
     expect(await requestPasswordReset("u@e.com")).toEqual({ success: true })
+    expect(mockFindUnique).toHaveBeenCalledWith({ where: { id: 4 }, select: { id: true, email: true, passwordResetExpires: true } })
     expect(mockUpdateMany.mock.calls[0][0].where.id).toBe(4)
     expect(mockSendEmail).toHaveBeenCalledWith("U@E.com", expect.any(String))
   })

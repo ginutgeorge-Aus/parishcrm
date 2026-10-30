@@ -1,5 +1,5 @@
 import { toCents } from "@/lib/formatting"
-import { ymd } from "@/lib/dates"
+import { utcYmd } from "@/lib/dates"
 import { XFER_OUT_PREFIX } from "@/lib/xferRefs"
 
 /** Inverse of {@link xferOutRef}: the deposit bank ref a leg's `XFER_OUT_` bank ref points at. */
@@ -47,8 +47,8 @@ export function adoptionProblem(
     toCents(leg.amount.toFixed(2)) !== toCents(transfer.amount)
   )
     return "legMismatch"
-  if (toCents(deposit.amount.toFixed(2)) !== toCents(transfer.amount) || ymd(deposit.date) !== ymd(transfer.date))
+  if (toCents(deposit.amount.toFixed(2)) !== toCents(transfer.amount) || utcYmd(deposit.date) !== utcYmd(transfer.date))
     return "depositMismatch"
-  if (ymd(leg.date) !== ymd(transfer.date)) return "legDate"
+  if (utcYmd(leg.date) !== utcYmd(transfer.date)) return "legDate"
   return null
 }
