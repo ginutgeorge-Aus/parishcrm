@@ -215,15 +215,15 @@ describe("updateUser", () => {
     expect(mockQueryRaw).toHaveBeenCalledTimes(1)
   })
 
-  it("unchanged email on a legacy mixed-case row keeps the stored value and skips the duplicate check (twin not blocked)", async () => {
+  it("saving a legacy mixed-case row normalises its email and skips the duplicate check", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
-    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // a lowercase twin exists
+    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // a hit here would mean "taken", so the check must not run
     await updateUser(1, undefined, fd({ name: "New name", email: "Legacy@X.com", role: "VIEWER" }))
     expect(mockQueryRaw).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: expect.objectContaining({ name: "New name", email: "Legacy@X.com" }),
+      data: expect.objectContaining({ name: "New name", email: "legacy@x.com" }),
     })
   })
 
@@ -238,15 +238,16 @@ describe("updateUser", () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it("treats a case-only or whitespace-padded resubmit as unchanged: keeps the stored value, no duplicate check", async () => {
+  it("persists a case-only edit as the normalised value (#469), no duplicate check", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
-    mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
+    mockFindUnique.mockResolvedValue({ id: 1, email: "Bob@Example.com" })
     mockQueryRaw.mockResolvedValue([{ id: 2 }])
-    await updateUser(1, undefined, fd({ name: "N", email: "  legacy@x.com ", role: "VIEWER" }))
+    const result = await updateUser(1, undefined, fd({ name: "N", email: "  bob@example.com ", role: "VIEWER" }))
+    expect(result).toBeUndefined() // success path redirects (mocked)
     expect(mockQueryRaw).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: expect.objectContaining({ email: "Legacy@X.com" }),
+      data: expect.objectContaining({ email: "bob@example.com" }),
     })
   })
 

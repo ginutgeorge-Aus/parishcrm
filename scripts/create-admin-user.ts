@@ -3,6 +3,7 @@ import { UserRole } from "../src/lib/generated/prisma/enums"
 import { PrismaPg } from "@prisma/adapter-pg"
 import bcrypt from "bcryptjs"
 import { isDemoEmail, DEMO_DOMAIN_RESERVED } from "../src/lib/demoMode"
+import { userIdByEmailSql } from "../src/lib/userEmailSql"
 
 const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) throw new Error("DATABASE_URL not set")
@@ -28,10 +29,9 @@ async function main() {
   // old literal union silently dropped AUDITOR, the one role with no seeded user.
   const role = (process.env.USER_ROLE as UserRole) || UserRole.ADMIN
 
-  // Same rule as src/lib/userLookup.ts::isEmailTaken (lower(email) = lower, no ILIKE
-  // wildcards). Inlined: this script owns its PrismaClient and runs outside the app's `@/` aliases.
-  // nosemgrep: crm-no-raw-sql — lower() equality (not ILIKE); userLookup.ts imports the app prisma singleton so it can't be reused here
-  const [existing] = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "User" WHERE lower(email) = lower(${email}) LIMIT 1`
+  // Same case-insensitive rule as the app (src/lib/userLookup.ts::isEmailTaken).
+  // nosemgrep: crm-no-raw-sql — lower() equality via the shared fragment (not ILIKE)
+  const [existing] = await prisma.$queryRaw<{ id: number }[]>(userIdByEmailSql(email))
   if (existing) {
     console.log(`User ${email} already exists (id=${existing.id})`)
     return
