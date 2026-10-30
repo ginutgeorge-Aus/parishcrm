@@ -35,9 +35,14 @@ export function isSplit(row: { splits?: SplitLine[] }): boolean {
  * the same category (they would be one donor on a receipt). Two different
  * people of one family under one category stay allowed (e.g. a joint account
  * paying for two members), as does the same member under different
- * categories. Lines with no member (general fund) or no category yet may repeat freely.
+ * categories. Two family-only lines for one family under one category also
+ * collide (one donor). Lines with no member (general fund) or no category yet
+ * may repeat freely.
  * Shared by the client gate (`splitIsValid`) and the server check in
- * `bankImportConfirm`, so both always agree.
+ * `bankImportConfirm`. They agree whenever the UI supplies `familyId` with a
+ * `personId` (the picker does). A person line with no `familyId` cannot collide
+ * with a family-only line client-side; the server backfills `familyId` and
+ * rejects it with a 400.
  */
 export function hasDuplicateDonorSplit(
   splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>

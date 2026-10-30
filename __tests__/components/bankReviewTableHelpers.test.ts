@@ -117,6 +117,14 @@ describe("splitIsValid / hasDuplicateDonorSplit — duplicate donor rows (#473, 
     expect(hasDuplicateDonorSplit([line(1, 2, null), line(3, 2, 10)])).toBe(false)
   })
 
+  it("flags two family-only lines for the same family in the same category", () => {
+    expect(hasDuplicateDonorSplit([line(1, 2, null), line(1, 2, null)])).toBe(true)
+  })
+
+  it("allows family-only lines for different families in the same category", () => {
+    expect(hasDuplicateDonorSplit([line(1, 2, null), line(1, 3, null)])).toBe(false)
+  })
+
   it("allows two different people of one family under the same category", () => {
     expect(hasDuplicateDonorSplit([line(1, 2, 10), line(1, 2, 11)])).toBe(false)
   })
