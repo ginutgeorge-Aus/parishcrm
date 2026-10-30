@@ -4,7 +4,7 @@
  * and the confirm-enable gate, so a float-drift or sum-mismatch regression here
  * would silently let an unbalanced split through the UI.
  */
-import { toCents, isSplit, splitIsValid, hasDuplicateDonorSplit } from "@/lib/bankSplit"
+import { toCents, isSplit, splitIsValid, hasDuplicateDonorSplit, splitStatus } from "@/lib/bankSplit"
 
 // Minimal ReviewRow factory — only the fields the helpers read matter.
 const row = (overrides: Record<string, unknown> = {}) =>
@@ -119,5 +119,24 @@ describe("splitIsValid / hasDuplicateDonorSplit — duplicate donor rows (#473, 
 
   it("allows two different people of one family under the same category", () => {
     expect(hasDuplicateDonorSplit([line(1, 2, 10), line(1, 2, 11)])).toBe(false)
+  })
+})
+
+describe("splitStatus", () => {
+  const dup = [
+    { accountId: 1, familyId: 2, personId: 10 },
+    { accountId: 1, familyId: 2, personId: 10 },
+  ]
+  it("flags duplicate donor first", () => {
+    expect(splitStatus(dup, 0)).toEqual({ text: expect.stringContaining("same member twice"), ok: false })
+  })
+  it("flags NaN remaining", () => {
+    expect(splitStatus([], Number.NaN).ok).toBe(false)
+  })
+  it("ok when fully allocated", () => {
+    expect(splitStatus([], 0)).toEqual({ text: "fully allocated", ok: true })
+  })
+  it("shows unallocated amount", () => {
+    expect(splitStatus([], 250)).toEqual({ text: "2.50 unallocated", ok: false })
   })
 })

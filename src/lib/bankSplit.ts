@@ -43,8 +43,7 @@ export function hasDuplicateDonorSplit(
   splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>
 ): boolean {
   const exact = new Set<string>()
-  const familyOnly = new Set<string>()
-  const familyWithPerson = new Set<string>()
+  const byFamily = new Map<string, Set<number | null>>()
   for (const s of splits) {
     if (s.familyId == null && s.personId == null) continue
     const key = JSON.stringify([s.accountId, s.familyId, s.personId])
@@ -52,13 +51,12 @@ export function hasDuplicateDonorSplit(
     exact.add(key)
     if (s.familyId == null) continue
     const famKey = JSON.stringify([s.accountId, s.familyId])
-    if (s.personId == null) {
-      if (familyWithPerson.has(famKey)) return true
-      familyOnly.add(famKey)
-    } else {
-      if (familyOnly.has(famKey)) return true
-      familyWithPerson.add(famKey)
-    }
+    const persons = byFamily.get(famKey) ?? new Set<number | null>()
+    const person = s.personId ?? null
+    // A family-only line collides with any person line of that family, and vice versa.
+    if (person === null ? persons.size > 0 : persons.has(null)) return true
+    persons.add(person)
+    byFamily.set(famKey, persons)
   }
   return false
 }
@@ -73,4 +71,20 @@ export function splitIsValid(row: { amount: string; splits?: SplitLine[] }): boo
   const sum = row.splits.reduce((t, s) => t + toCents(s.amount), 0)
   if (hasDuplicateDonorSplit(row.splits)) return false
   return sum === toCents(row.amount)
+}
+
+/**
+ * Status line shown under a split row: duplicate-donor warning, parse error,
+ * allocation state, or the unallocated amount. `ok` is true only when fully allocated.
+ */
+export function splitStatus(
+  splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>,
+  remainingCents: number
+): { text: string; ok: boolean } {
+  if (hasDuplicateDonorSplit(splits)) {
+    return { text: "same member twice in one category — combine into one split", ok: false }
+  }
+  if (Number.isNaN(remainingCents)) return { text: "enter a valid amount for each split", ok: false }
+  if (remainingCents === 0) return { text: "fully allocated", ok: true }
+  return { text: `${(remainingCents / 100).toFixed(2)} unallocated`, ok: false }
 }
