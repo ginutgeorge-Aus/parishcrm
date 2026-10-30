@@ -44,6 +44,7 @@ jest.mock("@/lib/prisma", () => ({
       update: jest.fn(),
       updateMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     serviceType: {
       create: jest.fn(),

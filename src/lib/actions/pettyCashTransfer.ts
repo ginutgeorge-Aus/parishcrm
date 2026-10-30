@@ -21,6 +21,11 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
+import { utcYmd } from "@/lib/dates"
+
+/** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
+const DUPLICATE_LEG_ERROR =
+  "An imported cash-out for this amount and date already exists. Pick the imported deposit in the form instead of entering it manually."
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -130,6 +135,24 @@ export async function createTransfer(
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
         adoptLegId = leg!.id
+      } else {
+        // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
+        // day is probably this very deposit — a second cash-out would reduce petty cash
+        // twice. Reject and point the user at the imported-deposit picker.
+        const dayStart = new Date(`${utcYmd(parsed.data.date)}T00:00:00.000Z`)
+        const dup = await tx.transaction.findFirst({
+          where: {
+            accountId: xferAccountId,
+            type: "EXPENSE",
+            bankRef: { startsWith: XFER_OUT_PREFIX },
+            pettyCashTransferId: null,
+            paymentAccountId: cashAccount?.id ?? null,
+            amount: parsed.data.amount,
+            date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
+          },
+          select: { id: true },
+        })
+        if (dup) throw new TransferError(DUPLICATE_LEG_ERROR)
       }
       const transfer = await tx.pettyCashTransfer.create({
         data: {
