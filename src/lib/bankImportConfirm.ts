@@ -6,6 +6,7 @@ import { getXferAccountId } from "@/lib/xferAccount"
 import { XFER_OUT_PREFIX, xferOutRef } from "@/lib/xferRefs"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
+import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
@@ -263,22 +264,15 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
         error: `Split amounts for "${r.description}" (${r.date}) must total ${r.amount}`,
       }
     }
-    // The same member must not appear twice under the same category in one
-    // line — that is a duplicate giving row, so combine them. The same member
-    // under different categories (e.g. tithe + building fund) is legitimate.
-    // Allocations with no member (general fund) may repeat freely.
-    const donorKeys = new Set<string>()
-    for (const s of r.splits) {
-      if (s.familyId == null && s.personId == null) continue
-      const key = JSON.stringify([s.accountId, s.familyId, s.personId])
-      if (donorKeys.has(key)) {
-        return {
-          ok: false,
-          status: 400,
-          error: `"${r.description}" (${r.date}) assigns the same member to more than one allocation in the same category — combine them into a single split`,
-        }
+    // The same member (or a family-only line plus a person of that family)
+    // must not appear twice under the same category — a duplicate giving row,
+    // so combine them. Rule shared with the client gate; see bankSplit.ts.
+    if (hasDuplicateDonorSplit(r.splits)) {
+      return {
+        ok: false,
+        status: 400,
+        error: `"${r.description}" (${r.date}) assigns the same member to more than one allocation in the same category — combine them into a single split`,
       }
-      donorKeys.add(key)
     }
   }
 
