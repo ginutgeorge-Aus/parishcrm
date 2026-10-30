@@ -16,6 +16,6 @@ import { Prisma } from "./generated/prisma/client"
  * @returns a `Prisma.Sql` for `$queryRaw` yielding `{ id }[]` (at most one row)
  */
 export function userIdByEmailSql(email: string, excludeId?: number): Prisma.Sql {
-  const exclude = excludeId === undefined ? Prisma.empty : Prisma.sql` AND id <> ${excludeId}`
+  const exclude = excludeId == null ? Prisma.empty : Prisma.sql` AND id <> ${excludeId}`
   return Prisma.sql`SELECT id FROM "User" WHERE lower(email) = lower(${email})${exclude} LIMIT 1`
 }
