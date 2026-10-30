@@ -1,8 +1,6 @@
 import type { Prisma, PrismaClient } from "@/lib/generated/prisma/client"
 import { logger } from "@/lib/logger"
 
-export { XFER_OUT_PREFIX } from "@/lib/xferRefs"
-
 type Client = PrismaClient | Prisma.TransactionClient
 
 /**

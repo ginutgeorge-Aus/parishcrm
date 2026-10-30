@@ -9,14 +9,18 @@ import { listImportedTransferCandidates } from "@/lib/pettyCashTransferCandidate
 export default async function NewTransferPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const params = await props.params;
   const sessionId = await requirePettyCashSessionId(params.id)
-  const pcSession = await prisma.pettyCashSession.findUnique({
+  // Independent reads: run the session fetch and the candidate list together.
+  const [pcSession, candidates] = await Promise.all([
+    prisma.pettyCashSession.findUnique({
     where: { id: sessionId },
     include: {
       receipts: { select: { amount: true } },
       expenses: { select: { amount: true } },
       transfers: { select: { amount: true } },
     },
-  })
+    }),
+    listImportedTransferCandidates(),
+  ])
   if (!pcSession) notFound()
   if (pcSession.status === "CLOSED")
     redirect(`/accounting/petty-cash/sessions/${sessionId}`)
@@ -28,7 +32,7 @@ export default async function NewTransferPage(props: Readonly<{ params: Promise<
     pcSession.transfers
   )
 
-  const { options: imported, truncated: importedTruncated } = await listImportedTransferCandidates()
+  const { options: imported, truncated: importedTruncated } = candidates
 
   const action = createTransfer.bind(null, sessionId)
 
