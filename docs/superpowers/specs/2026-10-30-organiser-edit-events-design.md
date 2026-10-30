@@ -6,7 +6,7 @@ An `EVENT_ORGANISER` can edit the public details of events they manage, from
 
 ## Decisions
 - **Field scope (PO, 2026-10-30): details only.** Editable: title, description, category,
-  date, end date, location, start time, recurrence label, public organiser contacts,
+  date, end date, location, start time, recurrence label, recurrence pattern, public organiser contacts,
   banner and poster images. Staff-only (unchanged): slug, publish state, registration
   settings (capacity, deadline, close, custom questions, reminder), ticket types, pricing
   tiers, family waiver, bank details, Stripe toggles, managers, volunteer token, delete.
@@ -34,7 +34,7 @@ if size warrants):
 4. Update with `updateMany({ where: { id, updatedAt: seenAt } })` (optimistic
    concurrency, same as `updateEvent`); 0 rows returns the reload message.
 5. `applyImageOp` for banner/poster, `logAudit(..., "EVENT_UPDATED", "Event", id,
-   { fields: [changed keys], by: "organiser" })`, `syncEventToWebsite(id)`,
+   { slug, role, fields: [changed keys] })`, `syncEventToWebsite(id)`,
    `revalidatePath("/events")`, `revalidatePath("/my-events")`.
    Edits to a published event reach the public website, same as a staff edit.
 
