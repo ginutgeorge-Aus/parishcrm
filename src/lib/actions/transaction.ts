@@ -11,7 +11,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
-import { ymd } from "@/lib/dates"
+import { utcYmd } from "@/lib/dates"
 import { parseOptimisticUpdatedAt, hasEncryptedFieldMatch } from "@/lib/validation"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { validateFund } from "./fund"
@@ -203,7 +203,7 @@ function adoptionFieldsChanged(
   existing: { amount: { toString(): string }; type: string; date: Date; accountId: number },
   next: { amount: string; type: string; date: Date; accountId: number },
 ): boolean {
-  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || ymd(existing.date) !== ymd(next.date)
+  return toCents(existing.amount) !== toCents(next.amount) || existing.type !== next.type || utcYmd(existing.date) !== utcYmd(next.date)
     || existing.accountId !== next.accountId
 }
 
