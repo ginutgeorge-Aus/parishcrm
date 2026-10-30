@@ -140,3 +140,10 @@ describe("splitStatus", () => {
     expect(splitStatus([], 250)).toEqual({ text: "2.50 unallocated", ok: false })
   })
 })
+
+describe("hasDuplicateDonorSplit uncategorised lines", () => {
+  it("ignores lines with no category yet", () => {
+    const l = { accountId: null, familyId: 2, personId: 10 }
+    expect(hasDuplicateDonorSplit([l, l])).toBe(false)
+  })
+})

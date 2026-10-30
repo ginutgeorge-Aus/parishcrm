@@ -35,7 +35,7 @@ export function isSplit(row: { splits?: SplitLine[] }): boolean {
  * the same category (they would be one donor on a receipt). Two different
  * people of one family under one category stay allowed (e.g. a joint account
  * paying for two members), as does the same member under different
- * categories. Lines with no member (general fund) may repeat freely.
+ * categories. Lines with no member (general fund) or no category yet may repeat freely.
  * Shared by the client gate (`splitIsValid`) and the server check in
  * `bankImportConfirm`, so both always agree.
  */
@@ -45,7 +45,7 @@ export function hasDuplicateDonorSplit(
   const exact = new Set<string>()
   const byFamily = new Map<string, Set<number | null>>()
   for (const s of splits) {
-    if (s.familyId == null && s.personId == null) continue
+    if (s.accountId == null || (s.familyId == null && s.personId == null)) continue
     const key = JSON.stringify([s.accountId, s.familyId, s.personId])
     if (exact.has(key)) return true
     exact.add(key)
