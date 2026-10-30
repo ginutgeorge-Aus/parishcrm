@@ -6,8 +6,10 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
+import { canEditOrOrganise } from "@/lib/roleGuard"
 import { canManageEvent } from "@/lib/eventManager"
 import { featureGuard } from "@/lib/featureFlags"
+import { assertNotDemo } from "@/lib/demoMode"
 import { syncEventToWebsite } from "@/lib/websiteSync"
 import { isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { EventImageKind } from "@/lib/generated/prisma/enums"
@@ -45,14 +47,17 @@ function sameValue(a: unknown, b: unknown): boolean {
  * @returns `{ error }` on failure; on success redirects to the edit page.
  */
 export async function updateManagedEvent(id: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
-  if (!session?.user) return { error: "Unauthorized" }
+  if (!session?.user || !canEditOrOrganise(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("events")
   if (off) return off
   if (!isValidPgId(id)) return { error: "Invalid event" }
 
-  // IDOR gate first: an unassigned event is indistinguishable from a missing one.
-  const userId = Number.parseInt(session.user.id, 10)
+  // Coarse role gate above (before the feature check); this is the per-event
+  // IDOR gate. First: an unassigned event is indistinguishable from a missing one.
+  const userId = actorId(session)
   if (!(await canManageEvent(userId, id, session.user.role))) return { error: "Unauthorized" }
 
   const existing = await prisma.event.findUnique({
@@ -89,10 +94,10 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
   const seenAt = parseOptimisticUpdatedAt(formData)
   if (!seenAt) return { error: "This form is out of date. Reload the page and try again." }
 
-  const fields = (Object.keys(data) as (keyof typeof data)[]).filter((k) => !sameValue(existing[k], data[k]))
-  if (JSON.stringify(existing.organizers ?? []) !== JSON.stringify(organizers)) fields.push("organizers" as never)
-  if (banner.op !== "skip") fields.push("banner" as never)
-  if (poster.op !== "skip") fields.push("poster" as never)
+  const fields: string[] = (Object.keys(data) as (keyof typeof data)[]).filter((k) => !sameValue(existing[k], data[k]))
+  if (JSON.stringify(existing.organizers ?? []) !== JSON.stringify(organizers)) fields.push("organizers")
+  if (banner.op !== "skip") fields.push("banner")
+  if (poster.op !== "skip") fields.push("poster")
 
   try {
     await prisma.$transaction(async (tx) => {

@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
+import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { canManageEvent } from "@/lib/eventManager"
 import { updateManagedEvent } from "@/lib/actions/eventManaged"
@@ -33,7 +34,7 @@ export default async function EditManagedEventPage(props: Readonly<Props>) {
   if (eventId === null) notFound()
 
   // IDOR gate: an unassigned event is indistinguishable from a missing one.
-  const userId = Number.parseInt(session.user.id, 10)
+  const userId = actorId(session)
   if (!(await canManageEvent(userId, eventId, session.user.role))) notFound()
 
   const event = await prisma.event.findUnique({

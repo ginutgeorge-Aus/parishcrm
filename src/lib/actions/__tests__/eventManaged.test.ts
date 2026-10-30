@@ -1,5 +1,6 @@
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
+jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 import { updateManagedEvent } from "@/lib/actions/eventManaged"
 import { auth } from "@/auth"
 import { canManageEvent } from "@/lib/eventManager"
@@ -77,6 +78,34 @@ describe("updateManagedEvent authorisation", () => {
     expect(prismaMock.eventImage.deleteMany).not.toHaveBeenCalled()
   })
 
+  it("is blocked in demo mode before auth", async () => {
+    const demo = jest.requireMock("@/lib/demoMode") as { assertNotDemo: jest.Mock }
+    demo.assertNotDemo.mockReturnValueOnce({ error: "demo" })
+    expect(await run(form(base))).toEqual({ error: "demo" })
+    expect(auth).not.toHaveBeenCalled()
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each(["ADMIN", "PASTOR", "OFFICE_ADMIN"])("allows %s when canManageEvent is true", async (role) => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role } })
+    expect(await run(form(base))).toBe("NEXT_REDIRECT /my-events/7/edit?saved=1")
+    expect(canManageEvent).toHaveBeenCalledWith(5, 7, role)
+  })
+
+  it.each(["VIEWER", "AUDITOR"])("rejects %s at the coarse role gate", async (role) => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role } })
+    expect(await run(form(base))).toEqual({ error: "Unauthorized" })
+    expect(canManageEvent).not.toHaveBeenCalled()
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects an EVENT_ORGANISER who is not a manager (canManageEvent false)", async () => {
+    ;(canManageEvent as jest.Mock).mockResolvedValue(false)
+    expect(await run(form(base))).toEqual({ error: "Unauthorized" })
+    expect(canManageEvent).toHaveBeenCalledWith(5, 7, "EVENT_ORGANISER")
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
   it("rejects an invalid id", async () => {
     expect(await run(form(base), -1)).toEqual({ error: "Invalid event" })
   })
@@ -95,6 +124,15 @@ describe("updateManagedEvent write", () => {
       ["category", "date", "description", "endDate", "location", "organizers", "recurs", "recursLabel", "startTime", "title"],
     )
     expect(arg.data.title).toBe("New title")
+  })
+
+  it("keeps a recurring event's stored end date when it is submitted", async () => {
+    findUnique.mockResolvedValue({
+      ...stored, kind: "recurring", recurs: "every-sunday", endDate: new Date("2026-12-31T00:00:00Z"),
+    })
+    await run(form({ ...base, recurs: "every-sunday", endDate: "2026-12-31T11:00" }))
+    const arg = updateMany.mock.calls[0][0] as { data: { endDate: Date | null } }
+    expect(arg.data.endDate).toBeInstanceOf(Date)
   })
 
   it("guards the write on the last-seen updatedAt", async () => {

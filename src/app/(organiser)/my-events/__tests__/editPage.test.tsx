@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { renderToStaticMarkup } from "react-dom/server"
 
 jest.mock("next/navigation", () => ({
@@ -56,4 +57,13 @@ it("renders the details form for a manager, with no money/publish fields", async
   for (const forbidden of ['name="slug"', 'name="bankBsb"', 'name="registrationDeadline"', "ticketType.", 'name="onlinePaymentEnabled"']) {
     expect(html).not.toContain(forbidden)
   }
+})
+
+it("renders the end date input for a recurring event so a stored end date survives a save", async () => {
+  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({
+    ...event, kind: "recurring", recurs: "every-sunday", endDate: new Date("2026-12-31T00:00:00Z"),
+  })
+  const html = renderToStaticMarkup(await EditManagedEventPage(props()))
+  expect(html).toContain('name="endDate"')
+  expect(html).toContain('value="2026-12-31T')
 })

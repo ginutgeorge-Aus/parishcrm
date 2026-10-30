@@ -103,6 +103,10 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
                 <Label htmlFor="startTime">Time</Label>
                 <Input id="startTime" name="startTime" defaultValue={defaultValues.startTime} placeholder="9:30 AM" />
               </div>
+              <div className="grid gap-1.5 md:col-span-3">
+                <Label htmlFor="endDate">End date &amp; time</Label>
+                <Input id="endDate" name="endDate" type="datetime-local" defaultValue={defaultValues.endDate} />
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { actorId } from "@/lib/actor"
 import { canManageEvent } from "@/lib/eventManager"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
@@ -45,8 +46,7 @@ export async function GET(
   // can't confirm a draft slug exists (same rule as the public page).
   if (!img.event.isPublished) {
     const session = await auth()
-    const userId = Number.parseInt(session?.user?.id ?? "", 10)
-    if (!session?.user || !(await canManageEvent(userId, img.event.id, session.user.role))) return notFound()
+    if (!session?.user || !(await canManageEvent(actorId(session), img.event.id, session.user.role))) return notFound()
   }
 
   const body = Buffer.isBuffer(img.data) ? img.data : Buffer.from(img.data as Uint8Array)
