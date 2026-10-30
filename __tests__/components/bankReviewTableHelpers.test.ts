@@ -4,7 +4,7 @@
  * and the confirm-enable gate, so a float-drift or sum-mismatch regression here
  * would silently let an unbalanced split through the UI.
  */
-import { toCents, isSplit, splitIsValid } from "@/lib/bankSplit"
+import { toCents, isSplit, splitIsValid, hasDuplicateDonorSplit } from "@/lib/bankSplit"
 
 // Minimal ReviewRow factory — only the fields the helpers read matter.
 const row = (overrides: Record<string, unknown> = {}) =>
@@ -81,5 +81,43 @@ describe("splitIsValid", () => {
     // 0.1 + 0.2 !== 0.3 in float; cents compare must still catch a 1c mismatch.
     expect(splitIsValid(row({ amount: "0.30", splits: [split(1, "0.10"), split(2, "0.19")] }))).toBe(false)
     expect(splitIsValid(row({ amount: "0.30", splits: [split(1, "0.10"), split(2, "0.20")] }))).toBe(true)
+  })
+})
+
+describe("splitIsValid / hasDuplicateDonorSplit — duplicate donor rows (#473, #472)", () => {
+  const line = (accountId: number | null, familyId: number | null, personId: number | null, amount = "30.00") => ({
+    accountId,
+    familyId,
+    personId,
+    amount,
+  })
+
+  it("flags the same member twice under the same category", () => {
+    const splits = [line(1, 2, 10), line(1, 2, 10)]
+    expect(hasDuplicateDonorSplit(splits)).toBe(true)
+    expect(splitIsValid(row({ amount: "60.00", splits }))).toBe(false)
+  })
+
+  it("allows the same member under different categories", () => {
+    const splits = [line(1, 2, 10), line(3, 2, 10)]
+    expect(hasDuplicateDonorSplit(splits)).toBe(false)
+    expect(splitIsValid(row({ amount: "60.00", splits }))).toBe(true)
+  })
+
+  it("allows repeated lines with no member (general fund)", () => {
+    expect(hasDuplicateDonorSplit([line(1, null, null), line(1, null, null)])).toBe(false)
+  })
+
+  it("flags a family-only line plus a person of that family in the same category, in either order", () => {
+    expect(hasDuplicateDonorSplit([line(1, 2, null), line(1, 2, 10)])).toBe(true)
+    expect(hasDuplicateDonorSplit([line(1, 2, 10), line(1, 2, null)])).toBe(true)
+  })
+
+  it("allows family-only and a person of that family under different categories", () => {
+    expect(hasDuplicateDonorSplit([line(1, 2, null), line(3, 2, 10)])).toBe(false)
+  })
+
+  it("allows two different people of one family under the same category", () => {
+    expect(hasDuplicateDonorSplit([line(1, 2, 10), line(1, 2, 11)])).toBe(false)
   })
 })

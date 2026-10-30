@@ -382,6 +382,19 @@ describe("POST /api/import/bank-statement/confirm", () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
 
+  test("split row: returns 400 when a family-only line and a person of that family share a category (#472)", async () => {
+    ;(prisma.account.findMany as jest.Mock).mockResolvedValue([
+      { id: 1, type: "INCOME", isActive: true },
+    ])
+    const dup = { ...splitRow, splits: [
+      { accountId: 1, amount: "60.00", familyId: 2, personId: null },
+      { accountId: 1, amount: "40.00", familyId: 2, personId: 10 },
+    ] }
+    const res = await POST(makeRequest([dup]))
+    expect(res.status).toBe(400)
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+  })
+
   test("split row: allows the same member in different categories", async () => {
     ;(prisma.account.findMany as jest.Mock).mockResolvedValue([
       { id: 1, type: "INCOME", isActive: true },

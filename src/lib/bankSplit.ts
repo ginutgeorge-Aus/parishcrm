@@ -28,12 +28,49 @@ export function isSplit(row: { splits?: SplitLine[] }): boolean {
   return Array.isArray(row.splits) && row.splits.length > 0
 }
 
-/** A split row is importable only when every line has a category and the lines
- * sum exactly to the row total.
+/**
+ * Whether the split lines contain a duplicate giving row: the same member
+ * twice under the same category. Giving statements aggregate by family, so a
+ * family-only line also collides with a person line of that same family under
+ * the same category (they would be one donor on a receipt). Two different
+ * people of one family under one category stay allowed (e.g. a joint account
+ * paying for two members), as does the same member under different
+ * categories. Lines with no member (general fund) may repeat freely.
+ * Shared by the client gate (`splitIsValid`) and the server check in
+ * `bankImportConfirm`, so both always agree.
+ */
+export function hasDuplicateDonorSplit(
+  splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>
+): boolean {
+  const exact = new Set<string>()
+  const familyOnly = new Set<string>()
+  const familyWithPerson = new Set<string>()
+  for (const s of splits) {
+    if (s.familyId == null && s.personId == null) continue
+    const key = JSON.stringify([s.accountId, s.familyId, s.personId])
+    if (exact.has(key)) return true
+    exact.add(key)
+    if (s.familyId == null) continue
+    const famKey = JSON.stringify([s.accountId, s.familyId])
+    if (s.personId == null) {
+      if (familyWithPerson.has(famKey)) return true
+      familyOnly.add(famKey)
+    } else {
+      if (familyOnly.has(famKey)) return true
+      familyWithPerson.add(famKey)
+    }
+  }
+  return false
+}
+
+/** A split row is importable only when every line has a category, the lines
+ * sum exactly to the row total, and no member is allocated twice under the
+ * same category (see `hasDuplicateDonorSplit`).
  */
 export function splitIsValid(row: { amount: string; splits?: SplitLine[] }): boolean {
   if (!row.splits || row.splits.length === 0) return false
   if (row.splits.some((s) => s.accountId === null || toCents(s.amount) <= 0)) return false
   const sum = row.splits.reduce((t, s) => t + toCents(s.amount), 0)
+  if (hasDuplicateDonorSplit(row.splits)) return false
   return sum === toCents(row.amount)
 }

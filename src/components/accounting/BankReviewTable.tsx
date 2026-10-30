@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils"
 import { ReviewSummary } from "./import/ReviewSummary"
 import { ReviewFilterTabs } from "./import/ReviewFilterTabs"
 import { matchesFilter, needsCategory, reviewStats, type ReviewFilter } from "@/lib/bankReviewFilter"
-import { toCents, isSplit } from "@/lib/bankSplit"
+import { toCents, isSplit, hasDuplicateDonorSplit } from "@/lib/bankSplit"
 import type { SplitLine } from "@/lib/bankSplit"
 import type { ReviewRow } from "@/lib/bankTypes"
 export type { ReviewRow } from "@/lib/bankTypes"
@@ -406,8 +406,10 @@ export function BankReviewTable({
                   ) : split ? (
                     <div className="text-sm">
                       <span className="font-medium">Split into {row.splits!.length}</span>
-                      <div className={cn("text-xs", remainingCents === 0 ? "text-muted-foreground" : "text-destructive")}>
-                        {Number.isNaN(remainingCents)
+                      <div className={cn("text-xs", remainingCents === 0 && !hasDuplicateDonorSplit(row.splits ?? []) ? "text-muted-foreground" : "text-destructive")}>
+                        {hasDuplicateDonorSplit(row.splits ?? [])
+                          ? "same member twice in one category — combine into one split"
+                          : Number.isNaN(remainingCents)
                           ? "enter a valid amount for each split"
                           : remainingCents === 0
                             ? "fully allocated"
@@ -696,8 +698,10 @@ export function BankReviewTable({
               ) : split ? (
                 <div className="text-sm">
                   <span className="font-medium">Split into {row.splits!.length}</span>
-                  <div className={cn("text-xs", remainingCents === 0 ? "text-muted-foreground" : "text-destructive")}>
-                    {Number.isNaN(remainingCents)
+                  <div className={cn("text-xs", remainingCents === 0 && !hasDuplicateDonorSplit(row.splits ?? []) ? "text-muted-foreground" : "text-destructive")}>
+                    {hasDuplicateDonorSplit(row.splits ?? [])
+                      ? "same member twice in one category — combine into one split"
+                      : Number.isNaN(remainingCents)
                       ? "enter a valid amount for each split"
                       : remainingCents === 0
                         ? "fully allocated"
