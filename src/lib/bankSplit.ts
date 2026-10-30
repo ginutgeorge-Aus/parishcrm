@@ -42,13 +42,17 @@ export function isSplit(row: { splits?: SplitLine[] }): boolean {
 export function hasDuplicateDonorSplit(
   splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>
 ): boolean {
-  const exact = new Set<string>()
+  const people = new Set<string>()
   const byFamily = new Map<string, Set<number | null>>()
   for (const s of splits) {
     if (s.accountId == null || (s.familyId == null && s.personId == null)) continue
-    const key = JSON.stringify([s.accountId, s.familyId, s.personId])
-    if (exact.has(key)) return true
-    exact.add(key)
+    if (s.personId != null) {
+      // A person belongs to one family, so repeat by category is a duplicate even
+      // when one line has no familyId (the server fills it in before checking).
+      const key = JSON.stringify([s.accountId, s.personId])
+      if (people.has(key)) return true
+      people.add(key)
+    }
     if (s.familyId == null) continue
     const famKey = JSON.stringify([s.accountId, s.familyId])
     const persons = byFamily.get(famKey) ?? new Set<number | null>()
@@ -86,5 +90,6 @@ export function splitStatus(
   }
   if (Number.isNaN(remainingCents)) return { text: "enter a valid amount for each split", ok: false }
   if (remainingCents === 0) return { text: "fully allocated", ok: true }
+  if (remainingCents < 0) return { text: `${(-remainingCents / 100).toFixed(2)} over-allocated`, ok: false }
   return { text: `${(remainingCents / 100).toFixed(2)} unallocated`, ok: false }
 }

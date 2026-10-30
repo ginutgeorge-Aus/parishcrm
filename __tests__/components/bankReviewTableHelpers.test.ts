@@ -147,3 +147,17 @@ describe("hasDuplicateDonorSplit uncategorised lines", () => {
     expect(hasDuplicateDonorSplit([l, l])).toBe(false)
   })
 })
+
+describe("review follow-ups", () => {
+  it("flags same person when one line lacks familyId", () => {
+    expect(
+      hasDuplicateDonorSplit([
+        { accountId: 1, familyId: null, personId: 10 },
+        { accountId: 1, familyId: 2, personId: 10 },
+      ])
+    ).toBe(true)
+  })
+  it("shows over-allocated for negative remainder", () => {
+    expect(splitStatus([], -250)).toEqual({ text: "2.50 over-allocated", ok: false })
+  })
+})
