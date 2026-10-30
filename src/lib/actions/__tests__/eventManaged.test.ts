@@ -163,7 +163,7 @@ describe("updateManagedEvent write", () => {
 
   it("allows a title-only edit despite a legacy-bad stored deadline", async () => {
     findUnique.mockResolvedValue({
-      ...stored, date: new Date("2026-08-02T10:00"), registrationDeadline: new Date("2026-09-01T00:00:00Z"),
+      ...stored, date: new Date("2026-08-02T00:00:00Z"), registrationDeadline: new Date("2026-09-01T00:00:00Z"),
     })
     const out = await run(form({ ...base, category: "worship" }))
     expect(out).toBe("NEXT_REDIRECT /my-events/7/edit?saved=1")
