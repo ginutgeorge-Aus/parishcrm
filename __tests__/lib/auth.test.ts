@@ -405,6 +405,13 @@ describe("authorizeCredentials — email normalisation", () => {
     expect(compare).toHaveBeenCalledTimes(1)
   })
 
+  it("id hit but row deleted before the fetch: treated as a miss, dummy bcrypt still runs", async () => {
+    queryRaw.mockResolvedValue([{ id: 5 }])
+    findUnique.mockResolvedValueOnce(null)
+    expect(await authorizeCredentials({ email: "gone@example.com", password: "x" })).toBeNull()
+    expect(compare).toHaveBeenCalledTimes(1)
+  })
+
   it("lowercase hit: one id query, then the row by primary key", async () => {
     const passwordHash = await hash("correctpassword", 10)
     storedRow({ ...baseUser, id: 9, email: "admin@example.com", passwordHash })

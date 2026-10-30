@@ -322,8 +322,8 @@ export async function authorizeCredentials(
   // Password, OTP and TOTP paths pass rawEmail (trimmed, case kept) to the
   // lookup, which matches it with one case-insensitive lower(email) query.
   // normalizedEmail (trimmed + lowercased) is used only for the demo checks and
-  // the whitespace-only exit (after the IP throttle, so blank-email probes still
-  // count against it). Lockout counters are keyed on user.id, so case/space
+  // the whitespace-only exit (after the IP throttle, so whitespace-only probes still
+  // count against it; an empty string returns above, before any DB work). Lockout counters are keyed on user.id, so case/space
   // variants resolve to one account and share one counter.
   const rawEmail = String(credentials.email).trim()
   const normalizedEmail = normalizeEmail(rawEmail)

@@ -218,7 +218,7 @@ describe("updateUser", () => {
   it("saving a legacy mixed-case row normalises its email and skips the duplicate check", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, email: "Legacy@X.com" })
-    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // would report "taken" if the check ran
+    mockQueryRaw.mockResolvedValue([{ id: 2 }]) // a hit here would mean "taken", so the check must not run
     await updateUser(1, undefined, fd({ name: "New name", email: "Legacy@X.com", role: "VIEWER" }))
     expect(mockQueryRaw).not.toHaveBeenCalled()
     expect(mockUpdate).toHaveBeenCalledWith({
