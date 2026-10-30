@@ -28,7 +28,7 @@ export default async function EditManagedEventPage(props: Readonly<Props>) {
   const { id } = await props.params
   const { saved } = (await props.searchParams) ?? {}
   const session = await auth()
-  if (!session) redirect("/login")
+  if (!session?.user) redirect("/login")
 
   const eventId = parseRouteId(id)
   if (eventId === null) notFound()

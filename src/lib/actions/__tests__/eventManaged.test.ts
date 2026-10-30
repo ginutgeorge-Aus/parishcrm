@@ -132,7 +132,7 @@ describe("updateManagedEvent write", () => {
     })
     await run(form({ ...base, recurs: "every-sunday", endDate: "2026-12-31T11:00" }))
     const arg = updateMany.mock.calls[0][0] as { data: { endDate: Date | null } }
-    expect(arg.data.endDate).toBeInstanceOf(Date)
+    expect(arg.data.endDate).toEqual(new Date("2026-12-31T00:00:00.000Z"))
   })
 
   it("guards the write on the last-seen updatedAt", async () => {
