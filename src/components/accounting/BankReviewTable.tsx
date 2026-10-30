@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils"
 import { ReviewSummary } from "./import/ReviewSummary"
 import { ReviewFilterTabs } from "./import/ReviewFilterTabs"
 import { matchesFilter, needsCategory, reviewStats, type ReviewFilter } from "@/lib/bankReviewFilter"
-import { toCents, isSplit } from "@/lib/bankSplit"
+import { toCents, isSplit, splitStatus } from "@/lib/bankSplit"
 import type { SplitLine } from "@/lib/bankSplit"
 import type { ReviewRow } from "@/lib/bankTypes"
 export type { ReviewRow } from "@/lib/bankTypes"
@@ -159,6 +159,12 @@ function ImportButton({
       {importing ? "Importing…" : `Import ${count} transaction${count !== 1 ? "s" : ""}`}
     </Button>
   )
+}
+
+/** Status text under a split row (allocation state / duplicate-donor warning). */
+function SplitStatusLine({ splits, remainingCents }: Readonly<{ splits: SplitLine[]; remainingCents: number }>) {
+  const { text, ok } = splitStatus(splits, remainingCents)
+  return <div className={cn("text-xs", ok ? "text-muted-foreground" : "text-destructive")}>{text}</div>
 }
 
 export function BankReviewTable({
@@ -406,13 +412,7 @@ export function BankReviewTable({
                   ) : split ? (
                     <div className="text-sm">
                       <span className="font-medium">Split into {row.splits!.length}</span>
-                      <div className={cn("text-xs", remainingCents === 0 ? "text-muted-foreground" : "text-destructive")}>
-                        {Number.isNaN(remainingCents)
-                          ? "enter a valid amount for each split"
-                          : remainingCents === 0
-                            ? "fully allocated"
-                            : `${(remainingCents / 100).toFixed(2)} unallocated`}
-                      </div>
+                      <SplitStatusLine splits={row.splits ?? []} remainingCents={remainingCents} />
                     </div>
                   ) : (
                     <div className="space-y-1">
@@ -696,13 +696,7 @@ export function BankReviewTable({
               ) : split ? (
                 <div className="text-sm">
                   <span className="font-medium">Split into {row.splits!.length}</span>
-                  <div className={cn("text-xs", remainingCents === 0 ? "text-muted-foreground" : "text-destructive")}>
-                    {Number.isNaN(remainingCents)
-                      ? "enter a valid amount for each split"
-                      : remainingCents === 0
-                        ? "fully allocated"
-                        : `${(remainingCents / 100).toFixed(2)} unallocated`}
-                  </div>
+                  <SplitStatusLine splits={row.splits ?? []} remainingCents={remainingCents} />
                 </div>
               ) : (
                 <div>

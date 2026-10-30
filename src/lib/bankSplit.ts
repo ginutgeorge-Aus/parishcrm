@@ -28,12 +28,73 @@ export function isSplit(row: { splits?: SplitLine[] }): boolean {
   return Array.isArray(row.splits) && row.splits.length > 0
 }
 
-/** A split row is importable only when every line has a category and the lines
- * sum exactly to the row total.
+/**
+ * Whether the split lines contain a duplicate giving row: the same member
+ * twice under the same category. Giving statements aggregate by family, so a
+ * family-only line also collides with a person line of that same family under
+ * the same category (they would be one donor on a receipt). Two different
+ * people of one family under one category stay allowed (e.g. a joint account
+ * paying for two members), as does the same member under different
+ * categories. Two family-only lines for one family under one category also
+ * collide (one donor). Lines with no member (general fund) or no category yet
+ * may repeat freely.
+ * Shared by the client gate (`splitIsValid`) and the server check in
+ * `bankImportConfirm`. They agree whenever the UI supplies `familyId` with a
+ * `personId` (the picker does). A person line with no `familyId` cannot collide
+ * with a family-only line client-side; the server backfills `familyId` and
+ * rejects it with a 400.
+ */
+export function hasDuplicateDonorSplit(
+  splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>
+): boolean {
+  const people = new Set<string>()
+  const byFamily = new Map<string, Set<number | null>>()
+  for (const s of splits) {
+    if (s.accountId == null || (s.familyId == null && s.personId == null)) continue
+    if (s.personId != null) {
+      // A person belongs to one family, so repeat by category is a duplicate even
+      // when one line has no familyId (the server fills it in before checking).
+      const key = JSON.stringify([s.accountId, s.personId])
+      if (people.has(key)) return true
+      people.add(key)
+    }
+    if (s.familyId == null) continue
+    const famKey = JSON.stringify([s.accountId, s.familyId])
+    const persons = byFamily.get(famKey) ?? new Set<number | null>()
+    const person = s.personId ?? null
+    // A family-only line collides with any person line of that family, and vice versa.
+    if (person === null ? persons.size > 0 : persons.has(null)) return true
+    persons.add(person)
+    byFamily.set(famKey, persons)
+  }
+  return false
+}
+
+/** A split row is importable only when every line has a category, the lines
+ * sum exactly to the row total, and no member is allocated twice under the
+ * same category (see `hasDuplicateDonorSplit`).
  */
 export function splitIsValid(row: { amount: string; splits?: SplitLine[] }): boolean {
   if (!row.splits || row.splits.length === 0) return false
   if (row.splits.some((s) => s.accountId === null || toCents(s.amount) <= 0)) return false
   const sum = row.splits.reduce((t, s) => t + toCents(s.amount), 0)
+  if (hasDuplicateDonorSplit(row.splits)) return false
   return sum === toCents(row.amount)
+}
+
+/**
+ * Status line shown under a split row: duplicate-donor warning, parse error,
+ * allocation state, or the unallocated amount. `ok` is true only when fully allocated.
+ */
+export function splitStatus(
+  splits: ReadonlyArray<{ accountId: number | null; familyId?: number | null; personId?: number | null }>,
+  remainingCents: number
+): { text: string; ok: boolean } {
+  if (hasDuplicateDonorSplit(splits)) {
+    return { text: "same member twice in one category — combine into one split", ok: false }
+  }
+  if (Number.isNaN(remainingCents)) return { text: "enter a valid amount for each split", ok: false }
+  if (remainingCents === 0) return { text: "fully allocated", ok: true }
+  if (remainingCents < 0) return { text: `${(-remainingCents / 100).toFixed(2)} over-allocated`, ok: false }
+  return { text: `${(remainingCents / 100).toFixed(2)} unallocated`, ok: false }
 }
