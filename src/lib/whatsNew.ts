@@ -20,6 +20,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.12.0",
+    date: "2026-10-29",
+    highlights: [
+      "When recording a petty-cash transfer you can now pick the matching imported bank deposit.",
+      "Bank import: the same member can now appear in different categories of one split row.",
+    ],
+  },
+  {
     version: "v1.11.0",
     date: "2026-10-29",
     highlights: [
