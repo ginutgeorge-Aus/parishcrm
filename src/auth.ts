@@ -130,7 +130,7 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
 /**
  * Look up a user by email and verify the password, with a dummy bcrypt compare
  * on a miss to keep timing uniform.
- * @param email trimmed RAW email (case preserved so mixed-case-only legacy accounts resolve)
+ * @param email trimmed email, any case (the lookup matches case-insensitively)
  * @param password submitted plaintext password
  * @param ip client IP for log context, if known
  * @returns the user on success, else null
@@ -320,13 +320,13 @@ export async function authorizeCredentials(
   const { ip } = client
   if (!credentials?.email) return null
   // Password, OTP and TOTP paths pass rawEmail (trimmed, case kept) to the
-  // lookup, which tries it exact-first, then lowercased, then a lower() match.
+  // lookup, which matches it with one case-insensitive lower(email) query.
   // normalizedEmail (trimmed + lowercased) is used only for the demo checks and
-  // the whitespace-only early exit. Lockout counters are keyed on user.id, so
-  // case/space variants resolve to one account and share one counter.
+  // the whitespace-only exit (after the IP throttle, so blank-email probes still
+  // count against it). Lockout counters are keyed on user.id, so case/space
+  // variants resolve to one account and share one counter.
   const rawEmail = String(credentials.email).trim()
   const normalizedEmail = normalizeEmail(rawEmail)
-  if (!normalizedEmail) return null // whitespace-only: nothing to look up
 
   // IP-based throttle on the whole credentials path (password + OTP
   // steps) — the only prior ceiling was the per-account 5-attempt lock, which
@@ -366,6 +366,7 @@ export async function authorizeCredentials(
   }
 
   if (!(await loginIpAllowed(client))) return null
+  if (!normalizedEmail) return null // whitespace-only: nothing to look up
 
   // Live demo users have no password path (one-click login is handled above).
   if (isDemoMode() && isDemoEmail(normalizedEmail) && credentials.mode !== "demo") {

@@ -320,14 +320,11 @@ export async function updateUser(
     return { error: "Unauthorized" }
   }
 
-  // parsed.data.email is already normalised (trimmed + lower-cased). Compare it with
-  // the normalised stored email: equal = unchanged (including a case-only edit), so
-  // keep the stored legacy mixed-case value and skip the duplicate check; legacy rows
-  // are not rewritten on unrelated edits. Otherwise it's a real change: reject when
-  // ANOTHER user already holds it (exclude-self lookup).
-  if (normalizeEmail(target.email) === parsed.data.email) {
-    parsed.data.email = target.email
-  } else if (await isEmailTaken(parsed.data.email, id)) {
+  // parsed.data.email is already normalised (trimmed + lower-cased) and is what we
+  // persist, so a case-only edit (or any save of a legacy mixed-case row) stores the
+  // normalised form. Only a real change (beyond case) can collide with ANOTHER user,
+  // so skip the duplicate check when the normalised stored email is the same.
+  if (normalizeEmail(target.email) !== parsed.data.email && (await isEmailTaken(parsed.data.email, id))) {
     return { error: "Email already in use" }
   }
 
