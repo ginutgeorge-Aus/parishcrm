@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-jest.mock("@/lib/xferAccount", () => ({ findXferAccountId: jest.fn().mockResolvedValue(9), XFER_OUT_PREFIX: "XFER_OUT_" }))
+jest.mock("@/lib/xferAccount", () => ({ findXferAccountId: jest.fn().mockResolvedValue(9) }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
 jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v.replace("enc:", "")) }))
 jest.mock("@/lib/accountingLock", () => ({

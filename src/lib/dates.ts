@@ -68,7 +68,7 @@ export function sydneyWeekStartYMD(at: Date = new Date()): string {
   const { ymd, weekday } = sydneyClock(at)
   const d = new Date(ymd + "T00:00:00.000Z")
   d.setUTCDate(d.getUTCDate() - (weekday - 1))
-  return d.toISOString().slice(0, 10)
+  return utcYmd(d)
 }
 
 /** The Sydney calendar month (`YYYY-MM`) containing `at`. */
@@ -286,7 +286,7 @@ export function sydneyStartOfDayUTC(ymd: string): Date {
  * @returns the UTC instant 1 ms before the next Sydney day begins
  */
 export function sydneyEndOfDayUTC(ymd: string): Date {
-  const next = new Date(new Date(ymd + "T00:00:00.000Z").getTime() + 86_400_000).toISOString().slice(0, 10)
+  const next = utcYmd(new Date(new Date(ymd + "T00:00:00.000Z").getTime() + 86_400_000))
   return new Date(sydneyStartOfDayUTC(next).getTime() - 1)
 }
 
@@ -343,10 +343,10 @@ export function zoneLabel(at: Date = new Date()): string {
 }
 
 /**
- * Calendar day (YYYY-MM-DD) of a date stored at UTC midnight; robust to a time component.
+ * UTC calendar day (YYYY-MM-DD) of a date stored at UTC midnight (not a Sydney day); robust to a time component.
  * @param d date to format
  * @returns the UTC calendar day
  */
-export function ymd(d: Date): string {
+export function utcYmd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }

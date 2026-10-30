@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { adoptionProblem, depositRefOfLeg } from "../pettyCashAdoption"
 import { xferOutRef } from "../xferRefs"
-import { ymd } from "../dates"
+import { utcYmd } from "../dates"
 
 const amt = (v: string) => ({ toFixed: () => v })
 const deposit = { accountId: 9, type: "INCOME", amount: amt("50.00"), date: new Date("2026-07-31") }
@@ -12,8 +12,8 @@ const leg = {
 const transfer = { amount: "50", date: new Date("2026-07-31") }
 const ctx = { xferAccountId: 9, cashAccountId: 2 }
 
-it("ymd returns the UTC calendar day", () => {
-  expect(ymd(new Date("2026-07-31T23:59:59Z"))).toBe("2026-07-31")
+it("utcYmd returns the UTC calendar day", () => {
+  expect(utcYmd(new Date("2026-07-31T23:59:59Z"))).toBe("2026-07-31")
 })
 
 it("xferOutRef and depositRefOfLeg round-trip", () => {
