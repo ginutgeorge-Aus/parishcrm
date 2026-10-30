@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { canEdit } from "@/lib/roleGuard"
+import { canManageEvent } from "@/lib/eventManager"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
@@ -36,15 +36,17 @@ export async function GET(
 
   const img = await prisma.eventImage.findFirst({
     where: { kind: mapped, event: { slug } },
-    select: { data: true, mimeType: true, event: { select: { isPublished: true } } },
+    select: { data: true, mimeType: true, event: { select: { id: true, isPublished: true } } },
   })
   if (!img) return notFound()
 
-  // Published images are public; draft images are visible only to editors so a
-  // 200-vs-404 can't confirm a draft slug exists (same rule as the public page).
+  // Published images are public; draft images are visible only to editors and
+  // the EVENT_ORGANISER assigned to that event (canManageEvent) so a 200-vs-404
+  // can't confirm a draft slug exists (same rule as the public page).
   if (!img.event.isPublished) {
     const session = await auth()
-    if (!canEdit(session?.user?.role)) return notFound()
+    const userId = Number.parseInt(session?.user?.id ?? "", 10)
+    if (!session?.user || !(await canManageEvent(userId, img.event.id, session.user.role))) return notFound()
   }
 
   const body = Buffer.isBuffer(img.data) ? img.data : Buffer.from(img.data as Uint8Array)

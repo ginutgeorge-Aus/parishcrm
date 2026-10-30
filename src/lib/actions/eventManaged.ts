@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { canManageEvent } from "@/lib/eventManager"
 import { featureGuard } from "@/lib/featureFlags"
 import { syncEventToWebsite } from "@/lib/websiteSync"
@@ -78,16 +78,26 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
 
   // The registration deadline is staff-only, so an organiser moving the date
   // earlier could leave it after the event ends (EventSchema forbids that).
+  // Only checked when the organiser actually changes the date/endDate, so a
+  // legacy-bad stored combination doesn't block unrelated (e.g. title) edits.
   const closesBy = data.endDate ?? data.date
-  if (existing.registrationDeadline && closesBy && existing.registrationDeadline > closesBy) {
+  const datesChanged = !sameValue(existing.date, data.date) || !sameValue(existing.endDate, data.endDate)
+  if (datesChanged && existing.registrationDeadline && closesBy && existing.registrationDeadline > closesBy) {
     return { error: "The event would end before its registration deadline. Ask an editor to change the deadline first." }
   }
 
   const seenAt = parseOptimisticUpdatedAt(formData)
+  if (!seenAt) return { error: "This form is out of date. Reload the page and try again." }
+
+  const fields = (Object.keys(data) as (keyof typeof data)[]).filter((k) => !sameValue(existing[k], data[k]))
+  if (JSON.stringify(existing.organizers ?? []) !== JSON.stringify(organizers)) fields.push("organizers" as never)
+  if (banner.op !== "skip") fields.push("banner" as never)
+  if (poster.op !== "skip") fields.push("poster" as never)
+
   try {
     await prisma.$transaction(async (tx) => {
       const res = await tx.event.updateMany({
-        where: seenAt ? { id, updatedAt: seenAt } : { id },
+        where: { id, updatedAt: seenAt },
         // Empty array (not undefined) so removing every organiser persists —
         // same rationale as updateEvent.
         data: { ...data, organizers: organizers.length > 0 ? organizers : [] },
@@ -95,6 +105,11 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
       if (res.count === 0) throw new Error(STALE_EVENT)
       await applyImageOp(tx, id, EventImageKind.BANNER, banner)
       await applyImageOp(tx, id, EventImageKind.POSTER, poster)
+      await logAuditTx(tx, actorId(session), "EVENT_UPDATED", "Event", id, {
+        slug: existing.slug,
+        role: session.user.role,
+        fields,
+      })
     })
   } catch (e: unknown) {
     if (e instanceof Error && e.message === STALE_EVENT) {
@@ -103,15 +118,6 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
     throw e
   }
 
-  const fields = (Object.keys(data) as (keyof typeof data)[]).filter((k) => !sameValue(existing[k], data[k]))
-  if (JSON.stringify(existing.organizers ?? []) !== JSON.stringify(organizers)) fields.push("organizers" as never)
-  if (banner.op !== "skip") fields.push("banner" as never)
-  if (poster.op !== "skip") fields.push("poster" as never)
-  await logAudit(actorId(session), "EVENT_UPDATED", "Event", id, {
-    slug: existing.slug,
-    role: session.user.role,
-    fields,
-  })
   await syncEventToWebsite(id)
   revalidatePath(`/my-events/${id}/edit`)
   revalidatePath("/my-events")

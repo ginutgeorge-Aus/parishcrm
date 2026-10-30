@@ -4,6 +4,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: { eventImage: { findFirst: jest.fn() } },
 }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/eventManager", () => ({ canManageEvent: jest.fn() }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
 }))
@@ -12,6 +13,7 @@ import { NextRequest } from "next/server"
 import { GET } from "@/app/api/events/[slug]/image/[kind]/route"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { canManageEvent } from "@/lib/eventManager"
 import { rateLimit } from "@/lib/rateLimit"
 import { featureNotFound } from "@/lib/featureFlags"
 
@@ -62,11 +64,37 @@ it("404s a draft event image for an anonymous request", async () => {
 it("serves a draft event image to an editor", async () => {
   findFirst.mockResolvedValue({
     data: Buffer.from("y"), mimeType: "image/jpeg",
-    event: { isPublished: false },
+    event: { id: 3, isPublished: false },
   })
-  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+  ;(canManageEvent as jest.Mock).mockResolvedValue(true)
   const res = await call("draft", "banner")
   expect(res.status).toBe(200)
+  expect(canManageEvent).toHaveBeenCalledWith(1, 3, "ADMIN")
+})
+
+it("serves a draft image to the organiser assigned to it, privately", async () => {
+  findFirst.mockResolvedValue({
+    data: Buffer.from("y"), mimeType: "image/jpeg",
+    event: { id: 3, isPublished: false },
+  })
+  mockAuth.mockResolvedValue({ user: { id: "5", role: "EVENT_ORGANISER" } })
+  ;(canManageEvent as jest.Mock).mockResolvedValue(true)
+  const res = await call("draft", "banner")
+  expect(res.status).toBe(200)
+  expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+  expect(canManageEvent).toHaveBeenCalledWith(5, 3, "EVENT_ORGANISER")
+})
+
+it("404s a draft image for an organiser not assigned to it", async () => {
+  findFirst.mockResolvedValue({
+    data: Buffer.from("y"), mimeType: "image/jpeg",
+    event: { id: 3, isPublished: false },
+  })
+  mockAuth.mockResolvedValue({ user: { id: "6", role: "EVENT_ORGANISER" } })
+  ;(canManageEvent as jest.Mock).mockResolvedValue(false)
+  const res = await call("draft", "banner")
+  expect(res.status).toBe(404)
 })
 
 it("404s when no image row exists", async () => {
