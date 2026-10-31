@@ -156,10 +156,11 @@ describe("createTransfer — imported deposit", () => {
 })
 
 describe("createTransfer — manual path duplicate guard", () => {
-  const txMock = (dup: unknown) => ({
+  // legs = unlinked unreconciled XFER_OUT legs; dup = their paired INCOME deposit (null = none).
+  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1" }] : []) => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
-    transaction: { findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
+    transaction: { findMany: jest.fn().mockResolvedValue(legs), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
   })
 
   it("rejects when an unlinked XFER_OUT leg with the same amount and day exists", async () => {
@@ -168,9 +169,16 @@ describe("createTransfer — manual path duplicate guard", () => {
     const res = await createTransfer(1, undefined, form())
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
-    expect(tx.transaction.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }),
+    expect(tx.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ pettyCashTransferId: null, reconciled: false, amount: "50.00", accountId: 9 }),
     }))
+  })
+
+  it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1" }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, form())
+    expect(tx.transaction.create).toHaveBeenCalled()
   })
 
   it("creates the mirror when no duplicate leg exists", async () => {

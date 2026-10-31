@@ -13,7 +13,7 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
+import { ADOPTION_ERRORS, adoptionProblem, depositRefOfLeg } from "@/lib/pettyCashAdoption"
 import { xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
@@ -138,20 +138,30 @@ export async function createTransfer(
       } else {
         // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
         // day is probably this very deposit — a second cash-out would reduce petty cash
-        // twice. Reject and point the user at the imported-deposit picker.
+        // twice. Reject and point the user at the imported-deposit picker — but only when
+        // the leg is adoptable there (unreconciled, with its paired deposit present);
+        // otherwise rejecting would leave the user unable to record the transfer at all.
         const dayStart = new Date(`${utcYmd(parsed.data.date)}T00:00:00.000Z`)
-        const dup = await tx.transaction.findFirst({
+        const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
             type: "EXPENSE",
             bankRef: { startsWith: XFER_OUT_PREFIX },
             pettyCashTransferId: null,
+            reconciled: false,
             paymentAccountId: cashAccount?.id ?? null,
             amount: parsed.data.amount,
             date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
           },
-          select: { id: true },
+          select: { bankRef: true },
         })
+        const depositRefs = legs.flatMap((l) => (l.bankRef ? [depositRefOfLeg(l.bankRef)] : []))
+        const dup = depositRefs.length
+          ? await tx.transaction.findFirst({
+              where: { accountId: xferAccountId, type: "INCOME", bankRef: { in: depositRefs } },
+              select: { id: true },
+            })
+          : null
         if (dup) throw new TransferError(DUPLICATE_LEG_ERROR)
       }
       const transfer = await tx.pettyCashTransfer.create({
