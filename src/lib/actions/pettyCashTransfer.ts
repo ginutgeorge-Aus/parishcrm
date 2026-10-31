@@ -139,8 +139,10 @@ export async function createTransfer(
         // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
         // day is probably this very deposit — a second cash-out would reduce petty cash
         // twice. Reject and point the user at the imported-deposit picker — but only when
-        // the leg is adoptable there (unreconciled, with its paired deposit present);
-        // otherwise rejecting would leave the user unable to record the transfer at all.
+        // the leg's paired deposit (same amount + day) exists. A reconciled leg still
+        // counts: it already reduced the cash balance, so the user must un-reconcile it and
+        // pick the deposit. Without a paired deposit the picker can't offer the leg, so
+        // manual entry stays the only path.
         const dayStart = new Date(`${utcYmd(parsed.data.date)}T00:00:00.000Z`)
         const legs = await tx.transaction.findMany({
           where: {
@@ -148,7 +150,6 @@ export async function createTransfer(
             type: "EXPENSE",
             bankRef: { startsWith: XFER_OUT_PREFIX },
             pettyCashTransferId: null,
-            reconciled: false,
             paymentAccountId: cashAccount?.id ?? null,
             amount: parsed.data.amount,
             date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
@@ -158,7 +159,13 @@ export async function createTransfer(
         const depositRefs = legs.flatMap((l) => (l.bankRef ? [depositRefOfLeg(l.bankRef)] : []))
         const dup = depositRefs.length
           ? await tx.transaction.findFirst({
-              where: { accountId: xferAccountId, type: "INCOME", bankRef: { in: depositRefs } },
+              where: {
+                accountId: xferAccountId,
+                type: "INCOME",
+                bankRef: { in: depositRefs },
+                amount: parsed.data.amount,
+                date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
+              },
               select: { id: true },
             })
           : null

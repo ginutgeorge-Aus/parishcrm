@@ -170,7 +170,7 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     expect(tx.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ pettyCashTransferId: null, reconciled: false, amount: "50.00", accountId: 9 }),
+      where: expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }),
     }))
   })
 
