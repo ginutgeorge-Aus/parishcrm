@@ -171,9 +171,10 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
-    expect(tx.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }),
-    }))
+    const call = tx.transaction.findMany.mock.calls[0][0]
+    expect(call.where).toEqual(expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }))
+    // Reconciled legs must still be matched (the error tells the user to un-reconcile).
+    expect(call.where).not.toHaveProperty("reconciled")
   })
 
   it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
