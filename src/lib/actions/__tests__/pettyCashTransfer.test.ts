@@ -160,7 +160,10 @@ describe("createTransfer — manual path duplicate guard", () => {
   const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1" }] : []) => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
-    transaction: { findMany: jest.fn().mockResolvedValue(legs), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
+    transaction: { findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      // Honour a `reconciled` filter like the DB would: the legs here are reconciled-or-not
+      // as given, so any reconciled:false filter in the guard would hide a reconciled leg.
+      legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
   })
 
   // Regression: a second cash-out for an already-imported deposit double-counted petty cash.

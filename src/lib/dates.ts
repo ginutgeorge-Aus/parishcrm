@@ -357,6 +357,8 @@ export function utcYmd(d: Date): string {
  * @returns `{ gte, lt }` ready for a Prisma date filter
  */
 export function utcDayRange(d: Date): { gte: Date; lt: Date } {
-  const gte = new Date(`${utcYmd(d)}T00:00:00.000Z`)
-  return { gte, lt: new Date(gte.getTime() + 86_400_000) }
+  const y = d.getUTCFullYear()
+  const m = d.getUTCMonth()
+  const day = d.getUTCDate()
+  return { gte: new Date(Date.UTC(y, m, day)), lt: new Date(Date.UTC(y, m, day + 1)) }
 }
