@@ -175,6 +175,13 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(call.where).toEqual(expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }))
     // Reconciled legs must still be matched (the error tells the user to un-reconcile).
     expect(call.where).not.toHaveProperty("reconciled")
+    // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
+    const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
+    expect(call.where.date).toEqual(dayBound)
+    expect(call.where.date.lt.getTime() - call.where.date.gte.getTime()).toBe(86_400_000)
+    expect(tx.transaction.findFirst.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ type: "INCOME", amount: "50.00", date: dayBound })
+    )
   })
 
   it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
