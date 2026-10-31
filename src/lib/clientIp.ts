@@ -32,12 +32,16 @@ const PASSTHROUGH_HEADERS = new Set([
 ])
 
 // Documented CDN/edge/proxy client-IP headers, which the platform overwrites on every request.
+// Listed names are not flagged by the envCheck boot warning; any other name classifies as `custom` and warns.
 const KNOWN_CDN_HEADERS = new Set([
   "cf-connecting-ip",
   "fly-client-ip",
   "fastly-client-ip",
   "x-appengine-user-ip",
   "cloudfront-viewer-address",
+  "x-nf-client-connection-ip", // Netlify
+  "do-connecting-ip", // DigitalOcean App Platform
+  "x-vercel-forwarded-for", // Vercel
 ])
 
 /** How `CLIENT_IP_HEADER` is classified; see {@link classifyClientIpHeader}. */

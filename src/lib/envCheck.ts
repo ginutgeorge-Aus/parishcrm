@@ -266,7 +266,7 @@ export function collectEnvWarnings(): string[] {
 
   // CLIENT_IP_HEADER (src/lib/clientIp.ts) silently falls back to rightmost x-forwarded-for when the
   // name is not a legal header token or names a spoofable header (x-forwarded-for, forwarded, ...).
-  // Either is a deploy mistake worth surfacing at boot; custom names are honoured without a warning.
+  // Either is a deploy mistake worth surfacing at boot; unrecognised custom names also warn, since a typo or never-sent header silently shares one bucket.
   const ipHeader = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
   switch (ipHeader.kind) {
     case "invalid":
