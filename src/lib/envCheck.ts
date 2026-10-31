@@ -266,7 +266,7 @@ export function collectEnvWarnings(): string[] {
 
   // CLIENT_IP_HEADER (src/lib/clientIp.ts) silently falls back to rightmost x-forwarded-for when the
   // name is not a legal header token or names a spoofable header (x-forwarded-for, forwarded, ...).
-  // Either is a deploy mistake worth surfacing at boot; unrecognised custom names also warn, since a typo or never-sent header silently shares one bucket.
+  // Either is a deploy mistake worth surfacing at boot; unrecognised custom names also warn, since a typo or never-sent header silently falls back to the rightmost x-forwarded-for entry (the shared `unknown` bucket only if that is missing or invalid).
   const ipHeader = classifyClientIpHeader(process.env.CLIENT_IP_HEADER)
   switch (ipHeader.kind) {
     case "invalid":
@@ -279,7 +279,7 @@ export function collectEnvWarnings(): string[] {
       warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
       break
     case "custom":
-      warnings.push(`CLIENT_IP_HEADER "${ipHeader.name}" is not a known proxy header — check the name is spelled correctly, that your proxy sends it on every request, and that it overwrites any client-supplied value; if it is missing, requests fall back to the shared x-forwarded-for hop`)
+      warnings.push(`CLIENT_IP_HEADER "${ipHeader.name}" is not a known proxy header — check the name is spelled correctly, that your proxy sends it on every request, and that it overwrites any client-supplied value; if it is missing, requests fall back to the rightmost x-forwarded-for entry (or the shared unknown bucket if that is missing or invalid)`)
       break
     case "unset":
     case "cdn":
