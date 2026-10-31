@@ -86,6 +86,17 @@ it("serves a draft image to the organiser assigned to it, privately", async () =
   expect(canManageEvent).toHaveBeenCalledWith(5, 3, "EVENT_ORGANISER")
 })
 
+it("404s (not 500s) a draft image for a session without a user id", async () => {
+  findFirst.mockResolvedValue({
+    data: Buffer.from("y"), mimeType: "image/jpeg",
+    event: { id: 3, isPublished: false },
+  })
+  mockAuth.mockResolvedValue({ user: { role: "ADMIN" } })
+  const res = await call("draft", "banner")
+  expect(res.status).toBe(404)
+  expect(canManageEvent).not.toHaveBeenCalled()
+})
+
 it("404s a draft image for an organiser not assigned to it", async () => {
   findFirst.mockResolvedValue({
     data: Buffer.from("y"), mimeType: "image/jpeg",

@@ -33,7 +33,7 @@ export default async function MyEventsPage() {
       ) : (
         <ul className="space-y-3">
           {events.map((e) => (
-            <li key={e.id} className="flex items-stretch gap-2">
+            <li key={e.id} className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
               <Link
                 href={`/my-events/${e.id}/registrations`}
                 className="flex flex-1 items-center justify-between rounded-lg border bg-card p-4 transition-colors duration-200 hover:bg-accent"
@@ -48,7 +48,7 @@ export default async function MyEventsPage() {
               </Link>
               <Link
                 href={`/my-events/${e.id}/edit`}
-                className="flex items-center rounded-lg border bg-card px-4 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent"
+                className="flex items-center justify-center rounded-lg border bg-card px-4 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent sm:py-0"
               >
                 Edit details
               </Link>

@@ -50,8 +50,9 @@ location, recurrence settings, organiser contacts, and the banner and poster ima
 
 You cannot change the public link (slug), ticket types and prices, bank details, card
 payments, registration deadline, capacity, reminders, publishing, or who manages the event.
-Ask an editor for those. Saving a published event updates the public event page and the
-website straight away. If an editor changed the event after you opened the form, you are
+Ask an editor for those. Saving a published event updates the public event page straight
+away. If an external website sync is configured, the website is updated on a best-effort basis
+(a missed update can be re-sent by an ADMIN with **Resync website**). If an editor changed the event after you opened the form, you are
 asked to reload and re-apply your edit.
 
 ### Roles
@@ -60,7 +61,7 @@ asked to reload and re-apply your edit.
 |------|--------|
 | ADMIN / PASTOR / OFFICE_ADMIN | Can assign/unassign organisers on any event; can also open `/my-events` themselves (mainly useful for testing) since editors are always allowed through |
 | AUDITOR / VIEWER | No organiser-assignment access |
-| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in, plus `/my-classes` rolls for classes they're assigned to; redirected away from every other authenticated route |
+| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in/details editing, plus `/my-classes` rolls for classes they're assigned to; redirected away from every other authenticated route |
 
 ## How it works
 

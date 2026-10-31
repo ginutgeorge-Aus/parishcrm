@@ -99,6 +99,10 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
   if (banner.op !== "skip") fields.push("banner")
   if (poster.op !== "skip") fields.push("poster")
 
+  // No-op save: skip the write so it neither bumps updatedAt (which would
+  // stale other open forms) nor writes an empty audit row or website sync.
+  if (fields.length === 0) redirect(`/my-events/${id}/edit?saved=1`)
+
   try {
     await prisma.$transaction(async (tx) => {
       const res = await tx.event.updateMany({

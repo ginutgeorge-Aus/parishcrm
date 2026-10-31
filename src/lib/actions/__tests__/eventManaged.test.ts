@@ -130,15 +130,42 @@ describe("updateManagedEvent write", () => {
     findUnique.mockResolvedValue({
       ...stored, kind: "recurring", recurs: "every-sunday", endDate: new Date("2026-12-31T00:00:00Z"),
     })
-    await run(form({ ...base, recurs: "every-sunday", endDate: "2026-12-31T11:00" }))
-    const arg = updateMany.mock.calls[0][0] as { data: { endDate: Date | null } }
+    // The recurring form never submits `date` (no input rendered).
+    const { date: _d, ...recurringBase } = base
+    await run(form({ ...recurringBase, recurs: "every-sunday", endDate: "2026-12-31T11:00" }))
+    const arg = updateMany.mock.calls[0][0] as { data: { date: Date | null; endDate: Date | null } }
     expect(arg.data.endDate).toEqual(new Date("2026-12-31T00:00:00.000Z"))
+    expect(arg.data.date).toBeNull()
+  })
+
+  it("does not report date/endDate as changed on an unchanged recurring save", async () => {
+    findUnique.mockResolvedValue({
+      ...stored, kind: "recurring", date: null, recurs: "every-sunday", endDate: new Date("2026-12-31T00:00:00Z"),
+      registrationDeadline: new Date("2027-06-01T00:00:00Z"),
+    })
+    const { date: _d, ...recurringBase } = base
+    const out = await run(form({ ...recurringBase, recurs: "every-sunday", endDate: "2026-12-31T11:00" }))
+    // A spurious date change would trip the registration-deadline check.
+    expect(out).toBe("NEXT_REDIRECT /my-events/7/edit?saved=1")
+    const fields = (logAuditTx as jest.Mock).mock.calls[0][5].fields as string[]
+    expect(fields).not.toContain("date")
+    expect(fields).not.toContain("endDate")
   })
 
   it("guards the write on the last-seen updatedAt", async () => {
     await run(form({ ...base, updatedAt: "2026-08-01T00:00:00.000Z" }))
     const arg = updateMany.mock.calls[0][0] as { where: Record<string, unknown> }
     expect(arg.where).toEqual({ id: 7, updatedAt: new Date("2026-08-01T00:00:00.000Z") })
+  })
+
+  it("skips the write, audit and sync on a no-op save", async () => {
+    findUnique.mockResolvedValue({
+      ...stored, title: "New title", category: "youth", date: new Date("2026-08-02T00:00:00.000Z"), organizers: [],
+    })
+    expect(await run(form(base))).toBe("NEXT_REDIRECT /my-events/7/edit?saved=1")
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+    expect(syncEventToWebsite).not.toHaveBeenCalled()
   })
 
   it("reports a stale edit", async () => {
@@ -189,7 +216,10 @@ describe("updateManagedEvent write", () => {
   })
 
   it("returns validation errors without writing", async () => {
-    expect(await run(form({ title: "" }))).toEqual({ error: expect.any(String) })
+    // Valid updatedAt + date so only the blank title can fail. A blank field is
+    // read as undefined (same as parseEventForm), so Zod's missing-string message
+    // wins over "Title required".
+    expect(await run(form({ ...base, title: "" }))).toEqual({ error: "Invalid input: expected string, received undefined" })
     expect(updateMany).not.toHaveBeenCalled()
   })
 
