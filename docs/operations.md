@@ -49,7 +49,8 @@ Migration status:
    as `rotate-encryption-key`), so a concurrent change is re-read and retried, never overwritten. A
    row whose hashed form already exists on another row is skipped and reported (review by hand).
    Refs are never printed, only row ids. Needs the app's `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`.
-   Run in a quiet window (a deposit and its `XFER_OUT_` leg can land in different batches):
+   A deposit and its `XFER_OUT_` paired leg are always rewritten in one transaction (even across
+   batches), so a collision or interrupted run never leaves the pair half-hashed. Run in a quiet window:
 
    ```bash
    npx tsx scripts/hash-bankref-account.ts               # dry run: counts legacy rows

@@ -17,11 +17,15 @@ type Op = { where: { id: number; bankRef: string }; data: { bankRef: string } }
 function fakeDb(initial: Row[], hooks: { beforeWrite?: (rows: Map<number, Row>) => void } = {}) {
   const rows = new Map(initial.map((r) => [r.id, { ...r }]))
   const delegate = {
-    findMany: jest.fn(async (args: { where?: { id?: { gt?: number } | number }; take?: number }) => {
+    findMany: jest.fn(async (args: { where?: { id?: { gt?: number } | number; bankRef?: { in?: string[] } }; take?: number }) => {
       const w = args.where?.id
+      const refIn = args.where?.bankRef?.in
       const all = [...rows.values()].sort((a, b) => a.id - b.id)
-      const out =
-        typeof w === "number" ? all.filter((r) => r.id === w) : all.filter((r) => w?.gt === undefined || r.id > w.gt)
+      const out = refIn
+        ? all.filter((r) => r.bankRef !== null && refIn.includes(r.bankRef))
+        : typeof w === "number"
+          ? all.filter((r) => r.id === w)
+          : all.filter((r) => w?.gt === undefined || r.id > w.gt)
       return out.slice(0, args.take ?? out.length).map((r) => ({ ...r }))
     }),
     updateMany: jest.fn((op: Op) => op),
@@ -140,4 +144,25 @@ it("a unique collision with an existing hashed twin is skipped and reported; the
   // Logs never print a ref (they hold the account number).
   const logged = [...(console.warn as jest.Mock).mock.calls, ...(console.log as jest.Mock).mock.calls].flat().join("\n")
   expect(logged).not.toContain(ACCT)
+})
+
+describe("deposit + XFER_OUT_ leg pairing", () => {
+  const deposit = `ANZ_${ACCT}_20250722_1200.00_CASHDEPOSIT_123456`
+  const leg = `XFER_OUT_${deposit}`
+
+  it("writes a deposit and its leg in one transaction even when they fall in different batches", async () => {
+    const db = fakeDb([legacy(1, deposit), legacy(2, `ANZ_${ACCT}_20250723_5.00_OTHER_1`), legacy(3, leg)])
+    const res = await mod.hashBankRefs({ delegate: db.delegate, runTx: db.runTx, apply: true, batchSize: 1 })
+    expect(res).toEqual({ changed: 3, conflicts: 0, collisions: 0 })
+    expect((db.runTx.mock.calls[0][0] as Op[]).map((op) => op.where.id)).toEqual([1, 3])
+    expect(db.rows.get(3)!.bankRef).toBe(`XFER_OUT_${db.rows.get(1)!.bankRef}`)
+  })
+
+  it("a collision on the leg leaves the deposit legacy too (pair never split), reported once per row", async () => {
+    const db = fakeDb([legacy(1, deposit), legacy(2, leg), { id: 3, bankRef: hashStoredBankRef(leg) }])
+    const res = await mod.hashBankRefs({ delegate: db.delegate, runTx: db.runTx, apply: true, batchSize: 1 })
+    expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 2 })
+    expect(db.rows.get(1)!.bankRef).toBe(deposit)
+    expect(db.rows.get(2)!.bankRef).toBe(leg)
+  })
 })

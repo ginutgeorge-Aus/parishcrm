@@ -7,6 +7,7 @@ if (!process.env.DATABASE_URL) {
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { hashStoredBankRef } from "../src/lib/bankRefHash"
+import { XFER_OUT_PREFIX } from "../src/lib/xferRefs"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
 // One-off backfill for #459: imported Transaction.bankRef values (ANZ_/ANZTR_/
@@ -26,6 +27,10 @@ import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpe
 //     retried instead of overwritten;
 //   - a unique collision (a hashed twin of the same line already stored) is
 //     skipped and reported, never merged — review it by hand;
+//   - a deposit and its `XFER_OUT_` paired leg are always written in the same
+//     transaction (even across batches), so a collision or crash never leaves
+//     one hashed and the other legacy — `xferOutRef(deposit.bankRef)` lookups
+//     (transfer picker, adoption guards) would silently stop pairing them;
 //   - refs are never printed (they hold the account number) — only row ids.
 // Needs the same ENCRYPTION_KEY(_V1) as the app: the hash is keyed.
 
@@ -42,7 +47,8 @@ type Delegate = {
   findMany(args: unknown): Promise<Row[]>
   updateMany(args: unknown): unknown
 }
-type HashOpts = { delegate?: Delegate; runTx?: (ops: unknown[]) => Promise<unknown>; apply?: boolean }
+type HashOpts = { delegate?: Delegate; runTx?: (ops: unknown[]) => Promise<unknown>; apply?: boolean; batchSize?: number }
+type Pending = { row: Row; next: string }
 type HashResult = { changed: number; conflicts: number; collisions: number }
 
 let prismaClient: PrismaClient | undefined
@@ -117,28 +123,91 @@ async function writeOne(
 }
 
 /**
+ * The other half of a petty-cash pair: a deposit's `XFER_OUT_` leg, or a leg's
+ * deposit. Most refs have none; the lookup then simply finds nothing.
+ *
+ * @param ref - a legacy stored bankRef
+ * @returns the ref its paired row would hold
+ */
+function companionRef(ref: string): string {
+  return ref.startsWith(XFER_OUT_PREFIX) ? ref.slice(XFER_OUT_PREFIX.length) : XFER_OUT_PREFIX + ref
+}
+
+/**
+ * Group a batch's pending rewrites into write units: a deposit and its
+ * `XFER_OUT_` leg form one unit (the mate is fetched when it falls outside this
+ * batch), everything else is a unit of one.
+ *
+ * @param pending - this batch's rows that need a rewrite
+ * @param delegate - Transaction delegate (to fetch out-of-batch mates)
+ * @returns units, each written all-or-nothing
+ */
+async function pairUnits(pending: Pending[], delegate: Delegate): Promise<Pending[][]> {
+  const inBatch = new Map(pending.map((p) => [p.row.bankRef!, p]))
+  const missing = [...new Set(pending.map((p) => companionRef(p.row.bankRef!)))].filter((r) => !inBatch.has(r))
+  const outside = missing.length
+    ? await delegate.findMany({ where: { bankRef: { in: missing } }, select: { id: true, bankRef: true } })
+    : []
+  const outsideByRef = new Map(
+    outside.flatMap((row) => {
+      const next = planBankRefRewrite(row.bankRef)
+      return next === null ? [] : [[row.bankRef!, { row, next }] as const]
+    }),
+  )
+  const used = new Set<number>()
+  const units: Pending[][] = []
+  for (const p of pending) {
+    if (used.has(p.row.id)) continue
+    used.add(p.row.id)
+    const ref = companionRef(p.row.bankRef!)
+    const mate = inBatch.get(ref) ?? outsideByRef.get(ref)
+    if (mate && !used.has(mate.row.id)) {
+      used.add(mate.row.id)
+      units.push([p, mate])
+    } else units.push([p])
+  }
+  return units
+}
+
+/**
  * Rewrite every legacy (full account number) Transaction.bankRef to the hashed
  * format. Keyset-paginated; each batch commits in one transaction, falling
- * back to per-row writes when a row in it hit a unique collision or changed
- * concurrently.
+ * back to per-unit writes (a deposit + its `XFER_OUT_` leg stay together) when
+ * a row in it hit a unique collision, and per-row retries for rows that
+ * changed concurrently.
  *
- * @param opts - test seams: delegate, runTx, apply (defaults from argv)
+ * @param opts - test seams: delegate, runTx, apply (defaults from argv), batchSize
  * @returns rows (that would be) rewritten, rows left because they kept
- *   changing, and rows left because their hashed form already exists
+ *   changing, and rows left because their hashed form (or their pair's) already exists
  */
 export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   const delegate = opts.delegate ?? (prisma().transaction as unknown as Delegate)
   const runTx = opts.runTx ?? ((ops: unknown[]) => prisma().$transaction(ops as never))
   const apply = opts.apply ?? APPLY
+  const batchSize = opts.batchSize ?? BATCH
   const result: HashResult = { changed: 0, conflicts: 0, collisions: 0 }
+  // A pair skipped in one batch is met again from its mate's batch — report each row once.
+  const reported = new Set<number>()
   const tally = (outcome: Awaited<ReturnType<typeof writeOne>>, id: number) => {
     if (outcome === "written") result.changed++
+    else if (outcome === "resolved" || reported.has(id)) return
     else if (outcome === "conflict") {
+      reported.add(id)
       result.conflicts++
       console.warn(`Transaction #${id}: changed concurrently on ${MAX_CONFLICT_RETRIES} retries — skipped (re-run)`)
-    } else if (outcome === "collision") {
+    } else {
+      reported.add(id)
       result.collisions++
-      console.warn(`Transaction #${id}: its hashed bankRef already exists on another row — skipped (review by hand)`)
+      console.warn(`Transaction #${id}: its (or its paired leg's) hashed bankRef already exists on another row — skipped (review by hand)`)
+    }
+  }
+  const ctx = { delegate, runTx }
+  const write = (units: Pending[][]) => runTx(units.flat().map((p) => delegate.updateMany(guardedWrite(p.row, p.next))))
+  /** Tally one committed write's per-row counts; rows that matched nothing are re-read and retried alone. */
+  const settle = async (members: Pending[], results: unknown[]) => {
+    for (let i = 0; i < members.length; i++) {
+      if (countOf(results[i]) === 1) result.changed++
+      else tally(await writeOne(members[i].row, ctx), members[i].row.id)
     }
   }
   let lastId = 0
@@ -146,7 +215,7 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
     const rows = await delegate.findMany({
       where: { id: { gt: lastId }, OR: CANDIDATE_PREFIXES.map((p) => ({ bankRef: { startsWith: p } })) },
       orderBy: { id: "asc" },
-      take: BATCH,
+      take: batchSize,
       select: { id: true, bankRef: true },
     })
     if (rows.length === 0) break
@@ -158,19 +227,27 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
     if (!apply) {
       result.changed += pending.length
     } else if (pending.length > 0) {
+      const units = await pairUnits(pending, delegate)
       let results: unknown[] | null
       try {
-        results = ((await runTx(pending.map((p) => delegate.updateMany(guardedWrite(p.row, p.next))))) as unknown[]) ?? []
+        results = ((await write(units)) as unknown[]) ?? []
       } catch (e) {
         if (!isUniqueViolation(e)) throw e
-        results = null // the batch rolled back — write row by row to isolate the collision
+        results = null // the batch rolled back — write unit by unit to isolate the collision
       }
-      for (let i = 0; i < pending.length; i++) {
-        if (results && countOf(results[i]) === 1) result.changed++
-        else tally(await writeOne(pending[i].row, { delegate, runTx }), pending[i].row.id)
+      if (results) await settle(units.flat(), results)
+      else {
+        for (const unit of units) {
+          try {
+            await settle(unit, ((await write([unit])) as unknown[]) ?? [])
+          } catch (e) {
+            if (!isUniqueViolation(e)) throw e
+            for (const p of unit) tally("collision", p.row.id)
+          }
+        }
       }
     }
-    if (rows.length < BATCH) break
+    if (rows.length < batchSize) break
   }
   console.log(
     `Transaction.bankRef: ${result.changed} row(s) ${apply ? "hashed" : "would be hashed"}` +
