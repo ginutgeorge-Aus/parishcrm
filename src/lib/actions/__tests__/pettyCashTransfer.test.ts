@@ -166,7 +166,7 @@ describe("createTransfer — manual path duplicate guard", () => {
       legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
   })
 
-  // Regression: a second cash-out for an already-imported deposit double-counted petty cash.
+  // Regression (#471): a second cash-out for an already-imported deposit double-counted petty cash.
   it("rejects a manual transfer that would double-count an imported cash-out (same amount and day, paired deposit)", async () => {
     const tx = txMock({ id: 11 })
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
@@ -209,7 +209,10 @@ describe("createTransfer — manual path duplicate guard", () => {
     const tx = txMock(null)
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
-    expect(tx.transaction.create).toHaveBeenCalled()
+    expect(tx.transaction.create).toHaveBeenCalledTimes(1)
+    expect(tx.transaction.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ amount: "50.00", pettyCashTransferId: 3 })
+    )
   })
 })
 
