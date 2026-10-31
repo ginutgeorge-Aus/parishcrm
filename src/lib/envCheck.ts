@@ -278,9 +278,11 @@ export function collectEnvWarnings(): string[] {
     case "passthrough":
       warnings.push("CLIENT_IP_HEADER names a header some proxies pass through from the client unchanged — make sure your outermost proxy overwrites it, or clients can spoof their IP and dodge rate limits")
       break
+    case "custom":
+      warnings.push(`CLIENT_IP_HEADER "${ipHeader.name}" is not a known proxy header — check the name is spelled correctly, that your proxy sends it on every request, and that it overwrites any client-supplied value; if it is missing, requests fall back to the shared x-forwarded-for hop`)
+      break
     case "unset":
     case "cdn":
-    case "custom":
       break // nothing to flag
     default: {
       // Compile-time exhaustiveness: a new ClientIpHeaderKind must be handled above.

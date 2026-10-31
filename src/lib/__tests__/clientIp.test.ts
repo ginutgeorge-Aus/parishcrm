@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, getClientIp, resolveClientIp, getValidatedClientIp } from "@/lib/clientIp"
+import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, rateKeyFromRequest, resolveClientIp, auditIpFromRequest } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -34,10 +34,10 @@ describe("clientIpOrUndefined", () => {
   })
 })
 
-describe("getClientIp", () => {
+describe("rateKeyFromRequest", () => {
   it("keeps its rightmost/unknown behaviour", () => {
-    expect(getClientIp(new Request("http://x", { headers: { "x-forwarded-for": "a, 2.2.2.2" } }))).toBe("2.2.2.2")
-    expect(getClientIp(new Request("http://x"))).toBe("unknown")
+    expect(rateKeyFromRequest(new Request("http://x", { headers: { "x-forwarded-for": "a, 2.2.2.2" } }))).toBe("2.2.2.2")
+    expect(rateKeyFromRequest(new Request("http://x"))).toBe("unknown")
   })
 })
 
@@ -80,7 +80,7 @@ describe("CLIENT_IP_HEADER", () => {
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": " 203.0.113.7 " })
     expect(clientIpFromHeaders(headers)).toBe("203.0.113.7")
     expect(clientIpOrUndefined(headers)).toBe("203.0.113.7")
-    expect(getClientIp(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
+    expect(rateKeyFromRequest(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
   })
   it("takes the rightmost entry of a comma-separated value (client-sent entries come first)", () => {
     process.env.CLIENT_IP_HEADER = "true-client-ip"
@@ -361,14 +361,14 @@ describe("audit vs rate-limit resolvers disagree only on malformed entries", () 
     delete process.env.CLIENT_IP_HEADER
   })
   const req = (xff: string) => new Request("http://x.test/", { headers: { "x-forwarded-for": xff } })
-  it("getValidatedClientIp never returns a raw value; getClientIp keeps the raw bucket key", () => {
-    expect(getValidatedClientIp(req("garbage"))).toBeUndefined()
-    expect(getClientIp(req("garbage"))).toBe("unknown")
-    expect(getClientIp(req("999.1.1.1"))).toBe("unknown")
-    expect(getValidatedClientIp(req("6.6.6.6,"))).toBeUndefined()
-    expect(getValidatedClientIp(req("1.1.1.1, 203.0.113.9"))).toBe("203.0.113.9")
-    expect(getValidatedClientIp(new Request("http://x.test/"))).toBeUndefined()
-    expect(getClientIp(new Request("http://x.test/"))).toBe("unknown")
+  it("auditIpFromRequest never returns a raw value; rateKeyFromRequest keeps the raw bucket key", () => {
+    expect(auditIpFromRequest(req("garbage"))).toBeUndefined()
+    expect(rateKeyFromRequest(req("garbage"))).toBe("unknown")
+    expect(rateKeyFromRequest(req("999.1.1.1"))).toBe("unknown")
+    expect(auditIpFromRequest(req("6.6.6.6,"))).toBeUndefined()
+    expect(auditIpFromRequest(req("1.1.1.1, 203.0.113.9"))).toBe("203.0.113.9")
+    expect(auditIpFromRequest(new Request("http://x.test/"))).toBeUndefined()
+    expect(rateKeyFromRequest(new Request("http://x.test/"))).toBe("unknown")
   })
 })
 

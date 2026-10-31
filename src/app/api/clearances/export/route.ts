@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canManageClearances } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { escapeCsv } from "@/lib/csvUtils"
 import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     ]),
   ].map((line) => line.map(escapeCsv).join(",")).join("\n")
 
-  await logAudit(actorId(session), "CLEARANCE_EXPORTED", "Person", undefined, { rowCount: rows.length, filter }, getValidatedClientIp(req))
+  await logAudit(actorId(session), "CLEARANCE_EXPORTED", "Person", undefined, { rowCount: rows.length, filter }, auditIpFromRequest(req))
 
   const headers: Record<string, string> = {
     "Content-Type": "text/csv",

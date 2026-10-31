@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { canManageClearances } from "@/lib/roleGuard"
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
@@ -74,7 +74,7 @@ export async function GET(
     "Person",
     personId,
     { type: row.type, clearanceId },
-    getValidatedClientIp(req),
+    auditIpFromRequest(req),
   )
 
   return response

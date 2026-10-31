@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { canEdit } from "@/lib/roleGuard"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
-import { getClientIp } from "@/lib/clientIp"
+import { rateKeyFromRequest } from "@/lib/clientIp"
 import { featureNotFound } from "@/lib/featureFlags"
 
 // Lowercase URL param → Prisma enum. Anything else 404s (no enumeration of kinds).
@@ -20,7 +20,7 @@ export async function GET(
   // Unauthenticated (same public tier as register/waitlist) — throttle
   // before any DB work. Higher N than register/waitlist's 10/min since a
   // single page load can fan out to both banner + poster.
-  const ip = getClientIp(req)
+  const ip = rateKeyFromRequest(req)
   if (!rateLimit(`event-image:${ip}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }

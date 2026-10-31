@@ -79,8 +79,9 @@ values the app uses the rightmost, and it must be a valid IP.
   `x-original-forwarded-for`).
 - Known CDN/proxy headers (`cf-connecting-ip`, `fly-client-ip`,
   `fastly-client-ip`, `x-appengine-user-ip`,
-  `cloudfront-viewer-address`) and any other custom name are honoured without a boot warning; confirm
-  your proxy overwrites the header.
+  `cloudfront-viewer-address`) are honoured without a boot warning. Any other custom name is honoured
+  too, but with a boot-log warning (a typo'd or never-sent name silently falls back to the shared
+  `x-forwarded-for` hop); confirm the spelling and that your proxy overwrites the header.
 - Names some proxies pass through from the client unchanged (`x-real-ip`, `x-client-ip`, `client-ip`,
   `x-originating-ip`, `x-cluster-client-ip`, `true-client-ip`, which Cloudflare Free/Pro passes through, `x-envoy-external-address`, `x-azure-clientip`, `x-azure-socketip`) are honoured, with a boot-log warning so you confirm your
   proxy overwrites them.

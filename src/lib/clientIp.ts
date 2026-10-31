@@ -208,7 +208,7 @@ export function resolveClientIp(h: Pick<Headers, "get">): { ip: string | undefin
 
 /**
  * Rate-limit bucket key from a headers object (see `resolveClientIp`), "unknown" when none.
- * Every rate-limit caller must use this (or `getClientIp`) so malformed entries behave the same
+ * Every rate-limit caller must use this (or `rateKeyFromRequest`) so malformed entries behave the same
  * everywhere; `AuditLog.ip` uses `clientIpOrUndefined`.
  * @param h anything with `get`
  * @returns the bucket key (never empty)
@@ -219,12 +219,12 @@ export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
 
 /**
  * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`). Audit logs use
- * {@link getValidatedClientIp}. Typed against `Request` (the `NextRequest` supertype) so it accepts
+ * {@link auditIpFromRequest}. Typed against `Request` (the `NextRequest` supertype) so it accepts
  * both; it only reads `headers`.
  * @param req the request
  * @returns the bucket key (never empty)
  */
-export function getClientIp(req: Request): string {
+export function rateKeyFromRequest(req: Request): string {
   return clientIpFromHeaders(req.headers)
 }
 
@@ -234,6 +234,6 @@ export function getClientIp(req: Request): string {
  * @param req the request
  * @returns the validated IP, or undefined
  */
-export function getValidatedClientIp(req: Request): string | undefined {
+export function auditIpFromRequest(req: Request): string | undefined {
   return clientIpOrUndefined(req.headers)
 }
