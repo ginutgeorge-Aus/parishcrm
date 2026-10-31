@@ -20,7 +20,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 import { PUBLIC_FEATURE_OFF_MESSAGE } from "@/lib/features"
-import { clientIpFromHeaders } from "@/lib/clientIp"
+import { rateKeyFromHeaders } from "@/lib/clientIp"
 
 // Thrown inside the approval transaction when the atomic PENDING→APPROVED claim
 // matches 0 rows (a concurrent approval already won). Caught to return a clean
@@ -113,7 +113,7 @@ export async function submitFamilyUpdate(input: SubmitInput): Promise<ActionResu
 
   // Proxy-derived IP only (CLIENT_IP_HEADER, else rightmost x-forwarded-for); never client-supplied,
   // so a caller cannot choose its own rate-limit bucket. Keyed on "unknown" when no IP is available.
-  const ip = clientIpFromHeaders(await headers())
+  const ip = rateKeyFromHeaders(await headers())
 
   // 5 submits / IP / 10 min — generous for a human, throttles scripted abuse.
   if (!rateLimit(`familyUpdate:${ip}`, 5, 10 * 60_000)) return { error: "Too many requests" }

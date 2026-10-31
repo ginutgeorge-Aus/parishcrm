@@ -173,11 +173,11 @@ function configuredHeaderIp(h: Pick<Headers, "get">): string | undefined {
  * attacker-controlled). Only a well-formed, canonicalised IP is returned: a crafted/odd value
  * (`unknown`, `evil:80`, an empty trailing entry) yields undefined so it never reaches
  * `AuditLog.ip` or a validated-IP consumer. Rate limiters use the bucket key from
- * `resolveClientIp` / `clientIpFromHeaders`.
+ * `resolveClientIp` / `rateKeyFromHeaders`.
  * @param h anything with `get` (Server Components pass `await headers()`); null/undefined allowed
  * @returns the validated IP, or undefined
  */
-export function clientIpOrUndefined(h?: Pick<Headers, "get"> | null): string | undefined {
+export function auditIpFromHeaders(h?: Pick<Headers, "get"> | null): string | undefined {
   if (!h) return undefined
   return configuredHeaderIp(h) ?? normalizeIp(rightmostEntry(h, "x-forwarded-for"))
 }
@@ -206,30 +206,30 @@ function bucketFor(ip: string): string {
  * @returns the validated IP (or undefined) and the bucket key (never empty)
  */
 export function resolveClientIp(h: Pick<Headers, "get">): { ip: string | undefined; key: string } {
-  const ip = clientIpOrUndefined(h)
+  const ip = auditIpFromHeaders(h)
   return { ip, key: ip ? bucketFor(ip) : "unknown" }
 }
 
 /**
  * Rate-limit bucket key from a headers object (see `resolveClientIp`), "unknown" when none.
  * Every rate-limit caller must use this (or `rateKeyFromRequest`) so malformed entries behave the same
- * everywhere; `AuditLog.ip` uses `clientIpOrUndefined`.
+ * everywhere; `AuditLog.ip` uses `auditIpFromHeaders`.
  * @param h anything with `get`
  * @returns the bucket key (never empty)
  */
-export function clientIpFromHeaders(h: Pick<Headers, "get">): string {
+export function rateKeyFromHeaders(h: Pick<Headers, "get">): string {
   return resolveClientIp(h).key
 }
 
 /**
- * Client IP as a rate-limit bucket key (see `clientIpFromHeaders`). Audit logs use
+ * Client IP as a rate-limit bucket key (see `rateKeyFromHeaders`). Audit logs use
  * {@link auditIpFromRequest}. Typed against `Request` (the `NextRequest` supertype) so it accepts
  * both; it only reads `headers`.
  * @param req the request
  * @returns the bucket key (never empty)
  */
 export function rateKeyFromRequest(req: Request): string {
-  return clientIpFromHeaders(req.headers)
+  return rateKeyFromHeaders(req.headers)
 }
 
 /**
@@ -239,5 +239,5 @@ export function rateKeyFromRequest(req: Request): string {
  * @returns the validated IP, or undefined
  */
 export function auditIpFromRequest(req: Request): string | undefined {
-  return clientIpOrUndefined(req.headers)
+  return auditIpFromHeaders(req.headers)
 }

@@ -19,7 +19,7 @@ import { actorId } from "@/lib/actor"
 import { sendEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
-import { clientIpFromHeaders } from "@/lib/clientIp"
+import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { assertNotDemo, isDemoMode } from "@/lib/demoMode"
 import {
   MAX_PASSKEYS_PER_USER, consumeChallenge, createChallenge, getRelyingParty, normalisePasskeyName,
@@ -215,7 +215,7 @@ export async function startPasskeyLogin(): Promise<
   if (demo) return { error: "Passkeys are not available in the demo" }
   const rp = getRelyingParty()
   if (!rp) return UNAVAILABLE
-  const ip = clientIpFromHeaders(await headers()) // rate-limit bucket key
+  const ip = rateKeyFromHeaders(await headers()) // rate-limit bucket key
   if (
     process.env.E2E_ALLOW_TEST_OVERRIDES !== "true" &&
     !(await dbRateLimit(`passkey:login:ip:${ip}`, 10, 60_000))

@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { classifyClientIpHeader, clientIpFromHeaders, clientIpOrUndefined, rateKeyFromRequest, resolveClientIp, auditIpFromRequest } from "@/lib/clientIp"
+import { classifyClientIpHeader, rateKeyFromHeaders, auditIpFromHeaders, rateKeyFromRequest, resolveClientIp, auditIpFromRequest } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 
 jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
@@ -12,25 +12,25 @@ beforeEach(() => {
 
 const h = (xff?: string) => new Headers(xff === undefined ? {} : { "x-forwarded-for": xff })
 
-describe("clientIpOrUndefined", () => {
+describe("auditIpFromHeaders", () => {
   it("takes the rightmost proxy-appended entry", () => {
-    expect(clientIpOrUndefined(h("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9")
+    expect(auditIpFromHeaders(h("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9")
   })
   it("accepts IPv6", () => {
-    expect(clientIpOrUndefined(h("2001:db8::1"))).toBe("2001:db8::1")
-    expect(clientIpOrUndefined(h("::ffff:192.0.2.128"))).toBe("192.0.2.128")
+    expect(auditIpFromHeaders(h("2001:db8::1"))).toBe("2001:db8::1")
+    expect(auditIpFromHeaders(h("::ffff:192.0.2.128"))).toBe("192.0.2.128")
   })
   it("drops malformed values", () => {
-    expect(clientIpOrUndefined(h("1.2.3.4, not-an-ip"))).toBeUndefined()
-    expect(clientIpOrUndefined(h("1.2.3.4, "))).toBeUndefined()
-    expect(clientIpOrUndefined(h(","))).toBeUndefined()
-    expect(clientIpOrUndefined(h("999.999.999.999"))).toBeUndefined()
-    expect(clientIpOrUndefined(h(":"))).toBeUndefined()
-    expect(clientIpOrUndefined(h("1::2::3"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4, not-an-ip"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4, "))).toBeUndefined()
+    expect(auditIpFromHeaders(h(","))).toBeUndefined()
+    expect(auditIpFromHeaders(h("999.999.999.999"))).toBeUndefined()
+    expect(auditIpFromHeaders(h(":"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1::2::3"))).toBeUndefined()
   })
   it("returns undefined when absent", () => {
-    expect(clientIpOrUndefined(h())).toBeUndefined()
-    expect(clientIpOrUndefined(undefined)).toBeUndefined()
+    expect(auditIpFromHeaders(h())).toBeUndefined()
+    expect(auditIpFromHeaders(undefined)).toBeUndefined()
   })
 })
 
@@ -41,19 +41,19 @@ describe("rateKeyFromRequest", () => {
   })
 })
 
-describe("clientIpFromHeaders", () => {
+describe("rateKeyFromHeaders", () => {
   it("takes the rightmost x-forwarded-for entry", () => {
-    expect(clientIpFromHeaders(h("1.1.1.1, 2.2.2.2"))).toBe("2.2.2.2")
+    expect(rateKeyFromHeaders(h("1.1.1.1, 2.2.2.2"))).toBe("2.2.2.2")
   })
   it("falls back to unknown when absent or empty", () => {
-    expect(clientIpFromHeaders(h())).toBe("unknown")
-    expect(clientIpFromHeaders(h(","))).toBe("unknown")
+    expect(rateKeyFromHeaders(h())).toBe("unknown")
+    expect(rateKeyFromHeaders(h(","))).toBe("unknown")
   })
   it("an empty trailing entry is untrusted for both the audit IP and the rate-limit key", () => {
-    expect(clientIpFromHeaders(h("6.6.6.6,"))).toBe("unknown")
-    expect(clientIpFromHeaders(h("1.1.1.1,"))).toBe("unknown")
-    expect(clientIpOrUndefined(h("6.6.6.6,"))).toBeUndefined()
-    expect(clientIpOrUndefined(h("6.6.6.6, "))).toBeUndefined()
+    expect(rateKeyFromHeaders(h("6.6.6.6,"))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("1.1.1.1,"))).toBe("unknown")
+    expect(auditIpFromHeaders(h("6.6.6.6,"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("6.6.6.6, "))).toBeUndefined()
   })
 })
 
@@ -68,49 +68,49 @@ describe("CLIENT_IP_HEADER", () => {
   it("unset: ignores the header and keeps rightmost-XFF behaviour", () => {
     delete process.env.CLIENT_IP_HEADER
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "203.0.113.7" })
-    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
+    expect(rateKeyFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
   })
   it("blank env behaves as unset", () => {
     process.env.CLIENT_IP_HEADER = "   "
-    expect(clientIpFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("10.0.0.1")
+    expect(rateKeyFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("10.0.0.1")
   })
   it("set + valid IP header wins over XFF", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": " 203.0.113.7 " })
-    expect(clientIpFromHeaders(headers)).toBe("203.0.113.7")
-    expect(clientIpOrUndefined(headers)).toBe("203.0.113.7")
+    expect(rateKeyFromHeaders(headers)).toBe("203.0.113.7")
+    expect(auditIpFromHeaders(headers)).toBe("203.0.113.7")
     expect(rateKeyFromRequest(new Request("http://x", { headers: headers }))).toBe("203.0.113.7")
   })
   it("takes the rightmost entry of a comma-separated value (client-sent entries come first)", () => {
     process.env.CLIENT_IP_HEADER = "true-client-ip"
-    expect(clientIpFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "true-client-ip": "6.6.6.6, 203.0.113.7" }))).toBe("203.0.113.7")
+    expect(rateKeyFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "true-client-ip": "6.6.6.6, 203.0.113.7" }))).toBe("203.0.113.7")
   })
   it("set + missing header falls back to rightmost XFF", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" })
-    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
+    expect(rateKeyFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
   })
   it("set + invalid header falls back to rightmost XFF", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "cf-connecting-ip": "not-an-ip" })
-    expect(clientIpFromHeaders(headers)).toBe("10.0.0.1")
-    expect(clientIpOrUndefined(headers)).toBe("10.0.0.1")
+    expect(rateKeyFromHeaders(headers)).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers)).toBe("10.0.0.1")
   })
   it("set + nothing at all: unknown / undefined", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
-    expect(clientIpFromHeaders(hh({}))).toBe("unknown")
-    expect(clientIpOrUndefined(hh({}))).toBeUndefined()
+    expect(rateKeyFromHeaders(hh({}))).toBe("unknown")
+    expect(auditIpFromHeaders(hh({}))).toBeUndefined()
   })
   it("mixed-case env name matches the header", () => {
     process.env.CLIENT_IP_HEADER = " CF-Connecting-IP "
-    expect(clientIpFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("203.0.113.7")
+    expect(rateKeyFromHeaders(hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("203.0.113.7")
   })
   it("accepts IPv6", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const headers = hh({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "2001:db8::1" })
-    expect(clientIpOrUndefined(headers)).toBe("2001:db8::1")
+    expect(auditIpFromHeaders(headers)).toBe("2001:db8::1")
   })
 })
 
@@ -138,14 +138,14 @@ describe("CLIENT_IP_HEADER — normalisation", () => {
   ]
   it.each(cases)("%s -> %s", (input, expected) => {
     const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": input })
-    expect(clientIpOrUndefined(headers)).toBe(expected)
+    expect(auditIpFromHeaders(headers)).toBe(expected)
   })
   it("rejects a non-IP with a port-like suffix (falls back to XFF)", () => {
-    expect(clientIpOrUndefined(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "evil:80" }))).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "evil:80" }))).toBe("10.0.0.1")
   })
   it("audit XFF fallback is normalised too", () => {
     delete process.env.CLIENT_IP_HEADER
-    expect(clientIpOrUndefined(h("::ffff:1.2.3.4"))).toBe("1.2.3.4")
+    expect(auditIpFromHeaders(h("::ffff:1.2.3.4"))).toBe("1.2.3.4")
   })
 })
 
@@ -158,21 +158,21 @@ describe("CLIENT_IP_HEADER — honoured without x-forwarded-for", () => {
   it("honours the configured header even when the request has no x-forwarded-for", () => {
     process.env.CLIENT_IP_HEADER = "x-real-ip"
     const headers = new Headers({ "x-real-ip": "203.0.113.9" })
-    expect(clientIpFromHeaders(headers)).toBe("203.0.113.9")
-    expect(clientIpOrUndefined(headers)).toBe("203.0.113.9")
+    expect(rateKeyFromHeaders(headers)).toBe("203.0.113.9")
+    expect(auditIpFromHeaders(headers)).toBe("203.0.113.9")
     expect(logger.warn).not.toHaveBeenCalled()
   })
   it("does not warn when neither header is present (health check)", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
-      expect(mod.clientIpFromHeaders(new Headers())).toBe("unknown")
+      expect(mod.rateKeyFromHeaders(new Headers())).toBe("unknown")
     })
     expect(logger.warn).not.toHaveBeenCalled()
   })
   it("honours the header when x-forwarded-for is present", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
-    expect(clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("203.0.113.7")
+    expect(rateKeyFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.7" }))).toBe("203.0.113.7")
   })
 })
 
@@ -191,14 +191,14 @@ describe("CLIENT_IP_HEADER — rate-limited missing-header warning", () => {
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
       const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage-value" })
-      expect(mod.clientIpFromHeaders(headers)).toBe("10.0.0.1")
-      expect(mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.2" }))).toBe("10.0.0.2")
+      expect(mod.rateKeyFromHeaders(headers)).toBe("10.0.0.1")
+      expect(mod.rateKeyFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.2" }))).toBe("10.0.0.2")
       expect(warn).toHaveBeenCalledTimes(1)
       now += 9 * 60_000
-      mod.clientIpFromHeaders(headers)
+      mod.rateKeyFromHeaders(headers)
       expect(warn).toHaveBeenCalledTimes(1)
       now += 2 * 60_000
-      mod.clientIpFromHeaders(headers)
+      mod.rateKeyFromHeaders(headers)
       expect(warn).toHaveBeenCalledTimes(2)
     })
     const msg = String(warn.mock.calls[0][0])
@@ -218,15 +218,15 @@ describe("CLIENT_IP_HEADER — ignored names", () => {
 
   it("an illegal header name does not throw and falls back to rightmost XFF", () => {
     process.env.CLIENT_IP_HEADER = "CF Connecting IP"
-    expect(() => clientIpFromHeaders(headers())).not.toThrow()
-    expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
-    expect(clientIpOrUndefined(headers())).toBe("10.0.0.1")
+    expect(() => rateKeyFromHeaders(headers())).not.toThrow()
+    expect(rateKeyFromHeaders(headers())).toBe("10.0.0.1")
+    expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
   })
   it("x-forwarded-for / forwarded are never honoured (leftmost entry is spoofable)", () => {
     for (const name of ["x-forwarded-for", "X-Forwarded-For", "forwarded", "x-forwarded", "forwarded-for", "x-forwarded-client-ip", "x-original-forwarded-for"]) {
       process.env.CLIENT_IP_HEADER = name
-      expect(clientIpFromHeaders(headers())).toBe("10.0.0.1")
-      expect(clientIpOrUndefined(headers())).toBe("10.0.0.1")
+      expect(rateKeyFromHeaders(headers())).toBe("10.0.0.1")
+      expect(auditIpFromHeaders(headers())).toBe("10.0.0.1")
     }
   })
 })
@@ -237,59 +237,59 @@ describe("XFF normalisation (default path)", () => {
   })
   it("normalises ip:port, bracketed and ::ffff: forms to one bucket key", () => {
     for (const v of ["1.2.3.4", "1.2.3.4:5678", "::ffff:1.2.3.4", "[::ffff:1.2.3.4]:99", "::ffff:102:304"]) {
-      expect(clientIpFromHeaders(h(v))).toBe("1.2.3.4")
+      expect(rateKeyFromHeaders(h(v))).toBe("1.2.3.4")
     }
   })
   it("keys on the real parsed IP of the rightmost XFF entry (a trailing empty entry is untrusted)", () => {
-    expect(clientIpFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("unknown")
-    expect(clientIpFromHeaders(h("203.0.113.9:8080"))).toBe("203.0.113.9")
-    expect(clientIpOrUndefined(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
+    expect(rateKeyFromHeaders(h("1.1.1.1, 203.0.113.5,"))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("203.0.113.9:8080"))).toBe("203.0.113.9")
+    expect(auditIpFromHeaders(h("[2001:db8::1]:443"))).toBe("2001:db8::1")
   })
   it("non-IP-shaped rightmost entries collapse into the shared unknown bucket", () => {
     for (const v of ["1:1", "1:2", "a:b", "1.2.3.4.5", "dead:beef", "999.1.1.1", "a1", "a2", "evil", "evil:80", "garbage", "unknown", "x".repeat(8000)]) {
-      expect(clientIpFromHeaders(h(v))).toBe("unknown")
+      expect(rateKeyFromHeaders(h(v))).toBe("unknown")
     }
-    expect(clientIpOrUndefined(h("garbage"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("garbage"))).toBeUndefined()
   })
   it("a non-IP configured CLIENT_IP_HEADER value is never used as a key", () => {
     process.env.CLIENT_IP_HEADER = "cf-connecting-ip"
     const hh = new Headers({ "x-forwarded-for": "9.9.9.9", "cf-connecting-ip": "evil:80" })
-    expect(clientIpFromHeaders(hh)).toBe("9.9.9.9")
+    expect(rateKeyFromHeaders(hh)).toBe("9.9.9.9")
     delete process.env.CLIENT_IP_HEADER
   })
   it("canonicalises equivalent IPv6 spellings to one key", () => {
     for (const v of ["2001:DB8:0:0:0:0:0:1", "2001:0db8::0001", "[2001:db8::1]:8080", "2001:db8::1%eth0"]) {
-      expect(clientIpOrUndefined(h(v))).toBe("2001:db8::1")
+      expect(auditIpFromHeaders(h(v))).toBe("2001:db8::1")
     }
-    expect(clientIpFromHeaders(h("0:0:0:0:0:ffff:1.2.3.4"))).toBe("1.2.3.4")
-    expect(clientIpFromHeaders(h("0:0:0:0:0:ffff:102:304"))).toBe("1.2.3.4")
+    expect(rateKeyFromHeaders(h("0:0:0:0:0:ffff:1.2.3.4"))).toBe("1.2.3.4")
+    expect(rateKeyFromHeaders(h("0:0:0:0:0:ffff:102:304"))).toBe("1.2.3.4")
   })
   it("rejects a zone id on an IPv4 address", () => {
-    expect(clientIpOrUndefined(h("1.2.3.4%junk"))).toBeUndefined()
-    expect(clientIpOrUndefined(h("1.2.3.4%eth0"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4%junk"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4%eth0"))).toBeUndefined()
   })
   it("strips an IPv6 zone id", () => {
-    expect(clientIpOrUndefined(h("fe80::1%eth0"))).toBe("fe80::1")
-    expect(clientIpOrUndefined(h("fe80::1%eth0"))).toBe("fe80::1")
+    expect(auditIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
+    expect(auditIpFromHeaders(h("fe80::1%eth0"))).toBe("fe80::1")
   })
   it("unwraps hex IPv4-mapped IPv6 for the audit IP too", () => {
-    expect(clientIpOrUndefined(h("::ffff:102:304"))).toBe("1.2.3.4")
+    expect(auditIpFromHeaders(h("::ffff:102:304"))).toBe("1.2.3.4")
   })
 })
 
-describe("clientIpOrUndefined", () => {
+describe("auditIpFromHeaders", () => {
   beforeEach(() => {
     delete process.env.CLIENT_IP_HEADER
   })
   it("returns undefined when there is no IP and the value otherwise", () => {
-    expect(clientIpOrUndefined(h())).toBeUndefined()
-    expect(clientIpOrUndefined(h(","))).toBeUndefined()
-    expect(clientIpOrUndefined(h("1.2.3.4"))).toBe("1.2.3.4")
+    expect(auditIpFromHeaders(h())).toBeUndefined()
+    expect(auditIpFromHeaders(h(","))).toBeUndefined()
+    expect(auditIpFromHeaders(h("1.2.3.4"))).toBe("1.2.3.4")
   })
   it("non-IP values (unknown, evil:80) are rejected, never passed through", () => {
-    expect(clientIpOrUndefined(h("unknown"))).toBeUndefined()
-    expect(clientIpOrUndefined(h("evil:80"))).toBeUndefined()
-    expect(clientIpOrUndefined(null)).toBeUndefined()
+    expect(auditIpFromHeaders(h("unknown"))).toBeUndefined()
+    expect(auditIpFromHeaders(h("evil:80"))).toBeUndefined()
+    expect(auditIpFromHeaders(null)).toBeUndefined()
   })
 })
 
@@ -331,7 +331,7 @@ describe("CLIENT_IP_HEADER=cloudfront-viewer-address (ip:port)", () => {
   ]
   it.each(cases)("%s -> %s", (input, expected) => {
     const headers = new Headers({ "x-forwarded-for": "10.0.0.1", "cloudfront-viewer-address": input })
-    expect(clientIpOrUndefined(headers)).toBe(expected)
+    expect(auditIpFromHeaders(headers)).toBe(expected)
   })
 })
 
@@ -348,8 +348,8 @@ describe("CLIENT_IP_HEADER — warning throttle", () => {
     jest.spyOn(Date, "now").mockImplementation(() => 1_000_000)
     jest.isolateModules(() => {
       const mod = require("@/lib/clientIp") as typeof import("@/lib/clientIp")
-      mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1" }))
-      mod.clientIpFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage" }))
+      mod.rateKeyFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1" }))
+      mod.rateKeyFromHeaders(new Headers({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "garbage" }))
       expect(warn).toHaveBeenCalledTimes(1)
     })
     expect(String(warn.mock.calls[0][0])).not.toContain("garbage")
@@ -377,13 +377,13 @@ describe("rate-limit key edge cases", () => {
     delete process.env.CLIENT_IP_HEADER
   })
   it("empty trailing XFF entries share the unknown bucket, matching the audit IP", () => {
-    expect(clientIpFromHeaders(h("203.0.113.5,"))).toBe("unknown")
-    expect(clientIpFromHeaders(h("999.1.1.1, ,"))).toBe("unknown")
-    expect(clientIpFromHeaders(h(","))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("203.0.113.5,"))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("999.1.1.1, ,"))).toBe("unknown")
+    expect(rateKeyFromHeaders(h(","))).toBe("unknown")
   })
   it("a literal 'unknown' entry is no IP and keys on the shared bucket", () => {
-    expect(clientIpOrUndefined(h("unknown"))).toBeUndefined()
-    expect(clientIpFromHeaders(h("unknown"))).toBe("unknown")
+    expect(auditIpFromHeaders(h("unknown"))).toBeUndefined()
+    expect(rateKeyFromHeaders(h("unknown"))).toBe("unknown")
   })
   it("IPv6 keys on its /64 prefix; IPv4 is unchanged; the audit ip stays the full address", () => {
     const a = resolveClientIp(h("2001:db8:1:2::1"))
@@ -397,11 +397,11 @@ describe("rate-limit key edge cases", () => {
     expect(resolveClientIp(h("203.0.113.5")).key).toBe("203.0.113.5")
     expect(a.ip).toBe("2001:db8:1:2::1")
     expect(b.ip).toBe("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
-    expect(clientIpFromHeaders(h("2001:db8:1:2::9"))).toBe(a.key)
+    expect(rateKeyFromHeaders(h("2001:db8:1:2::9"))).toBe(a.key)
   })
   it("an oversized junk entry collapses into the unknown bucket", () => {
-    expect(clientIpFromHeaders(h("1.".repeat(4000)))).toBe("unknown")
-    expect(clientIpFromHeaders(h("3.".repeat(32)))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("1.".repeat(4000)))).toBe("unknown")
+    expect(rateKeyFromHeaders(h("3.".repeat(32)))).toBe("unknown")
   })
 })
 
