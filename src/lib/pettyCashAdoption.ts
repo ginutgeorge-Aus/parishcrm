@@ -1,11 +1,7 @@
 import { toCents } from "@/lib/formatting"
 import { utcYmd } from "@/lib/dates"
-import { XFER_OUT_PREFIX } from "@/lib/xferRefs"
-
-/** Inverse of {@link xferOutRef}: the deposit bank ref a leg's `XFER_OUT_` bank ref points at. */
-export function depositRefOfLeg(legBankRef: string): string {
-  return legBankRef.slice(XFER_OUT_PREFIX.length)
-}
+// Re-exported so existing importers keep working; the pairing convention lives in xferRefs.ts.
+export { depositRefOfLeg } from "@/lib/xferRefs"
 
 /** Why an imported deposit + its XFER_OUT leg cannot back a petty cash transfer. */
 export type AdoptionProblem = "unavailable" | "reconciled" | "legMismatch" | "depositMismatch" | "legDate"

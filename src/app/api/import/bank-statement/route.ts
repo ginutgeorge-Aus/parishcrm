@@ -10,7 +10,7 @@ import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
 import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
 import { makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
 import { fingerprintAccountNumber, sealAccountNumber } from "@/lib/bankAccountToken"
-import { hashBankRef, hashContentKey } from "@/lib/bankRefHash"
+import { createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -184,26 +184,28 @@ function validateParsedStatement(result: ParseResult): RouteFailure | { ok: true
   return { ok: true, clientErrors }
 }
 
-// Exact-ref matches (same-format re-import) plus a cross-format content-key match
-// over the import's date window: a transaction imported once as a Statement and
-// again as a Transaction Report has different exact bankRefs but the same content
-// key, so it must still be flagged as a duplicate for the review UI to auto-skip
-//. Content-key matching is only against pre-existing DB rows, so two
-// genuinely-identical lines in this upload are not falsely flagged against each
-// other.
 /**
- * Parsed rows that are already in the DB, by exact bankRef or cross-format
- * content key. Dual-format (#459): each row is looked up both as its legacy
- * full-number ref/key and as the hashed at-rest form, so rows stored before
- * and after the `hash-bankref-account` backfill both dedup.
+ * Parsed rows that are already in the DB: an exact bankRef match (same-format
+ * re-import) or a cross-format content-key match over the import's date window
+ * — a line imported once as a Statement and again as a Transaction Report has
+ * different exact bankRefs but the same content key, so the review UI must
+ * still auto-skip it. Content keys are matched only against pre-existing DB
+ * rows, so two genuinely-identical lines in this upload are not falsely
+ * flagged against each other. Dual-format (#459, see `dedupForms`): each row is
+ * looked up as its hashed at-rest ref/key and its legacy full-number one, so
+ * rows stored before and after the `hash-bankref-account` backfill both dedup.
  *
  * @param rows - parsed rows (full-number refs)
  * @param accountNumber - the statement's account number ("" when none)
  * @returns the (full-number) bankRefs of the duplicate rows
  */
 async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): Promise<string[]> {
-  const hashed = rows.map((r) => ({ ref: hashBankRef(r.bankRef, accountNumber), key: hashContentKey(r.dedupKey, accountNumber) }))
-  const bankRefs = [...new Set([...rows.map((r) => r.bankRef), ...hashed.map((h) => h.ref)])]
+  const hasher = createBankRefHasher()
+  const forms = rows.map((r) => ({
+    refs: dedupForms(r.bankRef, hasher.ref(r.bankRef, accountNumber)),
+    keys: dedupForms(r.dedupKey, hasher.key(r.dedupKey, accountNumber)),
+  }))
+  const bankRefs = [...new Set(forms.flatMap((f) => f.refs))]
   const importTimes = rows.map((r) => new Date(r.date).getTime()).filter((n) => !Number.isNaN(n))
   const DAY_MS = 24 * 60 * 60 * 1000
   const existing = await prisma.transaction.findMany({
@@ -229,13 +231,7 @@ async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): 
     if (key) existingContentKeys.add(key)
   }
   return rows
-    .filter(
-      (r, i) =>
-        existingRefs.has(r.bankRef) ||
-        existingRefs.has(hashed[i].ref) ||
-        existingContentKeys.has(r.dedupKey) ||
-        existingContentKeys.has(hashed[i].key)
-    )
+    .filter((_, i) => forms[i].refs.some((ref) => existingRefs.has(ref)) || forms[i].keys.some((key) => existingContentKeys.has(key)))
     .map((r) => r.bankRef)
 }
 

@@ -48,9 +48,12 @@ Migration status:
    Idempotent and dry-run by default; each write is conditional on the value it read (same pattern
    as `rotate-encryption-key`), so a concurrent change is re-read and retried, never overwritten. A
    row whose hashed form already exists on another row is skipped and reported (review by hand).
-   Refs are never printed, only row ids. Needs the app's `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`.
-   A deposit and its `XFER_OUT_` paired leg are always rewritten in one transaction (even across
-   batches), so a collision or interrupted run never leaves the pair half-hashed. Run in a quiet window:
+   Refs are never printed (only row ids; logged errors are scrubbed of refs). Needs the app's
+   `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`: `--apply` refuses to write unless an existing v1-encrypted
+   `Transaction.description` decrypts with the run's key, because hashing with the wrong key is
+   irreversible. The dry run also reports rows whose hashed form already exists. A deposit and its
+   `XFER_OUT_` paired leg are always rewritten in one transaction (even across batches, and on
+   retry after a concurrent change), so the pair is never left half-hashed. Run in a quiet window:
 
    ```bash
    npx tsx scripts/hash-bankref-account.ts               # dry run: counts legacy rows
@@ -59,7 +62,9 @@ Migration status:
    ```
 
    Exits non-zero if any row was skipped. A release with this change needs a human-reviewed prod
-   bump so the backfill is run right after deploy.
+   bump so the backfill is run right after deploy. After it has run, **`ENCRYPTION_KEY_V1` can never
+   be retired**: unlike `emailHash`, the hashed refs cannot be rebuilt from a new root (the account
+   number is gone).
 3. **Drop the legacy branch** of the dual matcher in a later release, once the dry run reports
    zero legacy rows in every deployment.
 

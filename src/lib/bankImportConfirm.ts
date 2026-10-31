@@ -11,7 +11,7 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
-import { hashStoredBankRef } from "@/lib/bankRefHash"
+import { createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Discriminated result the confirm route maps to a NextResponse. Transport
@@ -116,16 +116,16 @@ function restoreMaskedBankRefs(rows: ConfirmRow[], accountToken: string | undefi
  * @returns ref → [ref, legacy ref] (just [ref] when hashing changed nothing)
  */
 function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
+  const hasher = createBankRefHasher()
   const legacyOf = new Map<string, string>()
   for (const r of rows) {
-    const hashed = hashStoredBankRef(r.bankRef)
+    const hashed = hasher.stored(r.bankRef)
     if (hashed !== r.bankRef) legacyOf.set(hashed, r.bankRef)
     r.bankRef = hashed
   }
-  return (ref) => {
-    const legacy = legacyOf.get(ref)
-    return legacy === undefined ? [ref] : [ref, legacy]
-  }
+  // TODO(#459) lives in dedupForms: once the backfill has run everywhere this
+  // collapses to `[ref]`, together with the parse route's lookup.
+  return (ref) => dedupForms(legacyOf.get(ref) ?? ref, ref)
 }
 
 /**

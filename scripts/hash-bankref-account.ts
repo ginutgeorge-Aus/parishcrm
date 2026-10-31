@@ -6,8 +6,9 @@ if (!process.env.DATABASE_URL) {
 
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { hashStoredBankRef } from "../src/lib/bankRefHash"
-import { XFER_OUT_PREFIX } from "../src/lib/xferRefs"
+import { createBankRefHasher } from "../src/lib/bankRefHash"
+import { decrypt, keyIdOf } from "../src/lib/cryptoCore"
+import { XFER_OUT_PREFIX, depositRefOfLeg, xferOutRef } from "../src/lib/xferRefs"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
 // One-off backfill for #459: imported Transaction.bankRef values (ANZ_/ANZTR_/
@@ -22,34 +23,52 @@ import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpe
 //
 // Safe to run with the app live and to re-run:
 //   - idempotent: hashed, QIF, petty-cash (PC_*) and manual refs are skipped;
+//   - refuses to --apply unless an existing v1-encrypted Transaction.description
+//     decrypts with this run's key: hashing with the wrong ENCRYPTION_KEY_V1 is
+//     irreversible (the number is gone) and would break every later dedup;
 //   - every write is conditional on the bankRef that was read (like
-//     rotate-encryption-key), so a row changed in between is re-read and
-//     retried instead of overwritten;
+//     rotate-encryption-key) and each write unit commits all-or-nothing, so a
+//     row changed in between is re-read and retried instead of overwritten;
 //   - a unique collision (a hashed twin of the same line already stored) is
 //     skipped and reported, never merged — review it by hand;
 //   - a deposit and its `XFER_OUT_` paired leg are always written in the same
 //     transaction (even across batches), so a collision or crash never leaves
 //     one hashed and the other legacy — `xferOutRef(deposit.bankRef)` lookups
 //     (transfer picker, adoption guards) would silently stop pairing them;
-//   - refs are never printed (they hold the account number) — only row ids.
-// Needs the same ENCRYPTION_KEY(_V1) as the app: the hash is keyed.
+//   - refs are never printed (they hold the account number) — only row ids,
+//     and error text is scrubbed of refs before it is logged;
+//   - the dry run also reports rows whose hashed form already exists.
+// Needs the same ENCRYPTION_KEY(_V1) as the app: the hash is keyed. Once this
+// has run, ENCRYPTION_KEY_V1 can never be retired — the stored hashes cannot
+// be rebuilt from a new root (unlike emailHash, the plaintext is gone).
 
 const { apply: APPLY, confirmed: CONFIRMED, batchSize: BATCH } = parseScriptArgs()
 
 // Ref prefixes that can carry an account number (incl. the paired cash-out leg).
 const SENSITIVE_PREFIXES = ["ANZ_", "ANZTR_", "OFX_"]
-const CANDIDATE_PREFIXES = [...SENSITIVE_PREFIXES, ...SENSITIVE_PREFIXES.map((p) => `XFER_OUT_${p}`)]
-// Times a row that changed between read and write is re-read and retried.
+const CANDIDATE_PREFIXES = [...SENSITIVE_PREFIXES, ...SENSITIVE_PREFIXES.map((p) => `${XFER_OUT_PREFIX}${p}`)]
+// Times a write unit whose rows changed between read and write is re-read and retried.
 const MAX_CONFLICT_RETRIES = 3
+// Oldest encrypted descriptions scanned for a v1 key-check canary.
+const CANARY_SCAN = 100
 
 type Row = { id: number; bankRef: string | null }
-type Delegate = {
-  findMany(args: unknown): Promise<Row[]>
-  updateMany(args: unknown): unknown
-}
-type HashOpts = { delegate?: Delegate; runTx?: (ops: unknown[]) => Promise<unknown>; apply?: boolean; batchSize?: number }
+type Delegate = { findMany(args: unknown): Promise<unknown[]> }
+type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string } }
+/** Commits every write or none; throws StaleWriteError when a guarded write matched no row. */
+type RunWrites = (writes: Write[]) => Promise<void>
+type HashOpts = { delegate?: Delegate; runWrites?: RunWrites; apply?: boolean; batchSize?: number }
 type Pending = { row: Row; next: string }
 type HashResult = { changed: number; conflicts: number; collisions: number }
+type Outcome = "written" | "resolved" | "collision" | "conflict"
+
+/** A guarded write matched no row: the row changed (or vanished) since it was read. */
+export class StaleWriteError extends Error {
+  /** @param id - the row whose guarded write matched nothing */
+  constructor(readonly id: number) {
+    super(`Transaction #${id} changed since it was read`)
+  }
+}
 
 let prismaClient: PrismaClient | undefined
 /** Lazily-built Prisma client, so importing this module in tests never connects. */
@@ -59,6 +78,24 @@ function prisma(): PrismaClient {
 }
 
 /**
+ * Production RunWrites: one interactive transaction that rolls back unless
+ * every guarded write hits exactly one row.
+ *
+ * @param writes - guarded updateMany args
+ */
+async function prismaRunWrites(writes: Write[]): Promise<void> {
+  await prisma().$transaction(async (tx) => {
+    for (const w of writes) {
+      const { count } = await tx.transaction.updateMany(w)
+      if (count !== 1) throw new StaleWriteError(w.where.id)
+    }
+  })
+}
+
+// One hasher per run: each account's keyed digest is derived once, not per row.
+const hasher = createBankRefHasher()
+
+/**
  * The hashed bankRef a stored row should hold, or null when it needs no change.
  *
  * @param bankRef - the stored value (null for unreferenced rows)
@@ -66,7 +103,7 @@ function prisma(): PrismaClient {
  */
 export function planBankRefRewrite(bankRef: string | null): string | null {
   if (!bankRef) return null
-  const hashed = hashStoredBankRef(bankRef)
+  const hashed = hasher.stored(bankRef)
   return hashed === bankRef ? null : hashed
 }
 
@@ -74,18 +111,11 @@ export function planBankRefRewrite(bankRef: string | null): string | null {
  * Conditional write: only matches while the row still holds the value that was
  * read, so a concurrent change is never overwritten.
  *
- * @param row - the row as read
- * @param next - its hashed ref
+ * @param p - the row as read and its hashed ref
  * @returns updateMany args
  */
-function guardedWrite(row: Row, next: string) {
-  return { where: { id: row.id, bankRef: row.bankRef }, data: { bankRef: next } }
-}
-
-/** Affected-row count of one updateMany result (0 for an unexpected shape). */
-function countOf(res: unknown): number {
-  const count = (res as { count?: unknown } | undefined)?.count
-  return typeof count === "number" ? count : 0
+function guardedWrite(p: Pending): Write {
+  return { where: { id: p.row.id, bankRef: p.row.bankRef }, data: { bankRef: p.next } }
 }
 
 /** True for a Prisma unique-constraint violation (P2002). */
@@ -95,31 +125,53 @@ function isUniqueViolation(e: unknown): boolean {
   return msg.includes("Unique constraint")
 }
 
+// A bankRef-shaped token (optionally an XFER_OUT_ leg) — scrubbed from logged errors.
+const REF_IN_TEXT_RE = /(?:XFER_OUT_)?(?:ANZ|ANZTR|OFX|QIF)_[^\s'"`,)}\]]*/g
+
 /**
- * Write one row on its own, re-reading and retrying when it changed since it
- * was read.
+ * Loggable text for an unexpected error with every bankRef scrubbed: a Prisma
+ * error can echo a guarded write's `where`, i.e. the legacy ref holding the
+ * account number.
  *
- * @returns "written", "resolved" (gone, or no longer legacy), "collision" (its
- *   hashed form already exists on another row) or "conflict" (kept changing)
+ * @param e - the thrown value
+ * @returns `<code or name>: <scrubbed message>`
  */
-async function writeOne(
-  row: Row,
-  ctx: { delegate: Delegate; runTx: (ops: unknown[]) => Promise<unknown> },
-): Promise<"written" | "resolved" | "collision" | "conflict"> {
-  let current: Row | undefined = row
-  for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
-    if (attempt > 0) [current] = await ctx.delegate.findMany({ where: { id: row.id }, take: 1, select: { id: true, bankRef: true } })
-    const next = current ? planBankRefRewrite(current.bankRef) : null
-    if (!current || next === null) return "resolved"
-    try {
-      const res = (await ctx.runTx([ctx.delegate.updateMany(guardedWrite(current, next))])) as unknown[] | undefined
-      if (countOf(res?.[0]) === 1) return "written"
-    } catch (e) {
-      if (isUniqueViolation(e)) return "collision"
-      throw e
-    }
+export function safeErrorText(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code
+  const label = typeof code === "string" ? code : e instanceof Error ? e.name : "Error"
+  const msg = e instanceof Error ? e.message : String(e)
+  return `${label}: ${msg.replace(REF_IN_TEXT_RE, "<bankRef>")}`
+}
+
+/**
+ * Refuse to write unless this run's v1 key is the database's: a v1-encrypted
+ * Transaction.description (oldest first) must decrypt. The bankRef hash is
+ * keyed on the v1-derived blind-index key, and a wrong key would irreversibly
+ * store hashes the app can never reproduce.
+ *
+ * @param delegate - Transaction delegate
+ * @throws when no v1 canary exists or it fails to decrypt
+ */
+export async function assertV1KeyMatches(delegate: Delegate): Promise<void> {
+  const rows = (await delegate.findMany({
+    where: { description: { startsWith: "enc:" } },
+    orderBy: { id: "asc" },
+    take: CANARY_SCAN,
+    select: { id: true, description: true },
+  })) as { id: number; description: string | null }[]
+  const canary = rows.find((r) => r.description !== null && keyIdOf(r.description) === "v1")
+  if (!canary) {
+    throw new Error(
+      "Key check failed: no v1-encrypted Transaction.description found to verify ENCRYPTION_KEY(_V1) against — refusing to --apply.",
+    )
   }
-  return "conflict"
+  try {
+    decrypt(canary.description!)
+  } catch {
+    throw new Error(
+      `Key check failed: Transaction #${canary.id} does not decrypt with this run's ENCRYPTION_KEY(_V1) — not the app's key. Refusing to --apply.`,
+    )
+  }
 }
 
 /**
@@ -130,7 +182,7 @@ async function writeOne(
  * @returns the ref its paired row would hold
  */
 function companionRef(ref: string): string {
-  return ref.startsWith(XFER_OUT_PREFIX) ? ref.slice(XFER_OUT_PREFIX.length) : XFER_OUT_PREFIX + ref
+  return ref.startsWith(XFER_OUT_PREFIX) ? depositRefOfLeg(ref) : xferOutRef(ref)
 }
 
 /**
@@ -146,7 +198,7 @@ async function pairUnits(pending: Pending[], delegate: Delegate): Promise<Pendin
   const inBatch = new Map(pending.map((p) => [p.row.bankRef!, p]))
   const missing = [...new Set(pending.map((p) => companionRef(p.row.bankRef!)))].filter((r) => !inBatch.has(r))
   const outside = missing.length
-    ? await delegate.findMany({ where: { bankRef: { in: missing } }, select: { id: true, bankRef: true } })
+    ? ((await delegate.findMany({ where: { bankRef: { in: missing } }, select: { id: true, bankRef: true } })) as Row[])
     : []
   const outsideByRef = new Map(
     outside.flatMap((row) => {
@@ -170,54 +222,82 @@ async function pairUnits(pending: Pending[], delegate: Delegate): Promise<Pendin
 }
 
 /**
+ * Write one unit (a row, or a deposit + its leg) all-or-nothing. When a row in
+ * it changed since it was read, the whole unit is re-read and retried, so a
+ * pair is never left half-hashed.
+ *
+ * @param unit - the unit as read
+ * @param ctx - delegate and runWrites
+ * @returns the outcome — "written", "resolved" (nothing left to write),
+ *   "collision" (a hashed form already exists) or "conflict" (kept changing) —
+ *   and how many rows were written
+ */
+async function writeUnit(
+  unit: Pending[],
+  ctx: { delegate: Delegate; runWrites: RunWrites },
+): Promise<{ outcome: Outcome; written: number }> {
+  let current = unit
+  for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const ids = unit.map((p) => p.row.id)
+      const fresh = (await ctx.delegate.findMany({ where: { id: { in: ids } }, select: { id: true, bankRef: true } })) as Row[]
+      current = fresh.flatMap((row) => {
+        const next = planBankRefRewrite(row.bankRef)
+        return next === null ? [] : [{ row, next }]
+      })
+    }
+    if (current.length === 0) return { outcome: "resolved", written: 0 }
+    try {
+      await ctx.runWrites(current.map(guardedWrite))
+      return { outcome: "written", written: current.length }
+    } catch (e) {
+      if (isUniqueViolation(e)) return { outcome: "collision", written: 0 }
+      if (!(e instanceof StaleWriteError)) throw e
+    }
+  }
+  return { outcome: "conflict", written: 0 }
+}
+
+/**
  * Rewrite every legacy (full account number) Transaction.bankRef to the hashed
  * format. Keyset-paginated; each batch commits in one transaction, falling
  * back to per-unit writes (a deposit + its `XFER_OUT_` leg stay together) when
- * a row in it hit a unique collision, and per-row retries for rows that
- * changed concurrently.
+ * a row in it hit a unique collision or changed concurrently. Apply first runs
+ * the v1 key check; the dry run also reports rows whose hashed form exists.
  *
- * @param opts - test seams: delegate, runTx, apply (defaults from argv), batchSize
+ * @param opts - test seams: delegate, runWrites, apply (defaults from argv), batchSize
  * @returns rows (that would be) rewritten, rows left because they kept
  *   changing, and rows left because their hashed form (or their pair's) already exists
  */
 export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   const delegate = opts.delegate ?? (prisma().transaction as unknown as Delegate)
-  const runTx = opts.runTx ?? ((ops: unknown[]) => prisma().$transaction(ops as never))
+  const runWrites = opts.runWrites ?? prismaRunWrites
   const apply = opts.apply ?? APPLY
   const batchSize = opts.batchSize ?? BATCH
   const result: HashResult = { changed: 0, conflicts: 0, collisions: 0 }
+  if (apply) await assertV1KeyMatches(delegate)
   // A pair skipped in one batch is met again from its mate's batch — report each row once.
   const reported = new Set<number>()
-  const tally = (outcome: Awaited<ReturnType<typeof writeOne>>, id: number) => {
-    if (outcome === "written") result.changed++
-    else if (outcome === "resolved" || reported.has(id)) return
-    else if (outcome === "conflict") {
-      reported.add(id)
+  const report = (kind: "conflict" | "collision", id: number) => {
+    if (reported.has(id)) return
+    reported.add(id)
+    if (kind === "conflict") {
       result.conflicts++
       console.warn(`Transaction #${id}: changed concurrently on ${MAX_CONFLICT_RETRIES} retries — skipped (re-run)`)
     } else {
-      reported.add(id)
       result.collisions++
       console.warn(`Transaction #${id}: its (or its paired leg's) hashed bankRef already exists on another row — skipped (review by hand)`)
     }
   }
-  const ctx = { delegate, runTx }
-  const write = (units: Pending[][]) => runTx(units.flat().map((p) => delegate.updateMany(guardedWrite(p.row, p.next))))
-  /** Tally one committed write's per-row counts; rows that matched nothing are re-read and retried alone. */
-  const settle = async (members: Pending[], results: unknown[]) => {
-    for (let i = 0; i < members.length; i++) {
-      if (countOf(results[i]) === 1) result.changed++
-      else tally(await writeOne(members[i].row, ctx), members[i].row.id)
-    }
-  }
+  const ctx = { delegate, runWrites }
   let lastId = 0
   for (;;) {
-    const rows = await delegate.findMany({
+    const rows = (await delegate.findMany({
       where: { id: { gt: lastId }, OR: CANDIDATE_PREFIXES.map((p) => ({ bankRef: { startsWith: p } })) },
       orderBy: { id: "asc" },
       take: batchSize,
       select: { id: true, bankRef: true },
-    })
+    })) as Row[]
     if (rows.length === 0) break
     lastId = rows[rows.length - 1].id
     const pending = rows.flatMap((row) => {
@@ -225,25 +305,30 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
       return next === null ? [] : [{ row, next }]
     })
     if (!apply) {
-      result.changed += pending.length
+      // Read-only collision pre-check: rows whose hashed form is already stored.
+      const twins = pending.length
+        ? ((await delegate.findMany({ where: { bankRef: { in: pending.map((p) => p.next) } }, select: { id: true, bankRef: true } })) as Row[])
+        : []
+      const taken = new Set(twins.map((t) => t.bankRef))
+      for (const p of pending) {
+        if (taken.has(p.next)) report("collision", p.row.id)
+        else result.changed++
+      }
     } else if (pending.length > 0) {
       const units = await pairUnits(pending, delegate)
-      let results: unknown[] | null
+      let batchCommitted = true
       try {
-        results = ((await write(units)) as unknown[]) ?? []
+        await runWrites(units.flat().map(guardedWrite))
       } catch (e) {
-        if (!isUniqueViolation(e)) throw e
-        results = null // the batch rolled back — write unit by unit to isolate the collision
+        if (!isUniqueViolation(e) && !(e instanceof StaleWriteError)) throw e
+        batchCommitted = false // the batch rolled back — write unit by unit
       }
-      if (results) await settle(units.flat(), results)
+      if (batchCommitted) result.changed += units.flat().length
       else {
         for (const unit of units) {
-          try {
-            await settle(unit, ((await write([unit])) as unknown[]) ?? [])
-          } catch (e) {
-            if (!isUniqueViolation(e)) throw e
-            for (const p of unit) tally("collision", p.row.id)
-          }
+          const { outcome, written } = await writeUnit(unit, ctx)
+          result.changed += written
+          if (outcome === "collision" || outcome === "conflict") for (const p of unit) report(outcome, p.row.id)
         }
       }
     }
@@ -271,7 +356,7 @@ async function main() {
 // Jest sets NODE_ENV=test; skip the auto-run so the module can be imported.
 if (process.env.NODE_ENV !== "test") {
   main().catch(async (e) => {
-    console.error(e)
+    console.error(safeErrorText(e))
     await prisma().$disconnect()
     process.exit(1)
   })

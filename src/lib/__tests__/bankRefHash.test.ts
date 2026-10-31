@@ -89,6 +89,23 @@ describe("keyed hash (bankRefHash)", () => {
     expect(hashStoredBankRef("QIF_PA3_20260905_10.00_SHOP_1")).toBe("QIF_PA3_20260905_10.00_SHOP_1")
     expect(hashStoredBankRef("PC_E_4")).toBe("PC_E_4")
   })
+
+  it("createBankRefHasher derives each account's digest once and matches the one-off helpers", async () => {
+    jest.resetModules()
+    const real = jest.requireActual<typeof import("@/lib/cryptoCore")>("@/lib/cryptoCore")
+    const spy = jest.fn(real.hmacBankAccount)
+    jest.doMock("@/lib/cryptoCore", () => ({ ...real, hmacBankAccount: spy }))
+    const { createBankRefHasher } = await import("@/lib/bankRefHash")
+    const hasher = createBankRefHasher()
+    const rows = parseAnzStatement(ANZ_TEXT).rows
+    for (const r of rows) {
+      expect(hasher.ref(r.bankRef, ACCT)).toBe(hashBankRef(r.bankRef, ACCT))
+      expect(hasher.key(r.dedupKey, ACCT)).toBe(hashContentKey(r.dedupKey, ACCT))
+      expect(hasher.stored(r.bankRef)).toBe(hashStoredBankRef(r.bankRef))
+    }
+    expect(spy).toHaveBeenCalledTimes(1)
+    jest.dontMock("@/lib/cryptoCore")
+  })
 })
 
 const ANZ_TEXT = `

@@ -245,9 +245,20 @@ export function hasUnmaskedAccount(ref: string): boolean {
 export const HASHED_ACCOUNT_RE = /^h[0-9a-f]{16}$/
 const HASH_TOKEN_HEX = 16
 
+/**
+ * The hashed stand-in for an account number (the single source of the token
+ * format): `h` + the first HASH_TOKEN_HEX hex characters of its HMAC digest.
+ *
+ * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @returns `h<16 hex>`
+ */
+export function accountHashHead(digest: string): string {
+  return `h${digest.slice(0, HASH_TOKEN_HEX)}`
+}
+
 /** The hashed-format tokens for one account, from its hex HMAC digest. */
 function hashTokens(digest: string): AccountTokens {
-  const head = `h${digest.slice(0, HASH_TOKEN_HEX)}`
+  const head = accountHashHead(digest)
   return { head, full: () => head, partial: (n) => `${head}p${n}` }
 }
 
