@@ -350,3 +350,13 @@ export function zoneLabel(at: Date = new Date()): string {
 export function utcYmd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
+
+/**
+ * Half-open UTC range `[gte, lt)` covering the UTC calendar day of a date; robust to a time component.
+ * @param d date whose UTC day to cover
+ * @returns `{ gte, lt }` ready for a Prisma date filter
+ */
+export function utcDayRange(d: Date): { gte: Date; lt: Date } {
+  const gte = new Date(`${utcYmd(d)}T00:00:00.000Z`)
+  return { gte, lt: new Date(gte.getTime() + 86_400_000) }
+}

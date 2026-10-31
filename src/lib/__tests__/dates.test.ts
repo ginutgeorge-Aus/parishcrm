@@ -4,6 +4,7 @@ import {
   sydneyDatetimeLocalToUTC,
   isValidDatetimeLocal,
   zoneLabel,
+  utcDayRange,
   toSydneyDatetimeLocal,
 } from "@/lib/dates"
 
@@ -143,5 +144,13 @@ describe("zoneLabel", () => {
   it("labels the configured zone per instant, DST-aware", () => {
     expect(zoneLabel(new Date("2026-07-01T00:00:00Z"))).toBe("AEST")
     expect(zoneLabel(new Date("2026-12-01T00:00:00Z"))).toBe("AEDT")
+  })
+})
+
+describe("utcDayRange", () => {
+  it("covers the UTC day [00:00Z, +24h) regardless of time component", () => {
+    const r = utcDayRange(new Date("2026-07-31T15:30:00.000Z"))
+    expect(r.gte.toISOString()).toBe("2026-07-31T00:00:00.000Z")
+    expect(r.lt.toISOString()).toBe("2026-08-01T00:00:00.000Z")
   })
 })

@@ -21,7 +21,7 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
-import { utcYmd } from "@/lib/dates"
+import { utcDayRange } from "@/lib/dates"
 
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
@@ -143,7 +143,7 @@ export async function createTransfer(
         // counts: it already reduced the cash balance, so the user must un-reconcile it and
         // pick the deposit. Without a paired deposit the picker can't offer the leg, so
         // manual entry stays the only path.
-        const dayStart = new Date(`${utcYmd(parsed.data.date)}T00:00:00.000Z`)
+        const dayRange = utcDayRange(parsed.data.date)
         const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
@@ -152,7 +152,7 @@ export async function createTransfer(
             pettyCashTransferId: null,
             paymentAccountId: cashAccount?.id ?? null,
             amount: parsed.data.amount,
-            date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
+            date: dayRange,
           },
           select: { bankRef: true },
         })
@@ -164,7 +164,7 @@ export async function createTransfer(
                 type: "INCOME",
                 bankRef: { in: depositRefs },
                 amount: parsed.data.amount,
-                date: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) },
+                date: dayRange,
               },
               select: { id: true },
             })

@@ -189,6 +189,17 @@ describe("createTransfer — manual path duplicate guard", () => {
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
     expect(tx.transaction.create).toHaveBeenCalled()
+    // The deposit lookup was keyed on the leg's paired deposit ref, so "no dup" is a real negative.
+    expect(tx.transaction.findFirst.mock.calls[0][0].where.bankRef).toEqual({ in: ["B1"] })
+  })
+
+  it("rejects when the paired leg is already reconciled (user must un-reconcile first)", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", reconciled: true }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
   })
 
   it("creates the mirror when no duplicate leg exists", async () => {
