@@ -11,6 +11,7 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
+import { hashStoredBankRef } from "@/lib/bankRefHash"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Discriminated result the confirm route maps to a NextResponse. Transport
@@ -88,7 +89,7 @@ type ConfirmRow = z.infer<typeof RowSchema>
 
 /**
  * Rebuild the real (full account number) bankRef of every masked row in place,
- * so all dedup/insert logic sees the stored DB format. Rows without a mask pass
+ * so the refs can be hashed (#459) for dedup/insert. Rows without a mask pass
  * through. Returns false — reject the request — when a masked row arrives
  * without a valid token, or its `*<last4>` doesn't match the sealed number.
  */
@@ -105,9 +106,33 @@ function restoreMaskedBankRefs(rows: ConfirmRow[], accountToken: string | undefi
 }
 
 /**
+ * Switch every row's bankRef to the hashed at-rest format (#459) in place —
+ * the account number in each ref is read from its own first segment, so this
+ * also covers bare-array bodies with no token. Returns a lookup from a
+ * (hashed) ref to every form it may already be stored under: itself plus its
+ * legacy full-number ref, for dual-format dedup until the backfill has run.
+ *
+ * @param rows - confirm rows with restored (full-number) refs
+ * @returns ref → [ref, legacy ref] (just [ref] when hashing changed nothing)
+ */
+function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
+  const legacyOf = new Map<string, string>()
+  for (const r of rows) {
+    const hashed = hashStoredBankRef(r.bankRef)
+    if (hashed !== r.bankRef) legacyOf.set(hashed, r.bankRef)
+    r.bankRef = hashed
+  }
+  return (ref) => {
+    const legacy = legacyOf.get(ref)
+    return legacy === undefined ? [ref] : [ref, legacy]
+  }
+}
+
+/**
  * Core bank-statement confirm pipeline. `rawBody` is the already-parsed JSON body
  * (`{ rows, accountToken? }`, or a bare row array). Masked bankRefs are restored
- * to their full-number form before any dedup/insert.
+ * to their full-number form, then hashed (#459) before any dedup/insert; dedup
+ * matches both the hashed and the legacy full-number form.
  * Returns a typed result; never throws for a caller-visible error — a DB fault
  * during a row insert surfaces as { status: 500 } (mirroring the route's prior
  * behaviour), and only unexpected faults propagate.
@@ -123,6 +148,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
     return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
   }
+  const refVariants = hashRowBankRefs(rows)
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 
@@ -328,10 +354,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
     }
   }
 
-  const bankRefs = toImport.map((r) => r.bankRef)
+  // Dual-format (#459): each row's hashed ref AND its legacy full-number ref.
+  const bankRefs = toImport.flatMap((r) => refVariants(r.bankRef))
   const pairRefs = toImport
     .filter((r) => r.fromPettyCash)
-    .map((r) => xferOutRef(r.bankRef))
+    .flatMap((r) => refVariants(r.bankRef).map(xferOutRef))
   const existing = await prisma.transaction.findMany({
     where: { bankRef: { in: [...bankRefs, ...pairRefs] } },
     select: { bankRef: true },
@@ -368,11 +395,14 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       if (key) existingContentKeys.add(`${key}|${t.type}`)
     }
   }
-  const isDuplicate = (bankRef: string, type: "INCOME" | "EXPENSE"): boolean => {
-    if (existingRefs.has(bankRef)) return true
-    const key = contentKeyFromBankRef(bankRef)
-    return key !== null && existingContentKeys.has(`${key}|${type}`)
-  }
+  // Stored rows may hold the legacy or the hashed form of a ref/content key
+  // until the backfill has run (#459), so check every variant.
+  const isDuplicate = (bankRef: string, type: "INCOME" | "EXPENSE"): boolean =>
+    refVariants(bankRef).some((ref) => {
+      if (existingRefs.has(ref)) return true
+      const key = contentKeyFromBankRef(ref)
+      return key !== null && existingContentKeys.has(`${key}|${type}`)
+    })
 
   // Session-transfer mirrors a fromPettyCash deposit may duplicate: a
   // custodian who logged the bank deposit as a session transfer already recorded
@@ -583,7 +613,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
           },
         }),
       ]
-      if (!mirrorMatch && !existingRefs.has(pairRef)) {
+      if (!mirrorMatch && !refVariants(row.bankRef).some((ref) => existingRefs.has(xferOutRef(ref)))) {
         ops.push(
           prisma.transaction.create({
             data: {

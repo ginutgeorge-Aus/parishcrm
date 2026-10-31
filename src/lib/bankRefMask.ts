@@ -2,8 +2,8 @@
 //
 // ANZ_/ANZTR_/OFX_ bankRefs (and their dedupKey content keys) start with the
 // full account number: `<PREFIX>_<acct>_<date>_<amount>_<desc>_<suffix>`. The
-// parse route keeps that full value server-side (DB rows store it, no
-// migration) but sends the browser a masked copy whose account segment is
+// parse route keeps that full value server-side (dedup; the DB stores a hashed
+// form, see the #459 section at the end) but sends the browser a masked copy whose account segment is
 // `*<last4>`. The confirm step restores the real ref from a sealed account
 // token (see bankAccountToken.ts) before any dedup/insert.
 //
@@ -25,6 +25,8 @@
 // stripped to [A-Za-z0-9]; pinned by a test across every parser), so the
 // tokens are unambiguous and unmasking is an exact reverse. Free text is
 // masked one-way (`makeAccountTextMasker`) — confirm stores it as sent.
+
+import { XFER_OUT_PREFIX as XFER_OUT_REF_PREFIX } from "./xferRefs"
 
 /** Every import-ref prefix (ANZ/ANZTR/OFX/QIF); shared with `contentKeyFromBankRef` in anzParser.ts. */
 export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
@@ -67,35 +69,67 @@ function caseTag(m: string, accountNumber: string): string {
   return `.M${[...m].map((c) => (c === c.toLowerCase() ? "0" : "1")).join("")}`
 }
 
-/** Replace every case-insensitive occurrence of `accountNumber` in one ref segment with its restorable token. */
-function maskSegmentOccurrences(segment: string, accountNumber: string): string {
+/**
+ * How a content-key rewrite spells the account number: `head` replaces the
+ * leading account segment, `full(match)` each inline (case-insensitive) match,
+ * `partial(n)` an n-character prefix cut off at the end of a truncated
+ * description. The browser mask and the at-rest hash (#459) differ only here.
+ */
+type AccountTokens = { head: string; full: (match: string) => string; partial: (n: number) => string }
+
+/** The restorable `*<last4>` tokens sent to the browser (see the table above). */
+function maskTokens(accountNumber: string): AccountTokens {
   const mask = accountMask(accountNumber)
+  return { head: mask, full: (m) => mask + caseTag(m, accountNumber), partial: (n) => `${mask}.P${n}` }
+}
+
+/** Replace every case-insensitive occurrence of `accountNumber` in one ref segment with `tokens.full`. */
+function replaceSegmentOccurrences(segment: string, accountNumber: string, tokens: AccountTokens): string {
   const haystack = segment.toLowerCase()
   const needle = accountNumber.toLowerCase()
   let out = ""
   let from = 0
   for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, from)) {
-    out += segment.slice(from, at) + mask + caseTag(segment.slice(at, at + needle.length), accountNumber)
+    out += segment.slice(from, at) + tokens.full(segment.slice(at, at + needle.length))
     from = at + needle.length
   }
   return out + segment.slice(from)
 }
 
 /**
- * Mask a description or suffix segment: every full occurrence, plus — for a
+ * Rewrite a description or suffix segment: every full occurrence, plus — for a
  * description cut at `DESC_SEGMENT_MAX` — a trailing prefix of the (upper-cased)
  * account number of at least `MIN_PARTIAL_MASK_LENGTH` characters.
  */
-function maskTailSegment(segment: string, accountNumber: string, isDesc: boolean): string {
+function replaceTailSegment(segment: string, accountNumber: string, isDesc: boolean, tokens: AccountTokens): string {
   if (isDesc && segment.length === DESC_SEGMENT_MAX) {
     const upper = accountNumber.toUpperCase()
     for (let n = Math.min(upper.length - 1, segment.length); n >= MIN_PARTIAL_MASK_LENGTH; n--) {
       if (segment.endsWith(upper.slice(0, n))) {
-        return `${maskSegmentOccurrences(segment.slice(0, -n), accountNumber)}${accountMask(accountNumber)}.P${n}`
+        return `${replaceSegmentOccurrences(segment.slice(0, -n), accountNumber, tokens)}${tokens.partial(n)}`
       }
     }
   }
-  return maskSegmentOccurrences(segment, accountNumber)
+  return replaceSegmentOccurrences(segment, accountNumber, tokens)
+}
+
+/**
+ * Rewrite every account-number occurrence in a content key (or key + suffix)
+ * with `tokens`: the leading segment when it equals `accountNumber`, and — for
+ * numbers of 6+ characters — every occurrence in the description and suffix
+ * segments. Keys whose first segment is not `accountNumber` are returned as-is.
+ */
+function rewriteContentKey(key: string, accountNumber: string, tokens: AccountTokens): string {
+  if (!accountNumber) return key
+  const parts = key.split("_")
+  if (parts.length < 2 || parts[0] !== accountNumber) return key
+  parts[0] = tokens.head
+  if (accountNumber.length >= MIN_INLINE_MASK_LENGTH) {
+    for (let i = DESC_SEGMENT_INDEX; i < parts.length; i++) {
+      parts[i] = replaceTailSegment(parts[i], accountNumber, i === DESC_SEGMENT_INDEX, tokens)
+    }
+  }
+  return parts.join("_")
 }
 
 /**
@@ -108,15 +142,7 @@ function maskTailSegment(segment: string, accountNumber: string, isDesc: boolean
  */
 export function maskContentKey(key: string, accountNumber: string): string {
   if (!accountNumber) return key
-  const parts = key.split("_")
-  if (parts.length < 2 || parts[0] !== accountNumber) return key
-  parts[0] = accountMask(accountNumber)
-  if (accountNumber.length >= MIN_INLINE_MASK_LENGTH) {
-    for (let i = DESC_SEGMENT_INDEX; i < parts.length; i++) {
-      parts[i] = maskTailSegment(parts[i], accountNumber, i === DESC_SEGMENT_INDEX)
-    }
-  }
-  return parts.join("_")
+  return rewriteContentKey(key, accountNumber, maskTokens(accountNumber))
 }
 
 /**
@@ -204,4 +230,72 @@ export function hasUnmaskedAccount(ref: string): boolean {
   const parts = splitFirstSegment(ref.slice(prefix[0].length))
   if (!parts) return false
   return parts.head !== "" && !MASK_SEGMENT_RE.test(parts.head)
+}
+
+// ── At-rest hashed format (#459) ────────────────────────────────────────────
+// Stored Transaction.bankRef values replace every account-number occurrence
+// with `h<first 16 hex of hmacBankAccount(acct)>` (a keyed blind index, see
+// bankRefHash.ts) — `h<hex>p<n>` for a prefix cut off by description
+// truncation. Deterministic, so exact-ref and content-key dedup keep working.
+// One-way: nothing ever needs the number back. Lower-case `h` + hex cannot be
+// confused with an upper-cased description, and a real account segment (ANZ
+// digits only) never looks like one, so the backfill can tell rows apart.
+
+/** A hashed leading account segment: `h` + 16 lowercase hex. */
+export const HASHED_ACCOUNT_RE = /^h[0-9a-f]{16}$/
+const HASH_TOKEN_HEX = 16
+
+/** The hashed-format tokens for one account, from its hex HMAC digest. */
+function hashTokens(digest: string): AccountTokens {
+  const head = `h${digest.slice(0, HASH_TOKEN_HEX)}`
+  return { head, full: () => head, partial: (n) => `${head}p${n}` }
+}
+
+/**
+ * Hash a content key (`<acct>_<date>_<amount>_<desc>`, optionally + suffix):
+ * every occurrence of `accountNumber` becomes the hashed token built from
+ * `digest` (hex HMAC of the number). Pure; the keyed digest comes from
+ * bankRefHash.ts. Keys of another account are returned as-is.
+ *
+ * @param key - content key / ref body
+ * @param accountNumber - the account number embedded in the key
+ * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @returns the hashed key
+ */
+export function hashContentKeyWith(key: string, accountNumber: string, digest: string): string {
+  if (!accountNumber) return key
+  return rewriteContentKey(key, accountNumber, hashTokens(digest))
+}
+
+/**
+ * Hash an import bankRef (`ANZ_|ANZTR_|OFX_|QIF_` + content key + suffix,
+ * incl. a `#n` split-sibling suffix) — see `hashContentKeyWith`. Non-import
+ * refs pass through.
+ *
+ * @param ref - full-number bankRef
+ * @param accountNumber - the account number embedded in the ref
+ * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @returns the hashed bankRef
+ */
+export function hashBankRefWith(ref: string, accountNumber: string, digest: string): string {
+  const prefix = IMPORT_REF_PREFIX_RE.exec(ref)
+  if (!prefix) return ref
+  return prefix[0] + hashContentKeyWith(ref.slice(prefix[0].length), accountNumber, digest)
+}
+
+/**
+ * The plaintext account number of a stored legacy ANZ_/ANZTR_/OFX_ bankRef
+ * (optionally an `XFER_OUT_` paired leg), read from its first segment; null when
+ * there is none to hash — already hashed, masked, empty, QIF or a non-import ref.
+ *
+ * @param ref - a stored Transaction.bankRef
+ * @returns the account number, or null
+ */
+export function accountOfStoredBankRef(ref: string): string | null {
+  const body = ref.startsWith(XFER_OUT_REF_PREFIX) ? ref.slice(XFER_OUT_REF_PREFIX.length) : ref
+  const prefix = SENSITIVE_PREFIX_RE.exec(body)
+  if (!prefix) return null
+  const parts = splitFirstSegment(body.slice(prefix[0].length))
+  if (!parts || parts.head === "" || MASK_SEGMENT_RE.test(parts.head) || HASHED_ACCOUNT_RE.test(parts.head)) return null
+  return parts.head
 }

@@ -14,6 +14,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `rotate-encryption-key` | Re-encrypt all fields under a new key (usage in the script header). Safe with the app running: each write is conditional on the ciphertext it read, so a concurrent edit is never reverted. A changed row is re-read and retried (3x); rows that keep changing are reported as conflicts and the run exits non-zero — re-run to finish |
 | `set-default-monthly-dues` | One-time backfill: `Family.monthlyDues` for member families with no amount |
 | `backfill-petty-cash-sundays` | Backfill the weekly petty-cash session for past Sundays that never had one auto-opened |
+| `hash-bankref-account` | Backfill (#459): rewrite legacy `Transaction.bankRef` values that embed the bank account number to the hashed at-rest format. Idempotent, dry-run default, conflict-safe; see [Bank import: `bankRef` at rest](#bank-import-bankref-at-rest) |
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate `PettyCashReceipt`/`Expense` `importKey` values before a `@unique` is added |
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
 | `backfill-mobile-hash` | Populate `Person.mobileHash` / `MembershipApplication.mobileHash` blind index; also encrypts pre-existing plaintext `MembershipApplication.mobile` rows |
@@ -28,25 +29,42 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 
 ## Bank import: `bankRef` at rest
 
-Imported `Transaction.bankRef` values (`ANZ_`/`ANZTR_`/`OFX_`) still embed the full bank account
+Imported `Transaction.bankRef` values (`ANZ_`/`ANZTR_`/`OFX_`) used to embed the full bank account
 number in plaintext: `<PREFIX>_<acct>_<YYYYMMDD>_<amount>_<desc20>_<suffix>` (an OFX FITID suffix or
-the description segment can hold it too). The browser never sees it — parse responses mask every
-occurrence to `*<last4>` and confirm restores the real ref from a sealed token — but the stored
-format is unchanged so re-import dedup (exact ref + cross-format content key) keeps working.
+the description segment can hold it too). Since #459 every occurrence is stored as
+`h<first 16 hex of hmacBankAccount(acct)>` instead (`h<hex>p<n>` for a prefix cut off at the end
+of the 20-char description). The hash is keyed (v1-derived blind index, the same one the review
+draft fingerprint uses) and deterministic, so exact-ref and cross-format content-key dedup still
+work. The browser never sees either form: parse responses mask every occurrence to `*<last4>`, and
+confirm restores the real ref from a sealed token, then hashes it before any dedup or insert.
 
-Planned migration (tracked in #459, not yet done):
+Migration status:
 
-1. **Dual-format matching first** — parse and confirm dedup look up both the legacy full-number
-   refs/content keys and a hashed form where each account-number occurrence becomes
-   `h<hmacBankAccount(acct) prefix>` (keyed, v1-derived blind index; deterministic, so dedup still
-   works). New imports write the hashed form in the same release.
-2. **Backfill** — an idempotent, dry-run-default script rewrites legacy refs (including `#n` split
-   siblings and `XFER_OUT_` pairs), conditional on the value it read (same pattern as
-   `rotate-encryption-key`). Needs a human-reviewed prod bump.
-3. **Drop the legacy branch** once `audit-data-integrity` reports zero legacy refs.
+1. **Dual-format matching (shipped with #459)** — parse (`findDuplicateBankRefs`) and confirm
+   (`confirmBankImport` exact-ref, `XFER_OUT_` pair and content-key checks) look up both the legacy
+   full-number ref/content key and the hashed one. New imports write the hashed form.
+2. **Backfill** — `scripts/hash-bankref-account.ts` rewrites legacy refs, including `#n` split
+   siblings and `XFER_OUT_` paired legs (the account number comes from the ref's first segment).
+   Idempotent and dry-run by default; each write is conditional on the value it read (same pattern
+   as `rotate-encryption-key`), so a concurrent change is re-read and retried, never overwritten. A
+   row whose hashed form already exists on another row is skipped and reported (review by hand).
+   Refs are never printed, only row ids. Needs the app's `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`.
+   Run in a quiet window (a deposit and its `XFER_OUT_` leg can land in different batches):
 
-Until then, `__tests__/api/bank-statement-mask.test.ts` pins the current at-rest format as
-dedup-compatible.
+   ```bash
+   npx tsx scripts/hash-bankref-account.ts               # dry run: counts legacy rows
+   npx tsx scripts/hash-bankref-account.ts --apply --yes # write
+   npx tsx scripts/hash-bankref-account.ts               # confirm 0 rows remain
+   ```
+
+   Exits non-zero if any row was skipped. A release with this change needs a human-reviewed prod
+   bump so the backfill is run right after deploy.
+3. **Drop the legacy branch** of the dual matcher in a later release, once the dry run reports
+   zero legacy rows in every deployment.
+
+`__tests__/api/bank-statement-mask.test.ts` pins the hashed write format and dual-format dedup;
+`__tests__/scripts/hash-bankref-account.test.ts` covers the backfill's idempotency and conflict
+safety.
 
 ## Upgrading: case-insensitive unique User email
 
