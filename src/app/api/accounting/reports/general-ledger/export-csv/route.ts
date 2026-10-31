@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { generateGeneralLedgerCsv, withRunningBalance } from "@/lib/generalLedgerExport"
 import { currentFYYear, fyDateRange } from "@/lib/fiscalYear"
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
   const csv = generateGeneralLedgerCsv(rows)
 
-  const ip = getValidatedClientIp(req)
+  const ip = auditIpFromRequest(req)
   await logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "GeneralLedger", undefined, { report: "general-ledger", accountId, year, rowCount: rows.length }, ip)
 
   const today = sydneyTodayYMD()
