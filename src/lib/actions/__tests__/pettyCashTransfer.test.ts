@@ -163,10 +163,12 @@ describe("createTransfer — manual path duplicate guard", () => {
     transaction: { findMany: jest.fn().mockResolvedValue(legs), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
   })
 
-  it("rejects when an unlinked XFER_OUT leg with the same amount and day exists", async () => {
+  // Regression: a second cash-out for an already-imported deposit double-counted petty cash.
+  it("rejects a manual transfer that would double-count an imported cash-out (same amount and day, paired deposit)", async () => {
     const tx = txMock({ id: 11 })
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     expect(tx.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
