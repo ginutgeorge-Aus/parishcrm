@@ -35,12 +35,25 @@ showing its date and current registration count. From there:
   uses (see [Check In](/parishcrm/docs/check-in/)).
 
 An organiser cannot see, edit, or export data for any event they are not assigned to, cannot
-create or edit events, and has no access to the People, Families or accounting areas of the app.
+create events or change pricing, publishing or registration settings, and has no access to the People, Families or accounting areas of the app.
 
 The same login can also be assigned to Sunday School classes as a **roll marker**; they then see
 **Classes** (`/my-classes`) and can take those classes' rolls only. This is the one place an
 organiser sees member data: the children's **names and their Present/Late/Absent marks** (including
 earlier rolls) for those classes, with no contact details, dates of birth or notes. See [Sunday School](/parishcrm/docs/sunday-school/).
+
+### Editing event details
+
+Open **My Events** and choose **Edit details** next to an event you manage
+(`/my-events/[id]/edit`). You can change the title, description, category, date and time,
+location, recurrence settings, organiser contacts, and the banner and poster images.
+
+You cannot change the public link (slug), ticket types and prices, bank details, card
+payments, registration deadline, capacity, reminders, publishing, or who manages the event.
+Ask an editor for those. Saving a published event updates the public event page straight
+away. If an external website sync is configured, the website is updated on a best-effort basis
+(a missed update can be re-sent by an ADMIN with **Resync website**). If an editor changed the event after you opened the form, you are
+asked to reload and re-apply your edit.
 
 ### Roles
 
@@ -48,7 +61,7 @@ earlier rolls) for those classes, with no contact details, dates of birth or not
 |------|--------|
 | ADMIN / PASTOR / OFFICE_ADMIN | Can assign/unassign organisers on any event; can also open `/my-events` themselves (mainly useful for testing) since editors are always allowed through |
 | AUDITOR / VIEWER | No organiser-assignment access |
-| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in, plus `/my-classes` rolls for classes they're assigned to; redirected away from every other authenticated route |
+| EVENT_ORGANISER | Sees only `/my-events` and their assigned events' registrations/check-in/details editing, plus `/my-classes` rolls for classes they're assigned to; redirected away from every other authenticated route |
 
 ## How it works
 

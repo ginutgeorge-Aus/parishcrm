@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { canEdit } from "@/lib/roleGuard"
+import { actorId } from "@/lib/actor"
+import { canManageEvent } from "@/lib/eventManager"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
 import { getClientIp } from "@/lib/clientIp"
@@ -36,15 +37,18 @@ export async function GET(
 
   const img = await prisma.eventImage.findFirst({
     where: { kind: mapped, event: { slug } },
-    select: { data: true, mimeType: true, event: { select: { isPublished: true } } },
+    select: { data: true, mimeType: true, event: { select: { id: true, isPublished: true } } },
   })
   if (!img) return notFound()
 
-  // Published images are public; draft images are visible only to editors so a
-  // 200-vs-404 can't confirm a draft slug exists (same rule as the public page).
+  // Published images are public; draft images are visible only to editors and
+  // the EVENT_ORGANISER assigned to that event (canManageEvent) so a 200-vs-404
+  // can't confirm a draft slug exists (same rule as the public page).
   if (!img.event.isPublished) {
     const session = await auth()
-    if (!canEdit(session?.user?.role)) return notFound()
+    // `user.id` checked first so a session without an id 404s like an
+    // anonymous one instead of letting actorId throw a distinguishable 500.
+    if (!session?.user?.id || !(await canManageEvent(actorId(session), img.event.id, session.user.role))) return notFound()
   }
 
   const body = Buffer.isBuffer(img.data) ? img.data : Buffer.from(img.data as Uint8Array)
