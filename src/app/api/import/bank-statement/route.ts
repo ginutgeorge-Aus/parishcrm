@@ -10,6 +10,7 @@ import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
 import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
 import { makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
 import { fingerprintAccountNumber, sealAccountNumber } from "@/lib/bankAccountToken"
+import { createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -183,15 +184,28 @@ function validateParsedStatement(result: ParseResult): RouteFailure | { ok: true
   return { ok: true, clientErrors }
 }
 
-// Exact-ref matches (same-format re-import) plus a cross-format content-key match
-// over the import's date window: a transaction imported once as a Statement and
-// again as a Transaction Report has different exact bankRefs but the same content
-// key, so it must still be flagged as a duplicate for the review UI to auto-skip
-//. Content-key matching is only against pre-existing DB rows, so two
-// genuinely-identical lines in this upload are not falsely flagged against each
-// other.
-async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
-  const bankRefs = rows.map((r) => r.bankRef)
+/**
+ * Parsed rows that are already in the DB: an exact bankRef match (same-format
+ * re-import) or a cross-format content-key match over the import's date window
+ * — a line imported once as a Statement and again as a Transaction Report has
+ * different exact bankRefs but the same content key, so the review UI must
+ * still auto-skip it. Content keys are matched only against pre-existing DB
+ * rows, so two genuinely-identical lines in this upload are not falsely
+ * flagged against each other. Dual-format (#459, see `dedupForms`): each row is
+ * looked up as its hashed at-rest ref/key and its legacy full-number one, so
+ * rows stored before and after the `hash-bankref-account` backfill both dedup.
+ *
+ * @param rows - parsed rows (full-number refs)
+ * @param accountNumber - the statement's account number ("" when none)
+ * @returns the (full-number) bankRefs of the duplicate rows
+ */
+async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): Promise<string[]> {
+  const hasher = createBankRefHasher()
+  const forms = rows.map((r) => ({
+    refs: dedupForms(r.bankRef, hasher.ref(r.bankRef, accountNumber)),
+    keys: dedupForms(r.dedupKey, hasher.key(r.dedupKey, accountNumber)),
+  }))
+  const bankRefs = [...new Set(forms.flatMap((f) => f.refs))]
   const importTimes = rows.map((r) => new Date(r.date).getTime()).filter((n) => !Number.isNaN(n))
   const DAY_MS = 24 * 60 * 60 * 1000
   const existing = await prisma.transaction.findMany({
@@ -217,7 +231,7 @@ async function findDuplicateBankRefs(rows: ParsedRow[]): Promise<string[]> {
     if (key) existingContentKeys.add(key)
   }
   return rows
-    .filter((r) => existingRefs.has(r.bankRef) || existingContentKeys.has(r.dedupKey))
+    .filter((_, i) => forms[i].refs.some((ref) => existingRefs.has(ref)) || forms[i].keys.some((key) => existingContentKeys.has(key)))
     .map((r) => r.bankRef)
 }
 
@@ -261,18 +275,18 @@ export async function POST(req: Request) {
   const validated = validateParsedStatement(result)
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: validated.status })
 
-  const duplicateBankRefs = await findDuplicateBankRefs(result.rows)
+  const accountNumber = result.accountNumber ?? ""
+  const duplicateBankRefs = await findDuplicateBankRefs(result.rows, accountNumber)
   const [possibleDuplicateBankRefs, suggestedPaymentAccountId] = await Promise.all([
     findPossibleDuplicateBankRefs(result.rows, duplicateBankRefs),
     suggestPaymentAccountId(result.accountNumber),
   ])
 
-  // Dedup above ran on the real (full-number) refs, matching the stored DB
-  // format. Everything sent to the browser is masked (`*<last4>`) — the account
+  // Dedup above ran on the real (full-number) refs and their hashed at-rest form
+  // (#459). Everything sent to the browser is masked (`*<last4>`) — the account
   // segment, any inline copy (OFX FITID / description segment) and the
   // description/details text (#449); the confirm step rebuilds the real refs
-  // from the sealed `accountToken`.
-  const accountNumber = result.accountNumber ?? ""
+  // from the sealed `accountToken` (and stores them hashed).
   const mask = (ref: string) => maskBankRef(ref, accountNumber)
   const maskText = makeAccountTextMasker(accountNumber)
 

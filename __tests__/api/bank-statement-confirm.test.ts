@@ -6,6 +6,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { __resetRateLimit } from "@/lib/rateLimit"
+import { hashStoredBankRef } from "@/lib/bankRefHash"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
@@ -126,7 +127,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
           type: "INCOME",
           accountId: 1,
           isGiving: false,
-          bankRef: confirmedRow.bankRef,
+          bankRef: hashStoredBankRef(confirmedRow.bankRef),
           reconciled: false,
           // notes is now encrypted at write time, same as description.
           notes: "enc:PAYMENT FROM JACK | JACK",
@@ -181,7 +182,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
         type: "INCOME",
         accountId: 99,
         paymentAccountId: 1,
-        bankRef: pettyCashRow.bankRef,
+        bankRef: hashStoredBankRef(pettyCashRow.bankRef),
       }),
     })
   })
@@ -193,7 +194,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
         type: "EXPENSE",
         accountId: 99,
         paymentAccountId: 2,
-        bankRef: `XFER_OUT_${pettyCashRow.bankRef}`,
+        bankRef: `XFER_OUT_${hashStoredBankRef(pettyCashRow.bankRef)}`,
         amount: "1200.00",
       }),
     })
@@ -229,6 +230,17 @@ describe("POST /api/import/bank-statement/confirm", () => {
     })
   })
 
+  test("fromPettyCash: skips the pair when its hashed XFER_OUT ref already exists (#459)", async () => {
+    ;(prisma.transaction.findMany as jest.Mock).mockResolvedValue([
+      { bankRef: `XFER_OUT_${hashStoredBankRef(pettyCashRow.bankRef)}` },
+    ])
+    await POST(makeRequest([pettyCashRow]))
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(1)
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: "INCOME", bankRef: hashStoredBankRef(pettyCashRow.bankRef) }),
+    })
+  })
+
   test("fromPettyCash: skips the XFER_OUT when a matching session transfer exists", async () => {
     // The bankRef-dedup query returns []; the session-transfer-mirror query
     // returns a matching transfer (same cents, date within window).
@@ -244,7 +256,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
     // transfer already recorded it) — only one create.
     expect(prisma.transaction.create).toHaveBeenCalledTimes(1)
     expect(prisma.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: "INCOME", bankRef: pettyCashRow.bankRef }),
+      data: expect.objectContaining({ type: "INCOME", bankRef: hashStoredBankRef(pettyCashRow.bankRef) }),
     })
   })
 
@@ -337,7 +349,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
         familyId: 2,
         personId: 10,
         isGiving: true,
-        bankRef: splitRow.bankRef,
+        bankRef: hashStoredBankRef(splitRow.bankRef),
       }),
     })
     expect(prisma.transaction.create).toHaveBeenCalledWith({
@@ -348,7 +360,7 @@ describe("POST /api/import/bank-statement/confirm", () => {
         familyId: null,
         personId: null,
         isGiving: false,
-        bankRef: `${splitRow.bankRef}#2`,
+        bankRef: `${hashStoredBankRef(splitRow.bankRef)}#2`,
       }),
     })
     // `imported` counts bank lines, not Transaction rows written — one

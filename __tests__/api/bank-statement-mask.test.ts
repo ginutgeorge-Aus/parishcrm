@@ -32,6 +32,7 @@ import { parseOfx } from "@/lib/bankParsers/ofx"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
 import { encrypt } from "@/lib/crypto"
 import { sealAccountNumber } from "@/lib/bankAccountToken"
+import { accountHashToken, hashBankRef } from "@/lib/bankRefHash"
 
 const ACCT = "987654321"
 const ANZ_TEXT = `
@@ -166,12 +167,12 @@ describe("re-import of an already-imported statement (old-format full-number ref
     expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
   })
 
-  it("fresh import inserts the restored full-number refs", async () => {
+  it("fresh import inserts the hashed form of the restored refs (#459)", async () => {
     const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
     const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
     expect(result).toEqual({ ok: true, imported: 2, skipped: 0, duplicates: 0 })
     const inserted = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
-    expect(inserted).toEqual(parseAnzStatement(ANZ_TEXT).rows.map((r) => r.bankRef))
+    expect(inserted).toEqual(parseAnzStatement(ANZ_TEXT).rows.map((r) => hashBankRef(r.bankRef, ACCT)))
   })
 })
 
@@ -248,13 +249,15 @@ describe("other client-bound fields (#449)", () => {
     expect(body.rows[1].description).toBe("DEBIT *4821 EXAMPLE SHOP")
   })
 
-  it("confirm restores the full FITID ref; stored format is unchanged", async () => {
+  it("confirm restores the FITID ref and stores it hashed, account number nowhere (#459)", async () => {
     const { body } = await parse(ofxWithAcctInText(OFX_ACCT), "s.ofx", "ofx")
     const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
     expect(result).toEqual({ ok: true, imported: 2, skipped: 0, duplicates: 0 })
-    const inserted = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
-    expect(inserted).toEqual(parseOfx(ofxWithAcctInText(OFX_ACCT)).rows.map((r) => r.bankRef))
-    expect(inserted[0]).toBe(`OFX_${OFX_ACCT}_20260902_200.00_TRANSFERFROMJCITIZEN_${OFX_ACCT}0001`)
+    const inserted: string[] = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
+    expect(inserted).toEqual(parseOfx(ofxWithAcctInText(OFX_ACCT)).rows.map((r) => hashBankRef(r.bankRef, OFX_ACCT)))
+    const h = accountHashToken(OFX_ACCT)
+    expect(inserted[0]).toBe(`OFX_${h}_20260902_200.00_TRANSFERFROMJCITIZEN_${h}0001`)
+    for (const ref of inserted) expect(ref).not.toContain(OFX_ACCT)
   })
 
   it("re-import against stored full-number FITID refs is all duplicates", async () => {
@@ -278,21 +281,65 @@ describe("other client-bound fields (#449)", () => {
   })
 })
 
-// #449 item 3: Transaction.bankRef is stored with the full account number (no
-// migration yet — see docs/operations.md). These pin the at-rest format so a
-// future keyed-hash migration must keep dual-format matching.
-describe("at-rest bankRef format stays dedup-compatible (#449)", () => {
-  it("stored refs keep the full account number in the first segment", async () => {
+// #459: Transaction.bankRef is stored with every account-number occurrence
+// replaced by a keyed hash token. Until the backfill has run everywhere, dedup
+// must match BOTH the legacy full-number refs and the hashed ones.
+describe("at-rest bankRef format: hashed writes, dual-format dedup (#459)", () => {
+  it("stored refs carry the hash token, never the account number", async () => {
     const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
     await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
     const inserted: string[] = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
-    for (const ref of inserted) expect(ref.startsWith(`ANZ_${ACCT}_`)).toBe(true)
+    for (const ref of inserted) {
+      expect(ref.startsWith(`ANZ_${accountHashToken(ACCT)}_`)).toBe(true)
+      expect(ref).not.toContain(ACCT)
+    }
   })
 
-  it("an ANZTR_-format DB row with the full number dedups an OFX re-upload of the same lines", async () => {
+  it("hashed DB rows: ANZ re-import is all duplicates at parse and confirm", async () => {
+    const stored = parseAnzStatement(ANZ_TEXT).rows.map((r) => ({ bankRef: hashBankRef(r.bankRef, ACCT), type: r.type, date: new Date(r.date), amount: r.amount }))
+    txFindMany.mockResolvedValue(stored)
+    const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
+    expect(body.duplicateBankRefs).toEqual(body.rows.map((r: { bankRef: string }) => r.bankRef))
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
+    // Both formats are looked up by exact ref.
+    const exactLookup = txFindMany.mock.calls.find((c) => c[0]?.where?.bankRef?.in)
+    expect(exactLookup[0].where.bankRef.in).toEqual(
+      expect.arrayContaining([...stored.map((s) => s.bankRef), ...parseAnzStatement(ANZ_TEXT).rows.map((r) => r.bankRef)])
+    )
+  })
+
+  it("hashed DB rows: cross-format (ANZTR_ hashed) still dedups a statement re-import", async () => {
+    txFindMany.mockResolvedValue(
+      parseAnzStatement(ANZ_TEXT).rows.map((r) => ({ bankRef: hashBankRef(`ANZTR_${r.dedupKey}_0`, ACCT), type: r.type, date: new Date(r.date), amount: r.amount }))
+    )
+    const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
+    expect(body.duplicateBankRefs).toHaveLength(2)
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
+  })
+
+  it("hashed DB rows with the account in the FITID: OFX re-import is all duplicates", async () => {
+    const text = OFX.replace("<FITID>F1", `<FITID>${OFX_ACCT}0001`)
+    txFindMany.mockResolvedValue(parseOfx(text).rows.map((r) => ({ bankRef: hashBankRef(r.bankRef, OFX_ACCT), type: r.type, date: new Date(r.date), amount: r.amount })))
+    const { body } = await parse(text, "s.ofx", "ofx")
+    expect(body.duplicateBankRefs).toHaveLength(2)
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
+  })
+
+  it("an ANZTR_-format legacy DB row with the full number dedups an OFX re-upload of the same lines", async () => {
     const ofxRows = parseOfx(OFX).rows
     txFindMany.mockResolvedValue(ofxRows.map((r) => ({ bankRef: `ANZTR_${r.dedupKey}_0`, type: r.type, date: new Date(r.date), amount: r.amount })))
     const { body } = await parse(OFX, "s.ofx", "ofx")
     expect(body.duplicateBankRefs).toHaveLength(2)
+  })
+
+  it("a bare-array (pre-masking client) confirm also writes hashed refs", async () => {
+    const rows = parseAnzStatement(ANZ_TEXT).rows
+    const result = await confirmBankImport(toConfirmRows(rows as unknown as Array<Record<string, unknown>>))
+    expect(result).toEqual({ ok: true, imported: 2, skipped: 0, duplicates: 0 })
+    const inserted: string[] = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
+    expect(inserted).toEqual(rows.map((r) => hashBankRef(r.bankRef, ACCT)))
   })
 })
