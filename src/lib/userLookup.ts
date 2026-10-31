@@ -37,21 +37,23 @@ export const userEmailField = z
  * (the schema max) or blank returns no user without touching the DB.
  * @param email raw email input (any case, surrounding whitespace allowed)
  * @param select optional Prisma `select` so callers load only the columns they use (default: full row)
- * @returns the user, or null when none matches
+ * @returns the user (or the `select` payload), or null when none matches
  */
-export async function findUserByEmailInsensitive(email: string): Promise<{ user: User | null }>
+export async function findUserByEmailInsensitive(email: string): Promise<User | null>
 export async function findUserByEmailInsensitive<S extends Prisma.UserSelect>(
   email: string,
   select: S,
-): Promise<{ user: Prisma.UserGetPayload<{ select: S }> | null }>
-export async function findUserByEmailInsensitive(email: string, select?: Prisma.UserSelect): Promise<{ user: unknown }> {
+): Promise<Prisma.UserGetPayload<{ select: S }> | null>
+export async function findUserByEmailInsensitive(
+  email: string,
+  select?: Prisma.UserSelect,
+): Promise<object | null> {
   const trimmed = email.trim()
-  if (!trimmed || trimmed.length > 254) return { user: null }
+  if (!trimmed || trimmed.length > 254) return null
   // nosemgrep: crm-no-raw-sql — lower() equality via the shared fragment; Prisma mode:"insensitive" is ILIKE (wildcards)
   const rows = await prisma.$queryRaw<{ id: number }[]>(userIdByEmailSql(trimmed))
-  if (rows.length === 0) return { user: null }
-  const user = await prisma.user.findUnique({ where: { id: rows[0].id }, ...(select && { select }) })
-  return { user }
+  if (rows.length === 0) return null
+  return prisma.user.findUnique({ where: { id: rows[0].id }, ...(select && { select }) })
 }
 
 /**
