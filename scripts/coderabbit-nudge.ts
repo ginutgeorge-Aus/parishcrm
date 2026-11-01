@@ -448,15 +448,18 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
     }
     const reviewed = await fetchReviews(api, pr.number)
     const comments = await fetchComments(api, pr.number)
-    const blocked = nudgeBlocked(comments, now)
-    if (blocked) {
-      console.log(`#${pr.number}: ${blocked} — skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
-      continue
-    }
+    // Keep every fetched PR's comments for the global rate-limit and in-flight checks, even when this
+    // PR is skipped below: a capped/cooling-down PR may hold the live rate-limit notice or nudge.
+    // (The near-limit skip above never fetches comments, so those PRs stay invisible here.)
     allComments.push(...comments)
     if (nudgeInFlight(comments, now)) {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
+    }
+    const blocked = nudgeBlocked(comments, now)
+    if (blocked) {
+      console.log(`#${pr.number}: ${blocked} — skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
+      continue
     }
     if (isReviewed(reviewed, comments, pr.headSha)) continue
     const statuses = await fetchStatuses(api, pr.headSha)
