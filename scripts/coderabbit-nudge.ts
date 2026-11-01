@@ -23,6 +23,16 @@ const IN_FLIGHT_MS = 30 * 60 * 1000
 const MAX_WAIT_MS = 65 * 60 * 1000
 /** An untimed notice this close to a timed one is the same rate-limit event. */
 const PAIR_MS = 5 * 60 * 1000
+/**
+ * Most nudges (`@coderabbitai review` comments) one PR may ever collect. Every nudge
+ * draws a CodeRabbit reply, and every reply re-triggers the workflow, so an uncapped
+ * PR can loop until GitHub's comment limit (PR #485 hit it with ~1250 nudges).
+ */
+export const MAX_NUDGES_PER_PR = 5
+/** Minimum gap between two nudges on the same PR; breaks reply-driven bursts. */
+export const NUDGE_COOLDOWN_MS = 10 * 60 * 1000
+/** PRs at or above this many comments are never commented on (GitHub caps at 2500). */
+export const MAX_PR_COMMENTS = 2400
 // Seen as "available in 4 minutes" and "available in: 21 minutes".
 const TIMED = /available in:?(?:\*\*)?\s+([^.*\n]+)/i
 
@@ -274,6 +284,23 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
 }
 
 /**
+ * Why a PR must not be nudged regardless of review state, or null when it may be:
+ * the per-PR nudge cap, or a nudge posted within the cooldown. A nudge is a
+ * non-CodeRabbit comment that is exactly the review command.
+ * @param comments - issue comments on one PR, any order
+ * @param now - current time
+ */
+export function nudgeBlocked(comments: Comment[], now: Date): string | null {
+  const nudges = comments
+    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase() === COMMAND)
+    .map((c) => Date.parse(c.createdAt))
+  if (nudges.length >= MAX_NUDGES_PER_PR) return `already has ${nudges.length} nudges (cap ${MAX_NUDGES_PER_PR})`
+  const last = nudges.reduce((max, t) => Math.max(max, t), -Infinity)
+  if (now.getTime() - last < NUDGE_COOLDOWN_MS) return `last nudge <${NUDGE_COOLDOWN_MS / 60_000} min ago (cooldown)`
+  return null
+}
+
+/**
  * Orders unreviewed PRs: `review-next` label first, then most recently updated, so
  * active work beats stale PRs. Drafts, `no-coderabbit` PRs and bot PRs (Dependabot,
  * Renovate: CodeRabbit skips them, #364) are dropped; `review-next` opts a bot PR in.
@@ -305,7 +332,8 @@ export function waitForReset(reset: Date | null, now: Date, maxMs: number): numb
 }
 
 /**
- * Calls the GitHub REST API, following `Link: rel="next"` for GET lists.
+ * Calls the GitHub REST API, following `Link: rel="next"` for GET lists (a GET that
+ * returns a single object is passed through).
  * @param path - API path starting with `/`
  * @param init - optional method and JSON body
  */
@@ -329,7 +357,9 @@ async function gh<T>(path: string, init?: { method: string; body: unknown }): Pr
   while (url) {
     const res: Response = await fetch(url, { headers })
     if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${await res.text()}`)
-    out.push(...((await res.json()) as unknown[]))
+    const page = (await res.json()) as unknown
+    if (!Array.isArray(page)) return page as T // single object (e.g. /issues/N), nothing to paginate
+    out.push(...page)
     url = res.headers.get("link")?.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null
   }
   return out as T
@@ -410,8 +440,19 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
   const unreviewed: Pr[] = []
   const allComments: Comment[] = []
   for (const pr of prs) {
+    // Cheap count first (one call) so a PR near GitHub's comment cap is never paged through or commented on.
+    const { comments: count } = await api<{ comments: number }>(`/repos/${REPO}/issues/${pr.number}`)
+    if (count >= MAX_PR_COMMENTS) {
+      console.log(`#${pr.number}: ${count} comments (>= ${MAX_PR_COMMENTS}) — near GitHub's limit, skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
+      continue
+    }
     const reviewed = await fetchReviews(api, pr.number)
     const comments = await fetchComments(api, pr.number)
+    const blocked = nudgeBlocked(comments, now)
+    if (blocked) {
+      console.log(`#${pr.number}: ${blocked} — skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
+      continue
+    }
     allComments.push(...comments)
     if (nudgeInFlight(comments, now)) {
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
