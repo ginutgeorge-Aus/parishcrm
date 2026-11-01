@@ -53,6 +53,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/waitlist.ts": "events",
   "src/lib/actions/eventCheckout.ts": "events",
   "src/lib/actions/eventAccess.ts": "events",
+  "src/lib/actions/eventManaged.ts": "events",
   "src/lib/actions/membership.ts": "memberships",
   "src/lib/actions/sundaySchool.ts": "sundaySchool",
   "src/lib/actions/sundaySchoolAttendance.ts": "sundaySchool",
@@ -236,6 +237,7 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s is also gated by the middleware rou
 const NON_LAYOUT_GATES: Record<string, string> = {
   "src/app/(organiser)/my-events/[id]/registrations/page.tsx": "events",
   "src/app/(organiser)/my-events/[id]/check-in/page.tsx": "events",
+  "src/app/(organiser)/my-events/[id]/edit/page.tsx": "events",
 }
 
 it.each(Object.keys(NON_LAYOUT_GATES))("%s (non-layout gate) exists", (file) => {
