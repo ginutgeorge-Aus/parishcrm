@@ -251,6 +251,20 @@ export function hmacBankAccount(accountNumber: string): string {
   return createHmac("sha256", blindIndexKey("bank-account")).update(accountNumber).digest("hex")
 }
 
+/**
+ * Keyed digest of a bank account number for the at-rest `Transaction.bankRef`
+ * token (#459). Its own domain-separation label (`bank-ref-at-rest`) keeps it
+ * independent of `hmacBankAccount`, whose digest is sent to the browser as the
+ * draft fingerprint, so the client-held value reveals nothing about the
+ * stored token. Same v1-derived blind-index pattern; same key caveat.
+ *
+ * @param accountNumber - plaintext account number
+ * @returns 64 lowercase hex characters
+ */
+export function hmacBankRefAccount(accountNumber: string): string {
+  return createHmac("sha256", blindIndexKey("bank-ref-at-rest")).update(accountNumber).digest("hex")
+}
+
 function isWeakKey(key: Buffer): boolean {
   // A real 256-bit random key has ~30 distinct byte values; all-zero, single
   // repeated-byte, or short-pattern keys have very few. Threshold kept low to

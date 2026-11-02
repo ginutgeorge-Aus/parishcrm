@@ -10,7 +10,7 @@ import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
 import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
 import { makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
 import { fingerprintAccountNumber, sealAccountNumber } from "@/lib/bankAccountToken"
-import { createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
+import { BANKREF_HASH_ERROR, BankRefHashError, createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
 import { canAccessAccounting } from "@/lib/roleGuard"
 import { extractText } from "unpdf"
@@ -276,7 +276,16 @@ export async function POST(req: Request) {
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: validated.status })
 
   const accountNumber = result.accountNumber ?? ""
-  const duplicateBankRefs = await findDuplicateBankRefs(result.rows, accountNumber)
+  let duplicateBankRefs: string[]
+  try {
+    duplicateBankRefs = await findDuplicateBankRefs(result.rows, accountNumber)
+  } catch (e) {
+    if (!(e instanceof BankRefHashError)) throw e
+    // The at-rest hash key is unavailable (v1 key retired/misconfigured): fail
+    // closed with a typed error rather than an uncaught 500 or an unhashed lookup.
+    logger.error("Bank import parse: bankRef hash key unavailable", { error: e.message })
+    return NextResponse.json({ error: BANKREF_HASH_ERROR }, { status: 500 })
+  }
   const [possibleDuplicateBankRefs, suggestedPaymentAccountId] = await Promise.all([
     findPossibleDuplicateBankRefs(result.rows, duplicateBankRefs),
     suggestPaymentAccountId(result.accountNumber),

@@ -11,7 +11,7 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
-import { createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
+import { BANKREF_HASH_ERROR, BankRefHashError, createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Discriminated result the confirm route maps to a NextResponse. Transport
@@ -148,7 +148,14 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   if (!restoreMaskedBankRefs(rows, Array.isArray(body) ? undefined : body.accountToken)) {
     return { ok: false, status: 400, error: "This statement review has expired. Re-upload the statement and try again." }
   }
-  const refVariants = hashRowBankRefs(rows)
+  let refVariants: (ref: string) => string[]
+  try {
+    refVariants = hashRowBankRefs(rows)
+  } catch (e) {
+    if (!(e instanceof BankRefHashError)) throw e
+    // Fail closed: never insert unhashed refs, never throw past the result contract.
+    return { ok: false, status: 500, error: BANKREF_HASH_ERROR }
+  }
   const toImport = rows.filter((r) => !r.skip)
   const skipped = rows.length - toImport.length
 

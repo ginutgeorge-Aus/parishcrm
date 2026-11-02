@@ -7,8 +7,8 @@ export {} // module scope (keeps KEY1 etc. out of the global script scope)
 const KEY1 = Buffer.alloc(32, 7).toString("base64")
 const ACCT = "987654321"
 
-type Row = { id: number; bankRef: string | null }
-type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string } }
+type Row = { id: number; bankRef: string | null; updatedAt?: Date }
+type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string; updatedAt: Date } }
 type PersonRow = { id: number; email: string | null; emailHash: string | null; mobile: string | null; mobileHash: string | null }
 type Where = { id?: { gt?: number; in?: number[] } | number; bankRef?: { in?: string[] }; description?: { startsWith?: string } }
 
@@ -54,6 +54,7 @@ function fakeDb(
         throw Object.assign(new Error("Unique constraint failed on the fields: (`bankRef`)"), { code: "P2002" })
       }
       r.bankRef = w.data.bankRef
+      r.updatedAt = w.data.updatedAt // like Prisma: an explicit @updatedAt value is stored as given
     }
     for (const [k, v] of next) rows.set(k, v)
   })
@@ -85,7 +86,8 @@ afterEach(() => {
   for (const k of ["DATABASE_URL", "ENCRYPTION_KEY_V1", "ENCRYPTION_KEY_V2", "ENCRYPTION_KEY_ID"]) delete process.env[k]
 })
 
-const legacy = (id: number, ref: string): Row => ({ id, bankRef: ref })
+const STAMP = new Date("2025-01-02T03:04:05.000Z")
+const legacy = (id: number, ref: string): Row => ({ id, bankRef: ref, updatedAt: STAMP })
 const seed = (): Row[] => [
   legacy(1, `ANZ_${ACCT}_20250623_60.00_PAYMENTFROMJACK_5176894`),
   legacy(2, `ANZ_${ACCT}_20250623_100.00_SPLIT_5186894#2`),
@@ -118,6 +120,13 @@ it("apply rewrites ANZ, split siblings, XFER_OUT pairs and OFX; leaves QIF/manua
   // The XFER_OUT leg = XFER_OUT_ + the hashed deposit ref, so xferOutRef() pairing holds.
   expect(db.rows.get(3)!.bankRef).toBe(`XFER_OUT_${hashStoredBankRef(before[2].bankRef!.slice("XFER_OUT_".length))}`)
   expect(db.rows.get(5)!.bankRef).toBe("QIF_PA3_20260905_10.00_SHOP_1")
+})
+
+it("pins updatedAt: the backfill never bumps the optimistic-concurrency token", async () => {
+  const db = fakeDb(seed())
+  await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
+  for (const w of db.runWrites.mock.calls.flatMap(([ws]) => ws)) expect(w.data.updatedAt).toEqual(STAMP)
+  for (const r of db.rows.values()) expect(r.updatedAt).toEqual(STAMP)
 })
 
 it("is idempotent: a second apply run changes nothing", async () => {

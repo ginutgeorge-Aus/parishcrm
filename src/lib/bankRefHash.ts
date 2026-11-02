@@ -1,14 +1,43 @@
 // Keyed at-rest form of import bankRefs (#459). The pure rewrite lives in
-// bankRefMask.ts; this module supplies the keyed digest (`hmacBankAccount`, the
-// v1-derived blind index already used for the draft fingerprint).
+// bankRefMask.ts; this module supplies the keyed digest (`hmacBankRefAccount`, a
+// v1-derived blind index under its own label, distinct from the draft fingerprint
+// that `hmacBankAccount` sends to the browser).
 //
 // Imports `./cryptoCore` directly (not the `server-only` `@/lib/crypto`) so the
 // `scripts/hash-bankref-account.ts` backfill can share it under plain tsx —
 // the same carve-out cryptoCore documents for ops scripts. Only server code
 // (parse route, confirm pipeline) imports it from the app.
-import { hmacBankAccount } from "./cryptoCore"
+import { hmacBankRefAccount } from "./cryptoCore"
 import { accountHashHead, accountOfStoredBankRef, hashBankRefWith, hashContentKeyWith } from "./bankRefMask"
 import { XFER_OUT_PREFIX } from "./xferRefs"
+
+/** User-facing message when the at-rest hash key cannot be derived (shared by parse + confirm). */
+export const BANKREF_HASH_ERROR = "Bank import is unavailable: the server cannot derive its account-hash key. Contact an administrator."
+
+/** The keyed at-rest digest could not be computed (the v1 blind-index key is unavailable). */
+export class BankRefHashError extends Error {
+  /** @param cause - the underlying crypto failure */
+  constructor(cause: unknown) {
+    super("bankRef hash key unavailable", { cause })
+    this.name = "BankRefHashError"
+  }
+}
+
+/**
+ * `hmacBankRefAccount`, wrapping a key-derivation failure in a typed error so
+ * callers can fail closed instead of surfacing an uncaught 500.
+ *
+ * @param accountNumber - plaintext account number
+ * @returns hex digest
+ * @throws BankRefHashError when the v1 key is unavailable
+ */
+function digestAccount(accountNumber: string): string {
+  try {
+    return hmacBankRefAccount(accountNumber)
+  } catch (e) {
+    throw new BankRefHashError(e)
+  }
+}
 
 /** Hashing helpers that derive each account's keyed digest once (see createBankRefHasher). */
 export type BankRefHasher = {
@@ -21,7 +50,7 @@ export type BankRefHasher = {
 }
 
 /**
- * A hasher that computes `hmacBankAccount` (keyring load + HKDF + HMAC) once per
+ * A hasher that computes `hmacBankRefAccount` (keyring load + HKDF + HMAC) once per
  * account number instead of once per row. Create one per request / script run
  * — it holds the digests only for its own lifetime, never across key changes.
  *
@@ -32,7 +61,7 @@ export function createBankRefHasher(): BankRefHasher {
   const digestOf = (accountNumber: string): string => {
     let digest = digests.get(accountNumber)
     if (digest === undefined) {
-      digest = hmacBankAccount(accountNumber)
+      digest = digestAccount(accountNumber)
       digests.set(accountNumber, digest)
     }
     return digest
@@ -65,13 +94,13 @@ export function dedupForms(legacy: string, hashed: string): string[] {
 
 /**
  * The hashed stand-in for an account number in a stored ref: `h` + the first 16
- * hex characters of its keyed HMAC (format owned by `accountHashHead`).
+ * hex characters of its keyed HMAC (`hmacBankRefAccount`; format owned by `accountHashHead`).
  *
  * @param accountNumber - plaintext account number
  * @returns `h<16 hex>`
  */
 export function accountHashToken(accountNumber: string): string {
-  return accountHashHead(hmacBankAccount(accountNumber))
+  return accountHashHead(digestAccount(accountNumber))
 }
 
 /**

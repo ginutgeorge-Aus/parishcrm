@@ -32,9 +32,9 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 Imported `Transaction.bankRef` values (`ANZ_`/`ANZTR_`/`OFX_`) used to embed the full bank account
 number in plaintext: `<PREFIX>_<acct>_<YYYYMMDD>_<amount>_<desc20>_<suffix>` (an OFX FITID suffix or
 the description segment can hold it too). Since #459 every occurrence is stored as
-`h<first 16 hex of hmacBankAccount(acct)>` instead (`h<hex>p<n>` for a prefix cut off at the end
-of the 20-char description). The hash is keyed (v1-derived blind index, the same one the review
-draft fingerprint uses) and deterministic, so exact-ref and cross-format content-key dedup still
+`h<first 16 hex of hmacBankRefAccount(acct)>` instead (`h<hex>p<n>` for a prefix cut off at the end
+of the 20-char description). The hash is keyed (v1-derived blind index under its own label, separate from the review
+draft fingerprint) and deterministic, so exact-ref and cross-format content-key dedup still
 work. The browser never sees either form: parse responses mask every occurrence to `*<last4>`, and
 confirm restores the real ref from a sealed token, then hashes it before any dedup or insert.
 

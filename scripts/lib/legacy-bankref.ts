@@ -1,5 +1,5 @@
 import { accountOfStoredBankRef } from "../../src/lib/bankRefMask"
-import { createBankRefHasher } from "../../src/lib/bankRefHash"
+import { createBankRefHasher, type BankRefHasher } from "../../src/lib/bankRefHash"
 import { XFER_OUT_PREFIX } from "../../src/lib/xferRefs"
 
 // Legacy (full account number) Transaction.bankRef detection for #459, shared
@@ -15,18 +15,16 @@ export const CANDIDATE_PREFIXES = [...SENSITIVE_PREFIXES, ...SENSITIVE_PREFIXES.
 export type FindManyDelegate = { findMany(args: unknown): Promise<unknown[]> }
 type Row = { id: number; bankRef: string | null }
 
-// One hasher per process: each account's keyed digest is derived once, not per row.
-// Only legacy refs are hashed, so a database with none never needs the key.
-const hasher = createBankRefHasher()
-
 /**
  * The hashed bankRef a stored row should hold, or null when it needs no change
  * (already hashed, QIF, petty-cash, manual or null).
  *
  * @param bankRef - the stored value (null for unreferenced rows)
+ * @param hasher - per-run hasher (derives each account's digest once); a one-off
+ *   caller may omit it. Only legacy refs are hashed, so a database with none never needs the key.
  * @returns the rewritten ref, or null
  */
-export function planBankRefRewrite(bankRef: string | null): string | null {
+export function planBankRefRewrite(bankRef: string | null, hasher: BankRefHasher = createBankRefHasher()): string | null {
   if (!bankRef) return null
   const hashed = hasher.stored(bankRef)
   return hashed === bankRef ? null : hashed

@@ -9,6 +9,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 import { decrypt, hmacEmail, hmacMobile, keyIdOf } from "../src/lib/cryptoCore"
 import { isP2002 } from "../src/lib/validation"
 import { XFER_OUT_PREFIX, depositRefOfLeg, xferOutRef } from "../src/lib/xferRefs"
+import { createBankRefHasher, type BankRefHasher } from "../src/lib/bankRefHash"
 import { CANDIDATE_PREFIXES, planBankRefRewrite } from "./lib/legacy-bankref"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
@@ -17,7 +18,7 @@ export { planBankRefRewrite }
 // One-off backfill for #459: imported Transaction.bankRef values (ANZ_/ANZTR_/
 // OFX_, their `#n` split siblings and `XFER_OUT_` petty-cash paired legs) still
 // embed the bank account number in plaintext. This rewrites each to the hashed
-// at-rest format (`h<hmacBankAccount(acct)[0..16]>` in place of every
+// at-rest format (`h<hmacBankRefAccount(acct)[0..16]>` in place of every
 // occurrence; account number read from the ref's first segment), the same
 // format new imports write.
 //
@@ -58,13 +59,16 @@ const CANARY_SCAN = 100
 const TX_TIMEOUT_MS = 60_000
 const TX_MAX_WAIT_MS = 10_000
 
-type Row = { id: number; bankRef: string | null }
+type Row = { id: number; bankRef: string | null; updatedAt: Date }
 type Delegate = { findMany(args: unknown): Promise<unknown[]> }
-type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string } }
+// `updatedAt` is pinned to the value read: a bulk write would otherwise bump the
+// @updatedAt column, which transaction.ts uses as its optimistic-concurrency token.
+type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string; updatedAt: Date } }
 /** Commits every write or none; throws StaleWriteError when a guarded write matched no row. */
 type RunWrites = (writes: Write[]) => Promise<void>
 type HashOpts = { delegate?: Delegate; people?: Delegate; runWrites?: RunWrites; apply?: boolean; batchSize?: number }
 type Pending = { row: Row; next: string }
+type Ctx = { delegate: Delegate; runWrites: RunWrites; hasher: BankRefHasher }
 type HashResult = { changed: number; conflicts: number; collisions: number }
 type Outcome = "written" | "resolved" | "collision" | "conflict"
 
@@ -103,10 +107,10 @@ async function prismaRunWrites(writes: Write[]): Promise<void> {
  * read, so a concurrent change is never overwritten.
  *
  * @param p - the row as read and its hashed ref
- * @returns updateMany args
+ * @returns updateMany args (updatedAt pinned to its current value)
  */
 function guardedWrite(p: Pending): Write {
-  return { where: { id: p.row.id, bankRef: p.row.bankRef }, data: { bankRef: p.next } }
+  return { where: { id: p.row.id, bankRef: p.row.bankRef }, data: { bankRef: p.next, updatedAt: p.row.updatedAt } }
 }
 
 /**
@@ -246,17 +250,18 @@ function companionRef(ref: string): string {
  *
  * @param pending - this batch's rows that need a rewrite
  * @param delegate - Transaction delegate (to fetch out-of-batch mates)
+ * @param hasher - this run's hasher
  * @returns units, each written all-or-nothing
  */
-async function pairUnits(pending: Pending[], delegate: Delegate): Promise<Pending[][]> {
+async function pairUnits(pending: Pending[], delegate: Delegate, hasher: BankRefHasher): Promise<Pending[][]> {
   const inBatch = new Map(pending.map((p) => [p.row.bankRef!, p]))
   const missing = [...new Set(pending.map((p) => companionRef(p.row.bankRef!)))].filter((r) => !inBatch.has(r))
   const outside = missing.length
-    ? ((await delegate.findMany({ where: { bankRef: { in: missing } }, select: { id: true, bankRef: true } })) as Row[])
+    ? ((await delegate.findMany({ where: { bankRef: { in: missing } }, select: { id: true, bankRef: true, updatedAt: true } })) as Row[])
     : []
   const outsideByRef = new Map(
     outside.flatMap((row) => {
-      const next = planBankRefRewrite(row.bankRef)
+      const next = planBankRefRewrite(row.bankRef, hasher)
       return next === null ? [] : [[row.bankRef!, { row, next }] as const]
     }),
   )
@@ -281,22 +286,22 @@ async function pairUnits(pending: Pending[], delegate: Delegate): Promise<Pendin
  * pair is never left half-hashed.
  *
  * @param unit - the unit as read
- * @param ctx - delegate and runWrites
+ * @param ctx - delegate, runWrites and hasher
  * @returns the outcome — "written", "resolved" (nothing left to write),
  *   "collision" (a hashed form already exists) or "conflict" (kept changing) —
  *   and how many rows were written
  */
 async function writeUnit(
   unit: Pending[],
-  ctx: { delegate: Delegate; runWrites: RunWrites },
+  ctx: Ctx,
 ): Promise<{ outcome: Outcome; written: number }> {
   let current = unit
   for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
     if (attempt > 0) {
       const ids = unit.map((p) => p.row.id)
-      const fresh = (await ctx.delegate.findMany({ where: { id: { in: ids } }, select: { id: true, bankRef: true } })) as Row[]
+      const fresh = (await ctx.delegate.findMany({ where: { id: { in: ids } }, select: { id: true, bankRef: true, updatedAt: true } })) as Row[]
       current = fresh.flatMap((row) => {
-        const next = planBankRefRewrite(row.bankRef)
+        const next = planBankRefRewrite(row.bankRef, ctx.hasher)
         return next === null ? [] : [{ row, next }]
       })
     }
@@ -330,6 +335,8 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   const apply = opts.apply ?? APPLY
   const batchSize = opts.batchSize ?? BATCH
   const result: HashResult = { changed: 0, conflicts: 0, collisions: 0 }
+  // One hasher per run: each account's digest derived once, never cached across runs.
+  const hasher = createBankRefHasher()
   if (apply) await assertV1KeyMatches(delegate, people)
   // A pair skipped in one batch is met again from its mate's batch — report each row once.
   const reported = new Set<number>()
@@ -344,19 +351,19 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
       console.warn(`Transaction #${id}: its (or its paired leg's) hashed bankRef already exists on another row — skipped (review by hand)`)
     }
   }
-  const ctx = { delegate, runWrites }
+  const ctx: Ctx = { delegate, runWrites, hasher }
   let lastId = 0
   for (;;) {
     const rows = (await delegate.findMany({
       where: { id: { gt: lastId }, OR: CANDIDATE_PREFIXES.map((p) => ({ bankRef: { startsWith: p } })) },
       orderBy: { id: "asc" },
       take: batchSize,
-      select: { id: true, bankRef: true },
+      select: { id: true, bankRef: true, updatedAt: true },
     })) as Row[]
     if (rows.length === 0) break
     lastId = rows[rows.length - 1].id
     const pending = rows.flatMap((row) => {
-      const next = planBankRefRewrite(row.bankRef)
+      const next = planBankRefRewrite(row.bankRef, hasher)
       return next === null ? [] : [{ row, next }]
     })
     if (!apply) {
@@ -370,7 +377,7 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
         else result.changed++
       }
     } else if (pending.length > 0) {
-      const units = await pairUnits(pending, delegate)
+      const units = await pairUnits(pending, delegate, hasher)
       let batchCommitted = true
       try {
         await runWrites(units.flat().map(guardedWrite))

@@ -5,6 +5,18 @@
 // must restore masked refs only with a genuine sealed token.
 
 jest.mock("@/lib/featureFlags")
+// Lets a test simulate the v1 blind-index key being unavailable (hmac throws).
+const mockKeyState = { broken: false }
+jest.mock("@/lib/cryptoCore", () => {
+  const real = jest.requireActual("@/lib/cryptoCore")
+  return {
+    ...real,
+    hmacBankRefAccount: (a: string) => {
+      if (mockKeyState.broken) throw new Error("bank-ref-at-rest blind index requires the v1 encryption key")
+      return real.hmacBankRefAccount(a)
+    },
+  }
+})
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/accountingLock", () => ({
   getAccountingLockDate: jest.fn().mockResolvedValue(null),
@@ -32,7 +44,7 @@ import { parseOfx } from "@/lib/bankParsers/ofx"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
 import { encrypt } from "@/lib/crypto"
 import { sealAccountNumber } from "@/lib/bankAccountToken"
-import { accountHashToken, hashBankRef } from "@/lib/bankRefHash"
+import { BANKREF_HASH_ERROR, accountHashToken, hashBankRef } from "@/lib/bankRefHash"
 
 const ACCT = "987654321"
 const ANZ_TEXT = `
@@ -341,5 +353,27 @@ describe("at-rest bankRef format: hashed writes, dual-format dedup (#459)", () =
     expect(result).toEqual({ ok: true, imported: 2, skipped: 0, duplicates: 0 })
     const inserted: string[] = createMany.mock.calls[0][0].data.map((d: { bankRef: string }) => d.bankRef)
     expect(inserted).toEqual(rows.map((r) => hashBankRef(r.bankRef, ACCT)))
+  })
+})
+
+describe("v1 blind-index key unavailable (#459 review)", () => {
+  afterEach(() => {
+    mockKeyState.broken = false
+  })
+
+  it("parse: returns a typed 500 error (no uncaught throw, no unhashed lookup)", async () => {
+    mockKeyState.broken = true
+    const { status, body } = await parse("%PDF-1.4", "s.pdf", "anz")
+    expect(status).toBe(500)
+    expect(body).toEqual({ error: BANKREF_HASH_ERROR })
+    expect(txFindMany).not.toHaveBeenCalled()
+  })
+
+  it("confirm: returns an error result instead of throwing, and inserts nothing", async () => {
+    const { body } = await parse("%PDF-1.4", "s.pdf", "anz")
+    mockKeyState.broken = true
+    const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
+    expect(result).toEqual({ ok: false, status: 500, error: BANKREF_HASH_ERROR })
+    expect(createMany).not.toHaveBeenCalled()
   })
 })

@@ -1,14 +1,14 @@
 /** @jest-environment node */
 // #459: Transaction.bankRef must not hold the bank account number at rest.
 // Every occurrence is replaced by a keyed, deterministic `h<16 hex>` token.
-import { hmacBankAccount } from "@/lib/crypto"
+import { hmacBankAccount, hmacBankRefAccount } from "@/lib/crypto"
 import { contentKeyFromBankRef, parseAnzStatement } from "@/lib/anzParser"
 import { parseOfx } from "@/lib/bankParsers/ofx"
 import { accountOfStoredBankRef, HASHED_ACCOUNT_RE, hashBankRefWith, hashContentKeyWith } from "@/lib/bankRefMask"
 import { accountHashToken, hashBankRef, hashContentKey, hashStoredBankRef } from "@/lib/bankRefHash"
 
 const ACCT = "987654321"
-const tok = () => `h${hmacBankAccount(ACCT).slice(0, 16)}`
+const tok = () => `h${hmacBankRefAccount(ACCT).slice(0, 16)}`
 
 describe("pure hash rewrite (bankRefMask)", () => {
   const T = "habcdef0123456789"
@@ -57,7 +57,7 @@ describe("pure hash rewrite (bankRefMask)", () => {
 })
 
 describe("keyed hash (bankRefHash)", () => {
-  it("token is h + the first 16 hex of hmacBankAccount", () => {
+  it("token is h + the first 16 hex of hmacBankRefAccount", () => {
     expect(accountHashToken(ACCT)).toBe(tok())
     expect(accountHashToken(ACCT)).toMatch(HASHED_ACCOUNT_RE)
     expect(accountHashToken("123456789")).not.toBe(accountHashToken(ACCT))
@@ -93,8 +93,8 @@ describe("keyed hash (bankRefHash)", () => {
   it("createBankRefHasher derives each account's digest once and matches the one-off helpers", async () => {
     jest.resetModules()
     const real = jest.requireActual<typeof import("@/lib/cryptoCore")>("@/lib/cryptoCore")
-    const spy = jest.fn(real.hmacBankAccount)
-    jest.doMock("@/lib/cryptoCore", () => ({ ...real, hmacBankAccount: spy }))
+    const spy = jest.fn(real.hmacBankRefAccount)
+    jest.doMock("@/lib/cryptoCore", () => ({ ...real, hmacBankRefAccount: spy }))
     const { createBankRefHasher } = await import("@/lib/bankRefHash")
     const hasher = createBankRefHasher()
     const rows = parseAnzStatement(ANZ_TEXT).rows

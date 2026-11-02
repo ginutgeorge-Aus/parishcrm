@@ -237,7 +237,7 @@ export function hasUnmaskedAccount(ref: string): boolean {
 
 // ── At-rest hashed format (#459) ────────────────────────────────────────────
 // Stored Transaction.bankRef values replace every account-number occurrence
-// with `h<first 16 hex of hmacBankAccount(acct)>` (a keyed blind index, see
+// with `h<first 16 hex of hmacBankRefAccount(acct)>` (a keyed blind index, see
 // bankRefHash.ts) — `h<hex>p<n>` for a prefix cut off by description
 // truncation. Deterministic, so exact-ref and content-key dedup keep working.
 // One-way: nothing ever needs the number back. Lower-case `h` + hex cannot be
@@ -252,7 +252,7 @@ const HASH_TOKEN_HEX = 16
  * The hashed stand-in for an account number (the single source of the token
  * format): `h` + the first HASH_TOKEN_HEX hex characters of its HMAC digest.
  *
- * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @param digest - hex `hmacBankRefAccount(accountNumber)`
  * @returns `h<16 hex>`
  */
 export function accountHashHead(digest: string): string {
@@ -273,7 +273,7 @@ function hashTokens(digest: string): AccountTokens {
  *
  * @param key - content key / ref body
  * @param accountNumber - the account number embedded in the key
- * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @param digest - hex `hmacBankRefAccount(accountNumber)`
  * @returns the hashed key
  */
 export function hashContentKeyWith(key: string, accountNumber: string, digest: string): string {
@@ -288,7 +288,7 @@ export function hashContentKeyWith(key: string, accountNumber: string, digest: s
  *
  * @param ref - full-number bankRef
  * @param accountNumber - the account number embedded in the ref
- * @param digest - hex `hmacBankAccount(accountNumber)`
+ * @param digest - hex `hmacBankRefAccount(accountNumber)`
  * @returns the hashed bankRef
  */
 export function hashBankRefWith(ref: string, accountNumber: string, digest: string): string {

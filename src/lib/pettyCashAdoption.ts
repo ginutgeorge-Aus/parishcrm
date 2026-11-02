@@ -1,7 +1,5 @@
 import { toCents } from "@/lib/formatting"
 import { utcYmd } from "@/lib/dates"
-// Re-exported so existing importers keep working; the pairing convention lives in xferRefs.ts.
-export { depositRefOfLeg } from "@/lib/xferRefs"
 
 /** Why an imported deposit + its XFER_OUT leg cannot back a petty cash transfer. */
 export type AdoptionProblem = "unavailable" | "reconciled" | "legMismatch" | "depositMismatch" | "legDate"
