@@ -19,7 +19,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
 | `backfill-mobile-hash` | Populate `Person.mobileHash` / `MembershipApplication.mobileHash` blind index; also encrypts pre-existing plaintext `MembershipApplication.mobile` rows |
 | `rehash-mobile` | Unconditionally recompute the mobile blind index after `hmacMobile` gained prefix normalisation |
-| `audit-data-integrity` | **Read-only** diagnostic — scans encrypted-at-rest fields for plaintext leaks, checks `emailHash` completeness, verifies invariants FKs can't enforce. Exits non-zero on any finding; run against prod / a restored dump |
+| `audit-data-integrity` | **Read-only** diagnostic — scans encrypted-at-rest fields for plaintext leaks (incl. bank account numbers left in `Transaction.bankRef`), checks `emailHash` completeness, verifies invariants FKs can't enforce. Exits non-zero on any finding; run against prod / a restored dump |
 | `purge-registration-pii` | Retention purge — anonymises event-registration PII 6 months after the event ends, preserving financial aggregates. Also covers `Waitlist` and `CheckoutSession.payload`. Idempotent via each table's `anonymizedAt`; runs monthly via CI |
 | `purge-membership-application-pii` | Retention purge — anonymises DECIDED `MembershipApplication` payload/signature/email/mobile/applicantName reviewed >24 months ago; PENDING untouched. Idempotent via `anonymizedAt`; runs monthly via CI |
 | `set-church-name` | One-time/ad-hoc: set the `churchName` `AppSetting` row directly from the CLI (`CHURCH_FULL_NAME="…"`, dry-run unless `--apply --yes`) |
@@ -49,9 +49,11 @@ Migration status:
    as `rotate-encryption-key`), so a concurrent change is re-read and retried, never overwritten. A
    row whose hashed form already exists on another row is skipped and reported (review by hand).
    Refs are never printed (only row ids; logged errors are scrubbed of refs). Needs the app's
-   `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`: `--apply` refuses to write unless an existing v1-encrypted
-   `Transaction.description` decrypts with the run's key, because hashing with the wrong key is
-   irreversible. The dry run also reports rows whose hashed form already exists. A deposit and its
+   `ENCRYPTION_KEY`/`ENCRYPTION_KEY_V1`: `--apply` refuses to write unless the run's v1-derived
+   blind-index key matches the database's — a stored `Person.emailHash`/`mobileHash` must recompute
+   from its decrypted value (works after `rotate-encryption-key`; falls back to a v1-encrypted
+   `Transaction.description` that must decrypt when no such row exists, and refuses when neither
+   exists) — because hashing with the wrong key is irreversible. The dry run also reports rows whose hashed form already exists. A deposit and its
    `XFER_OUT_` paired leg are always rewritten in one transaction (even across batches, and on
    retry after a concurrent change), so the pair is never left half-hashed. Run in a quiet window:
 
@@ -59,6 +61,7 @@ Migration status:
    npx tsx scripts/hash-bankref-account.ts               # dry run: counts legacy rows
    npx tsx scripts/hash-bankref-account.ts --apply --yes # write
    npx tsx scripts/hash-bankref-account.ts               # confirm 0 rows remain
+   npx tsx scripts/audit-data-integrity.ts               # Transaction.bankRef check must pass
    ```
 
    Exits non-zero if any row was skipped. A release with this change needs a human-reviewed prod
@@ -66,11 +69,13 @@ Migration status:
    be retired**: unlike `emailHash`, the hashed refs cannot be rebuilt from a new root (the account
    number is gone).
 3. **Drop the legacy branch** of the dual matcher in a later release, once the dry run reports
-   zero legacy rows in every deployment.
+   zero legacy rows in every deployment and `audit-data-integrity` passes its `Transaction.bankRef`
+   check (same detection as the dry run).
 
 `__tests__/api/bank-statement-mask.test.ts` pins the hashed write format and dual-format dedup;
-`__tests__/scripts/hash-bankref-account.test.ts` covers the backfill's idempotency and conflict
-safety.
+`__tests__/scripts/hash-bankref-account.test.ts` covers the backfill's idempotency, conflict
+safety and key check; `__tests__/scripts/legacy-bankref.test.ts` covers the shared legacy-ref
+detection the audit uses.
 
 ## Upgrading: case-insensitive unique User email
 

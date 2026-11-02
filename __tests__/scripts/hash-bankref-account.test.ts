@@ -9,20 +9,24 @@ const ACCT = "987654321"
 
 type Row = { id: number; bankRef: string | null }
 type Write = { where: { id: number; bankRef: string | null }; data: { bankRef: string } }
+type PersonRow = { id: number; email: string | null; emailHash: string | null; mobile: string | null; mobileHash: string | null }
 type Where = { id?: { gt?: number; in?: number[] } | number; bankRef?: { in?: string[] }; description?: { startsWith?: string } }
 
 /**
  * In-memory Transaction table honouring the conditional updateMany and the
  * bankRef unique index; `runWrites` is all-or-nothing like the script's
  * interactive transaction (StaleWriteError when a guarded write matches none).
- * `descriptions` backs the v1 key-check canary query.
+ * `descriptions` backs the v1 description fallback canary; `persons` backs the
+ * Person blind-index canary (none by default, so the fallback is exercised).
  */
 function fakeDb(
   initial: Row[],
   hooks: { beforeWrite?: (rows: Map<number, Row>) => void } = {},
   descriptions: () => { id: number; description: string }[] = () => [{ id: 900, description: v1Canary() }],
+  persons: () => PersonRow[] = () => [],
 ) {
   const rows = new Map(initial.map((r) => [r.id, { ...r }]))
+  const people = { findMany: jest.fn(async () => persons()) }
   const delegate = {
     findMany: jest.fn(async (args: { where?: Where; take?: number }) => {
       if (args.where?.description) return descriptions()
@@ -53,12 +57,14 @@ function fakeDb(
     }
     for (const [k, v] of next) rows.set(k, v)
   })
-  return { rows, delegate, runWrites }
+  return { rows, delegate, people, runWrites }
 }
 
 let mod: typeof import("../../scripts/hash-bankref-account")
 let hashStoredBankRef: (ref: string) => string
 let encrypt: (plaintext: string) => string
+let hmacEmail: (email: string) => string
+let hmacMobile: (mobile: string) => string
 /** A description encrypted under the test's v1 key. */
 const v1Canary = () => encrypt("Opening balance")
 
@@ -69,14 +75,14 @@ beforeEach(async () => {
   process.env.ENCRYPTION_KEY_ID = "v1"
   mod = await import("../../scripts/hash-bankref-account")
   hashStoredBankRef = (await import("@/lib/bankRefHash")).hashStoredBankRef
-  encrypt = (await import("@/lib/cryptoCore")).encrypt
+  ;({ encrypt, hmacEmail, hmacMobile } = await import("@/lib/cryptoCore"))
   jest.spyOn(console, "log").mockImplementation(() => {})
   jest.spyOn(console, "warn").mockImplementation(() => {})
 })
 
 afterEach(() => {
   jest.restoreAllMocks()
-  for (const k of ["DATABASE_URL", "ENCRYPTION_KEY_V1", "ENCRYPTION_KEY_ID"]) delete process.env[k]
+  for (const k of ["DATABASE_URL", "ENCRYPTION_KEY_V1", "ENCRYPTION_KEY_V2", "ENCRYPTION_KEY_ID"]) delete process.env[k]
 })
 
 const legacy = (id: number, ref: string): Row => ({ id, bankRef: ref })
@@ -92,7 +98,7 @@ const seed = (): Row[] => [
 
 it("dry run (default) counts legacy rows without writing", async () => {
   const db = fakeDb(seed())
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: false })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: false })
   expect(res).toEqual({ changed: 4, conflicts: 0, collisions: 0 })
   expect(db.runWrites).not.toHaveBeenCalled()
   expect(db.rows.get(1)!.bankRef).toContain(ACCT)
@@ -101,7 +107,7 @@ it("dry run (default) counts legacy rows without writing", async () => {
 it("apply rewrites ANZ, split siblings, XFER_OUT pairs and OFX; leaves QIF/manual refs alone", async () => {
   const db = fakeDb(seed())
   const before = seed()
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   expect(res).toEqual({ changed: 4, conflicts: 0, collisions: 0 })
   for (const r of before) expect(db.rows.get(r.id)!.bankRef).toBe(r.bankRef === null ? null : hashStoredBankRef(r.bankRef))
   for (const r of db.rows.values()) {
@@ -118,10 +124,10 @@ it("apply rewrites ANZ, split siblings, XFER_OUT pairs and OFX; leaves QIF/manua
 
 it("is idempotent: a second apply run changes nothing", async () => {
   const db = fakeDb(seed())
-  await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   const snapshot = [...db.rows.values()].map((r) => ({ ...r }))
   db.runWrites.mockClear()
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 0 })
   expect(db.runWrites).not.toHaveBeenCalled()
   expect([...db.rows.values()]).toEqual(snapshot)
@@ -131,7 +137,7 @@ it("never overwrites a row that changed between read and write (conditional upda
   const concurrent = hashStoredBankRef(`ANZ_${ACCT}_20250623_60.00_PAYMENTFROMJACK_5176894`)
   // Another writer (e.g. a newer app instance) rewrites row 1 after the batch read.
   const db = fakeDb([seed()[0]], { beforeWrite: (rows) => (rows.get(1)!.bankRef = concurrent) })
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   // Re-read shows it is already hashed → resolved, not a conflict, nothing clobbered.
   expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 0 })
   expect(db.rows.get(1)!.bankRef).toBe(concurrent)
@@ -140,7 +146,7 @@ it("never overwrites a row that changed between read and write (conditional upda
 it("retries a row that changed to another legacy value and writes the fresh value", async () => {
   const fresh = `ANZ_${ACCT}_20250623_60.00_EDITED_1`
   const db = fakeDb([seed()[0]], { beforeWrite: (rows) => (rows.get(1)!.bankRef = fresh) })
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   expect(res).toEqual({ changed: 1, conflicts: 0, collisions: 0 })
   expect(db.rows.get(1)!.bankRef).toBe(hashStoredBankRef(fresh))
 })
@@ -148,7 +154,7 @@ it("retries a row that changed to another legacy value and writes the fresh valu
 it("a unique collision with an existing hashed twin is skipped and reported; the rest of the batch commits", async () => {
   const ref = `ANZ_${ACCT}_20250623_60.00_PAYMENTFROMJACK_5176894`
   const db = fakeDb([legacy(1, ref), legacy(2, `ANZ_${ACCT}_20250624_5.00_OTHER_1`), { id: 3, bankRef: hashStoredBankRef(ref) }])
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   expect(res).toEqual({ changed: 1, conflicts: 0, collisions: 1 })
   expect(db.rows.get(1)!.bankRef).toBe(ref) // untouched, needs a manual decision
   expect(db.rows.get(2)!.bankRef).not.toContain(ACCT)
@@ -163,7 +169,7 @@ describe("deposit + XFER_OUT_ leg pairing", () => {
 
   it("writes a deposit and its leg in one transaction even when they fall in different batches", async () => {
     const db = fakeDb([legacy(1, deposit), legacy(2, `ANZ_${ACCT}_20250723_5.00_OTHER_1`), legacy(3, leg)])
-    const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true, batchSize: 1 })
+    const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true, batchSize: 1 })
     expect(res).toEqual({ changed: 3, conflicts: 0, collisions: 0 })
     expect(db.runWrites.mock.calls[0][0].map((w) => w.where.id)).toEqual([1, 3])
     expect(db.rows.get(3)!.bankRef).toBe(`XFER_OUT_${db.rows.get(1)!.bankRef}`)
@@ -171,7 +177,7 @@ describe("deposit + XFER_OUT_ leg pairing", () => {
 
   it("a collision on the leg leaves the deposit legacy too (pair never split), reported once per row", async () => {
     const db = fakeDb([legacy(1, deposit), legacy(2, leg), { id: 3, bankRef: hashStoredBankRef(leg) }])
-    const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true, batchSize: 1 })
+    const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true, batchSize: 1 })
     expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 2 })
     expect(db.rows.get(1)!.bankRef).toBe(deposit)
     expect(db.rows.get(2)!.bankRef).toBe(leg)
@@ -185,22 +191,82 @@ describe("v1 key check (apply only)", () => {
     process.env.ENCRYPTION_KEY_V1 = Buffer.alloc(32, 9).toString("base64") // not the DB's key
     mod = await import("../../scripts/hash-bankref-account")
     const db = fakeDb(seed(), {}, () => [{ id: 900, description: foreign }])
-    await expect(mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })).rejects.toThrow(
+    await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })).rejects.toThrow(
       /Key check failed: Transaction #900 does not decrypt/,
     )
     expect(db.runWrites).not.toHaveBeenCalled()
     expect(db.rows.get(1)!.bankRef).toContain(ACCT)
   })
 
-  it("refuses to --apply when no v1-encrypted description exists to check against", async () => {
-    const db = fakeDb(seed(), {}, () => [{ id: 901, description: "plain text" }])
-    await expect(mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })).rejects.toThrow(/no v1-encrypted/)
+  it("refuses to --apply when neither a blind index nor a v1-encrypted description exists to check against", async () => {
+    const db = fakeDb(seed(), {}, () => [{ id: 901, description: "plain text" }], () => [])
+    await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })).rejects.toThrow(/no v1-encrypted/)
     expect(db.runWrites).not.toHaveBeenCalled()
+  })
+
+  describe("blind-index canary (survives key rotation)", () => {
+    const KEY2 = Buffer.alloc(32, 3).toString("base64")
+    /** Rotate to v2: new writes (and the rotated rows) are v2-encrypted. */
+    const rotate = () => {
+      process.env.ENCRYPTION_KEY_V2 = KEY2
+      process.env.ENCRYPTION_KEY_ID = "v2"
+    }
+    /** A Person row as the app writes it: v2 ciphertext + v1-derived blind indexes. */
+    const person = (id: number): PersonRow => ({
+      id,
+      email: encrypt("Member@Example.com"),
+      emailHash: hmacEmail("Member@Example.com"),
+      mobile: encrypt("0400 000 000"),
+      mobileHash: hmacMobile("0400 000 000"),
+    })
+
+    it("passes with the right key after rotation, though no row is v1-encrypted any more", async () => {
+      rotate()
+      const persons = [person(10)]
+      const v2Only = [{ id: 900, description: encrypt("Opening balance") }]
+      const db = fakeDb(seed(), {}, () => v2Only, () => persons)
+      const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
+      expect(res.changed).toBe(4)
+      expect(db.rows.get(1)!.bankRef).not.toContain(ACCT)
+    })
+
+    it("passes on a mobile hash when the person has no email", async () => {
+      rotate()
+      const persons = [{ ...person(11), email: null, emailHash: null }]
+      const db = fakeDb(seed(), {}, () => [], () => persons)
+      await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })).resolves.toMatchObject({
+        changed: 4,
+      })
+    })
+
+    it("refuses when this run's v1 key differs (current key still decrypts) — nothing written, no PII in the error", async () => {
+      rotate()
+      const persons = [person(12)]
+      process.env.ENCRYPTION_KEY_V1 = Buffer.alloc(32, 9).toString("base64") // wrong v1, right v2
+      const db = fakeDb(seed(), {}, () => [], () => persons)
+      const err = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true }).catch((e: Error) => e)
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).message).toMatch(/Key check failed: no stored Person emailHash\/mobileHash/)
+      expect((err as Error).message).not.toMatch(/example\.com|0400|enc:/i)
+      expect(db.runWrites).not.toHaveBeenCalled()
+      expect(db.rows.get(1)!.bankRef).toContain(ACCT)
+    })
+
+    it("refuses when the stored values do not decrypt with this keyring", async () => {
+      rotate()
+      const persons = [person(13)]
+      process.env.ENCRYPTION_KEY_V2 = Buffer.alloc(32, 5).toString("base64") // v2 not the DB's
+      const db = fakeDb(seed(), {}, () => [], () => persons)
+      await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })).rejects.toThrow(
+        /Key check failed/,
+      )
+      expect(db.runWrites).not.toHaveBeenCalled()
+    })
   })
 
   it("the dry run does not need the key check", async () => {
     const db = fakeDb(seed(), {}, () => [])
-    await expect(mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: false })).resolves.toEqual({
+    await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: false })).resolves.toEqual({
       changed: 4,
       conflicts: 0,
       collisions: 0,
@@ -211,7 +277,7 @@ describe("v1 key check (apply only)", () => {
 it("dry run reports rows whose hashed twin already exists as collisions", async () => {
   const ref = `ANZ_${ACCT}_20250623_60.00_PAYMENTFROMJACK_5176894`
   const db = fakeDb([legacy(1, ref), legacy(2, `ANZ_${ACCT}_20250624_5.00_OTHER_1`), { id: 3, bankRef: hashStoredBankRef(ref) }])
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: false })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: false })
   expect(res).toEqual({ changed: 1, conflicts: 0, collisions: 1 })
   expect(db.runWrites).not.toHaveBeenCalled()
 })
@@ -227,7 +293,7 @@ it("a pair whose deposit changed concurrently is retried as a unit, never half-h
     if (writes++ === 0) db.rows.get(1)!.bankRef = edited
     return inner(w)
   })
-  const res = await mod.hashBankRefs({ delegate: db.delegate, runWrites: db.runWrites, apply: true })
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
   // The failing attempts wrote nothing; the retry re-read both rows and wrote them together.
   expect(db.rows.get(1)!.bankRef).toBe(hashStoredBankRef(edited))
   expect(db.rows.get(2)!.bankRef).toBe(hashStoredBankRef(`XFER_OUT_${deposit}`))
@@ -237,6 +303,35 @@ it("a pair whose deposit changed concurrently is retried as a unit, never half-h
     const ids = ws.map((w: { where: { id: number } }) => w.where.id)
     if (ids.includes(2)) expect(ids).toContain(1)
   }
+})
+
+describe("isUniqueViolation", () => {
+  it("matches a Prisma P2002 and an unwrapped adapter-pg UniqueConstraintViolation", () => {
+    expect(mod.isUniqueViolation(Object.assign(new Error("x"), { code: "P2002" }))).toBe(true)
+    expect(mod.isUniqueViolation(Object.assign(new Error("driver"), { cause: { kind: "UniqueConstraintViolation" } }))).toBe(true)
+  })
+
+  it("never matches on message text alone", () => {
+    expect(mod.isUniqueViolation(new Error("Unique constraint failed somewhere unrelated"))).toBe(false)
+    expect(mod.isUniqueViolation("Unique constraint")).toBe(false)
+  })
+
+  it("an unrelated error whose message mentions a unique constraint is rethrown, not skipped as a collision", async () => {
+    const db = fakeDb(seed())
+    db.runWrites.mockRejectedValue(new Error("Unique constraint on some other index (deadlock detected)"))
+    await expect(mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })).rejects.toThrow(
+      /deadlock detected/,
+    )
+  })
+
+  it("an adapter-pg shaped collision is skipped and reported", async () => {
+    const ref = `ANZ_${ACCT}_20250623_60.00_PAYMENTFROMJACK_5176894`
+    const db = fakeDb([legacy(1, ref)])
+    db.runWrites.mockRejectedValue(Object.assign(new Error("driver error"), { cause: { kind: "UniqueConstraintViolation" } }))
+    const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
+    expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 1 })
+    expect(db.rows.get(1)!.bankRef).toBe(ref)
+  })
 })
 
 it("safeErrorText scrubs bankRefs (and the account number in them) from logged errors", () => {

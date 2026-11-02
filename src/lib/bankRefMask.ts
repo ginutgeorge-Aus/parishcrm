@@ -118,6 +118,9 @@ function replaceTailSegment(segment: string, accountNumber: string, isDesc: bool
  * with `tokens`: the leading segment when it equals `accountNumber`, and — for
  * numbers of 6+ characters — every occurrence in the description and suffix
  * segments. Keys whose first segment is not `accountNumber` are returned as-is.
+ * The 6-character floor (`MIN_INLINE_MASK_LENGTH`, shared with the browser
+ * mask) is deliberate: a shorter number would also match unrelated digit runs
+ * in descriptions and references, so only the leading segment is rewritten.
  */
 function rewriteContentKey(key: string, accountNumber: string, tokens: AccountTokens): string {
   if (!accountNumber) return key
