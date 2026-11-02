@@ -34,7 +34,7 @@ Open **Venue bookings** in the sidebar and pick a month. Each date has a status:
 - **Add all Sundays in** the chosen month creates a booking for every Sunday that does not already have one.
 - Tick several rows to **Mark confirmed** or cancel them together.
 - **Cancel** asks "Email venue about this cancellation?". Choose to email the venue, or keep the booking change without emailing. The cancellation notice wording is fixed.
-- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told.
+- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told.
 - After the day, **Edit** the booking so it shows the times you actually used. The total hours for the month is shown above the list.
 
 ## Asking the venue to book

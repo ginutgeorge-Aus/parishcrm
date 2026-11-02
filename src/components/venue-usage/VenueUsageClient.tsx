@@ -186,6 +186,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   }
 
   const locked = form.id !== null && form.venueKnows
+  // Once the day has passed the times can still be corrected to the hours actually used; the date stays locked.
+  const timesLocked = locked && form.date >= today
 
   return (
     <div className="space-y-6">
@@ -249,11 +251,11 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="vu-start">Start</Label>
-            <Input id="vu-start" type="time" required disabled={locked} value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
+            <Input id="vu-start" type="time" required disabled={timesLocked} value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="vu-end">End</Label>
-            <Input id="vu-end" type="time" required disabled={locked} value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
+            <Input id="vu-end" type="time" required disabled={timesLocked} value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="vu-purpose">Purpose (optional)</Label>
@@ -268,8 +270,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
           </div>
           {locked && (
             <p className="text-sm text-muted-foreground sm:col-span-2">
-              The venue has already been asked about this date, so the date and times are locked. To change them,
-              cancel it from the bookings list (emailing the venue) and add a new booking.
+              {timesLocked
+                ? "The venue has already been asked about this date, so the date and times are locked. To change them, cancel it from the bookings list (emailing the venue) and add a new booking."
+                : "The venue has already been asked about this date, so the date is locked. The day has passed, so you can still correct the start and end times to the hours actually used."}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
