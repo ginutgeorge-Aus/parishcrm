@@ -84,6 +84,9 @@ function mutationOk(success: string, cleared: string[]): VenueMutationResult {
   return cleared.length ? { success, approvalCleared: true } : { success }
 }
 
+/** Warning shown when hours are corrected on a month whose invoice request was already sent (the send is not redone). */
+const SENT_MONTH_WARNING = "Hours saved, but this month's invoice was already sent and won't be updated."
+
 /**
  * Whether adding `adding` rows to `month` would exceed {@link MAX_ROWS_PER_MONTH} (all statuses count, as the
  * capped month reads do). Callers run it inside {@link serializableWrite}, so two concurrent creates near the cap
@@ -205,7 +208,11 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
       date, status: rest.status, ...(pastTimesOnly && timingChanged ? { startTime: rest.startTime, endTime: rest.endTime } : {}),
     })
-    return { months }
+    // clearApprovalTx skips sent (SUCCESS) months, so a past-hours correction there is not reflected in the invoice.
+    const sent = pastTimesOnly && timingChanged
+      ? (await tx.venueUsageRequest.findFirst({ where: { month: monthOfDate(existing.date) }, select: { status: true } }))?.status === "SUCCESS"
+      : false
+    return { months, sent }
   })
   if ("error" in outcome) return outcome
   if ("notFound" in outcome) return { error: "Booking not found" }
@@ -213,7 +220,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
-  return mutationOk("Booking updated", outcome.months)
+  const ok = mutationOk("Booking updated", outcome.months)
+  return outcome.sent && "success" in ok ? { ...ok, warning: SENT_MONTH_WARNING } : ok
 }
 
 /**

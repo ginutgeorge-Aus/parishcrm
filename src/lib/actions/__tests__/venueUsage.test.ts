@@ -4,7 +4,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
     venueUsage: { count: jest.fn(), create: jest.fn(), createMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
-    venueUsageRequest: { findUnique: jest.fn(), findMany: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    venueUsageRequest: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     emailTemplate: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
     appSetting: { upsert: jest.fn() },
@@ -183,6 +183,27 @@ describe("usage row CRUD", () => {
         ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, ...stamps })
         expect(await updateVenueUsage(5, { ...pastIn, date: "2020-09-13", endTime: "21:00" })).toEqual({ error: LOCK })
         expect(prisma.venueUsage.update).not.toHaveBeenCalled()
+      })
+      it("succeeds with a warning when the month's invoice was already sent", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: new Date(), bookingRequestedAt: null })
+        ;(prisma.venueUsageRequest.findFirst as jest.Mock).mockResolvedValueOnce({ status: "SUCCESS" })
+        const r = await updateVenueUsage(5, { ...pastIn, endTime: "21:00" })
+        expect(r).toEqual({ success: "Booking updated", warning: expect.stringContaining("already sent") })
+        expect(prisma.venueUsageRequest.findFirst).toHaveBeenCalledWith({ where: { month: "2020-09" }, select: { status: true } })
+        expect(prisma.venueUsage.update).toHaveBeenCalled()
+      })
+      it.each([[null], [{ status: null }], [{ status: "FAILED" }]])("gives no warning when the month's request is %j", async (req) => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: new Date(), bookingRequestedAt: null })
+        ;(prisma.venueUsageRequest.findFirst as jest.Mock).mockResolvedValueOnce(req)
+        expect(await updateVenueUsage(5, { ...pastIn, endTime: "21:00" })).toEqual({ success: "Booking updated" })
+      })
+      it("gives no warning when the times are unchanged, even on a sent month", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: new Date(), bookingRequestedAt: null })
+        ;(prisma.venueUsageRequest.findFirst as jest.Mock).mockResolvedValue({ status: "SUCCESS" })
+        expect(await updateVenueUsage(5, { ...pastIn, purpose: "Other" })).toEqual({ success: "Booking updated" })
       })
     })
   })

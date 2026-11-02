@@ -110,3 +110,37 @@ it("shows a retry message when saving throws", async () => {
   await user.click(screen.getByRole("button", { name: "Add booking" }))
   expect(await screen.findByText("Could not save the booking. Please try again.")).toBeInTheDocument()
 })
+
+/**
+ * Render with one venue-known row and open it for editing.
+ * @param date the row's date (today in these tests is 2026-10-25)
+ */
+async function editKnownRow(date: string) {
+  const row = { id: 3, date, startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const, purpose: null, notes: null, bookingRequestedAt: "2026-10-01T00:00:00.000Z", venueKnows: true }
+  const user = userEvent.setup()
+  render(<VenueUsageClient month={date.slice(0, 7)} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
+  await user.click(screen.getByRole("button", { name: "Edit" }))
+  return user
+}
+
+describe("venue-known row edit locks", () => {
+  it("past row: times enabled, date disabled", async () => {
+    await editKnownRow("2026-10-11")
+    expect(screen.getByLabelText("Date")).toBeDisabled()
+    expect(screen.getByLabelText("Start")).toBeEnabled()
+    expect(screen.getByLabelText("End")).toBeEnabled()
+  })
+  it("same-day row: date and times all locked", async () => {
+    await editKnownRow("2026-10-25")
+    expect(screen.getByLabelText("Date")).toBeDisabled()
+    expect(screen.getByLabelText("Start")).toBeDisabled()
+    expect(screen.getByLabelText("End")).toBeDisabled()
+  })
+  it("shows a warning returned by the update", async () => {
+    const { updateVenueUsage } = jest.requireMock("@/lib/actions/venueUsage")
+    updateVenueUsage.mockResolvedValue({ success: "Booking updated", warning: "Hours saved, but the invoice was already sent." })
+    const user = await editKnownRow("2026-10-11")
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+    expect(await screen.findByText(/invoice was already sent/)).toHaveAttribute("role", "alert")
+  })
+})

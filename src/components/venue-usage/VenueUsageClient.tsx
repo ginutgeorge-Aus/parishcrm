@@ -79,7 +79,7 @@ function blankForm(nextSunday: string, today: string): FormState {
 export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
-  const [formState, setFormState] = useState<{ error?: string; success?: string } | undefined>()
+  const [formState, setFormState] = useState<{ error?: string; success?: string; warning?: string } | undefined>()
   const [approvalCleared, setApprovalCleared] = useState(false)
   const [dataVersion, setDataVersion] = useState(0)
   const [seenMonth, setSeenMonth] = useState(month)
@@ -293,6 +293,11 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
               </Button>
             )}
             <FormFeedback state={formState} />
+            {formState?.warning && (
+              <p role="alert" className="w-full rounded-md border border-destructive/40 bg-muted p-2 text-sm text-destructive">
+                {formState.warning}
+              </p>
+            )}
           </div>
         </form>
       </section>
