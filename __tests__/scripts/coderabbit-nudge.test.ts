@@ -2,6 +2,8 @@
 import assert from "node:assert/strict"
 import {
   isReviewed,
+  MAX_NUDGES_PER_PR,
+  nudgeBlocked,
   firstStatusAt,
   needsNudge,
   nudgeInFlight,
@@ -358,10 +360,11 @@ test("needsNudge: a new push with no CodeRabbit status yet is nudged despite an 
 })
 
 /** Fake `gh` serving canned PR data per path; records POSTed comment bodies per PR. */
-function fakeGh(data: { prs: unknown[]; comments: Record<number, unknown[]>; statuses: Record<string, unknown[]> }) {
+function fakeGh(data: { prs: unknown[]; comments: Record<number, unknown[]>; statuses: Record<string, unknown[]>; counts?: Record<number, number> }) {
   const posts: { path: string; body: unknown }[] = []
   const routes: [RegExp, (match: RegExpMatchArray) => unknown][] = [
     [/\/pulls\?state=open$/, () => data.prs],
+    [/\/issues\/(\d+)$/, (match) => ({ comments: data.counts?.[Number(match[1])] ?? 0 })],
     [/\/reviews$/, () => []],
     [/\/issues\/(\d+)\/comments$/, (match) => data.comments[Number(match[1])] ?? []],
     [/\/commits\/([^/]+)\/statuses$/, (match) => data.statuses[match[1]] ?? []],
@@ -402,6 +405,103 @@ test("runOnce: selects the PR with a completed status + stale pause; skips the o
     assert.deepEqual(posts.map((p) => p.path.match(/issues\/(\d+)\//)?.[1]), ["1"])
     assert.deepEqual(posts[0].body, { body: "@coderabbitai review" })
   } finally {
+    logs.mockRestore()
+  }
+})
+
+const NUDGE = (t: string) => comment({ body: "@coderabbitai review", createdAt: t, updatedAt: t })
+
+test("nudgeBlocked: cooldown blocks a nudge <10 min old, allows older", () => {
+  const now = new Date("2026-10-16T00:00:00Z")
+  assert.match(nudgeBlocked([NUDGE("2026-10-15T23:55:00Z")], now) ?? "", /cooldown/)
+  assert.equal(nudgeBlocked([NUDGE("2026-10-15T23:45:00Z")], now), null)
+  assert.equal(nudgeBlocked([], now), null)
+})
+
+test("nudgeBlocked: cap blocks at MAX_NUDGES_PER_PR; CodeRabbit comments and other text don't count", () => {
+  const now = new Date("2026-10-16T00:00:00Z")
+  const nudges = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => NUDGE(`2026-10-1${i}T00:00:00Z`))
+  assert.match(nudgeBlocked(nudges, now) ?? "", /cap/)
+  assert.equal(nudgeBlocked(nudges.slice(1), now), null)
+  const noise = [comment({ user: BOT, body: "@coderabbitai review" }), comment({ body: "@coderabbitai review please" })]
+  assert.equal(nudgeBlocked([...nudges.slice(1), ...noise], now), null)
+})
+
+test("runOnce: PR #485 regression - skips PRs at the nudge cap (uncapped loop hit the 2500-comment limit), in cooldown, or near the comment limit; still nudges others", async () => {
+  const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
+  const apiPr = (number: number) => ({
+    number, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha: `sha${number}` },
+  })
+  const nudge = (t: string) => ({ user: { login: "owner" }, body: "@coderabbitai review", created_at: t, updated_at: t })
+  const capped = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => nudge(`2026-10-1${i}T00:00:00Z`))
+  const { api, posts } = fakeGh({
+    prs: [apiPr(1), apiPr(2), apiPr(3), apiPr(4)],
+    comments: { 1: capped, 2: [nudge("2026-10-15T23:55:00Z"), { user: { login: BOT }, body: "Review finished.", created_at: "2026-10-15T23:56:00Z", updated_at: "2026-10-15T23:56:00Z" }], 3: [] }, // 2: cooldown, already answered
+    statuses: {},
+    counts: { 4: 2400 },
+  })
+  try {
+    await runOnce(false, api, new Date("2026-10-16T00:00:00Z"))
+    assert.deepEqual(posts.map((p) => p.path.match(/issues\/(\d+)\//)?.[1]), ["3"])
+  } finally {
+    logs.mockRestore()
+  }
+})
+
+describe("runOnce: skipped PRs still feed the global rate-limit / in-flight checks", () => {
+  const apiPr = (number: number) => ({
+    number, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha: `sha${number}` },
+  })
+  const apiComment = (login: string, body: string, t: string) => ({ user: { login }, body, created_at: t, updated_at: t })
+  const nudge = (t: string) => apiComment("owner", "@coderabbitai review", t)
+
+  test("capped PR holding a live rate-limit notice: other eligible PR is not nudged", async () => {
+    const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
+    const capped = [
+      ...Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => nudge(`2026-10-1${i}T00:00:00Z`)),
+      apiComment(BOT, RATE_LIMIT_BODY, "2026-10-15T23:50:00Z"),
+    ]
+    const { api, posts } = fakeGh({ prs: [apiPr(1), apiPr(2)], comments: { 1: capped, 2: [] }, statuses: {} })
+    try {
+      const reset = await runOnce(false, api, new Date("2026-10-16T00:00:00Z"))
+      assert.ok(reset instanceof Date)
+      assert.deepEqual(posts, [])
+    } finally {
+      logs.mockRestore()
+    }
+  })
+
+  test("cooldown PR with an in-flight nudge: other PR is not nudged", async () => {
+    const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
+    const { api, posts } = fakeGh({
+      prs: [apiPr(1), apiPr(2)],
+      comments: { 1: [nudge("2026-10-15T23:55:00Z")], 2: [] },
+      statuses: {},
+    })
+    try {
+      assert.equal(await runOnce(false, api, new Date("2026-10-16T00:00:00Z")), null)
+      assert.deepEqual(posts, [])
+    } finally {
+      logs.mockRestore()
+    }
+  })
+})
+
+test("gh: a GET returning a single object (not an array) is passed through without pagination", async () => {
+  const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
+  const json = (body: unknown) => Promise.resolve({ ok: true, json: () => Promise.resolve(body), headers: new Headers() })
+  const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(((url: string) => {
+    if (/\/pulls\?state=open/.test(url)) {
+      return json([{ number: 7, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha: "s7" } }])
+    }
+    if (/\/issues\/7\?/.test(url)) return json({ comments: 3 }) // single object
+    return json([])
+  }) as unknown as typeof fetch)
+  try {
+    assert.equal(await runOnce(true, undefined, new Date("2026-10-16T00:00:00Z")), null)
+    assert.ok(logs.mock.calls.some((c) => String(c[0]).includes("[dry-run] would comment")))
+  } finally {
+    fetchMock.mockRestore()
     logs.mockRestore()
   }
 })
