@@ -292,7 +292,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
                 Cancel edit
               </Button>
             )}
-            <FormFeedback state={formState} />
+            <FormFeedback state={formState} warningTone="destructive" />
           </div>
         </form>
       </section>

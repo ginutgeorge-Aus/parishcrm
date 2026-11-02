@@ -85,8 +85,24 @@ function mutationOk(success: string, cleared: string[], warning?: string): Venue
   return { success, ...(cleared.length ? { approvalCleared: true } : {}), ...(warning ? { warning } : {}) }
 }
 
-/** Warning shown when hours are corrected on a month whose invoice request was already sent (the send is not redone). */
-const SENT_MONTH_WARNING = "Hours saved, but this month's invoice request was already sent and won't be updated."
+/** Warning shown when a change alters the CONFIRMED rows of a month whose invoice request was already sent (the send is not redone). */
+const SENT_MONTH_WARNING = "Changes saved, but this month's invoice request was already sent and won't be updated."
+
+/**
+ * Whether any of `months` already had its invoice request sent (status SUCCESS). `clearApprovalTx` skips such
+ * months, so a change to their CONFIRMED rows is not reflected in what the venue received. Runs inside the
+ * caller's transaction so the answer matches the committed change and a failure rolls the edit back instead of
+ * throwing after commit.
+ * @param tx transaction client
+ * @param months "YYYY-MM" values whose CONFIRMED membership or hours changed
+ */
+async function anyMonthSent(tx: Prisma.TransactionClient, months: string[]): Promise<boolean> {
+  for (const month of new Set(months)) {
+    const req = await tx.venueUsageRequest.findUnique({ where: { month }, select: { status: true } })
+    if (req?.status === "SUCCESS") return true
+  }
+  return false
+}
 
 /**
  * Whether adding `adding` rows to `month` would exceed {@link MAX_ROWS_PER_MONTH} (all statuses count, as the
@@ -162,14 +178,13 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
  * Once the venue knows a row (`venueNotifiedAt` or `bookingRequestedAt` set) its date and times are locked:
  * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}), with one exception: once the booking date has
  * passed (before today, Sydney time) the start and end times alone may be corrected to the hours actually used
- * (the date itself stays locked). That path keeps the "asked on" stamp (`bookingRequestedAt`) but still clears
- * approval. Status, purpose and notes stay editable, except that cancelling such a row here is refused ({@link VENUE_KNOWS_CANCEL_ERROR}): it must go through
- * `setVenueUsageStatus`, which offers the cancellation email.
- * When such a correction (or a status change) alters what the month's invoice counts (CONFIRMED rows) and the
- * month's invoice request was already sent, the result carries a warning because the send is not redone.
- * A status change resets `bookingRequestedAt` (so the stale "asked on" stamp disappears), except on a past row the
- * venue knows, whose stamp is kept so its locks stay in force; purpose/notes edits leave it alone.
- * `venueNotifiedAt` is never touched: the venue still knows the row, so a later cancellation must reach them.
+ * (the date itself stays locked). Status, purpose and notes stay editable, except that cancelling such a row here
+ * is refused ({@link VENUE_KNOWS_CANCEL_ERROR}): it must go through `setVenueUsageStatus`, which offers the
+ * cancellation email.
+ * A venue-known row keeps both `bookingRequestedAt` and `venueNotifiedAt` whatever changes (a status change does
+ * not clear them, matching `setVenueUsageStatus`), so its locks stay in force and a later cancellation reaches the venue.
+ * When a change alters what a month's invoice counts (CONFIRMED rows: hours or status) and that month's invoice
+ * request was already sent, the result carries a warning because the send is not redone.
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
@@ -204,9 +219,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
       return { full: true } as const
     }
     const statusChanged = existing.status !== rest.status
-    // A status change normally clears the stale "asked on" stamp, but not on a past known row: its stamp is what keeps
-    // the venue-known lock (date, cancel) in force, and the venue still knows the day.
-    const rescheduled = (timingChanged && !hoursCorrected) || (statusChanged && !(venueKnows && pastDay))
+    // Only an unasked row is rescheduled (its stamp is then already null); a known row keeps both stamps.
+    const rescheduled = timingChanged && !venueKnows
     await tx.venueUsage.update({
       where: { id },
       data: { ...rest, date: ymdToUtcDate(date), ...(rescheduled ? { bookingRequestedAt: null } : {}) },
@@ -219,13 +233,14 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
         ? { oldStartTime: existing.startTime, oldEndTime: existing.endTime, startTime: rest.startTime, endTime: rest.endTime }
         : {}),
     })
-    // clearApprovalTx skips sent (SUCCESS) months, so a change to invoiced content there is not reflected in the
-    // invoice. The invoice counts CONFIRMED rows only, so only a past known row (date unchanged) whose hours or
-    // status changed while it is, or was, CONFIRMED can make a sent invoice stale.
-    const affectsInvoice =
-      venueKnows && !dateChanged && pastDay && (timesChanged || statusChanged) &&
-      (existing.status === "CONFIRMED" || rest.status === "CONFIRMED")
-    return { months, oldMonth, affectsInvoice }
+    // clearApprovalTx skips sent (SUCCESS) months. The invoice counts CONFIRMED rows only, so a changed row that is,
+    // or was, CONFIRMED can make a sent request stale (old month if it was CONFIRMED, new month if it now is).
+    const staleMonths: string[] = []
+    if (timingChanged || statusChanged) {
+      if (existing.status === "CONFIRMED") staleMonths.push(oldMonth)
+      if (rest.status === "CONFIRMED") staleMonths.push(date.slice(0, 7))
+    }
+    return { months, sent: await anyMonthSent(tx, staleMonths) }
   })
   if ("error" in outcome) return outcome
   if ("notFound" in outcome) return { error: "Booking not found" }
@@ -233,10 +248,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
   if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   if ("full" in outcome) return { error: MOVE_MONTH_FULL_ERROR }
   revalidatePath("/venue-usage")
-  // Informational only, so it runs after the serializable transaction commits (a failure must not undo the edit).
-  const sent = outcome.affectsInvoice &&
-    (await prisma.venueUsageRequest.findUnique({ where: { month: outcome.oldMonth }, select: { status: true } }))?.status === "SUCCESS"
-  return mutationOk("Booking updated", outcome.months, sent ? SENT_MONTH_WARNING : undefined)
+  return mutationOk("Booking updated", outcome.months, outcome.sent ? SENT_MONTH_WARNING : undefined)
 }
 
 /**
@@ -358,28 +370,32 @@ export async function setVenueUsageStatus(
     })
     if (rows.length !== uniqueIds.length) return null
     const toChange = rows.filter((r) => r.status !== status)
-    if (toChange.length === 0) return { changed: [] as typeof rows, cleared: [] as string[] }
+    if (toChange.length === 0) return { changed: [] as typeof rows, cleared: [] as string[], sent: false }
     await tx.venueUsage.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { status } })
     const months = await clearApprovalTx(tx, toChange.map((r) => monthOfDate(r.date)), userId)
     await logAuditManyTx(tx, toChange.map((r) => ({
       userId, action: "VENUE_USAGE_STATUS_CHANGED", resourceType: "VenueUsage", resourceId: r.id,
       metadata: { date: utcDateToYmd(r.date), from: r.status, to: status },
     })))
-    return { changed: toChange, cleared: months }
+    // Rows entering or leaving CONFIRMED change what their month's invoice counts.
+    const sent = await anyMonthSent(tx, toChange.filter((r) => r.status === "CONFIRMED" || status === "CONFIRMED").map((r) => monthOfDate(r.date)))
+    return { changed: toChange, cleared: months, sent }
   })
   if (!result) return { error: "Booking not found" }
-  const { changed, cleared } = result
+  const { changed, cleared, sent } = result
   revalidatePath("/venue-usage")
   if (changed.length === 0) return { error: "No bookings to change" }
   const noun = changed.length === 1 ? "date" : "dates"
-  const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared) as Extract<VenueMutationResult, { success: string }>
+  const base = mutationOk(`${status === "CANCELLED" ? "Cancelled" : "Confirmed"} ${changed.length} ${noun}`, cleared, sent ? SENT_MONTH_WARNING : undefined) as Extract<VenueMutationResult, { success: string }>
   if (!emailVenue) return base
   // Only tell the venue about dates they knew: included in a sent booking request (ever), claimed by a request (fallback if the notified stamp failed), or previously confirmed.
   const known = changed.filter((r) => r.venueNotifiedAt !== null || r.bookingRequestedAt !== null || r.status === "CONFIRMED")
   if (known.length === 0) {
     return { ...base, success: `${base.success}. The venue was not emailed: none of these dates had been shared with them.` }
   }
-  return { ...base, ...(await emailCancellation(settings, known, userId)) }
+  const mail = await emailCancellation(settings, known, userId)
+  const warnings = [mail.warning, base.warning].filter(Boolean).join(" ")
+  return { ...base, ...(warnings ? { warning: warnings } : {}) }
 }
 
 /**

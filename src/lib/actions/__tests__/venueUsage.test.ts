@@ -203,14 +203,26 @@ describe("usage row CRUD", () => {
         expect(prisma.venueUsageRequest.findUnique).toHaveBeenCalledWith({ where: { month: "2020-09" }, select: { status: true } })
         expect(prisma.venueUsage.update).toHaveBeenCalled()
       })
-      it("looks the request up after the transaction commits, not inside it", async () => {
+      it("looks the request up inside the transaction, before it commits", async () => {
         asRole("PASTOR")
         ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(pastConfirmed)
         const order: string[] = []
         ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb) => { const r = await cb(prisma); order.push("commit"); return r })
         ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockImplementationOnce(async () => { order.push("lookup"); return { status: "SUCCESS" } })
         await updateVenueUsage(5, { ...confirmedIn, endTime: "21:00" })
-        expect(order).toEqual(["commit", "lookup"])
+        expect(order).toEqual(["lookup", "commit"])
+      })
+      it("warns for a past CONFIRMED row the venue does not know, in a sent month", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...pastConfirmed, venueNotifiedAt: null, bookingRequestedAt: null })
+        ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValueOnce({ status: "SUCCESS" })
+        expect(await updateVenueUsage(5, { ...confirmedIn, endTime: "21:00" })).toEqual({ success: "Booking updated", warning: expect.any(String) })
+      })
+      it("does not warn when the sent-month lookup is for a month the row never invoiced (REQUESTED to REQUESTED)", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...pastConfirmed, status: "REQUESTED" })
+        expect(await updateVenueUsage(5, { ...pastIn, endTime: "21:00" })).toEqual({ success: "Booking updated" })
+        expect(prisma.venueUsageRequest.findUnique).not.toHaveBeenCalled()
       })
       it("warns on a status-only change of a past known row in a sent month", async () => {
         asRole("PASTOR")
@@ -264,18 +276,19 @@ describe("usage row CRUD", () => {
       ["date", { date: "2026-09-13" }],
       ["startTime", { startTime: "18:00" }],
       ["endTime", { endTime: "21:00" }],
-      ["status", { status: "CANCELLED" }],
     ])("resets bookingRequestedAt when %s changes", async (_n, patch) => {
       expect(await run(patch)).toMatchObject({ bookingRequestedAt: null })
     })
     it("never touches venueNotifiedAt (the venue still knows the row)", async () => {
       expect(await run({ date: "2026-09-13", status: "CANCELLED" })).not.toHaveProperty("venueNotifiedAt")
     })
-    it("resets on CANCELLED -> REQUESTED", async () => {
+    it("keeps both stamps on a status change of a known row, matching setVenueUsageStatus", async () => {
       asRole("PASTOR")
-      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...existing, status: "CANCELLED" })
+      ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...existing, status: "CONFIRMED", bookingRequestedAt: new Date() })
       await updateVenueUsage(5, { ...validInput, status: "REQUESTED" })
-      expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].data).toMatchObject({ bookingRequestedAt: null })
+      const data = (prisma.venueUsage.update as jest.Mock).mock.calls[0][0].data
+      expect(data).not.toHaveProperty("bookingRequestedAt")
+      expect(data).not.toHaveProperty("venueNotifiedAt")
     })
     it("keeps the stamp when only purpose or notes change", async () => {
       const data = await run({ purpose: "Other", notes: "n" })
@@ -711,6 +724,19 @@ describe("setVenueUsageStatus", () => {
     expect(r).toEqual({ success: "Cancelled 1 date", approvalCleared: true })
     expect(prisma.venueUsage.updateMany).toHaveBeenCalledWith({ where: { id: { in: [1] } }, data: { status: "CANCELLED" } })
     expect(logAuditManyTx).toHaveBeenCalledWith(prisma, [expect.objectContaining({ userId: 7, action: "VENUE_USAGE_STATUS_CHANGED", resourceId: 1 })])
+  })
+  it("warns when confirming or cancelling changes CONFIRMED rows of a month whose request was already sent", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([{ ...rows[0], status: "REQUESTED" }])
+    ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValueOnce({ status: "SUCCESS" })
+    expect(await setVenueUsageStatus([1], "CONFIRMED")).toEqual({ success: "Confirmed 1 date", warning: expect.stringContaining("invoice request was already sent") })
+    expect(prisma.venueUsageRequest.findUnique).toHaveBeenCalledWith({ where: { month: "2026-09" }, select: { status: true } })
+  })
+  it("does not look up the sent month when no CONFIRMED row is affected", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([{ ...rows[0], status: "REQUESTED" }])
+    expect(await setVenueUsageStatus([1], "CANCELLED")).toEqual({ success: "Cancelled 1 date" })
+    expect(prisma.venueUsageRequest.findUnique).not.toHaveBeenCalled()
   })
   it("emails the venue about cancelled dates when asked, CC booking CCs and reply-to", async () => {
     asRole("PASTOR")
