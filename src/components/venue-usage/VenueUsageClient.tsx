@@ -10,7 +10,7 @@ import {
   createVenueUsage, updateVenueUsage, addAllSundays, type VenueMutationResult,
 } from "@/lib/actions/venueUsage"
 import {
-  VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, isPastDay, formatMonthLabel,
+  VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel, isPastDay,
   totalHours, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
 import { BookingList } from "./BookingList"

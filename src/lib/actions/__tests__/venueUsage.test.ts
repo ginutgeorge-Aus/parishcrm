@@ -184,6 +184,13 @@ describe("usage row CRUD", () => {
         await updateVenueUsage(5, { ...pastIn, status: "CONFIRMED", endTime: "21:00" })
         expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].data).not.toHaveProperty("bookingRequestedAt")
       })
+      it("records the previous hours in the audit log for a row the venue was never asked about", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: null, bookingRequestedAt: null })
+        await updateVenueUsage(5, { ...pastIn, startTime: "17:30", endTime: "21:00" })
+        expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5,
+          expect.objectContaining({ oldStartTime: past.startTime, oldEndTime: past.endTime, startTime: "17:30", endTime: "21:00" }))
+      })
       it("records the previous hours in the audit log", async () => {
         asRole("PASTOR")
         ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: new Date(), bookingRequestedAt: null })
@@ -814,6 +821,15 @@ describe("setVenueUsageStatus", () => {
     expect(r).toMatchObject({ success: "Cancelled 1 date", warning: expect.stringContaining("Could not email the venue") })
     expect(prisma.venueUsage.updateMany).toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_CANCELLATION_EMAIL_FAILED", "VenueUsage", undefined, { count: 1 })
+  })
+  it("reads each warning standalone when a sent month and an email failure combine", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([{ ...rows[0], status: "CONFIRMED" }])
+    ;(prisma.venueUsageRequest.findMany as jest.Mock).mockResolvedValue([{ month: "2026-09" }])
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
+    const r = await setVenueUsageStatus([1], "CANCELLED", { emailVenue: true })
+    expect(r).toMatchObject({ warning: expect.stringMatching(/^The invoice request for .* was already sent .*Send again.* Could not email the venue/) })
+    expect((r as { warning: string }).warning).not.toContain("Changes saved")
   })
   it("blocks the cancellation email in demo mode without changing anything", async () => {
     asRole("PASTOR")

@@ -92,7 +92,7 @@ function mutationOk(success: string, cleared: string[], warning?: string): Venue
 function sentMonthWarning(months: string[]): string {
   const names = months.map(formatMonthLabel)
   const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]
-  return `Changes saved, but the invoice request for ${list} was already sent and won't be updated.`
+  return `The invoice request for ${list} was already sent and won't be updated. Use "Send again" in the invoice request panel to resend it.`
 }
 
 /**
@@ -228,7 +228,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     }
     const statusChanged = existing.status !== rest.status
     // Reopening a venue-known row (back to REQUESTED) clears its asked-on stamp so the booking request goes out again;
-    // otherwise both stamps are kept (an hours correction must not clear the approval or relock the row).
+    // otherwise the asked-on stamp is kept (an hours correction must not clear it or relock the row).
     const reopened = statusChanged && rest.status === "REQUESTED"
     await tx.venueUsage.update({
       where: { id },
@@ -238,7 +238,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     const oldMonth = monthOfDate(existing.date)
     const months = await clearApprovalTx(tx, [oldMonth, date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
-      date, status: rest.status, ...(hoursCorrected
+      date, status: rest.status, ...(timesChanged
         ? { oldStartTime: existing.startTime, oldEndTime: existing.endTime, startTime: rest.startTime, endTime: rest.endTime }
         : {}),
     })
@@ -403,7 +403,7 @@ export async function setVenueUsageStatus(
     return { ...base, success: `${base.success}. The venue was not emailed: none of these dates had been shared with them.` }
   }
   const mail = await emailCancellation(settings, known, userId)
-  const warnings = [mail.warning, base.warning].filter(Boolean).join(" ")
+  const warnings = [base.warning, mail.warning].filter(Boolean).join(" ")
   return { ...base, ...(warnings ? { warning: warnings } : {}) }
 }
 

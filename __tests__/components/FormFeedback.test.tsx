@@ -49,9 +49,19 @@ describe("FormFeedback", () => {
     expect(screen.queryByRole("status")).toBeNull()
   })
 
-  it("merges a custom className", () => {
-    render(<FormFeedback state={{ error: "x" }} className="mt-4" />)
-    expect(screen.getByRole("alert").className).toContain("mt-4")
+  it("puts a custom className once on the outer wrapper, not on each line", () => {
+    const { container } = render(<FormFeedback state={{ error: "x", warning: "w" }} className="mt-4" />)
+    expect(container.firstElementChild?.className).toContain("mt-4")
+    for (const el of screen.getAllByRole("alert")) expect(el.className).not.toContain("mt-4")
+  })
+
+  it("gives only the warning block the width, border and padding", () => {
+    render(<FormFeedback state={{ error: "x", warning: "w" }} />)
+    const [err, warn] = screen.getAllByRole("alert")
+    expect(err.className).not.toContain("border")
+    expect(warn.className).toContain("w-full")
+    expect(warn.className).toContain("border")
+    expect(warn.className).toContain("p-2")
   })
 
   it("puts the id on the error line so inputs can wire aria-describedby", () => {
