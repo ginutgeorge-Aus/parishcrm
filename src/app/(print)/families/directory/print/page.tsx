@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
 import { safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { auditIpFromHeaders } from "@/lib/clientIp"
 import { MONTH_ABBR } from "@/lib/formatting"
 import { sydneyParts } from "@/lib/dates"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -60,7 +60,7 @@ export default async function FamilyDirectoryPrintPage() {
   const families = truncated ? fetched.slice(0, MAX_DIRECTORY_FAMILIES) : fetched
 
   const headersList = await headers()
-  const ip = clientIpOrUndefined(headersList)
+  const ip = auditIpFromHeaders(headersList)
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = headersList.get("x-nonce") ?? undefined
   await logAudit(

@@ -196,10 +196,10 @@ describe("collectEnvWarnings — CLIENT_IP_HEADER", () => {
       expect(ipWarnings()).toEqual([expect.stringContaining("outermost proxy overwrites it")])
     }
   })
-  it("does not warn for legitimate custom proxy headers", () => {
-    for (const n of ["x-my-proxy-ip"]) {
+  it("warns for a custom header name so a typo'd or never-sent name is caught at boot", () => {
+    for (const n of ["x-my-proxy-ip", "cf-conecting-ip"]) {
       process.env.CLIENT_IP_HEADER = n
-      expect(ipWarnings()).toEqual([])
+      expect(ipWarnings()).toEqual([expect.stringContaining("not a known proxy header")])
     }
   })
   it("does not warn for an allowlisted CDN header", () => {

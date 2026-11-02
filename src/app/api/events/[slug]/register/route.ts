@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { rateLimit } from "@/lib/rateLimit"
-import { getClientIp, getValidatedClientIp } from "@/lib/clientIp"
+import { rateKeyFromRequest, auditIpFromRequest } from "@/lib/clientIp"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
 import { createEventRegistration } from "@/lib/eventRegistration"
 import { featureNotFound } from "@/lib/featureFlags"
@@ -28,7 +28,7 @@ const MAX_BODY_BYTES = 100 * 1024
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
   const params = await props.params
-  const ip = getClientIp(req)
+  const ip = rateKeyFromRequest(req)
   // 10 requests per IP per minute via the shared in-memory limiter.
   if (!rateLimit(`register:${ip}`, 10, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
     return NextResponse.json({ error: "Invalid request" }, { status: 400 })
   }
 
-  const result = await createEventRegistration(params.slug, body, getValidatedClientIp(req))
+  const result = await createEventRegistration(params.slug, body, auditIpFromRequest(req))
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }

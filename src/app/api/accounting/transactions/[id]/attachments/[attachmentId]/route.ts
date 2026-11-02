@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { encryptedDocumentResponse } from "@/lib/encryptedDocument"
 import { rateLimit } from "@/lib/rateLimit"
@@ -71,7 +71,7 @@ export async function GET(
   // Egress of a decrypted financial document (bank statement/invoice/receipt
   // scan) needs a forensic trail — "who accessed donor X's receipt".
   // Every sibling export route audits on success; this one had no VIEWED action.
-  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_VIEWED", "Transaction", txId, { attachmentId: attId }, getValidatedClientIp(req))
+  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_VIEWED", "Transaction", txId, { attachmentId: attId }, auditIpFromRequest(req))
 
   return response
 }
