@@ -17,6 +17,14 @@ describe("FormFeedback", () => {
     expect(el.className).toContain("text-income")
   })
 
+  it("renders a warning as an alert without destructive styling", () => {
+    render(<FormFeedback state={{ success: "Saved", warning: "Heads up" }} />)
+    const el = screen.getByRole("alert")
+    expect(el).toHaveTextContent("Heads up")
+    expect(el.className).not.toContain("text-destructive")
+    expect(screen.getByRole("status")).toHaveTextContent("Saved")
+  })
+
   it("renders nothing when there is no message", () => {
     const { container } = render(<FormFeedback state={undefined} />)
     expect(container).toBeEmptyDOMElement()

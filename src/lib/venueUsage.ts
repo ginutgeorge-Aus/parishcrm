@@ -49,6 +49,16 @@ export function defaultStatusForDate(ymd: string, todayYMD: string): VenueBookin
   return ymd > todayYMD ? "REQUESTED" : "CONFIRMED"
 }
 
+/**
+ * Whether a booking date is strictly before today (Sydney calendar), i.e. the day has passed.
+ * Shared by the edit form and the server so both apply the same "hours may be corrected" rule.
+ * @param ymd booking date "YYYY-MM-DD"
+ * @param todayYMD today's Sydney calendar date "YYYY-MM-DD"
+ */
+export function isPastDay(ymd: string, todayYMD: string): boolean {
+  return ymd < todayYMD
+}
+
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/
 const YMD_RE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/

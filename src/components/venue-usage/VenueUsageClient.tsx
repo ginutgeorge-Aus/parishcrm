@@ -10,7 +10,7 @@ import {
   createVenueUsage, updateVenueUsage, addAllSundays, type VenueMutationResult,
 } from "@/lib/actions/venueUsage"
 import {
-  VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel,
+  VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, isPastDay, formatMonthLabel,
   totalHours, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
 import { BookingList } from "./BookingList"
@@ -187,7 +187,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
 
   const locked = form.id !== null && form.venueKnows
   // Once the day has passed the times can still be corrected to the hours actually used; the date stays locked.
-  const timesLocked = locked && form.date >= today
+  const timesLocked = locked && !isPastDay(form.date, today)
 
   return (
     <div className="space-y-6">
@@ -293,11 +293,6 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
               </Button>
             )}
             <FormFeedback state={formState} />
-            {formState?.warning && (
-              <p role="alert" className="w-full rounded-md border border-destructive/40 bg-muted p-2 text-sm text-destructive">
-                {formState.warning}
-              </p>
-            )}
           </div>
         </form>
       </section>

@@ -5,14 +5,16 @@ import { cn } from "@/lib/utils"
  * (`role="alert"`); success is announced politely (`aria-live="polite"`). Uses
  * the `destructive` / `income` design tokens so every form reads the same.
  * Accepts either a server-action result (`{ error } | { success }`) or a plain
- * local-state message object — anything with an optional `error`/`success`.
+ * local-state message object — anything with an optional `error`/`success`/`warning`.
+ * A `warning` is a non-fatal caveat shown alongside a success (announced as an alert, but
+ * not destructive-styled).
  */
 export function FormFeedback({
   state,
   className,
   id,
 }: {
-  state?: { error?: string | null; success?: string | null } | null
+  state?: { error?: string | null; success?: string | null; warning?: string | null } | null
   className?: string
   // Optional id on the error line so inputs can wire aria-describedby to the
   // reason (WCAG 3.3.1/4.1.2). Only set aria-describedby when an error is
@@ -28,12 +30,20 @@ export function FormFeedback({
     )
   }
   const success = state?.success
-  if (success) {
-    return (
-      <p role="status" aria-live="polite" className={cn("text-sm text-income", className)}>
-        {success}
-      </p>
-    )
-  }
-  return null
+  const warning = state?.warning
+  if (!success && !warning) return null
+  return (
+    <>
+      {success && (
+        <p role="status" aria-live="polite" className={cn("text-sm text-income", className)}>
+          {success}
+        </p>
+      )}
+      {warning && (
+        <p role="alert" className={cn("w-full rounded-md border border-amber-500/40 bg-muted p-2 text-sm text-foreground", className)}>
+          {warning}
+        </p>
+      )}
+    </>
+  )
 }
