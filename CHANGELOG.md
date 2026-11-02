@@ -12,6 +12,13 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.13.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.13.0...v1.13.1) (2026-11-02)
+
+
+### Fixed
+
+* **deps:** pin @opentelemetry/api to ~1.9.1 ([#516](https://github.com/ginutgeorge-Aus/parishcrm/issues/516)) ([562478a](https://github.com/ginutgeorge-Aus/parishcrm/commit/562478a57c6027f0e0f8594f4ac38f9f68b715f8))
+
 ## [1.13.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.12.0...v1.13.0) (2026-11-02)
 
 
