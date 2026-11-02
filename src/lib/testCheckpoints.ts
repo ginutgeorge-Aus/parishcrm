@@ -21,6 +21,22 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.13.0-organiser-edit-event",
+    version: "v1.13.0",
+    area: "Events",
+    title: "Organiser edits own event",
+    steps:
+      "Sign in as an event organiser → open an event you manage → edit its details and save → confirm the change shows; confirm an event you do not manage cannot be edited.",
+  },
+  {
+    id: "v1.13.0-venue-past-time-edit",
+    version: "v1.13.0",
+    area: "Venue",
+    title: "Correct times on a past venue date",
+    steps:
+      "Open Venue usage → pick a past date the venue was already notified of → change its start or end time and save → confirm the new times show.",
+  },
+  {
     id: "v1.12.0-petty-cash-transfer-deposit",
     version: "v1.12.0",
     area: "Petty cash",

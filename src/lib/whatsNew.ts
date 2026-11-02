@@ -20,6 +20,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.13.0",
+    date: "2026-11-02",
+    highlights: [
+      "Event organisers can now edit the details of their own events.",
+      "Venue bookings: you can correct the times on past dates the venue already knows about.",
+      "Bank import now stores account numbers in a hashed form for extra privacy.",
+      "Petty cash transfer picker and Stripe payment-link handling fixes.",
+    ],
+  },
+  {
     version: "v1.12.0",
     date: "2026-10-29",
     highlights: [
