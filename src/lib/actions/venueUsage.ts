@@ -85,7 +85,7 @@ function mutationOk(success: string, cleared: string[]): VenueMutationResult {
 }
 
 /** Warning shown when hours are corrected on a month whose invoice request was already sent (the send is not redone). */
-const SENT_MONTH_WARNING = "Hours saved, but this month's invoice was already sent and won't be updated."
+const SENT_MONTH_WARNING = "Hours saved, but this month's invoice request was already sent and won't be updated."
 
 /**
  * Whether adding `adding` rows to `month` would exceed {@link MAX_ROWS_PER_MONTH} (all statuses count, as the
@@ -210,7 +210,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     })
     // clearApprovalTx skips sent (SUCCESS) months, so a past-hours correction there is not reflected in the invoice.
     const sent = pastTimesOnly && timingChanged
-      ? (await tx.venueUsageRequest.findFirst({ where: { month: monthOfDate(existing.date) }, select: { status: true } }))?.status === "SUCCESS"
+      ? (await tx.venueUsageRequest.findUnique({ where: { month: monthOfDate(existing.date) }, select: { status: true } }))?.status === "SUCCESS"
       : false
     return { months, sent }
   })

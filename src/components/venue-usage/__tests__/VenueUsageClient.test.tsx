@@ -138,9 +138,9 @@ describe("venue-known row edit locks", () => {
   })
   it("shows a warning returned by the update", async () => {
     const { updateVenueUsage } = jest.requireMock("@/lib/actions/venueUsage")
-    updateVenueUsage.mockResolvedValue({ success: "Booking updated", warning: "Hours saved, but the invoice was already sent." })
+    updateVenueUsage.mockResolvedValue({ success: "Booking updated", warning: "Hours saved, but the invoice request was already sent." })
     const user = await editKnownRow("2026-10-11")
     await user.click(screen.getByRole("button", { name: "Save changes" }))
-    expect(await screen.findByText(/invoice was already sent/)).toHaveAttribute("role", "alert")
+    expect(await screen.findByText(/invoice request was already sent/)).toHaveAttribute("role", "alert")
   })
 })
