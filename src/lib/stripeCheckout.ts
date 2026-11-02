@@ -300,6 +300,17 @@ export async function handleStripeWebhook(
     return { status: 400 } // bad signature — never log the raw body
   }
 
+  // Payment Links (e.g. offertory) share this Stripe account and endpoint.
+  // Event checkouts are always created via sessions.create, never a Payment
+  // Link, so skip them for every session-scoped event before any DB work.
+  if (event.type.startsWith("checkout.session.")) {
+    const linkSession = event.data.object as import("stripe").Stripe.Checkout.Session
+    if (linkSession.payment_link) {
+      console.info(`Stripe webhook: ignoring Payment Link session ${linkSession.id} (${event.type})`)
+      return { status: 200 }
+    }
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as import("stripe").Stripe.Checkout.Session
@@ -547,17 +558,14 @@ async function completePaidCheckout(
 ): Promise<{ status: number }> {
   const staging = await prisma.checkoutSession.findUnique({ where: { stripeSessionId: session.id } })
   if (!staging) {
-    // Not ours: Payment Links (e.g. offertory collection) share this Stripe
-    // account and webhook endpoint. Event sessions always carry eventId
-    // metadata and are never payment-link sessions, so skip without alerting.
-    if (session.payment_link || !session.metadata?.eventId) return { status: 200 }
     // A paid session with NO staging row means the row was cascade-deleted out
     // from under an in-flight checkout — e.g. deleteEvent wiped the event (and
     // its CheckoutSessions) while the customer was on the Stripe page.
     // Money is retained (no-refund policy) and the CRM has zero record of it.
     // Every other charged-but-undelivered branch alerts ops; this one must too
-    // rather than a silent 200. A completed session carrying eventId
-    // metadata that we never staged is a real lost registration.
+    // rather than a silent 200. Payment Link sessions are filtered out
+    // upstream in handleStripeWebhook, so any other unstaged paid session is a
+    // real lost registration.
     console.error(
       `Stripe webhook: paid session ${session.id} has no staging row (cascade-deleted mid-checkout?); money retained, no registration exists, manual review needed`,
     )

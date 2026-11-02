@@ -51,7 +51,7 @@ beforeEach(() => {
 // amountTotal defaults to 2000 cents = the toCents() of the staged totalAmount:20
 // used in every payload below, so the server-side amount assertion passes.
 function completedEvent(sessionId = "cs_1", pi = "pi_1", amountTotal = 2000) {
-  return { type: "checkout.session.completed", data: { object: { id: sessionId, payment_intent: pi, amount_total: amountTotal, payment_status: "paid", metadata: { eventId: "1" } } } }
+  return { type: "checkout.session.completed", data: { object: { id: sessionId, payment_intent: pi, amount_total: amountTotal, payment_status: "paid" } } }
 }
 
 it("rejects a bad signature with 400", async () => {
@@ -308,15 +308,33 @@ it("alerts when a PAID webhook has NO staging row at all — event/session casca
   errSpy.mockRestore()
 })
 
-it("ignores a PAID Payment Link session (offertory) — not an event checkout, no staging row expected, no alert", async () => {
+describe.each(["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"])(
+  "Payment Link session (offertory) via %s",
+  (type) => {
+    it("is ignored — no DB work, no alert, no registration", async () => {
+      jest.spyOn(console, "info").mockImplementation(() => {})
+      constructEvent.mockReturnValue({
+        type,
+        data: { object: { id: "cs_link", payment_intent: "pi_link", amount_total: 5000, payment_status: "paid", payment_link: "plink_1", metadata: {} } },
+      })
+      expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+      expect(prisma.checkoutSession.findUnique).not.toHaveBeenCalled()
+      expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+      expect(persistRegistration).not.toHaveBeenCalled()
+      expect(notifyStripeAlert).not.toHaveBeenCalled()
+    })
+  },
+)
+
+it("still alerts for an unstaged paid session with no metadata and no payment_link", async () => {
+  jest.spyOn(console, "error").mockImplementation(() => {})
   constructEvent.mockReturnValue({
     type: "checkout.session.completed",
-    data: { object: { id: "cs_link", payment_intent: "pi_link", amount_total: 5000, payment_status: "paid", payment_link: "plink_1", metadata: {} } },
+    data: { object: { id: "cs_nometa", payment_intent: "pi_x", amount_total: 2000, payment_status: "paid" } },
   })
   prisma.checkoutSession.findUnique.mockResolvedValue(null)
   expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
-  expect(persistRegistration).not.toHaveBeenCalled()
-  expect(notifyStripeAlert).not.toHaveBeenCalled()
+  expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("charged"), expect.any(String))
 })
 
 it("alerts when a PAID webhook matches an already-EXPIRED staging row — sweep beat settlement/retry, money charged with no registration", async () => {
