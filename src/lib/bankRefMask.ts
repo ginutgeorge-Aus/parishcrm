@@ -259,7 +259,7 @@ const HASH_TOKEN_HEX = 16
  * @param digest - hex `hmacBankRefAccount(accountNumber)`
  * @returns `h<16 hex>`
  */
-export function accountHashHead(digest: string): string {
+function accountHashHead(digest: string): string {
   return `h${digest.slice(0, HASH_TOKEN_HEX)}`
 }
 
