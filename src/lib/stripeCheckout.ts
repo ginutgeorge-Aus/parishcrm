@@ -547,14 +547,17 @@ async function completePaidCheckout(
 ): Promise<{ status: number }> {
   const staging = await prisma.checkoutSession.findUnique({ where: { stripeSessionId: session.id } })
   if (!staging) {
+    // Not ours: Payment Links (e.g. offertory collection) share this Stripe
+    // account and webhook endpoint. Event sessions always carry eventId
+    // metadata and are never payment-link sessions, so skip without alerting.
+    if (session.payment_link || !session.metadata?.eventId) return { status: 200 }
     // A paid session with NO staging row means the row was cascade-deleted out
     // from under an in-flight checkout — e.g. deleteEvent wiped the event (and
     // its CheckoutSessions) while the customer was on the Stripe page.
     // Money is retained (no-refund policy) and the CRM has zero record of it.
     // Every other charged-but-undelivered branch alerts ops; this one must too
-    // rather than a silent 200. This Stripe account is single-purpose (event
-    // Checkout Sessions only), so a completed session we never staged is always
-    // a real lost registration, not a stray third-party event.
+    // rather than a silent 200. A completed session carrying eventId
+    // metadata that we never staged is a real lost registration.
     console.error(
       `Stripe webhook: paid session ${session.id} has no staging row (cascade-deleted mid-checkout?); money retained, no registration exists, manual review needed`,
     )
