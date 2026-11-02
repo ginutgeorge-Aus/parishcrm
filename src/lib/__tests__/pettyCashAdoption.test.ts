@@ -1,6 +1,6 @@
 /** @jest-environment node */
-import { adoptionProblem, depositRefOfLeg } from "../pettyCashAdoption"
-import { xferOutRef } from "../xferRefs"
+import { adoptionProblem } from "../pettyCashAdoption"
+import { depositRefOfLeg, xferOutRef } from "../xferRefs"
 import { utcYmd } from "../dates"
 
 const amt = (v: string) => ({ toFixed: () => v })

@@ -283,6 +283,33 @@ describe("confirmBankImport — notes encryption petty cash", () => {
   })
 })
 
+describe("confirmBankImport — legacy petty-cash pair detection (#459)", () => {
+  it("treats an existing legacy full-number XFER_OUT_ leg as already paired: deposit imports, no second cash-out leg", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    const depositRef = "ANZ_987654321_20260608_300.00_CASHDEPOSIT_1030000"
+    // Only the legacy (pre-hash) leg exists; the hashed XFER_OUT_ form is absent.
+    mockTxFindMany.mockResolvedValue([{ bankRef: `XFER_OUT_${depositRef}`, type: "EXPENSE" }])
+    const result = await confirmBankImport([
+      {
+        ...baseRow,
+        description: "CASH DEPOSIT",
+        amount: "300.00",
+        date: "2026-06-08",
+        bankRef: depositRef,
+        accountId: null,
+        fromPettyCash: true,
+        paymentAccountId: 1,
+      },
+    ])
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.imported).toBe(1)
+    // Deposit leg only — the legacy leg suppressed a duplicate XFER_OUT_ row.
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockCreate.mock.calls[0][0].data.type).toBe("INCOME")
+  })
+})
+
 describe("confirmBankImport — session-transfer mirror lookup", () => {
   it("keeps null-bankRef mirrors while excluding adopted XFER_OUT legs", async () => {
     mockGetXferAccountId.mockResolvedValue(99)

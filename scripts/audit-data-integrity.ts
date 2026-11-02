@@ -7,12 +7,15 @@ if (!process.env.DATABASE_URL) {
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { keyIdOf } from "../src/lib/cryptoCore"
+import { countLegacyBankRefs } from "./lib/legacy-bankref"
 import { dbHost } from "./lib/script-helpers"
 
 // Read-only data-integrity audit. Runs count/groupBy/batched-scan
 // queries only — never writes. Reports three classes of problem:
 //   1. Encryption leaks   — a field that should be `enc:`-ciphertext at rest
-//                           but holds plaintext (missed backfill / bad write path).
+//                           but holds plaintext (missed backfill / bad write path),
+//                           incl. a Transaction.bankRef still holding a full
+//                           bank account number (#459).
 //   2. Blind-index gaps   — a row with an email but no emailHash.
 //   3. Referential/invariant drift — FK-enforced orphans can't exist, but
 //                           logical invariants (isGiving↔familyId, ledger sync,
@@ -128,6 +131,12 @@ async function main() {
   await scanEncrypted("PettyCashTransfer", "notes", async (skip) =>
     (await prisma.pettyCashTransfer.findMany({ where: { notes: { not: null } }, orderBy: { id: "asc" }, skip, take: BATCH, select: { id: true, notes: true } })).map(r => ({ id: r.id, v: r.notes })),
   )
+  // #459: imported bankRefs must hold the hashed account (`h<hex>`), never the
+  // number. Same detection as the hash-bankref-account dry run (shared module),
+  // so 0 here is the go-ahead to drop the legacy-form dedup lookups.
+  const legacyRefs = await countLegacyBankRefs(prisma.transaction, BATCH)
+  if (legacyRefs.count === 0) ok("Transaction.bankRef", "no plaintext account numbers")
+  else bad("Transaction.bankRef PLAINTEXT account number", legacyRefs.count, `ids e.g. ${legacyRefs.sampleIds.join(", ")} — run hash-bankref-account`)
 
   // ── 2. Blind-index (emailHash) completeness ───────────────────────────────
   console.log("\n2. Blind-index completeness (email present ⇒ emailHash set)")
