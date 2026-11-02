@@ -300,6 +300,17 @@ export async function handleStripeWebhook(
     return { status: 400 } // bad signature — never log the raw body
   }
 
+  // Payment Links (e.g. offertory) share this Stripe account and endpoint.
+  // Event checkouts are always created via sessions.create, never a Payment
+  // Link, so skip them for every session-scoped event before any DB work.
+  if (event.type.startsWith("checkout.session.")) {
+    const linkSession = event.data.object as import("stripe").Stripe.Checkout.Session
+    if (linkSession.payment_link) {
+      console.info(`Stripe webhook: ignoring Payment Link session ${linkSession.id} (${event.type})`)
+      return { status: 200 }
+    }
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as import("stripe").Stripe.Checkout.Session
@@ -552,9 +563,9 @@ async function completePaidCheckout(
     // its CheckoutSessions) while the customer was on the Stripe page.
     // Money is retained (no-refund policy) and the CRM has zero record of it.
     // Every other charged-but-undelivered branch alerts ops; this one must too
-    // rather than a silent 200. This Stripe account is single-purpose (event
-    // Checkout Sessions only), so a completed session we never staged is always
-    // a real lost registration, not a stray third-party event.
+    // rather than a silent 200. Payment Link sessions are filtered out
+    // upstream in handleStripeWebhook, so any other unstaged paid session is a
+    // real lost registration.
     console.error(
       `Stripe webhook: paid session ${session.id} has no staging row (cascade-deleted mid-checkout?); money retained, no registration exists, manual review needed`,
     )
