@@ -167,8 +167,8 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
  * `setVenueUsageStatus`, which offers the cancellation email.
  * When such a correction (or a status change) alters what the month's invoice counts (CONFIRMED rows) and the
  * month's invoice request was already sent, the result carries a warning because the send is not redone.
- * A status change resets `bookingRequestedAt` (date and times can only change on unasked rows, where it is
- * already null), so the stale "asked on" stamp disappears; purpose/notes edits leave it alone.
+ * A status change resets `bookingRequestedAt` (so the stale "asked on" stamp disappears), except on a past row the
+ * venue knows, whose stamp is kept so its locks stay in force; purpose/notes edits leave it alone.
  * `venueNotifiedAt` is never touched: the venue still knows the row, so a later cancellation must reach them.
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
@@ -204,7 +204,9 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
       return { full: true } as const
     }
     const statusChanged = existing.status !== rest.status
-    const rescheduled = (timingChanged && !hoursCorrected) || statusChanged
+    // A status change normally clears the stale "asked on" stamp, but not on a past known row: its stamp is what keeps
+    // the venue-known lock (date, cancel) in force, and the venue still knows the day.
+    const rescheduled = (timingChanged && !hoursCorrected) || (statusChanged && !(venueKnows && pastDay))
     await tx.venueUsage.update({
       where: { id },
       data: { ...rest, date: ymdToUtcDate(date), ...(rescheduled ? { bookingRequestedAt: null } : {}) },
@@ -213,7 +215,9 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     const oldMonth = monthOfDate(existing.date)
     const months = await clearApprovalTx(tx, [oldMonth, date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
-      date, status: rest.status, ...(hoursCorrected ? { startTime: rest.startTime, endTime: rest.endTime } : {}),
+      date, status: rest.status, ...(hoursCorrected
+        ? { oldStartTime: existing.startTime, oldEndTime: existing.endTime, startTime: rest.startTime, endTime: rest.endTime }
+        : {}),
     })
     // clearApprovalTx skips sent (SUCCESS) months, so a change to invoiced content there is not reflected in the
     // invoice. The invoice counts CONFIRMED rows only, so only a past known row (date unchanged) whose hours or

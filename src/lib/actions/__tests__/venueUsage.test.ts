@@ -172,11 +172,18 @@ describe("usage row CRUD", () => {
         expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5,
           expect.objectContaining({ startTime: "17:30", endTime: "21:00" }))
       })
-      it("still resets bookingRequestedAt when the status changes too", async () => {
+      it("keeps bookingRequestedAt when hours and status change together on a past known row", async () => {
         asRole("PASTOR")
         ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: null, bookingRequestedAt: new Date() })
         await updateVenueUsage(5, { ...pastIn, status: "CONFIRMED", endTime: "21:00" })
-        expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].data.bookingRequestedAt).toBeNull()
+        expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].data).not.toHaveProperty("bookingRequestedAt")
+      })
+      it("records the previous hours in the audit log", async () => {
+        asRole("PASTOR")
+        ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ ...past, venueNotifiedAt: new Date(), bookingRequestedAt: null })
+        await updateVenueUsage(5, { ...pastIn, startTime: "17:30", endTime: "21:00" })
+        expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5,
+          expect.objectContaining({ oldStartTime: past.startTime, oldEndTime: past.endTime, startTime: "17:30", endTime: "21:00" }))
       })
       it.each(knows)("still refuses a date change when %s is set", async (_n, stamps) => {
         asRole("PASTOR")

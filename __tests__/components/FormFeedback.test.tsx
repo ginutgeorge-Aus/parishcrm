@@ -25,6 +25,11 @@ describe("FormFeedback", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Saved")
   })
 
+  it("uses the destructive tone for an action-required warning", () => {
+    render(<FormFeedback state={{ warning: "Tell the venue" }} warningTone="destructive" />)
+    expect(screen.getByRole("alert").className).toContain("text-destructive")
+  })
+
   it("renders nothing when there is no message", () => {
     const { container } = render(<FormFeedback state={undefined} />)
     expect(container).toBeEmptyDOMElement()
