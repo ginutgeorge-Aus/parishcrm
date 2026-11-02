@@ -12,6 +12,41 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.13.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.12.0...v1.13.0) (2026-11-02)
+
+
+### Added
+
+* **bank-import:** hash account number in bankRef at rest ([#459](https://github.com/ginutgeorge-Aus/parishcrm/issues/459)) ([#490](https://github.com/ginutgeorge-Aus/parishcrm/issues/490)) ([1f2ccef](https://github.com/ginutgeorge-Aus/parishcrm/commit/1f2ccef9d59d991fe91f6facfb00e9eddd2437e5))
+* **events:** let organisers edit their own event details (OSS-41) ([#485](https://github.com/ginutgeorge-Aus/parishcrm/issues/485)) ([1065939](https://github.com/ginutgeorge-Aus/parishcrm/commit/1065939f3f79db3cabd794c247975a45a039eef8))
+
+
+### Fixed
+
+* **auth:** client-IP follow-ups ([#462](https://github.com/ginutgeorge-Aus/parishcrm/issues/462) [#463](https://github.com/ginutgeorge-Aus/parishcrm/issues/463) [#465](https://github.com/ginutgeorge-Aus/parishcrm/issues/465)) ([#488](https://github.com/ginutgeorge-Aus/parishcrm/issues/488)) ([18fb091](https://github.com/ginutgeorge-Aus/parishcrm/commit/18fb091ff403eec80a4e7be52815a41a3f49d59c))
+* **auth:** single-query email lookup + case-only email edit ([#469](https://github.com/ginutgeorge-Aus/parishcrm/issues/469) [#461](https://github.com/ginutgeorge-Aus/parishcrm/issues/461)) ([#484](https://github.com/ginutgeorge-Aus/parishcrm/issues/484)) ([a056a1f](https://github.com/ginutgeorge-Aus/parishcrm/commit/a056a1f4a10130d3ee99c0bba1432dac88a8215b))
+* **bank-import:** client split duplicate check + donor-key decision ([#473](https://github.com/ginutgeorge-Aus/parishcrm/issues/473) [#472](https://github.com/ginutgeorge-Aus/parishcrm/issues/472)) ([#483](https://github.com/ginutgeorge-Aus/parishcrm/issues/483)) ([e8ffc5c](https://github.com/ginutgeorge-Aus/parishcrm/commit/e8ffc5cd4b03dd4b1b56e8626d99ee67b9b14205))
+* **ci:** cap CodeRabbit nudge per PR and add cooldown ([#497](https://github.com/ginutgeorge-Aus/parishcrm/issues/497)) ([7fbb83d](https://github.com/ginutgeorge-Aus/parishcrm/commit/7fbb83da5afe462b8519dcfa1eb23daf73044ab2))
+* **petty-cash:** [#471](https://github.com/ginutgeorge-Aus/parishcrm/issues/471) follow-ups (picker read-only, filtering, shared helpers) ([#486](https://github.com/ginutgeorge-Aus/parishcrm/issues/486)) ([53087d4](https://github.com/ginutgeorge-Aus/parishcrm/commit/53087d43a699149fc6952f407d1675c285b8d365))
+* **petty-cash:** transfer picker + adoption follow-ups ([#478](https://github.com/ginutgeorge-Aus/parishcrm/issues/478) [#474](https://github.com/ginutgeorge-Aus/parishcrm/issues/474) [#475](https://github.com/ginutgeorge-Aus/parishcrm/issues/475) [#480](https://github.com/ginutgeorge-Aus/parishcrm/issues/480)) ([#482](https://github.com/ginutgeorge-Aus/parishcrm/issues/482)) ([1880582](https://github.com/ginutgeorge-Aus/parishcrm/commit/18805824ebdbb807438a97f7e288d8620a995408))
+* **stripe:** ignore Payment Link sessions in checkout webhook ([#498](https://github.com/ginutgeorge-Aus/parishcrm/issues/498)) ([62882f2](https://github.com/ginutgeorge-Aus/parishcrm/commit/62882f2de8145c18b0ebe73dc2978ca1a87043f9))
+* **venue:** allow correcting times on past dates the venue already knows ([#499](https://github.com/ginutgeorge-Aus/parishcrm/issues/499)) ([5dba434](https://github.com/ginutgeorge-Aus/parishcrm/commit/5dba434c0b58bc461d98f139e276e396f437f482))
+
+
+### Changed
+
+* **auth:** typed userLookup overloads ([#464](https://github.com/ginutgeorge-Aus/parishcrm/issues/464)) ([#489](https://github.com/ginutgeorge-Aus/parishcrm/issues/489)) ([d399b1e](https://github.com/ginutgeorge-Aus/parishcrm/commit/d399b1e0393143e5744107547787caaafa909c3d))
+
+
+### Dependencies
+
+* bump @opentelemetry/api from 1.9.1 to 1.10.0 ([#504](https://github.com/ginutgeorge-Aus/parishcrm/issues/504)) ([d314308](https://github.com/ginutgeorge-Aus/parishcrm/commit/d3143089aa287262643f6fe1d02681c97fc15fa3))
+* bump @types/pdfkit from 0.17.6 to 0.17.7 ([#506](https://github.com/ginutgeorge-Aus/parishcrm/issues/506)) ([56080bb](https://github.com/ginutgeorge-Aus/parishcrm/commit/56080bba9d08d745b7e14b0ca8400ee0986fa5c6))
+* bump dotenv from 18.0.7 to 18.0.9 ([#505](https://github.com/ginutgeorge-Aus/parishcrm/issues/505)) ([cbd0731](https://github.com/ginutgeorge-Aus/parishcrm/commit/cbd0731ad2b9b662d85769d5a63fd80f26ac409e))
+* bump lucide-react from 1.55.0 to 1.61.0 ([#501](https://github.com/ginutgeorge-Aus/parishcrm/issues/501)) ([6a3f388](https://github.com/ginutgeorge-Aus/parishcrm/commit/6a3f3882a71c35d20702c7e6e9acd457301429a5))
+* bump pg from 8.23.0 to 8.23.1 ([#507](https://github.com/ginutgeorge-Aus/parishcrm/issues/507)) ([b06c5bb](https://github.com/ginutgeorge-Aus/parishcrm/commit/b06c5bb9369a8b56b8576c6f61166a1cff0d7e9d))
+* bump the website group in /website with 3 updates ([#503](https://github.com/ginutgeorge-Aus/parishcrm/issues/503)) ([8e7405a](https://github.com/ginutgeorge-Aus/parishcrm/commit/8e7405ae696daf7b744340ab8f8cb19f1f97ce73))
+
 ## [1.12.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.11.0...v1.12.0) (2026-10-29)
 
 
