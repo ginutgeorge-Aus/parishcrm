@@ -69,3 +69,13 @@ it("paginates by keyset and caps the sample at 5 ids", async () => {
   expect(res).toEqual({ count: 7, sampleIds: [1, 2, 3, 4, 5] })
   expect(d.findMany.mock.calls.map(([a]) => (a as Args).where.id.gt)).toEqual([0, 3, 6])
 })
+
+it("audit count works without ENCRYPTION_KEY (key-free predicate, never touches the hasher)", async () => {
+  delete process.env.ENCRYPTION_KEY_V1
+  delete process.env.ENCRYPTION_KEY
+  const rows: Row[] = [
+    { id: 1, bankRef: deposit },
+    { id: 2, bankRef: "QIF_PA3_20260905_10.00_SHOP_1" },
+  ]
+  await expect(mod.countLegacyBankRefs(delegateOf(rows))).resolves.toEqual({ count: 1, sampleIds: [1] })
+})

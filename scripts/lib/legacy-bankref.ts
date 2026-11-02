@@ -1,3 +1,4 @@
+import { accountOfStoredBankRef } from "../../src/lib/bankRefMask"
 import { createBankRefHasher } from "../../src/lib/bankRefHash"
 import { XFER_OUT_PREFIX } from "../../src/lib/xferRefs"
 
@@ -33,7 +34,7 @@ export function planBankRefRewrite(bankRef: string | null): string | null {
 
 /**
  * Count Transaction rows whose bankRef still holds a plaintext account number
- * (`planBankRefRewrite(...) !== null`), keyset-paginated over the candidate
+ * (key-free `accountOfStoredBankRef(...) !== null`, so no ENCRYPTION_KEY is needed), keyset-paginated over the candidate
  * prefixes. Read-only; never returns refs (they hold the account number).
  *
  * @param delegate - Transaction delegate
@@ -57,7 +58,8 @@ export async function countLegacyBankRefs(
     if (rows.length === 0) break
     lastId = rows[rows.length - 1].id
     for (const row of rows) {
-      if (planBankRefRewrite(row.bankRef) === null) continue
+      // Key-free predicate: the audit must work without ENCRYPTION_KEY.
+      if (row.bankRef === null || accountOfStoredBankRef(row.bankRef) === null) continue
       count++
       if (sampleIds.length < 5) sampleIds.push(row.id)
     }

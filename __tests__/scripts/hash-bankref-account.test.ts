@@ -118,8 +118,6 @@ it("apply rewrites ANZ, split siblings, XFER_OUT pairs and OFX; leaves QIF/manua
   // The XFER_OUT leg = XFER_OUT_ + the hashed deposit ref, so xferOutRef() pairing holds.
   expect(db.rows.get(3)!.bankRef).toBe(`XFER_OUT_${hashStoredBankRef(before[2].bankRef!.slice("XFER_OUT_".length))}`)
   expect(db.rows.get(5)!.bankRef).toBe("QIF_PA3_20260905_10.00_SHOP_1")
-  // The XFER_OUT leg still pairs with its (hashed) deposit ref.
-  expect(db.rows.get(3)!.bankRef!.startsWith("XFER_OUT_ANZ_h")).toBe(true)
 })
 
 it("is idempotent: a second apply run changes nothing", async () => {
@@ -239,6 +237,7 @@ describe("v1 key check (apply only)", () => {
       })
     })
 
+    // cryptoCore rebuilds its keyring from process.env on every call, so no jest.resetModules() is needed.
     it("refuses when this run's v1 key differs (current key still decrypts) — nothing written, no PII in the error", async () => {
       rotate()
       const persons = [person(12)]
