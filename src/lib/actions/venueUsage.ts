@@ -112,7 +112,7 @@ function serializableWrite<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>):
 
 /** Refusal when date or times of a row the venue already knows about are edited. */
 const VENUE_KNOWS_LOCK_ERROR =
-  "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking."
+  "The venue has already been asked about this date. To change it, cancel it (emailing the venue) and add a new booking. Once the day has passed you can still correct the start and end times."
 
 const VENUE_KNOWS_CANCEL_ERROR =
   "The venue has already been asked about this date. Cancel it from the bookings list so you can email the venue."
@@ -156,7 +156,9 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
 /**
  * Update a venue usage row (`canEdit`). A date move clears the approval of both the old and new month.
  * Once the venue knows a row (`venueNotifiedAt` or `bookingRequestedAt` set) its date and times are locked:
- * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}); status, purpose and notes stay editable, except that
+ * such an edit is refused ({@link VENUE_KNOWS_LOCK_ERROR}), with one exception: once the booking date has passed
+ * (before today, Sydney time) the start and end times alone may be corrected to the hours actually used (the date
+ * itself stays locked). That path keeps the "asked on" stamp (`bookingRequestedAt`) but still clears approval; status, purpose and notes stay editable, except that
  * cancelling such a row here is refused ({@link VENUE_KNOWS_CANCEL_ERROR}): it must go through
  * `setVenueUsageStatus`, which offers the cancellation email.
  * A status change resets `bookingRequestedAt` (date and times can only change on unasked rows, where it is
@@ -185,19 +187,24 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
     const timingChanged =
       utcDateToYmd(existing.date) !== date || existing.startTime !== rest.startTime || existing.endTime !== rest.endTime
     const venueKnows = existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null
-    if (timingChanged && venueKnows) return { locked: true } as const
+    const dateChanged = utcDateToYmd(existing.date) !== date
+    // Past the day, a known row may have its hours corrected (date stays locked); the asked-on stamp is kept.
+    const pastTimesOnly = venueKnows && !dateChanged && utcDateToYmd(existing.date) < sydneyTodayYMD()
+    if (timingChanged && venueKnows && !pastTimesOnly) return { locked: true } as const
     if (venueKnows && existing.status !== "CANCELLED" && rest.status === "CANCELLED") return { cancelViaList: true } as const
     if (monthOfDate(existing.date) !== date.slice(0, 7) && (await monthWouldOverflow(tx, date.slice(0, 7), 1))) {
       return { full: true } as const
     }
-    const rescheduled = timingChanged || existing.status !== rest.status
+    const rescheduled = (timingChanged && !pastTimesOnly) || existing.status !== rest.status
     await tx.venueUsage.update({
       where: { id },
       data: { ...rest, date: ymdToUtcDate(date), ...(rescheduled ? { bookingRequestedAt: null } : {}) },
       select: { id: true },
     })
     const months = await clearApprovalTx(tx, [monthOfDate(existing.date), date.slice(0, 7)], userId)
-    await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, { date, status: rest.status })
+    await logAuditTx(tx, userId, "VENUE_USAGE_UPDATED", "VenueUsage", id, {
+      date, status: rest.status, ...(pastTimesOnly && timingChanged ? { startTime: rest.startTime, endTime: rest.endTime } : {}),
+    })
     return { months }
   })
   if ("error" in outcome) return outcome
