@@ -4,6 +4,7 @@ describe("isOrganiserAllowedPath", () => {
   test.each([
     "/my-events",
     "/my-events/42/registrations",
+    "/my-events/42/edit",
     "/my-classes",
     "/my-classes/4/roll",
     "/api/auth/session",
@@ -22,6 +23,7 @@ describe("isOrganiserAllowedPath", () => {
     "/accounting",
     "/users",
     "/events",
+    "/events/42/edit",
     "/events/42/registrations",
     "/api/events/summer-fete/register",
     "/sunday-school",

@@ -155,6 +155,67 @@ describe("createTransfer — imported deposit", () => {
   rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: null }, "Imported deposit's cash-out entry does not match this transfer")
 })
 
+describe("createTransfer — manual path duplicate guard", () => {
+  // legs = unlinked unreconciled XFER_OUT legs; dup = their paired INCOME deposit (null = none).
+  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1" }] : []) => ({
+    pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
+    pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
+    transaction: { findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      // Honour a `reconciled` filter like the DB would: the legs here are reconciled-or-not
+      // as given, so any reconciled:false filter in the guard would hide a reconciled leg.
+      legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
+  })
+
+  // Regression (#471): a second cash-out for an already-imported deposit double-counted petty cash.
+  it("rejects a manual transfer that would double-count an imported cash-out (same amount and day, paired deposit)", async () => {
+    const tx = txMock({ id: 11 })
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
+    expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    const call = tx.transaction.findMany.mock.calls[0][0]
+    expect(call.where).toEqual(expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }))
+    // Reconciled legs must still be matched (the error tells the user to un-reconcile).
+    expect(call.where).not.toHaveProperty("reconciled")
+    // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
+    const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
+    expect(call.where.date).toEqual(dayBound)
+    expect(call.where.date.lt.getTime() - call.where.date.gte.getTime()).toBe(86_400_000)
+    expect(tx.transaction.findFirst.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ type: "INCOME", amount: "50.00", date: dayBound })
+    )
+  })
+
+  it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1" }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, form())
+    expect(tx.transaction.create).toHaveBeenCalled()
+    // The deposit lookup was keyed on the leg's paired deposit ref, so "no dup" is a real negative.
+    expect(tx.transaction.findFirst.mock.calls[0][0].where.bankRef).toEqual({ in: ["B1"] })
+  })
+
+  it("rejects when the paired leg is already reconciled (user must un-reconcile first)", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", reconciled: true }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+  })
+
+  it("creates the mirror when no duplicate leg exists", async () => {
+    const tx = txMock(null)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, form())
+    expect(tx.transaction.create).toHaveBeenCalledTimes(1)
+    expect(tx.transaction.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ amount: "50.00", pettyCashTransferId: 3 })
+    )
+  })
+})
+
 describe("deleteTransfer — adopted leg", () => {
   const findTransfer = prisma.pettyCashTransfer.findUnique as jest.Mock
   const old = new Date("2015-01-01")

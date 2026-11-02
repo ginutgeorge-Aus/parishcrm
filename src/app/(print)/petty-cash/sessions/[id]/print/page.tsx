@@ -5,7 +5,7 @@ import { redirect, notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { auditIpFromHeaders } from "@/lib/clientIp"
 import { calcRunningBalance, varianceLabel } from "@/lib/pettyCashLedger"
 import { sumCents, centsToNumber, fmtAUD as fmt } from "@/lib/formatting"
 import { safeDecrypt } from "@/lib/crypto"
@@ -50,7 +50,7 @@ export default async function PettyCashPrintPage(props: Readonly<Props>) {
 
   // Decrypts + prints payee/donor names + descriptions — audit on access,
   // matching the P&L and directory print pages.
-  const ip = clientIpOrUndefined(await headers())
+  const ip = auditIpFromHeaders(await headers())
   await logAudit(actorId(session), "EXPORT_PETTY_CASH_SESSION", "PettyCashSession", id, { title: pcSession.title }, ip)
 
   const totalReceipts = centsToNumber(sumCents(pcSession.receipts.map((r) => r.amount)))

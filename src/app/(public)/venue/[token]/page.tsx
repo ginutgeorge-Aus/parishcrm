@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 import type { Metadata } from "next"
 import { prisma } from "@/lib/prisma"
 import { rateLimit } from "@/lib/rateLimit"
-import { clientIpFromHeaders } from "@/lib/clientIp"
+import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { readCalendarToken, tokenMatches } from "@/lib/venueCalendarToken"
@@ -31,7 +31,7 @@ type Props = { params: Promise<{ token: string }>; searchParams: Promise<{ month
  */
 export default async function VenueCalendarPage({ params, searchParams }: Readonly<Props>) {
   const { token } = await params
-  const ip = clientIpFromHeaders(await headers())
+  const ip = rateKeyFromHeaders(await headers())
   if (!rateLimit(`venueCal:${ip}`, 60, 60_000)) {
     return <p className="p-6 text-center text-sm">Too many requests. Please try again in a minute.</p>
   }

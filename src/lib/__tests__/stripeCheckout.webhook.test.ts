@@ -308,6 +308,39 @@ it("alerts when a PAID webhook has NO staging row at all — event/session casca
   errSpy.mockRestore()
 })
 
+// Regression: offertory Payment Link payments share this endpoint and used to
+// raise a false "charged but no staging row — session vanished" ops alert (#498).
+describe.each(["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"])(
+  "Payment Link session (offertory) via %s",
+  (type) => {
+    it("is ignored — no DB work, no alert, no registration", async () => {
+      const infoSpy = jest.spyOn(console, "info").mockImplementation(() => {})
+      constructEvent.mockReturnValue({
+        type,
+        data: { object: { id: "cs_link", payment_intent: "pi_link", amount_total: 5000, payment_status: "paid", payment_link: "plink_1", metadata: {} } },
+      })
+      expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+      expect(prisma.checkoutSession.findUnique).not.toHaveBeenCalled()
+      expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+      expect(persistRegistration).not.toHaveBeenCalled()
+      expect(notifyStripeAlert).not.toHaveBeenCalled()
+      infoSpy.mockRestore()
+    })
+  },
+)
+
+it("still alerts for an unstaged paid session with no metadata and no payment_link", async () => {
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  constructEvent.mockReturnValue({
+    type: "checkout.session.completed",
+    data: { object: { id: "cs_nometa", payment_intent: "pi_x", amount_total: 2000, payment_status: "paid" } },
+  })
+  prisma.checkoutSession.findUnique.mockResolvedValue(null)
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+  expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringContaining("charged"), expect.any(String))
+  errSpy.mockRestore()
+})
+
 it("alerts when a PAID webhook matches an already-EXPIRED staging row — sweep beat settlement/retry, money charged with no registration", async () => {
   const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
   constructEvent.mockReturnValue(completedEvent("cs_1", "pi_9"))

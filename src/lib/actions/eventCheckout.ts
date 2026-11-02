@@ -9,7 +9,7 @@ import { isRegistrationClosed } from "@/lib/eventClose"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
-import { clientIpFromHeaders, resolveClientIp } from "@/lib/clientIp"
+import { rateKeyFromHeaders, resolveClientIp } from "@/lib/clientIp"
 
 /**
  * Public entry point for the optional Stripe event-payments flow: prices the
@@ -104,7 +104,7 @@ export async function startExistingRegistrationCheckout(
   }
 
   const h = await headers()
-  const key = clientIpFromHeaders(h)
+  const key = rateKeyFromHeaders(h)
   if (!rateLimit(`checkout:${key}`, 10, 60_000)) {
     return { ok: false, status: 429, error: "Too many attempts" }
   }

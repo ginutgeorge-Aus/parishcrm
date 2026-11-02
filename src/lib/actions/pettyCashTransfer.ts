@@ -13,7 +13,7 @@ import { encrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
+import { ADOPTION_ERRORS, adoptionProblem, depositRefOfLeg } from "@/lib/pettyCashAdoption"
 import { xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
@@ -21,6 +21,11 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
+import { utcDayRange } from "@/lib/dates"
+
+/** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
+const DUPLICATE_LEG_ERROR =
+  "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -130,6 +135,41 @@ export async function createTransfer(
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
         adoptLegId = leg!.id
+      } else {
+        // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
+        // day is probably this very deposit — a second cash-out would reduce petty cash
+        // twice. Reject and point the user at the imported-deposit picker — but only when
+        // the leg's paired deposit (same amount + day) exists. A reconciled leg still
+        // counts: it already reduced the cash balance, so the user must un-reconcile it and
+        // pick the deposit. Without a paired deposit the picker can't offer the leg, so
+        // manual entry stays the only path.
+        const dayRange = utcDayRange(parsed.data.date)
+        const legs = await tx.transaction.findMany({
+          where: {
+            accountId: xferAccountId,
+            type: "EXPENSE",
+            bankRef: { startsWith: XFER_OUT_PREFIX },
+            pettyCashTransferId: null,
+            paymentAccountId: cashAccount?.id ?? null,
+            amount: parsed.data.amount,
+            date: dayRange,
+          },
+          select: { bankRef: true },
+        })
+        const depositRefs = legs.flatMap((l) => (l.bankRef ? [depositRefOfLeg(l.bankRef)] : []))
+        const dup = depositRefs.length
+          ? await tx.transaction.findFirst({
+              where: {
+                accountId: xferAccountId,
+                type: "INCOME",
+                bankRef: { in: depositRefs },
+                amount: parsed.data.amount,
+                date: dayRange,
+              },
+              select: { id: true },
+            })
+          : null
+        if (dup) throw new TransferError(DUPLICATE_LEG_ERROR)
       }
       const transfer = await tx.pettyCashTransfer.create({
         data: {

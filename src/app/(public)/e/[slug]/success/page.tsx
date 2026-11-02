@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { rateLimit } from "@/lib/rateLimit"
-import { clientIpFromHeaders } from "@/lib/clientIp"
+import { rateKeyFromHeaders } from "@/lib/clientIp"
 import { fmtAUD, toCents, centsToNumber } from "@/lib/formatting"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import { QrCode } from "@/components/QrCode"
@@ -65,7 +65,7 @@ async function checkSuccessPageRateLimit(
   churchEmail: string,
 ): Promise<ReactNode | null> {
   if (!ref && !cardToken) return null
-  const ip = clientIpFromHeaders(await headers())
+  const ip = rateKeyFromHeaders(await headers())
   if (rateLimit(`success:${ip}`, SUCCESS_LOOKUP_LIMIT, SUCCESS_LOOKUP_WINDOW_MS)) return null
   return <RateLimitedNotice churchEmail={churchEmail} />
 }

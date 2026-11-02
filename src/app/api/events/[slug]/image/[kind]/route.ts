@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { canEdit } from "@/lib/roleGuard"
+import { actorId } from "@/lib/actor"
+import { canManageEvent } from "@/lib/eventManager"
 import { safeImageContentType } from "@/lib/imageContentType"
 import { rateLimit } from "@/lib/rateLimit"
-import { getClientIp } from "@/lib/clientIp"
+import { rateKeyFromRequest } from "@/lib/clientIp"
 import { featureNotFound } from "@/lib/featureFlags"
 
 // Lowercase URL param → Prisma enum. Anything else 404s (no enumeration of kinds).
@@ -20,7 +21,7 @@ export async function GET(
   // Unauthenticated (same public tier as register/waitlist) — throttle
   // before any DB work. Higher N than register/waitlist's 10/min since a
   // single page load can fan out to both banner + poster.
-  const ip = getClientIp(req)
+  const ip = rateKeyFromRequest(req)
   if (!rateLimit(`event-image:${ip}`, 60, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
@@ -36,15 +37,18 @@ export async function GET(
 
   const img = await prisma.eventImage.findFirst({
     where: { kind: mapped, event: { slug } },
-    select: { data: true, mimeType: true, event: { select: { isPublished: true } } },
+    select: { data: true, mimeType: true, event: { select: { id: true, isPublished: true } } },
   })
   if (!img) return notFound()
 
-  // Published images are public; draft images are visible only to editors so a
-  // 200-vs-404 can't confirm a draft slug exists (same rule as the public page).
+  // Published images are public; draft images are visible only to editors and
+  // the EVENT_ORGANISER assigned to that event (canManageEvent) so a 200-vs-404
+  // can't confirm a draft slug exists (same rule as the public page).
   if (!img.event.isPublished) {
     const session = await auth()
-    if (!canEdit(session?.user?.role)) return notFound()
+    // `user.id` checked first so a session without an id 404s like an
+    // anonymous one instead of letting actorId throw a distinguishable 500.
+    if (!session?.user?.id || !(await canManageEvent(actorId(session), img.event.id, session.user.role))) return notFound()
   }
 
   const body = Buffer.isBuffer(img.data) ? img.data : Buffer.from(img.data as Uint8Array)

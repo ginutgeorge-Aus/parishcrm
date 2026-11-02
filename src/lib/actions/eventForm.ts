@@ -9,7 +9,7 @@ import { EventImageKind } from "@/lib/generated/prisma/enums"
 import { Prisma } from "@/lib/generated/prisma/client"
 import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
 
-export const EventSchema = z.object({
+const EventBase = z.object({
   title: z.string().min(1, "Title required").max(200),
   slug: z.string().min(1, "Slug required").max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only"),
   description: z.string().max(2000).optional(),
@@ -34,7 +34,9 @@ export const EventSchema = z.object({
   tieredPricingEnabled: z.string().optional().transform((v) => v === "on"),
   imageUrl: z.string().trim().max(2048).regex(/^https:\/\//, "Image URL must start with https://").optional(),
   reminderDaysBefore: z.coerce.number().int().min(1, "Reminder days must be at least 1").max(90, "Reminder days too large").optional(),
-}).superRefine((data, ctx) => {
+})
+
+export const EventSchema = EventBase.superRefine((data, ctx) => {
   if (data.kind === "one_off" && !data.date) {
     ctx.addIssue({ code: "custom", message: "Date required for one-off events", path: ["date"] })
   }
@@ -268,4 +270,91 @@ export function parseEventForm(formData: FormData): { error: string } | ParsedEv
   const organizers = parseOrganizers(formData)
 
   return { parsed: parsed.data, ticketTypes: ttResult.types, customQuestions, organizers, tiers: tierResult.tiers }
+}
+
+/** Event kinds an organiser may edit; read from the DB row, never the form. */
+export type ManagedEventKind = "one_off" | "recurring"
+
+// Detail fields an EVENT_ORGANISER may edit on their own events (OSS-41,
+// "details only"). Anything not listed — slug, publish, registration settings,
+// money, managers — is never read from the form.
+const MANAGED_FIELDS = ["title", "description", "category", "date", "endDate", "recurs", "recursLabel", "startTime", "location"] as const
+
+/**
+ * Zod schema for the organiser details form. Reuses the field validators of
+ * `EventSchema`; the schedule rules are repeated here (not shared) because
+ * `EventSchema`'s superRefine also covers fields this form never carries.
+ */
+export const ManagedEventSchema = EventBase.pick({
+  title: true,
+  description: true,
+  kind: true,
+  category: true,
+  date: true,
+  endDate: true,
+  recurs: true,
+  recursLabel: true,
+  startTime: true,
+  location: true,
+}).superRefine((data, ctx) => {
+  if (data.kind === "one_off" && !data.date) {
+    ctx.addIssue({ code: "custom", message: "Date required for one-off events", path: ["date"] })
+  }
+  if (data.kind === "recurring" && !data.recurs) {
+    ctx.addIssue({ code: "custom", message: "Recurrence pattern required for recurring events", path: ["recurs"] })
+  }
+  const toTime = (v: string | undefined) => (v ? new Date(v + ":00.000Z").getTime() : undefined)
+  const start = toTime(data.date)
+  const end = toTime(data.endDate)
+  if (start !== undefined && end !== undefined && end < start) {
+    ctx.addIssue({ code: "custom", message: "End date must not be before the start date", path: ["endDate"] })
+  }
+})
+
+export type ParsedManagedEventForm = {
+  parsed: z.infer<typeof ManagedEventSchema>
+  organizers: ReturnType<typeof parseOrganizers>
+}
+
+/**
+ * Validate the organiser details form. Only `MANAGED_FIELDS` plus the
+ * `organizer.<i>.*` rows are read; `kind` is injected from the stored event so
+ * a form can't flip an event between one-off and recurring.
+ *
+ * @param formData - Submitted form.
+ * @param kind - The event's stored kind.
+ * @returns `{ error }` for the first validation failure, else the parsed data.
+ */
+export function parseManagedEventForm(
+  formData: FormData,
+  kind: ManagedEventKind,
+): { error: string } | ParsedManagedEventForm {
+  const parsed = ManagedEventSchema.safeParse({
+    ...Object.fromEntries(MANAGED_FIELDS.map((k) => [k, formData.get(k) || undefined])),
+    kind,
+  })
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  return { parsed: parsed.data, organizers: parseOrganizers(formData) }
+}
+
+/**
+ * Build the Event column payload for an organiser edit — the detail columns
+ * only. Mirrors `eventData`'s one-off/recurring column rules.
+ *
+ * @param d - Validated managed form data.
+ * @returns Prisma update payload with exactly the nine detail columns.
+ */
+export function managedEventData(d: z.infer<typeof ManagedEventSchema>) {
+  const recurring = d.kind === "recurring"
+  return {
+    title: d.title,
+    description: d.description || null,
+    category: d.category,
+    date: !recurring && d.date ? sydneyDatetimeLocalToUTC(d.date) : null,
+    endDate: d.endDate ? sydneyDatetimeLocalToUTC(d.endDate) : null,
+    recurs: recurring ? (d.recurs || null) : null,
+    recursLabel: recurring ? (d.recursLabel || null) : null,
+    startTime: recurring ? (d.startTime || null) : null,
+    location: d.location || null,
+  }
 }

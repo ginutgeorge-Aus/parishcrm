@@ -136,7 +136,7 @@ async function completeSecondFactorLogin(user: DbUser, remember: unknown, ip: st
  * @returns the user on success, else null
  */
 async function verifyPassword(email: string, password: string, ip: string | undefined): Promise<DbUser | null> {
-  const { user } = await findUserByEmailInsensitive(email)
+  const user = await findUserByEmailInsensitive(email)
   if (!user) {
     // burn the same bcrypt cost as the real compare below so this
     // fast path can't be timed apart from a valid-email/wrong-password path.
@@ -380,7 +380,7 @@ export async function authorizeCredentials(
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const { user } = await findUserByEmailInsensitive(rawEmail)
+    const user = await findUserByEmailInsensitive(rawEmail)
     if (!user) return null
     // a soft-deleted user must never authenticate. (Its email is also
     // tombstoned on archive, so this is defence-in-depth.)
