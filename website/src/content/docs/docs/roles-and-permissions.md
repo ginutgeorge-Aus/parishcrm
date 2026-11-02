@@ -35,7 +35,7 @@ these helpers, so the permission boundary lives in one place.
 | `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN or PASTOR accounts or grant either role (self-escalation guard). |
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
-| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages and the rolls of Sunday School classes they're assigned to (`/my-classes`). |
+| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages and the rolls of Sunday School classes they're assigned to (`/my-classes`). They can edit the public details of events they manage at /my-events/[id]/edit. |
 
 ### Role-assignment limits (privilege escalation guard)
 
@@ -71,7 +71,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events` and `/my-classes` |
 | View people & families | Yes | Yes | Yes | No | Yes | No |
-| Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events only |
+| Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) |
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No |
