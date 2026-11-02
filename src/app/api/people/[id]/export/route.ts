@@ -13,7 +13,7 @@ import {
   decryptClearanceForExport,
 } from "@/lib/personExport"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { parseRouteId } from "@/lib/validation"
 
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     exportedAt: new Date().toISOString(),
   }
 
-  const ip = getValidatedClientIp(req)
+  const ip = auditIpFromRequest(req)
   await logAudit(
     actorId(session),
     "PERSON_EXPORTED",

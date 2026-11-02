@@ -8,7 +8,7 @@ import { isEventManager } from "@/lib/eventManager"
 import { safeDecrypt } from "@/lib/crypto"
 import { toAnswerMap } from "@/lib/eventAnswers"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
 import { featureNotFound } from "@/lib/featureFlags"
 
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ slug: str
   )
 
   const userId = actorId(session)
-  const ip = getValidatedClientIp(req)
+  const ip = auditIpFromRequest(req)
   // event.id is already the resourceId — log the row count instead of repeating
   // it, and keep decrypted PII out of audit metadata.
   await logAudit(userId, "EXPORT_CSV", "Event", event.id, { rowCount: event.registrations.length }, ip)

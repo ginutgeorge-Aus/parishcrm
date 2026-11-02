@@ -6,7 +6,7 @@ import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { clientIpOrUndefined } from "@/lib/clientIp"
+import { auditIpFromHeaders } from "@/lib/clientIp"
 import { MONTH_LABELS } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR } from "@/lib/formatting"
 import { fyRangeLabel } from "@/lib/fiscalYear"
@@ -52,7 +52,7 @@ export default async function PLPrintPage(props: Readonly<Props>) {
 
   const headersList = await headers()
   const userId = actorId(session)
-  void logAudit(userId, "EXPORT_FINANCIAL_REPORT", "Transaction", undefined, { report: "pl-print" }, clientIpOrUndefined(headersList))
+  void logAudit(userId, "EXPORT_FINANCIAL_REPORT", "Transaction", undefined, { report: "pl-print" }, auditIpFromHeaders(headersList))
 
   // Production CSP nonces style-src; the print <style> needs the nonce.
   const nonce = headersList.get("x-nonce") ?? undefined

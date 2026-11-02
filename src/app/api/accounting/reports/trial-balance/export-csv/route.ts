@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { fyYearParamOr400, guardAccountingExport } from "@/lib/reports/exportGuard"
 import { logAudit } from "@/lib/audit"
-import { getValidatedClientIp } from "@/lib/clientIp"
+import { auditIpFromRequest } from "@/lib/clientIp"
 import { generateTrialBalanceCsv, type TrialBalanceRow } from "@/lib/reports/trialBalanceExport"
 import { groupByAccountGroup } from "@/lib/reports/accountGrouping"
 import { fyDateRange } from "@/lib/fiscalYear"
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     netCents: totalCredit - totalDebit,
   })
 
-  const ip = getValidatedClientIp(req)
+  const ip = auditIpFromRequest(req)
   await logAudit(guard.actor, "EXPORT_FINANCIAL_REPORT", "TrialBalance", undefined, { report: "trial-balance", year, rowCount: rows.length }, ip)
 
   return new NextResponse(csv, {
