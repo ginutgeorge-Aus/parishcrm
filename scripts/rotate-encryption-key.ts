@@ -336,6 +336,21 @@ export async function rotateModel(
   return { changed, badRows, conflicts }
 }
 
+/**
+ * The warning printed after every run: 0 rows on an old key id never makes
+ * ENCRYPTION_KEY_V1 retirable, because blind indexes are keyed on it.
+ *
+ * @returns the warning text
+ */
+export function v1RetirementWarning(): string {
+  return (
+    "WARNING: never retire ENCRYPTION_KEY_V1, even when no rows remain on it. Blind indexes " +
+    "(Person/MembershipApplication emailHash + mobileHash, and the account hashes inside imported " +
+    "Transaction.bankRef values) are keyed on v1. The bankRef hashes cannot be rebuilt (the account " +
+    "number is gone), so without v1 bank import fails closed and dedup against stored refs is lost."
+  )
+}
+
 async function main() {
   console.log(`Rotating encrypted values to current key id "${CURRENT}" — ${APPLY ? "APPLY" : "DRY RUN"}`)
   console.log(`Target DB host: ${dbHost()}`)
@@ -369,6 +384,7 @@ async function main() {
         `overwritten). Re-run the script to rotate them.`,
     )
   }
+  console.warn(v1RetirementWarning())
   if (APPLY) {
     // record the rotation in container stdout / Log Analytics. No DB
     // AuditLog row — this is a CLI op with no authenticated user, and

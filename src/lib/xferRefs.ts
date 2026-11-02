@@ -9,3 +9,12 @@ export const XFER_OUT_PREFIX = "XFER_OUT_"
 export function xferOutRef(depositBankRef: string): string {
   return `${XFER_OUT_PREFIX}${depositBankRef}`
 }
+
+/**
+ * Inverse of {@link xferOutRef}: the deposit bank ref a leg's `XFER_OUT_` bank ref points at.
+ * @param legBankRef bank ref of the XFER_OUT leg
+ * @returns the paired deposit's bank ref
+ */
+export function depositRefOfLeg(legBankRef: string): string {
+  return legBankRef.slice(XFER_OUT_PREFIX.length)
+}
