@@ -50,7 +50,7 @@ function ResultMessage({ result }: Readonly<{ result: VenueMutationResult }>) {
     return (
       <>
         <p role="status" className="text-sm text-muted-foreground">{result.success}</p>
-        <FormFeedback state={{ warning: result.warning }} warningTone="destructive" />
+        <FormFeedback state={{ warning: result.warning }} />
       </>
     )
   }

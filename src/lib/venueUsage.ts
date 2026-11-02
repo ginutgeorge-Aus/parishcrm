@@ -51,6 +51,7 @@ export function defaultStatusForDate(ymd: string, todayYMD: string): VenueBookin
 
 /**
  * Whether a booking date is strictly before today (Sydney calendar), i.e. the day has passed.
+ * Today is NOT past (same-day is false), matching {@link defaultStatusForDate} which treats today as CONFIRMED.
  * Shared by the edit form and the server so both apply the same "hours may be corrected" rule.
  * @param ymd booking date "YYYY-MM-DD"
  * @param todayYMD today's Sydney calendar date "YYYY-MM-DD"

@@ -17,17 +17,20 @@ describe("FormFeedback", () => {
     expect(el.className).toContain("text-income")
   })
 
-  it("renders a warning as an alert without destructive styling", () => {
+  it("renders a warning as a destructive-styled alert alongside success", () => {
     render(<FormFeedback state={{ success: "Saved", warning: "Heads up" }} />)
     const el = screen.getByRole("alert")
     expect(el).toHaveTextContent("Heads up")
-    expect(el.className).not.toContain("text-destructive")
+    expect(el.className).toContain("text-destructive")
     expect(screen.getByRole("status")).toHaveTextContent("Saved")
   })
 
-  it("uses the destructive tone for an action-required warning", () => {
-    render(<FormFeedback state={{ warning: "Tell the venue" }} warningTone="destructive" />)
-    expect(screen.getByRole("alert").className).toContain("text-destructive")
+  it("renders both the error and the warning when both are present", () => {
+    render(<FormFeedback state={{ error: "Bad", warning: "Heads up" }} />)
+    const alerts = screen.getAllByRole("alert")
+    expect(alerts).toHaveLength(2)
+    expect(alerts[0]).toHaveTextContent("Bad")
+    expect(alerts[1]).toHaveTextContent("Heads up")
   })
 
   it("renders nothing when there is no message", () => {
