@@ -1,4 +1,4 @@
-import { accountOfStoredBankRef } from "../../src/lib/bankRefMask"
+import { SENSITIVE_PREFIXES, accountOfStoredBankRef } from "../../src/lib/bankRefMask"
 import { createBankRefHasher, type BankRefHasher } from "../../src/lib/bankRefHash"
 import { XFER_OUT_PREFIX } from "../../src/lib/xferRefs"
 
@@ -6,8 +6,7 @@ import { XFER_OUT_PREFIX } from "../../src/lib/xferRefs"
 // by the `hash-bankref-account` backfill and the `audit-data-integrity` check
 // so "what still needs hashing" can never drift between the two.
 
-// Ref prefixes that can carry an account number (incl. the paired cash-out leg).
-const SENSITIVE_PREFIXES = ["ANZ_", "ANZTR_", "OFX_"]
+// Ref prefixes that can carry an account number come from bankRefMask (incl. the paired cash-out leg below).
 /** Stored bankRef prefixes a legacy (plaintext account number) ref can start with. */
 export const CANDIDATE_PREFIXES = [...SENSITIVE_PREFIXES, ...SENSITIVE_PREFIXES.map((p) => `${XFER_OUT_PREFIX}${p}`)]
 

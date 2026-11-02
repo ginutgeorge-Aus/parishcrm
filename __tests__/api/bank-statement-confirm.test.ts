@@ -6,7 +6,10 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { __resetRateLimit } from "@/lib/rateLimit"
-import { hashStoredBankRef } from "@/lib/bankRefHash"
+import { createBankRefHasher } from "@/lib/bankRefHash"
+
+/** Hashed at-rest form of a stored ref (one-off hasher). */
+const hashStoredBankRef = (ref: string) => createBankRefHasher().stored(ref)
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))

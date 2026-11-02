@@ -5,9 +5,12 @@ import { hmacBankAccount, hmacBankRefAccount } from "@/lib/crypto"
 import { contentKeyFromBankRef, parseAnzStatement } from "@/lib/anzParser"
 import { parseOfx } from "@/lib/bankParsers/ofx"
 import { accountOfStoredBankRef, HASHED_ACCOUNT_RE, hashBankRefWith, hashContentKeyWith } from "@/lib/bankRefMask"
-import { accountHashToken, hashBankRef, hashContentKey, hashStoredBankRef } from "@/lib/bankRefHash"
+import { createBankRefHasher } from "@/lib/bankRefHash"
 
 const ACCT = "987654321"
+const hashBankRef = (ref: string, acct: string) => createBankRefHasher().ref(ref, acct)
+const hashContentKey = (key: string, acct: string) => createBankRefHasher().key(key, acct)
+const hashStoredBankRef = (ref: string) => createBankRefHasher().stored(ref)
 const tok = () => `h${hmacBankRefAccount(ACCT).slice(0, 16)}`
 
 describe("pure hash rewrite (bankRefMask)", () => {
@@ -58,9 +61,9 @@ describe("pure hash rewrite (bankRefMask)", () => {
 
 describe("keyed hash (bankRefHash)", () => {
   it("token is h + the first 16 hex of hmacBankRefAccount", () => {
-    expect(accountHashToken(ACCT)).toBe(tok())
-    expect(accountHashToken(ACCT)).toMatch(HASHED_ACCOUNT_RE)
-    expect(accountHashToken("123456789")).not.toBe(accountHashToken(ACCT))
+    expect(hashBankRef(`ANZ_${ACCT}_1_2_3_4`, ACCT)).toBe(`ANZ_${tok()}_1_2_3_4`)
+    expect(tok()).toMatch(HASHED_ACCOUNT_RE)
+    expect(hashBankRef("ANZ_123456789_1_2_3_4", "123456789")).not.toBe(hashBankRef(`ANZ_${ACCT}_1_2_3_4`, ACCT))
   })
 
   it("hashed refs never contain the account number and stay deterministic", () => {
@@ -90,13 +93,13 @@ describe("keyed hash (bankRefHash)", () => {
     expect(hashStoredBankRef("PC_E_4")).toBe("PC_E_4")
   })
 
-  it("createBankRefHasher derives each account's digest once and matches the one-off helpers", async () => {
+  it("createBankRefHasher derives each account's digest once and matches fresh hashers", async () => {
     jest.resetModules()
     const real = jest.requireActual<typeof import("@/lib/cryptoCore")>("@/lib/cryptoCore")
     const spy = jest.fn(real.hmacBankRefAccount)
     jest.doMock("@/lib/cryptoCore", () => ({ ...real, hmacBankRefAccount: spy }))
-    const { createBankRefHasher } = await import("@/lib/bankRefHash")
-    const hasher = createBankRefHasher()
+    const { createBankRefHasher: createCounted } = await import("@/lib/bankRefHash")
+    const hasher = createCounted()
     const rows = parseAnzStatement(ANZ_TEXT).rows
     for (const r of rows) {
       expect(hasher.ref(r.bankRef, ACCT)).toBe(hashBankRef(r.bankRef, ACCT))

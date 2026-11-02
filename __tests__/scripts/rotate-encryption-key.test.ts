@@ -530,3 +530,12 @@ describe("pagination under concurrent deletes", () => {
     expect(changed).toBe(100)
   })
 })
+
+it("the post-run warning says ENCRYPTION_KEY_V1 must never be retired and names the bankRef hashes", async () => {
+  setBaseEnv()
+  const { v1RetirementWarning } = await import("../../scripts/rotate-encryption-key")
+  const text = v1RetirementWarning()
+  expect(text).toMatch(/never retire ENCRYPTION_KEY_V1/)
+  expect(text).toMatch(/Transaction\.bankRef/)
+  expect(text).toMatch(/emailHash/)
+})

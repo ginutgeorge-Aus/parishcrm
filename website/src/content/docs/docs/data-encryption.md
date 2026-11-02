@@ -69,7 +69,9 @@ non-zero exit if anything was skipped so a partial rotation is a visible finding
 silent gap. The email/mobile blind-index HMAC key is deliberately derived from the *original*
 v1 key rather than the current one, specifically so rotating forward never orphans existing
 lookup hashes — the v1 key must never be deleted while any v1-encrypted data or hash could
-still exist.
+still exist. This includes the keyed account hash stored inside imported bank references
+(`Transaction.bankRef`), another blind index tied to v1: it cannot be rebuilt from a new key,
+so keep v1 even after the rotation script reports no v1-encrypted rows left.
 
 **Boot-time health check.** On container startup, a keyring health check runs and, in
 production, refuses to start if the encryption key looks obviously wrong (all-zero bytes, a

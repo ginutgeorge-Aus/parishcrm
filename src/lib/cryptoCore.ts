@@ -205,9 +205,12 @@ export function decryptBytes(blob: Uint8Array): Buffer<ArrayBuffer> {
 // the blind index must survive key rotation (re-keying it would orphan every
 // stored hash), and v1 is the permanent root (encryption.md forbids deleting it
 // while any v1 data remains). HKDF with a fixed info label keeps the index key
-// domain-separated from the encryption key. CAVEAT: if v1 is ever genuinely
-// retired (full rotation + 0 v1 rows), the emailHash columns must be rebuilt
-// from a new root.
+// domain-separated from the encryption key. CAVEAT: v1 can NOT be retired just
+// because rotation reports 0 v1-encrypted rows. emailHash/mobileHash can be
+// rebuilt from a new root (the plaintext is recoverable), but stored
+// Transaction.bankRef account hashes cannot (the account number is gone, see
+// scripts/hash-bankref-account.ts) — retiring v1 permanently loses bank-import
+// dedup against them and makes imports fail closed.
 function blindIndexKey(label: string): Buffer {
   const { keys } = loadKeyring()
   const v1 = keys.get("v1")
@@ -293,7 +296,8 @@ export function assertKeyringHealthy(): void {
   if (retirable.length > 0) {
     console.warn(
       `[crypto] keyring holds non-current key id(s) ${retirable.join(", ")} (current: ${currentId}). ` +
-        `Once the rotation script reports 0 rows on an old id, retire that key. See scripts/rotate-encryption-key.ts.`,
+        `Once the rotation script reports 0 rows on an old id, retire that key — but NEVER v1: ` +
+        `blind indexes (emailHash/mobileHash, Transaction.bankRef account hashes) are keyed on it. See scripts/rotate-encryption-key.ts.`,
     )
   }
 }

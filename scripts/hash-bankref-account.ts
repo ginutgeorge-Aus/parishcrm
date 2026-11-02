@@ -43,7 +43,8 @@ export { planBankRefRewrite }
 //     (transfer picker, adoption guards) would silently stop pairing them;
 //   - refs are never printed (they hold the account number) — only row ids,
 //     and error text is scrubbed of refs before it is logged;
-//   - the dry run also reports rows whose hashed form already exists.
+//   - the dry run models the same write units and reports the same collisions
+//     (hashed form already stored, a deposit/leg mate's, or two rows hashing alike).
 // Needs the same ENCRYPTION_KEY(_V1) as the app: the hash is keyed. Once this
 // has run, ENCRYPTION_KEY_V1 can never be retired — the stored hashes cannot
 // be rebuilt from a new root (unlike emailHash, the plaintext is gone).
@@ -340,6 +341,9 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   if (apply) await assertV1KeyMatches(delegate, people)
   // A pair skipped in one batch is met again from its mate's batch — report each row once.
   const reported = new Set<number>()
+  // Dry run only: ids already planned (a pair is met again from its mate's batch) and hashed refs taken.
+  const planned = new Set<number>()
+  const claimed = new Set<string>()
   const report = (kind: "conflict" | "collision", id: number) => {
     if (reported.has(id)) return
     reported.add(id)
@@ -367,14 +371,23 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
       return next === null ? [] : [{ row, next }]
     })
     if (!apply) {
-      // Read-only collision pre-check: rows whose hashed form is already stored.
-      const twins = pending.length
-        ? ((await delegate.findMany({ where: { bankRef: { in: pending.map((p) => p.next) } }, select: { id: true, bankRef: true } })) as Row[])
-        : []
-      const taken = new Set(twins.map((t) => t.bankRef))
-      for (const p of pending) {
-        if (taken.has(p.next)) report("collision", p.row.id)
-        else result.changed++
+      // Read-only: model the same write units as --apply. A unit (a row, or a
+      // deposit + its XFER_OUT_ leg) collides when any of its hashed refs is
+      // already stored on another row or claimed by an earlier unit this run
+      // (apply would hit the unique index there); a colliding unit claims nothing.
+      const units = (await pairUnits(pending, delegate, hasher)).filter((u) => !u.some((p) => planned.has(p.row.id)))
+      const nexts = units.flat().map((p) => p.next)
+      const twins = nexts.length ? ((await delegate.findMany({ where: { bankRef: { in: nexts } }, select: { id: true, bankRef: true } })) as Row[]) : []
+      for (const t of twins) claimed.add(t.bankRef!)
+      for (const unit of units) {
+        for (const p of unit) planned.add(p.row.id)
+        const seen = new Set<string>()
+        const collides = unit.some((p) => claimed.has(p.next) || (seen.has(p.next) ? true : (seen.add(p.next), false)))
+        if (collides) for (const p of unit) report("collision", p.row.id)
+        else {
+          for (const p of unit) claimed.add(p.next)
+          result.changed += unit.length
+        }
       }
     } else if (pending.length > 0) {
       const units = await pairUnits(pending, delegate, hasher)

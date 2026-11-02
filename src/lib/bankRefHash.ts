@@ -8,7 +8,7 @@
 // the same carve-out cryptoCore documents for ops scripts. Only server code
 // (parse route, confirm pipeline) imports it from the app.
 import { hmacBankRefAccount } from "./cryptoCore"
-import { accountHashHead, accountOfStoredBankRef, hashBankRefWith, hashContentKeyWith } from "./bankRefMask"
+import { accountOfStoredBankRef, hashBankRefWith, hashContentKeyWith } from "./bankRefMask"
 import { XFER_OUT_PREFIX } from "./xferRefs"
 
 /** User-facing message when the at-rest hash key cannot be derived (shared by parse + confirm). */
@@ -90,54 +90,4 @@ export function createBankRefHasher(): BankRefHasher {
  */
 export function dedupForms(legacy: string, hashed: string): string[] {
   return hashed === legacy ? [hashed] : [hashed, legacy]
-}
-
-/**
- * The hashed stand-in for an account number in a stored ref: `h` + the first 16
- * hex characters of its keyed HMAC (`hmacBankRefAccount`; format owned by `accountHashHead`).
- *
- * @param accountNumber - plaintext account number
- * @returns `h<16 hex>`
- */
-export function accountHashToken(accountNumber: string): string {
-  return accountHashHead(digestAccount(accountNumber))
-}
-
-/**
- * Hash every occurrence of `accountNumber` in an import bankRef (the write
- * format from #459). Refs of another account, QIF and non-import refs pass
- * through; an empty account number leaves the ref unchanged. One-off — use
- * `createBankRefHasher` for many rows.
- *
- * @param ref - full-number bankRef as built by a parser
- * @param accountNumber - the statement's account number
- * @returns the at-rest bankRef
- */
-export function hashBankRef(ref: string, accountNumber: string): string {
-  return createBankRefHasher().ref(ref, accountNumber)
-}
-
-/**
- * Hash every occurrence of `accountNumber` in a content key (ParsedRow.dedupKey),
- * matching `contentKeyFromBankRef(hashBankRef(ref))` for the same row.
- *
- * @param key - full-number content key
- * @param accountNumber - the statement's account number
- * @returns the at-rest content key
- */
-export function hashContentKey(key: string, accountNumber: string): string {
-  return createBankRefHasher().key(key, accountNumber)
-}
-
-/**
- * Hash a stored (or about-to-be-stored) bankRef using the account number from
- * its own first segment. Handles `XFER_OUT_` paired legs and `#n` split
- * siblings. Idempotent: an already-hashed, masked, QIF or non-import ref is
- * returned as-is. One-off — use `createBankRefHasher` for many rows.
- *
- * @param ref - a Transaction.bankRef value
- * @returns the at-rest bankRef
- */
-export function hashStoredBankRef(ref: string): string {
-  return createBankRefHasher().stored(ref)
 }

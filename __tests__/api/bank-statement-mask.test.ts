@@ -44,9 +44,14 @@ import { parseOfx } from "@/lib/bankParsers/ofx"
 import { confirmBankImport } from "@/lib/bankImportConfirm"
 import { encrypt } from "@/lib/crypto"
 import { sealAccountNumber } from "@/lib/bankAccountToken"
-import { BANKREF_HASH_ERROR, accountHashToken, hashBankRef } from "@/lib/bankRefHash"
+import { BANKREF_HASH_ERROR, createBankRefHasher } from "@/lib/bankRefHash"
+import { hmacBankRefAccount } from "@/lib/cryptoCore"
 
 const ACCT = "987654321"
+/** Hashed at-rest form of a full-number ref (one-off hasher). */
+const hashBankRef = (ref: string, acct: string) => createBankRefHasher().ref(ref, acct)
+/** `h` + first 16 hex of the keyed account digest. */
+const accountHashToken = (acct: string) => `h${hmacBankRefAccount(acct).slice(0, 16)}`
 const ANZ_TEXT = `
 BUSINESS EXTRA STATEMENT
 Account Number 9876-54321

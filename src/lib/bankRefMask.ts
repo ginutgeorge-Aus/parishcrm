@@ -30,9 +30,13 @@ import { XFER_OUT_PREFIX as XFER_OUT_REF_PREFIX } from "./xferRefs"
 
 /** Every import-ref prefix (ANZ/ANZTR/OFX/QIF); shared with `contentKeyFromBankRef` in anzParser.ts. */
 export const IMPORT_REF_PREFIX_RE = /^(?:ANZ|ANZTR|OFX|QIF)_/
-// Prefixes whose account segment is a real bank account number. QIF uses
-// `PA<paymentAccountId>` (an internal id), which is never sensitive.
-const SENSITIVE_PREFIX_RE = /^(?:ANZ|ANZTR|OFX)_/
+/**
+ * Ref prefixes whose account segment is a real bank account number (QIF uses
+ * `PA<paymentAccountId>`, an internal id, never sensitive). Shared with the
+ * hash-bankref-account / audit scripts so the lists cannot drift.
+ */
+export const SENSITIVE_PREFIXES = ["ANZ_", "ANZTR_", "OFX_"] as const
+const SENSITIVE_PREFIX_RE = new RegExp(`^(?:${SENSITIVE_PREFIXES.map((p) => p.slice(0, -1)).join("|")})_`)
 const MASK_SEGMENT_RE = /^\*[A-Za-z0-9]{1,4}$/
 // Occurrences beyond the leading account segment are only masked for numbers
 // at least this long — a short value would match arbitrary digits elsewhere.

@@ -37,7 +37,7 @@ PDF text extraction uses `unpdf`; the ANZ format handles both a plain statement 
 
 ### Duplicate detection
 
-Each imported row gets a `bankRef` built from the bank, account, date, amount, a description fragment, and the running balance (the balance figure is what prevents two same-day, same-amount transactions from colliding on the same key). A separate **content key** (independent of exactly which parser produced the row) lets the importer recognise "this same statement line was already imported once, even via a different statement format," so re-uploading an overlapping date range doesn't double-post.
+Each imported row gets a `bankRef` built from the bank, a keyed hash of the account number (never the number itself, see below), date, amount, a description fragment, and the running balance (the balance figure is what prevents two same-day, same-amount transactions from colliding on the same key). A separate **content key** (independent of exactly which parser produced the row) lets the importer recognise "this same statement line was already imported once, even via a different statement format," so re-uploading an overlapping date range doesn't double-post.
 
 ### Account number privacy
 

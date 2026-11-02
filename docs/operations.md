@@ -38,6 +38,11 @@ draft fingerprint) and deterministic, so exact-ref and cross-format content-key 
 work. The browser never sees either form: parse responses mask every occurrence to `*<last4>`, and
 confirm restores the real ref from a sealed token, then hashes it before any dedup or insert.
 
+**Never retire `ENCRYPTION_KEY_V1`.** The bankRef hash is a blind index tied to v1, like `emailHash`/`mobileHash`.
+Unlike those, it cannot be rebuilt from a new key once the backfill has run (the account number is gone), so
+`rotate-encryption-key` reporting 0 rows on v1 does not make v1 retirable: without it bank import fails closed
+(`BANKREF_HASH_ERROR`) and dedup against stored hashed refs is lost permanently.
+
 Migration status:
 
 1. **Dual-format matching (shipped with #459)** — parse (`findDuplicateBankRefs`) and confirm
@@ -53,7 +58,7 @@ Migration status:
    blind-index key matches the database's — a stored `Person.emailHash`/`mobileHash` must recompute
    from its decrypted value (works after `rotate-encryption-key`; falls back to a v1-encrypted
    `Transaction.description` that must decrypt when no such row exists, and refuses when neither
-   exists) — because hashing with the wrong key is irreversible. The dry run also reports rows whose hashed form already exists. A deposit and its
+   exists) — because hashing with the wrong key is irreversible. The dry run models the same write units as `--apply` (a deposit plus its `XFER_OUT_` mate, and rows that would hash to the same value) and reports the same collisions, exiting non-zero. A deposit and its
    `XFER_OUT_` paired leg are always rewritten in one transaction (even across batches, and on
    retry after a concurrent change), so the pair is never left half-hashed. Run in a quiet window:
 

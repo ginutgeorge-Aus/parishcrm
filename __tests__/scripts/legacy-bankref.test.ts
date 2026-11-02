@@ -17,7 +17,8 @@ beforeEach(async () => {
   process.env.ENCRYPTION_KEY_V1 = Buffer.alloc(32, 7).toString("base64")
   process.env.ENCRYPTION_KEY_ID = "v1"
   mod = await import("../../scripts/lib/legacy-bankref")
-  hashStoredBankRef = (await import("@/lib/bankRefHash")).hashStoredBankRef
+  const { createBankRefHasher } = await import("@/lib/bankRefHash")
+  hashStoredBankRef = (ref) => createBankRefHasher().stored(ref)
 })
 
 afterEach(() => {

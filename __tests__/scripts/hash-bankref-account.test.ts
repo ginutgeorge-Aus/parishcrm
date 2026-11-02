@@ -75,7 +75,8 @@ beforeEach(async () => {
   process.env.ENCRYPTION_KEY_V1 = KEY1
   process.env.ENCRYPTION_KEY_ID = "v1"
   mod = await import("../../scripts/hash-bankref-account")
-  hashStoredBankRef = (await import("@/lib/bankRefHash")).hashStoredBankRef
+  const { createBankRefHasher } = await import("@/lib/bankRefHash")
+  hashStoredBankRef = (ref) => createBankRefHasher().stored(ref)
   ;({ encrypt, hmacEmail, hmacMobile } = await import("@/lib/cryptoCore"))
   jest.spyOn(console, "log").mockImplementation(() => {})
   jest.spyOn(console, "warn").mockImplementation(() => {})
@@ -288,6 +289,27 @@ it("dry run reports rows whose hashed twin already exists as collisions", async 
   const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: false })
   expect(res).toEqual({ changed: 1, conflicts: 0, collisions: 1 })
   expect(db.runWrites).not.toHaveBeenCalled()
+})
+
+it("dry run reports a deposit whose XFER_OUT_ mate's hashed twin exists (same units as --apply)", async () => {
+  const deposit = `ANZ_${ACCT}_20250722_1200.00_CASHDEPOSIT_123456`
+  const leg = `XFER_OUT_${deposit}`
+  const rows = () => [legacy(1, deposit), legacy(2, leg), { id: 3, bankRef: hashStoredBankRef(leg) }]
+  const dry = fakeDb(rows())
+  const res = await mod.hashBankRefs({ delegate: dry.delegate, people: dry.people, runWrites: dry.runWrites, apply: false })
+  // Both halves of the pair are reported (and the CLI exits non-zero on collisions > 0)...
+  expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 2 })
+  expect(dry.runWrites).not.toHaveBeenCalled()
+  // ...exactly as apply does.
+  const live = fakeDb(rows())
+  expect(await mod.hashBankRefs({ delegate: live.delegate, people: live.people, runWrites: live.runWrites, apply: true })).toEqual(res)
+})
+
+it("dry run counts a pair once even when its halves fall in different batches", async () => {
+  const deposit = `ANZ_${ACCT}_20250722_1200.00_CASHDEPOSIT_123456`
+  const db = fakeDb([legacy(1, deposit), legacy(2, `ANZ_${ACCT}_20250624_5.00_OTHER_1`), legacy(3, `XFER_OUT_${deposit}`)])
+  const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: false, batchSize: 1 })
+  expect(res).toEqual({ changed: 3, conflicts: 0, collisions: 0 })
 })
 
 it("a pair whose deposit changed concurrently is retried as a unit, never half-hashed", async () => {
