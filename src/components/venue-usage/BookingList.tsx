@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { FormFeedback } from "@/components/ui/FormFeedback"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -49,11 +50,7 @@ function ResultMessage({ result }: Readonly<{ result: VenueMutationResult }>) {
     return (
       <>
         <p role="status" className="text-sm text-muted-foreground">{result.success}</p>
-        {result.warning && (
-          <p role="alert" className="rounded-md border border-destructive/40 bg-muted p-2 text-sm text-destructive">
-            {result.warning}
-          </p>
-        )}
+        <FormFeedback state={{ warning: result.warning }} />
       </>
     )
   }
