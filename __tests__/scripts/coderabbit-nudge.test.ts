@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   isReviewed,
   MAX_NUDGES_PER_PR,
+  isNudge,
   nudgeBlocked,
   firstStatusAt,
   needsNudge,
@@ -418,12 +419,26 @@ test("nudgeBlocked: cooldown blocks a nudge <10 min old, allows older", () => {
   assert.equal(nudgeBlocked([], now), null)
 })
 
+test("isNudge: whole-word command prefix from non-bot only", () => {
+  assert.equal(isNudge(comment({ body: "@coderabbitai review please" })), true)
+  assert.equal(isNudge(comment({ body: "  @CodeRabbitAI review\n" })), true)
+  assert.equal(isNudge(comment({ body: "@coderabbitai reviewer" })), false)
+  assert.equal(isNudge(comment({ user: BOT, body: "@coderabbitai review" })), false)
+})
+
+test("nudgeBlocked: a human 'review please' nudge counts toward the cap", () => {
+  const now = new Date("2026-10-16T00:00:00Z")
+  const nudges = Array.from({ length: MAX_NUDGES_PER_PR - 1 }, (_, i) => NUDGE(`2026-10-1${i}T00:00:00Z`))
+  const withPlease = [...nudges, comment({ body: "@coderabbitai review please", createdAt: "2026-10-14T00:00:00Z" })]
+  assert.match(nudgeBlocked(withPlease, now) ?? "", /cap/)
+})
+
 test("nudgeBlocked: cap blocks at MAX_NUDGES_PER_PR; CodeRabbit comments and other text don't count", () => {
   const now = new Date("2026-10-16T00:00:00Z")
   const nudges = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => NUDGE(`2026-10-1${i}T00:00:00Z`))
   assert.match(nudgeBlocked(nudges, now) ?? "", /cap/)
   assert.equal(nudgeBlocked(nudges.slice(1), now), null)
-  const noise = [comment({ user: BOT, body: "@coderabbitai review" }), comment({ body: "@coderabbitai review please" })]
+  const noise = [comment({ user: BOT, body: "@coderabbitai review" }), comment({ body: "thanks, please @coderabbitai review later" }), comment({ body: "@coderabbitai review the retry logic" }), comment({ body: "@coderabbitai reviewer" })]
   assert.equal(nudgeBlocked([...nudges.slice(1), ...noise], now), null)
 })
 
@@ -443,6 +458,28 @@ test("runOnce: PR #485 regression - skips PRs at the nudge cap (uncapped loop hi
   try {
     await runOnce(false, api, new Date("2026-10-16T00:00:00Z"))
     assert.deepEqual(posts.map((p) => p.path.match(/issues\/(\d+)\//)?.[1]), ["3"])
+  } finally {
+    logs.mockRestore()
+  }
+})
+
+test("runOnce: reviewed head at the cap or in cooldown is skipped silently (no skip log)", async () => {
+  const logs = jest.spyOn(console, "log").mockImplementation(() => undefined)
+  const apiPr = (number: number) => ({
+    number, draft: false, updated_at: "2026-10-15T00:00:00Z", user: { login: "dev", type: "User" }, labels: [], head: { sha: `sha${number}` },
+  })
+  const nudge = (t: string) => ({ user: { login: "owner" }, body: "@coderabbitai review", created_at: t, updated_at: t })
+  const reviewedBy = (n: number) => ({ user: { login: BOT }, body: `<!-- {"coveredCommitId":"sha${n}"} -->`, created_at: "2026-10-14T00:00:00Z", updated_at: "2026-10-14T00:00:00Z" })
+  const capped = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => nudge(`2026-10-0${i + 1}T00:00:00Z`))
+  const { api } = fakeGh({
+    prs: [apiPr(1), apiPr(2)],
+    comments: { 1: [...capped, reviewedBy(1)], 2: [nudge("2026-10-15T23:55:00Z"), reviewedBy(2)] },
+    statuses: {},
+  })
+  try {
+    await runOnce(true, api, new Date("2026-10-16T00:00:00Z"))
+    const skipLogs = logs.mock.calls.filter((c) => /skipping/.test(String(c[0])))
+    assert.equal(skipLogs.length, 0)
   } finally {
     logs.mockRestore()
   }
