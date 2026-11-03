@@ -48,12 +48,15 @@ export default async function NewTransferPage(
   const { options: imported, truncated: importedTruncated } = candidates
 
   const action = createTransfer.bind(null, sessionId)
+  // Fresh per render (the page is dynamic): one token per form load, so a retried
+  // submit of this form is recognised as a replay (#491).
+  const submissionToken = crypto.randomUUID()
 
   return (
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-1">Record bank transfer</h2>
       <p className="text-muted-foreground mb-6">{pcSession.title}</p>
-      <TransferForm action={action} maxAmount={balance} imported={imported} importedTruncated={importedTruncated} importedFiltered={!!focus} />
+      <TransferForm action={action} maxAmount={balance} imported={imported} importedTruncated={importedTruncated} importedFiltered={!!focus} submissionToken={submissionToken} />
     </div>
   )
 }

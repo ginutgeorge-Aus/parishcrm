@@ -15,7 +15,7 @@ import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
 import { depositRefOfLeg, xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
-import { MONEY_DECIMAL_RE, isP2034, parseRouteId } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2002, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
@@ -30,6 +30,20 @@ const DUPLICATE_LEG_ERROR =
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
 class TransferError extends Error {}
+
+// Thrown inside the createTransfer transaction when the submission token already
+// belongs to a committed transfer (#491): the earlier attempt succeeded, so the
+// retry just lands on the session page instead of booking a second transfer.
+class AlreadySubmitted extends Error {}
+
+/**
+ * True when a transfer already carries this form submission token. Used inside
+ * the createTransfer transaction (replay pre-check) and after a P2002 (two
+ * concurrent submits of one token — the loser confirms the winner committed).
+ */
+async function tokenUsed(db: Pick<Prisma.TransactionClient, "pettyCashTransfer">, token: string): Promise<boolean> {
+  return !!(await db.pettyCashTransfer.findUnique({ where: { submissionToken: token }, select: { id: true } }))
+}
 
 // --- Transfers ---
 
@@ -69,9 +83,20 @@ const TransferSchema = z.object({
     // Strict digits-only parse: Number() would accept "0x10", "1e1" or " 12 ".
     .transform((v) => (v ? (parseRouteId(v) ?? NaN) : undefined))
     .refine((v) => v === undefined || !Number.isNaN(v), "Invalid imported deposit"),
+  // Per-page-load idempotency token from the form (#491). Optional so older
+  // clients / direct callers still work, just without replay protection.
+  submissionToken: z
+    .string()
+    .max(100)
+    .optional()
+    .transform((v) => v?.trim() || undefined),
 })
 
-/** Record a petty cash transfer. ADMIN/PASTOR only. */
+/**
+ * Record a petty cash transfer. ADMIN/PASTOR only. A replayed submission (same
+ * form `submissionToken` as a committed transfer) redirects to the session
+ * without creating a duplicate (#491).
+ */
 export async function createTransfer(
   sessionId: number,
   _prev: ActionResult,
@@ -94,8 +119,15 @@ export async function createTransfer(
   // Read balance, validate and insert inside one Serializable transaction so two
   // concurrent transfers can't both pass the same balance check and together
   // overdraw the float — the second hits a serialization conflict.
+  // The same Serializable level orders this against confirmBankImport's
+  // petty-cash pair write (#493), which is Serializable too: a concurrent import
+  // of this deposit and this manual transfer can't both commit a cash-out.
+  const token = parsed.data.submissionToken
   try {
     await prisma.$transaction(async (tx) => {
+      // Replay check first: the earlier attempt already reduced the balance, so
+      // the balance check below would otherwise reject the retry misleadingly.
+      if (token && (await tokenUsed(tx, token))) throw new AlreadySubmitted()
       const existing = await tx.pettyCashSession.findUnique({
         where: { id: sessionId },
         include: {
@@ -181,6 +213,7 @@ export async function createTransfer(
           // depositedByName + notes are PII-bearing free text — encrypt at rest
           depositedByName: encrypt(parsed.data.depositedByName),
           notes: parsed.data.notes ? encrypt(parsed.data.notes) : null,
+          submissionToken: token ?? null,
         },
       })
       if (adoptLegId !== null) {
@@ -220,6 +253,12 @@ export async function createTransfer(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof TransferError) return { error: e.message }
+    if (e instanceof AlreadySubmitted) return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+    // P2002 with a token: a concurrent submit of the same form won the unique
+    // index. Confirm it really is the token (not some other unique) and treat
+    // this attempt as done.
+    if (token && isP2002(e) && (await tokenUsed(prisma, token)))
+      return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
     // P2034 = Serializable serialization failure: a concurrent transfer beat
     // this one. Surface a retry prompt rather than a 500.
     if (isP2034(e))

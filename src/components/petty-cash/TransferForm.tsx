@@ -18,6 +18,7 @@ export function TransferForm({
   imported = [],
   importedTruncated = false,
   importedFiltered = false,
+  submissionToken,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -27,6 +28,8 @@ export function TransferForm({
   importedTruncated?: boolean
   /** True when the list is narrowed to one amount + day via the lookup link. */
   importedFiltered?: boolean
+  /** Per-page-load idempotency token (#491) — a retried submit can't book the transfer twice. */
+  submissionToken?: string
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
@@ -109,6 +112,7 @@ export function TransferForm({
       {/* State is the source of truth: React resets uncontrolled form fields after a
           failed action, which would revert the select and drop the id on resubmit. */}
       <input type="hidden" name="importedTransactionId" value={importedId} />
+      {submissionToken && <input type="hidden" name="submissionToken" value={submissionToken} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">

@@ -71,6 +71,10 @@ beforeEach(() => {
     isActive: true,
   })
   mockTxFindMany.mockResolvedValue([])
+  // Callback form (petty-cash pair) runs against the same mocked client.
+  ;(prisma.$transaction as jest.Mock).mockImplementation((arg: unknown) =>
+    typeof arg === "function" ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[])
+  )
   // createMany returns the true inserted count; default to "all inserted".
   mockCreateMany.mockImplementation((args: { data: unknown[] }) =>
     Promise.resolve({ count: args.data.length })
@@ -319,6 +323,58 @@ describe("confirmBankImport — session-transfer mirror lookup", () => {
     const call = mockTxFindMany.mock.calls.find((c) => c[0]?.where?.pettyCashTransferId)
     expect(call?.[0].where.OR).toEqual([{ bankRef: null }, { NOT: { bankRef: { startsWith: "XFER_OUT_" } } }])
     expect(call?.[0].where.NOT).toBeUndefined()
+  })
+})
+
+describe("confirmBankImport — concurrent manual transfer (#493)", () => {
+  const pcRow = { ...baseRow, accountId: null, fromPettyCash: true, paymentAccountId: 1 }
+  const mirror = { id: 50, amount: "100.00", date: new Date("2026-05-10"), pettyCashTransferId: 42 }
+
+  it("reads session-transfer mirrors inside the Serializable pair transaction", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    const order: string[] = []
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown, opts: unknown) => {
+      order.push(`tx:${JSON.stringify(opts)}`)
+      return fn(prisma)
+    })
+    mockTxFindMany.mockImplementation(async (args: { where?: { pettyCashTransferId?: unknown } }) => {
+      if (args?.where?.pettyCashTransferId) order.push("mirrors")
+      return []
+    })
+    const result = await confirmBankImport([pcRow])
+    expect(result.ok).toBe(true)
+    // The mirror read happens after the transaction opens, not from an earlier snapshot.
+    expect(order).toEqual(['tx:{"isolationLevel":"Serializable"}', "mirrors"])
+    expect(mockCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries on a serialization conflict and then skips the cash-out the racing transfer booked", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    let attempt = 0
+    ;(prisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      attempt++
+      // First attempt: SSI aborts us because a manual transfer committed meanwhile.
+      if (attempt === 1) throw Object.assign(new Error("conflict"), { code: "P2034" })
+      return fn(prisma)
+    })
+    // The retry's fresh read sees the committed transfer's mirror.
+    mockTxFindMany.mockImplementation(async (args: { where?: { pettyCashTransferId?: unknown } }) =>
+      args?.where?.pettyCashTransferId ? [mirror] : []
+    )
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: true, imported: 1 }))
+    expect(attempt).toBe(2)
+    // Deposit only — no second cash-out on top of the transfer's.
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockCreate.mock.calls[0][0].data.type).toBe("INCOME")
+  })
+
+  it("gives up after repeated conflicts with the partial-write error, not a throw", async () => {
+    mockGetXferAccountId.mockResolvedValue(99)
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue(Object.assign(new Error("conflict"), { code: "P2034" }))
+    const result = await confirmBankImport([pcRow])
+    expect(result).toEqual(expect.objectContaining({ ok: false, status: 500 }))
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3)
   })
 })
 

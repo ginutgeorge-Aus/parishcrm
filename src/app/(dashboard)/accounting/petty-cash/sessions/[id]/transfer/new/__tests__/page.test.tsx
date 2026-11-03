@@ -67,3 +67,11 @@ test.each([
   expect(listCandidates).toHaveBeenCalledWith(undefined)
   expect(formProps.mock.calls[0][0].importedFiltered).toBe(false)
 })
+
+test("passes a fresh submission token per page load (#491)", async () => {
+  await renderPage({})
+  await renderPage({})
+  const [a, b] = formProps.mock.calls.map((c) => c[0].submissionToken)
+  expect(a).toMatch(/^[0-9a-f-]{36}$/)
+  expect(b).not.toBe(a)
+})

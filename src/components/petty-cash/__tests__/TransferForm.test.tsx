@@ -85,3 +85,13 @@ test("filtered list with no matches still renders the picker so the reset link i
   render(<TransferForm action={noop} maxAmount={100} importedFiltered />)
   expect(screen.getByRole("link", { name: /show newest deposits/i })).toBeInTheDocument()
 })
+
+test("emits the per-load submission token as a hidden field (#491)", () => {
+  const { container } = render(<TransferForm action={noop} maxAmount={100} submissionToken="tok-1" />)
+  expect(container.querySelector('input[type="hidden"][name="submissionToken"]')).toHaveAttribute("value", "tok-1")
+})
+
+test("omits the token field when none is given", () => {
+  const { container } = render(<TransferForm action={noop} maxAmount={100} />)
+  expect(container.querySelector('input[name="submissionToken"]')).toBeNull()
+})
