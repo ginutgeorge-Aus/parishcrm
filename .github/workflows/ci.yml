@@ -37,8 +37,13 @@ jobs:
         run: |
           code=true
           if [ "$EVENT" = "pull_request" ]; then
-            other=$(git diff --name-only HEAD^1 HEAD | grep -Ev '\.md$|^docs/' || true)
-            [ -z "$other" ] && code=false
+            # --no-renames lists both sides of a move, so src/x -> docs/x counts as code.
+            # A failing diff keeps code=true (fail open to the full suite).
+            if files=$(git diff --name-only --no-renames HEAD^1 HEAD); then
+              if ! printf '%s\n' "$files" | grep -Ev '\.md$|^docs/|^$' >/dev/null; then
+                code=false
+              fi
+            fi
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
@@ -109,10 +114,15 @@ jobs:
     steps:
       - name: All parallel jobs passed
         env:
+          CODE: ${{ needs.changes.outputs.code }}
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "results: $RESULTS"
+          echo "code=$CODE results: $RESULTS"
           case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1;; esac
+          # Skips are only legitimate for a docs-only PR (code=false).
+          if [ "$CODE" != "false" ]; then
+            case " $RESULTS " in *" skipped "*) exit 1;; esac
+          fi
 
   # Separate job so `id-token: write` never coexists with `npm ci` install
   # scripts, which could otherwise mint a Codecov-audience OIDC token.
