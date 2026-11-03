@@ -302,15 +302,18 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
  * Why a PR must not be nudged regardless of review state, or null when it may be:
  * the per-PR nudge cap, or a nudge posted within the cooldown. A nudge is a
  * non-CodeRabbit comment that starts with the review command (see `isNudge`).
+ * The cap counts only nudges newer than `since` (like `nudgedSince`), so nudges spent
+ * on earlier heads of a long-lived PR don't block a new head. The cooldown still
+ * looks at the latest nudge on any head.
  * @param comments - issue comments on one PR, any order
  * @param now - current time
+ * @param since - time of CodeRabbit's first status on the head (epoch = none yet: all nudges count)
  */
-export function nudgeBlocked(comments: Comment[], now: Date): string | null {
-  const nudges = comments
-    .filter(isNudge)
-    .map((c) => Date.parse(c.createdAt))
-  if (nudges.length >= MAX_NUDGES_PER_PR) return `already has ${nudges.length} nudges (cap ${MAX_NUDGES_PER_PR})`
-  const last = nudges.reduce((max, t) => Math.max(max, t), -Infinity)
+export function nudgeBlocked(comments: Comment[], now: Date, since: Date = new Date(0)): string | null {
+  const all = comments.filter(isNudge).map((c) => Date.parse(c.createdAt))
+  const onHead = all.filter((t) => t > since.getTime())
+  if (onHead.length >= MAX_NUDGES_PER_PR) return `already has ${onHead.length} nudges on this head (cap ${MAX_NUDGES_PER_PR})`
+  const last = all.reduce((max, t) => Math.max(max, t), -Infinity)
   if (now.getTime() - last < NUDGE_COOLDOWN_MS) return `last nudge <${NUDGE_COOLDOWN_MS / 60_000} min ago (cooldown)`
   return null
 }
@@ -472,12 +475,12 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
       return null
     }
     if (isReviewed(reviewed, comments, pr.headSha)) continue
-    const blocked = nudgeBlocked(comments, now)
+    const statuses = await fetchStatuses(api, pr.headSha)
+    const blocked = nudgeBlocked(comments, now, firstStatusAt(statuses))
     if (blocked) {
       console.log(`#${pr.number}: ${blocked} — skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
       continue
     }
-    const statuses = await fetchStatuses(api, pr.headSha)
     if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
     else if (pauseNudgeSpent(comments, pr.headSha, firstStatusAt(statuses))) {
       console.log(`#${pr.number}: already nudged once on this head — waiting for the next push.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
