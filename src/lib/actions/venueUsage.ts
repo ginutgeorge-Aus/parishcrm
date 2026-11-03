@@ -599,11 +599,14 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
   } catch (e) {
     logger.error("[venueUsage] could not clear approval after manual send", { month, error: e instanceof Error ? e.message : String(e) })
   }
+  const staleNote = "the bookings changed while it was sending, so the venue may have the earlier hours."
   if (!recorded) {
-    return { success: "Invoice request sent, but it could not be recorded. Do not send it again; check the venue's inbox before retrying." }
+    return {
+      success: `Invoice request sent, but it could not be recorded. Do not send it again; check the venue's inbox before retrying.${stale ? ` Also, ${staleNote}` : ""}`,
+    }
   }
   if (stale) {
-    return { success: "Invoice request sent, but the bookings changed while it was sending, so the venue may have the earlier hours. Check the month and use \"Send again\" if needed." }
+    return { success: `Invoice request sent, but ${staleNote} Check the month and use "Send again" if needed.` }
   }
   return { success: "Invoice request sent" }
 }

@@ -11,9 +11,29 @@ import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH, warnI
 import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
 import { venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
 import { describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
+import { VENUE_JOB_LEASE_MS } from "@/lib/venueApproval"
 
 /** A claim older than this is treated as abandoned (the work is a few emails, so a live run never gets near it). */
-export const VENUE_JOB_LEASE_MS = 10 * 60_000
+export { VENUE_JOB_LEASE_MS }
+
+/**
+ * Whether the month's last recorded send was flagged stale (bookings changed while it went out), read back from
+ * its audit row, so a notices-only retry still tells staff. Best-effort: a missing row or failed read is false.
+ * @param month "YYYY-MM"
+ */
+async function recordedSendWasStale(month: string): Promise<boolean> {
+  try {
+    const row = await prisma.auditLog.findFirst({
+      where: { action: "VENUE_USAGE_REQUEST_SENT", resourceType: "VenueUsageRequest", metadata: { path: ["month"], equals: month } },
+      orderBy: { id: "desc" }, select: { metadata: true },
+    })
+    const meta = row?.metadata
+    return !!meta && typeof meta === "object" && !Array.isArray(meta) && meta.stale === true
+  } catch (e) {
+    logger.error(`[venueInvoiceJob] reading the send's stale flag failed: ${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+}
 
 /** `failed` and `inFlight` are what the scheduler retries on; `sent` = invoice requests emailed, `notified` = staff notices sent. */
 export type VenueJobResult = { sent: number; notified: number; failed: number; inFlight: number }
@@ -130,7 +150,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     // Sent by an earlier run whose notices all failed: retry the notices only (read-only prepare, no send).
     const prep = await prepareInvoiceRequest(month, null)
     isInvoiceNotice = true
-    mail = autoSentNotice(churchName, month, prep.rows)
+    mail = autoSentNotice(churchName, month, prep.rows, await recordedSendWasStale(month))
   } else {
     const { start, end } = monthRange(month)
     const rows = await prisma.venueUsage.findMany({

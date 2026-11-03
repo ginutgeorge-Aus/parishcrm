@@ -2,7 +2,7 @@
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     venueUsage: { findMany: jest.fn() },
-    venueUsageRequest: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    venueUsageRequest: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     user: { findUnique: jest.fn() },
   },
 }))
@@ -191,10 +191,41 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     })
   })
 
-  it("does not send when the in-flight mark cannot be written", async () => {
-    upsert().mockRejectedValueOnce(new Error("db down"))
-    await expect(deliverInvoiceRequest(await prepare(), ctx)).rejects.toThrow("db down")
-    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
+  it("a failed in-flight mark is logged and the email still goes (best-effort; e.g. code deployed before migrate)", async () => {
+    upsert().mockRejectedValueOnce(new Error("no column sendingAt")).mockResolvedValue({})
+    expect((await deliverInvoiceRequest(await prepare(), ctx)).status).toBe("SUCCESS")
+    expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*in-flight/), expect.objectContaining({ month: "2026-09" }))
+  })
+
+  it("records the SUCCESS outcome before the post-send re-check reads the month", async () => {
+    const p = await prepare()
+    const order: string[] = []
+    upsert().mockImplementation(async (a: { update: Record<string, unknown> }) => { order.push("status" in a.update ? "outcome" : "mark"); return {} })
+    findMany().mockImplementation(async () => { order.push("recheck"); return [sunday6] })
+    await deliverInvoiceRequest(p, ctx)
+    expect(order).toEqual(["mark", "outcome", "recheck"])
+  })
+
+  it("clears sendingAt (best-effort) when the outcome write throws", async () => {
+    ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
+    const p = await prepare()
+    upsert().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("db down"))
+    await expect(deliverInvoiceRequest(p, ctx)).rejects.toThrow("db down")
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09" }, data: { sendingAt: null } })
+  })
+
+  it("clears sendingAt when a SUCCESS could not be recorded, and a failing clear never throws", async () => {
+    const p = await prepare()
+    upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
+    ;(prisma.venueUsageRequest.updateMany as jest.Mock).mockRejectedValue(new Error("still down"))
+    expect(await deliverInvoiceRequest(p, ctx)).toMatchObject({ status: "SUCCESS", recorded: false })
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09" }, data: { sendingAt: null } })
+  })
+
+  it("does not clear sendingAt separately once the outcome write did it", async () => {
+    await deliverInvoiceRequest(await prepare(), ctx)
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
   })
 
   it("reports stale when the month's CONFIRMED rows changed while sending, and audits it", async () => {

@@ -747,6 +747,16 @@ describe("sendVenueUsageRequest when bookings change mid-send (#509 #512)", () =
     const r = await sendVenueUsageRequest("2026-09")
     expect(r).toEqual({ success: expect.stringMatching(/^Invoice request sent, but the bookings changed while it was sending.*Send again/) })
   })
+  it("keeps the stale warning when the send also could not be recorded", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock)
+      .mockResolvedValueOnce(confirmedRows)
+      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }])
+    ;(prisma.venueUsageRequest.upsert as jest.Mock).mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
+    const { success } = (await sendVenueUsageRequest("2026-09")) as { success: string }
+    expect(success).toMatch(/could not be recorded. Do not send it again/)
+    expect(success).toMatch(/bookings changed while it was sending/)
+  })
 })
 
 describe("approval invalidation", () => {

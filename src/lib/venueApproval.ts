@@ -9,9 +9,9 @@ export const UNSENT_FILTER = {
 
 /**
  * How long a `sendingAt` in-flight mark counts. A send takes seconds; a mark left behind by a process that died
- * mid-send stops counting after this, so it never warns forever. Matches the job's claim lease.
+ * mid-send stops counting after this, so it never warns forever. Also the job claim lease (re-exported by venueInvoiceJob).
  */
-export const INVOICE_SEND_LEASE_MS = 10 * 60_000
+export const VENUE_JOB_LEASE_MS = 10 * 60_000
 
 /** Months whose invoice request already went (`sent`) or is going out right now (`sending`). */
 export type SentMonths = { sent: string[]; sending: string[] }
@@ -29,7 +29,7 @@ export type SentMonths = { sent: string[]; sending: string[] }
 export async function sentOrSendingMonthsTx(tx: Prisma.TransactionClient, months: readonly string[], now: Date = new Date()): Promise<SentMonths> {
   const unique = Array.from(new Set(months))
   if (unique.length === 0) return { sent: [], sending: [] }
-  const cutoff = new Date(now.getTime() - INVOICE_SEND_LEASE_MS)
+  const cutoff = new Date(now.getTime() - VENUE_JOB_LEASE_MS)
   const rows = await tx.venueUsageRequest.findMany({
     where: { month: { in: unique }, OR: [{ status: "SUCCESS" }, { sendingAt: { gte: cutoff } }] },
     select: { month: true, status: true, sendingAt: true },

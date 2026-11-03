@@ -170,6 +170,32 @@ async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean
 }
 
 /**
+ * Stamp the month's request as in flight (`sendingAt`). Best-effort: a failure (e.g. the code deployed before
+ * the migration that adds the column) is logged and the send goes ahead, only without the in-flight warning.
+ * @param month "YYYY-MM"
+ */
+async function markSending(month: string): Promise<void> {
+  const sendingAt = new Date()
+  try {
+    await prisma.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt }, update: { sendingAt } })
+  } catch (e) {
+    logger.error("[venueInvoice] could not mark the invoice request in-flight; sending anyway", { month, error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/**
+ * Clear the in-flight stamp when the outcome write did not. Never throws (an abandoned stamp expires with its lease).
+ * @param month "YYYY-MM"
+ */
+async function clearSending(month: string): Promise<void> {
+  try {
+    await prisma.venueUsageRequest.updateMany({ where: { month }, data: { sendingAt: null } })
+  } catch (e) {
+    logger.error("[venueInvoice] could not clear the in-flight stamp", { month, error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/**
  * Load the month, build the invoice-request email (template-driven) and resolve recipients. Callers gate first.
  * @param month "YYYY-MM"
  * @param actor the acting user, or null for the scheduler
@@ -220,11 +246,12 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `reminderSentAt` (closing the month for it), and a manual send warns the user not to send again. A
  * process death between the send and the write is not covered.
  *
- * In-flight window (#509 #512): `sendingAt` is stamped before the email goes (a failed stamp aborts before
- * sending) and cleared with the outcome, so a booking edit in that window warns the editor (see
- * `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED meaning). An edit that lands between the prepare
- * read and the stamp is caught by re-reading the month after a successful send: `stale: true` means the venue
- * got rows that no longer match, and callers tell staff to check and resend.
+ * In-flight window (#509 #512): `sendingAt` is stamped before the email goes (best-effort: a failed stamp is
+ * logged and the send goes ahead) and cleared with the outcome (or on its own when the outcome write fails), so a
+ * booking edit in that window warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
+ * meaning). An edit that lands between the prepare read and the stamp is caught by re-reading the month once
+ * the SUCCESS is recorded: `stale: true` means the venue got rows that no longer match, it is kept in the audit
+ * metadata (the job's notice retry reads it back), and callers tell staff to check and resend.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  * @returns the send status, its error, whether the outcome row was written (`recorded`), and whether the
@@ -234,8 +261,7 @@ export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
 ): Promise<{ status: "SUCCESS" | "FAILED"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
-  const sendingAt = new Date()
-  await prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, sendingAt }, update: { sendingAt } })
+  await markSending(ctx.month)
   let status: "SUCCESS" | "FAILED" = "SUCCESS"
   let errorMessage: string | null = null
   try {
@@ -247,17 +273,26 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
   const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
-  let recorded = true
-  if (status === "SUCCESS") {
-    recorded = await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
-  } else if (p.last?.status === "SUCCESS") {
-    await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage, sendingAt: null } })
-  } else {
-    await record()
+  let recorded = false
+  try {
+    if (status === "SUCCESS") {
+      recorded = await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
+    } else {
+      if (p.last?.status === "SUCCESS") {
+        await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage, sendingAt: null } })
+      } else {
+        await record()
+      }
+      recorded = true
+    }
+  } finally {
+    // The outcome write also clears sendingAt; when it did not land, clear it on its own so edits stop warning.
+    if (!recorded) await clearSending(ctx.month)
   }
+  // Re-check only after the outcome is recorded, so no read sits between the send and its record.
+  const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
     { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
