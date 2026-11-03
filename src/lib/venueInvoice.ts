@@ -170,8 +170,9 @@ async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean
 }
 
 /**
- * Stamp the month's request as in flight (`sendingAt`). Best-effort: a failure (e.g. the code deployed before
- * the migration that adds the column) is logged and the send goes ahead, only without the in-flight warning.
+ * Stamp the month's request as in flight (`sendingAt`). Best-effort: a failure of the stamp write is logged
+ * and the send goes ahead, only without the in-flight warning. This does not make the feature tolerate a missing
+ * `sendingAt` column: other paths (the warning lookup, the clear) still read or write it and need the migration.
  * @param month "YYYY-MM"
  */
 async function markSending(month: string): Promise<void> {
@@ -246,8 +247,8 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `reminderSentAt` (closing the month for it), and a manual send warns the user not to send again. A
  * process death between the send and the write is not covered.
  *
- * In-flight window (#509 #512): `sendingAt` is stamped before the email goes (best-effort: a failed stamp is
- * logged and the send goes ahead) and cleared with the outcome (or on its own when the outcome write fails), so a
+ * In-flight window (#509 #512): `sendingAt` is stamped before the email goes (best-effort: a failed stamp write is
+ * logged and the send goes ahead; the migration adding the column must still be applied) and cleared with the outcome (or on its own when the outcome write fails), so a
  * booking edit in that window warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
  * meaning). An edit that lands between the prepare read and the stamp is caught by re-reading the month once
  * the SUCCESS is recorded: `stale: true` means the venue got rows that no longer match, it is kept in the audit
