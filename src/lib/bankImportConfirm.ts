@@ -679,7 +679,7 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
           } catch (e: unknown) {
             if (!isP2034(e) || attempt >= MAX_PAIR_ATTEMPTS) throw e
             // Jittered backoff so a racing writer can commit before we re-read.
-            await new Promise((resolve) => setTimeout(resolve, 25 * attempt + Math.random() * 50))
+            await new Promise((resolve) => setTimeout(resolve, 25 * attempt + Math.random() * 50)) // NOSONAR S9382
           }
         }
         existingRefs.add(row.bankRef)
