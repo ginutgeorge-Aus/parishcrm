@@ -95,3 +95,14 @@ test("omits the token field when none is given", () => {
   const { container } = render(<TransferForm action={noop} maxAmount={100} />)
   expect(container.querySelector('input[name="submissionToken"]')).toBeNull()
 })
+
+test("rerender without the picked deposit drops the pick, unlocks fields and stops submitting its id", () => {
+  const { container, rerender } = render(<TransferForm action={noop} maxAmount={100} imported={imported} />)
+  fireEvent.change(screen.getByLabelText(/imported bank deposit/i), { target: { value: "7" } })
+  const hidden = () => container.querySelector('input[type="hidden"][name="importedTransactionId"]') as HTMLInputElement
+  expect(hidden().value).toBe("7")
+  rerender(<TransferForm action={noop} maxAmount={100} imported={[]} importedFiltered />)
+  expect(hidden().value).toBe("")
+  expect(screen.getByLabelText(/amount deposited/i)).not.toHaveAttribute("readonly")
+  expect(screen.getByLabelText(/transfer date/i)).not.toHaveAttribute("readonly")
+})

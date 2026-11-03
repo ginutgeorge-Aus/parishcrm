@@ -31,7 +31,7 @@ export type ImportedTransferCandidates = { options: ImportedTransferOption[]; tr
  * final list is capped (`truncated` is set when valid pairs or legs were dropped).
  * `focus` narrows the legs to one amount + UTC day, so a deposit older than the
  * newest-first caps can still be reached (the manual-entry guard blocks on exactly
- * that amount + day).
+ * that amount + day). A `focus` day inside the locked period returns empty without querying.
  */
 export async function listImportedTransferCandidates(
   focus?: { amount: string; date: Date },
@@ -51,6 +51,8 @@ export async function listImportedTransferCandidates(
   // Locked periods are read-only (lock day inclusive, by UTC calendar day): start the day after the
   // lock, matching isDateLocked. A focus day narrows further; one inside the lock yields no rows.
   const lockNext = lockDate ? new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) : null
+  // Focus day on or before the lock: every matching leg is locked, so skip the DB reads entirely.
+  if (lockNext && dayStart && dayStart < lockNext) return empty
   const gte = lockNext && dayStart ? (lockNext > dayStart ? lockNext : dayStart) : (lockNext ?? dayStart)
   const lt = dayStart ? new Date(dayStart.getTime() + 86_400_000) : null
   // Only unreconciled, unlinked cash-side XFER_OUT legs, newest first and capped at LEG_LIMIT: legs whose
