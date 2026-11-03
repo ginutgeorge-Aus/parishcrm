@@ -176,3 +176,29 @@ describe("venue-known row edit locks", () => {
     expect(warning).toHaveClass("text-destructive")
   })
 })
+
+describe("Sydney today refresh for new bookings (#528)", () => {
+  const dates = () => jest.requireMock("@/lib/dates").sydneyTodayYMD as jest.Mock
+  afterEach(() => dates().mockReturnValue("2026-10-25"))
+
+  it("page left open past midnight: picking the new current day suggests CONFIRMED, not REQUESTED", async () => {
+    const user = userEvent.setup()
+    setup() // rendered with today=2026-10-25
+    dates().mockReturnValue("2026-10-26")
+    const date = screen.getByLabelText("Date")
+    await user.clear(date)
+    await user.type(date, "2026-10-26")
+    expect(screen.getByLabelText("Status")).toHaveValue("CONFIRMED")
+  })
+
+  it("cancelling an edit resets the form with the refreshed day", async () => {
+    const user = userEvent.setup()
+    const row = { id: 4, date: "2026-10-11", startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const, purpose: null, notes: null, bookingRequestedAt: null, venueKnows: false }
+    render(<VenueUsageClient month="2026-10" today="2026-10-31" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
+    expect(screen.getByLabelText("Status")).toHaveValue("REQUESTED") // next Sunday is after the server day
+    dates().mockReturnValue("2026-11-01")
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    await user.click(screen.getByRole("button", { name: "Cancel edit" }))
+    expect(screen.getByLabelText("Status")).toHaveValue("CONFIRMED") // next Sunday is now today
+  })
+})

@@ -45,7 +45,7 @@ The **Send booking request** panel lists the Requested dates the venue has not b
 
 The **Request invoice** panel emails the venue asking for an invoice for a month. It counts confirmed dates only, and shows the number of bookings, the total hours and the email preview first. Warnings appear if something looks wrong, for example a month with no confirmed dates, a Sunday that is neither confirmed nor cancelled, or dates still Requested.
 
-Click **Send request** to send it now, or **Send again** if a request for that month already went out. Both ask for confirmation first. Sends are blocked on the public demo.
+Click **Send request** to send it now, or **Send again** if a request for that month already went out. Both ask for confirmation first. Sends are blocked on the public demo. Only one send per month can run at a time: if a request for that month is already going out (a double click, or the automatic send running at the same moment), the second send is refused with nothing sent. A send is also refused, with nothing sent, when the month's confirmed bookings changed after you opened the request. Wait a minute, refresh, and check before trying again.
 
 A sent invoice request is not updated when the bookings change. If you add, edit, move or delete a confirmed date (or confirm or cancel one) in a month whose request was already sent, or is being sent at that moment, the change is saved and a warning tells you to use **Send again** if the venue needs the new hours. If the bookings change while a request is going out, the send still counts, but the confirmation (or, for the automatic send, the staff notice) says the venue may have the earlier hours.
 

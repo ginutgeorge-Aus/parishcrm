@@ -97,6 +97,10 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [pending, startTransition] = useTransition()
   // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
   const [lockToday, setLockToday] = useState(today)
+  /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks (#528). */
+  function currentToday(): string {
+    return liveToday(today)
+  }
 
   // The approval-cleared notice belongs to the month it was raised in.
   if (seenMonth !== month) {
@@ -161,7 +165,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    */
   function onDateChange(date: string) {
     // Only re-suggest the status while adding; an edit keeps the chosen status.
-    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, today) } : {}) }))
+    // Re-read today so a page left open past Sydney midnight suggests CONFIRMED for the new current day (#528).
+    const now = currentToday()
+    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, now) } : {}) }))
   }
 
   /**
@@ -180,7 +186,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         setFormState(result)
         handleResult(result)
         if ("success" in result) {
-          setForm(blankForm(nextSunday, today))
+          setForm(blankForm(nextSunday, currentToday()))
           // Show the month of the saved date so the new row is visible.
           if (form.date.slice(0, 7) !== month) void router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
         }
@@ -193,7 +199,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    * @param r the row to edit
    */
   function startEdit(r: VenueUsageRowView) {
-    setLockToday(liveToday(today))
+    setLockToday(currentToday())
     setFormState(undefined)
     setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
     document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -302,7 +308,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
             {form.id !== null && (
               <Button
                 type="button" variant="outline"
-                onClick={() => { setForm(blankForm(nextSunday, today)); setFormState(undefined) }}
+                onClick={() => { setForm(blankForm(nextSunday, currentToday())); setFormState(undefined) }}
               >
                 Cancel edit
               </Button>

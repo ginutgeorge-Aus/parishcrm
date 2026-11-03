@@ -128,7 +128,8 @@ async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
  * retries the staff notices and never emails the venue again. If this run sent the venue email but could not
  * record it, the claim is never released and `reminderSentAt` is written even when every notice failed: a
  * missing staff notice is better than a duplicate venue email. When the bookings changed while the request was
- * going out (`stale`), the staff notice says so and asks them to check and resend. All reads that depend on the claim happen
+ * going out (`stale`), the staff notice says so and asks them to check and resend. A manual send already in flight
+ * makes the send refuse (BUSY): the claim is released and the run reports `inFlight`. All reads that depend on the claim happen
  * here, after it was won.
  * @param month "YYYY-MM" being invoiced
  * @param claimAt the claim timestamp this run holds (fence for the final write)
@@ -161,6 +162,12 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     if (request?.approvedAt && completeness.complete) {
       const prep = await prepareInvoiceRequest(month, null)
       const result = await deliverInvoiceRequest(prep, { month, userId: null, autoSent: true, resend: false })
+      if (result.status === "BUSY") {
+        // A manual send of this month is in flight (#528): nothing went out. Release so a later run re-checks
+        // (it then finds the month sent by hand and stops).
+        await releaseClaim(month, claimAt)
+        return { ...ZERO, inFlight: 1 }
+      }
       if (result.status === "FAILED") {
         await releaseClaim(month, claimAt)
         return { ...ZERO, failed: 1 }
