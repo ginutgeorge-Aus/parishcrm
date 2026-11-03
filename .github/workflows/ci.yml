@@ -17,7 +17,9 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  # Static checks, build and tests run as parallel jobs; `checks` below is the
+  # single required status that aggregates them (ruleset requires "checks").
+  static:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,9 +35,37 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run knip
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma validate
+      - run: npx prisma generate
       # No env needed: `next build` never reads runtime config (src/lib/envCheck.ts
       # runs at boot only).
       - run: npm run build
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma validate
+      - run: npx prisma generate
       - run: npm test -- --coverage
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -43,10 +73,22 @@ jobs:
           path: coverage/lcov.info
           retention-days: 1
 
+  checks:
+    needs: [static, build, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All parallel jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*|*" skipped "*) exit 1;; esac
+
   # Separate job so `id-token: write` never coexists with `npm ci` install
   # scripts, which could otherwise mint a Codecov-audience OIDC token.
   codecov:
-    needs: checks
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,7 +111,7 @@ jobs:
 
   # Same isolation as codecov: SONAR_TOKEN never shares a job with `npm ci`.
   sonarqube:
-    needs: checks
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
