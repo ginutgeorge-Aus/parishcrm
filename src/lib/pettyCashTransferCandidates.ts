@@ -31,29 +31,31 @@ export type ImportedTransferCandidates = { options: ImportedTransferOption[]; tr
  * final list is capped (`truncated` is set when valid pairs or legs were dropped).
  * `focus` narrows the legs to one amount + UTC day, so a deposit older than the
  * newest-first caps can still be reached (the manual-entry guard blocks on exactly
- * that amount + day). A `focus` day inside the locked period returns empty without querying.
+ * that amount + day). A `focus` day inside the locked period returns empty without any DB read beyond the lock date.
  */
 export async function listImportedTransferCandidates(
   focus?: { amount: string; date: Date },
 ): Promise<ImportedTransferCandidates> {
+  const empty: ImportedTransferCandidates = { options: [], truncated: false }
+  // Same lock createTransfer enforces on the transfer (= leg) date. Read first so a locked focus day
+  // can skip the account reads and the leg query entirely.
+  const lockDate = await getAccountingLockDate()
+  const dayStart = focus ? new Date(`${utcYmd(focus.date)}T00:00:00.000Z`) : null
+  // Locked periods are read-only (lock day inclusive, by UTC calendar day): legs start the day after the
+  // lock, matching isDateLocked. This is the only lock check (it also keeps locked legs from using up the
+  // LEG_LIMIT cap). A focus day on or before the lock matches only locked legs, so return without querying.
+  const lockNext = lockDate ? new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) : null
+  if (lockNext && dayStart && dayStart < lockNext) return empty
   // Independent lookups; read-only XFER lookup so a GET render never creates the account.
-  const [xferAccountId, cashAccount, lockDate] = await Promise.all([
+  const [xferAccountId, cashAccount] = await Promise.all([
     findXferAccountId(prisma),
     // Same cash-account lookup createTransfer validates the leg against.
     getCashAccount(),
-    // Same lock createTransfer enforces on the transfer (= leg) date.
-    getAccountingLockDate(),
   ])
-  const empty: ImportedTransferCandidates = { options: [], truncated: false }
   if (xferAccountId === null) return empty
   const cashAccountId = cashAccount?.id ?? null
-  const dayStart = focus ? new Date(`${utcYmd(focus.date)}T00:00:00.000Z`) : null
-  // Locked periods are read-only (lock day inclusive, by UTC calendar day): start the day after the
-  // lock, matching isDateLocked. A focus day narrows further; one inside the lock yields no rows.
-  const lockNext = lockDate ? new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) : null
-  // Focus day on or before the lock: every matching leg is locked, so skip the DB reads entirely.
-  if (lockNext && dayStart && dayStart < lockNext) return empty
-  const gte = lockNext && dayStart ? (lockNext > dayStart ? lockNext : dayStart) : (lockNext ?? dayStart)
+  // Past the early return a focus day is always after the lock, so it is the tighter bound when present.
+  const gte = dayStart ?? lockNext
   const lt = dayStart ? new Date(dayStart.getTime() + 86_400_000) : null
   // Only unreconciled, unlinked cash-side XFER_OUT legs, newest first and capped at LEG_LIMIT: legs whose
   // deposit never arrives (or never pairs) would otherwise accumulate. Hitting the cap sets `truncated`.
@@ -65,9 +67,6 @@ export async function listImportedTransferCandidates(
       pettyCashTransferId: null,
       reconciled: false,
       paymentAccountId: cashAccountId,
-      // Locked periods are read-only (lock day inclusive, by UTC calendar day): start
-      // the day after the lock, matching isDateLocked. This is the only lock check (it also keeps
-      // locked legs from using up the LEG_LIMIT cap).
       ...(gte || lt ? { date: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } } : {}),
       ...(focus ? { amount: focus.amount } : {}),
     },
