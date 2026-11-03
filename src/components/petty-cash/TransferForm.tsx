@@ -17,6 +17,7 @@ export function TransferForm({
   maxAmount,
   imported = [],
   importedTruncated = false,
+  importedFiltered = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -24,6 +25,8 @@ export function TransferForm({
   imported?: ImportedTransferOption[]
   /** True when more matching imported deposits exist than the list shows. */
   importedTruncated?: boolean
+  /** True when the list is narrowed to one amount + day via the lookup link. */
+  importedFiltered?: boolean
 }>) {
   const router = useRouter()
   const [state, formAction, isPending] = useActionState(action, undefined)
@@ -58,7 +61,7 @@ export function TransferForm({
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>
       </div>
 
-      {imported.length > 0 && (
+      {(imported.length > 0 || importedTruncated || importedFiltered) && (
         <div className="space-y-1">
           <Label htmlFor="importedTransactionId">
             Imported bank deposit{" "}
@@ -80,7 +83,13 @@ export function TransferForm({
               )
             })}
           </select>
-          {importedTruncated && (
+          {importedFiltered && (
+            <p className="text-xs text-muted-foreground">
+              Showing deposits for one date and amount only.{" "}
+              <a className="underline" href="?">Show newest deposits</a>
+            </p>
+          )}
+          {importedTruncated && !importedFiltered && (
             <p className="text-xs text-muted-foreground">
               Showing the newest {imported.length} deposits; older ones are not listed.
               {date && amount && (
