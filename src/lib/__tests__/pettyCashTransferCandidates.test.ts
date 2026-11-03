@@ -83,6 +83,20 @@ it("returns empty without any query when the focus day is inside the locked peri
     listImportedTransferCandidates({ amount: "50.00", date: new Date("2026-06-30T05:00:00Z") }),
   ).resolves.toEqual({ options: [], truncated: false })
   expect(findMany).not.toHaveBeenCalled()
+  expect(jest.requireMock("@/lib/xferAccount").findXferAccountId).not.toHaveBeenCalled()
+  expect(jest.requireMock("@/lib/paymentAccounts").getCashAccount).not.toHaveBeenCalled()
+})
+
+it("queries a focus day that is the day after the lock with gte = that day", async () => {
+  const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
+  getAccountingLockDate.mockResolvedValueOnce(new Date("2026-06-30"))
+  findMany.mockResolvedValueOnce([])
+  await listImportedTransferCandidates({ amount: "50.00", date: new Date("2026-07-01T05:00:00Z") })
+  expect(findMany).toHaveBeenCalledTimes(1)
+  expect(findMany.mock.calls[0][0].where.date).toEqual({
+    gte: new Date("2026-07-01T00:00:00.000Z"),
+    lt: new Date("2026-07-02T00:00:00.000Z"),
+  })
 })
 
 it("starts the leg query the day after the lock and caps the leg list newest-first", async () => {
