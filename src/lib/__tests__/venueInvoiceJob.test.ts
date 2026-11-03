@@ -158,6 +158,22 @@ it("a manual send in flight (BUSY) releases the claim, reports inFlight, and not
   expect(datas.at(-1)).toEqual({ reminderClaimedAt: null })
 })
 
+it("BUSY on the last window day logs an error to escalate; earlier days only warn (#536)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false })
+  jest.useFakeTimers()
+  try {
+    jest.setSystemTime(new Date("2026-11-07T01:00:00Z")) // 7 Nov 12:00 AEDT, last window day
+    await runVenueInvoiceJob(new Date("2026-11-07T01:00:00Z"))
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("send it by hand"))
+    jest.setSystemTime(OPEN)
+    await runVenueInvoiceJob(OPEN)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("refused (BUSY"))
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
 it("all notices failing keeps the month open; a partial failure does not", async () => {
   ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ notified: 0, failed: 2 })

@@ -9,7 +9,8 @@ import { logger } from "@/lib/logger"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH, warnIfMonthCapped } from "@/lib/venueInvoice"
 import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
-import { venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
+import { sydneyClock } from "@/lib/dates"
+import { VENUE_JOB_LAST_DAY, venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
 import { describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
 import { VENUE_JOB_LEASE_MS } from "@/lib/venueApproval"
 
@@ -165,6 +166,10 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
       if (result.status === "BUSY") {
         // A manual send of this month is in flight (#528): nothing went out. Release so a later run re-checks
         // (it then finds the month sent by hand and stops).
+        const lastDay = Number(sydneyClock(new Date()).ymd.slice(8, 10)) >= VENUE_JOB_LAST_DAY
+        const detail = `[venueInvoiceJob] send for ${month} refused (BUSY, claim held ${Math.round((Date.now() - claimAt.getTime()) / 1000)}s)`
+        if (lastDay) logger.error(`${detail}; last day of the window, no further retry: send it by hand`)
+        else logger.warn(detail)
         await releaseClaim(month, claimAt)
         return { ...ZERO, inFlight: 1 }
       }
