@@ -423,7 +423,7 @@ test("nudgeBlocked: cap blocks at MAX_NUDGES_PER_PR; CodeRabbit comments and oth
   const nudges = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => NUDGE(`2026-10-1${i}T00:00:00Z`))
   assert.match(nudgeBlocked(nudges, now) ?? "", /cap/)
   assert.equal(nudgeBlocked(nudges.slice(1), now), null)
-  const noise = [comment({ user: BOT, body: "@coderabbitai review" }), comment({ body: "@coderabbitai review please" })]
+  const noise = [comment({ user: BOT, body: "@coderabbitai review" }), comment({ body: "thanks, please @coderabbitai review later" })]
   assert.equal(nudgeBlocked([...nudges.slice(1), ...noise], now), null)
 })
 

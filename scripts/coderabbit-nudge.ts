@@ -292,7 +292,7 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
  */
 export function nudgeBlocked(comments: Comment[], now: Date): string | null {
   const nudges = comments
-    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase() === COMMAND)
+    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND))
     .map((c) => Date.parse(c.createdAt))
   if (nudges.length >= MAX_NUDGES_PER_PR) return `already has ${nudges.length} nudges (cap ${MAX_NUDGES_PER_PR})`
   const last = nudges.reduce((max, t) => Math.max(max, t), -Infinity)
@@ -456,12 +456,12 @@ export async function runOnce(dryRun: boolean, api: typeof gh = gh, now: Date = 
       console.log(`#${pr.number}: nudge posted <30 min ago with no reply — review likely running. Skipping run.`)
       return null
     }
+    if (isReviewed(reviewed, comments, pr.headSha)) continue
     const blocked = nudgeBlocked(comments, now)
     if (blocked) {
       console.log(`#${pr.number}: ${blocked} — skipping.`) // skipcq: JS-0002 -- CLI script (Node), not browser code
       continue
     }
-    if (isReviewed(reviewed, comments, pr.headSha)) continue
     const statuses = await fetchStatuses(api, pr.headSha)
     if (needsNudge(reviewed, comments, statuses, pr.headSha)) unreviewed.push(pr)
     else if (pauseNudgeSpent(comments, pr.headSha, firstStatusAt(statuses))) {
