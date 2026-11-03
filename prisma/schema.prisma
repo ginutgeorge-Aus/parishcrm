@@ -1423,6 +1423,8 @@ model VenueUsageRequest {
   sentBy            User?     @relation("VenueUsageRequestSentBy", fields: [sentById], references: [id], onDelete: SetNull)
   reminderSentAt    DateTime?
   reminderClaimedAt DateTime?
+  /// Set just before an invoice request email is sent, cleared when the outcome is recorded (in-flight marker).
+  sendingAt         DateTime?
   approvedAt        DateTime?
   approvedById      Int?
   approvedBy        User?     @relation("VenueUsageRequestApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)

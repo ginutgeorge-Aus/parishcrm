@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { logAudit, logAuditTx, logAuditManyTx } from "@/lib/audit"
-import { clearApprovalTx, monthOfDate } from "@/lib/venueApproval"
+import { clearApprovalTx, monthOfDate, sentOrSendingMonthsTx, type SentMonths } from "@/lib/venueApproval"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import type { VenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -86,29 +86,39 @@ function mutationOk(success: string, cleared: string[], warning?: string): Venue
 }
 
 /**
- * Warning shown when a change alters the CONFIRMED rows of months whose invoice request was already sent (the send is not redone).
- * @param months sent "YYYY-MM" values, sorted
+ * "September 2026", "August and September 2026"-style list of month labels.
+ * @param months "YYYY-MM" values, sorted
  */
-function sentMonthWarning(months: string[]): string {
+function monthList(months: string[]): string {
   const names = months.map(formatMonthLabel)
-  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]
-  return `The invoice request for ${list} was already sent and won't be updated. Use "Send again" in the invoice request panel to resend it.`
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]
 }
 
 /**
- * The warning for any of `months` whose invoice request was already sent (status SUCCESS), or undefined when none was.
- * `clearApprovalTx` skips such months, so a change to their CONFIRMED rows is not reflected in what the venue
- * received. One query, run inside the caller's transaction so the answer matches the committed change and a
- * failure rolls the edit back instead of throwing after commit.
+ * Warning shown when a change alters the CONFIRMED rows of months whose invoice request was already sent, or is
+ * being sent right now (the send is not redone either way).
+ * @param m sent and in-flight months, each sorted
+ * @returns the warning, or undefined when neither list has a month
+ */
+function sentMonthWarning(m: SentMonths): string | undefined {
+  const parts: string[] = []
+  if (m.sent.length) parts.push(`The invoice request for ${monthList(m.sent)} was already sent and won't be updated.`)
+  if (m.sending.length) parts.push(`The invoice request for ${monthList(m.sending)} is being sent right now and may not include this change.`)
+  if (parts.length === 0) return undefined
+  return `${parts.join(" ")} Use "Send again" in the invoice request panel to resend it.`
+}
+
+/**
+ * The warning for any of `months` whose invoice request was already sent or is in flight, or undefined when none is.
+ * `clearApprovalTx` skips sent months, and an in-flight send has already read the rows, so a change to their
+ * CONFIRMED rows is not reflected in what the venue receives. Runs inside the caller's transaction (see
+ * {@link sentOrSendingMonthsTx}).
  * @param tx transaction client
- * @param months "YYYY-MM" values whose CONFIRMED membership or hours changed
+ * @param months "YYYY-MM" values whose invoiced content (CONFIRMED rows: date, hours, status) changed
  */
 async function sentMonthsWarning(tx: Prisma.TransactionClient, months: string[]): Promise<string | undefined> {
-  const unique = Array.from(new Set(months))
-  if (unique.length === 0) return undefined
-  const sent = await tx.venueUsageRequest.findMany({ where: { month: { in: unique }, status: "SUCCESS" }, select: { month: true } })
-  if (sent.length === 0) return undefined
-  return sentMonthWarning(sent.map((r) => r.month).sort())
+  if (months.length === 0) return undefined
+  return sentMonthWarning(await sentOrSendingMonthsTx(tx, months))
 }
 
 /**
@@ -150,6 +160,7 @@ const MOVE_MONTH_FULL_ERROR = `That month already holds the maximum of ${MAX_ROW
 /**
  * Create a venue usage row. ADMIN/PASTOR/OFFICE_ADMIN (`canEdit`); feature must be enabled.
  * Clears the approval of the row's month (same transaction) when it was approved and unsent.
+ * A CONFIRMED row added to a month whose invoice request was already sent (or is being sent) returns a warning.
  * Refuses when the month already holds {@link MAX_ROWS_PER_MONTH} rows.
  * @param input date, times, status, purpose and notes
  */
@@ -164,7 +175,7 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
   const { date, ...rest } = parsed.data
 
   const userId = actorId(session)
-  const cleared = await serializableWrite(async (tx) => {
+  const outcome = await serializableWrite(async (tx) => {
     if (await monthWouldOverflow(tx, date.slice(0, 7), 1)) return null
     const row = await tx.venueUsage.create({
       data: { ...rest, date: ymdToUtcDate(date), createdById: userId },
@@ -172,12 +183,13 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
     })
     const months = await clearApprovalTx(tx, [date.slice(0, 7)], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_CREATED", "VenueUsage", row.id, { date, status: rest.status })
-    return months
+    // Only a CONFIRMED row is invoiced (past dates default to CONFIRMED).
+    return { months, warning: await sentMonthsWarning(tx, rest.status === "CONFIRMED" ? [date.slice(0, 7)] : []) }
   })
-  if (!cleared) return { error: MONTH_FULL_ERROR }
-  if ("error" in cleared) return cleared
+  if (!outcome) return { error: MONTH_FULL_ERROR }
+  if ("error" in outcome) return outcome
   revalidatePath("/venue-usage")
-  return mutationOk("Booking added", cleared)
+  return mutationOk("Booking added", outcome.months, outcome.warning)
 }
 
 /**
@@ -191,8 +203,9 @@ export async function createVenueUsage(input: VenueUsageInput): Promise<VenueMut
  * A venue-known row keeps `venueNotifiedAt` and, except when reopened to REQUESTED, `bookingRequestedAt` (so its locks
  * stay in force and a later cancellation reaches the venue). Reopening clears `bookingRequestedAt` so the booking
  * request is sent to the venue again; `setVenueUsageStatus` only sets CONFIRMED/CANCELLED and never needs this.
- * When a change alters what a month's invoice counts (CONFIRMED rows: hours or status) and that month's invoice
- * request was already sent, the result carries a warning because the send is not redone.
+ * When a change alters what a month's invoice counts (CONFIRMED rows: date, hours or status; old and new month both
+ * checked, whether or not the venue knows the row) and that month's invoice request was already sent or is being
+ * sent right now, the result carries a warning because the send is not redone.
  * Moving the row into another month refuses when that month is already full ({@link MAX_ROWS_PER_MONTH}).
  * @param id VenueUsage id
  * @param input new field values
@@ -243,7 +256,7 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
         : {}),
     })
     // clearApprovalTx skips sent (SUCCESS) months. The invoice counts CONFIRMED rows only, so a changed row that is,
-    // or was, CONFIRMED can make a sent request stale (old month if it was CONFIRMED, new month if it now is).
+    // or was, CONFIRMED can make a sent or in-flight request stale (old month if it was CONFIRMED, new month if it now is).
     const staleMonths: string[] = []
     if (timingChanged || statusChanged) {
       if (existing.status === "CONFIRMED") staleMonths.push(oldMonth)
@@ -262,7 +275,8 @@ export async function updateVenueUsage(id: number, input: VenueUsageInput): Prom
 
 /**
  * Delete a venue usage row (`canEdit`). Clears the approval of the row's month. A live row the venue already
- * knows about is refused: it must be cancelled from the list so the venue is emailed.
+ * knows about is refused: it must be cancelled from the list so the venue is emailed. Deleting a CONFIRMED row of
+ * a month whose invoice request was already sent (or is being sent) returns a warning.
  * @param id VenueUsage id
  */
 export async function deleteVenueUsage(id: number): Promise<VenueMutationResult> {
@@ -274,7 +288,7 @@ export async function deleteVenueUsage(id: number): Promise<VenueMutationResult>
 
   const userId = actorId(session)
   // Read the row inside the transaction so a concurrent move or delete cannot leave a stale month.
-  const cleared = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     const existing = await tx.venueUsage.findUnique({
       where: { id }, select: { id: true, date: true, status: true, venueNotifiedAt: true, bookingRequestedAt: true },
     })
@@ -283,14 +297,15 @@ export async function deleteVenueUsage(id: number): Promise<VenueMutationResult>
     const venueKnows = existing.venueNotifiedAt !== null || existing.bookingRequestedAt !== null
     if (venueKnows && existing.status !== "CANCELLED") return { cancelViaList: true } as const
     await tx.venueUsage.delete({ where: { id } })
-    const months = await clearApprovalTx(tx, [monthOfDate(existing.date)], userId)
+    const month = monthOfDate(existing.date)
+    const months = await clearApprovalTx(tx, [month], userId)
     await logAuditTx(tx, userId, "VENUE_USAGE_DELETED", "VenueUsage", id, { date: utcDateToYmd(existing.date) })
-    return months
+    return { months, warning: await sentMonthsWarning(tx, existing.status === "CONFIRMED" ? [month] : []) }
   })
-  if (!cleared) return { error: "Booking not found" }
-  if ("cancelViaList" in cleared) return { error: VENUE_KNOWS_CANCEL_ERROR }
+  if (!outcome) return { error: "Booking not found" }
+  if ("cancelViaList" in outcome) return { error: VENUE_KNOWS_CANCEL_ERROR }
   revalidatePath("/venue-usage")
-  return mutationOk("Booking deleted", cleared)
+  return mutationOk("Booking deleted", outcome.months, outcome.warning)
 }
 
 const AddAllSchema = z.object({
@@ -303,6 +318,7 @@ const AddAllSchema = z.object({
 /**
  * Add a REQUESTED booking for every Sunday of a month that has no non-cancelled booking yet (`canEdit`).
  * Refuses (adds nothing) when the new rows would push the month past {@link MAX_ROWS_PER_MONTH}.
+ * It only adds REQUESTED rows, which no invoice counts, so it never needs the sent-month warning.
  * @param input month "YYYY-MM", shared start/end time and optional public purpose
  */
 export async function addAllSundays(input: { month: string; startTime: string; endTime: string; purpose?: string }): Promise<VenueMutationResult> {
@@ -552,7 +568,8 @@ export async function getVenueRequestPreview(month: string): Promise<VenueReques
  * Email the venue contact asking for the month's invoice (`canEdit`). Always
  * records the attempt in `VenueUsageRequest` (also on failure). Refuses when the
  * feature is off, no contact email is set, or the month has no CONFIRMED rows;
- * a month already sent successfully needs `resend: true`.
+ * a month already sent successfully needs `resend: true`. When the month's CONFIRMED rows changed while the
+ * email was going out, the success message says so (the venue may have the earlier hours).
  * @param month "YYYY-MM"
  * @param resend explicit confirmation to send again after a prior SUCCESS
  */
@@ -572,7 +589,7 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
     return { error: "A request for this month was already sent. Confirm to send it again." }
   }
 
-  const { status, recorded } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
+  const { status, recorded, stale } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
   revalidatePath("/venue-usage")
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
   // The invoice has been requested by hand: a pending automatic-send approval is now moot. The email has
@@ -584,6 +601,9 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
   }
   if (!recorded) {
     return { success: "Invoice request sent, but it could not be recorded. Do not send it again; check the venue's inbox before retrying." }
+  }
+  if (stale) {
+    return { success: "Invoice request sent, but the bookings changed while it was sending, so the venue may have the earlier hours. Check the month and use \"Send again\" if needed." }
   }
   return { success: "Invoice request sent" }
 }

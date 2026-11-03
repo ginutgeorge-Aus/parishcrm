@@ -25,6 +25,14 @@ describe("buildAutoSentEmail", () => {
     expect(subject).toBe("Invoice request for October 2026 sent")
     expect(text).toContain("4 confirmed dates, 12 hours")
   })
+  it("warns staff when the bookings changed while the request was being sent", () => {
+    const { text, html } = buildAutoSentEmail({ churchName: "Example Church", month: "2026-10", rowCount: 4, totalHoursLabel: "12 hours", changedDuringSend: true })
+    expect(text).toMatch(/bookings changed while it was being sent.*Send again/)
+    expect(html).toContain("changed while it was being sent")
+  })
+  it("says nothing about changes by default", () => {
+    expect(buildAutoSentEmail({ churchName: "Example Church", month: "2026-10", rowCount: 4, totalHoursLabel: "12 hours" }).text).not.toContain("changed")
+  })
 })
 
 describe("venuePageUrl", () => {

@@ -73,9 +73,10 @@ async function notifyEditors(mail: { subject: string; html: string; text: string
  * @param churchName church name for the notice
  * @param month "YYYY-MM"
  * @param rows the rows the request listed
+ * @param changedDuringSend the bookings changed while the request was going out (staff should check and resend)
  */
-function autoSentNotice(churchName: string, month: string, rows: Parameters<typeof totalHours>[0]) {
-  return buildAutoSentEmail({ churchName, month, rowCount: rows.length, totalHoursLabel: formatHours(totalHours(rows)) })
+function autoSentNotice(churchName: string, month: string, rows: Parameters<typeof totalHours>[0], changedDuringSend = false) {
+  return buildAutoSentEmail({ churchName, month, rowCount: rows.length, totalHoursLabel: formatHours(totalHours(rows)), changedDuringSend })
 }
 
 /** Attempts to write `reminderSentAt` before giving up. */
@@ -106,7 +107,8 @@ async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
  * already sent (SUCCESS + autoSent, but `reminderSentAt` still null because every notice failed) only
  * retries the staff notices and never emails the venue again. If this run sent the venue email but could not
  * record it, the claim is never released and `reminderSentAt` is written even when every notice failed: a
- * missing staff notice is better than a duplicate venue email. All reads that depend on the claim happen
+ * missing staff notice is better than a duplicate venue email. When the bookings changed while the request was
+ * going out (`stale`), the staff notice says so and asks them to check and resend. All reads that depend on the claim happen
  * here, after it was won.
  * @param month "YYYY-MM" being invoiced
  * @param claimAt the claim timestamp this run holds (fence for the final write)
@@ -146,7 +148,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
       sent = 1
       sentUnrecorded = !result.recorded
       isInvoiceNotice = true
-      mail = autoSentNotice(churchName, month, prep.rows)
+      mail = autoSentNotice(churchName, month, prep.rows, result.stale)
     } else {
       const problems = completeness.complete
         ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]

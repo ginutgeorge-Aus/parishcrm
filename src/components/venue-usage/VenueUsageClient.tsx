@@ -17,6 +17,7 @@ import { BookingList } from "./BookingList"
 import { BookingRequestPanel } from "./BookingRequestPanel"
 import { InvoiceRequestPanel } from "./InvoiceRequestPanel"
 import { CalendarLinkBox } from "./CalendarLinkBox"
+import { sydneyTodayYMD } from "@/lib/dates"
 
 export type VenueUsageRowView = {
   id: number
@@ -63,6 +64,16 @@ type FormState = {
   venueKnows: boolean
 }
 
+/**
+ * The current Sydney day, never earlier than the server-rendered one (a client clock running behind must not
+ * relock a row the server would accept). The server re-checks on save either way.
+ * @param serverToday "YYYY-MM-DD" from the server render
+ */
+function liveToday(serverToday: string): string {
+  const now = sydneyTodayYMD()
+  return now > serverToday ? now : serverToday
+}
+
 /** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
 function blankForm(nextSunday: string, today: string): FormState {
   return {
@@ -84,6 +95,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [dataVersion, setDataVersion] = useState(0)
   const [seenMonth, setSeenMonth] = useState(month)
   const [pending, startTransition] = useTransition()
+  // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
+  const [lockToday, setLockToday] = useState(today)
 
   // The approval-cleared notice belongs to the month it was raised in.
   if (seenMonth !== month) {
@@ -180,6 +193,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    * @param r the row to edit
    */
   function startEdit(r: VenueUsageRowView) {
+    setLockToday(liveToday(today))
     setFormState(undefined)
     setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
     document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -187,7 +201,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
 
   const locked = form.id !== null && form.venueKnows
   // Once the day has passed the times can still be corrected to the hours actually used; the date stays locked.
-  const timesLocked = locked && !isPastDay(form.date, today)
+  // Uses the "today" re-read when the row was opened, so a page left open past Sydney midnight unlocks (#510).
+  const timesLocked = locked && !isPastDay(form.date, lockToday)
 
   return (
     <div className="space-y-6">

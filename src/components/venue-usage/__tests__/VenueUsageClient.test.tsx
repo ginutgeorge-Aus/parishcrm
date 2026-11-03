@@ -21,6 +21,8 @@ jest.mock("@/lib/actions/venueBookings", () => ({
   withdrawVenueApproval: jest.fn(),
 }))
 jest.mock("@/lib/actions/venueCalendar", () => ({ resetVenueCalendarLink: jest.fn() }))
+// The live Sydney "today" the client re-reads when a row is opened; defaults to the server-rendered value.
+jest.mock("@/lib/dates", () => ({ ...jest.requireActual("@/lib/dates"), sydneyTodayYMD: jest.fn(() => "2026-10-25") }))
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
   unstable_rethrow: jest.fn(),
@@ -135,6 +137,28 @@ describe("venue-known row edit locks", () => {
     expect(screen.getByLabelText("Date")).toBeDisabled()
     expect(screen.getByLabelText("Start")).toBeDisabled()
     expect(screen.getByLabelText("End")).toBeDisabled()
+  })
+  it("page left open past Sydney midnight: opening the row re-reads today, so yesterday's times unlock (#510)", async () => {
+    const { sydneyTodayYMD } = jest.requireMock("@/lib/dates")
+    sydneyTodayYMD.mockReturnValue("2026-10-26")
+    try {
+      await editKnownRow("2026-10-25") // rendered with today=2026-10-25
+      expect(screen.getByLabelText("Date")).toBeDisabled()
+      expect(screen.getByLabelText("Start")).toBeEnabled()
+      expect(screen.getByLabelText("End")).toBeEnabled()
+    } finally {
+      sydneyTodayYMD.mockReturnValue("2026-10-25")
+    }
+  })
+  it("a client clock behind the server never relocks: the later of the two days wins", async () => {
+    const { sydneyTodayYMD } = jest.requireMock("@/lib/dates")
+    sydneyTodayYMD.mockReturnValue("2026-10-20")
+    try {
+      await editKnownRow("2026-10-24")
+      expect(screen.getByLabelText("Start")).toBeEnabled()
+    } finally {
+      sydneyTodayYMD.mockReturnValue("2026-10-25")
+    }
   })
   it("future row: date and times all locked", async () => {
     await editKnownRow("2026-11-01")

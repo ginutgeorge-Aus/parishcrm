@@ -263,3 +263,10 @@ it("checks the month read against the row cap (truncation is never silent)", asy
   await runVenueInvoiceJob(OPEN)
   expect(warnIfMonthCapped).toHaveBeenCalledWith("venueInvoiceJob", "2026-10", complete.length)
 })
+
+it("a send that raced a booking change tells staff to check and resend (#509 #512)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
+  expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent.*Send again/)
+})
