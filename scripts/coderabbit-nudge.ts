@@ -146,13 +146,28 @@ function pausedAtHead(note: Comment, headSha: string): boolean {
 }
 
 /**
+ * True when a comment is a nudge: written by someone other than CodeRabbit and
+ * the review command alone (optionally with trailing punctuation) or followed by a
+ * courtesy word ("please", "thanks", "again", "now"), which still triggers CodeRabbit.
+ * "@coderabbitai reviewer" or "@coderabbitai review the retry logic" (a question
+ * for the bot) do not count.
+ * @param c - one issue comment
+ */
+export function isNudge(c: Comment): boolean {
+  if (c.user === BOT) return false
+  const body = c.body.trim().toLowerCase()
+  if (!body.startsWith(COMMAND)) return false
+  return /^([\s.!?]*|\s+(please|pls|thanks|thank you|again|now)\b[\s\S]*)$/.test(body.slice(COMMAND.length))
+}
+
+/**
  * True when someone other than CodeRabbit posted the review command after `since`.
  * @param comments - issue comments on one PR, any order
  * @param since - time of CodeRabbit's first status on the head
  */
 function nudgedSince(comments: Comment[], since: Date): boolean {
   return comments.some(
-    (c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime(),
+    (c) => isNudge(c) && Date.parse(c.createdAt) > since.getTime(),
   )
 }
 
@@ -228,7 +243,7 @@ const REFUSED = /Review skipped/i
 export function nudgeRefused(comments: Comment[], since: Date): boolean {
   if (since.getTime() === 0) return false // no status on the head yet: any refusal was for an older head
   const nudges = comments
-    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND) && Date.parse(c.createdAt) > since.getTime())
+    .filter((c) => isNudge(c) && Date.parse(c.createdAt) > since.getTime())
     .map((c) => Date.parse(c.createdAt))
   if (!nudges.length) return false
   const lastNudge = nudges.reduce((max, t) => Math.max(max, t))
@@ -275,7 +290,7 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
   let lastNudge = -1
   let lastReply = -1
   for (const c of comments) {
-    if (c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND)) lastNudge = Math.max(lastNudge, Date.parse(c.createdAt))
+    if (isNudge(c)) lastNudge = Math.max(lastNudge, Date.parse(c.createdAt))
     if (c.user === BOT && !ACK.test(c.body)) {
       lastReply = Math.max(lastReply, Date.parse(c.createdAt), Date.parse(c.updatedAt))
     }
@@ -286,13 +301,13 @@ export function nudgeInFlight(comments: Comment[], now: Date): boolean {
 /**
  * Why a PR must not be nudged regardless of review state, or null when it may be:
  * the per-PR nudge cap, or a nudge posted within the cooldown. A nudge is a
- * non-CodeRabbit comment that is exactly the review command.
+ * non-CodeRabbit comment that starts with the review command (see `isNudge`).
  * @param comments - issue comments on one PR, any order
  * @param now - current time
  */
 export function nudgeBlocked(comments: Comment[], now: Date): string | null {
   const nudges = comments
-    .filter((c) => c.user !== BOT && c.body.trim().toLowerCase().startsWith(COMMAND))
+    .filter(isNudge)
     .map((c) => Date.parse(c.createdAt))
   if (nudges.length >= MAX_NUDGES_PER_PR) return `already has ${nudges.length} nudges (cap ${MAX_NUDGES_PER_PR})`
   const last = nudges.reduce((max, t) => Math.max(max, t), -Infinity)
