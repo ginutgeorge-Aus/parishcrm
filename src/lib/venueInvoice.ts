@@ -29,6 +29,9 @@ export const INVOICE_ALREADY_SENT_ERROR =
 /** User-facing error when the month's confirmed bookings changed after the request was prepared (nothing was sent). */
 export const INVOICE_ROWS_CHANGED_ERROR = "The bookings for this month changed while the request was being prepared. Nothing was sent; try again."
 
+/** User-facing error when the send claim could not be written (database error; nothing was sent). */
+export const INVOICE_CLAIM_FAILED_ERROR = "The invoice request could not be started (database error). Nothing was sent; try again in a moment."
+
 /** User-facing error when the claim kept conflicting with concurrent booking changes (nothing was sent). */
 export const INVOICE_CLAIM_CONFLICT_ERROR = "The bookings for this month are being changed right now. Nothing was sent; try again in a moment."
 
@@ -188,14 +191,15 @@ async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean
   }
 }
 
-/** Result of {@link claimSending}: refused (with the reason shown to the user), or this send's stamp (null when not written). */
-type SendClaim = { refused: string } | { refused: null; stamp: Date | null }
+/** Result of {@link claimSending}: refused (with the reason shown to the user), or this send's stamp. */
+type SendClaim = { refused: string } | { refused: null; stamp: Date }
 
 /**
  * Claim the month for this send by stamping `sendingAt`. Refuses, without stamping (#528), when:
  * - another send's stamp is younger than {@link VENUE_SENDING_WARNING_TTL_MS} (double click, or a manual send
  *   overlapping the job);
- * - a send of the month succeeded after `p` was prepared (a second click that arrives once the first finished);
+ * - the month is already sent and this is not an explicit resend, or (for a resend) another send succeeded after
+ *   `p` was prepared (a second click that arrives once the first finished, or the job after a manual send);
  * - the month's CONFIRMED rows no longer match `p` (an edit committed after prepare: sending would email old hours);
  * - the transaction kept hitting serialization conflicts (a racing claim, or booking edits of the month).
  *
@@ -205,22 +209,24 @@ type SendClaim = { refused: string } | { refused: null; stamp: Date | null }
  * predates the stamp commits after the post-send re-check (#509 #512). Two claims inserting the same new month
  * collide on the unique month, and the loser is refused as busy.
  *
- * Other failures are best-effort: logged, and the send goes ahead without a stamp (so without the in-flight warning
- * or the double-send guard). The `sendingAt` migration must still be applied: other paths read the column.
+ * Any other failure (timeout, dropped connection) also refuses: sending without a stamp would bypass the
+ * double-send guard, and a refused send is safe to retry.
  * @param p the prepared request (its rows and last outcome are compared with the re-read)
  * @param month "YYYY-MM"
- * @returns the refusal reason, or the stamp written (null when the write failed)
+ * @param resend whether the caller explicitly confirmed sending a month that was already sent
+ * @returns the refusal reason, or the stamp written
  */
-async function claimSending(p: InvoicePrep, month: string): Promise<SendClaim> {
+async function claimSending(p: InvoicePrep, month: string, resend: boolean): Promise<SendClaim> {
   const stamp = new Date()
   const cutoff = new Date(stamp.getTime() - VENUE_SENDING_WARNING_TTL_MS)
   try {
     const r = await serializableWrite(async (tx): Promise<SendClaim> => {
       const row = await tx.venueUsageRequest.findUnique({ where: { month }, select: { sendingAt: true, status: true, sentAt: true } })
       if (row?.sendingAt && row.sendingAt >= cutoff) return { refused: INVOICE_SEND_BUSY_ERROR }
-      const sentSincePrepare = row?.status === "SUCCESS" &&
-        (p.last?.status !== "SUCCESS" || row.sentAt?.getTime() !== p.last.sentAt?.getTime())
-      if (sentSincePrepare) return { refused: INVOICE_ALREADY_SENT_ERROR }
+      // Checked here, not only against `p.last`: a manual send can finish between the job's status read and its
+      // prepare, so `p.last` already says SUCCESS and only `resend` tells a deliberate resend from a duplicate.
+      const alreadySent = row?.status === "SUCCESS" && (!resend || row.sentAt?.getTime() !== p.last?.sentAt?.getTime())
+      if (alreadySent) return { refused: INVOICE_ALREADY_SENT_ERROR }
       const { start, end } = monthRange(month)
       if (invoiceFingerprint(await readMonthRows(start, end, tx)) !== invoiceFingerprint(p.rows)) return { refused: INVOICE_ROWS_CHANGED_ERROR }
       await tx.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt: stamp }, update: { sendingAt: stamp } })
@@ -231,8 +237,8 @@ async function claimSending(p: InvoicePrep, month: string): Promise<SendClaim> {
     return { refused: INVOICE_CLAIM_CONFLICT_ERROR }
   } catch (e) {
     if (isP2002(e)) return { refused: INVOICE_SEND_BUSY_ERROR }
-    logger.error("[venueInvoice] could not mark the invoice request in-flight; sending anyway", { month, error: e instanceof Error ? e.message : String(e) })
-    return { refused: null, stamp: null }
+    logger.error("[venueInvoice] could not claim the invoice request; refused, nothing sent", { month, error: e instanceof Error ? e.message : String(e) })
+    return { refused: INVOICE_CLAIM_FAILED_ERROR }
   }
 }
 
@@ -320,7 +326,7 @@ export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
 ): Promise<{ status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
-  const claim = await claimSending(p, ctx.month)
+  const claim = await claimSending(p, ctx.month, ctx.resend)
   if (claim.refused !== null) {
     logger.warn("[venueInvoice] invoice request refused before sending", { month: ctx.month, reason: claim.refused })
     return { status: "BUSY", errorMessage: claim.refused, recorded: false, stale: false }
@@ -352,7 +358,7 @@ export async function deliverInvoiceRequest(
     }
   } finally {
     // The outcome write also cleared the stamp; when it did not land, clear our own stamp so edits stop warning.
-    if (!recorded && claim.stamp) await clearSending(ctx.month, claim.stamp)
+    if (!recorded) await clearSending(ctx.month, claim.stamp)
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
   const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))

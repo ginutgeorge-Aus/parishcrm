@@ -25,7 +25,7 @@ import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates"
 import { logger } from "@/lib/logger"
 import {
-  bookingRecipients, deliverInvoiceRequest, INVOICE_ALREADY_SENT_ERROR, INVOICE_CLAIM_CONFLICT_ERROR,
+  bookingRecipients, deliverInvoiceRequest, INVOICE_ALREADY_SENT_ERROR, INVOICE_CLAIM_CONFLICT_ERROR, INVOICE_CLAIM_FAILED_ERROR,
   INVOICE_ROWS_CHANGED_ERROR, INVOICE_SEND_BUSY_ERROR, invoiceRecipients, loadActor, prepareInvoiceRequest,
 } from "@/lib/venueInvoice"
 import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
@@ -196,11 +196,11 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     })
   })
 
-  it("a failed in-flight mark is logged and the email still goes (the stamp write alone is best-effort)", async () => {
-    upsert().mockRejectedValueOnce(new Error("stamp write failed")).mockResolvedValue({})
-    expect((await deliverInvoiceRequest(await prepare(), ctx)).status).toBe("SUCCESS")
-    expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
-    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*in-flight/), expect.objectContaining({ month: "2026-09" }))
+  it("a claim that fails with a non-conflict error (timeout, dropped connection) refuses: nothing sent", async () => {
+    upsert().mockRejectedValueOnce(new Error("connection terminated")).mockResolvedValue({})
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "BUSY", errorMessage: INVOICE_CLAIM_FAILED_ERROR, recorded: false, stale: false })
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*could not claim/), expect.objectContaining({ month: "2026-09" }))
   })
 
   it("records the SUCCESS outcome before the post-send re-check reads the month", async () => {
@@ -241,12 +241,6 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     await deliverInvoiceRequest(p, ctx)
     const stamp = upsert().mock.calls[0][0].update.sendingAt as Date
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09", sendingAt: stamp }, data: { sendingAt: null } })
-  })
-
-  it("a failed stamp write leaves nothing of ours to clear", async () => {
-    upsert().mockRejectedValueOnce(new Error("stamp write failed")).mockResolvedValue({})
-    await deliverInvoiceRequest(await prepare(), ctx)
-    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
   })
 
   it("reports stale when the month's CONFIRMED rows changed while sending, and audits it", async () => {
@@ -333,6 +327,14 @@ describe("deliverInvoiceRequest send claim (#528 #509 #512)", () => {
     expect(await deliverInvoiceRequest(p, ctx)).toEqual(refused(INVOICE_ROWS_CHANGED_ERROR))
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
     expect(upsert()).not.toHaveBeenCalled()
+  })
+
+  it("the job after a manual send finished before its prepare (p.last already SUCCESS, not a resend) is refused", async () => {
+    findUnique().mockResolvedValue({ status: "SUCCESS", sentAt: new Date("2026-10-02T00:00:00Z"), errorMessage: null, approvedAt: null, approvedBy: null, autoSent: false, sendingAt: null })
+    const p = await prepare()
+    expect(await deliverInvoiceRequest(p, { month: "2026-09", userId: null, autoSent: true, resend: false }))
+      .toEqual(refused(INVOICE_ALREADY_SENT_ERROR))
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
   })
 
   it("refuses a second click that arrives after the first send finished (SUCCESS since prepare)", async () => {
