@@ -33,6 +33,7 @@ import {
   getVenueRequestPreview, updateVenueUsageSettings, addAllSundays, setVenueUsageStatus,
 } from "@/lib/actions/venueUsage"
 import { MAX_CC_ADDRESSES } from "@/lib/venueUsage"
+import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
 
 const asRole = (role: string | null) =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "7", role } } : null)
@@ -672,8 +673,8 @@ describe("sent / in-flight month warning on every booking change (#510 #513 #509
     await createVenueUsage(validInput)
     const call = (prisma.venueUsageRequest.findMany as jest.Mock).mock.calls.find(([a]) => isSentLookup(a))![0]
     const cutoff = call.where.OR[1].sendingAt.gte.getTime()
-    expect(before - cutoff).toBeGreaterThanOrEqual(10 * 60_000 - 5)
-    expect(before - cutoff).toBeLessThan(10 * 60_000 + 5_000)
+    expect(before - cutoff).toBeGreaterThanOrEqual(VENUE_SENDING_WARNING_TTL_MS - 5)
+    expect(before - cutoff).toBeLessThan(VENUE_SENDING_WARNING_TTL_MS + 5_000)
   })
   it("delete of a CONFIRMED row in a sent month warns", async () => {
     asRole("ADMIN")

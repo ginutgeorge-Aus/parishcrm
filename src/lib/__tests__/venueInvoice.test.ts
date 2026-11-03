@@ -191,8 +191,8 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     })
   })
 
-  it("a failed in-flight mark is logged and the email still goes (best-effort; e.g. code deployed before migrate)", async () => {
-    upsert().mockRejectedValueOnce(new Error("no column sendingAt")).mockResolvedValue({})
+  it("a failed in-flight mark is logged and the email still goes (the stamp write alone is best-effort)", async () => {
+    upsert().mockRejectedValueOnce(new Error("stamp write failed")).mockResolvedValue({})
     expect((await deliverInvoiceRequest(await prepare(), ctx)).status).toBe("SUCCESS")
     expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*in-flight/), expect.objectContaining({ month: "2026-09" }))
