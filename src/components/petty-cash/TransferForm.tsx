@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useActionState, useRef, useState } from "react"
+import { useActionState, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -35,7 +35,7 @@ export function TransferForm({
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
   // Manual date/amount stashed before the first imported pick, restored on "None".
-  const manualRef = useRef<{ date: string; amount: string } | null>(null)
+  const [manual, setManual] = useState<{ date: string; amount: string } | null>(null)
   // Cents computed once so option comparisons are exact (no float drift).
   const maxCents = toCents(maxAmount.toFixed(2))
 
@@ -44,15 +44,19 @@ export function TransferForm({
     setImportedId(id)
     const opt = imported.find((o) => String(o.id) === id)
     if (opt) {
-      if (importedId === "") manualRef.current = { date, amount }
+      if (importedId === "") setManual({ date, amount })
       setDate(opt.date)
       setAmount(opt.amount)
     } else {
-      setDate(manualRef.current?.date ?? sydneyTodayYMD())
-      setAmount(manualRef.current?.amount ?? "")
-      manualRef.current = null
+      setDate(manual?.date ?? sydneyTodayYMD())
+      setAmount(manual?.amount ?? "")
+      setManual(null)
     }
   }
+
+  // Client-side lookup links keep this form mounted while `imported` changes: if the picked deposit
+  // left the list, drop the pick (and unlock/restore date + amount) so a hidden id is never submitted.
+  if (importedId !== "" && !imported.some((o) => String(o.id) === importedId)) pickImported("")
 
   return (
     <form action={formAction} className="max-w-lg space-y-4">
