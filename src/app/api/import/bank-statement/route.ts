@@ -202,7 +202,8 @@ function validateParsedStatement(result: ParseResult): RouteFailure | { ok: true
 async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): Promise<string[]> {
   const hasher = createBankRefHasher()
   const forms = rows.map((r) => ({
-    refs: dedupForms(r.bankRef, hasher.ref(r.bankRef, accountNumber)),
+    // Per row, exactly as confirm hashes it (#514): the account comes from the ref itself.
+    refs: dedupForms(r.bankRef, hasher.stored(r.bankRef)),
     keys: dedupForms(r.dedupKey, hasher.key(r.dedupKey, accountNumber)),
   }))
   const bankRefs = [...new Set(forms.flatMap((f) => f.refs))]

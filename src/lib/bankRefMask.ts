@@ -79,7 +79,7 @@ function caseTag(m: string, accountNumber: string): string {
  * `partial(n)` an n-character prefix cut off at the end of a truncated
  * description. The browser mask and the at-rest hash (#459) differ only here.
  */
-type AccountTokens = { head: string; full: (match: string) => string; partial: (n: number) => string }
+type AccountTokens = { readonly head: string; full: (match: string) => string; partial: (n: number) => string }
 
 /** The restorable `*<last4>` tokens sent to the browser (see the table above). */
 function maskTokens(accountNumber: string): AccountTokens {
@@ -263,10 +263,30 @@ function accountHashHead(digest: string): string {
   return `h${digest.slice(0, HASH_TOKEN_HEX)}`
 }
 
-/** The hashed-format tokens for one account, from its hex HMAC digest. */
-function hashTokens(digest: string): AccountTokens {
-  const head = accountHashHead(digest)
-  return { head, full: () => head, partial: (n) => `${head}p${n}` }
+/**
+ * A hex HMAC digest, or a thunk producing it. The thunk form lets the keyed
+ * digest be derived only when a rewrite actually happens (#514): a ref that
+ * does not carry the account never touches the key.
+ */
+export type DigestSource = string | (() => string)
+
+/**
+ * The hashed-format tokens for one account. The digest is resolved on first
+ * use (every token read happens after `rewriteContentKey` decided to rewrite).
+ *
+ * @param digest - hex digest or thunk for it
+ * @returns the tokens
+ */
+function hashTokens(digest: DigestSource): AccountTokens {
+  let head: string | undefined
+  const headOf = () => (head ??= accountHashHead(typeof digest === "function" ? digest() : digest))
+  return {
+    get head() {
+      return headOf()
+    },
+    full: () => headOf(),
+    partial: (n) => `${headOf()}p${n}`,
+  }
 }
 
 /**
@@ -277,10 +297,10 @@ function hashTokens(digest: string): AccountTokens {
  *
  * @param key - content key / ref body
  * @param accountNumber - the account number embedded in the key
- * @param digest - hex `hmacBankRefAccount(accountNumber)`
+ * @param digest - hex `hmacBankRefAccount(accountNumber)`, or a thunk for it (resolved only if the key is rewritten)
  * @returns the hashed key
  */
-export function hashContentKeyWith(key: string, accountNumber: string, digest: string): string {
+export function hashContentKeyWith(key: string, accountNumber: string, digest: DigestSource): string {
   if (!accountNumber) return key
   return rewriteContentKey(key, accountNumber, hashTokens(digest))
 }
@@ -292,10 +312,10 @@ export function hashContentKeyWith(key: string, accountNumber: string, digest: s
  *
  * @param ref - full-number bankRef
  * @param accountNumber - the account number embedded in the ref
- * @param digest - hex `hmacBankRefAccount(accountNumber)`
+ * @param digest - hex `hmacBankRefAccount(accountNumber)`, or a thunk for it (resolved only if the ref is rewritten)
  * @returns the hashed bankRef
  */
-export function hashBankRefWith(ref: string, accountNumber: string, digest: string): string {
+export function hashBankRefWith(ref: string, accountNumber: string, digest: DigestSource): string {
   const prefix = IMPORT_REF_PREFIX_RE.exec(ref)
   if (!prefix) return ref
   return prefix[0] + hashContentKeyWith(ref.slice(prefix[0].length), accountNumber, digest)

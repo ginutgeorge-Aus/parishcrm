@@ -338,7 +338,15 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   const result: HashResult = { changed: 0, conflicts: 0, collisions: 0 }
   // One hasher per run: each account's digest derived once, never cached across runs.
   const hasher = createBankRefHasher()
-  if (apply) await assertV1KeyMatches(delegate, people)
+  // The v1 key canary runs lazily, just before the first write (#514): a
+  // deployment with nothing to rewrite (and possibly no canary source) must not
+  // fail "Key check failed".
+  let keyChecked = false
+  const ensureKeyChecked = async () => {
+    if (keyChecked) return
+    await assertV1KeyMatches(delegate, people)
+    keyChecked = true
+  }
   // A pair skipped in one batch is met again from its mate's batch — report each row once.
   const reported = new Set<number>()
   // Dry run only: ids already planned (a pair is met again from its mate's batch) and hashed refs taken.
@@ -390,6 +398,7 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
         }
       }
     } else if (pending.length > 0) {
+      await ensureKeyChecked()
       const units = await pairUnits(pending, delegate, hasher)
       let batchCommitted = true
       try {

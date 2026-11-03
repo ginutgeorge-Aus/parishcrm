@@ -123,9 +123,17 @@ function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
     if (hashed !== r.bankRef) legacyOf.set(hashed, r.bankRef)
     r.bankRef = hashed
   }
-  // TODO(#459) lives in dedupForms: once the backfill has run everywhere this
-  // collapses to `[ref]`, together with the parse route's lookup.
-  return (ref) => dedupForms(legacyOf.get(ref) ?? ref, ref)
+  // Legacy-form dedup is controlled solely by LEGACY_BANKREF_DEDUP (see dedupForms).
+  // Memoised: isDuplicate and the pair check ask for the same row several times (#514).
+  const memo = new Map<string, string[]>()
+  return (ref) => {
+    let forms = memo.get(ref)
+    if (!forms) {
+      forms = dedupForms(legacyOf.get(ref) ?? ref, ref)
+      memo.set(ref, forms)
+    }
+    return forms
+  }
 }
 
 /**
