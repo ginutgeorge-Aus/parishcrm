@@ -141,3 +141,19 @@ it("drops a pair whose leg is not an EXPENSE on the XFER account", async () => {
     .mockResolvedValueOnce([depRow()])
   await expect(listImportedTransferCandidates()).resolves.toEqual({ options: [], truncated: false })
 })
+
+it("focus narrows legs to one amount and UTC day", async () => {
+  findMany.mockResolvedValueOnce([])
+  await listImportedTransferCandidates({ amount: "50.00", date: new Date("2024-03-05T00:00:00.000Z") })
+  const where = findMany.mock.calls[0][0].where
+  expect(where.amount).toBe("50.00")
+  expect(where.date).toEqual({ gte: new Date("2024-03-05T00:00:00.000Z"), lt: new Date("2024-03-06T00:00:00.000Z") })
+})
+
+it("focus day inside the accounting lock keeps the post-lock bound (no rows)", async () => {
+  const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
+  getAccountingLockDate.mockResolvedValueOnce(new Date("2024-06-30"))
+  findMany.mockResolvedValueOnce([])
+  await listImportedTransferCandidates({ amount: "50.00", date: new Date("2024-03-05T00:00:00.000Z") })
+  expect(findMany.mock.calls[0][0].where.date).toEqual({ gte: new Date("2024-07-01"), lt: new Date("2024-03-06T00:00:00.000Z") })
+})

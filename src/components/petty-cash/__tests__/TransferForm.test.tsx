@@ -64,3 +64,24 @@ test("shows a truncation notice only when the list was capped", () => {
   rerender(<TransferForm action={noop} maxAmount={100} imported={imported} importedTruncated />)
   expect(screen.getByText(/older ones are not listed/i)).toBeInTheDocument()
 })
+
+test("capped list with an empty picker still shows the notice and a lookup link for the entered date and amount", () => {
+  render(<TransferForm action={noop} maxAmount={100} importedTruncated />)
+  expect(screen.getByLabelText(/imported bank deposit/i)).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: /look up deposits/i })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText(/transfer date/i), { target: { value: "2024-03-05" } })
+  fireEvent.change(screen.getByLabelText(/amount deposited/i), { target: { value: "50.00" } })
+  expect(screen.getByRole("link", { name: /look up deposits/i })).toHaveAttribute("href", "?date=2024-03-05&amount=50.00")
+})
+
+test("filtered list shows the filter notice with a reset link and hides the truncation notice", () => {
+  render(<TransferForm action={noop} maxAmount={100} imported={imported} importedTruncated importedFiltered />)
+  expect(screen.getByText(/one date and amount only/i)).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: /show newest deposits/i })).toHaveAttribute("href", "?")
+  expect(screen.queryByText(/older ones are not listed/i)).not.toBeInTheDocument()
+})
+
+test("filtered list with no matches still renders the picker so the reset link is reachable", () => {
+  render(<TransferForm action={noop} maxAmount={100} importedFiltered />)
+  expect(screen.getByRole("link", { name: /show newest deposits/i })).toBeInTheDocument()
+})

@@ -29,8 +29,13 @@ export type ImportedTransferCandidates = { options: ImportedTransferOption[]; tr
  * ledger mirror instead of booking a second cash-out. Pairs are matched in
  * memory with the same `adoptionProblem` check createTransfer uses; only the
  * final list is capped (`truncated` is set when valid pairs or legs were dropped).
+ * `focus` narrows the legs to one amount + UTC day, so a deposit older than the
+ * newest-first caps can still be reached (the manual-entry guard blocks on exactly
+ * that amount + day).
  */
-export async function listImportedTransferCandidates(): Promise<ImportedTransferCandidates> {
+export async function listImportedTransferCandidates(
+  focus?: { amount: string; date: Date },
+): Promise<ImportedTransferCandidates> {
   // Independent lookups; read-only XFER lookup so a GET render never creates the account.
   const [xferAccountId, cashAccount, lockDate] = await Promise.all([
     findXferAccountId(prisma),
@@ -42,6 +47,12 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
   const empty: ImportedTransferCandidates = { options: [], truncated: false }
   if (xferAccountId === null) return empty
   const cashAccountId = cashAccount?.id ?? null
+  const dayStart = focus ? new Date(`${utcYmd(focus.date)}T00:00:00.000Z`) : null
+  // Locked periods are read-only (lock day inclusive, by UTC calendar day): start the day after the
+  // lock, matching isDateLocked. A focus day narrows further; one inside the lock yields no rows.
+  const lockNext = lockDate ? new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) : null
+  const gte = lockNext && dayStart ? (lockNext > dayStart ? lockNext : dayStart) : (lockNext ?? dayStart)
+  const lt = dayStart ? new Date(dayStart.getTime() + 86_400_000) : null
   // Only unreconciled, unlinked cash-side XFER_OUT legs, newest first and capped at LEG_LIMIT: legs whose
   // deposit never arrives (or never pairs) would otherwise accumulate. Hitting the cap sets `truncated`.
   const legs = await prisma.transaction.findMany({
@@ -55,7 +66,8 @@ export async function listImportedTransferCandidates(): Promise<ImportedTransfer
       // Locked periods are read-only (lock day inclusive, by UTC calendar day): start
       // the day after the lock, matching isDateLocked. This is the only lock check (it also keeps
       // locked legs from using up the LEG_LIMIT cap).
-      ...(lockDate ? { date: { gte: new Date(Date.UTC(lockDate.getUTCFullYear(), lockDate.getUTCMonth(), lockDate.getUTCDate() + 1)) } } : {}),
+      ...(gte || lt ? { date: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } } : {}),
+      ...(focus ? { amount: focus.amount } : {}),
     },
     select: {
       type: true, accountId: true, bankRef: true, date: true, amount: true, reconciled: true,
