@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -86,7 +87,7 @@ export function TransferForm({
           {importedFiltered && (
             <p className="text-xs text-muted-foreground">
               Showing deposits for one date and amount only.{" "}
-              <a className="underline" href="?">Show newest deposits</a>
+              <Link className="underline" href="?" scroll={false}>Show newest deposits</Link>
             </p>
           )}
           {importedTruncated && !importedFiltered && (
@@ -95,9 +96,13 @@ export function TransferForm({
               {date && amount && (
                 <>
                   {" "}
-                  <a className="underline" href={`?date=${encodeURIComponent(date)}&amount=${encodeURIComponent(amount)}`}>
+                  <Link
+                    className="underline"
+                    href={`?date=${encodeURIComponent(date)}&amount=${encodeURIComponent(amount)}`}
+                    scroll={false}
+                  >
                     Look up deposits for the date and amount entered below
-                  </a>
+                  </Link>
                   .
                 </>
               )}
