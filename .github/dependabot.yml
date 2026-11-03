@@ -38,6 +38,12 @@ updates:
         patterns:
           - "prisma"
           - "@prisma/*"
+      # Everything else: one PR for all minor/patch bumps (one CI run, no
+      # rebase chain). Majors stay individual PRs.
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Project website (Astro/Starlight) — separate lockfile under website/.
   - package-ecosystem: "npm"
