@@ -96,6 +96,13 @@ describe("createTransfer — imported deposit", () => {
     expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3 })
   })
 
+  it("adopts a legacy leg with a null funding source and sets it to the cash account (#487)", async () => {
+    const update = jest.fn().mockResolvedValue({})
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, paymentAccountId: null })
+    await run({ ...base(), transaction: { findUnique, update, create: jest.fn() } })
+    expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3, paymentAccountId: 2 })
+  })
+
   it("rejects when the leg is already linked", async () => {
     const findUnique = jest.fn()
       .mockResolvedValueOnce(deposit)
@@ -154,7 +161,7 @@ describe("createTransfer — imported deposit", () => {
   rejects("rejects a deposit with no bankRef", { ...deposit, bankRef: null }, null, NA)
   rejects("rejects a date mismatch", { ...deposit, date: new Date("2026-07-30") }, okLeg, "Date and amount must match the imported deposit")
   rejects("rejects a reconciled leg", deposit, { ...okLeg, reconciled: true }, "Imported deposit's cash-out is already reconciled")
-  rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: null }, "Imported deposit's cash-out entry does not match this transfer")
+  rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: 99 }, "Imported deposit's cash-out entry does not match this transfer")
 })
 
 describe("createTransfer — manual path duplicate guard", () => {
@@ -187,6 +194,8 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(call.where).not.toHaveProperty("reconciled")
     // Adopted (linked) legs must be matched too (#492).
     expect(call.where).not.toHaveProperty("pettyCashTransferId")
+    // Legacy legs with a null funding source still count (#487).
+    expect(call.where.OR).toEqual([{ paymentAccountId: null }, { paymentAccountId: 2 }])
     // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
     const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
     expect(call.where.date).toEqual(dayBound)

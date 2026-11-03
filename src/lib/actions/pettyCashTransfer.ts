@@ -228,6 +228,7 @@ export async function createTransfer(
       // as this transfer's ledger mirror — creating a second one would reduce
       // petty cash twice. All validation runs before any write.
       let adoptLegId: number | null = null
+      let adoptLegLegacy = false
       if (parsed.data.importedTransactionId !== undefined) {
         const deposit = await tx.transaction.findUnique({
           where: { id: parsed.data.importedTransactionId },
@@ -245,6 +246,7 @@ export async function createTransfer(
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
         adoptLegId = leg!.id
+        adoptLegLegacy = leg!.paymentAccountId === null
       } else {
         // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
         // day is probably this very deposit — a second cash-out would reduce petty cash
@@ -261,7 +263,8 @@ export async function createTransfer(
             accountId: xferAccountId,
             type: "EXPENSE",
             bankRef: { startsWith: XFER_OUT_PREFIX },
-            paymentAccountId: cashAccount?.id ?? null,
+            // Null too: legacy legs written before a cash account existed (#487).
+            OR: [{ paymentAccountId: null }, ...(cashAccount ? [{ paymentAccountId: cashAccount.id }] : [])],
             amount: parsed.data.amount,
             date: dayRange,
           },
@@ -304,7 +307,8 @@ export async function createTransfer(
         await tx.transaction.update({
           where: { id: adoptLegId },
           // Link only: the leg's own reference is never touched, so unlink needs no restore.
-          data: { pettyCashTransferId: transfer.id },
+          // A legacy null funding source is set to the cash account so the ledger cash balance agrees (#487).
+          data: { pettyCashTransferId: transfer.id, ...(adoptLegLegacy && cashAccount ? { paymentAccountId: cashAccount.id } : {}) },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptLegId, {
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
