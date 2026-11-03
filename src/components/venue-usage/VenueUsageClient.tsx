@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useTransition } from "react"
+import { useState, useTransition } from "react"
 import { unstable_rethrow, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,7 @@ import {
 } from "@/lib/actions/venueUsage"
 import {
   VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel, isPastDay,
-  totalHours, utcDateToYmd, ymdToUtcDate, type VenueBookingStatusValue,
+  totalHours, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
 import { BookingList } from "./BookingList"
 import { BookingRequestPanel } from "./BookingRequestPanel"
@@ -64,21 +64,14 @@ type FormState = {
   venueKnows: boolean
 }
 
-const DAY_MS = 86_400_000
-
 /**
  * The current Sydney day, never earlier than the server-rendered one (a client clock running behind must not
- * relock a row the server would accept), and never later than the server day plus the days that have really
- * passed since it arrived, plus one (a client clock running ahead cannot jump further, #528). `elapsedMs` comes
- * from the monotonic `performance.now()`, which a wrong wall clock does not move. The server re-checks on save.
+ * relock a row the server would accept). The server re-checks on save either way.
  * @param serverToday "YYYY-MM-DD" from the server render
- * @param elapsedMs milliseconds since `serverToday` arrived
  */
-export function liveToday(serverToday: string, elapsedMs: number): string {
+function liveToday(serverToday: string): string {
   const now = sydneyTodayYMD()
-  if (now <= serverToday) return serverToday
-  const latest = utcDateToYmd(new Date(ymdToUtcDate(serverToday).getTime() + (Math.floor(Math.max(0, elapsedMs) / DAY_MS) + 1) * DAY_MS))
-  return now > latest ? latest : now
+  return now > serverToday ? now : serverToday
 }
 
 /** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
@@ -104,13 +97,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [pending, startTransition] = useTransition()
   // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
   const [lockToday, setLockToday] = useState(today)
-  // When the current `today` prop arrived (monotonic clock), so liveToday can bound a client clock running ahead.
-  const todayArrivedAt = useRef(0)
-  useEffect(() => { todayArrivedAt.current = performance.now() }, [today])
-
-  /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks. */
+  /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks (#528). */
   function currentToday(): string {
-    return liveToday(today, performance.now() - todayArrivedAt.current)
+    return liveToday(today)
   }
 
   // The approval-cleared notice belongs to the month it was raised in.

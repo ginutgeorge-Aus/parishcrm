@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { VenueUsageClient, liveToday } from "@/components/venue-usage/VenueUsageClient"
+import { VenueUsageClient } from "@/components/venue-usage/VenueUsageClient"
 import { addAllSundays, createVenueUsage, getVenueRequestPreview } from "@/lib/actions/venueUsage"
 import { getBookingRequestPreview, approveVenueMonth } from "@/lib/actions/venueBookings"
 
@@ -200,25 +200,5 @@ describe("Sydney today refresh for new bookings (#528)", () => {
     await user.click(screen.getByRole("button", { name: "Edit" }))
     await user.click(screen.getByRole("button", { name: "Cancel edit" }))
     expect(screen.getByLabelText("Status")).toHaveValue("CONFIRMED") // next Sunday is now today
-  })
-})
-
-describe("liveToday", () => {
-  const dates = () => jest.requireMock("@/lib/dates").sydneyTodayYMD as jest.Mock
-  afterEach(() => dates().mockReturnValue("2026-10-25"))
-
-  it("a client clock behind the server keeps the server day", () => {
-    dates().mockReturnValue("2026-10-20")
-    expect(liveToday("2026-10-25", 0)).toBe("2026-10-25")
-  })
-  it("one day past the server day is allowed straight away (rendered just before midnight)", () => {
-    dates().mockReturnValue("2026-10-26")
-    expect(liveToday("2026-10-25", 1000)).toBe("2026-10-26")
-  })
-  it("a client clock running days ahead is capped at the real elapsed time plus one day", () => {
-    dates().mockReturnValue("2026-11-05")
-    expect(liveToday("2026-10-25", 1000)).toBe("2026-10-26")
-    expect(liveToday("2026-10-25", 2 * 86_400_000 + 5)).toBe("2026-10-28")
-    expect(liveToday("2026-10-25", -50)).toBe("2026-10-26")
   })
 })

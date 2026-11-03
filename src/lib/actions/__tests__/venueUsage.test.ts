@@ -34,7 +34,7 @@ import {
 } from "@/lib/actions/venueUsage"
 import { MAX_CC_ADDRESSES } from "@/lib/venueUsage"
 import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
-import { INVOICE_SEND_BUSY_ERROR } from "@/lib/venueInvoice"
+import { INVOICE_ROWS_CHANGED_ERROR, INVOICE_SEND_BUSY_ERROR } from "@/lib/venueInvoice"
 import { revalidatePath } from "next/cache"
 
 const asRole = (role: string | null) =>
@@ -470,7 +470,7 @@ describe("sendVenueUsageRequest", () => {
     expect(r).toEqual({ error: INVOICE_SEND_BUSY_ERROR })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
     expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
-    expect(revalidatePath).not.toHaveBeenCalled()
+    expect(revalidatePath).toHaveBeenCalledWith("/venue-usage") // so the page shows the in-flight/sent state
   })
 
   it("warns (still success) when the email went but the request could not be recorded", async () => {
@@ -757,20 +757,30 @@ describe("sendVenueUsageRequest when bookings change mid-send (#509 #512)", () =
   it("still reports sent, but tells the user the venue may have the earlier hours", async () => {
     asRole("PASTOR")
     ;(prisma.venueUsage.findMany as jest.Mock)
-      .mockResolvedValueOnce(confirmedRows)
-      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }])
+      .mockResolvedValueOnce(confirmedRows) // prepare
+      .mockResolvedValueOnce(confirmedRows) // send claim
+      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }]) // post-send re-check
     const r = await sendVenueUsageRequest("2026-09")
     expect(r).toEqual({ success: expect.stringMatching(/^Invoice request sent, but the bookings changed while it was sending.*Send again/) })
   })
   it("keeps the stale warning when the send also could not be recorded", async () => {
     asRole("PASTOR")
     ;(prisma.venueUsage.findMany as jest.Mock)
-      .mockResolvedValueOnce(confirmedRows)
-      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }])
+      .mockResolvedValueOnce(confirmedRows) // prepare
+      .mockResolvedValueOnce(confirmedRows) // send claim
+      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }]) // post-send re-check
     ;(prisma.venueUsageRequest.upsert as jest.Mock).mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
     const { success } = (await sendVenueUsageRequest("2026-09")) as { success: string }
     expect(success).toMatch(/could not be recorded. Do not send it again/)
     expect(success).toMatch(/bookings changed while it was sending/)
+  })
+  it("refuses with nothing sent when the bookings changed between prepare and the send claim", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findMany as jest.Mock)
+      .mockResolvedValueOnce(confirmedRows)
+      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }])
+    expect(await sendVenueUsageRequest("2026-09")).toEqual({ error: INVOICE_ROWS_CHANGED_ERROR })
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
   })
 })
 

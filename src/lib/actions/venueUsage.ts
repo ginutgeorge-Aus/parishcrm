@@ -591,9 +591,9 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
   }
 
   const { status, errorMessage, recorded, stale } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
-  // Another send of this month (a double click, or the job) holds the claim: nothing was sent (#528).
-  if (status === "BUSY") return { error: errorMessage ?? "This month's invoice request is being sent right now." }
   revalidatePath("/venue-usage")
+  // Refused before sending (another send in flight or just done, or the bookings changed): nothing was sent (#528).
+  if (status === "BUSY") return { error: errorMessage ?? "Nothing was sent; try again." }
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
   // The invoice has been requested by hand: a pending automatic-send approval is now moot. The email has
   // already gone, so a failure here must not surface as an error (the user would send again).
