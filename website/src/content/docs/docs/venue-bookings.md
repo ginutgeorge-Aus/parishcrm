@@ -34,7 +34,7 @@ Open **Venue bookings** in the sidebar and pick a month. Each date has a status:
 - **Add all Sundays in** the chosen month creates a booking for every Sunday that does not already have one.
 - Tick several rows to **Mark confirmed** or cancel them together.
 - **Cancel** asks "Email venue about this cancellation?". Choose to email the venue, or keep the booking change without emailing. The cancellation notice wording is fixed.
-- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated.
+- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated (see below).
 - After the day, **Edit** the booking so it shows the times you actually used. The total hours for the month is shown above the list.
 
 ## Asking the venue to book
@@ -46,6 +46,8 @@ The **Send booking request** panel lists the Requested dates the venue has not b
 The **Request invoice** panel emails the venue asking for an invoice for a month. It counts confirmed dates only, and shows the number of bookings, the total hours and the email preview first. Warnings appear if something looks wrong, for example a month with no confirmed dates, a Sunday that is neither confirmed nor cancelled, or dates still Requested.
 
 Click **Send request** to send it now, or **Send again** if a request for that month already went out. Both ask for confirmation first. Sends are blocked on the public demo.
+
+A sent invoice request is not updated when the bookings change. If you add, edit, move or delete a confirmed date (or confirm or cancel one) in a month whose request was already sent, or is being sent at that moment, the change is saved and a warning tells you to use **Send again** if the venue needs the new hours. If the bookings change while a request is going out, the send still counts, but the confirmation (or, for the automatic send, the staff notice) says the venue may have the earlier hours.
 
 When the venue replies with their invoice, record it as an ordinary expense in [Transactions](/parishcrm/docs/transactions/).
 
