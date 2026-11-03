@@ -6,18 +6,20 @@ import { createTransfer, deleteTransfer } from "../pettyCashTransfer"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
-jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
+jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`), decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9) }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
-jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn(), pettyCashTransfer: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn(), pettyCashTransfer: { findUnique: jest.fn() }, transaction: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) } } }))
 
 import { auth } from "@/auth"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { prisma } from "@/lib/prisma"
 import { logAudit, logAuditTx } from "@/lib/audit"
+import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 const mock$tx = prisma.$transaction as jest.Mock
 
 function form() {
@@ -248,5 +250,130 @@ describe("deleteTransfer — adopted leg", () => {
     await deleteTransfer(5)
     expect(update).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
+  })
+})
+
+describe("createTransfer — submission token replay (#491)", () => {
+  const TOKEN = "11111111-2222-4333-8444-555555555555"
+  const tokenForm = () => {
+    const fd = form()
+    fd.set("submissionToken", TOKEN)
+    return fd
+  }
+  const same = { id: 3, sessionId: 1, amount: { toString: () => "50.00" }, date: new Date("2026-07-31"), retainedFloat: { toString: () => "0" }, depositSlipRef: null, depositedByName: "enc:Treasurer", notes: null }
+  const txMock = (prior: unknown) => ({
+    pettyCashTransfer: {
+      findUnique: jest.fn().mockResolvedValue(prior),
+      create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }),
+    },
+    pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
+    transaction: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+  })
+
+  it("stores the token on a first submit", async () => {
+    const tx = txMock(null)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, tokenForm())
+    expect(tx.pettyCashTransfer.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { submissionToken: TOKEN } }))
+    expect(tx.pettyCashTransfer.create.mock.calls[0][0].data.submissionToken).toBe(TOKEN)
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replayed token redirects to the session without creating a second transfer", async () => {
+    const tx = txMock(same)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+    // Replay runs before the balance check (the first attempt already reduced it).
+    expect(tx.pettyCashSession.findUnique).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a P2002 from a concurrent submit of the same token is treated as done", async () => {
+    mock$tx.mockRejectedValue({ code: "P2002" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(prisma.pettyCashTransfer.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { submissionToken: TOKEN } }))
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a double-click race surfacing as P2034 redirects once the winner committed the same transfer", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a P2034 whose winner commits just after the first read is re-read and treated as done", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(prisma.pettyCashTransfer.findUnique).toHaveBeenCalledTimes(2)
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it.each([
+    ["depositedByName", { ...same, depositedByName: "enc:Other" }],
+    ["notes", { ...same, notes: "enc:changed" }],
+    ["retainedFloat", { ...same, retainedFloat: { toString: () => "5.00" } }],
+    ["depositSlipRef", { ...same, depositSlipRef: "SLIP9" }],
+  ])("a reused token with an edited %s is rejected, not faked as success", async (_l, prior) => {
+    const tx = txMock(prior)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+  })
+
+  it("a reused token for an adopted transfer submitted manually is rejected", async () => {
+    const tx = txMock(same)
+    tx.transaction.findFirst.mockResolvedValue({ bankRef: "XFER_OUT:abc" })
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+  })
+
+  it("a P2034 with an unused token still shows the retry prompt", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(null)
+    await expect(createTransfer(1, undefined, tokenForm())).resolves.toEqual({ error: "Transfer conflict — please try again." })
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["amount", { ...same, amount: { toString: () => "60.00" } }],
+    ["date", { ...same, date: new Date("2026-07-30") }],
+    ["session", { ...same, sessionId: 2 }],
+  ])("a token reused for a different transfer (%s differs) is rejected, not dropped", async (_l, prior) => {
+    const tx = txMock(prior)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a P2002 that is not the token (no transfer carries it)", async () => {
+    const err = { code: "P2002" }
+    mock$tx.mockRejectedValue(err)
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(null)
+    await expect(createTransfer(1, undefined, tokenForm())).rejects.toBe(err)
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a P2002 when the form carried no token", async () => {
+    const err = { code: "P2002" }
+    mock$tx.mockRejectedValue(err)
+    await expect(createTransfer(1, undefined, form())).rejects.toBe(err)
+    expect(prisma.pettyCashTransfer.findUnique).not.toHaveBeenCalled()
   })
 })

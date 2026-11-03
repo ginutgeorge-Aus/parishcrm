@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,21 @@ import { fmtAUD, toCents } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
+
+/**
+ * Builds a v4 UUID for the submission token. Prefers crypto.randomUUID (secure
+ * contexts only) and falls back to crypto.getRandomValues, which also works on
+ * plain-http self-hosted installs.
+ */
+function newToken(): string {
+  const c = globalThis.crypto
+  if (typeof c.randomUUID === "function") return c.randomUUID()
+  const b = c.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
 
 export function TransferForm({
   action,
@@ -30,7 +45,18 @@ export function TransferForm({
   importedFiltered?: boolean
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  // Idempotency token (#491), created once per mounted form — not per server
+  // render: the lookup links re-render the page client-side while this form
+  // keeps its draft, so a page-made token would change mid-form. Made lazily on
+  // first submit (no SSR/hydration mismatch) and reused by every later submit.
+  const tokenRef = useRef<string | null>(null)
+  /** Adds the stable submission token to the form data, then runs the server action. */
+  const submitWithToken = (prev: ActionResult, formData: FormData) => {
+    tokenRef.current ??= newToken()
+    formData.set("submissionToken", tokenRef.current)
+    return action(prev, formData)
+  }
+  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")

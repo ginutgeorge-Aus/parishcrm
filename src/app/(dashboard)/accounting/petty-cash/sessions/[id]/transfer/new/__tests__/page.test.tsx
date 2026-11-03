@@ -67,3 +67,8 @@ test.each([
   expect(listCandidates).toHaveBeenCalledWith(undefined)
   expect(formProps.mock.calls[0][0].importedFiltered).toBe(false)
 })
+
+test("does not pass a submission token — the client form owns it (#491)", async () => {
+  await renderPage({})
+  expect(formProps.mock.calls[0][0]).not.toHaveProperty("submissionToken")
+})

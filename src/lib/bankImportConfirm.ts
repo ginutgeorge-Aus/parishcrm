@@ -8,11 +8,11 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
-import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
 import { MAX_ACCOUNT_TOKEN_LENGTH, bankRefMaskSegment, unmaskBankRef } from "@/lib/bankRefMask"
 import { unsealAccountNumber } from "@/lib/bankAccountToken"
 import { BANKREF_HASH_ERROR, BankRefHashError, createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
-import type { Prisma } from "@/lib/generated/prisma/client"
+import { Prisma } from "@/lib/generated/prisma/client"
 
 // Discriminated result the confirm route maps to a NextResponse. Transport
 // concerns (auth/role, per-user rate limit, body-size cap, audit log) stay in the
@@ -424,27 +424,25 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   // the PETTY_CASH cash-out. Match on cents + date window; each mirror is
   // consumed at most once so two deposits don't both claim one transfer. Safe
   // failure = skip the duplicate cash-out (the transfer already booked it),
-  // never a silent double-reduction.
+  // never a silent double-reduction. Read per row INSIDE the pair's write
+  // transaction (see the petty-cash branch below), not from an earlier
+  // snapshot (#493).
   const XFER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-  const pettyCashTimes = toImport.filter((r) => r.fromPettyCash).map((r) => new Date(r.date).getTime())
-  const transferMirrors = pettyCashTimes.length
-    ? await prisma.transaction.findMany({
-        where: {
-          pettyCashTransferId: { not: null },
-          // Exclude XFER_OUT legs adopted by a picked session transfer — they are
-          // another deposit's cash-out, not an independent session-transfer mirror.
-          // SQL `NOT startsWith` drops NULL bankRef rows, so allow them explicitly.
-          OR: [{ bankRef: null }, { NOT: { bankRef: { startsWith: XFER_OUT_PREFIX } } }],
-          paymentAccountId: cashAccount?.id ?? null,
-          date: {
-            gte: new Date(Math.min(...pettyCashTimes) - XFER_WINDOW_MS),
-            lte: new Date(Math.max(...pettyCashTimes) + XFER_WINDOW_MS),
-          },
-        },
-        select: { id: true, amount: true, date: true, pettyCashTransferId: true },
-      })
-    : []
   const consumedMirrorIds = new Set<number>()
+  /** Session-transfer mirrors within ±XFER_WINDOW_MS of `rowTime`, read through `tx`. */
+  const readTransferMirrors = (tx: Prisma.TransactionClient, rowTime: number) =>
+    tx.transaction.findMany({
+      where: {
+        pettyCashTransferId: { not: null },
+        // Exclude XFER_OUT legs adopted by a picked session transfer — they are
+        // another deposit's cash-out, not an independent session-transfer mirror.
+        // SQL `NOT startsWith` drops NULL bankRef rows, so allow them explicitly.
+        OR: [{ bankRef: null }, { NOT: { bankRef: { startsWith: XFER_OUT_PREFIX } } }],
+        paymentAccountId: cashAccount?.id ?? null,
+        date: { gte: new Date(rowTime - XFER_WINDOW_MS), lte: new Date(rowTime + XFER_WINDOW_MS) },
+      },
+      select: { id: true, amount: true, date: true, pettyCashTransferId: true },
+    })
 
   let imported = 0
   let duplicates = 0
@@ -600,17 +598,22 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // of scope here. Revisit if amount collisions become common.
       const rowCents = toCents(row.amount)
       const rowTime = new Date(row.date).getTime()
-      const mirrorMatch = transferMirrors.find(
-        (m) =>
-          m.pettyCashTransferId != null &&
-          m.amount != null &&
-          !consumedMirrorIds.has(m.id) &&
-          toCents(m.amount) === rowCents &&
-          Math.abs(new Date(m.date).getTime() - rowTime) <= XFER_WINDOW_MS
-      )
-      if (mirrorMatch) consumedMirrorIds.add(mirrorMatch.id)
-      const ops = [
-        prisma.transaction.create({
+      const legRefs = refVariants(row.bankRef).map((ref) => xferOutRef(ref))
+      const legKnown = legRefs.some((ref) => existingRefs.has(ref))
+      /**
+       * Writes the deposit and (unless a session transfer already booked it) its
+       * XFER_OUT cash-out leg. Returns the consumed mirror id, if any.
+       */
+      const writePair = async (tx: Prisma.TransactionClient): Promise<number | null> => {
+        const mirrorMatch = (await readTransferMirrors(tx, rowTime)).find(
+          (m) =>
+            m.pettyCashTransferId != null &&
+            m.amount != null &&
+            !consumedMirrorIds.has(m.id) &&
+            toCents(m.amount) === rowCents &&
+            Math.abs(new Date(m.date).getTime() - rowTime) <= XFER_WINDOW_MS
+        )
+        await tx.transaction.create({
           data: {
             date: new Date(row.date),
             description: encrypt(row.description),
@@ -626,11 +629,14 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             // same PII as the plain-row branch above.
             notes: row.details ? encrypt(row.details) : null,
           },
-        }),
-      ]
-      if (!mirrorMatch && !refVariants(row.bankRef).some((ref) => existingRefs.has(xferOutRef(ref)))) {
-        ops.push(
-          prisma.transaction.create({
+        })
+        // Re-check the XFER_OUT leg through tx: the pre-read set above is from
+        // before this transaction, so a retry after a conflict (or a concurrent
+        // import of the same line) must not insert a second leg.
+        const legExists =
+          legKnown || !!(await tx.transaction.findFirst({ where: { bankRef: { in: legRefs } }, select: { id: true } }))
+        if (!mirrorMatch && !legExists) {
+          await tx.transaction.create({
             data: {
               date: new Date(row.date),
               description: encrypt(`Transfer to ${destLabel}`),
@@ -643,10 +649,37 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
               reconciled: false,
             },
           })
-        )
+        }
+        return mirrorMatch?.id ?? null
       }
+      // #493: the mirror read and the pair write share one Serializable
+      // transaction, and createTransfer is Serializable too. A manual transfer
+      // racing this import for the same deposit reads "no XFER_OUT leg" while we
+      // read "no mirror" — Postgres SSI sees the read/write cycle and aborts one
+      // side, so both cash-outs can't commit. SCOPE: this covers a transfer dated
+      // the SAME UTC day as the deposit — createTransfer's manual-path guard only
+      // reads same-day legs. A transfer dated a different day (still inside our
+      // ±7-day mirror window) is not guarded against an import that committed
+      // first; that is the pre-existing sequential behaviour, not a race this
+      // closes. Chosen over an advisory lock: the
+      // lock's SELECT would fix createTransfer's Serializable snapshot BEFORE it
+      // waits, so it could still miss our committed leg; and no unique
+      // constraint fits (the two rows share only amount + a date window). On a
+      // conflict we retry: the fresh attempt sees the committed transfer and
+      // skips the leg. createTransfer surfaces its own conflict as "try again".
+      const MAX_PAIR_ATTEMPTS = 3
       try {
-        await prisma.$transaction(ops)
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const consumed = await prisma.$transaction(writePair, {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            })
+            if (consumed !== null) consumedMirrorIds.add(consumed)
+            break
+          } catch (e: unknown) {
+            if (!isP2034(e) || attempt >= MAX_PAIR_ATTEMPTS) throw e
+          }
+        }
         existingRefs.add(row.bankRef)
         existingRefs.add(pairRef)
         imported++

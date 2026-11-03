@@ -951,6 +951,10 @@ model PettyCashTransfer {
   depositedByName String
   notes           String?
   createdAt       DateTime         @default(now())
+  // Per-page-load form token (#491): a retried submit whose first attempt
+  // committed but lost its response finds this row instead of booking twice.
+  // Nullable — rows created before the column (and non-form callers) have none.
+  submissionToken String?          @unique
   transaction     Transaction?
 
   // FK index.
