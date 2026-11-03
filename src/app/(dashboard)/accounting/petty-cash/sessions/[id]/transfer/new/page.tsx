@@ -4,10 +4,19 @@ import { requirePettyCashSessionId } from "@/lib/pettyCashPageGuard"
 import { createTransfer } from "@/lib/actions/pettyCashTransfer"
 import { TransferForm } from "@/components/petty-cash/TransferForm"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
+import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import { listImportedTransferCandidates } from "@/lib/pettyCashTransferCandidates"
 
-export default async function NewTransferPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
+export default async function NewTransferPage(
+  props: Readonly<{ params: Promise<{ id: string }>; searchParams: Promise<{ date?: string; amount?: string }> }>,
+) {
   const params = await props.params;
+  const { date: focusDate, amount: focusAmount } = await props.searchParams
+  // "Look up older deposit" link: narrow the picker to one amount + day (beyond the newest-first caps).
+  const focusDay = focusDate && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? new Date(`${focusDate}T00:00:00.000Z`) : null
+  const focus = focusDay && !Number.isNaN(focusDay.getTime()) && focusAmount && MONEY_DECIMAL_RE.test(focusAmount)
+    ? { amount: focusAmount, date: focusDay }
+    : undefined
   const sessionId = await requirePettyCashSessionId(params.id)
   // Independent reads: run the session fetch and the candidate list together.
   const [pcSession, candidates] = await Promise.all([
@@ -19,7 +28,7 @@ export default async function NewTransferPage(props: Readonly<{ params: Promise<
       transfers: { select: { amount: true } },
     },
     }),
-    listImportedTransferCandidates(),
+    listImportedTransferCandidates(focus),
   ])
   if (!pcSession) notFound()
   if (pcSession.status === "CLOSED")

@@ -81,7 +81,18 @@ export function TransferForm({
             })}
           </select>
           {importedTruncated && (
-            <p className="text-xs text-muted-foreground">Showing the newest {imported.length} deposits; older ones are not listed.</p>
+            <p className="text-xs text-muted-foreground">
+              Showing the newest {imported.length} deposits; older ones are not listed.
+              {date && amount && (
+                <>
+                  {" "}
+                  <a className="underline" href={`?date=${encodeURIComponent(date)}&amount=${encodeURIComponent(amount)}`}>
+                    Look up deposits for the date and amount entered below
+                  </a>
+                  .
+                </>
+              )}
+            </p>
           )}
         </div>
       )}
