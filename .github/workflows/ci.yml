@@ -19,7 +19,37 @@ permissions:
 jobs:
   # Static checks, build and tests run as parallel jobs; `checks` below is the
   # single required status that aggregates them (ruleset requires "checks").
+  # Docs-only PRs (every changed file is *.md or under docs/) skip the heavy
+  # jobs. Job-level `if` skips report as passing for required checks, unlike
+  # a workflow-level paths-ignore, which would leave them pending forever.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # PR merge commit: HEAD^1 is the base branch tip
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          code=true
+          if [ "$EVENT" = "pull_request" ]; then
+            # --no-renames lists both sides of a move, so src/x -> docs/x counts as code.
+            # A failing diff keeps code=true (fail open to the full suite).
+            if files=$(git diff --name-only --no-renames HEAD^1 HEAD); then
+              if ! printf '%s\n' "$files" | grep -Ev '\.md$|^docs/|^$' >/dev/null; then
+                code=false
+              fi
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   static:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +67,8 @@ jobs:
       - run: npm run knip
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,6 +86,8 @@ jobs:
       - run: npm run build
 
   tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,16 +108,21 @@ jobs:
           retention-days: 1
 
   checks:
-    needs: [static, build, tests]
+    needs: [changes, static, build, tests, migrations]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All parallel jobs passed
         env:
+          CODE: ${{ needs.changes.outputs.code }}
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "results: $RESULTS"
-          case " $RESULTS " in *" failure "*|*" cancelled "*|*" skipped "*) exit 1;; esac
+          echo "code=$CODE results: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1;; esac
+          # Skips are only legitimate for a docs-only PR (code=false).
+          if [ "$CODE" != "false" ]; then
+            case " $RESULTS " in *" skipped "*) exit 1;; esac
+          fi
 
   # Separate job so `id-token: write` never coexists with `npm ci` install
   # scripts, which could otherwise mint a Codecov-audience OIDC token.
@@ -139,6 +178,8 @@ jobs:
   # exact schema.prisma database: apply them to an empty Postgres, then diff the
   # result against the schema. Any drift (a schema edit with no migration) fails.
   migrations:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
