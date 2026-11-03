@@ -76,6 +76,15 @@ it("returns [] without creating when XFER account is absent", async () => {
   expect(findMany).not.toHaveBeenCalled()
 })
 
+it("returns empty without any query when the focus day is inside the locked period", async () => {
+  const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
+  getAccountingLockDate.mockResolvedValueOnce(new Date("2026-06-30"))
+  await expect(
+    listImportedTransferCandidates({ amount: "50.00", date: new Date("2026-06-30T05:00:00Z") }),
+  ).resolves.toEqual({ options: [], truncated: false })
+  expect(findMany).not.toHaveBeenCalled()
+})
+
 it("starts the leg query the day after the lock and caps the leg list newest-first", async () => {
   const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
   const lock = new Date("2026-06-30")
@@ -150,10 +159,3 @@ it("focus narrows legs to one amount and UTC day", async () => {
   expect(where.date).toEqual({ gte: new Date("2024-03-05T00:00:00.000Z"), lt: new Date("2024-03-06T00:00:00.000Z") })
 })
 
-it("focus day inside the accounting lock keeps the post-lock bound (no rows)", async () => {
-  const { getAccountingLockDate } = jest.requireMock("@/lib/accountingLock")
-  getAccountingLockDate.mockResolvedValueOnce(new Date("2024-06-30"))
-  findMany.mockResolvedValueOnce([])
-  await listImportedTransferCandidates({ amount: "50.00", date: new Date("2024-03-05T00:00:00.000Z") })
-  expect(findMany.mock.calls[0][0].where.date).toEqual({ gte: new Date("2024-07-01"), lt: new Date("2024-03-06T00:00:00.000Z") })
-})
