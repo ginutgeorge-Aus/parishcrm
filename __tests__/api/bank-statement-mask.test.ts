@@ -34,6 +34,12 @@ jest.mock("@/lib/prisma", () => ({
   },
 }))
 jest.mock("unpdf", () => ({ extractText: jest.fn() }))
+// Lets a test make a row's own account differ from the statement-level one.
+const mockOfx: { rewrite: ((r: import("@/lib/anzParser").ParseResult) => import("@/lib/anzParser").ParseResult) | null } = { rewrite: null }
+jest.mock("@/lib/bankParsers/ofx", () => {
+  const real = jest.requireActual("@/lib/bankParsers/ofx")
+  return { ...real, parseOfx: (...a: unknown[]) => (mockOfx.rewrite ?? ((r: unknown) => r))(real.parseOfx(...a)) }
+})
 
 import { extractText } from "unpdf"
 import { POST } from "@/app/api/import/bank-statement/route"
@@ -334,6 +340,24 @@ describe("at-rest bankRef format: hashed writes, dual-format dedup (#459)", () =
     expect(body.duplicateBankRefs).toHaveLength(2)
     const result = await confirmBankImport({ rows: toConfirmRows(body.rows), accountToken: body.accountToken })
     expect(result).toEqual({ ok: true, imported: 0, skipped: 0, duplicates: 2 })
+  })
+
+  it("content-key dedup hashes under the row's own account, not the statement's (#514)", async () => {
+    const ACCT2 = "555666777"
+    const rows = parseOfx(OFX).rows
+    mockOfx.rewrite = (r) => ({
+      ...r,
+      rows: r.rows.map((x) => ({ ...x, dedupKey: x.dedupKey.replace(OFX_ACCT, ACCT2), bankRef: x.bankRef.replace(OFX_ACCT, ACCT2) })),
+    })
+    try {
+      txFindMany.mockResolvedValue(
+        rows.map((r) => ({ bankRef: hashBankRef(`ANZTR_${r.dedupKey.replace(OFX_ACCT, ACCT2)}_0`, ACCT2), type: r.type, date: new Date(r.date), amount: r.amount }))
+      )
+      const { body } = await parse(OFX, "s.ofx", "ofx")
+      expect(body.duplicateBankRefs).toHaveLength(2)
+    } finally {
+      mockOfx.rewrite = null
+    }
   })
 
   it("hashed DB rows with the account in the FITID: OFX re-import is all duplicates", async () => {

@@ -113,7 +113,7 @@ function restoreMaskedBankRefs(rows: ConfirmRow[], accountToken: string | undefi
  * legacy full-number ref, for dual-format dedup until the backfill has run.
  *
  * @param rows - confirm rows with restored (full-number) refs
- * @returns ref → [ref, legacy ref] (just [ref] when hashing changed nothing)
+ * @returns ref → [ref, legacy ref] (just [ref] when hashing changed nothing or LEGACY_BANKREF_DEDUP is off)
  */
 function hashRowBankRefs(rows: ConfirmRow[]): (ref: string) => string[] {
   const hasher = createBankRefHasher()

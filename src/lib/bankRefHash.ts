@@ -68,7 +68,9 @@ export function createBankRefHasher(): BankRefHasher {
   }
   // Lazy digest (#514): a ref/key that does not carry the account is returned
   // untouched without deriving (or failing on) the v1 key.
+  /** Hash `accountNumber` in a ref; the digest is derived only if the ref carries it. */
   const ref = (r: string, accountNumber: string) => (accountNumber ? hashBankRefWith(r, accountNumber, () => digestOf(accountNumber)) : r)
+  /** Hash `accountNumber` in a content key; the digest is derived only if the key carries it. */
   const key = (k: string, accountNumber: string) => (accountNumber ? hashContentKeyWith(k, accountNumber, () => digestOf(accountNumber)) : k)
   const stored = (r: string) => {
     const accountNumber = accountOfStoredBankRef(r)
@@ -85,12 +87,16 @@ export function createBankRefHasher(): BankRefHasher {
  * plaintext-account form, so rows stored before the `hash-bankref-account`
  * backfill still match; that costs a second `bankRef IN` entry per row.
  *
- * This is the ONE place to change: the parse route, confirm `isDuplicate` and
- * the XFER_OUT pair check all go through `dedupForms`, which reads it.
+ * The parse route, confirm `isDuplicate` and the XFER_OUT pair check all build
+ * their lookup forms through `dedupForms`, which reads it.
  *
- * Removal criterion: flip to `false` (then delete the flag, the `includeLegacy`
- * argument of `dedupForms` and the legacy-ref bookkeeping in
- * `hashRowBankRefs`) once `scripts/audit-data-integrity.ts` reports "no
+ * Removal steps: once the criterion below holds, delete the flag and the
+ * `includeLegacy` argument of `dedupForms` (it returns `[hashed]`), the
+ * `legacyOf` bookkeeping in `hashRowBankRefs` (bankImportConfirm.ts), the
+ * unhashed-key lookup (`hasher.key` legacy form) in the parse route, and update
+ * the "legacy dedup switch" tests in bankRefHash.lazy.test.ts.
+ *
+ * Removal criterion: once `scripts/audit-data-integrity.ts` reports "no
  * plaintext account numbers" for Transaction.bankRef on every known
  * deployment (St Mark prod + the public demo) and the self-hosting docs
  * (docs/operations.md, migration step 3) have told self-hosters to run the

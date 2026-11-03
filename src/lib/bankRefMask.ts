@@ -79,12 +79,12 @@ function caseTag(m: string, accountNumber: string): string {
  * `partial(n)` an n-character prefix cut off at the end of a truncated
  * description. The browser mask and the at-rest hash (#459) differ only here.
  */
-type AccountTokens = { readonly head: string; full: (match: string) => string; partial: (n: number) => string }
+type AccountTokens = { head: () => string; full: (match: string) => string; partial: (n: number) => string }
 
 /** The restorable `*<last4>` tokens sent to the browser (see the table above). */
 function maskTokens(accountNumber: string): AccountTokens {
   const mask = accountMask(accountNumber)
-  return { head: mask, full: (m) => mask + caseTag(m, accountNumber), partial: (n) => `${mask}.P${n}` }
+  return { head: () => mask, full: (m) => mask + caseTag(m, accountNumber), partial: (n) => `${mask}.P${n}` }
 }
 
 /** Replace every case-insensitive occurrence of `accountNumber` in one ref segment with `tokens.full`. */
@@ -130,7 +130,7 @@ function rewriteContentKey(key: string, accountNumber: string, tokens: AccountTo
   if (!accountNumber) return key
   const parts = key.split("_")
   if (parts.length < 2 || parts[0] !== accountNumber) return key
-  parts[0] = tokens.head
+  parts[0] = tokens.head()
   if (accountNumber.length >= MIN_INLINE_MASK_LENGTH) {
     for (let i = DESC_SEGMENT_INDEX; i < parts.length; i++) {
       parts[i] = replaceTailSegment(parts[i], accountNumber, i === DESC_SEGMENT_INDEX, tokens)
@@ -281,9 +281,7 @@ function hashTokens(digest: DigestSource): AccountTokens {
   let head: string | undefined
   const headOf = () => (head ??= accountHashHead(typeof digest === "function" ? digest() : digest))
   return {
-    get head() {
-      return headOf()
-    },
+    head: () => headOf(),
     full: () => headOf(),
     partial: (n) => `${headOf()}p${n}`,
   }

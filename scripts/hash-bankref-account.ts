@@ -9,7 +9,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 import { decrypt, hmacEmail, hmacMobile, keyIdOf } from "../src/lib/cryptoCore"
 import { isP2002 } from "../src/lib/validation"
 import { XFER_OUT_PREFIX, depositRefOfLeg, xferOutRef } from "../src/lib/xferRefs"
-import { createBankRefHasher, type BankRefHasher } from "../src/lib/bankRefHash"
+import { BankRefHashError, createBankRefHasher, type BankRefHasher } from "../src/lib/bankRefHash"
 import { CANDIDATE_PREFIXES, planBankRefRewrite } from "./lib/legacy-bankref"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
@@ -322,8 +322,8 @@ async function writeUnit(
  * Rewrite every legacy (full account number) Transaction.bankRef to the hashed
  * format. Keyset-paginated; each batch commits in one transaction, falling
  * back to per-unit writes (a deposit + its `XFER_OUT_` leg stay together) when
- * a row in it hit a unique collision or changed concurrently. Apply first runs
- * the v1 key check; the dry run also reports rows whose hashed form exists.
+ * a row in it hit a unique collision or changed concurrently. Apply runs the
+ * v1 key check lazily, before the first write (or when hashing itself fails); the dry run also reports rows whose hashed form exists.
  *
  * @param opts - test seams: delegate, people (Person, for the key check), runWrites, apply (defaults from argv), batchSize
  * @returns rows (that would be) rewritten, rows left because they kept
@@ -342,6 +342,7 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
   // deployment with nothing to rewrite (and possibly no canary source) must not
   // fail "Key check failed".
   let keyChecked = false
+  /** Run the v1 key canary once per run; throws "Key check failed" when this run's key is not the database's. */
   const ensureKeyChecked = async () => {
     if (keyChecked) return
     await assertV1KeyMatches(delegate, people)
@@ -374,10 +375,21 @@ export async function hashBankRefs(opts: HashOpts = {}): Promise<HashResult> {
     })) as Row[]
     if (rows.length === 0) break
     lastId = rows[rows.length - 1].id
-    const pending = rows.flatMap((row) => {
-      const next = planBankRefRewrite(row.bankRef, hasher)
-      return next === null ? [] : [{ row, next }]
-    })
+    const plan = () =>
+      rows.flatMap((row) => {
+        const next = planBankRefRewrite(row.bankRef, hasher)
+        return next === null ? [] : [{ row, next }]
+      })
+    let pending: { row: Row; next: string }[]
+    try {
+      pending = plan()
+    } catch (e) {
+      if (!apply || !(e instanceof BankRefHashError)) throw e
+      // The v1 key cannot hash: surface the actionable key-check failure
+      // (mismatch / no canary) instead of the opaque hash error.
+      await ensureKeyChecked()
+      throw e
+    }
     if (!apply) {
       // Read-only: model the same write units as --apply. A unit (a row, or a
       // deposit + its XFER_OUT_ leg) collides when any of its hashed refs is

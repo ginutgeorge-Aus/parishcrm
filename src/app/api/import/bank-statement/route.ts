@@ -8,7 +8,7 @@ import { detectOfx, parseOfx } from "@/lib/bankParsers/ofx"
 import { detectQif, parseQif, type QifDateOrder } from "@/lib/bankParsers/qif"
 import { findPossibleDuplicates } from "@/lib/bankPossibleDuplicate"
 import { accountSuffix, suggestPaymentAccountId } from "@/lib/bankAccountMap"
-import { makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
+import { accountOfStoredBankRef, makeAccountTextMasker, maskBankRef, maskContentKey } from "@/lib/bankRefMask"
 import { fingerprintAccountNumber, sealAccountNumber } from "@/lib/bankAccountToken"
 import { BANKREF_HASH_ERROR, BankRefHashError, createBankRefHasher, dedupForms } from "@/lib/bankRefHash"
 import { IMPORT_SOURCES, isImportSource, type ImportSource } from "@/lib/importSources"
@@ -204,7 +204,9 @@ async function findDuplicateBankRefs(rows: ParsedRow[], accountNumber: string): 
   const forms = rows.map((r) => ({
     // Per row, exactly as confirm hashes it (#514): the account comes from the ref itself.
     refs: dedupForms(r.bankRef, hasher.stored(r.bankRef)),
-    keys: dedupForms(r.dedupKey, hasher.key(r.dedupKey, accountNumber)),
+    // The content key is hashed under the ref's own account (as confirm and the
+    // stored refs do), falling back to the statement's when the ref carries none.
+    keys: dedupForms(r.dedupKey, hasher.key(r.dedupKey, accountOfStoredBankRef(r.bankRef) ?? accountNumber)),
   }))
   const bankRefs = [...new Set(forms.flatMap((f) => f.refs))]
   const importTimes = rows.map((r) => new Date(r.date).getTime()).filter((n) => !Number.isNaN(n))
