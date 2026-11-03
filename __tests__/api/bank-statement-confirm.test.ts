@@ -25,6 +25,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     transaction: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       createMany: jest.fn(),
     },

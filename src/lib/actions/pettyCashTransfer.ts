@@ -36,13 +36,35 @@ class TransferError extends Error {}
 // retry just lands on the session page instead of booking a second transfer.
 class AlreadySubmitted extends Error {}
 
+/** Shown when a reused token carries a different transfer (e.g. Back restored the old form). */
+const TOKEN_REUSED_ERROR = "This form was already submitted — reload the page to enter a new transfer"
+
+/** Outcome of a token lookup: unused, a true replay of the same transfer, or reused for a different one. */
+type TokenState = "unused" | "replay" | "reused"
+
 /**
- * True when a transfer already carries this form submission token. Used inside
- * the createTransfer transaction (replay pre-check) and after a P2002 (two
- * concurrent submits of one token — the loser confirms the winner committed).
+ * Looks up the transfer already carrying this form submission token (#491).
+ * "replay" only when it is the same transfer (session, amount, date): Back/forward
+ * can restore a cached form with its old token, and a different transfer
+ * entered there must not be silently dropped — that is "reused". Used inside
+ * the createTransfer transaction (pre-check) and after a P2002/P2034 (two
+ * concurrent submits of one token — the loser checks whether the winner committed).
  */
-async function tokenUsed(db: Pick<Prisma.TransactionClient, "pettyCashTransfer">, token: string): Promise<boolean> {
-  return !!(await db.pettyCashTransfer.findUnique({ where: { submissionToken: token }, select: { id: true } }))
+async function tokenState(
+  db: Pick<Prisma.TransactionClient, "pettyCashTransfer">,
+  token: string,
+  sub: { sessionId: number; amount: string; date: Date },
+): Promise<TokenState> {
+  const prior = await db.pettyCashTransfer.findUnique({
+    where: { submissionToken: token },
+    select: { sessionId: true, amount: true, date: true },
+  })
+  if (!prior) return "unused"
+  const same =
+    prior.sessionId === sub.sessionId &&
+    toCents(String(prior.amount)) === toCents(sub.amount) &&
+    new Date(prior.date).getTime() === sub.date.getTime()
+  return same ? "replay" : "reused"
 }
 
 // --- Transfers ---
@@ -123,11 +145,21 @@ export async function createTransfer(
   // petty-cash pair write (#493), which is Serializable too: a concurrent import
   // of this deposit and this manual transfer can't both commit a cash-out.
   const token = parsed.data.submissionToken
+  const sub = { sessionId, amount: parsed.data.amount, date: parsed.data.date }
+  /** Revalidate and land on the session page — the replayed transfer already committed. */
+  const replayDone = () => {
+    revalidatePettyCashPaths(sessionId)
+    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+  }
   try {
     await prisma.$transaction(async (tx) => {
       // Replay check first: the earlier attempt already reduced the balance, so
       // the balance check below would otherwise reject the retry misleadingly.
-      if (token && (await tokenUsed(tx, token))) throw new AlreadySubmitted()
+      if (token) {
+        const state = await tokenState(tx, token, sub)
+        if (state === "replay") throw new AlreadySubmitted()
+        if (state === "reused") throw new TransferError(TOKEN_REUSED_ERROR)
+      }
       const existing = await tx.pettyCashSession.findUnique({
         where: { id: sessionId },
         include: {
@@ -253,12 +285,17 @@ export async function createTransfer(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof TransferError) return { error: e.message }
-    if (e instanceof AlreadySubmitted) return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
-    // P2002 with a token: a concurrent submit of the same form won the unique
-    // index. Confirm it really is the token (not some other unique) and treat
-    // this attempt as done.
-    if (token && isP2002(e) && (await tokenUsed(prisma, token)))
-      return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+    if (e instanceof AlreadySubmitted) return replayDone()
+    // P2002 / P2034 with a token: a concurrent submit of the same form (double
+    // click) may have won — under Serializable that usually surfaces as P2034,
+    // sometimes as P2002 on the unique index. If the winner committed this very
+    // transfer, treat this attempt as done; a different transfer on the token
+    // gets the reload prompt.
+    if (token && (isP2002(e) || isP2034(e))) {
+      const state = await tokenState(prisma, token, sub)
+      if (state === "replay") return replayDone()
+      if (state === "reused") return { error: TOKEN_REUSED_ERROR }
+    }
     // P2034 = Serializable serialization failure: a concurrent transfer beat
     // this one. Surface a retry prompt rather than a 500.
     if (isP2034(e))

@@ -598,7 +598,8 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // of scope here. Revisit if amount collisions become common.
       const rowCents = toCents(row.amount)
       const rowTime = new Date(row.date).getTime()
-      const legExists = refVariants(row.bankRef).some((ref) => existingRefs.has(xferOutRef(ref)))
+      const legRefs = refVariants(row.bankRef).map((ref) => xferOutRef(ref))
+      const legKnown = legRefs.some((ref) => existingRefs.has(ref))
       /**
        * Writes the deposit and (unless a session transfer already booked it) its
        * XFER_OUT cash-out leg. Returns the consumed mirror id, if any.
@@ -629,6 +630,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
             notes: row.details ? encrypt(row.details) : null,
           },
         })
+        // Re-check the XFER_OUT leg through tx: the pre-read set above is from
+        // before this transaction, so a retry after a conflict (or a concurrent
+        // import of the same line) must not insert a second leg.
+        const legExists =
+          legKnown || !!(await tx.transaction.findFirst({ where: { bankRef: { in: legRefs } }, select: { id: true } }))
         if (!mirrorMatch && !legExists) {
           await tx.transaction.create({
             data: {
@@ -650,7 +656,12 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // transaction, and createTransfer is Serializable too. A manual transfer
       // racing this import for the same deposit reads "no XFER_OUT leg" while we
       // read "no mirror" — Postgres SSI sees the read/write cycle and aborts one
-      // side, so both cash-outs can't commit. Chosen over an advisory lock: the
+      // side, so both cash-outs can't commit. SCOPE: this covers a transfer dated
+      // the SAME UTC day as the deposit — createTransfer's manual-path guard only
+      // reads same-day legs. A transfer dated a different day (still inside our
+      // ±7-day mirror window) is not guarded against an import that committed
+      // first; that is the pre-existing sequential behaviour, not a race this
+      // closes. Chosen over an advisory lock: the
       // lock's SELECT would fix createTransfer's Serializable snapshot BEFORE it
       // waits, so it could still miss our committed leg; and no unique
       // constraint fits (the two rows share only amount + a date window). On a
