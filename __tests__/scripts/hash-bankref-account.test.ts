@@ -193,6 +193,13 @@ describe("deposit + XFER_OUT_ leg pairing", () => {
 })
 
 describe("v1 key check (apply only)", () => {
+  it("does not run the canary when there is nothing to rewrite (#514)", async () => {
+    const db = fakeDb([legacy(5, "QIF_PA3_20260905_10.00_SHOP_1"), legacy(6, "PC_R_12")], {}, () => [], () => [])
+    const res = await mod.hashBankRefs({ delegate: db.delegate, people: db.people, runWrites: db.runWrites, apply: true })
+    expect(res).toEqual({ changed: 0, conflicts: 0, collisions: 0 })
+    expect(db.runWrites).not.toHaveBeenCalled()
+  })
+
   it("refuses to --apply when the v1 canary does not decrypt with this run's key — nothing written", async () => {
     const foreign = v1Canary()
     jest.resetModules()
