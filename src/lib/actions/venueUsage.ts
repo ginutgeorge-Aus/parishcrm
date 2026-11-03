@@ -568,8 +568,9 @@ export async function getVenueRequestPreview(month: string): Promise<VenueReques
  * Email the venue contact asking for the month's invoice (`canEdit`). Always
  * records the attempt in `VenueUsageRequest` (also on failure). Refuses when the
  * feature is off, no contact email is set, or the month has no CONFIRMED rows;
- * a month already sent successfully needs `resend: true`. When the month's CONFIRMED rows changed while the
- * email was going out, the success message says so (the venue may have the earlier hours).
+ * a month already sent successfully needs `resend: true`, and a send is refused while another send of the same
+ * month is in flight. When the month's CONFIRMED rows changed while the email was going out, the success message
+ * says so (the venue may have the earlier hours).
  * @param month "YYYY-MM"
  * @param resend explicit confirmation to send again after a prior SUCCESS
  */
@@ -589,7 +590,9 @@ export async function sendVenueUsageRequest(month: string, resend = false): Prom
     return { error: "A request for this month was already sent. Confirm to send it again." }
   }
 
-  const { status, recorded, stale } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
+  const { status, errorMessage, recorded, stale } = await deliverInvoiceRequest(p, { month, userId, autoSent: false, resend })
+  // Another send of this month (a double click, or the job) holds the claim: nothing was sent (#528).
+  if (status === "BUSY") return { error: errorMessage ?? "This month's invoice request is being sent right now." }
   revalidatePath("/venue-usage")
   if (status === "FAILED") return { error: "Could not send the email. Check email settings and try again." }
   // The invoice has been requested by hand: a pending automatic-send approval is now moot. The email has

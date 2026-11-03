@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { unstable_rethrow, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,7 @@ import {
 } from "@/lib/actions/venueUsage"
 import {
   VENUE_BOOKING_STATUSES, defaultStatusForDate, formatHours, formatMonthLabel, isPastDay,
-  totalHours, ymdToUtcDate, type VenueBookingStatusValue,
+  totalHours, utcDateToYmd, ymdToUtcDate, type VenueBookingStatusValue,
 } from "@/lib/venueUsage"
 import { BookingList } from "./BookingList"
 import { BookingRequestPanel } from "./BookingRequestPanel"
@@ -64,14 +64,21 @@ type FormState = {
   venueKnows: boolean
 }
 
+const DAY_MS = 86_400_000
+
 /**
  * The current Sydney day, never earlier than the server-rendered one (a client clock running behind must not
- * relock a row the server would accept). The server re-checks on save either way.
+ * relock a row the server would accept), and never later than the server day plus the days that have really
+ * passed since it arrived, plus one (a client clock running ahead cannot jump further, #528). `elapsedMs` comes
+ * from the monotonic `performance.now()`, which a wrong wall clock does not move. The server re-checks on save.
  * @param serverToday "YYYY-MM-DD" from the server render
+ * @param elapsedMs milliseconds since `serverToday` arrived
  */
-function liveToday(serverToday: string): string {
+export function liveToday(serverToday: string, elapsedMs: number): string {
   const now = sydneyTodayYMD()
-  return now > serverToday ? now : serverToday
+  if (now <= serverToday) return serverToday
+  const latest = utcDateToYmd(new Date(ymdToUtcDate(serverToday).getTime() + (Math.floor(Math.max(0, elapsedMs) / DAY_MS) + 1) * DAY_MS))
+  return now > latest ? latest : now
 }
 
 /** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
@@ -97,6 +104,14 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [pending, startTransition] = useTransition()
   // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
   const [lockToday, setLockToday] = useState(today)
+  // When the current `today` prop arrived (monotonic clock), so liveToday can bound a client clock running ahead.
+  const todayArrivedAt = useRef(0)
+  useEffect(() => { todayArrivedAt.current = performance.now() }, [today])
+
+  /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks. */
+  function currentToday(): string {
+    return liveToday(today, performance.now() - todayArrivedAt.current)
+  }
 
   // The approval-cleared notice belongs to the month it was raised in.
   if (seenMonth !== month) {
@@ -161,7 +176,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    */
   function onDateChange(date: string) {
     // Only re-suggest the status while adding; an edit keeps the chosen status.
-    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, today) } : {}) }))
+    // Re-read today so a page left open past Sydney midnight suggests CONFIRMED for the new current day (#528).
+    const now = currentToday()
+    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, now) } : {}) }))
   }
 
   /**
@@ -180,7 +197,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         setFormState(result)
         handleResult(result)
         if ("success" in result) {
-          setForm(blankForm(nextSunday, today))
+          setForm(blankForm(nextSunday, currentToday()))
           // Show the month of the saved date so the new row is visible.
           if (form.date.slice(0, 7) !== month) void router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
         }
@@ -193,7 +210,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    * @param r the row to edit
    */
   function startEdit(r: VenueUsageRowView) {
-    setLockToday(liveToday(today))
+    setLockToday(currentToday())
     setFormState(undefined)
     setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
     document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -302,7 +319,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
             {form.id !== null && (
               <Button
                 type="button" variant="outline"
-                onClick={() => { setForm(blankForm(nextSunday, today)); setFormState(undefined) }}
+                onClick={() => { setForm(blankForm(nextSunday, currentToday())); setFormState(undefined) }}
               >
                 Cancel edit
               </Button>

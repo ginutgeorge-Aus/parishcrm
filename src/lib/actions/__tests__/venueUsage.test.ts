@@ -34,6 +34,8 @@ import {
 } from "@/lib/actions/venueUsage"
 import { MAX_CC_ADDRESSES } from "@/lib/venueUsage"
 import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
+import { INVOICE_SEND_BUSY_ERROR } from "@/lib/venueInvoice"
+import { revalidatePath } from "next/cache"
 
 const asRole = (role: string | null) =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "7", role } } : null)
@@ -456,7 +458,19 @@ describe("sendVenueUsageRequest", () => {
     jest.clearAllMocks()
     ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValueOnce(new Error("smtp"))
     await sendVenueUsageRequest("2026-09")
+    // Only the send's own in-flight stamp is cleared; the approval stays.
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { approvedAt: null, approvedById: null } }))
+  })
+
+  it("refuses a second send while another send of the month is in flight (#528): no email, no approval clear", async () => {
+    asRole("ADMIN")
+    ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockImplementation(async (a: { select?: Record<string, unknown> }) =>
+      a.select && "sendingAt" in a.select ? { sendingAt: new Date(Date.now() - 5_000) } : null)
+    const r = await sendVenueUsageRequest("2026-09")
+    expect(r).toEqual({ error: INVOICE_SEND_BUSY_ERROR })
+    expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
     expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("warns (still success) when the email went but the request could not be recorded", async () => {

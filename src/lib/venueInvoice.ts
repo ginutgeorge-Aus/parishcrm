@@ -6,6 +6,10 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { getEmailTemplate } from "@/lib/emailTemplateStore"
 import { logger } from "@/lib/logger"
 import { readVenueUsageSettings, type VenueUsageSettings } from "@/lib/venueUsageSettings"
+import { serializableWrite } from "@/lib/serializableWrite"
+import { isP2002 } from "@/lib/validation"
+import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import {
   buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddressesWithDropped,
   type MonthCompleteness, type VenueUsageLine,
@@ -13,6 +17,10 @@ import {
 
 /** Most bookings one month may hold; creates enforce it and month reads `take` it (warning when they hit it). */
 export const MAX_ROWS_PER_MONTH = 200
+
+/** User-facing error when another send of the same month holds the in-flight claim (see `deliverInvoiceRequest`). */
+export const INVOICE_SEND_BUSY_ERROR =
+  "This month's invoice request is being sent right now (or its bookings are changing). Wait a minute, refresh, and check before sending again."
 
 /** User-facing error when a create would push a month past {@link MAX_ROWS_PER_MONTH}. */
 export const MONTH_FULL_ERROR = `A month can hold at most ${MAX_ROWS_PER_MONTH} bookings. Delete some before adding more.`
@@ -132,9 +140,10 @@ export type InvoicePrep = {
  * A month's bookings (all statuses, capped), in the order the invoice lists them.
  * @param start first day of the month (UTC midnight)
  * @param end last day of the month (UTC midnight)
+ * @param db client to read with (a transaction client inside the send claim)
  */
-function readMonthRows(start: Date, end: Date) {
-  return prisma.venueUsage.findMany({
+function readMonthRows(start: Date, end: Date, db: Pick<Prisma.TransactionClient, "venueUsage"> = prisma) {
+  return db.venueUsage.findMany({
     where: { date: { gte: start, lte: end } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: MAX_ROWS_PER_MONTH,
@@ -169,28 +178,57 @@ async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean
   }
 }
 
+/** Result of {@link claimSending}: another send holds the month, or this send's stamp (null when not written). */
+type SendClaim = { busy: true } | { busy: false; stamp: Date | null; changed: boolean }
+
+const CLAIM_BUSY = { busy: true } as const
+
 /**
- * Stamp the month's request as in flight (`sendingAt`). Best-effort: a failure of the stamp write is logged
- * and the send goes ahead, only without the in-flight warning. This does not make the feature tolerate a missing
- * `sendingAt` column: other paths (the warning lookup, the clear) still read or write it and need the migration.
+ * Claim the month for this send by stamping `sendingAt`, refusing while another send's stamp is younger than
+ * {@link VENUE_SENDING_WARNING_TTL_MS} (#528: double click, or a manual send overlapping the job).
+ *
+ * Runs in one Serializable transaction that also re-reads the month's bookings. Booking edits run Serializable and
+ * read the request row, so an edit concurrent with the claim forms a read/write cycle with it and Postgres aborts
+ * one (the edit's retry then sees `sendingAt` and warns). That closes the window where an edit whose snapshot
+ * predates the stamp commits after the post-send re-check (#509 #512). Two claims racing on the same row conflict
+ * the same way (or collide on the unique month), and the loser reports busy.
+ *
+ * Other failures are best-effort: logged, and the send goes ahead without a stamp (so without the in-flight warning
+ * or the double-send guard). The `sendingAt` migration must still be applied: other paths read the column.
+ * @param p the prepared request (its rows are compared with the re-read)
  * @param month "YYYY-MM"
+ * @returns busy, or the stamp written (null when the write failed) and whether the rows already changed since prepare
  */
-async function markSending(month: string): Promise<void> {
-  const sendingAt = new Date()
+async function claimSending(p: InvoicePrep, month: string): Promise<SendClaim> {
+  const stamp = new Date()
+  const cutoff = new Date(stamp.getTime() - VENUE_SENDING_WARNING_TTL_MS)
   try {
-    await prisma.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt }, update: { sendingAt } })
+    const r = await serializableWrite(async (tx): Promise<SendClaim> => {
+      const row = await tx.venueUsageRequest.findUnique({ where: { month }, select: { sendingAt: true } })
+      if (row?.sendingAt && row.sendingAt >= cutoff) return CLAIM_BUSY
+      const { start, end } = monthRange(month)
+      const changed = invoiceFingerprint(await readMonthRows(start, end, tx)) !== invoiceFingerprint(p.rows)
+      await tx.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt: stamp }, update: { sendingAt: stamp } })
+      return { busy: false, stamp, changed }
+    }, { error: "conflict" })
+    // Every attempt hit a serialization conflict: another send or an edit of this month is in progress.
+    return "error" in r ? CLAIM_BUSY : r
   } catch (e) {
+    if (isP2002(e)) return CLAIM_BUSY
     logger.error("[venueInvoice] could not mark the invoice request in-flight; sending anyway", { month, error: e instanceof Error ? e.message : String(e) })
+    return { busy: false, stamp: null, changed: false }
   }
 }
 
 /**
- * Clear the in-flight stamp when the outcome write did not. Never throws (an abandoned stamp expires with its lease).
+ * Clear this send's in-flight stamp, fenced on the stamp itself so a send that outlived its TTL never clears a
+ * later send's claim (#528). Never throws (an abandoned stamp stops counting after its TTL).
  * @param month "YYYY-MM"
+ * @param stamp the `sendingAt` value this send wrote
  */
-async function clearSending(month: string): Promise<void> {
+async function clearSending(month: string, stamp: Date): Promise<void> {
   try {
-    await prisma.venueUsageRequest.updateMany({ where: { month }, data: { sendingAt: null } })
+    await prisma.venueUsageRequest.updateMany({ where: { month, sendingAt: stamp }, data: { sendingAt: null } })
   } catch (e) {
     logger.error("[venueInvoice] could not clear the in-flight stamp", { month, error: e instanceof Error ? e.message : String(e) })
   }
@@ -247,22 +285,28 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `reminderSentAt` (closing the month for it), and a manual send warns the user not to send again. A
  * process death between the send and the write is not covered.
  *
- * In-flight window (#509 #512): `sendingAt` is stamped before the email goes (best-effort: a failed stamp write is
- * logged and the send goes ahead; the migration adding the column must still be applied) and cleared with the outcome (or on its own when the outcome write fails), so a
- * booking edit in that window warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
- * meaning). An edit that lands between the prepare read and the stamp is caught by re-reading the month once
- * the SUCCESS is recorded: `stale: true` means the venue got rows that no longer match, it is kept in the audit
- * metadata (the job's notice retry reads it back), and callers tell staff to check and resend.
+ * In-flight window (#509 #512 #528): before the email goes, {@link claimSending} stamps `sendingAt` in a
+ * Serializable transaction that re-reads the month. A live stamp from another send refuses this one (`status:
+ * "BUSY"`: nothing is sent or recorded), so a double click or a manual send overlapping the job cannot email the
+ * venue twice. The stamp is cleared after the outcome, fenced on its own value so it never clears another send's
+ * claim. While it is live, a booking edit warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its
+ * SUCCESS/FAILED meaning). An edit that committed after the prepare read is caught by the claim's re-read or by
+ * re-reading the month once the SUCCESS is recorded: `stale: true` means the venue got rows that no longer match,
+ * it is kept in the audit metadata (the job's notice retry reads it back), and callers tell staff to check and resend.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
- * @returns the send status, its error, whether the outcome row was written (`recorded`), and whether the
- *   month's CONFIRMED rows changed during the send (`stale`)
+ * @returns the send status (BUSY = refused, another send holds the month), its error, whether the outcome row was
+ *   written (`recorded`), and whether the month's CONFIRMED rows changed during the send (`stale`)
  */
 export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
-): Promise<{ status: "SUCCESS" | "FAILED"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
-  await markSending(ctx.month)
+): Promise<{ status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
+  const claim = await claimSending(p, ctx.month)
+  if (claim.busy) {
+    logger.warn("[venueInvoice] invoice request refused: another send of the month is in flight", { month: ctx.month })
+    return { status: "BUSY", errorMessage: INVOICE_SEND_BUSY_ERROR, recorded: false, stale: false }
+  }
   let status: "SUCCESS" | "FAILED" = "SUCCESS"
   let errorMessage: string | null = null
   try {
@@ -274,7 +318,7 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null }
+  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
   try {
@@ -282,18 +326,18 @@ export async function deliverInvoiceRequest(
       recorded = await afterSendWrite("invoice request was SENT but the success was not recorded", ctx.month, record, 2)
     } else {
       if (p.last?.status === "SUCCESS") {
-        await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage, sendingAt: null } })
+        await prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { errorMessage } })
       } else {
         await record()
       }
       recorded = true
     }
   } finally {
-    // The outcome write also clears sendingAt; when it did not land, clear it on its own so edits stop warning.
-    if (!recorded) await clearSending(ctx.month)
+    // Release only our own claim, whether or not the outcome landed, so edits stop warning.
+    if (claim.stamp) await clearSending(ctx.month, claim.stamp)
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
-  const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
+  const stale = status === "SUCCESS" && (claim.changed || (await changedDuringSend(p, ctx.month)))
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
     { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },

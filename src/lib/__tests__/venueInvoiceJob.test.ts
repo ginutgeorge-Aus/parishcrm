@@ -148,6 +148,16 @@ it("a failed invoice send releases the claim, reports failed, and never sets rem
   expect(datas.at(-1)).toEqual({ reminderClaimedAt: null })
 })
 
+it("a manual send in flight (BUSY) releases the claim, reports inFlight, and notifies nobody (#528)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ ...ZERO, inFlight: 1 })
+  expect(sendEmail).not.toHaveBeenCalled()
+  const datas = updateMany().mock.calls.map((c) => c[0].data)
+  expect(datas.some((d) => d.reminderSentAt)).toBe(false)
+  expect(datas.at(-1)).toEqual({ reminderClaimedAt: null })
+})
+
 it("all notices failing keeps the month open; a partial failure does not", async () => {
   ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ notified: 0, failed: 2 })
