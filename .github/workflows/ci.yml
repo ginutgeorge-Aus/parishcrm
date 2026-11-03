@@ -39,8 +39,9 @@ jobs:
           if [ "$EVENT" = "pull_request" ]; then
             # --no-renames lists both sides of a move, so src/x -> docs/x counts as code.
             # A failing diff keeps code=true (fail open to the full suite).
-            if files=$(git diff --name-only --no-renames HEAD^1 HEAD); then
-              if ! printf '%s\n' "$files" | grep -Ev '\.md$|^docs/|^$' >/dev/null; then
+            # -z (NUL-delimited) keeps non-ASCII paths unquoted; git otherwise prints "docs/fran\303\247ais.md".
+            if git diff -z --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.z"; then
+              if ! grep -zEv '\.md$|^docs/' "$RUNNER_TEMP/changed.z" | grep -qz .; then
                 code=false
               fi
             fi

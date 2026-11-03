@@ -419,6 +419,17 @@ test("nudgeBlocked: cooldown blocks a nudge <10 min old, allows older", () => {
   assert.equal(nudgeBlocked([], now), null)
 })
 
+test("nudgeBlocked: cap counts only nudges newer than the head's first status (#529); cooldown still sees all", () => {
+  const now = new Date("2026-10-16T00:00:00Z")
+  const old = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => NUDGE(`2026-10-0${i + 1}T00:00:00Z`))
+  const since = new Date("2026-10-10T00:00:00Z")
+  assert.match(nudgeBlocked(old, now) ?? "", /cap/) // no status yet: all count
+  assert.equal(nudgeBlocked(old, now, since), null) // nudges all predate the new head
+  const fresh = Array.from({ length: MAX_NUDGES_PER_PR }, (_, i) => NUDGE(`2026-10-1${i + 1}T00:00:00Z`))
+  assert.match(nudgeBlocked([...old, ...fresh], now, since) ?? "", /cap/)
+  assert.match(nudgeBlocked([...old, NUDGE("2026-10-15T23:55:00Z")], now, since) ?? "", /cooldown/)
+})
+
 test("isNudge: whole-word command prefix from non-bot only", () => {
   assert.equal(isNudge(comment({ body: "@coderabbitai review please" })), true)
   assert.equal(isNudge(comment({ body: "  @CodeRabbitAI review\n" })), true)
