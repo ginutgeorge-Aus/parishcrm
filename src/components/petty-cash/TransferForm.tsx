@@ -13,6 +13,21 @@ import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 
+/**
+ * Builds a v4 UUID for the submission token. Prefers crypto.randomUUID (secure
+ * contexts only) and falls back to crypto.getRandomValues, which also works on
+ * plain-http self-hosted installs.
+ */
+function newToken(): string {
+  const c = globalThis.crypto
+  if (typeof c.randomUUID === "function") return c.randomUUID()
+  const b = c.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
 export function TransferForm({
   action,
   maxAmount,
@@ -37,8 +52,8 @@ export function TransferForm({
   const tokenRef = useRef<string | null>(null)
   /** Adds the stable submission token to the form data, then runs the server action. */
   const submitWithToken = (prev: ActionResult, formData: FormData) => {
-    tokenRef.current ??= globalThis.crypto?.randomUUID?.() ?? null
-    if (tokenRef.current) formData.set("submissionToken", tokenRef.current)
+    tokenRef.current ??= newToken()
+    formData.set("submissionToken", tokenRef.current)
     return action(prev, formData)
   }
   const [state, formAction, isPending] = useActionState(submitWithToken, undefined)

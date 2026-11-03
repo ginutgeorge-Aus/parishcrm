@@ -113,3 +113,23 @@ test("sends one submission token, stable across submits and rerenders (#491)", a
   expect(tokens[0]).toMatch(/^[0-9a-f-]{36}$/)
   expect(tokens[1]).toBe(tokens[0])
 })
+
+test("falls back to getRandomValues when crypto.randomUUID is unavailable (insecure context)", async () => {
+  const original = globalThis.crypto.randomUUID
+  Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true })
+  try {
+    const tokens: (string | null)[] = []
+    const action = jest.fn(async (_p: unknown, fd: FormData) => {
+      tokens.push(fd.get("submissionToken") as string | null)
+      return { error: "boom" }
+    })
+    const { container } = render(<TransferForm action={action} maxAmount={100} imported={imported} />)
+    const form = container.querySelector("form")!
+    await act(async () => { fireEvent.submit(form) })
+    await act(async () => { fireEvent.submit(form) })
+    expect(tokens[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(tokens[1]).toBe(tokens[0])
+  } finally {
+    Object.defineProperty(globalThis.crypto, "randomUUID", { value: original, configurable: true })
+  }
+})

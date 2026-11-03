@@ -48,6 +48,7 @@ export default async function NewTransferPage(
   const { options: imported, truncated: importedTruncated } = candidates
 
   const action = createTransfer.bind(null, sessionId)
+
   return (
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-1">Record bank transfer</h2>
