@@ -23,6 +23,10 @@ import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx,
 import { featureGuard } from "@/lib/featureFlags"
 import { utcDayRange } from "@/lib/dates"
 
+/** Rejection for a manual transfer that would double-count an imported cash-out already adopted by another transfer (#492). */
+const DUPLICATE_ADOPTED_LEG_ERROR =
+  "An imported deposit for this amount and date is already recorded as a petty cash transfer. Check the session's transfers before adding another. If this is a separate deposit, use a different date."
+
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
   "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
@@ -248,34 +252,40 @@ export async function createTransfer(
         // the leg's paired deposit (same amount + day) exists. A reconciled leg still
         // counts: it already reduced the cash balance, so the user must un-reconcile it and
         // pick the deposit. Without a paired deposit the picker can't offer the leg, so
-        // manual entry stays the only path.
+        // manual entry stays the only path. A leg already adopted by another transfer
+        // (#492) counts too, so recording the same deposit manually after adopting it
+        // is rejected; that case has no picker path, so it gets its own message.
         const dayRange = utcDayRange(parsed.data.date)
         const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
             type: "EXPENSE",
             bankRef: { startsWith: XFER_OUT_PREFIX },
-            pettyCashTransferId: null,
             paymentAccountId: cashAccount?.id ?? null,
             amount: parsed.data.amount,
             date: dayRange,
           },
-          select: { bankRef: true },
+          select: { bankRef: true, pettyCashTransferId: true },
         })
-        const depositRefs = legs.flatMap((l) => (l.bankRef ? [depositRefOfLeg(l.bankRef)] : []))
-        const dup = depositRefs.length
-          ? await tx.transaction.findFirst({
+        const linkedByDepositRef = new Map<string, boolean>()
+        for (const l of legs) if (l.bankRef) linkedByDepositRef.set(depositRefOfLeg(l.bankRef), l.pettyCashTransferId !== null)
+        const dups = linkedByDepositRef.size
+          ? await tx.transaction.findMany({
               where: {
                 accountId: xferAccountId,
                 type: "INCOME",
-                bankRef: { in: depositRefs },
+                bankRef: { in: [...linkedByDepositRef.keys()] },
                 amount: parsed.data.amount,
                 date: dayRange,
               },
-              select: { id: true },
+              select: { bankRef: true },
             })
-          : null
-        if (dup) throw new TransferError(DUPLICATE_LEG_ERROR)
+          : []
+        if (dups.length) {
+          // Unlinked first: the picker can still resolve it, so that guidance is the more useful one.
+          const unlinked = dups.some((d) => d.bankRef && linkedByDepositRef.get(d.bankRef) === false)
+          throw new TransferError(unlinked ? DUPLICATE_LEG_ERROR : DUPLICATE_ADOPTED_LEG_ERROR)
+        }
       }
       const transfer = await tx.pettyCashTransfer.create({
         data: {
