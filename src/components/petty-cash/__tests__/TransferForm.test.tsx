@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, act } from "@testing-library/react"
 import { TransferForm } from "@/components/petty-cash/TransferForm"
 
 jest.mock("next/navigation", () => ({ useRouter: () => ({ back: jest.fn() }) }))
@@ -86,16 +86,6 @@ test("filtered list with no matches still renders the picker so the reset link i
   expect(screen.getByRole("link", { name: /show newest deposits/i })).toBeInTheDocument()
 })
 
-test("emits the per-load submission token as a hidden field (#491)", () => {
-  const { container } = render(<TransferForm action={noop} maxAmount={100} submissionToken="tok-1" />)
-  expect(container.querySelector('input[type="hidden"][name="submissionToken"]')).toHaveAttribute("value", "tok-1")
-})
-
-test("omits the token field when none is given", () => {
-  const { container } = render(<TransferForm action={noop} maxAmount={100} />)
-  expect(container.querySelector('input[name="submissionToken"]')).toBeNull()
-})
-
 test("rerender without the picked deposit drops the pick, unlocks fields and stops submitting its id", () => {
   const { container, rerender } = render(<TransferForm action={noop} maxAmount={100} imported={imported} />)
   fireEvent.change(screen.getByLabelText(/imported bank deposit/i), { target: { value: "7" } })
@@ -105,4 +95,21 @@ test("rerender without the picked deposit drops the pick, unlocks fields and sto
   expect(hidden().value).toBe("")
   expect(screen.getByLabelText(/amount deposited/i)).not.toHaveAttribute("readonly")
   expect(screen.getByLabelText(/transfer date/i)).not.toHaveAttribute("readonly")
+})
+
+test("sends one submission token, stable across submits and rerenders (#491)", async () => {
+  const tokens: (string | null)[] = []
+  const action = jest.fn(async (_p: unknown, fd: FormData) => {
+    tokens.push(fd.get("submissionToken") as string | null)
+    return { error: "boom" }
+  })
+  const { container, rerender } = render(<TransferForm action={action} maxAmount={100} imported={imported} />)
+  const form = container.querySelector("form")!
+  await act(async () => { fireEvent.submit(form) })
+  // A lookup navigation re-renders the page with different props; the form keeps its token.
+  rerender(<TransferForm action={action} maxAmount={100} imported={[]} importedFiltered />)
+  await act(async () => { fireEvent.submit(form) })
+  expect(tokens).toHaveLength(2)
+  expect(tokens[0]).toMatch(/^[0-9a-f-]{36}$/)
+  expect(tokens[1]).toBe(tokens[0])
 })

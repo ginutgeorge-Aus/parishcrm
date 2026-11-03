@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useActionState, useState } from "react"
+import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,7 +19,6 @@ export function TransferForm({
   imported = [],
   importedTruncated = false,
   importedFiltered = false,
-  submissionToken,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -29,11 +28,20 @@ export function TransferForm({
   importedTruncated?: boolean
   /** True when the list is narrowed to one amount + day via the lookup link. */
   importedFiltered?: boolean
-  /** Per-page-load idempotency token (#491) — a retried submit can't book the transfer twice. */
-  submissionToken?: string
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  // Idempotency token (#491), created once per mounted form — not per server
+  // render: the lookup links re-render the page client-side while this form
+  // keeps its draft, so a page-made token would change mid-form. Made lazily on
+  // first submit (no SSR/hydration mismatch) and reused by every later submit.
+  const tokenRef = useRef<string | null>(null)
+  /** Adds the stable submission token to the form data, then runs the server action. */
+  const submitWithToken = (prev: ActionResult, formData: FormData) => {
+    tokenRef.current ??= globalThis.crypto?.randomUUID?.() ?? null
+    if (tokenRef.current) formData.set("submissionToken", tokenRef.current)
+    return action(prev, formData)
+  }
+  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
@@ -121,7 +129,6 @@ export function TransferForm({
       {/* State is the source of truth: React resets uncontrolled form fields after a
           failed action, which would revert the select and drop the id on resubmit. */}
       <input type="hidden" name="importedTransactionId" value={importedId} />
-      {submissionToken && <input type="hidden" name="submissionToken" value={submissionToken} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1">
