@@ -158,14 +158,19 @@ describe("createTransfer — imported deposit", () => {
 })
 
 describe("createTransfer — manual path duplicate guard", () => {
-  // legs = unlinked unreconciled XFER_OUT legs; dup = their paired INCOME deposit (null = none).
-  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1" }] : []) => ({
+  // legs = XFER_OUT cash-out legs (linked or not); dup = their paired INCOME deposit (null = none).
+  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }] : []) => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
-    transaction: { findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
-      // Honour a `reconciled` filter like the DB would: the legs here are reconciled-or-not
-      // as given, so any reconciled:false filter in the guard would hide a reconciled leg.
-      legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
+    transaction: {
+      // Leg lookup (EXPENSE) honours a `reconciled` filter like the DB would: any reconciled:false
+      // filter in the guard would hide a reconciled leg. Deposit lookup (INCOME) returns the dup.
+      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+        where.type === "INCOME"
+          ? (dup ? [{ bankRef: "B1" }] : [])
+          : legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)),
+      create: jest.fn(),
+    },
   })
 
   // Regression (#471): a second cash-out for an already-imported deposit double-counted petty cash.
@@ -177,32 +182,44 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     const call = tx.transaction.findMany.mock.calls[0][0]
-    expect(call.where).toEqual(expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }))
+    expect(call.where).toEqual(expect.objectContaining({ amount: "50.00", accountId: 9 }))
     // Reconciled legs must still be matched (the error tells the user to un-reconcile).
     expect(call.where).not.toHaveProperty("reconciled")
+    // Adopted (linked) legs must be matched too (#492).
+    expect(call.where).not.toHaveProperty("pettyCashTransferId")
     // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
     const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
     expect(call.where.date).toEqual(dayBound)
     expect(call.where.date.lt.getTime() - call.where.date.gte.getTime()).toBe(86_400_000)
-    expect(tx.transaction.findFirst.mock.calls[0][0].where).toEqual(
+    expect(tx.transaction.findMany.mock.calls[1][0].where).toEqual(
       expect.objectContaining({ type: "INCOME", amount: "50.00", date: dayBound })
     )
   })
 
   it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
-    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1" }])
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
     expect(tx.transaction.create).toHaveBeenCalled()
     // The deposit lookup was keyed on the leg's paired deposit ref, so "no dup" is a real negative.
-    expect(tx.transaction.findFirst.mock.calls[0][0].where.bankRef).toEqual({ in: ["B1"] })
+    expect(tx.transaction.findMany.mock.calls[1][0].where.bankRef).toEqual({ in: ["B1"] })
   })
 
   it("rejects when the paired leg is already reconciled (user must un-reconcile first)", async () => {
-    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", reconciled: true }])
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, reconciled: true }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
     expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+  })
+
+  // Regression (#492): the leg was already adopted by another transfer, so it is no longer unlinked.
+  it("rejects a manual transfer for a deposit whose cash-out leg is already adopted by another transfer", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7 }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("already recorded as a petty cash transfer") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
   })
