@@ -99,8 +99,20 @@ describe("createTransfer — imported deposit", () => {
   it("adopts a legacy leg with a null funding source and sets it to the cash account (#487)", async () => {
     const update = jest.fn().mockResolvedValue({})
     const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, paymentAccountId: null })
-    await run({ ...base(), transaction: { findUnique, update, create: jest.fn() } })
+    await run({ ...base(), transaction: { findUnique, update, create: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) } })
     expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3, paymentAccountId: 2 })
+  })
+
+  it("rejects adopting a legacy null-funding leg when a manual PC_T_ mirror already exists", async () => {
+    const base0 = base()
+    const update = jest.fn()
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, paymentAccountId: null })
+    const findFirst = jest.fn().mockResolvedValue({ pettyCashTransferId: 5 })
+    await expect(run({ ...base0, transaction: { findUnique, update, create: jest.fn(), findFirst } }))
+      .resolves.toEqual({ error: expect.stringContaining("#5") })
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ bankRef: { startsWith: "PC_T_" } }) }))
+    expect(base0.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
 
   it("rejects when the leg is already linked", async () => {

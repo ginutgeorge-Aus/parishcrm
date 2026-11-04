@@ -27,6 +27,16 @@ import { utcDayRange } from "@/lib/dates"
 const DUPLICATE_ADOPTED_LEG_ERROR =
   "An imported deposit for this amount and date is already recorded as a petty cash transfer. Check the session's transfers before adding another. If this is a separate deposit, use a different date."
 
+/**
+ * Rejection for adopting a legacy (null funding source) imported cash-out when a manual transfer already mirrors the same amount and day.
+ * @param transferId the existing transfer whose `PC_T_` mirror matched (null if its link is missing)
+ * @returns the user-facing message naming that transfer
+ */
+function legacyMirrorError(transferId: number | null): string {
+  const which = transferId === null ? "A petty cash transfer" : `Petty cash transfer #${transferId}`
+  return `${which} for this amount and date is already recorded. Adopting this imported deposit as well would count the cash-out twice. Delete that transfer first if it is the same deposit, or use a different date.`
+}
+
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
   "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
@@ -245,8 +255,21 @@ export async function createTransfer(
           xferAccountId, cashAccountId: cashAccount?.id ?? null,
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
-        adoptLegId = leg!.id
         adoptLegLegacy = leg!.paymentAccountId === null
+        if (adoptLegLegacy) {
+          // A manual transfer recorded before the cash account existed (or before the #487 guard matched null legs)
+          // may already mirror this deposit's cash-out as PC_T_<id>; adopting too would reduce petty cash twice.
+          // The mirror carries no link to the leg, so match on amount + UTC day and refuse rather than guess.
+          const mirror = await tx.transaction.findFirst({
+            where: {
+              accountId: xferAccountId, type: "EXPENSE", bankRef: { startsWith: "PC_T_" },
+              amount: parsed.data.amount, date: utcDayRange(parsed.data.date),
+            },
+            select: { pettyCashTransferId: true },
+          })
+          if (mirror) throw new TransferError(legacyMirrorError(mirror.pettyCashTransferId))
+        }
+        adoptLegId = leg!.id
       } else {
         // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
         // day is probably this very deposit — a second cash-out would reduce petty cash
