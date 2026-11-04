@@ -1429,6 +1429,11 @@ model VenueUsageRequest {
   reminderClaimedAt DateTime?
   /// Set just before an invoice request email is sent, cleared when the outcome is recorded (in-flight marker).
   sendingAt         DateTime?
+  /// Set when the bookings changed while the SUCCESS send went out (the venue may hold old hours); set by a best-effort update after the outcome, cleared by the next SUCCESS send's outcome write (a failed resend over an earlier SUCCESS keeps it).
+  staleAt           DateTime?
+  /// Rows and CONFIRMED hours the SUCCESS invoice request listed (#549); null on rows sent before this existed. Written with the SUCCESS outcome (a failed resend keeps the earlier send's values).
+  sentRowCount      Int?
+  sentHours         Decimal?  @db.Decimal(7, 2)
   approvedAt        DateTime?
   approvedById      Int?
   approvedBy        User?     @relation("VenueUsageRequestApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
