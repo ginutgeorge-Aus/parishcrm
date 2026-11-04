@@ -35,15 +35,21 @@ export function buildReminderEmail(input: { churchName: string; month: string; p
 
 /**
  * Notice to staff that the invoice request went out automatically.
- * @param input church name, month, confirmed-date count and the total hours label (e.g. "12 hours")
+ * @param input church name, month, confirmed-date count, the total hours label (e.g. "12 hours"), and
+ *   `changedDuringSend` when the bookings changed while the request was going out (adds a check-and-resend line)
  */
-export function buildAutoSentEmail(input: { churchName: string; month: string; rowCount: number; totalHoursLabel: string }): { subject: string; text: string; html: string } {
+export function buildAutoSentEmail(input: {
+  churchName: string; month: string; rowCount: number; totalHoursLabel: string; changedDuringSend?: boolean
+}): { subject: string; text: string; html: string } {
   const label = formatMonthLabel(input.month)
   const subject = `Invoice request for ${label} sent`
   const body = `The invoice request for ${label} was sent to the venue automatically: ${input.rowCount} confirmed ${input.rowCount === 1 ? "date" : "dates"}, ${input.totalHoursLabel}.`
+  const paras = input.changedDuringSend
+    ? [body, `The bookings changed while it was being sent, so the venue may have the earlier hours. Check ${label} on the venue page and use "Send again" if needed.`]
+    : [body]
   return {
     subject,
-    text: [body, "", input.churchName].join("\n"),
-    html: `<p>${escapeHtml(body)}</p>\n<p>${escapeHtml(input.churchName)}</p>`,
+    text: [...paras, "", input.churchName].join("\n"),
+    html: [...paras, input.churchName].map((p) => `<p>${escapeHtml(p)}</p>`).join("\n"),
   }
 }

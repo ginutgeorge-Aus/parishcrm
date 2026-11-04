@@ -16,6 +16,7 @@ Inside an open session (`/accounting/petty-cash/sessions/[id]`):
   Manual-transfer guard:
   - A manual transfer is rejected when a matching imported cash-out already exists (same amount, same day, with its paired bank deposit) — otherwise petty cash would be reduced twice. Pick the imported deposit instead.
   - If that cash-out is already reconciled, un-reconcile it first, then pick the deposit.
+  - The same applies when the imported deposit was already recorded as a transfer: a second manual transfer for that amount and day is rejected. For a genuinely separate deposit, use a different date.
   - The date must match exactly: a manual transfer dated a day off the bank deposit is not caught, so use the picker whenever the deposit was imported.
   - Two same-amount deposits on one day can't both be entered manually when one was imported; pick the imported one, then enter the other.
   - With no paired deposit to pick, manual entry stays available.

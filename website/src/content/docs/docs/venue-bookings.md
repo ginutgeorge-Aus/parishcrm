@@ -34,7 +34,7 @@ Open **Venue bookings** in the sidebar and pick a month. Each date has a status:
 - **Add all Sundays in** the chosen month creates a booking for every Sunday that does not already have one.
 - Tick several rows to **Mark confirmed** or cancel them together.
 - **Cancel** asks "Email venue about this cancellation?". Choose to email the venue, or keep the booking change without emailing. The cancellation notice wording is fixed.
-- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated.
+- Once a date has been sent to the venue in a booking request, its date and times are locked. To change it, cancel it from the list (emailing the venue) and add a new booking. Once the day has passed, the start and end times (but not the date) can still be corrected to the hours actually used, even if the date was sent. Purpose, notes and status can still be edited, but cancelling goes through the list so the venue can be told. If that month's invoice request was already sent, the hours are still saved but a warning tells you the sent invoice request won't be updated (see below).
 - After the day, **Edit** the booking so it shows the times you actually used. The total hours for the month is shown above the list.
 
 ## Asking the venue to book
@@ -45,7 +45,9 @@ The **Send booking request** panel lists the Requested dates the venue has not b
 
 The **Request invoice** panel emails the venue asking for an invoice for a month. It counts confirmed dates only, and shows the number of bookings, the total hours and the email preview first. Warnings appear if something looks wrong, for example a month with no confirmed dates, a Sunday that is neither confirmed nor cancelled, or dates still Requested.
 
-Click **Send request** to send it now, or **Send again** if a request for that month already went out. Both ask for confirmation first. Sends are blocked on the public demo.
+Click **Send request** to send it now, or **Send again** if a request for that month already went out. Both ask for confirmation first. Sends are blocked on the public demo. Only one send per month can run at a time: if a request for that month is already going out (a double click, or the automatic send running at the same moment), the second send is refused with nothing sent. A send is also refused, with nothing sent, when the month's confirmed bookings changed after you opened the request. Wait a minute, refresh, and check before trying again.
+
+A sent invoice request is not updated when the bookings change. If you add, edit, move or delete a confirmed date (or confirm or cancel one) in a month whose request was already sent, or is being sent at that moment, the change is saved and a warning tells you to use **Send again** if the venue needs the new hours. If the bookings change while a request is going out, the send still counts, but the confirmation (or, for the automatic send, the staff notice) says the venue may have the earlier hours.
 
 When the venue replies with their invoice, record it as an ordinary expense in [Transactions](/parishcrm/docs/transactions/).
 
@@ -61,6 +63,7 @@ Details:
 
 - **Any change clears the approval.** Adding, editing, deleting, confirming or cancelling a date in that month removes the approval and shows "Approval cleared — dates changed, please re-approve." Approve again once the month is complete.
 - **Withdraw approval** removes it at any time before the request is sent.
+- **A manual send in progress at that moment** makes the automatic send refuse, with nothing emailed, and try again later. If this is still happening on the 7th, the last day of the window, it is logged as an error: check the month and click **Send request** yourself.
 - **Not approved, or no longer complete:** nothing is sent to the venue. Instead the editors get a reminder email explaining why, and a link to the page, so someone can fix the dates and click **Send request**.
 - **Who is emailed:** active `ADMIN`, `PASTOR` and `OFFICE_ADMIN` users get the sent notice or the reminder, either way.
 - **Timing:** the job's window is the Sydney 1st to the 7th, from 9:00 AM each day, and the first send is at 9:00 AM on the 1st. If the app is offline on the 1st, the job catches up later in the first week. It sends once per month, with at most 3 attempts per Sydney day, 30 minutes apart. The attempt budget refreshes each day. **Send request** is still available at any time. See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).

@@ -66,8 +66,12 @@ export function createBankRefHasher(): BankRefHasher {
     }
     return digest
   }
-  const ref = (r: string, accountNumber: string) => (accountNumber ? hashBankRefWith(r, accountNumber, digestOf(accountNumber)) : r)
-  const key = (k: string, accountNumber: string) => (accountNumber ? hashContentKeyWith(k, accountNumber, digestOf(accountNumber)) : k)
+  // Lazy digest (#514): a ref/key that does not carry the account is returned
+  // untouched without deriving (or failing on) the v1 key.
+  /** Hash `accountNumber` in a ref; the digest is derived only if the ref carries it. */
+  const ref = (r: string, accountNumber: string) => (accountNumber ? hashBankRefWith(r, accountNumber, () => digestOf(accountNumber)) : r)
+  /** Hash `accountNumber` in a content key; the digest is derived only if the key carries it. */
+  const key = (k: string, accountNumber: string) => (accountNumber ? hashContentKeyWith(k, accountNumber, () => digestOf(accountNumber)) : k)
   const stored = (r: string) => {
     const accountNumber = accountOfStoredBankRef(r)
     if (accountNumber === null) return r
@@ -78,16 +82,39 @@ export function createBankRefHasher(): BankRefHasher {
 }
 
 /**
+ * Master switch for dual-format (hashed + legacy full-number) bankRef dedup
+ * (#459, #511). While `true`, every dedup lookup also tries the legacy
+ * plaintext-account form, so rows stored before the `hash-bankref-account`
+ * backfill still match; that costs a second `bankRef IN` entry per row.
+ *
+ * The parse route, confirm `isDuplicate` and the XFER_OUT pair check all build
+ * their lookup forms through `dedupForms`, which reads it.
+ *
+ * Removal steps: once the criterion below holds, delete the flag and the
+ * `includeLegacy` argument of `dedupForms` (it returns `[hashed]`), the
+ * `legacyOf` bookkeeping in `hashRowBankRefs` (bankImportConfirm.ts), the
+ * unhashed-key lookup (`hasher.key` legacy form) in the parse route, and update
+ * the "legacy dedup switch" tests in bankRefHash.lazy.test.ts.
+ *
+ * Removal criterion: once `scripts/audit-data-integrity.ts` reports "no
+ * plaintext account numbers" for Transaction.bankRef on every known
+ * deployment (St Mark prod + the public demo) and the self-hosting docs
+ * (docs/operations.md, migration step 3) have told self-hosters to run the
+ * backfill for at least one release.
+ */
+export const LEGACY_BANKREF_DEDUP = true
+
+/**
  * The forms a full-number value may be stored under while legacy rows remain:
  * the hashed at-rest form first, then the legacy one (just one entry when
- * hashing changed nothing). Shared by the parse route and confirm dedup.
- * TODO(#459): drop the legacy form (return `[hashed]`) once the backfill has
- * run in every deployment — docs/operations.md, migration step 3.
+ * hashing changed nothing or legacy dedup is off). Shared by the parse route
+ * and confirm dedup.
  *
  * @param legacy - the full-number ref or content key
  * @param hashed - its hashed form
+ * @param includeLegacy - include the legacy form; defaults to `LEGACY_BANKREF_DEDUP`
  * @returns lookup forms, hashed first
  */
-export function dedupForms(legacy: string, hashed: string): string[] {
-  return hashed === legacy ? [hashed] : [hashed, legacy]
+export function dedupForms(legacy: string, hashed: string, includeLegacy: boolean = LEGACY_BANKREF_DEDUP): string[] {
+  return includeLegacy && hashed !== legacy ? [hashed, legacy] : [hashed]
 }

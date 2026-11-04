@@ -25,6 +25,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     transaction: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       createMany: jest.fn(),
     },
@@ -85,7 +86,11 @@ describe("POST /api/import/bank-statement/confirm", () => {
     ;(prisma.account.findMany as jest.Mock).mockResolvedValue([{ id: 1, type: "INCOME", isActive: true }])
     ;(prisma.family.findMany as jest.Mock).mockResolvedValue([{ id: 2 }])
     ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 10, familyId: 2 }])
-    ;(prisma.$transaction as jest.Mock).mockImplementation((ops) => Promise.all(ops))
+    // Array form (split rows) runs the ops; callback form (petty-cash pair) runs
+    // against the same mocked client.
+    ;(prisma.$transaction as jest.Mock).mockImplementation((arg) =>
+      typeof arg === "function" ? arg(prisma) : Promise.all(arg)
+    )
   })
 
   test("returns 401 for unauthenticated user", async () => {
@@ -205,12 +210,14 @@ describe("POST /api/import/bank-statement/confirm", () => {
 
   test("fromPettyCash: commits ANZ INCOME and PETTY_CASH pair atomically", async () => {
     await POST(makeRequest([pettyCashRow]))
-    // Both legs go through one $transaction so a mid-pair failure can't split
-    // the transfer (income recorded, matching cash-out lost).
+    // Both legs go through one Serializable $transaction so a mid-pair failure
+    // can't split the transfer (income recorded, matching cash-out lost), and a
+    // concurrent manual transfer can't also book the cash-out (#493).
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
-    const ops = (prisma.$transaction as jest.Mock).mock.calls[0][0]
-    expect(Array.isArray(ops)).toBe(true)
-    expect(ops).toHaveLength(2)
+    const [fn, opts] = (prisma.$transaction as jest.Mock).mock.calls[0]
+    expect(typeof fn).toBe("function")
+    expect(opts).toEqual({ isolationLevel: "Serializable" })
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(2)
   })
 
   test("fromPettyCash: does not create pair if ANZ row is duplicate", async () => {

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { prisma } from "@/lib/prisma"
-import { sydneyTodayYMD } from "@/lib/dates"
+import { nowMs, sydneyTodayYMD } from "@/lib/dates"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { isValidMonth, monthRange, nextSundayYMD, previousMonth, utcDateToYmd } from "@/lib/venueUsage"
 import { calendarUrl, readCalendarToken } from "@/lib/venueCalendarToken"
@@ -45,6 +45,7 @@ export default async function VenueUsagePage(
       <VenueUsageClient
         month={month}
         today={today}
+        serverNow={nowMs()}
         nextSunday={nextSundayYMD(today)}
         defaultRequestMonth={previousMonth(today)}
         calendarUrl={token ? calendarUrl(token) : null}

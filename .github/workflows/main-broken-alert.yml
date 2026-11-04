@@ -1,0 +1,40 @@
+name: Main broken alert
+
+# Branch protection no longer requires PRs to be up to date, so two PRs that
+# pass alone can break `main` together. When CI fails on a main push, open one
+# issue (deduplicated) so it is seen and fixed fast.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] no checkout, only fixed text + event sha
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  alert:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open issue if none open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          open=$(gh issue list --repo "$REPO" --label main-broken --state open --json number --jq 'length')
+          if [ "$open" != "0" ]; then
+            echo "main-broken issue already open"
+            exit 0
+          fi
+          gh label create main-broken --repo "$REPO" --color B60205 \
+            --description "CI failing on main" 2>/dev/null || true
+          body=$(printf '%s\n\n%s\n%s\n\n%s\n' \
+            "CI failed on a push to main. Likely two PRs that pass alone but break together." \
+            "Commit: $SHA" "Run: $RUN_URL" \
+            "Fix forward or revert, then close this issue.")
+          gh issue create --repo "$REPO" --label main-broken \
+            --title "CI failing on main at ${SHA:0:7}" --body "$body"

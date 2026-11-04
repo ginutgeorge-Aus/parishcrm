@@ -6,18 +6,20 @@ import { createTransfer, deleteTransfer } from "../pettyCashTransfer"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
-jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
+jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`), decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/accountingLock", () => ({ assertUnlocked: jest.fn().mockResolvedValue(null) }))
 jest.mock("@/lib/xferAccount", () => ({ getXferAccountId: jest.fn().mockResolvedValue(9) }))
 jest.mock("@/lib/paymentAccounts", () => ({ getCashAccount: jest.fn().mockResolvedValue({ id: 2 }) }))
-jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn(), pettyCashTransfer: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { $transaction: jest.fn(), pettyCashTransfer: { findUnique: jest.fn() }, transaction: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) } } }))
 
 import { auth } from "@/auth"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { prisma } from "@/lib/prisma"
 import { logAudit, logAuditTx } from "@/lib/audit"
+import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 const mock$tx = prisma.$transaction as jest.Mock
 
 function form() {
@@ -94,6 +96,25 @@ describe("createTransfer — imported deposit", () => {
     expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3 })
   })
 
+  it("adopts a legacy leg with a null funding source and sets it to the cash account (#487)", async () => {
+    const update = jest.fn().mockResolvedValue({})
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, paymentAccountId: null })
+    await run({ ...base(), transaction: { findUnique, update, create: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) } })
+    expect(update.mock.calls[0][0].data).toEqual({ pettyCashTransferId: 3, paymentAccountId: 2 })
+  })
+
+  it("rejects adopting a legacy null-funding leg when a manual PC_T_ mirror already exists", async () => {
+    const base0 = base()
+    const update = jest.fn()
+    const findUnique = jest.fn().mockResolvedValueOnce(deposit).mockResolvedValueOnce({ ...okLeg, paymentAccountId: null })
+    const findFirst = jest.fn().mockResolvedValue({ pettyCashTransferId: 5 })
+    await expect(run({ ...base0, transaction: { findUnique, update, create: jest.fn(), findFirst } }))
+      .resolves.toEqual({ error: expect.stringContaining("#5") })
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ bankRef: { startsWith: "PC_T_" } }) }))
+    expect(base0.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it("rejects when the leg is already linked", async () => {
     const findUnique = jest.fn()
       .mockResolvedValueOnce(deposit)
@@ -152,18 +173,23 @@ describe("createTransfer — imported deposit", () => {
   rejects("rejects a deposit with no bankRef", { ...deposit, bankRef: null }, null, NA)
   rejects("rejects a date mismatch", { ...deposit, date: new Date("2026-07-30") }, okLeg, "Date and amount must match the imported deposit")
   rejects("rejects a reconciled leg", deposit, { ...okLeg, reconciled: true }, "Imported deposit's cash-out is already reconciled")
-  rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: null }, "Imported deposit's cash-out entry does not match this transfer")
+  rejects("rejects a leg on the wrong payment account", deposit, { ...okLeg, paymentAccountId: 99 }, "Imported deposit's cash-out entry does not match this transfer")
 })
 
 describe("createTransfer — manual path duplicate guard", () => {
-  // legs = unlinked unreconciled XFER_OUT legs; dup = their paired INCOME deposit (null = none).
-  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1" }] : []) => ({
+  // legs = XFER_OUT cash-out legs (linked or not); dup = their paired INCOME deposit (null = none).
+  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }] : []) => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
-    transaction: { findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
-      // Honour a `reconciled` filter like the DB would: the legs here are reconciled-or-not
-      // as given, so any reconciled:false filter in the guard would hide a reconciled leg.
-      legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)), findFirst: jest.fn().mockResolvedValue(dup), create: jest.fn() },
+    transaction: {
+      // Leg lookup (EXPENSE) honours a `reconciled` filter like the DB would: any reconciled:false
+      // filter in the guard would hide a reconciled leg. Deposit lookup (INCOME) returns the dup.
+      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+        where.type === "INCOME"
+          ? (dup ? [{ bankRef: "B1" }] : [])
+          : legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)),
+      create: jest.fn(),
+    },
   })
 
   // Regression (#471): a second cash-out for an already-imported deposit double-counted petty cash.
@@ -175,32 +201,46 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(res).toEqual({ error: expect.stringContaining("imported cash-out") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     const call = tx.transaction.findMany.mock.calls[0][0]
-    expect(call.where).toEqual(expect.objectContaining({ pettyCashTransferId: null, amount: "50.00", accountId: 9 }))
+    expect(call.where).toEqual(expect.objectContaining({ amount: "50.00", accountId: 9 }))
     // Reconciled legs must still be matched (the error tells the user to un-reconcile).
     expect(call.where).not.toHaveProperty("reconciled")
+    // Adopted (linked) legs must be matched too (#492).
+    expect(call.where).not.toHaveProperty("pettyCashTransferId")
+    // Legacy legs with a null funding source still count (#487).
+    expect(call.where.OR).toEqual([{ paymentAccountId: null }, { paymentAccountId: 2 }])
     // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
     const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
     expect(call.where.date).toEqual(dayBound)
     expect(call.where.date.lt.getTime() - call.where.date.gte.getTime()).toBe(86_400_000)
-    expect(tx.transaction.findFirst.mock.calls[0][0].where).toEqual(
+    expect(tx.transaction.findMany.mock.calls[1][0].where).toEqual(
       expect.objectContaining({ type: "INCOME", amount: "50.00", date: dayBound })
     )
   })
 
   it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
-    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1" }])
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
     expect(tx.transaction.create).toHaveBeenCalled()
     // The deposit lookup was keyed on the leg's paired deposit ref, so "no dup" is a real negative.
-    expect(tx.transaction.findFirst.mock.calls[0][0].where.bankRef).toEqual({ in: ["B1"] })
+    expect(tx.transaction.findMany.mock.calls[1][0].where.bankRef).toEqual({ in: ["B1"] })
   })
 
   it("rejects when the paired leg is already reconciled (user must un-reconcile first)", async () => {
-    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", reconciled: true }])
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, reconciled: true }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
     expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+  })
+
+  // Regression (#492): the leg was already adopted by another transfer, so it is no longer unlinked.
+  it("rejects a manual transfer for a deposit whose cash-out leg is already adopted by another transfer", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7 }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("already recorded as a petty cash transfer") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
   })
@@ -248,5 +288,130 @@ describe("deleteTransfer — adopted leg", () => {
     await deleteTransfer(5)
     expect(update).not.toHaveBeenCalled()
     expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
+  })
+})
+
+describe("createTransfer — submission token replay (#491)", () => {
+  const TOKEN = "11111111-2222-4333-8444-555555555555"
+  const tokenForm = () => {
+    const fd = form()
+    fd.set("submissionToken", TOKEN)
+    return fd
+  }
+  const same = { id: 3, sessionId: 1, amount: { toString: () => "50.00" }, date: new Date("2026-07-31"), retainedFloat: { toString: () => "0" }, depositSlipRef: null, depositedByName: "enc:Treasurer", notes: null }
+  const txMock = (prior: unknown) => ({
+    pettyCashTransfer: {
+      findUnique: jest.fn().mockResolvedValue(prior),
+      create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }),
+    },
+    pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
+    transaction: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+  })
+
+  it("stores the token on a first submit", async () => {
+    const tx = txMock(null)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, tokenForm())
+    expect(tx.pettyCashTransfer.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { submissionToken: TOKEN } }))
+    expect(tx.pettyCashTransfer.create.mock.calls[0][0].data.submissionToken).toBe(TOKEN)
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replayed token redirects to the session without creating a second transfer", async () => {
+    const tx = txMock(same)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+    // Replay runs before the balance check (the first attempt already reduced it).
+    expect(tx.pettyCashSession.findUnique).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a P2002 from a concurrent submit of the same token is treated as done", async () => {
+    mock$tx.mockRejectedValue({ code: "P2002" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(prisma.pettyCashTransfer.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { submissionToken: TOKEN } }))
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a double-click race surfacing as P2034 redirects once the winner committed the same transfer", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(revalidatePath).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a P2034 whose winner commits just after the first read is re-read and treated as done", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce(same)
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toBeUndefined()
+    expect(prisma.pettyCashTransfer.findUnique).toHaveBeenCalledTimes(2)
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it.each([
+    ["depositedByName", { ...same, depositedByName: "enc:Other" }],
+    ["notes", { ...same, notes: "enc:changed" }],
+    ["retainedFloat", { ...same, retainedFloat: { toString: () => "5.00" } }],
+    ["depositSlipRef", { ...same, depositSlipRef: "SLIP9" }],
+  ])("a reused token with an edited %s is rejected, not faked as success", async (_l, prior) => {
+    const tx = txMock(prior)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+  })
+
+  it("a reused token for an adopted transfer submitted manually is rejected", async () => {
+    const tx = txMock(same)
+    tx.transaction.findFirst.mockResolvedValue({ bankRef: "XFER_OUT:abc" })
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+  })
+
+  it("a P2034 with an unused token still shows the retry prompt", async () => {
+    mock$tx.mockRejectedValue({ code: "P2034" })
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(null)
+    await expect(createTransfer(1, undefined, tokenForm())).resolves.toEqual({ error: "Transfer conflict — please try again." })
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["amount", { ...same, amount: { toString: () => "60.00" } }],
+    ["date", { ...same, date: new Date("2026-07-30") }],
+    ["session", { ...same, sessionId: 2 }],
+  ])("a token reused for a different transfer (%s differs) is rejected, not dropped", async (_l, prior) => {
+    const tx = txMock(prior)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, tokenForm())
+    expect(res).toEqual({ error: expect.stringContaining("already submitted") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a P2002 that is not the token (no transfer carries it)", async () => {
+    const err = { code: "P2002" }
+    mock$tx.mockRejectedValue(err)
+    ;(prisma.pettyCashTransfer.findUnique as jest.Mock).mockResolvedValue(null)
+    await expect(createTransfer(1, undefined, tokenForm())).rejects.toBe(err)
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a P2002 when the form carried no token", async () => {
+    const err = { code: "P2002" }
+    mock$tx.mockRejectedValue(err)
+    await expect(createTransfer(1, undefined, form())).rejects.toBe(err)
+    expect(prisma.pettyCashTransfer.findUnique).not.toHaveBeenCalled()
   })
 })

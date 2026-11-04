@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useActionState, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -12,11 +13,27 @@ import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 
+/**
+ * Builds a v4 UUID for the submission token. Prefers crypto.randomUUID (secure
+ * contexts only) and falls back to crypto.getRandomValues, which also works on
+ * plain-http self-hosted installs.
+ */
+function newToken(): string {
+  const c = globalThis.crypto
+  if (typeof c.randomUUID === "function") return c.randomUUID()
+  const b = c.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
 export function TransferForm({
   action,
   maxAmount,
   imported = [],
   importedTruncated = false,
+  importedFiltered = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -24,14 +41,27 @@ export function TransferForm({
   imported?: ImportedTransferOption[]
   /** True when more matching imported deposits exist than the list shows. */
   importedTruncated?: boolean
+  /** True when the list is narrowed to one amount + day via the lookup link. */
+  importedFiltered?: boolean
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  // Idempotency token (#491), created once per mounted form — not per server
+  // render: the lookup links re-render the page client-side while this form
+  // keeps its draft, so a page-made token would change mid-form. Made lazily on
+  // first submit (no SSR/hydration mismatch) and reused by every later submit.
+  const tokenRef = useRef<string | null>(null)
+  /** Adds the stable submission token to the form data, then runs the server action. */
+  const submitWithToken = (prev: ActionResult, formData: FormData) => {
+    tokenRef.current ??= newToken()
+    formData.set("submissionToken", tokenRef.current)
+    return action(prev, formData)
+  }
+  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
   // Manual date/amount stashed before the first imported pick, restored on "None".
-  const manualRef = useRef<{ date: string; amount: string } | null>(null)
+  const [manual, setManual] = useState<{ date: string; amount: string } | null>(null)
   // Cents computed once so option comparisons are exact (no float drift).
   const maxCents = toCents(maxAmount.toFixed(2))
 
@@ -40,15 +70,19 @@ export function TransferForm({
     setImportedId(id)
     const opt = imported.find((o) => String(o.id) === id)
     if (opt) {
-      if (importedId === "") manualRef.current = { date, amount }
+      if (importedId === "") setManual({ date, amount })
       setDate(opt.date)
       setAmount(opt.amount)
     } else {
-      setDate(manualRef.current?.date ?? sydneyTodayYMD())
-      setAmount(manualRef.current?.amount ?? "")
-      manualRef.current = null
+      setDate(manual?.date ?? sydneyTodayYMD())
+      setAmount(manual?.amount ?? "")
+      setManual(null)
     }
   }
+
+  // Client-side lookup links keep this form mounted while `imported` changes: if the picked deposit
+  // left the list, drop the pick (and unlock/restore date + amount) so a hidden id is never submitted.
+  if (importedId !== "" && !imported.some((o) => String(o.id) === importedId)) pickImported("")
 
   return (
     <form action={formAction} className="max-w-lg space-y-4">
@@ -58,7 +92,7 @@ export function TransferForm({
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>
       </div>
 
-      {imported.length > 0 && (
+      {(imported.length > 0 || importedTruncated || importedFiltered) && (
         <div className="space-y-1">
           <Label htmlFor="importedTransactionId">
             Imported bank deposit{" "}
@@ -80,8 +114,29 @@ export function TransferForm({
               )
             })}
           </select>
-          {importedTruncated && (
-            <p className="text-xs text-muted-foreground">Showing the newest {imported.length} deposits; older ones are not listed.</p>
+          {importedFiltered && (
+            <p className="text-xs text-muted-foreground">
+              Showing deposits for one date and amount only.{" "}
+              <Link className="underline" href="?" scroll={false}>Show newest deposits</Link>
+            </p>
+          )}
+          {importedTruncated && !importedFiltered && (
+            <p className="text-xs text-muted-foreground">
+              Showing the newest {imported.length} deposits; older ones are not listed.
+              {date && amount && (
+                <>
+                  {" "}
+                  <Link
+                    className="underline"
+                    href={`?date=${encodeURIComponent(date)}&amount=${encodeURIComponent(amount)}`}
+                    scroll={false}
+                  >
+                    Look up deposits for the date and amount entered below
+                  </Link>
+                  .
+                </>
+              )}
+            </p>
           )}
         </div>
       )}

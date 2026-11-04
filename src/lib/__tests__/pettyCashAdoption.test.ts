@@ -25,6 +25,10 @@ it("accepts a matching pair (ignoring time of day)", () => {
   expect(adoptionProblem(deposit, leg, transfer, ctx)).toBeNull()
 })
 
+it("accepts a legacy leg with a null funding source (#487)", () => {
+  expect(adoptionProblem(deposit, { ...leg, paymentAccountId: null }, transfer, ctx)).toBeNull()
+})
+
 it.each([
   ["missing deposit", null, leg, "unavailable"],
   ["deposit on another account", { ...deposit, accountId: 4 }, leg, "unavailable"],

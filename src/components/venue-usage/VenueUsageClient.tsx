@@ -17,6 +17,7 @@ import { BookingList } from "./BookingList"
 import { BookingRequestPanel } from "./BookingRequestPanel"
 import { InvoiceRequestPanel } from "./InvoiceRequestPanel"
 import { CalendarLinkBox } from "./CalendarLinkBox"
+import { sydneyTodayYMD } from "@/lib/dates"
 
 export type VenueUsageRowView = {
   id: number
@@ -35,6 +36,8 @@ export type VenueUsageRowView = {
 type Props = {
   month: string
   today: string
+  /** Server clock (epoch ms) at render; the client measures its own clock's skew against it (#536). */
+  serverNow: number
   nextSunday: string
   defaultRequestMonth: string
   rows: VenueUsageRowView[]
@@ -63,6 +66,20 @@ type FormState = {
   venueKnows: boolean
 }
 
+/**
+ * The current Sydney day by the server's clock, never earlier than the server-rendered day (a client clock running
+ * behind must not relock a row the server would accept). `skewMs` (client clock minus server clock, measured once at
+ * mount) corrects a client clock running ahead; it is a fixed offset on the wall clock, so it stays right after the
+ * machine sleeps. It includes render-to-hydrate latency (seconds), which only makes the result slightly early.
+ * The server re-checks on save either way.
+ * @param serverToday "YYYY-MM-DD" from the server render
+ * @param skewMs the client clock's offset from the server clock, in ms
+ */
+function liveToday(serverToday: string, skewMs: number): string {
+  const now = sydneyTodayYMD(new Date(Date.now() - skewMs))
+  return now > serverToday ? now : serverToday
+}
+
 /** Blank add-form: next Sunday 17:00-20:00; status REQUESTED for future dates, CONFIRMED otherwise. */
 function blankForm(nextSunday: string, today: string): FormState {
   return {
@@ -76,7 +93,7 @@ function blankForm(nextSunday: string, today: string): FormState {
  * "Request invoice" panels and the committee calendar link box.
  * @param props the selected month, server "today" values, that month's rows and the calendar link state
  */
-export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
+export function VenueUsageClient({ month, today, serverNow, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string; warning?: string } | undefined>()
@@ -84,6 +101,14 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [dataVersion, setDataVersion] = useState(0)
   const [seenMonth, setSeenMonth] = useState(month)
   const [pending, startTransition] = useTransition()
+  // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
+  const [lockToday, setLockToday] = useState(today)
+  // Client clock minus server clock, fixed at mount.
+  const [skewMs] = useState(() => Date.now() - serverNow)
+  /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks (#528). */
+  function currentToday(): string {
+    return liveToday(today, skewMs)
+  }
 
   // The approval-cleared notice belongs to the month it was raised in.
   if (seenMonth !== month) {
@@ -148,7 +173,9 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    */
   function onDateChange(date: string) {
     // Only re-suggest the status while adding; an edit keeps the chosen status.
-    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, today) } : {}) }))
+    // Re-read today so a page left open past Sydney midnight suggests CONFIRMED for the new current day (#528).
+    const now = currentToday()
+    setForm((f) => ({ ...f, date, ...(f.id === null && date ? { status: defaultStatusForDate(date, now) } : {}) }))
   }
 
   /**
@@ -167,7 +194,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
         setFormState(result)
         handleResult(result)
         if ("success" in result) {
-          setForm(blankForm(nextSunday, today))
+          setForm(blankForm(nextSunday, currentToday()))
           // Show the month of the saved date so the new row is visible.
           if (form.date.slice(0, 7) !== month) void router.push(`/venue-usage?month=${form.date.slice(0, 7)}`)
         }
@@ -180,6 +207,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
    * @param r the row to edit
    */
   function startEdit(r: VenueUsageRowView) {
+    setLockToday(currentToday())
     setFormState(undefined)
     setForm({ ...r, purpose: r.purpose ?? "", notes: r.notes ?? "" })
     document.getElementById("venue-form")?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -187,7 +215,8 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
 
   const locked = form.id !== null && form.venueKnows
   // Once the day has passed the times can still be corrected to the hours actually used; the date stays locked.
-  const timesLocked = locked && !isPastDay(form.date, today)
+  // Uses the "today" re-read when the row was opened, so a page left open past Sydney midnight unlocks (#510).
+  const timesLocked = locked && !isPastDay(form.date, lockToday)
 
   return (
     <div className="space-y-6">
@@ -287,7 +316,7 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
             {form.id !== null && (
               <Button
                 type="button" variant="outline"
-                onClick={() => { setForm(blankForm(nextSunday, today)); setFormState(undefined) }}
+                onClick={() => { setForm(blankForm(nextSunday, currentToday())); setFormState(undefined) }}
               >
                 Cancel edit
               </Button>
