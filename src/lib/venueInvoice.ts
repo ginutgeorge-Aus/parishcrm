@@ -12,7 +12,7 @@ import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
   buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddressesWithDropped,
-  type MonthCompleteness, type VenueUsageLine,
+  type MonthCompleteness, type VenueBookingStatusValue, type VenueUsageLine,
 } from "@/lib/venueUsage"
 
 /** Most bookings one month may hold; creates enforce it and month reads `take` it (warning when they hit it). */
@@ -136,6 +136,8 @@ export function bookingRecipients(settings: VenueUsageSettings, actor: ActorInfo
 export type InvoicePrep = {
   settings: VenueUsageSettings
   rows: VenueUsageLine[]
+  /** Version of the month's CONFIRMED rows when `rows` was read; the claim and post-send check compare against it. */
+  version: MonthVersion
   completeness: MonthCompleteness
   subject: string
   text: string
@@ -160,16 +162,42 @@ function readMonthRows(start: Date, end: Date, db: Pick<Prisma.TransactionClient
     where: { date: { gte: start, lte: end } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: MAX_ROWS_PER_MONTH,
-    select: { date: true, startTime: true, endTime: true, status: true },
+    select: { date: true, startTime: true, endTime: true, status: true, updatedAt: true },
   })
 }
 
+/** Cheap change marker for a month's CONFIRMED rows: how many there are and the newest `updatedAt` (ms, or null). */
+type MonthVersion = { count: number; maxUpdatedMs: number | null }
+
 /**
- * A comparable key for what an invoice request lists: each CONFIRMED row's date and hours, order-independent.
+ * The {@link MonthVersion} of rows already in memory (the prepare read), so it matches {@link readMonthVersion}.
  * @param rows rows of one month (any status; non-CONFIRMED rows are ignored)
  */
-function invoiceFingerprint(rows: readonly VenueUsageLine[]): string {
-  return confirmedOnly(rows).map((r) => `${r.date.toISOString()}|${r.startTime}|${r.endTime}`).sort().join(",")
+function versionOfRows(rows: readonly { status?: VenueBookingStatusValue; updatedAt: Date }[]): MonthVersion {
+  const confirmed = confirmedOnly(rows)
+  return { count: confirmed.length, maxUpdatedMs: confirmed.reduce<number | null>((m, r) => Math.max(m ?? 0, r.updatedAt.getTime()), null) }
+}
+
+/**
+ * Aggregate version of a month's CONFIRMED rows (count + max `updatedAt`) without reading the rows. Any add, delete,
+ * status change or edit moves it (edits bump `updatedAt`); a booking-request stamp on a row also does, which only
+ * makes the check conservative (refused send, retry).
+ * @param start first day of the month (UTC midnight)
+ * @param end last day of the month (UTC midnight)
+ * @param db client to read with (a transaction client inside the send claim)
+ */
+async function readMonthVersion(start: Date, end: Date, db: Pick<Prisma.TransactionClient, "venueUsage"> = prisma): Promise<MonthVersion> {
+  const a = await db.venueUsage.aggregate({
+    where: { date: { gte: start, lte: end }, status: "CONFIRMED" },
+    _count: { _all: true },
+    _max: { updatedAt: true },
+  })
+  return { count: a._count._all, maxUpdatedMs: a._max.updatedAt?.getTime() ?? null }
+}
+
+/** Whether two {@link MonthVersion}s are equal. */
+function sameVersion(a: MonthVersion, b: MonthVersion): boolean {
+  return a.count === b.count && a.maxUpdatedMs === b.maxUpdatedMs
 }
 
 /**
@@ -182,7 +210,7 @@ function invoiceFingerprint(rows: readonly VenueUsageLine[]): string {
 async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean> {
   try {
     const { start, end } = monthRange(month)
-    const stale = invoiceFingerprint(await readMonthRows(start, end)) !== invoiceFingerprint(p.rows)
+    const stale = !sameVersion(await readMonthVersion(start, end), p.version)
     if (stale) logger.warn("[venueInvoice] bookings changed while the invoice request was being sent", { month })
     return stale
   } catch (e) {
@@ -200,7 +228,7 @@ type SendClaim = { refused: string } | { refused: null; stamp: Date }
  *   overlapping the job);
  * - the month is already sent and this is not an explicit resend, or (for a resend) another send succeeded after
  *   `p` was prepared (a second click that arrives once the first finished, or the job after a manual send);
- * - the month's CONFIRMED rows no longer match `p` (an edit committed after prepare: sending would email old hours);
+ * - the month's CONFIRMED rows no longer match the version `p` was prepared from (an edit committed after prepare: sending would email old hours);
  * - the transaction kept hitting serialization conflicts (a racing claim, or booking edits of the month).
  *
  * Runs in one Serializable transaction that also re-reads the month's bookings. Booking edits run Serializable and
@@ -228,7 +256,7 @@ async function claimSending(p: InvoicePrep, month: string, resend: boolean): Pro
       const alreadySent = row?.status === "SUCCESS" && (!resend || row.sentAt?.getTime() !== p.last?.sentAt?.getTime())
       if (alreadySent) return { refused: INVOICE_ALREADY_SENT_ERROR }
       const { start, end } = monthRange(month)
-      if (invoiceFingerprint(await readMonthRows(start, end, tx)) !== invoiceFingerprint(p.rows)) return { refused: INVOICE_ROWS_CHANGED_ERROR }
+      if (!sameVersion(await readMonthVersion(start, end, tx), p.version)) return { refused: INVOICE_ROWS_CHANGED_ERROR }
       await tx.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt: stamp }, update: { sendingAt: stamp } })
       return { refused: null, stamp }
     }, { error: "conflict" })
@@ -284,7 +312,7 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
   })
   const { to, cc, replyTo } = invoiceRecipients(settings, actor)
   return {
-    settings, rows, completeness: monthCompleteness(month, all), subject, text, html, to, cc, replyTo,
+    settings, rows, version: versionOfRows(all), completeness: monthCompleteness(month, all), subject, text, html, to, cc, replyTo,
     last: last
       ? {
           status: last.status, sentAt: last.sentAt, errorMessage: last.errorMessage,
