@@ -268,6 +268,13 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
   })
 
+  it("the SENT audit row carries this send's sentAt, so the job can tell a finished stale check from a lost one (#550)", async () => {
+    const p = await prepare()
+    await deliverInvoiceRequest(p, ctx)
+    const sentAt = upsert().mock.calls.at(-1)[0].update.sentAt as Date
+    expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ sentAt: sentAt.toISOString() }))
+  })
+
   it("SUCCESS outcome write carries staleAt null + the sent snapshot; only a fenced update sets staleAt when stale (#549)", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))

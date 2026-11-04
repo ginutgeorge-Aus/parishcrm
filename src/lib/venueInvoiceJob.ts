@@ -12,29 +12,67 @@ import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venu
 import { sydneyClock } from "@/lib/dates"
 import { VENUE_JOB_LAST_DAY, venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
 import { confirmedOnly, describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
-import { VENUE_JOB_LEASE_MS } from "@/lib/venueApproval"
+import { VENUE_JOB_LEASE_MS, VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
 
 /** A claim older than this is treated as abandoned (the work is a few emails, so a live run never gets near it). */
 export { VENUE_JOB_LEASE_MS }
 
+/** The persisted SUCCESS send the notices-only retry rebuilds its notice from. */
+type RecordedSend = { staleAt: Date | null; sentAt: Date | null; sentRowCount: number | null; sentHours: unknown }
+
 /**
- * Whether the month's last recorded send was flagged stale (bookings changed while it went out), read back from
- * its audit row. The notices-only retry consults it when `staleAt` is null: sends from before `staleAt` existed
- * only have the audit flag, and a send whose best-effort `staleAt` write failed (or died) is otherwise indistinguishable
- * from a clean one. Erring toward "stale" only adds a check-and-resend line. Best-effort: a missing row or failed read is false.
+ * Whether the month's recorded SUCCESS send was stale (bookings changed while it went out), for the notices-only retry.
+ * `staleAt` wins. Otherwise the send's audit row says whether the post-send check ran: it is written after the fenced
+ * `staleAt` write and carries this send's `sentAt` (#550), so a matching row with no `stale` flag means the check ran
+ * clean. Audit rows from before `sentAt` was recorded are trusted as they are (legacy). No matching row (the process
+ * died, or the audit write failed, between the SUCCESS outcome write and the stale marker) means the check never
+ * landed, so it is re-derived from the rows ({@link changedSinceSend}). Erring toward "stale" only adds a
+ * check-and-resend line.
  * @param month "YYYY-MM"
+ * @param sent the request row's stale flag, `sentAt` and sent snapshot
  */
-async function recordedSendWasStale(month: string): Promise<boolean> {
+async function recordedSendWasStale(month: string, sent: RecordedSend): Promise<boolean> {
+  if (sent.staleAt) return true
   try {
     const row = await prisma.auditLog.findFirst({
       where: { action: "VENUE_USAGE_REQUEST_SENT", resourceType: "VenueUsageRequest", metadata: { path: ["month"], equals: month } },
       orderBy: { id: "desc" }, select: { metadata: true },
     })
     const meta = row?.metadata
-    return !!meta && typeof meta === "object" && !Array.isArray(meta) && meta.stale === true
+    if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+      if (meta.stale === true) return true
+      if (meta.sentAt === undefined || meta.sentAt === sent.sentAt?.toISOString()) return false
+    }
   } catch (e) {
     logger.error(`[venueInvoiceJob] reading the send's stale flag failed: ${e instanceof Error ? e.message : String(e)}`)
-    return false
+  }
+  return sent.sentAt ? changedSinceSend(month, sent.sentAt, sent) : false
+}
+
+/**
+ * Re-derive the post-send stale check when its result was never recorded (#550): stale when any row of the month was
+ * written since the send's claim could have been taken (`sentAt` minus {@link VENUE_SENDING_WARNING_TTL_MS}, the
+ * in-flight stamp's lifetime), or when the month's CONFIRMED rows no longer add up to the persisted snapshot (catches
+ * deletes). Edits after the send also count, so it errs toward the warning. A failed read is reported as stale.
+ * @param month "YYYY-MM"
+ * @param sentAt the SUCCESS send's `sentAt`
+ * @param snapshot the persisted `sentRowCount`/`sentHours` (null on rows sent before they existed)
+ */
+async function changedSinceSend(month: string, sentAt: Date, snapshot: { sentRowCount: number | null; sentHours: unknown }): Promise<boolean> {
+  try {
+    const { start, end } = monthRange(month)
+    const rows = await prisma.venueUsage.findMany({
+      where: { date: { gte: start, lte: end } }, take: MAX_ROWS_PER_MONTH,
+      select: { date: true, startTime: true, endTime: true, status: true, updatedAt: true },
+    })
+    const since = sentAt.getTime() - VENUE_SENDING_WARNING_TTL_MS
+    if (rows.some((r) => r.updatedAt.getTime() >= since)) return true
+    if (snapshot.sentRowCount == null || snapshot.sentHours == null) return false
+    const confirmed = confirmedOnly(rows)
+    return confirmed.length !== snapshot.sentRowCount || Math.abs(totalHours(confirmed) - Number(snapshot.sentHours)) >= 0.005
+  } catch (e) {
+    logger.error(`[venueInvoiceJob] re-deriving the send's stale flag failed: ${e instanceof Error ? e.message : String(e)}`)
+    return true
   }
 }
 
@@ -155,7 +193,7 @@ async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
  */
 async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   const request = await prisma.venueUsageRequest.findUnique({
-    where: { month }, select: { id: true, status: true, approvedAt: true, autoSent: true, staleAt: true, sentRowCount: true, sentHours: true },
+    where: { month }, select: { id: true, status: true, approvedAt: true, autoSent: true, staleAt: true, sentAt: true, sentRowCount: true, sentHours: true },
   })
   const churchName = await getChurchName()
   let sent = 0
@@ -169,9 +207,9 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     }
     // Sent by an earlier run whose notices all failed: retry the notices only (no send). The notice comes from what
     // was persisted with the send; only rows from before that existed (null count) fall back to the current rows.
-    // The stale flag is `staleAt`, or the send's audit flag when `staleAt` is null (see recordedSendWasStale).
+    // The stale flag is `staleAt`, else the send's audit flag, else re-derived from the rows (see recordedSendWasStale).
     isInvoiceNotice = true
-    const stale = !!request.staleAt || (await recordedSendWasStale(month))
+    const stale = await recordedSendWasStale(month, request)
     if (request.sentRowCount != null && request.sentHours != null) {
       mail = autoSentNotice(churchName, month, { rowCount: request.sentRowCount, hours: Number(request.sentHours) }, stale)
     } else {

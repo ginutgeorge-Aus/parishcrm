@@ -346,7 +346,8 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `stale: true` means the venue got rows that no longer match. The SUCCESS outcome write stores `staleAt: null` and the
  * `sentRowCount`/`sentHours` snapshot (the job's notices-only retry reads them); a separate fenced best-effort write then
  * sets `staleAt` when stale (the audit metadata also carries `stale`) and callers tell staff to check and resend.
- * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag, so the warning errs safe.
+ * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag (the row carries this send's
+ * `sentAt`); if the process dies before the audit row too, the retry re-derives the check from the rows (#550).
  * When a SUCCESS went out but the outcome write failed over an earlier SUCCESS, the row still holds the earlier
  * send's `staleAt`/snapshot; a fenced best-effort write replaces them with this send's values.
  * @param p result of {@link prepareInvoiceRequest}
@@ -420,7 +421,11 @@ export async function deliverInvoiceRequest(
   }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
-    { month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
+    {
+      month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}),
+      // Ties the row to this send, so the notices-only retry can tell a finished stale check from a lost one (#550).
+      ...(status === "SUCCESS" ? { sentAt: data.sentAt.toISOString() } : {}),
+    },
   ), 1)
   return { status, errorMessage, recorded, stale, snapshot }
 }
