@@ -370,7 +370,7 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null }
+  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null, staleAt: null }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
   try {
@@ -390,6 +390,10 @@ export async function deliverInvoiceRequest(
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
   const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
+  // Stored with the request (not only in the audit row, whose write never throws) so a notices-only retry still knows.
+  if (stale && recorded) {
+    await afterSendWrite("stale flag write failed", ctx.month, () => prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { staleAt: new Date() } }), 1)
+  }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
     { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },

@@ -266,6 +266,19 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
   })
 
+  it("stores staleAt on the request when stale, and the outcome write clears any earlier flag (#536)", async () => {
+    const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
+    await deliverInvoiceRequest(p, ctx)
+    expect(upsert().mock.calls[1][0].update).toMatchObject({ status: "SUCCESS", staleAt: null })
+    expect(prisma.venueUsageRequest.update).toHaveBeenCalledWith({ where: { month: "2026-09" }, data: { staleAt: expect.any(Date) } })
+  })
+
+  it("writes no staleAt when the send was not stale", async () => {
+    await deliverInvoiceRequest(await prepare(), ctx)
+    expect(prisma.venueUsageRequest.update).not.toHaveBeenCalled()
+  })
+
   it("is not stale when only non-CONFIRMED rows changed", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6, { ...sunday6, status: "REQUESTED", updatedAt: new Date("2026-09-01T00:00:00Z") }]))

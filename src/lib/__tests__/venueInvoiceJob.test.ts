@@ -4,7 +4,6 @@ jest.mock("@/lib/prisma", () => ({
     venueUsageRequest: { upsert: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
     venueUsage: { findMany: jest.fn() },
     user: { findMany: jest.fn() },
-    auditLog: { findFirst: jest.fn() },
   },
 }))
 jest.mock("@/lib/venueUsageSettings", () => ({ readVenueUsageSettings: jest.fn() }))
@@ -282,28 +281,18 @@ it("a send that raced a booking change tells staff to check and resend (#509 #51
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent.*Send again/)
 })
 
-describe("notices-only retry recovers the stale flag from the send's audit row", () => {
+describe("notices-only retry reads the stale flag stored with the request (#536)", () => {
   const sentByJob = { id: 3, status: "SUCCESS", approvedAt: null, autoSent: true }
-  const findFirst = () => prisma.auditLog.findFirst as jest.Mock
 
   it("adds the check-and-resend line when the recorded send was stale", async () => {
-    findUnique().mockResolvedValue(sentByJob)
-    findFirst().mockResolvedValue({ metadata: { month: "2026-10", stale: true } })
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z") })
     expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
-    expect(findFirst()).toHaveBeenCalledWith({
-      where: { action: "VENUE_USAGE_REQUEST_SENT", resourceType: "VenueUsageRequest", metadata: { path: ["month"], equals: "2026-10" } },
-      orderBy: { id: "desc" }, select: { metadata: true },
-    })
+    expect(findUnique().mock.calls[0][0].select).toMatchObject({ staleAt: true })
     expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent/)
   })
-  it("leaves the line out when the send was not stale, or the lookup fails", async () => {
-    findUnique().mockResolvedValue(sentByJob)
-    findFirst().mockResolvedValue({ metadata: { month: "2026-10" } })
+  it("leaves the line out when the send was not stale", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null })
     await runVenueInvoiceJob(OPEN)
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).not.toMatch(/changed/)
-    ;(sendEmail as jest.Mock).mockClear()
-    findFirst().mockRejectedValue(new Error("db blip"))
-    expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ notified: 2 })
     expect((sendEmail as jest.Mock).mock.calls[0][3]).not.toMatch(/changed/)
   })
 })
