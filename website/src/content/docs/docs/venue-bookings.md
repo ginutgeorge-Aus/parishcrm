@@ -63,6 +63,7 @@ Details:
 
 - **Any change clears the approval.** Adding, editing, deleting, confirming or cancelling a date in that month removes the approval and shows "Approval cleared — dates changed, please re-approve." Approve again once the month is complete.
 - **Withdraw approval** removes it at any time before the request is sent.
+- **A manual send in progress at that moment** makes the automatic send refuse, with nothing emailed, and try again later. If this is still happening on the 7th, the last day of the window, it is logged as an error: check the month and click **Send request** yourself.
 - **Not approved, or no longer complete:** nothing is sent to the venue. Instead the editors get a reminder email explaining why, and a link to the page, so someone can fix the dates and click **Send request**.
 - **Who is emailed:** active `ADMIN`, `PASTOR` and `OFFICE_ADMIN` users get the sent notice or the reminder, either way.
 - **Timing:** the job's window is the Sydney 1st to the 7th, from 9:00 AM each day, and the first send is at 9:00 AM on the 1st. If the app is offline on the 1st, the job catches up later in the first week. It sends once per month, with at most 3 attempts per Sydney day, 30 minutes apart. The attempt budget refreshes each day. **Send request** is still available at any time. See [Scheduled Jobs](/parishcrm/docs/scheduled-jobs/).
