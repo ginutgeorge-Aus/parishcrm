@@ -26,7 +26,7 @@ import { getChurchName } from "@/lib/emailTemplateStore"
 import { logAudit } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { FEATURE_OFF_SKIP } from "@/lib/features"
-import { runVenueInvoiceJob, VENUE_JOB_LEASE_MS } from "@/lib/venueInvoiceJob"
+import { runVenueInvoiceJob, VENUE_JOB_LEASE_MS, _resetSentUnrecordedMonths } from "@/lib/venueInvoiceJob"
 
 const OPEN = new Date("2026-10-31T22:00:00Z") // 1 Nov 09:00 AEDT: invoices October
 const OPEN_3RD = new Date("2026-11-03T00:00:00Z") // 3 Nov 11:00 AEDT: still in the window
@@ -40,6 +40,7 @@ const findUnique = () => prisma.venueUsageRequest.findUnique as jest.Mock
 
 beforeEach(() => {
   jest.resetAllMocks()
+  _resetSentUnrecordedMonths()
   ;(readVenueUsageSettings as jest.Mock).mockResolvedValue({ enabled: true, contactEmail: "venue@example.com", venueName: "Example Hall" })
   ;(prisma.venueUsageRequest.upsert as jest.Mock).mockResolvedValue({})
   updateMany().mockResolvedValue({ count: 1 })
@@ -281,18 +282,52 @@ it("a send that raced a booking change tells staff to check and resend (#509 #51
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent.*Send again/)
 })
 
-describe("notices-only retry reads the stale flag stored with the request (#536)", () => {
+describe("notices-only retry rebuilds the notice from the persisted send (#536 #549)", () => {
   const sentByJob = { id: 3, status: "SUCCESS", approvedAt: null, autoSent: true }
+  const mailText = () => (sendEmail as jest.Mock).mock.calls[0][3] as string
 
-  it("adds the check-and-resend line when the recorded send was stale", async () => {
-    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z") })
-    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
-    expect(findUnique().mock.calls[0][0].select).toMatchObject({ staleAt: true })
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent/)
-  })
-  it("leaves the line out when the send was not stale", async () => {
-    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null })
+  it("reads staleAt and the sent snapshot only in a separate findUnique inside the branch, never the top-level select", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 4, sentHours: "14" })
     await runVenueInvoiceJob(OPEN)
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).not.toMatch(/changed/)
+    expect(findUnique().mock.calls[0][0].select).not.toHaveProperty("staleAt")
+    expect(findUnique().mock.calls[1][0].select).toEqual({ staleAt: true, sentRowCount: true, sentHours: true })
   })
+  it("uses the persisted rows/hours and does not call prepareInvoiceRequest", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toMatch(/2 /)
+    expect(mailText()).toMatch(/7\.5 hours/)
+    expect(mailText()).not.toMatch(/changed/)
+  })
+  it("adds the check-and-resend line when the persisted send was stale", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z"), sentRowCount: 2, sentHours: "7.5" })
+    await runVenueInvoiceJob(OPEN)
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("legacy row (null snapshot) falls back to the current rows, still honouring staleAt", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z"), sentRowCount: null, sentHours: null })
+    await runVenueInvoiceJob(OPEN)
+    expect(prepareInvoiceRequest).toHaveBeenCalledWith("2026-10", null)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("leaves the line out when the send was not stale (legacy row)", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: null, sentHours: null })
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).not.toMatch(/changed/)
+  })
+})
+
+it("a month sent but unrecorded whose completion write also failed is skipped on later runs (no second venue email)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false })
+  updateMany().mockResolvedValueOnce({ count: 1 }).mockRejectedValue(new Error("db down"))
+  expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, failed: 1 })
+  updateMany().mockClear()
+  ;(logger.error as jest.Mock).mockClear()
+  expect(await runVenueInvoiceJob(OPEN_3RD)).toEqual(ZERO)
+  expect(updateMany()).not.toHaveBeenCalled()
+  expect(deliverInvoiceRequest).toHaveBeenCalledTimes(1)
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/never recorded/))
 })

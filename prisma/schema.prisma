@@ -1431,6 +1431,9 @@ model VenueUsageRequest {
   sendingAt         DateTime?
   /// Set when the bookings changed while the SUCCESS send went out (the venue may hold old hours); cleared when the next send is recorded (a failed resend over an earlier SUCCESS keeps it).
   staleAt           DateTime?
+  /// Rows and CONFIRMED hours the SUCCESS invoice request listed (#549); null on rows sent before this existed. Written by a separate best-effort update after the outcome.
+  sentRowCount      Int?
+  sentHours         Decimal?  @db.Decimal(7, 2)
   approvedAt        DateTime?
   approvedById      Int?
   approvedBy        User?     @relation("VenueUsageRequestApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)

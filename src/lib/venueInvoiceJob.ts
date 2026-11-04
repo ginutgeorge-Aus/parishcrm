@@ -80,6 +80,19 @@ function autoSentNotice(churchName: string, month: string, rows: Parameters<type
   return buildAutoSentEmail({ churchName, month, rowCount: rows.length, totalHoursLabel: formatHours(totalHours(rows)), changedDuringSend })
 }
 
+/**
+ * Months this process emailed to the venue but could not record (`markMonthDone` failed after the send). Cleared
+ * only by a process restart (the lease then expires and a restart would resend, a residual accepted because the
+ * set is in memory): while the process lives, {@link runVenueInvoiceJob} skips these months so the scheduler's
+ * retry never emails the venue a second time.
+ */
+const sentUnrecordedMonths = new Set<string>()
+
+/** Test-only: forget the months remembered as sent but unrecorded. */
+export function _resetSentUnrecordedMonths(): void {
+  sentUnrecordedMonths.clear()
+}
+
 /** Attempts to write `reminderSentAt` before giving up. */
 const DONE_ATTEMPTS = 3
 
@@ -117,7 +130,7 @@ async function markMonthDone(month: string, claimAt: Date): Promise<boolean> {
  */
 async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   const request = await prisma.venueUsageRequest.findUnique({
-    where: { month }, select: { id: true, status: true, approvedAt: true, autoSent: true, staleAt: true },
+    where: { month }, select: { id: true, status: true, approvedAt: true, autoSent: true },
   })
   const churchName = await getChurchName()
   let sent = 0
@@ -129,10 +142,19 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
       await releaseClaim(month, claimAt)
       return ZERO
     }
-    // Sent by an earlier run whose notices all failed: retry the notices only (read-only prepare, no send).
-    const prep = await prepareInvoiceRequest(month, null)
+    // Sent by an earlier run whose notices all failed: retry the notices only (no send). The notice comes from what
+    // was persisted with the send; only rows from before that existed (null count) fall back to the current rows.
+    // Read separately, not in the top-level select, so code running ahead of `migrate deploy` cannot fail the job
+    // before any send (here the email has already gone, so a failure just retries later).
+    const snap = await prisma.venueUsageRequest.findUnique({ where: { month }, select: { staleAt: true, sentRowCount: true, sentHours: true } })
     isInvoiceNotice = true
-    mail = autoSentNotice(churchName, month, prep.rows, !!request.staleAt)
+    if (snap?.sentRowCount != null && snap.sentHours != null) {
+      const hours = Number(snap.sentHours)
+      mail = buildAutoSentEmail({ churchName, month, rowCount: snap.sentRowCount, totalHoursLabel: formatHours(hours), changedDuringSend: !!snap.staleAt })
+    } else {
+      const prep = await prepareInvoiceRequest(month, null)
+      mail = autoSentNotice(churchName, month, prep.rows, !!snap?.staleAt)
+    }
   } else {
     const { start, end } = monthRange(month)
     const rows = await prisma.venueUsage.findMany({
@@ -185,6 +207,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     if (!sentUnrecorded && sent === 0 && notified === 0) throw new Error("could not record month completion")
     // Something already went out: releasing the claim would repeat it. Let the lease expire instead.
     logger.error(`[venueInvoiceJob] completion for ${month} is unrecorded after ${DONE_ATTEMPTS} attempts; claim kept until the lease expires`)
+    if (sentUnrecorded) sentUnrecordedMonths.add(month)
     return { sent, notified, failed: failed + 1, inFlight: 0 }
   }
   // The send already happened: an audit failure must not turn it into a failed run (which would retry and duplicate).
@@ -201,6 +224,8 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
  * are outage catch-up) it handles the previous month: sends the invoice request when an admin approved it and
  * the month is still complete, otherwise emails the editors a reminder. Idempotent per month through a lease
  * on `reminderClaimedAt` and a final `reminderSentAt`, so later days of the window are no-ops once done.
+ * A month this process emailed but could not record is remembered in memory and skipped until restart (see
+ * {@link sentUnrecordedMonths}), so the expired lease cannot cause a second venue email.
  * @param now run time
  */
 export async function runVenueInvoiceJob(now: Date = new Date()): Promise<VenueJobResult | typeof FEATURE_OFF_SKIP> {
@@ -208,6 +233,10 @@ export async function runVenueInvoiceJob(now: Date = new Date()): Promise<VenueJ
   const settings = await readVenueUsageSettings()
   if (!settings.enabled || !settings.contactEmail) return FEATURE_OFF_SKIP
   const month = venueInvoiceMonth(now)
+  if (sentUnrecordedMonths.has(month)) {
+    logger.error(`[venueInvoiceJob] ${month} was emailed to the venue but never recorded; skipping so it is not emailed again (resolve by hand or restart after checking)`)
+    return ZERO
+  }
   await ensureRequestRow(month)
 
   const claimAt = new Date(Math.max(Date.now(), now.getTime()))

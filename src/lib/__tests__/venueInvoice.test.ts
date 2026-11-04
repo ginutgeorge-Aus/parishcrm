@@ -18,6 +18,7 @@ jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), 
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { encrypt } from "@/lib/crypto"
+import { totalHours } from "@/lib/venueUsage"
 import { sendVenueUsageRequestEmail } from "@/lib/email"
 import { getChurchSettings } from "@/lib/churchSettings"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
@@ -247,7 +248,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
   it("the outcome write clears the stamp itself; no separate clear", async () => {
     await deliverInvoiceRequest(await prepare(), ctx)
     expect(upsert().mock.calls[1][0].update).toMatchObject({ status: "SUCCESS", sendingAt: null })
-    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { sendingAt: null } }))
   })
 
   it("a fallback clear is fenced on this send's own stamp (#528)", async () => {
@@ -266,35 +267,44 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
   })
 
-  it("stores staleAt on the request when stale, and the outcome write clears any earlier flag (#536)", async () => {
+  it("keeps the new columns out of the outcome upsert; one separate update fenced on sentAt carries stale + what was sent (#549)", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     await deliverInvoiceRequest(p, ctx)
-    expect(upsert().mock.calls[1][0].update).toMatchObject({ status: "SUCCESS", staleAt: null })
+    for (const c of upsert().mock.calls) {
+      for (const part of [c[0].create, c[0].update]) {
+        expect(part).not.toHaveProperty("staleAt")
+        expect(part).not.toHaveProperty("sentRowCount")
+        expect(part).not.toHaveProperty("sentHours")
+      }
+    }
     const sentAt = upsert().mock.calls[1][0].update.sentAt
-    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09", sentAt }, data: { staleAt: expect.any(Date) } })
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({
+      where: { month: "2026-09", sentAt }, data: { staleAt: expect.any(Date), sentRowCount: p.rows.length, sentHours: totalHours(p.rows) },
+    })
   })
 
-  it("retries the staleAt write once, and a failing write never fails the send", async () => {
+  it("clears staleAt in the same separate update when the send was not stale", async () => {
+    const p = await prepare()
+    await deliverInvoiceRequest(p, ctx)
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { staleAt: null, sentRowCount: p.rows.length, sentHours: totalHours(p.rows) } }))
+  })
+
+  it("retries the snapshot write once, and a failing write never fails the send", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     ;(prisma.venueUsageRequest.updateMany as jest.Mock).mockRejectedValue(new Error("db blip"))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(2)
-    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/stale flag write failed/), expect.objectContaining({ month: "2026-09" }))
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/sent-snapshot write failed/), expect.objectContaining({ month: "2026-09" }))
   })
 
-  it("writes no staleAt when the SUCCESS could not be recorded", async () => {
+  it("writes no snapshot when the SUCCESS could not be recorded", async () => {
     const p = await prepare()
-    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
     await deliverInvoiceRequest(p, ctx)
-    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { staleAt: expect.any(Date) } }))
-  })
-
-  it("writes no staleAt when the send was not stale", async () => {
-    await deliverInvoiceRequest(await prepare(), ctx)
-    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ sentRowCount: expect.anything() }) }))
   })
 
   it("is not stale when only non-CONFIRMED rows changed", async () => {
