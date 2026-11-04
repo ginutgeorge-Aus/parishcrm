@@ -168,7 +168,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
         // (it then finds the month sent by hand and stops).
         const lastDay = Number(sydneyClock(new Date()).ymd.slice(8, 10)) >= VENUE_JOB_LAST_DAY
         const detail = `[venueInvoiceJob] send for ${month} refused (BUSY, claim held ${Math.round((Date.now() - claimAt.getTime()) / 1000)}s)`
-        if (lastDay) logger.error(`${detail}; last day of the window, no further retry: send it by hand`)
+        if (lastDay) logger.error(`${detail}; last day of the window, later runs may refuse again and the window then closes: send it by hand`)
         else logger.warn(detail)
         await releaseClaim(month, claimAt)
         return { ...ZERO, inFlight: 1 }
