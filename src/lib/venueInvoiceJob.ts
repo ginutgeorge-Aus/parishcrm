@@ -132,7 +132,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     // Sent by an earlier run whose notices all failed: retry the notices only (read-only prepare, no send).
     const prep = await prepareInvoiceRequest(month, null)
     isInvoiceNotice = true
-    mail = autoSentNotice(churchName, month, prep.rows, request.staleAt !== null)
+    mail = autoSentNotice(churchName, month, prep.rows, !!request.staleAt)
   } else {
     const { start, end } = monthRange(month)
     const rows = await prisma.venueUsage.findMany({

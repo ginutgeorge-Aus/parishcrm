@@ -343,8 +343,8 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * refused until it expires); if it did not land, a clear fenced on the stamp's own value runs instead. While the
  * stamp is live, a booking edit warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
  * meaning). An edit that lands after the claim is caught by re-reading the month once the SUCCESS is recorded:
- * `stale: true` means the venue got rows that no longer match, it is kept in the audit metadata (the job's notice
- * retry reads it back), and callers tell staff to check and resend.
+ * `stale: true` means the venue got rows that no longer match. It is stored as `VenueUsageRequest.staleAt` (the job's
+ * notices-only retry reads it; the audit metadata also carries it) and callers tell staff to check and resend.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  * @returns the send status (BUSY = refused before sending; `errorMessage` is the user-facing reason), its error, whether the outcome row was
@@ -390,9 +390,10 @@ export async function deliverInvoiceRequest(
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
   const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
-  // Stored with the request (not only in the audit row, whose write never throws) so a notices-only retry still knows.
+  // Stored with the request (the audit write never throws and nothing reads it back) so a notices-only retry still
+  // knows. Two tries like the SUCCESS write; fenced on this send's `sentAt` so a later send's row is never flagged.
   if (stale && recorded) {
-    await afterSendWrite("stale flag write failed", ctx.month, () => prisma.venueUsageRequest.update({ where: { month: ctx.month }, data: { staleAt: new Date() } }), 1)
+    await afterSendWrite("stale flag write failed", ctx.month, () => prisma.venueUsageRequest.updateMany({ where: { month: ctx.month, sentAt: data.sentAt }, data: { staleAt: new Date() } }), 2)
   }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,

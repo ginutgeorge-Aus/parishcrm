@@ -1429,7 +1429,7 @@ model VenueUsageRequest {
   reminderClaimedAt DateTime?
   /// Set just before an invoice request email is sent, cleared when the outcome is recorded (in-flight marker).
   sendingAt         DateTime?
-  /// Set when the bookings changed while the SUCCESS send went out (the venue may hold old hours); cleared by the next send's outcome write.
+  /// Set when the bookings changed while the SUCCESS send went out (the venue may hold old hours); cleared when the next send is recorded (a failed resend over an earlier SUCCESS keeps it).
   staleAt           DateTime?
   approvedAt        DateTime?
   approvedById      Int?

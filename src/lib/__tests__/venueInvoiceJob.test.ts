@@ -238,7 +238,7 @@ it("a run on the 3rd with no prior run does the work for October", async () => {
 })
 
 describe("auto-sent request whose staff notices all failed", () => {
-  const sentByJob = { id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: true }
+  const sentByJob = { id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: true, staleAt: null }
 
   it("the retry re-sends only the staff notices (never the venue email) and then sets reminderSentAt", async () => {
     // Run 1: the venue email goes out, every notice fails, the claim is released.

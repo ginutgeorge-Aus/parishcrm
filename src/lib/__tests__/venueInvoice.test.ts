@@ -271,12 +271,30 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     await deliverInvoiceRequest(p, ctx)
     expect(upsert().mock.calls[1][0].update).toMatchObject({ status: "SUCCESS", staleAt: null })
-    expect(prisma.venueUsageRequest.update).toHaveBeenCalledWith({ where: { month: "2026-09" }, data: { staleAt: expect.any(Date) } })
+    const sentAt = upsert().mock.calls[1][0].update.sentAt
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09", sentAt }, data: { staleAt: expect.any(Date) } })
+  })
+
+  it("retries the staleAt write once, and a failing write never fails the send", async () => {
+    const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
+    ;(prisma.venueUsageRequest.updateMany as jest.Mock).mockRejectedValue(new Error("db blip"))
+    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(2)
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/stale flag write failed/), expect.objectContaining({ month: "2026-09" }))
+  })
+
+  it("writes no staleAt when the SUCCESS could not be recorded", async () => {
+    const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
+    upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
+    await deliverInvoiceRequest(p, ctx)
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { staleAt: expect.any(Date) } }))
   })
 
   it("writes no staleAt when the send was not stale", async () => {
     await deliverInvoiceRequest(await prepare(), ctx)
-    expect(prisma.venueUsageRequest.update).not.toHaveBeenCalled()
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalled()
   })
 
   it("is not stale when only non-CONFIRMED rows changed", async () => {
