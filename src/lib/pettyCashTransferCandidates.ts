@@ -66,7 +66,8 @@ export async function listImportedTransferCandidates(
       bankRef: { startsWith: XFER_OUT_PREFIX },
       pettyCashTransferId: null,
       reconciled: false,
-      paymentAccountId: cashAccountId,
+      // Legacy legs written before a cash account existed carry a null funding source (#487).
+      OR: [{ paymentAccountId: null }, ...(cashAccountId === null ? [] : [{ paymentAccountId: cashAccountId }])],
       ...(gte || lt ? { date: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } } : {}),
       ...(focus ? { amount: focus.amount } : {}),
     },
