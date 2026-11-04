@@ -3,7 +3,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
-    venueUsage: { count: jest.fn(), create: jest.fn(), createMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+    venueUsage: { count: jest.fn(), create: jest.fn(), createMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), aggregate: jest.fn() },
     venueUsageRequest: { findUnique: jest.fn(), findMany: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     emailTemplate: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -50,8 +50,12 @@ const validInput = {
   purpose: "Sunday service", notes: "",
 }
 
+/** The aggregate the send claim and post-send re-check read for a version of the month's CONFIRMED rows. */
+const versionAt = (iso: string) => ({ _count: { _all: 1 }, _max: { updatedAt: new Date(iso) } })
+const EDITED = "2026-09-01T00:00:00Z"
+
 const confirmedRows = [
-  { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" },
+  { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED", updatedAt: new Date("2026-08-01T00:00:00Z") },
 ]
 
 beforeEach(() => {
@@ -63,6 +67,7 @@ beforeEach(() => {
   ;(readVenueUsageSettings as jest.Mock).mockResolvedValue(settings)
   ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ name: "Sam Admin", email: "sam@example.com" })
   ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(confirmedRows)
+  ;(prisma.venueUsage.aggregate as jest.Mock).mockResolvedValue({ _count: { _all: 1 }, _max: { updatedAt: confirmedRows[0].updatedAt } })
   ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue(null)
   ;(prisma.venueUsage.create as jest.Mock).mockResolvedValue({ id: 5 })
   ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValue({ id: 5, date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null })
@@ -524,7 +529,7 @@ describe("getVenueRequestPreview", () => {
     try {
       asRole("ADMIN")
       const rows = ["04", "11", "18", "25"].map((d) => ({
-        date: new Date(`2026-10-${d}T00:00:00Z`), startTime: "17:00", endTime: "20:00", status: "CONFIRMED",
+        date: new Date(`2026-10-${d}T00:00:00Z`), startTime: "17:00", endTime: "20:00", status: "CONFIRMED", updatedAt: new Date("2026-08-01T00:00:00Z"),
       }))
       ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows)
       ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue({
@@ -756,19 +761,17 @@ describe("sent / in-flight month warning on every booking change (#510 #513 #509
 describe("sendVenueUsageRequest when bookings change mid-send (#509 #512)", () => {
   it("still reports sent, but tells the user the venue may have the earlier hours", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock)
-      .mockResolvedValueOnce(confirmedRows) // prepare
-      .mockResolvedValueOnce(confirmedRows) // send claim
-      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }]) // post-send re-check
+    ;(prisma.venueUsage.aggregate as jest.Mock)
+      .mockResolvedValueOnce(versionAt("2026-08-01T00:00:00Z")) // send claim
+      .mockResolvedValueOnce(versionAt(EDITED)) // post-send re-check
     const r = await sendVenueUsageRequest("2026-09")
     expect(r).toEqual({ success: expect.stringMatching(/^Invoice request sent, but the bookings changed while it was sending.*Send again/) })
   })
   it("keeps the stale warning when the send also could not be recorded", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock)
-      .mockResolvedValueOnce(confirmedRows) // prepare
-      .mockResolvedValueOnce(confirmedRows) // send claim
-      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }]) // post-send re-check
+    ;(prisma.venueUsage.aggregate as jest.Mock)
+      .mockResolvedValueOnce(versionAt("2026-08-01T00:00:00Z")) // send claim
+      .mockResolvedValueOnce(versionAt(EDITED)) // post-send re-check
     ;(prisma.venueUsageRequest.upsert as jest.Mock).mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
     const { success } = (await sendVenueUsageRequest("2026-09")) as { success: string }
     expect(success).toMatch(/could not be recorded. Do not send it again/)
@@ -776,9 +779,7 @@ describe("sendVenueUsageRequest when bookings change mid-send (#509 #512)", () =
   })
   it("refuses with nothing sent when the bookings changed between prepare and the send claim", async () => {
     asRole("PASTOR")
-    ;(prisma.venueUsage.findMany as jest.Mock)
-      .mockResolvedValueOnce(confirmedRows)
-      .mockResolvedValueOnce([{ ...confirmedRows[0], endTime: "21:00" }])
+    ;(prisma.venueUsage.aggregate as jest.Mock).mockResolvedValueOnce(versionAt(EDITED)) // send claim
     expect(await sendVenueUsageRequest("2026-09")).toEqual({ error: INVOICE_ROWS_CHANGED_ERROR })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
   })

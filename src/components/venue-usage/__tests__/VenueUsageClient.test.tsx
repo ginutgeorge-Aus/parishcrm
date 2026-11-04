@@ -30,7 +30,7 @@ jest.mock("next/navigation", () => ({
 
 /** Render the screen for November 2026 with no rows. */
 const element = (month = "2026-11") => (
-  <VenueUsageClient month={month} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />
+  <VenueUsageClient month={month} serverNow={Date.now()} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />
 )
 const setup = () => render(element())
 
@@ -120,7 +120,7 @@ it("shows a retry message when saving throws", async () => {
 async function editKnownRow(date: string) {
   const row = { id: 3, date, startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const, purpose: null, notes: null, bookingRequestedAt: "2026-10-01T00:00:00.000Z", venueKnows: true }
   const user = userEvent.setup()
-  render(<VenueUsageClient month={date.slice(0, 7)} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
+  render(<VenueUsageClient month={date.slice(0, 7)} serverNow={Date.now()} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
   await user.click(screen.getByRole("button", { name: "Edit" }))
   return user
 }
@@ -160,6 +160,18 @@ describe("venue-known row edit locks", () => {
       sydneyTodayYMD.mockReturnValue("2026-10-25")
     }
   })
+  it("a client clock running ahead is corrected by the server-render skew (#536)", async () => {
+    const { sydneyTodayYMD } = jest.requireMock("@/lib/dates")
+    const day = 86_400_000
+    const user = userEvent.setup()
+    const row = { id: 3, date: "2026-10-11", startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const, purpose: null, notes: null, bookingRequestedAt: null, venueKnows: false }
+    // The server rendered a day "earlier" than this client's clock: skew is about +1 day.
+    render(<VenueUsageClient month="2026-10" serverNow={Date.now() - day} today="2026-10-25" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
+    sydneyTodayYMD.mockClear()
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const at = sydneyTodayYMD.mock.calls.at(-1)?.[0] as Date
+    expect(Math.abs(at.getTime() - (Date.now() - day))).toBeLessThan(10_000)
+  })
   it("future row: date and times all locked", async () => {
     await editKnownRow("2026-11-01")
     expect(screen.getByLabelText("Date")).toBeDisabled()
@@ -194,7 +206,7 @@ describe("Sydney today refresh for new bookings (#528)", () => {
   it("cancelling an edit resets the form with the refreshed day", async () => {
     const user = userEvent.setup()
     const row = { id: 4, date: "2026-10-11", startTime: "17:00", endTime: "20:00", status: "CONFIRMED" as const, purpose: null, notes: null, bookingRequestedAt: null, venueKnows: false }
-    render(<VenueUsageClient month="2026-10" today="2026-10-31" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
+    render(<VenueUsageClient month="2026-10" serverNow={Date.now()} today="2026-10-31" nextSunday="2026-11-01" defaultRequestMonth="2026-10" rows={[row]} calendarUrl="https://app.example.com/venue/tok" canResetCalendar={false} />)
     expect(screen.getByLabelText("Status")).toHaveValue("REQUESTED") // next Sunday is after the server day
     dates().mockReturnValue("2026-11-01")
     await user.click(screen.getByRole("button", { name: "Edit" }))

@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    venueUsage: { findMany: jest.fn() },
+    venueUsage: { findMany: jest.fn(), aggregate: jest.fn() },
     venueUsageRequest: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn(),
@@ -34,7 +34,13 @@ const settings = {
   enabled: true, venueName: "Example Hall", contactName: "Pat Example", contactEmail: "venue@example.com",
   ccEmail: "treasurer@example.com", replyToEmail: "", bookingCcEmails: "sec@example.com, venue@example.com",
 }
-const sunday6 = { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" }
+const sunday6 = { date: new Date("2026-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED", updatedAt: new Date("2026-08-01T00:00:00Z") }
+/** The aggregate the claim and post-send re-check read, as it looks for `rows` (CONFIRMED only). */
+const versionOf = (rows: { status: string; updatedAt: Date }[]) => {
+  const c = rows.filter((r) => r.status === "CONFIRMED")
+  return { _count: { _all: c.length }, _max: { updatedAt: c.length ? new Date(Math.max(...c.map((r) => r.updatedAt.getTime()))) : null } }
+}
+const aggregate = () => prisma.venueUsage.aggregate as jest.Mock
 
 beforeEach(() => {
   jest.resetAllMocks()
@@ -43,6 +49,7 @@ beforeEach(() => {
   ;(getChurchSettings as jest.Mock).mockResolvedValue({ name: "Example Church" })
   ;(getEmailTemplate as jest.Mock).mockResolvedValue(DEFAULT_EMAIL_TEMPLATES.venueInvoiceRequest)
   ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([sunday6])
+  aggregate().mockResolvedValue(versionOf([sunday6]))
   ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue(null)
   // The send claim runs in a Serializable transaction; run its body against the same mocked client.
   ;(prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma))
@@ -181,7 +188,6 @@ describe("deliverInvoiceRequest after the email has gone", () => {
 
 describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
   const upsert = () => prisma.venueUsageRequest.upsert as jest.Mock
-  const findMany = () => prisma.venueUsage.findMany as jest.Mock
   const ctx = { month: "2026-09", userId: 7, autoSent: false, resend: false }
 
   it("marks the request in flight (sendingAt) before the email goes", async () => {
@@ -196,6 +202,15 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     })
   })
 
+  it("the claim and the post-send re-check use the cheap version check, not a whole-month read (#536)", async () => {
+    const p = await prepare()
+    ;(prisma.venueUsage.findMany as jest.Mock).mockClear()
+    await deliverInvoiceRequest(p, ctx)
+    expect(prisma.venueUsage.findMany).not.toHaveBeenCalled()
+    expect(aggregate()).toHaveBeenCalledTimes(2)
+    expect(aggregate().mock.calls[0][0]).toMatchObject({ where: { status: "CONFIRMED" }, _count: { _all: true }, _max: { updatedAt: true } })
+  })
+
   it("a claim that fails with a non-conflict error (timeout, dropped connection) refuses: nothing sent", async () => {
     upsert().mockRejectedValueOnce(new Error("connection terminated")).mockResolvedValue({})
     expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "BUSY", errorMessage: INVOICE_CLAIM_FAILED_ERROR, recorded: false, stale: false })
@@ -207,7 +222,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     const p = await prepare()
     const order: string[] = []
     upsert().mockImplementation(async (a: { update: Record<string, unknown> }) => { order.push("status" in a.update ? "outcome" : "mark"); return {} })
-    findMany().mockImplementation(async () => { order.push("read"); return [sunday6] })
+    aggregate().mockImplementation(async () => { order.push("read"); return versionOf([sunday6]) })
     await deliverInvoiceRequest(p, ctx)
     // The claim's read comes before the mark (same transaction); the re-check after the outcome.
     expect(order).toEqual(["read", "mark", "outcome", "read"])
@@ -245,7 +260,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
 
   it("reports stale when the month's CONFIRMED rows changed while sending, and audits it", async () => {
     const p = await prepare()
-    findMany().mockResolvedValueOnce([sunday6]).mockResolvedValueOnce([{ ...sunday6, endTime: "21:00" }])
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
     expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*changed while/), { month: "2026-09" })
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
@@ -253,13 +268,13 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
 
   it("is not stale when only non-CONFIRMED rows changed", async () => {
     const p = await prepare()
-    findMany().mockResolvedValueOnce([sunday6, { ...sunday6, date: new Date("2026-09-13T00:00:00Z"), status: "REQUESTED" }])
+    aggregate().mockResolvedValueOnce(versionOf([sunday6, { ...sunday6, status: "REQUESTED", updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     expect((await deliverInvoiceRequest(p, ctx)).stale).toBe(false)
   })
 
   it("a failing re-check never fails the send (logged, stale false)", async () => {
     const p = await prepare()
-    findMany().mockResolvedValueOnce([sunday6]).mockRejectedValueOnce(new Error("db blip"))
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockRejectedValueOnce(new Error("db blip"))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false })
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*re-check/), expect.objectContaining({ month: "2026-09" }))
   })
@@ -267,9 +282,9 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
   it("does not re-check a FAILED send", async () => {
     const p = await prepare()
     ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
-    findMany().mockClear()
+    aggregate().mockClear()
     await deliverInvoiceRequest(p, ctx)
-    expect(findMany()).toHaveBeenCalledTimes(1) // the claim's read only
+    expect(aggregate()).toHaveBeenCalledTimes(1) // the claim's read only
   })
 })
 
@@ -323,7 +338,7 @@ describe("deliverInvoiceRequest send claim (#528 #509 #512)", () => {
 
   it("refuses (nothing sent or stamped) when an edit committed between prepare and the claim", async () => {
     const p = await prepare()
-    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValueOnce([{ ...sunday6, startTime: "16:00" }])
+    ;aggregate().mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual(refused(INVOICE_ROWS_CHANGED_ERROR))
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
     expect(upsert()).not.toHaveBeenCalled()

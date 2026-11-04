@@ -36,6 +36,8 @@ export type VenueUsageRowView = {
 type Props = {
   month: string
   today: string
+  /** Server clock (epoch ms) at render; the client measures its own clock's skew against it (#536). */
+  serverNow: number
   nextSunday: string
   defaultRequestMonth: string
   rows: VenueUsageRowView[]
@@ -65,12 +67,16 @@ type FormState = {
 }
 
 /**
- * The current Sydney day, never earlier than the server-rendered one (a client clock running behind must not
- * relock a row the server would accept). The server re-checks on save either way.
+ * The current Sydney day by the server's clock, never earlier than the server-rendered day (a client clock running
+ * behind must not relock a row the server would accept). `skewMs` (client clock minus server clock, measured once at
+ * mount) corrects a client clock running ahead; it is a fixed offset on the wall clock, so it stays right after the
+ * machine sleeps. It includes render-to-hydrate latency (seconds), which only makes the result slightly early.
+ * The server re-checks on save either way.
  * @param serverToday "YYYY-MM-DD" from the server render
+ * @param skewMs the client clock's offset from the server clock, in ms
  */
-function liveToday(serverToday: string): string {
-  const now = sydneyTodayYMD()
+function liveToday(serverToday: string, skewMs: number): string {
+  const now = sydneyTodayYMD(new Date(Date.now() - skewMs))
   return now > serverToday ? now : serverToday
 }
 
@@ -87,7 +93,7 @@ function blankForm(nextSunday: string, today: string): FormState {
  * "Request invoice" panels and the committee calendar link box.
  * @param props the selected month, server "today" values, that month's rows and the calendar link state
  */
-export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
+export function VenueUsageClient({ month, today, serverNow, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string; warning?: string } | undefined>()
@@ -97,9 +103,11 @@ export function VenueUsageClient({ month, today, nextSunday, defaultRequestMonth
   const [pending, startTransition] = useTransition()
   // The Sydney day the edit locks are judged against: the server-rendered `today`, refreshed when a row is opened.
   const [lockToday, setLockToday] = useState(today)
+  // Client clock minus server clock, fixed at mount.
+  const [skewMs] = useState(() => Date.now() - serverNow)
   /** The Sydney day right now (see {@link liveToday}); used for new-booking status defaults and edit locks (#528). */
   function currentToday(): string {
-    return liveToday(today)
+    return liveToday(today, skewMs)
   }
 
   // The approval-cleared notice belongs to the month it was raised in.
