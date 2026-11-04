@@ -343,8 +343,9 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * refused until it expires); if it did not land, a clear fenced on the stamp's own value runs instead. While the
  * stamp is live, a booking edit warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
  * meaning). An edit that lands after the claim is caught by re-reading the month once the SUCCESS is recorded:
- * `stale: true` means the venue got rows that no longer match. It is stored as `VenueUsageRequest.staleAt` by a separate best-effort write that also stores `sentRowCount`/`sentHours`
- * (the job's notices-only retry reads them; the audit metadata also carries `stale`) and callers tell staff to check and resend.
+ * `stale: true` means the venue got rows that no longer match. The SUCCESS outcome write stores `staleAt: null` and the
+ * `sentRowCount`/`sentHours` snapshot (the job's notices-only retry reads them); a separate fenced best-effort write then
+ * sets `staleAt` when stale (the audit metadata also carries `stale`) and callers tell staff to check and resend.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  * @returns the send status (BUSY = refused before sending; `errorMessage` is the user-facing reason), its error, whether the outcome row was
@@ -370,7 +371,11 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null }
+  const data = {
+    sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null,
+    // A SUCCESS send replaces the stale flag and the sent snapshot; a FAILED one leaves them alone.
+    ...(status === "SUCCESS" ? { staleAt: null, sentRowCount: p.rows.length, sentHours: totalHours(p.rows) } : {}),
+  }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
   try {
@@ -390,16 +395,12 @@ export async function deliverInvoiceRequest(
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
   const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
-  // What was sent, stored with the request so a notices-only retry rebuilds the notice from it (the audit write never
-  // throws and nothing reads it back). A separate best-effort write, never part of the outcome upsert: if the code
-  // runs ahead of `migrate deploy` (MIGRATE_ON_START=false) the missing columns only fail this write, not the
-  // success record after the email went out. Two tries; fenced on this send's `sentAt` so a later send's row is never
-  // touched. It is also the only place `staleAt` is written or cleared (a new send's flag replaces an earlier one).
-  if (status === "SUCCESS" && recorded) {
-    const sentRowCount = p.rows.length
-    const sentHours = totalHours(p.rows)
-    await afterSendWrite("sent-snapshot write failed", ctx.month, () => prisma.venueUsageRequest.updateMany({
-      where: { month: ctx.month, sentAt: data.sentAt }, data: { staleAt: stale ? new Date() : null, sentRowCount, sentHours },
+  // Best-effort and separate from the outcome upsert, so a failure here never undoes the success record after the email
+  // went out. Two tries; fenced on this send's `sentAt` so a later send's row is never touched. The outcome write
+  // already cleared `staleAt`, so this only ever sets it.
+  if (stale && recorded) {
+    await afterSendWrite("staleAt write failed", ctx.month, () => prisma.venueUsageRequest.updateMany({
+      where: { month: ctx.month, sentAt: data.sentAt }, data: { staleAt: new Date() },
     }), 2)
   }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(

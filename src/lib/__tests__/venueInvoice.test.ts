@@ -267,44 +267,38 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
   })
 
-  it("keeps the new columns out of the outcome upsert; one separate update fenced on sentAt carries stale + what was sent (#549)", async () => {
+  it("SUCCESS outcome write carries staleAt null + the sent snapshot; only a fenced update sets staleAt when stale (#549)", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     await deliverInvoiceRequest(p, ctx)
-    for (const c of upsert().mock.calls) {
-      for (const part of [c[0].create, c[0].update]) {
-        expect(part).not.toHaveProperty("staleAt")
-        expect(part).not.toHaveProperty("sentRowCount")
-        expect(part).not.toHaveProperty("sentHours")
-      }
-    }
-    const sentAt = upsert().mock.calls[1][0].update.sentAt
-    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({
-      where: { month: "2026-09", sentAt }, data: { staleAt: expect.any(Date), sentRowCount: p.rows.length, sentHours: totalHours(p.rows) },
-    })
+    const snap = { staleAt: null, sentRowCount: p.rows.length, sentHours: totalHours(p.rows) }
+    const call = upsert().mock.calls[1][0]
+    expect(call.update).toMatchObject(snap)
+    expect(call.create).toMatchObject(snap)
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({ where: { month: "2026-09", sentAt: call.update.sentAt }, data: { staleAt: expect.any(Date) } })
   })
 
-  it("clears staleAt in the same separate update when the send was not stale", async () => {
+  it("no staleAt update when the send was not stale", async () => {
     const p = await prepare()
     await deliverInvoiceRequest(p, ctx)
-    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(1)
-    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { staleAt: null, sentRowCount: p.rows.length, sentHours: totalHours(p.rows) } }))
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ staleAt: expect.anything() }) }))
   })
 
-  it("retries the snapshot write once, and a failing write never fails the send", async () => {
+  it("retries the staleAt write once, and a failing write never fails the send", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     ;(prisma.venueUsageRequest.updateMany as jest.Mock).mockRejectedValue(new Error("db blip"))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(2)
-    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/sent-snapshot write failed/), expect.objectContaining({ month: "2026-09" }))
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/staleAt write failed/), expect.objectContaining({ month: "2026-09" }))
   })
 
-  it("writes no snapshot when the SUCCESS could not be recorded", async () => {
+  it("no staleAt update when the SUCCESS could not be recorded", async () => {
     const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
     await deliverInvoiceRequest(p, ctx)
-    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ sentRowCount: expect.anything() }) }))
+    expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ staleAt: expect.anything() }) }))
   })
 
   it("is not stale when only non-CONFIRMED rows changed", async () => {
