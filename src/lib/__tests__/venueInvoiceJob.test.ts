@@ -399,6 +399,13 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
       expect(prisma.venueUsage.findMany).not.toHaveBeenCalled()
       expect(mailText()).not.toMatch(/changed/)
     })
+    it("an audit row flagged recheckFailed (post-send re-check threw) is re-derived even though it has this send's sentAt", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", recheckFailed: true } })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() + 1000)]))
+      await runVenueInvoiceJob(OPEN)
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
     it("a failed re-derive read errs toward the warning and never blocks the retry", async () => {
       ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
       findUnique().mockResolvedValue(recorded)

@@ -318,8 +318,19 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     await deliverInvoiceRequest(p, { ...ctx, resend: true })
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({
       where: { month: "2026-09", status: "SUCCESS", sentAt: earlier },
-      data: { staleAt: expect.any(Date), sentRowCount: SNAP.rowCount, sentHours: SNAP.hours },
+      data: { staleAt: expect.any(Date), sentAt: expect.any(Date), sentRowCount: SNAP.rowCount, sentHours: SNAP.hours },
     })
+  })
+
+  it("the replace-snapshot write also moves the row's sentAt to this send, matching the audit row (#550)", async () => {
+    const earlier = new Date("2026-09-02T00:00:00Z")
+    ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue({ status: "SUCCESS", sentAt: earlier, errorMessage: null, approvedAt: null, autoSent: false, approvedBy: null })
+    const p = await prepare()
+    upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
+    await deliverInvoiceRequest(p, { ...ctx, resend: true })
+    const replaced = (prisma.venueUsageRequest.updateMany as jest.Mock).mock.calls.find((c) => c[0].where.sentAt === earlier)![0].data.sentAt as Date
+    const auditMeta = (logAudit as jest.Mock).mock.calls.find((c) => c[1] === "VENUE_USAGE_REQUEST_SENT")![4]
+    expect(auditMeta.sentAt).toBe(replaced.toISOString())
   })
 
   it("is not stale when only non-CONFIRMED rows changed", async () => {
@@ -333,6 +344,15 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockRejectedValueOnce(new Error("db blip"))
     expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: SNAP })
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*re-check/), expect.objectContaining({ month: "2026-09" }))
+  })
+
+  it("a failing re-check leaves sentAt out of the SENT audit row and flags it, so the retry re-derives (#550)", async () => {
+    const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockRejectedValueOnce(new Error("db blip"))
+    await deliverInvoiceRequest(p, ctx)
+    const meta = (logAudit as jest.Mock).mock.calls.find((c) => c[1] === "VENUE_USAGE_REQUEST_SENT")![4]
+    expect(meta).toMatchObject({ recheckFailed: true })
+    expect(meta).not.toHaveProperty("sentAt")
   })
 
   it("does not re-check a FAILED send", async () => {

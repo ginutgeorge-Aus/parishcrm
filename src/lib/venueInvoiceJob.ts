@@ -24,7 +24,7 @@ type RecordedSend = { staleAt: Date | null; sentAt: Date | null; sentRowCount: n
  * Whether the month's recorded SUCCESS send was stale (bookings changed while it went out), for the notices-only retry.
  * `staleAt` wins. Otherwise the send's audit row says whether the post-send check ran: it is written after the fenced
  * `staleAt` write and carries this send's `sentAt` (#550), so a matching row with no `stale` flag means the check ran
- * clean. Audit rows from before `sentAt` was recorded are trusted as they are (legacy). No matching row (the process
+ * clean; a `recheckFailed` row means the check threw, so it is re-derived. Audit rows from before `sentAt` was recorded are trusted as they are (legacy). No matching row (the process
  * died, or the audit write failed, between the SUCCESS outcome write and the stale marker) means the check never
  * landed, so it is re-derived from the rows ({@link changedSinceSend}). Erring toward "stale" only adds a
  * check-and-resend line.
@@ -41,6 +41,8 @@ async function recordedSendWasStale(month: string, sent: RecordedSend): Promise<
     const meta = row?.metadata
     if (meta && typeof meta === "object" && !Array.isArray(meta)) {
       if (meta.stale === true) return true
+      // The post-send re-check itself failed (#550): nothing was verified, so fall through to re-derive.
+      if (meta.recheckFailed === true) return sent.sentAt ? changedSinceSend(month, sent.sentAt, sent) : false
       if (meta.sentAt === undefined || meta.sentAt === sent.sentAt?.toISOString()) return false
     }
   } catch (e) {
