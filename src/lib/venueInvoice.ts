@@ -346,19 +346,26 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `stale: true` means the venue got rows that no longer match. The SUCCESS outcome write stores `staleAt: null` and the
  * `sentRowCount`/`sentHours` snapshot (the job's notices-only retry reads them); a separate fenced best-effort write then
  * sets `staleAt` when stale (the audit metadata also carries `stale`) and callers tell staff to check and resend.
+ * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag, so the warning errs safe.
+ * When a SUCCESS went out but the outcome write failed over an earlier SUCCESS, the row still holds the earlier
+ * send's `staleAt`/snapshot; a fenced best-effort write replaces them with this send's values.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  * @returns the send status (BUSY = refused before sending; `errorMessage` is the user-facing reason), its error, whether the outcome row was
- *   written (`recorded`), and whether the month's CONFIRMED rows changed during the send (`stale`)
+ *   written (`recorded`), whether the month's CONFIRMED rows changed during the send (`stale`), and the row count and
+ *   total hours the request listed (`snapshot`, the same values stored as `sentRowCount`/`sentHours`)
  */
 export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
-): Promise<{ status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
+): Promise<{
+  status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean; snapshot: { rowCount: number; hours: number }
+}> {
+  const snapshot = { rowCount: p.rows.length, hours: totalHours(p.rows) }
   const claim = await claimSending(p, ctx.month, ctx.resend)
   if (claim.refused !== null) {
     logger.warn("[venueInvoice] invoice request refused before sending", { month: ctx.month, reason: claim.refused })
-    return { status: "BUSY", errorMessage: claim.refused, recorded: false, stale: false }
+    return { status: "BUSY", errorMessage: claim.refused, recorded: false, stale: false, snapshot }
   }
   let status: "SUCCESS" | "FAILED" = "SUCCESS"
   let errorMessage: string | null = null
@@ -374,7 +381,7 @@ export async function deliverInvoiceRequest(
   const data = {
     sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null,
     // A SUCCESS send replaces the stale flag and the sent snapshot; a FAILED one leaves them alone.
-    ...(status === "SUCCESS" ? { staleAt: null, sentRowCount: p.rows.length, sentHours: totalHours(p.rows) } : {}),
+    ...(status === "SUCCESS" ? { staleAt: null, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours } : {}),
   }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
@@ -403,9 +410,17 @@ export async function deliverInvoiceRequest(
       where: { month: ctx.month, sentAt: data.sentAt }, data: { staleAt: new Date() },
     }), 2)
   }
+  // A SUCCESS that could not be recorded over an earlier SUCCESS leaves that send's flag and snapshot on the row. Replace
+  // them with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
+  if (status === "SUCCESS" && !recorded && p.last?.status === "SUCCESS" && p.last.sentAt) {
+    await afterSendWrite("could not replace the earlier send's snapshot", ctx.month, () => prisma.venueUsageRequest.updateMany({
+      where: { month: ctx.month, status: "SUCCESS", sentAt: p.last!.sentAt! },
+      data: { staleAt: stale ? new Date() : null, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
+    }), 2)
+  }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
-    { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
+    { month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
   ), 1)
-  return { status, errorMessage, recorded, stale }
+  return { status, errorMessage, recorded, stale, snapshot }
 }

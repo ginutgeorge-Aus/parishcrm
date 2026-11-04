@@ -10,11 +10,48 @@ import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { deliverInvoiceRequest, prepareInvoiceRequest, MAX_ROWS_PER_MONTH, warnIfMonthCapped } from "@/lib/venueInvoice"
 import { buildAutoSentEmail, buildReminderEmail, venuePageUrl } from "@/lib/venueNotices"
 import { venueInvoiceMonth, venueJobWindowOpen } from "@/lib/venueSchedule"
-import { describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
+import { confirmedOnly, describeIncomplete, formatHours, monthCompleteness, monthRange, totalHours } from "@/lib/venueUsage"
 import { VENUE_JOB_LEASE_MS } from "@/lib/venueApproval"
 
 /** A claim older than this is treated as abandoned (the work is a few emails, so a live run never gets near it). */
 export { VENUE_JOB_LEASE_MS }
+
+/**
+ * Whether the month's last recorded send was flagged stale (bookings changed while it went out), read back from
+ * its audit row. The notices-only retry consults it when `staleAt` is null: sends from before `staleAt` existed
+ * only have the audit flag, and a send whose best-effort `staleAt` write failed (or died) is otherwise indistinguishable
+ * from a clean one. Erring toward "stale" only adds a check-and-resend line. Best-effort: a missing row or failed read is false.
+ * @param month "YYYY-MM"
+ */
+async function recordedSendWasStale(month: string): Promise<boolean> {
+  try {
+    const row = await prisma.auditLog.findFirst({
+      where: { action: "VENUE_USAGE_REQUEST_SENT", resourceType: "VenueUsageRequest", metadata: { path: ["month"], equals: month } },
+      orderBy: { id: "desc" }, select: { metadata: true },
+    })
+    const meta = row?.metadata
+    return !!meta && typeof meta === "object" && !Array.isArray(meta) && meta.stale === true
+  } catch (e) {
+    logger.error(`[venueInvoiceJob] reading the send's stale flag failed: ${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+}
+
+/**
+ * Withdraw the month's approval so no later run (for example after a restart and lease expiry) can email the venue again.
+ * Same effect as `withdrawVenueApproval`, without the audit row. Never throws.
+ * @param month "YYYY-MM"
+ * @returns whether the write succeeded
+ */
+async function closeApproval(month: string): Promise<boolean> {
+  try {
+    await prisma.venueUsageRequest.updateMany({ where: { month, approvedAt: { not: null } }, data: { approvedAt: null, approvedById: null } })
+    return true
+  } catch (e) {
+    logger.error(`[venueInvoiceJob] withdrawing the approval failed: ${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+}
 
 /** `failed` and `inFlight` are what the scheduler retries on; `sent` = invoice requests emailed, `notified` = staff notices sent. */
 export type VenueJobResult = { sent: number; notified: number; failed: number; inFlight: number }
@@ -131,12 +168,17 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     }
     // Sent by an earlier run whose notices all failed: retry the notices only (no send). The notice comes from what
     // was persisted with the send; only rows from before that existed (null count) fall back to the current rows.
+    // The stale flag is `staleAt`, or the send's audit flag when `staleAt` is null (see recordedSendWasStale).
     isInvoiceNotice = true
+    const stale = !!request.staleAt || (await recordedSendWasStale(month))
     if (request.sentRowCount != null && request.sentHours != null) {
-      mail = autoSentNotice(churchName, month, { rowCount: request.sentRowCount, hours: Number(request.sentHours) }, !!request.staleAt)
+      mail = autoSentNotice(churchName, month, { rowCount: request.sentRowCount, hours: Number(request.sentHours) }, stale)
     } else {
-      const prep = await prepareInvoiceRequest(month, null)
-      mail = autoSentNotice(churchName, month, { rowCount: prep.rows.length, hours: totalHours(prep.rows) }, !!request.staleAt)
+      const { start, end } = monthRange(month)
+      const current = confirmedOnly(await prisma.venueUsage.findMany({
+        where: { date: { gte: start, lte: end } }, take: MAX_ROWS_PER_MONTH, select: { date: true, startTime: true, endTime: true, status: true },
+      }))
+      mail = autoSentNotice(churchName, month, { rowCount: current.length, hours: totalHours(current) }, stale)
     }
   } else {
     const { start, end } = monthRange(month)
@@ -161,7 +203,7 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
       sent = 1
       sentUnrecorded = !result.recorded
       isInvoiceNotice = true
-      mail = autoSentNotice(churchName, month, { rowCount: prep.rows.length, hours: totalHours(prep.rows) }, result.stale)
+      mail = autoSentNotice(churchName, month, result.snapshot, result.stale)
     } else {
       const problems = completeness.complete
         ? ["Everything is recorded, but the invoice request has not been approved for automatic sending."]
@@ -191,8 +233,13 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
     // Something already went out: releasing the claim would repeat it. Let the lease expire instead.
     logger.error(`[venueInvoiceJob] completion for ${month} is unrecorded after ${DONE_ATTEMPTS} attempts; claim kept until the lease expires`)
     if (sentUnrecorded) {
-      // Reported as a clean run on purpose: the scheduler's per-process month memo then stops later ticks, so this
-      // process never retries into a second venue email. Do not restart; withdraw the approval and check the venue.
+      // Close the approval so a restart plus lease expiry cannot resend (the next run then only sends a reminder).
+      if (await closeApproval(month)) {
+        logger.error(`[venueInvoiceJob] ${month} was emailed to the venue but never recorded. The approval was withdrawn so it cannot be resent; check the venue was emailed.`)
+        return { sent, notified, failed: 1, inFlight: 0 }
+      }
+      // Could not close it either: reported as a clean run on purpose, so the scheduler's per-process month memo
+      // stops later ticks and this process never retries into a second venue email. Do not restart; withdraw the approval by hand.
       logger.error(`[venueInvoiceJob] ${month} was emailed to the venue but never recorded. Do NOT restart the server (the expired lease would resend). Withdraw the approval in the UI (withdrawVenueApproval) and check the venue was emailed.`)
       return { sent, notified, failed: 0, inFlight: 0 }
     }
@@ -215,7 +262,9 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
  * A month this process emailed but could not record returns a result without failures, so the scheduler's per-process
  * month memo stops further ticks and the expired lease cannot cause a second venue email. Residual: a process restart
  * inside the 1st-7th window loses that memo and, once the lease expires, can resend; operators must withdraw the
- * approval (`withdrawVenueApproval`) and check the venue was emailed instead of restarting.
+ * approval (`withdrawVenueApproval`) and check the venue was emailed instead of restarting. When the completion
+ * write also fails, the job first withdraws the approval itself (best-effort) and reports `failed: 1`, so the scheduler does not
+ * log a clean run and a restart cannot resend; only if that write fails too does it fall back to the clean result above.
  * @param now run time
  */
 export async function runVenueInvoiceJob(now: Date = new Date()): Promise<VenueJobResult | typeof FEATURE_OFF_SKIP> {

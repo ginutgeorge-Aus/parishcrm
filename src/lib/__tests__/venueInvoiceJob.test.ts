@@ -4,6 +4,7 @@ jest.mock("@/lib/prisma", () => ({
     venueUsageRequest: { upsert: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
     venueUsage: { findMany: jest.fn() },
     user: { findMany: jest.fn() },
+    auditLog: { findFirst: jest.fn() },
   },
 }))
 jest.mock("@/lib/venueUsageSettings", () => ({ readVenueUsageSettings: jest.fn() }))
@@ -33,7 +34,7 @@ const OPEN_3RD = new Date("2026-11-03T00:00:00Z") // 3 Nov 11:00 AEDT: still in 
 const CLOSED = new Date("2026-10-31T21:00:00Z") // 1 Nov 08:00 AEDT
 const AFTER_WINDOW = new Date("2026-11-07T22:00:00Z") // 8 Nov 09:00 AEDT
 const ZERO = { sent: 0, notified: 0, failed: 0, inFlight: 0 }
-const complete = ["04", "11", "18", "25"].map((d) => ({ date: new Date(`2026-10-${d}T00:00:00Z`), status: "CONFIRMED" }))
+const complete = ["04", "11", "18", "25"].map((d) => ({ date: new Date(`2026-10-${d}T00:00:00Z`), status: "CONFIRMED", startTime: "17:00", endTime: "20:30" }))
 const staff = [{ email: "a@example.com" }, { email: "b@example.com" }]
 const updateMany = () => prisma.venueUsageRequest.updateMany as jest.Mock
 const findUnique = () => prisma.venueUsageRequest.findUnique as jest.Mock
@@ -48,7 +49,7 @@ beforeEach(() => {
   ;(prisma.user.findMany as jest.Mock).mockResolvedValue(staff)
   ;(getChurchName as jest.Mock).mockResolvedValue("Example Church")
   ;(prepareInvoiceRequest as jest.Mock).mockResolvedValue({ rows: complete.map((r) => ({ ...r, startTime: "17:00", endTime: "20:30" })) })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: { rowCount: 4, hours: 14 } })
 })
 
 it("does nothing outside the Sydney 1st-7th >= 09:00 window", async () => {
@@ -149,7 +150,7 @@ it("a failed invoice send releases the claim, reports failed, and never sets rem
 
 it("a manual send in flight (BUSY) releases the claim, reports inFlight, and notifies nobody (#528)", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   expect(await runVenueInvoiceJob(OPEN)).toEqual({ ...ZERO, inFlight: 1 })
   expect(sendEmail).not.toHaveBeenCalled()
   const datas = updateMany().mock.calls.map((c) => c[0].data)
@@ -167,7 +168,7 @@ it("all notices failing keeps the month open; a partial failure does not", async
 
 it("sent but unrecorded + every notice failed: closes the month (never releases) so the venue is not emailed twice", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
   const calls = updateMany().mock.calls.map((c) => c[0])
@@ -182,7 +183,7 @@ const doneWrites = () => updateMany().mock.calls.filter((c) => c[0].data.reminde
 
 it("notifyEditors throwing after an unrecorded send still records completion and keeps the claim", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   ;(prisma.user.findMany as jest.Mock).mockRejectedValue(new Error("db down"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
   expect(doneWrites()).toHaveLength(1)
@@ -276,7 +277,7 @@ it("checks the month read against the row cap (truncation is never silent)", asy
 
 it("a send that raced a booking change tells staff to check and resend (#509 #512)", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true, snapshot: { rowCount: 4, hours: 14 } })
   expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent.*Send again/)
 })
@@ -295,7 +296,7 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
     findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
     expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
     expect(prepareInvoiceRequest).not.toHaveBeenCalled()
-    expect(mailText()).toMatch(/2 /)
+    expect(mailText()).toContain("2 confirmed dates, 7.5 hours")
     expect(mailText()).toMatch(/7\.5 hours/)
     expect(mailText()).not.toMatch(/changed/)
   })
@@ -305,11 +306,32 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
     expect(prepareInvoiceRequest).not.toHaveBeenCalled()
     expect(mailText()).toMatch(/bookings changed while it was being sent/)
   })
-  it("legacy row (null snapshot) falls back to the current rows, still honouring staleAt", async () => {
+  it("legacy row (null snapshot) counts the current CONFIRMED rows with a cheap read (no prepare), still honouring staleAt", async () => {
     findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z"), sentRowCount: null, sentHours: null })
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([
+      { date: new Date("2026-10-04T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" },
+      { date: new Date("2026-10-11T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED" },
+    ])
     await runVenueInvoiceJob(OPEN)
-    expect(prepareInvoiceRequest).toHaveBeenCalledWith("2026-10", null)
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toMatch(/3\.5 hours/)
     expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("staleAt null but the send's audit row says stale: the warning is kept (legacy row or a lost staleAt write)", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true } })
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: null, sentHours: null })
+    ;(sendEmail as jest.Mock).mockClear()
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("an audit read failure never blocks the retry (treated as not stale)", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockRejectedValue(new Error("db"))
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+    expect(mailText()).not.toMatch(/changed/)
   })
   it("leaves the line out when the send was not stale (legacy row)", async () => {
     findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: null, sentHours: null })
@@ -320,9 +342,21 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
 
 it("a month sent but unrecorded whose completion write also failed reports no failure so the scheduler memo stops later ticks, and logs loudly", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   updateMany().mockResolvedValueOnce({ count: 1 }).mockRejectedValue(new Error("db down"))
   expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
   expect(releases()).toHaveLength(0)
   expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/Do NOT restart.*withdrawVenueApproval/))
+})
+
+it("a month sent but unrecorded whose completion write fails withdraws the approval and reports a failure (no restart resend)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
+  updateMany().mockImplementation(async (a: { data: Record<string, unknown> }) => {
+    if (a.data.reminderSentAt) throw new Error("db blip")
+    return { count: 1 }
+  })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 1, inFlight: 0 })
+  expect(updateMany()).toHaveBeenCalledWith({ where: { month: "2026-10", approvedAt: { not: null } }, data: { approvedAt: null, approvedById: null } })
+  expect(releases()).toHaveLength(0)
 })

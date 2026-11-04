@@ -57,6 +57,7 @@ beforeEach(() => {
 })
 
 const prepare = () => prepareInvoiceRequest("2026-09", null)
+const SNAP = { rowCount: 1, hours: 3.5 }
 
 describe("recipients", () => {
   it("invoiceRecipients: reply-to falls back to the actor, CC is de-duplicated and excludes the To address", () => {
@@ -124,7 +125,7 @@ describe("deliverInvoiceRequest", () => {
   it("SUCCESS stamps the request row with autoSent and audits with a null user for the scheduler", async () => {
     const p = await prepare()
     expect(await deliverInvoiceRequest(p, { month: "2026-09", userId: null, autoSent: true, resend: false }))
-      .toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false })
+      .toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: SNAP })
     // calls[0] is the in-flight mark; calls[1] the outcome.
     const upsert = (prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0]
     expect(upsert.update).toMatchObject({ status: "SUCCESS", sentTo: "enc:venue@example.com", sentById: null, autoSent: true, sendingAt: null })
@@ -134,7 +135,7 @@ describe("deliverInvoiceRequest", () => {
   it("FAILED records the error", async () => {
     ;(sendVenueUsageRequestEmail as jest.Mock).mockRejectedValue(new Error("smtp down"))
     const r = await deliverInvoiceRequest(await prepare(), { month: "2026-09", userId: 7, autoSent: false, resend: false })
-    expect(r).toEqual({ status: "FAILED", errorMessage: "smtp down", recorded: true, stale: false })
+    expect(r).toEqual({ status: "FAILED", errorMessage: "smtp down", recorded: true, stale: false, snapshot: SNAP })
     expect((prisma.venueUsageRequest.upsert as jest.Mock).mock.calls[1][0].update).toMatchObject({ status: "FAILED", errorMessage: "smtp down" })
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined, expect.any(Object))
   })
@@ -164,7 +165,7 @@ describe("deliverInvoiceRequest after the email has gone", () => {
 
   it("retries the success write once and still reports SUCCESS", async () => {
     upsert().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("db blip")).mockResolvedValueOnce({})
-    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false })
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: SNAP })
     expect(sendVenueUsageRequestEmail).toHaveBeenCalledTimes(1)
     expect(upsert()).toHaveBeenCalledTimes(3)
     expect(upsert().mock.calls[2][0].update).toMatchObject({ status: "SUCCESS" })
@@ -172,7 +173,7 @@ describe("deliverInvoiceRequest after the email has gone", () => {
 
   it("a success write that fails twice is logged loudly (no PII) and never throws or reports FAILED", async () => {
     upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
-    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false })
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: SNAP })
     expect(upsert()).toHaveBeenCalledTimes(3)
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*not recorded/), expect.objectContaining({ month: "2026-09", error: "db down" }))
     expect(JSON.stringify((logger.error as jest.Mock).mock.calls)).not.toContain("venue@example.com")
@@ -214,7 +215,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
 
   it("a claim that fails with a non-conflict error (timeout, dropped connection) refuses: nothing sent", async () => {
     upsert().mockRejectedValueOnce(new Error("connection terminated")).mockResolvedValue({})
-    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "BUSY", errorMessage: INVOICE_CLAIM_FAILED_ERROR, recorded: false, stale: false })
+    expect(await deliverInvoiceRequest(await prepare(), ctx)).toEqual({ status: "BUSY", errorMessage: INVOICE_CLAIM_FAILED_ERROR, recorded: false, stale: false, snapshot: SNAP })
     expect(sendVenueUsageRequestEmail).not.toHaveBeenCalled()
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*could not claim/), expect.objectContaining({ month: "2026-09" }))
   })
@@ -262,7 +263,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
   it("reports stale when the month's CONFIRMED rows changed while sending, and audits it", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
-    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true, snapshot: SNAP })
     expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*changed while/), { month: "2026-09" })
     expect(logAudit).toHaveBeenCalledWith(7, "VENUE_USAGE_REQUEST_SENT", "VenueUsageRequest", undefined, expect.objectContaining({ stale: true }))
   })
@@ -288,7 +289,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
     ;(prisma.venueUsageRequest.updateMany as jest.Mock).mockRejectedValue(new Error("db blip"))
-    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true, snapshot: SNAP })
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledTimes(2)
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/staleAt write failed/), expect.objectContaining({ month: "2026-09" }))
   })
@@ -301,6 +302,19 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     expect(prisma.venueUsageRequest.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ staleAt: expect.anything() }) }))
   })
 
+  it("an unrecorded SUCCESS over an earlier SUCCESS replaces that send's flag and snapshot, fenced on its sentAt (#549)", async () => {
+    const earlier = new Date("2026-09-02T00:00:00Z")
+    ;(prisma.venueUsageRequest.findUnique as jest.Mock).mockResolvedValue({ status: "SUCCESS", sentAt: earlier, errorMessage: null, approvedAt: null, autoSent: false, approvedBy: null })
+    const p = await prepare()
+    aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockResolvedValueOnce(versionOf([{ ...sunday6, updatedAt: new Date("2026-09-01T00:00:00Z") }]))
+    upsert().mockResolvedValueOnce({}).mockRejectedValue(new Error("db down"))
+    await deliverInvoiceRequest(p, { ...ctx, resend: true })
+    expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({
+      where: { month: "2026-09", status: "SUCCESS", sentAt: earlier },
+      data: { staleAt: expect.any(Date), sentRowCount: SNAP.rowCount, sentHours: SNAP.hours },
+    })
+  })
+
   it("is not stale when only non-CONFIRMED rows changed", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6, { ...sunday6, status: "REQUESTED", updatedAt: new Date("2026-09-01T00:00:00Z") }]))
@@ -310,7 +324,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
   it("a failing re-check never fails the send (logged, stale false)", async () => {
     const p = await prepare()
     aggregate().mockResolvedValueOnce(versionOf([sunday6])).mockRejectedValueOnce(new Error("db blip"))
-    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false })
+    expect(await deliverInvoiceRequest(p, ctx)).toEqual({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: SNAP })
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/venueInvoice.*re-check/), expect.objectContaining({ month: "2026-09" }))
   })
 
@@ -327,8 +341,8 @@ describe("deliverInvoiceRequest send claim (#528 #509 #512)", () => {
   const upsert = () => prisma.venueUsageRequest.upsert as jest.Mock
   const findUnique = () => prisma.venueUsageRequest.findUnique as jest.Mock
   const ctx = { month: "2026-09", userId: 7, autoSent: false, resend: false }
-  const busy = { status: "BUSY", errorMessage: INVOICE_SEND_BUSY_ERROR, recorded: false, stale: false }
-  const refused = (errorMessage: string) => ({ status: "BUSY", errorMessage, recorded: false, stale: false })
+  const busy = { status: "BUSY", errorMessage: INVOICE_SEND_BUSY_ERROR, recorded: false, stale: false, snapshot: SNAP }
+  const refused = (errorMessage: string) => ({ status: "BUSY", errorMessage, recorded: false, stale: false, snapshot: SNAP })
   const p2034 = () => Object.assign(new Error("serialization failure"), { code: "P2034" })
 
   it("refuses a second send while another send's stamp is live: nothing sent, recorded or audited", async () => {
