@@ -37,7 +37,7 @@ export function adoptionProblem(
     return "unavailable"
   if (leg.reconciled) return "reconciled"
   if (
-    leg.type !== "EXPENSE" || leg.accountId !== ctx.xferAccountId || leg.paymentAccountId !== ctx.cashAccountId ||
+    leg.type !== "EXPENSE" || leg.accountId !== ctx.xferAccountId || (leg.paymentAccountId !== null && leg.paymentAccountId !== ctx.cashAccountId) ||
     toCents(leg.amount.toFixed(2)) !== toCents(transfer.amount)
   )
     return "legMismatch"

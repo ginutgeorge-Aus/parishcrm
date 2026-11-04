@@ -48,11 +48,11 @@ it("maps deposits of unlinked legs, decrypting the description", async () => {
   expect(findMany.mock.calls[1][0].where.bankRef).toEqual({ in: ["ANZ_1"] })
 })
 
-it("only lists unreconciled legs on the cash payment account", async () => {
+it("only lists unreconciled legs on the cash payment account (or legacy null, #487)", async () => {
   findMany.mockResolvedValueOnce([])
   await listImportedTransferCandidates()
   expect(findMany.mock.calls[0][0].where).toEqual(
-    expect.objectContaining({ reconciled: false, paymentAccountId: 2, pettyCashTransferId: null })
+    expect.objectContaining({ reconciled: false, OR: [{ paymentAccountId: null }, { paymentAccountId: 2 }], pettyCashTransferId: null })
   )
 })
 
