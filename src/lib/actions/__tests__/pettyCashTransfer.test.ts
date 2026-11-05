@@ -281,6 +281,71 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(tx.transaction.findMany).toHaveBeenCalledTimes(1)
   })
 
+  describe("admin override of the cross-day window guard", () => {
+    const legDay = new Date("2026-07-28")
+    const setup = () => {
+      const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }], legDay)
+      mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      return tx
+    }
+    const overrideForm = () => { const fd = form(); fd.set("overrideWindowGuard", "true"); return fd }
+
+    it("ignores the flag for a non-admin (still blocked)", async () => {
+      ;(auth as jest.Mock).mockResolvedValue({ user: { role: "PASTOR", id: "2" } })
+      const tx = setup()
+      const res = await createTransfer(1, undefined, overrideForm())
+      expect(res).toEqual({ error: expect.stringContaining("within 7 days of this transfer") })
+      expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    })
+
+    it("lets an admin record a different-day window match and audit-logs the override", async () => {
+      const tx = setup()
+      await createTransfer(1, undefined, overrideForm())
+      expect(tx.pettyCashTransfer.create).toHaveBeenCalled()
+      expect(logAuditTx).toHaveBeenCalledWith(
+        tx, 1, "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", 3,
+        expect.objectContaining({ windowGuardOverridden: true }),
+      )
+    })
+
+    it("does not flag the audit entry when no window leg was overridden", async () => {
+      const tx = txMock(null)
+      mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      await createTransfer(1, undefined, overrideForm())
+      expect((logAuditTx as jest.Mock).mock.calls.at(-1)![5]).not.toHaveProperty("windowGuardOverridden")
+    })
+
+    it("does not bypass the same-day duplicate guard for an admin", async () => {
+      const tx = txMock({ id: 11 })
+      mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      const res = await createTransfer(1, undefined, overrideForm())
+      expect(res).toEqual({ error: expect.stringContaining("for this amount and date already exists") })
+      expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    })
+
+    it("does not bypass the same-day adopted-leg guard for an admin", async () => {
+      const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7, date: day }])
+      mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      const res = await createTransfer(1, undefined, overrideForm())
+      expect(res).toEqual({ error: expect.stringContaining("already recorded as a petty cash transfer") })
+    })
+  })
+
+  it("centres the window on the UTC day, so a date with a time component still catches a leg exactly 7 days out", async () => {
+    const legDay = new Date("2026-07-24")
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }], legDay)
+    const inRange = (d: Date, r: { gte: Date; lte: Date }) => d >= r.gte && d <= r.lte
+    tx.transaction.findMany.mockImplementation(async ({ where }: { where: { type: string; date: { gte: Date; lte: Date } } }) =>
+      inRange(legDay, where.date)
+        ? (where.type === "INCOME" ? [{ bankRef: "B1", date: legDay }] : [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }])
+        : [])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const fd = form()
+    fd.set("date", "2026-07-31T10:30:00Z")
+    const res = await createTransfer(1, undefined, fd)
+    expect(res).toEqual({ error: expect.stringContaining("on 2026-07-24") })
+  })
+
   // Boundary: the mock honours where.date gte/lte like the DB, so the window is inclusive at exactly 7 days.
   describe.each([
     ["exactly 7 days from the transfer date is blocked", "2026-07-24", true],

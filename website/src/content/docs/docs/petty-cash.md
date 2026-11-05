@@ -16,6 +16,7 @@ Inside an open session (`/accounting/petty-cash/sessions/[id]`):
   Manual-transfer guard:
   - A manual transfer is rejected when a matching imported cash-out already exists (same amount, with its paired bank deposit) — otherwise petty cash would be reduced twice. The check covers an unlinked imported cash-out of the same amount dated within 7 days of the transfer date (inclusive), not just the same day. Adopt the imported deposit via the picker instead (if it is on a different day, set the transfer date to the deposit's date first).
   - If that cash-out is already reconciled, un-reconcile it first, then pick the deposit.
+  - An **ADMIN** can override only this 7-day check, for example a fixed recurring weekly deposit that legitimately repeats the same amount. After the rejection, tick **Admin: record anyway (separate deposit)** and submit again. The override is audit-logged and never bypasses the same-day check below.
   - The same applies when the imported deposit was already recorded as a transfer: a second manual transfer for that amount and day is rejected. For a genuinely separate deposit, use a different date.
   - An unlinked imported cash-out 8 or more days from the transfer date is not caught, so use the picker whenever the deposit was imported. A cash-out already linked to another transfer only blocks a manual transfer on the same day.
   - Two same-amount deposits on one day can't both be entered manually when one was imported; pick the imported one, then enter the other.

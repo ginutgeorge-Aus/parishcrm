@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { fmtAUD, toCents } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
+import { WINDOW_GUARD_TAG } from "@/lib/xferRefs"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
 
@@ -34,6 +35,7 @@ export function TransferForm({
   imported = [],
   importedTruncated = false,
   importedFiltered = false,
+  isAdmin = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -43,6 +45,8 @@ export function TransferForm({
   importedTruncated?: boolean
   /** True when the list is narrowed to one amount + day via the lookup link. */
   importedFiltered?: boolean
+  /** Viewer is ADMIN: may override the cross-day window guard (server re-checks the role). */
+  isAdmin?: boolean
 }>) {
   const router = useRouter()
   // Idempotency token (#491), created once per mounted form — not per server
@@ -57,6 +61,8 @@ export function TransferForm({
     return action(prev, formData)
   }
   const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
+  // Controlled (not an uncontrolled field) so it survives React's post-action form reset.
+  const [override, setOverride] = useState(false)
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
@@ -87,6 +93,19 @@ export function TransferForm({
   return (
     <form action={formAction} className="max-w-lg space-y-4">
       {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
+
+      {isAdmin && state?.error?.includes(WINDOW_GUARD_TAG) && (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={override}
+            onChange={(e) => setOverride(e.target.checked)}
+            className="mt-1 size-4 shrink-0"
+          />
+          <span>Admin: record anyway (separate deposit)</span>
+        </label>
+      )}
+      <input type="hidden" name="overrideWindowGuard" value={override ? "true" : ""} />
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm">
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>

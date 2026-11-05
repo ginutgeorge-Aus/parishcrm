@@ -133,3 +133,30 @@ test("falls back to getRandomValues when crypto.randomUUID is unavailable (insec
     Object.defineProperty(globalThis.crypto, "randomUUID", { value: original, configurable: true })
   }
 })
+
+describe("admin window-guard override", () => {
+  const windowErr = async () => ({ error: "An imported deposit for this amount on 2026-07-28 (within 7 days of this transfer) already booked" })
+
+  async function submit(props: { isAdmin?: boolean; action?: (p: unknown, f: FormData) => Promise<{ error: string } | undefined> }) {
+    render(<TransferForm action={props.action ?? windowErr} maxAmount={100} isAdmin={props.isAdmin} />)
+    fireEvent.change(screen.getByLabelText(/amount deposited/i), { target: { value: "50.00" } })
+    fireEvent.change(screen.getByLabelText(/deposited by/i), { target: { value: "T" } })
+    await act(async () => { fireEvent.submit(screen.getByRole("button", { name: /record transfer/i }).closest("form")!) })
+  }
+
+  test("admin sees the checkbox after a window error", async () => {
+    await submit({ isAdmin: true })
+    expect(screen.getByLabelText(/admin: record anyway/i)).toBeInTheDocument()
+  })
+
+  test("non-admin sees only the message", async () => {
+    await submit({ isAdmin: false })
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    expect(screen.queryByLabelText(/admin: record anyway/i)).not.toBeInTheDocument()
+  })
+
+  test("admin does not see it for other errors", async () => {
+    await submit({ isAdmin: true, action: async () => ({ error: "Something else" }) })
+    expect(screen.queryByLabelText(/admin: record anyway/i)).not.toBeInTheDocument()
+  })
+})

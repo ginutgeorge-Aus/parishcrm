@@ -14,7 +14,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
-import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, legsByDepositRef } from "@/lib/xferRefs"
+import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG, legsByDepositRef } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2002, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -48,7 +48,7 @@ const DUPLICATE_LEG_ERROR =
  * @returns the user-facing message naming that day
  */
 function windowLegError(depositDay: string): string {
-  return `An imported deposit for this amount on ${depositDay} (within 7 days of this transfer) already booked its petty cash cash-out, so entering it manually would count it twice. If this transfer is that deposit, set the date to ${depositDay} and pick the imported deposit in the form (un-reconcile its cash-out first if needed). If it is a separate deposit, record the imported one first by picking it, then enter this one.`
+  return `An imported deposit for this amount on ${depositDay} ${WINDOW_GUARD_TAG} already booked its petty cash cash-out, so entering it manually would count it twice. If this transfer is that deposit, set the date to ${depositDay} and pick the imported deposit in the form (un-reconcile its cash-out first if needed). If it is a separate deposit, record the imported one first by picking it, then enter this one.`
 }
 
 // Thrown inside the createTransfer Serializable transaction to surface a
@@ -162,6 +162,12 @@ const TransferSchema = z.object({
     // Strict digits-only parse: Number() would accept "0x10", "1e1" or " 12 ".
     .transform((v) => (v ? (parseRouteId(v) ?? NaN) : undefined))
     .refine((v) => v === undefined || !Number.isNaN(v), "Invalid imported deposit"),
+  // ADMIN-only bypass of the cross-day window guard (never the same-day duplicate guard).
+  // Parsed here so it is validated like every other field; honoured only for admins in the action.
+  overrideWindowGuard: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
   // Per-page-load idempotency token from the form (#491). Optional so older
   // clients / direct callers still work, just without replay protection.
   submissionToken: z
@@ -174,7 +180,9 @@ const TransferSchema = z.object({
 /**
  * Record a petty cash transfer. ADMIN/PASTOR only. A replayed submission (same
  * form `submissionToken` as a committed transfer) redirects to the session
- * without creating a duplicate (#491).
+ * without creating a duplicate (#491). An ADMIN may set `overrideWindowGuard=true`
+ * to record a separate deposit despite the cross-day window guard; the same-day
+ * duplicate guard is never overridable, and the override is audit-logged.
  */
 export async function createTransfer(
   sessionId: number,
@@ -202,6 +210,9 @@ export async function createTransfer(
   // petty-cash pair write (#493), which is Serializable too: a concurrent import
   // of this deposit and this manual transfer can't both commit a cash-out.
   const token = parsed.data.submissionToken
+  // Server-side role check: a non-admin sending the field is silently ignored.
+  const windowOverride = parsed.data.overrideWindowGuard && isAdmin(session?.user?.role)
+  let windowOverridden = false
   const sub: TokenSubmission = {
     sessionId,
     amount: parsed.data.amount,
@@ -298,7 +309,9 @@ export async function createTransfer(
         // Different-day legs only count while unlinked: an adopted leg's deposit is already paired with
         // a transfer, so a same-amount transfer days later is a separate deposit (#492 stays same-day).
         const transferDay = utcYmd(parsed.data.date)
-        const t = parsed.data.date.getTime()
+        // Centre the window on the UTC-midnight day, not the raw timestamp: a date with a time component
+        // would otherwise shift the window and miss a leg exactly 7 days away.
+        const t = utcDayRange(parsed.data.date).gte.getTime()
         const windowRange = { gte: new Date(t - XFER_WINDOW_MS), lte: new Date(t + XFER_WINDOW_MS) }
         const legs = await tx.transaction.findMany({
           where: {
@@ -334,8 +347,10 @@ export async function createTransfer(
           // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
           if (kinds.some((k) => k.sameDay && !k.linked)) throw new TransferError(DUPLICATE_LEG_ERROR)
           const other = kinds.find((k) => !k.linked)
-          if (other) throw new TransferError(windowLegError(other.day))
-          if (kinds.length) throw new TransferError(DUPLICATE_ADOPTED_LEG_ERROR)
+          // The window guard alone is admin-overridable (e.g. fixed recurring weekly deposits).
+          if (other && !windowOverride) throw new TransferError(windowLegError(other.day))
+          if (other) windowOverridden = true
+          if (kinds.some((k) => k.linked)) throw new TransferError(DUPLICATE_ADOPTED_LEG_ERROR)
         }
       }
       const transfer = await tx.pettyCashTransfer.create({
@@ -384,6 +399,7 @@ export async function createTransfer(
       }
       await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
         amount: parsed.data.amount, sessionId,
+        ...(windowOverridden ? { windowGuardOverridden: true } : {}),
         ...(adoptLegId !== null ? { importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: adoptLegId } : {}),
       })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
