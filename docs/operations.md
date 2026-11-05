@@ -14,6 +14,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `rotate-encryption-key` | Re-encrypt all fields under a new key (usage in the script header). Safe with the app running: each write is conditional on the ciphertext it read, so a concurrent edit is never reverted. A changed row is re-read and retried (3x); rows that keep changing are reported as conflicts and the run exits non-zero — re-run to finish |
 | `set-default-monthly-dues` | One-time backfill: `Family.monthlyDues` for member families with no amount |
 | `backfill-petty-cash-sundays` | Backfill the weekly petty-cash session for past Sundays that never had one auto-opened |
+| `backfill-petty-cash-xfer-legs` | Backfill (#487): set `paymentAccountId` to the cash account on legacy `XFER_OUT_` petty-cash legs where it is null. Always prints the count; writes only with `--apply --yes` and exactly one active CASH account. Idempotent, dry-run default |
 | `hash-bankref-account` | Backfill (#459): rewrite legacy `Transaction.bankRef` values that embed the bank account number to the hashed at-rest format. Idempotent, dry-run default, conflict-safe; see [Bank import: `bankRef` at rest](#bank-import-bankref-at-rest) |
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate `PettyCashReceipt`/`Expense` `importKey` values before a `@unique` is added |
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
