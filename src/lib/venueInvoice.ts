@@ -203,11 +203,13 @@ function sameVersion(a: MonthVersion, b: MonthVersion): boolean {
 /**
  * After a successful send, whether the month's CONFIRMED rows still match what the email listed. A booking edit
  * that committed between {@link prepareInvoiceRequest} and the send is otherwise invisible. Never throws (the
- * email has gone): a failed re-read is logged and reported as not stale.
+ * email has gone): a failed re-read is logged and reported as `null` (unknown), so the caller can leave the check
+ * recoverable instead of recording a clean result (#550).
  * @param p the prepared request that was sent
  * @param month "YYYY-MM"
+ * @returns true when changed, false when unchanged, null when the re-read failed
  */
-async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean> {
+async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean | null> {
   try {
     const { start, end } = monthRange(month)
     const stale = !sameVersion(await readMonthVersion(start, end), p.version)
@@ -215,7 +217,7 @@ async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean
     return stale
   } catch (e) {
     logger.error("[venueInvoice] post-send re-check of the month failed", { month, error: e instanceof Error ? e.message : String(e) })
-    return false
+    return null
   }
 }
 
@@ -346,7 +348,8 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * `stale: true` means the venue got rows that no longer match. The SUCCESS outcome write stores `staleAt: null` and the
  * `sentRowCount`/`sentHours` snapshot (the job's notices-only retry reads them); a separate fenced best-effort write then
  * sets `staleAt` when stale (the audit metadata also carries `stale`) and callers tell staff to check and resend.
- * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag, so the warning errs safe.
+ * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag (the row carries this send's
+ * `sentAt`); if the process dies before the audit row too, the retry re-derives the check from the rows (#550).
  * When a SUCCESS went out but the outcome write failed over an earlier SUCCESS, the row still holds the earlier
  * send's `staleAt`/snapshot; a fenced best-effort write replaces them with this send's values.
  * @param p result of {@link prepareInvoiceRequest}
@@ -401,7 +404,10 @@ export async function deliverInvoiceRequest(
     if (!recorded) await clearSending(ctx.month, claim.stamp)
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
-  const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
+  const checked = status === "SUCCESS" ? await changedDuringSend(p, ctx.month) : false
+  const stale = checked === true
+  // The re-check itself failed (not "unchanged"): the audit row must not claim a finished clean check (#550).
+  const recheckFailed = checked === null
   // Best-effort and separate from the outcome upsert, so a failure here never undoes the success record after the email
   // went out. Two tries; fenced on this send's `sentAt` so a later send's row is never touched. The outcome write
   // already cleared `staleAt`, so this only ever sets it.
@@ -411,16 +417,21 @@ export async function deliverInvoiceRequest(
     }), 2)
   }
   // A SUCCESS that could not be recorded over an earlier SUCCESS leaves that send's flag and snapshot on the row. Replace
-  // them with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
+  // them, and the send's provenance, with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
   if (status === "SUCCESS" && !recorded && p.last?.status === "SUCCESS" && p.last.sentAt) {
     await afterSendWrite("could not replace the earlier send's snapshot", ctx.month, () => prisma.venueUsageRequest.updateMany({
       where: { month: ctx.month, status: "SUCCESS", sentAt: p.last!.sentAt! },
-      data: { staleAt: stale ? new Date() : null, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
+      data: { staleAt: stale ? new Date() : null, sentAt: data.sentAt, sentTo: data.sentTo, sentById: data.sentById, autoSent: data.autoSent, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
     }), 2)
   }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
-    { month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
+    {
+      month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}),
+      // Ties the row to this send, so the notices-only retry can tell a finished stale check from a lost one (#550).
+      // When the re-check itself failed, `sentAt` is left out and `recheckFailed` set, so the retry re-derives instead.
+      ...(status === "SUCCESS" ? (recheckFailed ? { recheckFailed: true } : { sentAt: data.sentAt.toISOString() }) : {}),
+    },
   ), 1)
   return { status, errorMessage, recorded, stale, snapshot }
 }
