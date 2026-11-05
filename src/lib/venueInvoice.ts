@@ -417,11 +417,11 @@ export async function deliverInvoiceRequest(
     }), 2)
   }
   // A SUCCESS that could not be recorded over an earlier SUCCESS leaves that send's flag and snapshot on the row. Replace
-  // them with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
+  // them, and the send's provenance, with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
   if (status === "SUCCESS" && !recorded && p.last?.status === "SUCCESS" && p.last.sentAt) {
     await afterSendWrite("could not replace the earlier send's snapshot", ctx.month, () => prisma.venueUsageRequest.updateMany({
       where: { month: ctx.month, status: "SUCCESS", sentAt: p.last!.sentAt! },
-      data: { staleAt: stale ? new Date() : null, sentAt: data.sentAt, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
+      data: { staleAt: stale ? new Date() : null, sentAt: data.sentAt, sentTo: data.sentTo, sentById: data.sentById, autoSent: data.autoSent, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
     }), 2)
   }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(

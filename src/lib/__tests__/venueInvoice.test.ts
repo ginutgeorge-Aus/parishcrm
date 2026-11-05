@@ -318,7 +318,7 @@ describe("deliverInvoiceRequest in-flight window (#509 #512)", () => {
     await deliverInvoiceRequest(p, { ...ctx, resend: true })
     expect(prisma.venueUsageRequest.updateMany).toHaveBeenCalledWith({
       where: { month: "2026-09", status: "SUCCESS", sentAt: earlier },
-      data: { staleAt: expect.any(Date), sentAt: expect.any(Date), sentRowCount: SNAP.rowCount, sentHours: SNAP.hours },
+      data: { staleAt: expect.any(Date), sentAt: expect.any(Date), sentTo: expect.anything(), sentById: ctx.userId, autoSent: ctx.autoSent, sentRowCount: SNAP.rowCount, sentHours: SNAP.hours },
     })
   })
 

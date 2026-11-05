@@ -334,7 +334,7 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
     expect(mailText()).toMatch(/bookings changed while it was being sent/)
   })
   it("staleAt null but the send's audit row says stale: the warning is kept (legacy row or a lost staleAt write)", async () => {
-    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true } })
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true }, createdAt: new Date("2026-11-02T00:00:00Z") })
     findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
     await runVenueInvoiceJob(OPEN)
     expect(mailText()).toMatch(/bookings changed while it was being sent/)
@@ -399,12 +399,28 @@ describe("notices-only retry rebuilds the notice from the persisted send (#536 #
       expect(prisma.venueUsage.findMany).not.toHaveBeenCalled()
       expect(mailText()).not.toMatch(/changed/)
     })
-    it("an audit row flagged recheckFailed (post-send re-check threw) is re-derived even though it has this send's sentAt", async () => {
+    it("an audit row flagged recheckFailed (post-send re-check threw) is re-derived", async () => {
       ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", recheckFailed: true } })
       findUnique().mockResolvedValue(recorded)
       ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() + 1000)]))
       await runVenueInvoiceJob(OPEN)
       expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+    it("an older send's audit row (stale, other sentAt) does not carry over to this send: the check is re-derived", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true, sentAt: "2026-10-01T00:00:00.000Z" }, createdAt: new Date("2026-10-01T00:00:00Z") })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]))
+      await runVenueInvoiceJob(OPEN)
+      expect(prisma.venueUsage.findMany).toHaveBeenCalled()
+      expect(mailText()).not.toMatch(/bookings changed/)
+    })
+    it("a legacy audit row (no sentAt) written before this send is re-derived, not trusted", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true }, createdAt: new Date(sentAt.getTime() - 60_000) })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]))
+      await runVenueInvoiceJob(OPEN)
+      expect(prisma.venueUsage.findMany).toHaveBeenCalled()
+      expect(mailText()).not.toMatch(/bookings changed/)
     })
     it("a failed re-derive read errs toward the warning and never blocks the retry", async () => {
       ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
