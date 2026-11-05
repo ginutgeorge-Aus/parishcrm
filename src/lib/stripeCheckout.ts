@@ -3,7 +3,7 @@
 // `docs/reference-jest-nextserver-route-trap.md`). Anything request-specific
 // (headers, IP) stays in the caller (`src/lib/actions/eventCheckout.ts`).
 import { prisma } from "@/lib/prisma"
-import { getStripe } from "@/lib/stripe"
+import { getStripe, STRIPE_API_VERSION } from "@/lib/stripe"
 import { encrypt, decrypt } from "@/lib/crypto"
 import { toCents } from "@/lib/formatting"
 import { STRIPE_CURRENCY, toStripeAmount, roundCentsForCurrency } from "@/lib/stripeAmount"
@@ -267,6 +267,19 @@ export async function createExistingRegistrationCheckoutSession(
   }
 }
 
+let apiVersionWarned = false
+
+/**
+ * Warns once per process when the webhook endpoint's api_version differs from
+ * the version this app's types assume: payload fields may have changed and
+ * registrations could silently stop completing. Fix = recreate the endpoint.
+ */
+function warnOnApiVersionMismatch(eventVersion: string | null | undefined): void {
+  if (apiVersionWarned || !eventVersion || eventVersion === STRIPE_API_VERSION) return
+  apiVersionWarned = true
+  console.warn(`Stripe webhook api_version ${eventVersion} differs from app ${STRIPE_API_VERSION} — recreate the endpoint at ${STRIPE_API_VERSION}`)
+}
+
 // Verifies + routes Stripe webhook deliveries for the event-payments flow.
 // Signature verification gates everything; the raw body is never logged (it
 // could appear in an error from a malformed/forged request).
@@ -282,7 +295,7 @@ export async function handleStripeWebhook(
   signature: string | null,
 ): Promise<{ status: number }> {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
-  if (!secret) {
+  if (!secret?.trim()) {
     // Own-side misconfig, not routine bad traffic: an unset/corrupt webhook
     // secret 400s EVERY delivery (checkout.completed, refund, dispute) with no
     // app-level signal — registrations silently stop completing. Log it
@@ -299,6 +312,7 @@ export async function handleStripeWebhook(
   } catch {
     return { status: 400 } // bad signature — never log the raw body
   }
+  warnOnApiVersionMismatch(event.api_version)
 
   // Payment Links (e.g. offertory) share this Stripe account and endpoint.
   // Event checkouts are always created via sessions.create, never a Payment

@@ -20,7 +20,7 @@ jest.mock("@/lib/stripe", () => {
   const webhooks = { constructEvent: jest.fn() }
   const refunds = { create: jest.fn() }
   const checkout = { sessions: { list: jest.fn() } }
-  return { getStripe: () => ({ webhooks, refunds, checkout }) }
+  return { getStripe: () => ({ webhooks, refunds, checkout }), STRIPE_API_VERSION: "2026-09-30.endive" }
 })
 jest.mock("@/lib/eventRegistrationPersist", () => ({ persistRegistration: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({ prisma: {
@@ -69,6 +69,26 @@ it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is unset", 
   // Own-side misconfig must be observable, not silent like routine bad traffic.
   expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"))
   errSpy.mockRestore()
+})
+
+it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is whitespace-only", async () => {
+  process.env.STRIPE_WEBHOOK_SECRET = "   "
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 400 })
+  expect(constructEvent).not.toHaveBeenCalled()
+  expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"))
+  errSpy.mockRestore()
+})
+
+it("warns once when the endpoint api_version differs from the app's", async () => {
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_x"
+  const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {})
+  constructEvent.mockReturnValue({ type: "ping", api_version: "2026-08-26.dahlia", data: { object: {} } })
+  await handleStripeWebhook("{}", "sig")
+  await handleStripeWebhook("{}", "sig")
+  expect(warnSpy).toHaveBeenCalledTimes(1)
+  expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("2026-08-26.dahlia"))
+  warnSpy.mockRestore()
 })
 
 it("rejects with 400 when signature header is missing — silent, routine bad traffic", async () => {
