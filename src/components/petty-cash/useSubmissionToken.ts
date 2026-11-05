@@ -8,7 +8,7 @@ import type { ActionResult } from "@/lib/actions/types"
  * contexts only) and falls back to crypto.getRandomValues, which also works on
  * plain-http self-hosted installs.
  */
-export function newSubmissionToken(): string {
+function newSubmissionToken(): string {
   const c = globalThis.crypto
   if (typeof c.randomUUID === "function") return c.randomUUID()
   const b = c.getRandomValues(new Uint8Array(16))
