@@ -12,13 +12,14 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch, isP2002 } from "@/lib/validation"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
+import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenState } from "./pettyCashEntry"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -98,7 +99,52 @@ async function isDuplicateExpense(
   )
 }
 
-/** Record a petty cash expense. ADMIN/PASTOR only. */
+/** The submitted expense fields compared against a stored expense to decide replay vs reuse. */
+type ExpenseSubmission = {
+  sessionId: number
+  amount: string
+  accountId: number
+  payee: string
+  description: string
+  receiptRef: string | undefined
+  fundId: number | null
+}
+
+/**
+ * Looks up the expense already carrying this form submission token (#487).
+ * "replay" only when every persisted field of the submission matches the stored
+ * expense (the date is fixed by the session): Back/forward can restore a cached
+ * form with its old token, and an edited expense entered there must not be
+ * silently dropped — that is "reused". Runs before the duplicate/negative-float
+ * warnings, inside the write transaction, and after a P2002 on the token's
+ * unique index.
+ */
+async function expenseTokenState(
+  db: Pick<Prisma.TransactionClient, "pettyCashExpense">,
+  token: string,
+  sub: ExpenseSubmission,
+): Promise<SubmissionTokenState> {
+  const prior = await db.pettyCashExpense.findUnique({
+    where: { submissionToken: token },
+    select: { sessionId: true, amount: true, accountId: true, payee: true, description: true, receiptRef: true, fundId: true },
+  })
+  if (!prior) return "unused"
+  const same =
+    prior.sessionId === sub.sessionId &&
+    toCents(String(prior.amount)) === toCents(sub.amount) &&
+    prior.accountId === sub.accountId &&
+    safeDecrypt(prior.payee) === sub.payee &&
+    safeDecrypt(prior.description) === sub.description &&
+    (prior.receiptRef ?? undefined) === sub.receiptRef &&
+    (prior.fundId ?? null) === sub.fundId
+  return same ? "replay" : "reused"
+}
+
+/**
+ * Record a petty cash expense. ADMIN/PASTOR only. A replayed submission (same
+ * form `submissionToken` as a committed expense) redirects to the session
+ * without creating a second expense or ledger mirror (#487).
+ */
 export async function createExpense(
   sessionId: number,
   _prev: ActionResult,
@@ -113,6 +159,27 @@ export async function createExpense(
   const { existing, sessionDate } = loaded
   const parsed = ExpenseSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const tokenParsed = parseSubmissionToken(formData)
+  if ("error" in tokenParsed) return { error: tokenParsed.error }
+  const token = tokenParsed.token
+  const sub: ExpenseSubmission = {
+    sessionId, amount: parsed.data.amount, accountId: parsed.data.accountId,
+    payee: parsed.data.payee, description: parsed.data.description,
+    receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
+  }
+  /** Revalidate and land on the session page — the replayed expense already committed. */
+  const replayDone = () => {
+    revalidatePettyCashPaths(sessionId)
+    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+  }
+  // Replay check before the duplicate and negative-float warnings: the earlier
+  // attempt's own row (and its balance hit) would otherwise trip them on a
+  // lost-response retry.
+  if (token) {
+    const state = await expenseTokenState(prisma, token, sub)
+    if (state === "replay") return replayDone()
+    if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
+  }
   const account = await validateAccount(parsed.data.accountId, "EXPENSE")
   if (!account) return { error: "Invalid account" }
   if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId)))
@@ -162,7 +229,14 @@ export async function createExpense(
   let expenseId: number | undefined
   try {
     // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
-    const result = await serializableWrite<{ error: string } | { id: number }>(async (tx) => {
+    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
+      // Token re-check inside the tx: a twin submit may have committed since the
+      // pre-check (serializableWrite's P2034 retry lands here and sees it).
+      if (token) {
+        const state = await expenseTokenState(tx, token, sub)
+        if (state === "replay") return { replay: true }
+        if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
+      }
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
@@ -172,14 +246,22 @@ export async function createExpense(
         sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: fresh.name,
         amount: parsed.data.amount, payee: parsed.data.payee, description: parsed.data.description,
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
-        cashAccountId: cashAccount?.id ?? null,
+        cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if ("replay" in result) return replayDone()
     if ("error" in result) return result
     expenseId = result.id
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    // P2002 with a token: a concurrent submit of the same form won the unique
+    // index. If it committed this very expense, treat this attempt as done.
+    if (token && isP2002(e)) {
+      const state = await expenseTokenState(prisma, token, sub)
+      if (state === "replay") return replayDone()
+      if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
+    }
     throw e
   }
   await logAudit(actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", expenseId, {

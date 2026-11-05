@@ -2,6 +2,7 @@
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { encrypt } from "@/lib/crypto"
 import { revalidatePath } from "next/cache"
+import { z } from "zod"
 
 // No "use server" here (plain module, not a Server Action file) — lets it
 // export the sync revalidator/consts below alongside the pure builders.
@@ -86,10 +87,11 @@ export async function assertSessionOpenTx(
 // touching the DB, so both the single-entry writes below and the batched
 // petty-cash import share one source of truth for the row shape.
 
+/** Builds the PettyCashReceipt create payload (encrypting notes); carries the optional form `submissionToken` (#487). */
 export function receiptCreateData(args: {
   sessionId: number; date: Date; accountId: number;
   amount: number | string; personId?: number | null; serviceTypeId?: number | null;
-  notes?: string | null; importKey?: string | null; fundId?: number | null;
+  notes?: string | null; importKey?: string | null; fundId?: number | null; submissionToken?: string | null;
 }): Prisma.PettyCashReceiptCreateManyInput {
   return {
     sessionId: args.sessionId, date: args.date, accountId: args.accountId,
@@ -98,14 +100,17 @@ export function receiptCreateData(args: {
     // notes can carry a donor name — encrypt at rest, decrypt on read.
     notes: args.notes ? encrypt(args.notes) : null,
     importKey: args.importKey ?? null,
+    // Only set when the form sent one (#487) — imports and older callers leave it unset.
+    ...(args.submissionToken ? { submissionToken: args.submissionToken } : {}),
     fundId: args.fundId ?? null,
   }
 }
 
+/** Builds the PettyCashExpense create payload (encrypting payee/description); carries the optional form `submissionToken` (#487). */
 export function expenseCreateData(args: {
   sessionId: number; date: Date; accountId: number;
   amount: number | string; payee: string; description: string;
-  receiptRef?: string | null; importKey?: string | null; fundId?: number | null;
+  receiptRef?: string | null; importKey?: string | null; fundId?: number | null; submissionToken?: string | null;
 }): Prisma.PettyCashExpenseCreateManyInput {
   return {
     sessionId: args.sessionId, date: args.date, accountId: args.accountId,
@@ -114,6 +119,7 @@ export function expenseCreateData(args: {
     amount: args.amount, payee: encrypt(args.payee),
     description: encrypt(args.description), receiptRef: args.receiptRef ?? null,
     importKey: args.importKey ?? null,
+    ...(args.submissionToken ? { submissionToken: args.submissionToken } : {}),
     fundId: args.fundId ?? null,
   }
 }
@@ -159,15 +165,18 @@ export function expenseMirrorData(
   }
 }
 
-// Creates a petty-cash receipt and its mirror INCOME Transaction inside the
-// caller's transaction. `accountName` is the (plaintext) account name encrypted
-// into the ledger description. Returns the new receipt id.
+/**
+ * Creates a petty-cash receipt and its mirror INCOME Transaction inside the
+ * caller's transaction. `accountName` is the (plaintext) account name encrypted
+ * into the ledger description; `submissionToken` (#487) is stored on the receipt
+ * when the form sent one. Returns the new receipt id.
+ */
 export async function createReceiptEntry(
   tx: Prisma.TransactionClient,
   args: {
     sessionId: number; date: Date; accountId: number; accountName: string;
     amount: number | string; personId?: number | null; serviceTypeId?: number | null;
-    notes?: string | null; sessionTitle: string; importKey?: string | null; fundId?: number | null;
+    notes?: string | null; sessionTitle: string; importKey?: string | null; fundId?: number | null; submissionToken?: string | null;
     // Resolved once by the caller via getCashAccount() — see receiptMirrorData.
     cashAccountId?: number | null;
   }
@@ -190,11 +199,16 @@ export async function createReceiptEntry(
   return receipt.id
 }
 
+/**
+ * Creates a petty-cash expense and its mirror EXPENSE Transaction inside the
+ * caller's transaction. `submissionToken` (#487) is stored on the expense when
+ * the form sent one. Returns the new expense id.
+ */
 export async function createExpenseEntry(
   tx: Prisma.TransactionClient,
   args: {
     sessionId: number; date: Date; accountId: number; accountName: string;
-    amount: number | string; payee: string; description: string; receiptRef?: string | null; sessionTitle: string; importKey?: string | null; fundId?: number | null;
+    amount: number | string; payee: string; description: string; receiptRef?: string | null; sessionTitle: string; importKey?: string | null; fundId?: number | null; submissionToken?: string | null;
     // Resolved once by the caller via getCashAccount() — see receiptMirrorData.
     cashAccountId?: number | null;
   }
@@ -202,4 +216,37 @@ export async function createExpenseEntry(
   const expense = await tx.pettyCashExpense.create({ data: expenseCreateData(args) })
   await tx.transaction.create({ data: expenseMirrorData({ ...expense, fundId: args.fundId ?? null }, args.accountName, args.sessionTitle, args.cashAccountId) })
   return expense.id
+}
+
+// --- Submission token (#487, same mechanism as #491 for transfers) ---
+
+/** Shown when a reused token carries a different entry (e.g. Back restored the old form). */
+export const SUBMISSION_TOKEN_REUSED_ERROR =
+  "This form was already submitted — reload the page to enter a new entry"
+
+/** Outcome of a token lookup: unused, a true replay of the same entry, or reused for a different one. */
+export type SubmissionTokenState = "unused" | "replay" | "reused"
+
+// The client form sends a v4 UUID (crypto.randomUUID or its getRandomValues
+// fallback). Accept any UUID shape; blank/absent means "no replay protection".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const SubmissionTokenSchema = z
+  .string()
+  .max(100)
+  .optional()
+  .transform((v) => v?.trim() || undefined)
+  .refine((v) => v === undefined || UUID_RE.test(v), "Invalid form submission — reload the page and try again")
+
+/**
+ * Parses the optional `submissionToken` form field for receipt/expense creates.
+ * Kept out of the entry schemas on purpose: those schemas are shared with the
+ * update actions, which spread the parsed data into `update()` — the token must
+ * never be written on an edit.
+ * @returns `{ token }` (undefined when the form sent none) or `{ error }` for a malformed token
+ */
+export function parseSubmissionToken(formData: FormData): { token: string | undefined } | { error: string } {
+  const raw = formData.get("submissionToken")
+  const parsed = SubmissionTokenSchema.safeParse(typeof raw === "string" ? raw : undefined)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  return { token: parsed.data }
 }

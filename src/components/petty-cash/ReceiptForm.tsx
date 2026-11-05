@@ -30,6 +30,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import { useSubmissionToken } from "./useSubmissionToken"
 
 type Account = { id: number; code: string; name: string }
 type Person = { id: number; firstName: string; lastName: string }
@@ -57,7 +58,9 @@ export function ReceiptForm({
   receipt?: ReceiptDefaults
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  // Idempotency token (#487), stable per mounted form; updateReceipt ignores it.
+  const submitWithToken = useSubmissionToken(action)
+  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
   const [accountId, setAccountId] = useState(receipt?.accountId ?? "")
   const [personId, setPersonId] = useState(receipt?.personId ?? "")
   const [donorOpen, setDonorOpen] = useState(false)
