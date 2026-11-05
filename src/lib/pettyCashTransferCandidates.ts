@@ -30,8 +30,8 @@ export type ImportedTransferCandidates = { options: ImportedTransferOption[]; tr
  * memory with the same `adoptionProblem` check createTransfer uses; only the
  * final list is capped (`truncated` is set when valid pairs or legs were dropped).
  * `focus` narrows the legs to one amount + UTC day, so a deposit older than the
- * newest-first caps can still be reached (the manual-entry guard blocks on exactly
- * that amount + day). A `focus` day inside the locked period returns empty without any DB read beyond the lock date.
+ * newest-first caps can still be reached (the manual-entry guard tells the user to pick it with
+ * that amount + the deposit's day). A `focus` day inside the locked period returns empty without any DB read beyond the lock date.
  */
 export async function listImportedTransferCandidates(
   focus?: { amount: string; date: Date },
