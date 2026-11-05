@@ -1,3 +1,5 @@
+import { auth } from "@/auth"
+import { isAdmin } from "@/lib/roleGuard"
 import { notFound, redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { requirePettyCashSessionId } from "@/lib/pettyCashPageGuard"
@@ -48,12 +50,13 @@ export default async function NewTransferPage(
   const { options: imported, truncated: importedTruncated } = candidates
 
   const action = createTransfer.bind(null, sessionId)
+  const admin = isAdmin((await auth())?.user?.role)
 
   return (
     <div>
       <h2 className="text-2xl font-semibold text-foreground mb-1">Record bank transfer</h2>
       <p className="text-muted-foreground mb-6">{pcSession.title}</p>
-      <TransferForm action={action} maxAmount={balance} imported={imported} importedTruncated={importedTruncated} importedFiltered={!!focus} />
+      <TransferForm action={action} maxAmount={balance} imported={imported} importedTruncated={importedTruncated} importedFiltered={!!focus} isAdmin={admin} />
     </div>
   )
 }

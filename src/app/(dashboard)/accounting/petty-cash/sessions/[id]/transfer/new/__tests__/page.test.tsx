@@ -5,6 +5,7 @@ const findUnique = jest.fn()
 const listCandidates = jest.fn()
 const formProps = jest.fn()
 
+jest.mock("@/auth", () => ({ auth: jest.fn(async () => ({ user: { role: "ADMIN" } })) }))
 jest.mock("@/lib/prisma", () => ({ prisma: { pettyCashSession: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 jest.mock("@/lib/pettyCashPageGuard", () => ({ requirePettyCashSessionId: jest.fn(async () => 1) }))
 jest.mock("@/lib/actions/pettyCashTransfer", () => ({ createTransfer: { bind: jest.fn(() => jest.fn()) } }))

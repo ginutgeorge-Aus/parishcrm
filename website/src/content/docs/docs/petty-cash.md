@@ -14,10 +14,11 @@ Inside an open session (`/accounting/petty-cash/sessions/[id]`):
 - **Expenses** — cash going out, posted against an expense category, with a payee and description.
 - **Transfers** — recording cash physically deposited to the bank; unlike receipts/expenses (which are always dated to the session's own date), a transfer keeps a separately-entered date, since the bank deposit often happens a few days after the session. A transfer can't exceed the session's current cash balance. If a bank-statement import row was marked as a cash transfer from petty cash, pick that deposit in **Record transfer** — date and amount prefill, and the import's cash-out entry is linked to the transfer rather than booked twice.
   Manual-transfer guard:
-  - A manual transfer is rejected when a matching imported cash-out already exists (same amount, same day, with its paired bank deposit) — otherwise petty cash would be reduced twice. Pick the imported deposit instead.
+  - A manual transfer is rejected when a matching imported cash-out already exists (same amount, with its paired bank deposit) — otherwise petty cash would be reduced twice. The check covers an unlinked imported cash-out of the same amount dated within 7 days of the transfer date (inclusive), not just the same day. Adopt the imported deposit via the picker instead (if it is on a different day, set the transfer date to the deposit's date first).
   - If that cash-out is already reconciled, un-reconcile it first, then pick the deposit.
+  - An **ADMIN** can override only this 7-day check, for example a fixed recurring weekly deposit that legitimately repeats the same amount. After the rejection, tick **Admin: record anyway (separate deposit)** and submit again. The override is audit-logged and never bypasses the same-day check below.
   - The same applies when the imported deposit was already recorded as a transfer: a second manual transfer for that amount and day is rejected. For a genuinely separate deposit, use a different date.
-  - The date must match exactly: a manual transfer dated a day off the bank deposit is not caught, so use the picker whenever the deposit was imported.
+  - An unlinked imported cash-out 8 or more days from the transfer date is not caught, so use the picker whenever the deposit was imported. A cash-out already linked to another transfer only blocks a manual transfer on the same day.
   - Two same-amount deposits on one day can't both be entered manually when one was imported; pick the imported one, then enter the other.
   - With no paired deposit to pick, manual entry stays available.
 
