@@ -9,11 +9,13 @@ export function stripeConfigured(): boolean {
 
 let _stripe: Stripe | null = null
 
+/** Lazily builds and memoizes the Stripe client pinned to the SDK's API version; throws if STRIPE_SECRET_KEY is unset. */
 export function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY
   if (!key) throw new Error("Stripe not configured")
-  // Pin the API version so a Stripe account-default drift can't change the
-  // webhook payload shape. Value = the installed SDK's bundled version.
-  if (!_stripe) _stripe = new Stripe(key, { apiVersion: "2026-08-26.dahlia" })
+  // Pins the API version of this client's OWN requests only (account-default
+  // drift can't change them). It does NOT pin webhook event payload shape: each
+  // webhook endpoint has its own immutable api_version set at creation.
+  if (!_stripe) _stripe = new Stripe(key, { apiVersion: Stripe.API_VERSION })
   return _stripe
 }

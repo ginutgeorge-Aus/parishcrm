@@ -108,6 +108,6 @@ around indefinitely. A misconfigured/missing `CRON_SECRET` makes the sweep refus
 | Var | Effect |
 |-----|--------|
 | `STRIPE_SECRET_KEY` | Enables the Stripe integration; without it, online payment is unavailable regardless of the event's toggle |
-| `STRIPE_WEBHOOK_SECRET` | Required for the webhook route to accept deliveries — register a webhook endpoint in the Stripe Dashboard pointed at `<your-app-url>/api/stripe/webhook`, subscribed at minimum to `checkout.session.completed` |
+| `STRIPE_WEBHOOK_SECRET` | Required for the webhook route to accept deliveries — register a webhook endpoint in the Stripe Dashboard pointed at `<your-app-url>/api/stripe/webhook`, subscribed at minimum to `checkout.session.completed`. The webhook endpoint must be created at the same API version as the SDK (`Stripe.API_VERSION`, currently the "endive" major) and must be recreated (with a new `STRIPE_WEBHOOK_SECRET`) when the API major changes. |
 | `CRON_SECRET` | Bearer token the sweep-checkouts (and reminder) crons must present; unset disables the sweep |
 | Card fee rate | Admin application setting (percentage + fixed cents per charge), not an env var — see `docs/stripe-surcharge-compliance.md` in the source repo for the legal basis (surcharge may never exceed Stripe's actual cost of acceptance) |

@@ -2,7 +2,10 @@ import { stripeConfigured, getStripe } from "@/lib/stripe"
 
 describe("stripe config", () => {
   const original = process.env.STRIPE_SECRET_KEY
-  afterEach(() => { process.env.STRIPE_SECRET_KEY = original })
+  afterEach(() => {
+    if (original === undefined) delete process.env.STRIPE_SECRET_KEY
+    else process.env.STRIPE_SECRET_KEY = original
+  })
 
   it("stripeConfigured false when key unset", () => {
     delete process.env.STRIPE_SECRET_KEY
@@ -24,14 +27,14 @@ describe("stripe config", () => {
     expect(getStripe()).toBe(getStripe())
   })
 
-  it("pins the Stripe API version so webhook payload shape can't drift", async () => {
+  it("pins the API version of this client's own requests to the SDK constant", async () => {
     jest.resetModules()
     const ctor = jest.fn()
-    jest.doMock("stripe", () => ({ __esModule: true, default: class { constructor(...a: unknown[]) { ctor(...a) } } }))
+    jest.doMock("stripe", () => ({ __esModule: true, default: class { static API_VERSION = "test-api-version"; constructor(...a: unknown[]) { ctor(...a) } } }))
     process.env.STRIPE_SECRET_KEY = "sk_test_x"
     const mod = await import("@/lib/stripe")
     mod.getStripe()
-    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "2026-08-26.dahlia" }))
+    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "test-api-version" }))
     jest.dontMock("stripe")
     jest.resetModules()
   })
