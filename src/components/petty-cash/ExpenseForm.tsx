@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import type { ActionResult } from "@/lib/actions/types"
 import { APP_CURRENCY } from "@/lib/appConfig"
+import { useSubmissionToken } from "./useSubmissionToken"
 
 type Account = { id: number; code: string; name: string }
 type Fund = { id: number; name: string }
@@ -38,7 +39,9 @@ export function ExpenseForm({
   expense?: ExpenseDefaults
 }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(action, undefined)
+  // Idempotency token (#487), stable per mounted form; updateExpense ignores it.
+  const submitWithToken = useSubmissionToken(action)
+  const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
   const generalFundId = funds.find((f) => f.name === "General")?.id
   // When editing, honour the stored fund even when it is "" (unassigned) — a
   // falsy check would silently re-default an unassigned expense to General.

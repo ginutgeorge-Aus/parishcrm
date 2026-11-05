@@ -892,6 +892,10 @@ model PettyCashReceipt {
   transaction   Transaction?
   fundId        Int?
   fund          Fund?            @relation(fields: [fundId], references: [id])
+  // Per-form-mount token (#487): a retried submit whose first attempt committed
+  // but lost its response finds this row instead of booking a second receipt +
+  // mirror. Nullable — older rows and imported receipts have none.
+  submissionToken String?        @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres
@@ -922,6 +926,8 @@ model PettyCashExpense {
   transaction Transaction?
   fundId      Int?
   fund        Fund?            @relation(fields: [fundId], references: [id])
+  // Per-form-mount token (#487) — see PettyCashReceipt.submissionToken.
+  submissionToken String?      @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres

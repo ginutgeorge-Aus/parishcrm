@@ -31,6 +31,8 @@ jest.mock("@/lib/actions/pettyCashEntry", () => ({
   SessionClosedError: class SessionClosedError extends Error {},
   RECONCILED_EDIT_ERROR: "recon-edit",
   RECONCILED_DELETE_ERROR: "recon-delete",
+  SUBMISSION_TOKEN_REUSED_ERROR: "token-reused",
+  parseSubmissionToken: jest.fn(() => ({ token: undefined })),
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
