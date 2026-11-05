@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { contentKeyFromBankRef } from "@/lib/anzParser"
 import { encrypt } from "@/lib/crypto"
 import { getXferAccountId } from "@/lib/xferAccount"
-import { XFER_OUT_PREFIX, xferOutRef } from "@/lib/xferRefs"
+import { XFER_OUT_PREFIX, XFER_WINDOW_MS, xferOutRef } from "@/lib/xferRefs"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
@@ -427,7 +427,6 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   // never a silent double-reduction. Read per row INSIDE the pair's write
   // transaction (see the petty-cash branch below), not from an earlier
   // snapshot (#493).
-  const XFER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
   const consumedMirrorIds = new Set<number>()
   /** Session-transfer mirrors within ±XFER_WINDOW_MS of `rowTime`, read through `tx`. */
   const readTransferMirrors = (tx: Prisma.TransactionClient, rowTime: number) =>

@@ -14,7 +14,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
-import { depositRefOfLeg, xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
+import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, legsByDepositRef } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2002, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -40,13 +40,6 @@ function legacyMirrorError(transferId: number | null): string {
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
   "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
-
-/**
- * Same ±7-day window confirmBankImport uses to pair a deposit with a session-transfer mirror (its
- * XFER_WINDOW_MS). The manual guard reads unlinked cash-out legs across it so both paths read each
- * other's writes (#487 item 1).
- */
-const XFER_MIRROR_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /**
  * Rejection for a manual transfer within the bank import's mirror window of an unlinked imported
@@ -304,10 +297,9 @@ export async function createTransfer(
         // the range the other writes into, so Postgres SSI aborts one (the import retries and skips).
         // Different-day legs only count while unlinked: an adopted leg's deposit is already paired with
         // a transfer, so a same-amount transfer days later is a separate deposit (#492 stays same-day).
-        const dayRange = utcDayRange(parsed.data.date)
         const transferDay = utcYmd(parsed.data.date)
         const t = parsed.data.date.getTime()
-        const windowRange = { gte: new Date(t - XFER_MIRROR_WINDOW_MS), lte: new Date(t + XFER_MIRROR_WINDOW_MS) }
+        const windowRange = { gte: new Date(t - XFER_WINDOW_MS), lte: new Date(t + XFER_WINDOW_MS) }
         const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
@@ -320,12 +312,7 @@ export async function createTransfer(
           },
           select: { bankRef: true, pettyCashTransferId: true, date: true },
         })
-        const legByDepositRef = new Map<string, { linked: boolean; sameDay: boolean }>()
-        for (const l of legs) {
-          const sameDay = utcYmd(l.date) === transferDay
-          if (l.bankRef && (sameDay || l.pettyCashTransferId === null))
-            legByDepositRef.set(depositRefOfLeg(l.bankRef), { linked: l.pettyCashTransferId !== null, sameDay })
-        }
+        const legByDepositRef = legsByDepositRef(legs, transferDay)
         const dups = legByDepositRef.size
           ? await tx.transaction.findMany({
               where: {

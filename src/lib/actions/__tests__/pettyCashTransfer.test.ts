@@ -2,6 +2,7 @@
 
 jest.mock("@/lib/featureFlags")
 import { createTransfer, deleteTransfer } from "../pettyCashTransfer"
+import { legsByDepositRef } from "@/lib/xferRefs"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
@@ -280,6 +281,30 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(tx.transaction.findMany).toHaveBeenCalledTimes(1)
   })
 
+  // Boundary: the mock honours where.date gte/lte like the DB, so the window is inclusive at exactly 7 days.
+  describe.each([
+    ["exactly 7 days from the transfer date is blocked", "2026-07-24", true],
+    ["8 days from the transfer date is allowed", "2026-07-23", false],
+  ])("unlinked leg %s", (_label, legDate, blocked) => {
+    it(blocked ? "rejects" : "creates the transfer", async () => {
+      const legDay = new Date(legDate)
+      const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }], legDay)
+      const inRange = (d: Date, r: { gte: Date; lte: Date }) => d >= r.gte && d <= r.lte
+      tx.transaction.findMany.mockImplementation(async ({ where }: { where: { type: string; date: { gte: Date; lte: Date } } }) =>
+        inRange(legDay, where.date)
+          ? (where.type === "INCOME" ? [{ bankRef: "B1", date: legDay }] : [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }])
+          : [])
+      mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      const res = await createTransfer(1, undefined, form())
+      if (blocked) {
+        expect(res).toEqual({ error: expect.stringContaining(`on ${legDate}`) })
+        expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+      } else {
+        expect(tx.pettyCashTransfer.create).toHaveBeenCalled()
+      }
+    })
+  })
+
   it("creates the mirror when no duplicate leg exists", async () => {
     const tx = txMock(null)
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
@@ -448,5 +473,32 @@ describe("createTransfer — submission token replay (#491)", () => {
     mock$tx.mockRejectedValue(err)
     await expect(createTransfer(1, undefined, form())).rejects.toBe(err)
     expect(prisma.pettyCashTransfer.findUnique).not.toHaveBeenCalled()
+  })
+})
+
+describe("legsByDepositRef — deterministic priority", () => {
+  const day = new Date("2026-07-31")
+  const other = new Date("2026-07-28")
+  const priorities = [
+    { bankRef: "XFER_OUT_B1", pettyCashTransferId: 7, date: day }, // same-day adopted
+    { bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: other }, // different-day unlinked
+    { bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: day }, // same-day unlinked
+  ]
+
+  it.each([[priorities], [[...priorities].reverse()], [[priorities[1], priorities[2], priorities[0]]]])(
+    "keeps the same-day unlinked leg regardless of order",
+    (legs) => {
+      expect(legsByDepositRef(legs, "2026-07-31").get("B1")).toEqual({ linked: false, sameDay: true })
+    },
+  )
+
+  it("prefers a different-day unlinked leg over a same-day adopted one, in either order", () => {
+    const legs = [priorities[0], priorities[1]]
+    expect(legsByDepositRef(legs, "2026-07-31").get("B1")).toEqual({ linked: false, sameDay: false })
+    expect(legsByDepositRef([...legs].reverse(), "2026-07-31").get("B1")).toEqual({ linked: false, sameDay: false })
+  })
+
+  it("ignores different-day adopted legs", () => {
+    expect(legsByDepositRef([{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7, date: other }], "2026-07-31").size).toBe(0)
   })
 })
