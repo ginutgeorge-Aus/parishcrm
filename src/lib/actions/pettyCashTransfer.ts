@@ -21,7 +21,7 @@ import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
-import { utcDayRange } from "@/lib/dates"
+import { utcDayRange, utcYmd } from "@/lib/dates"
 
 /** Rejection for a manual transfer that would double-count an imported cash-out already adopted by another transfer (#492). */
 const DUPLICATE_ADOPTED_LEG_ERROR =
@@ -40,6 +40,23 @@ function legacyMirrorError(transferId: number | null): string {
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
   "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
+
+/**
+ * Same ±7-day window confirmBankImport uses to pair a deposit with a session-transfer mirror (its
+ * XFER_WINDOW_MS). The manual guard reads unlinked cash-out legs across it so both paths read each
+ * other's writes (#487 item 1).
+ */
+const XFER_MIRROR_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * Rejection for a manual transfer within the bank import's mirror window of an unlinked imported
+ * cash-out on a different day (#487 item 1).
+ * @param depositDay the imported deposit's UTC day (YYYY-MM-DD)
+ * @returns the user-facing message naming that day
+ */
+function windowLegError(depositDay: string): string {
+  return `An imported deposit for this amount on ${depositDay} (within 7 days of this transfer) already booked its petty cash cash-out, so entering it manually would count it twice. If this transfer is that deposit, set the date to ${depositDay} and pick the imported deposit in the form (un-reconcile its cash-out first if needed). If it is a separate deposit, record the imported one first by picking it, then enter this one.`
+}
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -280,7 +297,17 @@ export async function createTransfer(
         // manual entry stays the only path. A leg already adopted by another transfer
         // (#492) counts too, so recording the same deposit manually after adopting it
         // is rejected; that case has no picker path, so it gets its own message.
+        // #487 item 1: legs are read across the bank import's ±7-day mirror window, not just the
+        // transfer's day. The import suppresses its own leg when a same-amount transfer mirror lies in
+        // that window; this is the converse, so an import that committed first (on a different day)
+        // is caught too. It also makes the race symmetric: both Serializable transactions now read
+        // the range the other writes into, so Postgres SSI aborts one (the import retries and skips).
+        // Different-day legs only count while unlinked: an adopted leg's deposit is already paired with
+        // a transfer, so a same-amount transfer days later is a separate deposit (#492 stays same-day).
         const dayRange = utcDayRange(parsed.data.date)
+        const transferDay = utcYmd(parsed.data.date)
+        const t = parsed.data.date.getTime()
+        const windowRange = { gte: new Date(t - XFER_MIRROR_WINDOW_MS), lte: new Date(t + XFER_MIRROR_WINDOW_MS) }
         const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
@@ -289,28 +316,39 @@ export async function createTransfer(
             // Null too: legacy legs written before a cash account existed (#487).
             OR: [{ paymentAccountId: null }, ...(cashAccount ? [{ paymentAccountId: cashAccount.id }] : [])],
             amount: parsed.data.amount,
-            date: dayRange,
+            date: windowRange,
           },
-          select: { bankRef: true, pettyCashTransferId: true },
+          select: { bankRef: true, pettyCashTransferId: true, date: true },
         })
-        const linkedByDepositRef = new Map<string, boolean>()
-        for (const l of legs) if (l.bankRef) linkedByDepositRef.set(depositRefOfLeg(l.bankRef), l.pettyCashTransferId !== null)
-        const dups = linkedByDepositRef.size
+        const legByDepositRef = new Map<string, { linked: boolean; sameDay: boolean }>()
+        for (const l of legs) {
+          const sameDay = utcYmd(l.date) === transferDay
+          if (l.bankRef && (sameDay || l.pettyCashTransferId === null))
+            legByDepositRef.set(depositRefOfLeg(l.bankRef), { linked: l.pettyCashTransferId !== null, sameDay })
+        }
+        const dups = legByDepositRef.size
           ? await tx.transaction.findMany({
               where: {
                 accountId: xferAccountId,
                 type: "INCOME",
-                bankRef: { in: [...linkedByDepositRef.keys()] },
+                bankRef: { in: [...legByDepositRef.keys()] },
                 amount: parsed.data.amount,
-                date: dayRange,
+                date: windowRange,
               },
-              select: { bankRef: true },
+              select: { bankRef: true, date: true },
             })
           : []
         if (dups.length) {
-          // Unlinked first: the picker can still resolve it, so that guidance is the more useful one.
-          const unlinked = dups.some((d) => d.bankRef && linkedByDepositRef.get(d.bankRef) === false)
-          throw new TransferError(unlinked ? DUPLICATE_LEG_ERROR : DUPLICATE_ADOPTED_LEG_ERROR)
+          const kinds = dups.flatMap((d) => {
+            const leg = d.bankRef ? legByDepositRef.get(d.bankRef) : undefined
+            return leg ? [{ ...leg, day: utcYmd(d.date) }] : []
+          })
+          // Same-day unlinked first: the picker resolves it with the date as entered. Then a
+          // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
+          if (kinds.some((k) => k.sameDay && !k.linked)) throw new TransferError(DUPLICATE_LEG_ERROR)
+          const other = kinds.find((k) => !k.linked)
+          if (other) throw new TransferError(windowLegError(other.day))
+          if (kinds.length) throw new TransferError(DUPLICATE_ADOPTED_LEG_ERROR)
         }
       }
       const transfer = await tx.pettyCashTransfer.create({

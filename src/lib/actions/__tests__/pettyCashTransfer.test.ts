@@ -178,7 +178,8 @@ describe("createTransfer — imported deposit", () => {
 
 describe("createTransfer — manual path duplicate guard", () => {
   // legs = XFER_OUT cash-out legs (linked or not); dup = their paired INCOME deposit (null = none).
-  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }] : []) => ({
+  const day = new Date("2026-07-31")
+  const txMock = (dup: unknown, legs: unknown[] = dup ? [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: day }] : [], depositDate: Date = day) => ({
     pettyCashSession: { findUnique: jest.fn().mockResolvedValue({ status: "OPEN", title: "S", openingBalance: 100, receipts: [], expenses: [], transfers: [] }) },
     pettyCashTransfer: { create: jest.fn().mockResolvedValue({ id: 3, date: new Date("2026-07-31"), amount: "50.00" }) },
     transaction: {
@@ -186,7 +187,7 @@ describe("createTransfer — manual path duplicate guard", () => {
       // filter in the guard would hide a reconciled leg. Deposit lookup (INCOME) returns the dup.
       findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
         where.type === "INCOME"
-          ? (dup ? [{ bankRef: "B1" }] : [])
+          ? (dup ? [{ bankRef: "B1", date: depositDate }] : [])
           : legs.filter((l) => !("reconciled" in where) || (l as { reconciled?: boolean }).reconciled === where.reconciled)),
       create: jest.fn(),
     },
@@ -208,17 +209,16 @@ describe("createTransfer — manual path duplicate guard", () => {
     expect(call.where).not.toHaveProperty("pettyCashTransferId")
     // Legacy legs with a null funding source still count (#487).
     expect(call.where.OR).toEqual([{ paymentAccountId: null }, { paymentAccountId: 2 }])
-    // Same-day bound: [00:00Z of the transfer day, +24h) on both the leg and deposit lookups.
-    const dayBound = { gte: expect.any(Date), lt: expect.any(Date) }
-    expect(call.where.date).toEqual(dayBound)
-    expect(call.where.date.lt.getTime() - call.where.date.gte.getTime()).toBe(86_400_000)
+    // #487 item 1: both lookups span the bank import's ±7-day mirror window (inclusive), centred on the transfer date.
+    const windowBound = { gte: new Date("2026-07-24"), lte: new Date("2026-08-07") }
+    expect(call.where.date).toEqual(windowBound)
     expect(tx.transaction.findMany.mock.calls[1][0].where).toEqual(
-      expect.objectContaining({ type: "INCOME", amount: "50.00", date: dayBound })
+      expect.objectContaining({ type: "INCOME", amount: "50.00", date: windowBound })
     )
   })
 
   it("allows manual entry when the matching leg has no paired deposit to adopt", async () => {
-    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null }])
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: day }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
     expect(tx.transaction.create).toHaveBeenCalled()
@@ -227,7 +227,7 @@ describe("createTransfer — manual path duplicate guard", () => {
   })
 
   it("rejects when the paired leg is already reconciled (user must un-reconcile first)", async () => {
-    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, reconciled: true }])
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, reconciled: true, date: day }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
     expect(res).toEqual({ error: expect.stringContaining("un-reconcile") })
@@ -237,12 +237,47 @@ describe("createTransfer — manual path duplicate guard", () => {
 
   // Regression (#492): the leg was already adopted by another transfer, so it is no longer unlinked.
   it("rejects a manual transfer for a deposit whose cash-out leg is already adopted by another transfer", async () => {
-    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7 }])
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7, date: day }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
     expect(res).toEqual({ error: expect.stringContaining("already recorded as a petty cash transfer") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
+  })
+
+  // Regression (#487 item 1): the import committed its deposit + leg on 07-28; a manual transfer for the
+  // same deposit dated 07-31 (inside the import's ±7-day mirror window) booked a second cash-out.
+  it("rejects a manual transfer dated a different day inside the mirror window of an unlinked imported cash-out", async () => {
+    const legDay = new Date("2026-07-28")
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }], legDay)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("on 2026-07-28 (within 7 days of this transfer)") })
+    expect(res).toEqual({ error: expect.stringContaining("set the date to 2026-07-28 and pick the imported deposit") })
+    expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
+    expect(tx.transaction.create).not.toHaveBeenCalled()
+  })
+
+  it("prefers the same-day guidance when both a same-day and a different-day unlinked leg match", async () => {
+    const legs = [
+      { bankRef: "XFER_OUT_B0", pettyCashTransferId: null, date: new Date("2026-07-28") },
+      { bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: day },
+    ]
+    const tx = txMock({ id: 11 }, legs)
+    tx.transaction.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.type === "INCOME" ? [{ bankRef: "B0", date: new Date("2026-07-28") }, { bankRef: "B1", date: day }] : legs)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await expect(createTransfer(1, undefined, form())).resolves.toEqual({ error: expect.stringContaining("for this amount and date already exists") })
+  })
+
+  // An adopted leg's deposit is already paired with a transfer: a same-amount transfer days later is a separate deposit.
+  it("allows a manual transfer when the only different-day leg in the window is already adopted", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: 7, date: new Date("2026-07-28") }])
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, form())
+    expect(tx.pettyCashTransfer.create).toHaveBeenCalled()
+    // The adopted different-day leg is not even looked up as a possible duplicate deposit.
+    expect(tx.transaction.findMany).toHaveBeenCalledTimes(1)
   })
 
   it("creates the mirror when no duplicate leg exists", async () => {
