@@ -1,5 +1,6 @@
 import { toCents } from "@/lib/formatting"
 import { utcYmd } from "@/lib/dates"
+import { depositRefOfLeg } from "@/lib/xferRefs"
 
 /** Why an imported deposit + its XFER_OUT leg cannot back a petty cash transfer. */
 export type AdoptionProblem = "unavailable" | "reconciled" | "legMismatch" | "depositMismatch" | "legDate"
@@ -45,4 +46,27 @@ export function adoptionProblem(
     return "depositMismatch"
   if (utcYmd(leg.date) !== utcYmd(transfer.date)) return "legDate"
   return null
+}
+
+/** Per-deposit summary of the cash-out leg the manual guard found in the window. */
+export type WindowLeg = { linked: boolean; sameDay: boolean }
+
+/**
+ * One entry per deposit ref (`bankRef` is unique, so a deposit has at most one XFER_OUT leg).
+ * Different-day linked legs are ignored: an adopted leg's deposit is already paired with a transfer.
+ * @param legs cash-out legs read across the mirror window
+ * @param transferDay UTC YYYY-MM-DD of the manual transfer
+ * @returns map of deposit bank ref to its leg
+ */
+export function legsByDepositRef(
+  legs: { bankRef: string | null; pettyCashTransferId: number | null; date: Date }[],
+  transferDay: string,
+): Map<string, WindowLeg> {
+  const out = new Map<string, WindowLeg>()
+  for (const l of legs) {
+    const sameDay = utcYmd(l.date) === transferDay
+    if (!l.bankRef || !(sameDay || l.pettyCashTransferId === null)) continue
+    out.set(depositRefOfLeg(l.bankRef), { linked: l.pettyCashTransferId !== null, sameDay })
+  }
+  return out
 }
