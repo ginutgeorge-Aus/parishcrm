@@ -27,14 +27,14 @@ describe("stripe config", () => {
     expect(getStripe()).toBe(getStripe())
   })
 
-  it("pins the API version of this client's own requests to the SDK constant", async () => {
+  it("pins the Stripe API version so outgoing requests can't drift with the SDK", async () => {
     jest.resetModules()
     const ctor = jest.fn()
-    jest.doMock("stripe", () => ({ __esModule: true, default: class { static API_VERSION = "test-api-version"; constructor(...a: unknown[]) { ctor(...a) } } }))
+    jest.doMock("stripe", () => ({ __esModule: true, default: class { constructor(...a: unknown[]) { ctor(...a) } } }))
     process.env.STRIPE_SECRET_KEY = "sk_test_x"
     const mod = await import("@/lib/stripe")
     mod.getStripe()
-    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "test-api-version" }))
+    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "2026-09-30.endive" }))
     jest.dontMock("stripe")
     jest.resetModules()
   })
