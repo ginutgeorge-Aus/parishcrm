@@ -11,10 +11,10 @@ import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
 import { logAudit, logAuditTx } from "@/lib/audit"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
-import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG, legsByDepositRef } from "@/lib/xferRefs"
+import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
+import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2002, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
@@ -201,7 +201,7 @@ export async function createTransfer(
   // Resolve the shared XFER account before the Serializable transaction — its
   // self-heal create would otherwise risk a serialization conflict.
   // Resolved once, not per row — same reasoning; independent lookups run in parallel.
-  const [xferAccountId, cashAccount] = await Promise.all([getXferAccountId(prisma), getCashAccount()])
+  const [xferAccountId, cashAccount, lockDate] = await Promise.all([getXferAccountId(prisma), getCashAccount(), getAccountingLockDate()])
 
   // Read balance, validate and insert inside one Serializable transaction so two
   // concurrent transfers can't both pass the same balance check and together
@@ -230,6 +230,8 @@ export async function createTransfer(
   }
   try {
     await prisma.$transaction(async (tx) => {
+      // A Serializable retry re-runs this callback: don't carry the flag over from an aborted attempt.
+      windowOverridden = false
       // Replay check first: the earlier attempt already reduced the balance, so
       // the balance check below would otherwise reject the retry misleadingly.
       if (token) {
@@ -325,7 +327,9 @@ export async function createTransfer(
           },
           select: { bankRef: true, pettyCashTransferId: true, date: true },
         })
-        const legByDepositRef = legsByDepositRef(legs, transferDay)
+        // Legs in a locked period can't be un-reconciled or re-dated, so neither remedy in windowLegError
+        // would work: skip them rather than dead-end the user (the transfer date itself is unlocked).
+        const legByDepositRef = legsByDepositRef(legs.filter((l) => !isDateLocked(l.date, lockDate)), transferDay)
         const dups = legByDepositRef.size
           ? await tx.transaction.findMany({
               where: {
@@ -333,16 +337,14 @@ export async function createTransfer(
                 type: "INCOME",
                 bankRef: { in: [...legByDepositRef.keys()] },
                 amount: parsed.data.amount,
-                date: windowRange,
               },
               select: { bankRef: true, date: true },
             })
           : []
         if (dups.length) {
-          const kinds = dups.flatMap((d) => {
-            const leg = d.bankRef ? legByDepositRef.get(d.bankRef) : undefined
-            return leg ? [{ ...leg, day: utcYmd(d.date) }] : []
-          })
+          // bankRef is unique and legByDepositRef is keyed by it, so every dup has a leg. The deposit is matched
+          // on bankRef + amount only (no date window): its date may have been edited after import.
+          const kinds = dups.map((d) => ({ ...legByDepositRef.get(d.bankRef!)!, day: utcYmd(d.date) }))
           // Same-day unlinked first: the picker resolves it with the date as entered. Then a
           // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
           if (kinds.some((k) => k.sameDay && !k.linked)) throw new TransferError(DUPLICATE_LEG_ERROR)
