@@ -20,6 +20,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenState } from "./pettyCashEntry"
+import { logAuditIfMissing } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -154,9 +155,6 @@ export async function createExpense(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
-  const loaded = await loadOpenExpenseSession(sessionId)
-  if (loaded.error !== undefined) return { error: loaded.error }
-  const { existing, sessionDate } = loaded
   const parsed = ExpenseSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const tokenParsed = parseSubmissionToken(formData)
@@ -167,19 +165,32 @@ export async function createExpense(
     payee: parsed.data.payee, description: parsed.data.description,
     receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
   }
-  /** Revalidate and land on the session page — the replayed expense already committed. */
-  const replayDone = () => {
+  /**
+   * Revalidate and land on the session page — the replayed expense already committed.
+   * Re-writes the audit row if the original request committed but its audit write failed.
+   */
+  const replayDone = async () => {
+    const prior = token ? await prisma.pettyCashExpense.findUnique({ where: { submissionToken: token }, select: { id: true } }) : null
+    if (prior) {
+      await logAuditIfMissing(actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", prior.id, {
+        amount: sub.amount, accountId: sub.accountId, sessionId,
+      })
+    }
     revalidatePettyCashPaths(sessionId)
     return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
   }
-  // Replay check before the duplicate and negative-float warnings: the earlier
-  // attempt's own row (and its balance hit) would otherwise trip them on a
-  // lost-response retry.
+  // Replay check runs first — before the session-closed / period-lock guards and
+  // the duplicate and negative-float warnings: a lost-response retry after the
+  // session closed or the period locked must still land on the session page, and
+  // the earlier attempt's own row (and its balance hit) would otherwise trip them.
   if (token) {
     const state = await expenseTokenState(prisma, token, sub)
     if (state === "replay") return replayDone()
     if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
   }
+  const loaded = await loadOpenExpenseSession(sessionId)
+  if (loaded.error !== undefined) return { error: loaded.error }
+  const { existing, sessionDate } = loaded
   const account = await validateAccount(parsed.data.accountId, "EXPENSE")
   if (!account) return { error: "Invalid account" }
   if (parsed.data.fundId != null && !(await validateFund(parsed.data.fundId)))
@@ -192,7 +203,11 @@ export async function createExpense(
   // date + amount + payee + description. The form resubmits with
   // confirmDuplicate to post it anyway. `&&` short-circuits so the lookup
   // never runs once the user has already confirmed.
+  // A concurrent twin of this very submit may have committed the row that trips
+  // a warning below — re-check the token first so the twin redirects instead.
+  const twinReplayed = async () => !!token && (await expenseTokenState(prisma, token, sub)) === "replay"
   if (!parsed.data.confirmDuplicate && (await isDuplicateExpense(sessionId, sessionDate, parsed.data))) {
+    if (await twinReplayed()) return replayDone()
     return {
       error: "Possible duplicate: an expense with the same date, amount, payee, and description already exists in this session. Submit again to post it anyway.",
       duplicateWarning: true,
@@ -216,6 +231,7 @@ export async function createExpense(
     existing.transfers
   )
   if (!parsed.data.confirmNegative && toCents(parsed.data.amount) > toCents(balance)) {
+    if (await twinReplayed()) return replayDone()
     return {
       error: `This expense of ${parsed.data.amount} exceeds the running balance of ${balance.toFixed(2)} and would make the float negative. Submit again to record it anyway.`,
       negativeBalanceWarning: true,

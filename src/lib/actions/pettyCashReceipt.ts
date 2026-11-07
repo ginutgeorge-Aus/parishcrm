@@ -19,6 +19,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenState } from "./pettyCashEntry"
+import { logAuditIfMissing } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -148,13 +149,6 @@ export async function createReceipt(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
-  const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
-  if (!existing) return { error: "Session not found" }
-  if (existing.status === "CLOSED") return { error: "Session is closed" }
-  const sessionDate = sessionDateFromTitle(existing.title)
-  if (!sessionDate) return { error: "Invalid session date" }
-  const lockError = await assertUnlocked(sessionDate)
-  if (lockError) return { error: lockError }
   const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const tokenParsed = parseSubmissionToken(formData)
@@ -165,18 +159,36 @@ export async function createReceipt(
     personId: parsed.data.personId, serviceTypeId: parsed.data.serviceTypeId,
     fundId: parsed.data.fundId, notes: parsed.data.notes,
   }
-  /** Revalidate and land on the session page — the replayed receipt already committed. */
-  const replayDone = () => {
+  /**
+   * Revalidate and land on the session page — the replayed receipt already committed.
+   * Re-writes the audit row if the original request committed but its audit write failed.
+   */
+  const replayDone = async () => {
+    const prior = token ? await prisma.pettyCashReceipt.findUnique({ where: { submissionToken: token }, select: { id: true } }) : null
+    if (prior) {
+      await logAuditIfMissing(actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", prior.id, {
+        amount: sub.amount, accountId: sub.accountId, sessionId,
+      })
+    }
     revalidatePettyCashPaths(sessionId)
     return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
   }
-  // Replay check before the duplicate warning: the earlier attempt's own row
-  // would otherwise trip "Possible duplicate" on a lost-response retry.
+  // Replay check runs first — before the session-closed / period-lock guards and
+  // the duplicate warning: a lost-response retry after the session closed or the
+  // period locked must still land on the session page, and the earlier attempt's
+  // own row would otherwise trip "Possible duplicate".
   if (token) {
     const state = await receiptTokenState(prisma, token, sub)
     if (state === "replay") return replayDone()
     if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
   }
+  const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
+  if (!existing) return { error: "Session not found" }
+  if (existing.status === "CLOSED") return { error: "Session is closed" }
+  const sessionDate = sessionDateFromTitle(existing.title)
+  if (!sessionDate) return { error: "Invalid session date" }
+  const lockError = await assertUnlocked(sessionDate)
+  if (lockError) return { error: lockError }
   const account = await validateAccount(parsed.data.accountId, "INCOME")
   if (!account) return { error: "Invalid account" }
   const fundError = await validateReceiptFund(parsed.data.fundId)
@@ -186,7 +198,12 @@ export async function createReceipt(
   const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
   if (serviceTypeError) return { error: serviceTypeError }
   const dupWarning = await findDuplicateReceiptWarning(sessionId, sessionDate, parsed.data)
-  if (dupWarning) return { error: dupWarning, duplicateWarning: true }
+  if (dupWarning) {
+    // A concurrent twin of this very submit may have committed the row that
+    // tripped the warning — re-check the token so the twin redirects instead.
+    if (token && (await receiptTokenState(prisma, token, sub)) === "replay") return replayDone()
+    return { error: dupWarning, duplicateWarning: true }
+  }
 
   // Resolved once, not per row — mirrors the xferAccountId pattern in
   // pettyCashTransfer.ts.
