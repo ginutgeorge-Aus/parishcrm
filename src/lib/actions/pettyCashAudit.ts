@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit"
  * Used on the token-replay path: the original request committed the entry, but
  * its (error-swallowing) `logAudit` may have failed — a retry must not leave the
  * entry unaudited, and must not double-log when the original did succeed.
+ * Best-effort like `logAudit`: a failed lookup must not turn a replay of a saved entry into an error.
  */
 export async function logAuditIfMissing(
   userId: number | null,
@@ -16,6 +17,10 @@ export async function logAuditIfMissing(
   resourceId: number,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
-  const found = await prisma.auditLog.findFirst({ where: { action, resourceType, resourceId }, select: { id: true } })
-  if (!found) await logAudit(userId, action, resourceType, resourceId, metadata)
+  try {
+    const found = await prisma.auditLog.findFirst({ where: { action, resourceType, resourceId }, select: { id: true } })
+    if (!found) await logAudit(userId, action, resourceType, resourceId, metadata)
+  } catch (err) {
+    console.error("logAuditIfMissing failed", err)
+  }
 }
