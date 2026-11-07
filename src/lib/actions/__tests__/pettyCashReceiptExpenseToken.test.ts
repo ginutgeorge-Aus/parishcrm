@@ -13,6 +13,7 @@ import { validateFund } from "@/lib/actions/fund"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { logAudit } from "@/lib/audit"
+import { assertUnlocked } from "@/lib/accountingLock"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
@@ -40,6 +41,7 @@ jest.mock("@/lib/prisma", () => ({
     pettyCashExpense: { findUnique: jest.fn(), findMany: jest.fn() },
     person: { findUnique: jest.fn() },
     serviceType: { findUnique: jest.fn() },
+    auditLog: { findFirst: jest.fn() },
   },
 }))
 
@@ -61,9 +63,9 @@ const receiptFields = { accountId: "1", amount: "10.00", notes: "Gift" }
 const expenseFields = { payee: "Bunnings", accountId: "3", amount: "20.00", description: "Screws", receiptRef: "R1" }
 
 /** Stored receipt matching receiptFields in session 1 (no donor/service/fund). */
-const sameReceipt = { sessionId: 1, amount: { toString: () => "10.00" }, accountId: 1, personId: null, serviceTypeId: null, fundId: null, notes: "enc:Gift" }
+const sameReceipt = { id: 7, sessionId: 1, amount: { toString: () => "10.00" }, accountId: 1, personId: null, serviceTypeId: null, fundId: null, notes: "enc:Gift" }
 /** Stored expense matching expenseFields in session 1. */
-const sameExpense = { sessionId: 1, amount: { toString: () => "20.00" }, accountId: 3, payee: "enc:Bunnings", description: "enc:Screws", receiptRef: "R1", fundId: null }
+const sameExpense = { id: 8, sessionId: 1, amount: { toString: () => "20.00" }, accountId: 3, payee: "enc:Bunnings", description: "enc:Screws", receiptRef: "R1", fundId: null }
 
 /** Transaction client mock; `prior` is what the in-tx token lookup finds. */
 function txMock(prior: { receipt?: unknown; expense?: unknown } = {}) {
@@ -84,6 +86,8 @@ beforeEach(() => {
   ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({
     id: 1, status: "OPEN", title: "15-MAY-2026", openingBalance: "100.00", receipts: [], expenses: [], transfers: [],
   })
+  ;(assertUnlocked as jest.Mock).mockResolvedValue(null)
+  ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ id: 1 })
   mockReceiptFind.mockResolvedValue(null)
   mockReceiptFindMany.mockResolvedValue([])
   mockExpenseFind.mockResolvedValue(null)
@@ -110,6 +114,31 @@ describe("createReceipt — submission token (#487)", () => {
     expect(mockReceiptFindMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
     expect(revalidatePath).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replay after the session closed or the period locked still redirects (#556)", async () => {
+    mockReceiptFind.mockResolvedValue(sameReceipt)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")
+    const res = await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(res).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replay re-writes the audit row only when the original's is missing (#556)", async () => {
+    mockReceiptFind.mockResolvedValue(sameReceipt)
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 7, expect.any(Object))
+  })
+
+  it("a twin whose duplicate warning was tripped by the committed twin redirects (#556)", async () => {
+    mockReceiptFind.mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
+    mockReceiptFindMany.mockResolvedValue([{ notes: "enc:Gift" }])
+    const res = await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(res).toBeUndefined()
+    expect(mock$tx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
@@ -201,6 +230,32 @@ describe("createExpense — submission token (#487)", () => {
     expect(mock$tx).not.toHaveBeenCalled()
     expect(mockExpenseFindMany).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replay after the session closed still redirects (#556)", async () => {
+    mockExpenseFind.mockResolvedValue(sameExpense)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    const res = await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(res).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replay re-writes the audit row when the original's is missing (#556)", async () => {
+    mockExpenseFind.mockResolvedValue(sameExpense)
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 8, expect.any(Object))
+  })
+
+  it("a twin whose negative-float warning fires redirects when the token now replays (#556)", async () => {
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({
+      id: 1, status: "OPEN", title: "15-MAY-2026", openingBalance: "5.00", receipts: [], expenses: [], transfers: [],
+    })
+    const res = await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(res).toBeUndefined()
+    expect(mock$tx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
