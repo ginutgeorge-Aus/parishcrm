@@ -17,7 +17,7 @@ import { revalidatePettyCashPaths, type SubmissionTokenLookup } from "./pettyCas
  * missing one; accepted because the audit table is append-only and a schema-level fix
  * (unique key) is out of scope (#563).
  */
-export async function logAuditIfMissing(
+async function logAuditIfMissing(
   userId: number | null,
   action: string,
   resourceType: string,
