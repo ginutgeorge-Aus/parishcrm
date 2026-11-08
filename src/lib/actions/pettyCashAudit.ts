@@ -11,8 +11,11 @@ import { revalidatePettyCashPaths, type SubmissionTokenLookup } from "./pettyCas
  * its (error-swallowing) `logAudit` may have failed — a retry must not leave the
  * entry unaudited, and must not double-log when the original did succeed.
  * Best-effort like `logAudit`: a failed lookup must not turn a replay of a saved entry into an error.
- * Known limit: check-then-write is not atomic, so a concurrent twin and the original
- * can both log (a duplicate "created" row, never a missing one) — accepted as a very narrow race (#563).
+ * Known limit: check-then-write is not atomic. A plain double-submit whose twin takes the
+ * replay path while the original's audit write is still in flight can log twice — not
+ * vanishingly rare under double-clicks. Worst case is a duplicate "created" row, never a
+ * missing one; accepted because the audit table is append-only and a schema-level fix
+ * (unique key) is out of scope (#563).
  */
 export async function logAuditIfMissing(
   userId: number | null,
@@ -53,17 +56,27 @@ export async function finishReplay(entryId: number | undefined, a: ReplayAudit):
  * Re-checks the submission token just before a create returns a guard or warning
  * error: a concurrent twin of this very submit may have committed since the first
  * lookup, in which case this request is a replay and should redirect, not error.
- * Returns `finish(id)` on a replay, otherwise `error` unchanged.
+ * Returns `finish(id)` on a replay, `reusedError` when the token now belongs to a
+ * different entry, otherwise `error` unchanged. A failed lookup falls back to `error`
+ * (the guard error is still the truthful answer); `finish` is outside the try because
+ * `redirect()` throws.
  */
 export async function replayOrError<E>(
   token: string | undefined,
   lookup: () => Promise<SubmissionTokenLookup>,
   finish: (id: number | undefined) => Promise<never>,
   error: E,
+  reusedError: E,
 ): Promise<E> {
   if (token) {
-    const found = await lookup()
-    if (found.state === "replay") return finish(found.id)
+    let found: SubmissionTokenLookup | undefined
+    try {
+      found = await lookup()
+    } catch (err) {
+      console.error("replayOrError token re-check failed", err)
+    }
+    if (found?.state === "replay") return finish(found.id)
+    if (found?.state === "reused") return reusedError
   }
   return error
 }

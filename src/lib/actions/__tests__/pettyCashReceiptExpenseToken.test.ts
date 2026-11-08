@@ -252,9 +252,28 @@ describe("createExpense — submission token (#487)", () => {
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
+  it("a negative-float warning falls back to the warning when the re-check throws, and returns reused when the token was reused (#563)", async () => {
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({
+      id: 1, status: "OPEN", title: "15-MAY-2026", openingBalance: "5.00", receipts: [], expenses: [], transfers: [],
+    })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    mockExpenseFind.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("db down"))
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual(expect.objectContaining({ negativeBalanceWarning: true }))
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...sameExpense, payee: "enc:Other" })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual({ error: SUBMISSION_TOKEN_REUSED_ERROR })
+    spy.mockRestore()
+  })
+
+  it("a session closed mid-flight (SessionClosedError) redirects when a twin committed (#563)", async () => {
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn({ ...txMock(), pettyCashSession: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), findUnique: jest.fn().mockResolvedValue({ status: "CLOSED" }) } }))
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
   it("error order for a non-replay: validation first, then session-closed, then period lock (#563)", async () => {
     ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
-    expect(await createExpense(1, undefined, fd({ ...expenseFields, amount: "0", submissionToken: TOKEN }))).toEqual({ error: expect.any(String) })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, amount: "0", submissionToken: TOKEN }))).toEqual({ error: "Amount must be positive" })
     expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual({ error: "Session is closed" })
     ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "OPEN", title: "15-MAY-2026" })
     ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")

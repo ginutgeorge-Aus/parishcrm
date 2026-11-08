@@ -166,7 +166,7 @@ export async function createReceipt(
       metadata: { amount: sub.amount, accountId: sub.accountId, sessionId },
     })
   /** Returns `error`, unless a concurrent twin committed this very receipt meanwhile — then redirects. */
-  const orReplay = <E,>(error: E) => replayOrError(token, () => receiptTokenState(prisma, token!, sub), replayDone, error)
+  const orReplay = <E,>(error: E) => replayOrError(token, () => receiptTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
   // Replay check runs first — before the session-closed / period-lock guards and
   // the duplicate warning: a lost-response retry after the session closed or the
   // period locked must still land on the session page, and the earlier attempt's

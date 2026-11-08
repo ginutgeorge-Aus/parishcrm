@@ -172,7 +172,7 @@ export async function createExpense(
       metadata: { amount: sub.amount, accountId: sub.accountId, sessionId },
     })
   /** Returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects. */
-  const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error)
+  const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
   // Replay check runs first — before the session-closed / period-lock guards and
   // the duplicate and negative-float warnings: a lost-response retry after the
   // session closed or the period locked must still land on the session page, and
