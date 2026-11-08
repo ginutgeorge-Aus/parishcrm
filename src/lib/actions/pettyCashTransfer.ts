@@ -39,7 +39,7 @@ function legacyMirrorError(transferId: number | null): string {
 
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
-  "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit is not in the list (it shows only the newest deposits), use the \"Look up deposits for the date and amount entered\" link under the picker."
+  "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit is not in the list (it shows only the newest deposits), use the \"Look up deposits for the date and amount entered\" link under the picker; if it still cannot be picked, ask an admin."
 
 /**
  * Rejection for a manual transfer when an unlinked imported cash-out matches but its deposit was re-dated to a
@@ -50,7 +50,7 @@ const DUPLICATE_LEG_ERROR =
  * @returns the user-facing message naming both days
  */
 function redatedDepositError(legDay: string, depositDay: string): string {
-  return `An imported cash-out for this amount on ${legDay} ${WINDOW_GUARD_TAG} already booked its petty cash cash-out, but its deposit was re-dated to ${depositDay}, so it cannot be picked in the form. If this transfer is that deposit, restore the deposit's date to ${legDay} and pick it; otherwise ask an admin to record this transfer anyway.`
+  return `An imported cash-out for this amount ${WINDOW_GUARD_TAG} was found, but its dates do not line up: the cash-out is dated ${legDay} and its deposit is dated ${depositDay}, so the deposit cannot be picked in the form. If this transfer is that deposit, the cash-out and the deposit must have the same date, and this transfer must use that date too; otherwise ask an admin to record this transfer anyway.`
 }
 
 /**
@@ -340,7 +340,8 @@ export async function createTransfer(
           select: { bankRef: true, pettyCashTransferId: true, date: true },
         })
         // Read the lock inside this transaction so a retry or a concurrent lock change is never stale (#562).
-        const lockDate = await getAccountingLockDate(tx)
+        // Skipped when no leg matched (the common path): no extra round trip or SSI read.
+        const lockDate = legs.length ? await getAccountingLockDate(tx) : null
         // Legs in a locked period can't be un-reconciled or re-dated, so neither remedy in windowLegError
         // would work: skip them rather than dead-end the user (the transfer date itself is unlocked).
         // Deferred (#562): this skip leaves no audit trace / admin override flag.
@@ -369,7 +370,8 @@ export async function createTransfer(
           // Same-day unlinked first: the picker resolves it with the date as entered. Then a
           // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
           if (kinds.some((k) => k.sameDay && !k.linked && k.adoptable)) throw new TransferError(DUPLICATE_LEG_ERROR)
-          const other = kinds.find((k) => !k.linked)
+          // Prefer an adoptable entry so the message never depends on DB row order.
+          const other = kinds.find((k) => !k.linked && k.adoptable) ?? kinds.find((k) => !k.linked)
           // The window guard alone is admin-overridable (e.g. fixed recurring weekly deposits). A re-dated
           // deposit (not adoptable even on the same day) gets the same override instead of a dead end.
           if (other && !windowOverride)

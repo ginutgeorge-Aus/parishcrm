@@ -401,7 +401,7 @@ describe("createTransfer — manual path duplicate guard", () => {
     const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: legDay }], new Date("2026-06-01"))
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     const res = await createTransfer(1, undefined, form())
-    expect(res).toEqual({ error: expect.stringContaining("re-dated to 2026-06-01") })
+    expect(res).toEqual({ error: expect.stringContaining("its deposit is dated 2026-06-01") })
     expect(res).toEqual({ error: expect.stringContaining("(within 7 days of this transfer)") })
     expect(res).toEqual({ error: expect.not.stringContaining("set the date to 2026-06-01") })
     expect(tx.pettyCashTransfer.create).not.toHaveBeenCalled()
@@ -417,7 +417,7 @@ describe("createTransfer — manual path duplicate guard", () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { role: "PASTOR", id: "2" } })
     const blocked = mk()
     const res = await createTransfer(1, undefined, form())
-    expect(res).toEqual({ error: expect.stringContaining("re-dated to 2026-06-01") })
+    expect(res).toEqual({ error: expect.stringContaining("its deposit is dated 2026-06-01") })
     expect(blocked.pettyCashTransfer.create).not.toHaveBeenCalled()
     ;(auth as jest.Mock).mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     const ok = mk()
@@ -447,11 +447,41 @@ describe("createTransfer — manual path duplicate guard", () => {
   })
 
   // #562: the lock is read through the transaction client, not outside it.
-  it("reads the accounting lock date through the transaction client", async () => {
-    const tx = txMock(null)
+  it("reads the accounting lock date through the transaction client (only when a leg matched)", async () => {
+    const tx = txMock(null, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: day }])
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createTransfer(1, undefined, form())
     expect(getAccountingLockDate).toHaveBeenCalledWith(tx)
+  })
+
+  it("does not read the lock date when no leg matched", async () => {
+    const tx = txMock(null)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    await createTransfer(1, undefined, form())
+    expect(getAccountingLockDate).not.toHaveBeenCalled()
+  })
+
+  // Review: `other` must not depend on DB order when a non-adoptable and an adoptable unlinked entry both match.
+  it.each([["adoptable first", false], ["adoptable last", true]])("prefers the adoptable entry's guidance regardless of order (%s)", async (_l, reverse) => {
+    const legs = [
+      { bankRef: "XFER_OUT_B0", pettyCashTransferId: null, date: new Date("2026-07-28") },
+      { bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: new Date("2026-07-29") },
+    ]
+    const deps = [{ bankRef: "B0", date: new Date("2026-06-01") }, { bankRef: "B1", date: new Date("2026-07-29") }]
+    const tx = txMock({ id: 11 }, legs)
+    tx.transaction.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.type === "INCOME" ? (reverse ? [...deps].reverse() : deps) : legs)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("set the date to 2026-07-29") })
+  })
+
+  it("shows the admin override tag in the mismatched-dates message", async () => {
+    const tx = txMock({ id: 11 }, [{ bankRef: "XFER_OUT_B1", pettyCashTransferId: null, date: new Date("2026-07-28") }], new Date("2026-06-01"))
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    const res = await createTransfer(1, undefined, form())
+    expect(res).toEqual({ error: expect.stringContaining("(within 7 days of this transfer)") })
+    expect(res).toEqual({ error: expect.stringContaining("ask an admin to record this transfer anyway") })
   })
 
   it("creates the mirror when no duplicate leg exists", async () => {
