@@ -19,8 +19,8 @@ import { accountMatches } from "@/lib/accountMatches"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenState } from "./pettyCashEntry"
-import { logAuditIfMissing } from "./pettyCashAudit"
+import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { finishReplay, replayOrError } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -124,12 +124,12 @@ async function expenseTokenState(
   db: Pick<Prisma.TransactionClient, "pettyCashExpense">,
   token: string,
   sub: ExpenseSubmission,
-): Promise<SubmissionTokenState> {
+): Promise<SubmissionTokenLookup> {
   const prior = await db.pettyCashExpense.findUnique({
     where: { submissionToken: token },
-    select: { sessionId: true, amount: true, accountId: true, payee: true, description: true, receiptRef: true, fundId: true },
+    select: { id: true, sessionId: true, amount: true, accountId: true, payee: true, description: true, receiptRef: true, fundId: true },
   })
-  if (!prior) return "unused"
+  if (!prior) return { state: "unused" }
   const same =
     prior.sessionId === sub.sessionId &&
     toCents(String(prior.amount)) === toCents(sub.amount) &&
@@ -138,7 +138,7 @@ async function expenseTokenState(
     safeDecrypt(prior.description) === sub.description &&
     (prior.receiptRef ?? undefined) === sub.receiptRef &&
     (prior.fundId ?? null) === sub.fundId
-  return same ? "replay" : "reused"
+  return { state: same ? "replay" : "reused", id: prior.id }
 }
 
 /**
@@ -165,31 +165,27 @@ export async function createExpense(
     payee: parsed.data.payee, description: parsed.data.description,
     receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
   }
-  /**
-   * Revalidate and land on the session page — the replayed expense already committed.
-   * Re-writes the audit row if the original request committed but its audit write failed.
-   */
-  const replayDone = async () => {
-    const prior = token ? await prisma.pettyCashExpense.findUnique({ where: { submissionToken: token }, select: { id: true } }) : null
-    if (prior) {
-      await logAuditIfMissing(actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", prior.id, {
-        amount: sub.amount, accountId: sub.accountId, sessionId,
-      })
-    }
-    revalidatePettyCashPaths(sessionId)
-    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
-  }
+  /** Lands on the session page — the replayed expense already committed; backfills a missing audit row. */
+  const replayDone = (id: number | undefined) =>
+    finishReplay(id, {
+      userId: actorId(session), sessionId, action: "PETTY_CASH_EXPENSE_CREATED", resourceType: "PettyCashExpense",
+      metadata: { amount: sub.amount, accountId: sub.accountId, sessionId },
+    })
+  /** Returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects. */
+  const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error)
   // Replay check runs first — before the session-closed / period-lock guards and
   // the duplicate and negative-float warnings: a lost-response retry after the
   // session closed or the period locked must still land on the session page, and
   // the earlier attempt's own row (and its balance hit) would otherwise trip them.
   if (token) {
-    const state = await expenseTokenState(prisma, token, sub)
-    if (state === "replay") return replayDone()
+    const { state, id } = await expenseTokenState(prisma, token, sub)
+    if (state === "replay") return replayDone(id)
     if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
   }
   const loaded = await loadOpenExpenseSession(sessionId)
-  if (loaded.error !== undefined) return { error: loaded.error }
+  // Guard errors re-check the token (orReplay): a twin may have committed and the
+  // session closed / period locked since the first lookup (#563).
+  if (loaded.error !== undefined) return orReplay({ error: loaded.error })
   const { existing, sessionDate } = loaded
   const account = await validateAccount(parsed.data.accountId, "EXPENSE")
   if (!account) return { error: "Invalid account" }
@@ -204,14 +200,12 @@ export async function createExpense(
   // confirmDuplicate to post it anyway. `&&` short-circuits so the lookup
   // never runs once the user has already confirmed.
   // A concurrent twin of this very submit may have committed the row that trips
-  // a warning below — re-check the token first so the twin redirects instead.
-  const twinReplayed = async () => !!token && (await expenseTokenState(prisma, token, sub)) === "replay"
+  // a warning below — orReplay re-checks the token so the twin redirects instead.
   if (!parsed.data.confirmDuplicate && (await isDuplicateExpense(sessionId, sessionDate, parsed.data))) {
-    if (await twinReplayed()) return replayDone()
-    return {
+    return orReplay({
       error: "Possible duplicate: an expense with the same date, amount, payee, and description already exists in this session. Submit again to post it anyway.",
       duplicateWarning: true,
-    }
+    })
   }
 
   // Negative-float guard: unlike transfers, expense creation had no
@@ -231,11 +225,10 @@ export async function createExpense(
     existing.transfers
   )
   if (!parsed.data.confirmNegative && toCents(parsed.data.amount) > toCents(balance)) {
-    if (await twinReplayed()) return replayDone()
-    return {
+    return orReplay({
       error: `This expense of ${parsed.data.amount} exceeds the running balance of ${balance.toFixed(2)} and would make the float negative. Submit again to record it anyway.`,
       negativeBalanceWarning: true,
-    }
+    })
   }
 
   // Resolved once, not per row — mirrors the xferAccountId pattern in
@@ -245,12 +238,12 @@ export async function createExpense(
   let expenseId: number | undefined
   try {
     // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
-    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
+    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true; id?: number }>(async (tx) => {
       // Token re-check inside the tx: a twin submit may have committed since the
       // pre-check (serializableWrite's P2034 retry lands here and sees it).
       if (token) {
-        const state = await expenseTokenState(tx, token, sub)
-        if (state === "replay") return { replay: true }
+        const { state, id } = await expenseTokenState(tx, token, sub)
+        if (state === "replay") return { replay: true, id }
         if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
       }
       // Re-assert OPEN inside the tx — a concurrent close between the check
@@ -266,16 +259,16 @@ export async function createExpense(
       })
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
-    if ("replay" in result) return replayDone()
+    if ("replay" in result) return replayDone(result.id)
     if ("error" in result) return result
     expenseId = result.id
   } catch (e) {
-    if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof SessionClosedError) return orReplay({ error: e.message })
     // P2002 with a token: a concurrent submit of the same form won the unique
     // index. If it committed this very expense, treat this attempt as done.
     if (token && isP2002(e)) {
-      const state = await expenseTokenState(prisma, token, sub)
-      if (state === "replay") return replayDone()
+      const { state, id } = await expenseTokenState(prisma, token, sub)
+      if (state === "replay") return replayDone(id)
       if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
     }
     throw e
