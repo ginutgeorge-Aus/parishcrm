@@ -48,8 +48,8 @@ export function adoptionProblem(
   return null
 }
 
-/** Per-deposit summary of the cash-out leg the manual guard found in the window. */
-export type WindowLeg = { linked: boolean; sameDay: boolean }
+/** Per-deposit summary of the cash-out leg the manual guard found in the window (`day` = the leg's UTC YYYY-MM-DD). */
+export type WindowLeg = { linked: boolean; sameDay: boolean; day: string }
 
 /**
  * One entry per deposit ref (`bankRef` is unique, so a deposit has at most one XFER_OUT leg).
@@ -66,7 +66,7 @@ export function legsByDepositRef(
   for (const l of legs) {
     const sameDay = utcYmd(l.date) === transferDay
     if (!l.bankRef || !(sameDay || l.pettyCashTransferId === null)) continue
-    out.set(depositRefOfLeg(l.bankRef), { linked: l.pettyCashTransferId !== null, sameDay })
+    out.set(depositRefOfLeg(l.bankRef), { linked: l.pettyCashTransferId !== null, sameDay, day: utcYmd(l.date) })
   }
   return out
 }
