@@ -77,6 +77,17 @@ export const CAPACITY_BELOW_SOLD = "CAPACITY_BELOW_SOLD"
 // writes already applied earlier in the same transaction.
 export const STALE_EVENT = "STALE_EVENT"
 
+/**
+ * Typed error thrown when the optimistic-concurrency guard matches 0 rows.
+ * Callers detect it with `instanceof` rather than comparing message text.
+ */
+export class StaleEventError extends Error {
+  constructor() {
+    super(STALE_EVENT)
+    this.name = "StaleEventError"
+  }
+}
+
 // Hard caps on form-driven loops — unbounded entries become unbounded DB
 // writes inside one request.
 const MAX_TICKET_TYPES = 20

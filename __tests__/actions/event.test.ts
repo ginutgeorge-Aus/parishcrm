@@ -422,6 +422,13 @@ describe("updateEvent — optimistic concurrency", () => {
     expect(redirect).not.toHaveBeenCalled()
   })
 
+  it("does not treat a foreign Error with the sentinel text as a stale edit", async () => {
+    ;(prisma.event.updateMany as jest.Mock).mockRejectedValue(new Error("STALE_EVENT"))
+    const fd = baseForm()
+    fd.set("updatedAt", "2026-01-01T00:00:00.000Z")
+    await expect(updateEvent(1, undefined, fd)).rejects.toThrow("STALE_EVENT")
+  })
+
   it("succeeds and still syncs to the website when updatedAt matches", async () => {
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const fd = baseForm()

@@ -175,6 +175,11 @@ describe("updateManagedEvent write", () => {
     expect(logAuditTx).not.toHaveBeenCalled()
   })
 
+  it("does not treat a foreign Error with the sentinel text as a stale edit", async () => {
+    updateMany.mockRejectedValue(new Error("STALE_EVENT"))
+    await expect(run(form({ ...base, updatedAt: "2026-08-01T00:00:00.000Z" }))).rejects.toThrow("STALE_EVENT")
+  })
+
   it("refuses a date that would end before the stored registration deadline", async () => {
     findUnique.mockResolvedValue({ ...stored, registrationDeadline: new Date("2026-09-01T00:00:00Z") })
     const out = await run(form(base))
