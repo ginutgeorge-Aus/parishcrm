@@ -21,6 +21,22 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.14.0-petty-cash-no-duplicates",
+    version: "v1.14.0",
+    area: "Petty cash",
+    title: "Retried petty cash entries do not duplicate",
+    steps:
+      "Open Petty cash → add a receipt or expense and submit → double-click submit or refresh and resubmit → confirm only one entry is created.",
+  },
+  {
+    id: "v1.14.0-venue-sent-month-warning",
+    version: "v1.14.0",
+    area: "Venue",
+    title: "Venue invoice shows sent-month warning",
+    steps:
+      "Open Venue usage → pick a request whose month was already sent → confirm a warning shows before sending again.",
+  },
+  {
     id: "v1.13.1-release-smoke",
     version: "v1.13.1",
     area: "General",
