@@ -12,6 +12,13 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.14.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.0...v1.14.1) (2026-11-10)
+
+
+### Fixed
+
+* **docker:** copy .npmrc so npm ci honours legacy-peer-deps ([#575](https://github.com/ginutgeorge-Aus/parishcrm/issues/575)) ([66e4242](https://github.com/ginutgeorge-Aus/parishcrm/commit/66e4242306206bb31b7aa8e63bf5ecc388d92532))
+
 ## [1.14.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.13.1...v1.14.0) (2026-11-10)
 
 
