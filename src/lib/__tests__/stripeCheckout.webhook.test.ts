@@ -20,7 +20,7 @@ jest.mock("@/lib/stripe", () => {
   const webhooks = { constructEvent: jest.fn() }
   const refunds = { create: jest.fn() }
   const checkout = { sessions: { list: jest.fn() } }
-  return { getStripe: () => ({ webhooks, refunds, checkout }), STRIPE_API_VERSION: "2026-09-30.endive" }
+  return { getStripe: () => ({ webhooks, refunds, checkout }), STRIPE_API_VERSION: "2026-10-28.endive" }
 })
 jest.mock("@/lib/eventRegistrationPersist", () => ({ persistRegistration: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({ prisma: {
