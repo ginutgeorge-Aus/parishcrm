@@ -2,7 +2,7 @@
 # digest is authoritative. node:24-alpine as of 2026-07-02 — bump when updating.
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 COPY prisma ./prisma/
 RUN npm ci
 
