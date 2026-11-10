@@ -225,7 +225,10 @@ export const SUBMISSION_TOKEN_REUSED_ERROR =
   "This form was already submitted — reload the page to enter a new entry"
 
 /** Outcome of a token lookup: unused, a true replay of the same entry, or reused for a different one. */
-export type SubmissionTokenState = "unused" | "replay" | "reused"
+type SubmissionTokenState = "unused" | "replay" | "reused"
+
+/** A token lookup result: the state plus the id of the stored entry carrying the token (when any). */
+export type SubmissionTokenLookup = { state: SubmissionTokenState; id?: number }
 
 // The client form sends a v4 UUID (crypto.randomUUID or its getRandomValues
 // fallback). Accept any UUID shape; blank/absent means "no replay protection".

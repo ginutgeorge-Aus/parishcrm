@@ -206,9 +206,81 @@ describe("createReceipt — submission token (#487)", () => {
     await expect(createReceipt(1, undefined, fd(receiptFields))).rejects.toBe(err)
     expect(mockReceiptFind).not.toHaveBeenCalled()
   })
+
+  it("a twin that committed after the first lookup redirects when the session is now closed or locked (#563)", async () => {
+    mockReceiptFind.mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    expect(await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+    jest.clearAllMocks()
+    mockReceiptFind.mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "OPEN", title: "15-MAY-2026" })
+    ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")
+    expect(await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("error order for a non-replay: validation first, then session-closed, then period lock (#563)", async () => {
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    expect(await createReceipt(1, undefined, fd({ ...receiptFields, amount: "0", submissionToken: TOKEN }))).toEqual({ error: "Amount must be positive" })
+    expect(await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).toEqual({ error: "Session is closed" })
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "OPEN", title: "15-MAY-2026" })
+    ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")
+    expect(await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).toEqual({ error: "Period locked" })
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("a replay does not re-log when the original's audit row exists (#556)", async () => {
+    mockReceiptFind.mockResolvedValue(sameReceipt)
+    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { action: "PETTY_CASH_RECEIPT_CREATED", resourceType: "PettyCashReceipt", resourceId: 7 } }))
+    expect(logAudit).not.toHaveBeenCalled()
+  })
 })
 
 describe("createExpense — submission token (#487)", () => {
+  it("a twin that committed after the first lookup redirects when the session is now closed or locked (#563)", async () => {
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+    jest.clearAllMocks()
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "OPEN", title: "15-MAY-2026" })
+    ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a negative-float warning falls back to the warning when the re-check throws, and returns reused when the token was reused (#563)", async () => {
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({
+      id: 1, status: "OPEN", title: "15-MAY-2026", openingBalance: "5.00", receipts: [], expenses: [], transfers: [],
+    })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    mockExpenseFind.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("db down"))
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual(expect.objectContaining({ negativeBalanceWarning: true }))
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...sameExpense, payee: "enc:Other" })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual({ error: SUBMISSION_TOKEN_REUSED_ERROR })
+    spy.mockRestore()
+  })
+
+  it("a session closed mid-flight (SessionClosedError) redirects when a twin committed (#563)", async () => {
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn({ ...txMock(), pettyCashSession: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), findUnique: jest.fn().mockResolvedValue({ status: "CLOSED" }) } }))
+    mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toBeUndefined()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("error order for a non-replay: validation first, then session-closed, then period lock (#563)", async () => {
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "CLOSED", title: "15-MAY-2026" })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, amount: "0", submissionToken: TOKEN }))).toEqual({ error: "Amount must be positive" })
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual({ error: "Session is closed" })
+    ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({ id: 1, status: "OPEN", title: "15-MAY-2026" })
+    ;(assertUnlocked as jest.Mock).mockResolvedValue("Period locked")
+    expect(await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).toEqual({ error: "Period locked" })
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
   it("stores the token on a first submit and creates one mirror", async () => {
     const tx = txMock()
     mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
