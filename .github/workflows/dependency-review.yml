@@ -35,7 +35,9 @@ jobs:
           # mcp (Python-2.0), protobuf (LicenseRef-scancode-protobuf) and
           # typing-extensions (PSF-2.0) come from the hash-locked Semgrep in
           # .github/requirements — CI-only tooling, never shipped in the image.
+          # leac (via @react-email/render > selderee) is MIT on npm and in the
+          # lockfile; GitHub's metadata reports "JSON AND MIT" (false positive).
           allow-dependencies-licenses: >-
-            pkg:npm/argparse, pkg:pypi/mcp, pkg:pypi/protobuf,
+            pkg:npm/argparse, pkg:npm/leac, pkg:pypi/mcp, pkg:pypi/protobuf,
             pkg:pypi/typing-extensions
           comment-summary-in-pr: on-failure

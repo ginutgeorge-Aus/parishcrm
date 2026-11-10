@@ -7,9 +7,10 @@ export const ACCOUNTING_LOCK_DATE_KEY = "accountingLockDate"
  * Read the configured accounting lock date. Returns a UTC-midnight Date, or
  * null when unset / blank / unparseable. Transactions dated on or before this
  * date are read-only.
+ * @param db client to read through; pass a transaction client to read the lock inside that transaction (default: the shared client)
  */
-export async function getAccountingLockDate(): Promise<Date | null> {
-  const row = await prisma.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
+export async function getAccountingLockDate(db: Pick<typeof prisma, "appSetting"> = prisma): Promise<Date | null> {
+  const row = await db.appSetting.findUnique({ where: { key: ACCOUNTING_LOCK_DATE_KEY } })
   if (!row?.value) return null
   const d = new Date(row.value) // "YYYY-MM-DD" → UTC midnight
   return Number.isNaN(d.getTime()) ? null : d

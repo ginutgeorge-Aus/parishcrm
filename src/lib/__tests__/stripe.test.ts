@@ -34,7 +34,7 @@ describe("stripe config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_x"
     const mod = await import("@/lib/stripe")
     mod.getStripe()
-    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "2026-09-30.endive" }))
+    expect(ctor).toHaveBeenCalledWith("sk_test_x", expect.objectContaining({ apiVersion: "2026-10-28.endive" }))
     jest.dontMock("stripe")
     jest.resetModules()
   })
