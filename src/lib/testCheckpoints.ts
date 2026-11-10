@@ -21,6 +21,14 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.14.1-release-smoke",
+    version: "v1.14.1",
+    area: "General",
+    title: "App starts and signs in after upgrade",
+    steps:
+      "Open the app after the upgrade → sign in → open the dashboard and the What's New page → confirm v1.14.1 is shown and pages load without errors.",
+  },
+  {
     id: "v1.14.0-petty-cash-no-duplicates",
     version: "v1.14.0",
     area: "Petty cash",
