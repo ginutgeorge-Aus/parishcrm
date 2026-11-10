@@ -20,7 +20,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError } from "./pettyCashAudit"
+import { makeReplayHandlers } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -165,14 +165,17 @@ export async function createExpense(
     payee: parsed.data.payee, description: parsed.data.description,
     receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
   }
-  /** Lands on the session page — the replayed expense already committed; backfills a missing audit row. */
-  const replayDone = (id: number | undefined) =>
-    finishReplay(id, {
+  // replayDone: lands on the session page (expense already committed; backfills a missing audit row).
+  // orReplay: returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects.
+  const { replayDone, orReplay } = makeReplayHandlers({
+    token,
+    lookup: () => expenseTokenState(prisma, token!, sub),
+    audit: {
       userId: actorId(session), sessionId, action: "PETTY_CASH_EXPENSE_CREATED", resourceType: "PettyCashExpense",
       metadata: { amount: sub.amount, accountId: sub.accountId, sessionId },
-    })
-  /** Returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects. */
-  const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
+      entryExists: async (id) => !!(await prisma.pettyCashExpense.findUnique({ where: { id }, select: { id: true } })),
+    },
+  })
   // Replay check runs first — before the session-closed / period-lock guards and
   // the duplicate and negative-float warnings: a lost-response retry after the
   // session closed or the period locked must still land on the session page, and

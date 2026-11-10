@@ -320,6 +320,28 @@ describe("createExpense — submission token (#487)", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 8, expect.any(Object))
   })
 
+  it("a backfilled replay audit row is flagged so it is not mistaken for the original event (#563)", async () => {
+    mockExpenseFind.mockResolvedValue(sameExpense)
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 8, expect.objectContaining({ replayBackfill: true }))
+  })
+
+  it("a replay skips the audit backfill when the entry was deleted meanwhile (#563)", async () => {
+    mockExpenseFind.mockResolvedValueOnce(sameExpense).mockResolvedValue(null)
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
+  it("a replay skips the receipt audit backfill when the receipt was deleted meanwhile (#563)", async () => {
+    mockReceiptFind.mockResolvedValueOnce(sameReceipt).mockResolvedValue(null)
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
   it("a twin whose negative-float warning fires redirects when the token now replays (#556)", async () => {
     mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
     ;(prisma.pettyCashSession.findUnique as jest.Mock).mockResolvedValue({

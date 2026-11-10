@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma"
 import { logAudit } from "@/lib/audit"
 import { redirect } from "next/navigation"
-import { revalidatePettyCashPaths, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { revalidatePettyCashPaths, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
 
 /**
  * Writes an audit row unless one already exists for this action + resource.
@@ -39,17 +39,47 @@ export type ReplayAudit = {
   action: string
   resourceType: string
   metadata: Record<string, unknown>
+  /** Whether the entry still exists — a backfill for an entry deleted meanwhile would be an orphan row. */
+  entryExists: (id: number) => Promise<boolean>
 }
 
 /**
  * Lands a replayed create on the session page: the entry already committed, so
  * re-write its audit row if the original's failed, revalidate and redirect.
- * Shared by receipt and expense creates.
+ * Shared by receipt and expense creates. The backfilled row is attributed to the
+ * replaying user at the replay time (the original actor/time are unknowable), so it
+ * carries `replayBackfill: true` — readers must not take it for the original event (#563).
+ * Skipped when the entry no longer exists.
  */
 export async function finishReplay(entryId: number | undefined, a: ReplayAudit): Promise<never> {
-  if (entryId !== undefined) await logAuditIfMissing(a.userId, a.action, a.resourceType, entryId, a.metadata)
+  if (entryId !== undefined) {
+    let exists = true
+    try {
+      exists = await a.entryExists(entryId)
+    } catch (err) {
+      console.error("finishReplay existence check failed", err)
+    }
+    if (exists) await logAuditIfMissing(a.userId, a.action, a.resourceType, entryId, { ...a.metadata, replayBackfill: true })
+  }
   revalidatePettyCashPaths(a.sessionId)
   return redirect(`/accounting/petty-cash/sessions/${a.sessionId}`)
+}
+
+/**
+ * Builds the `replayDone` / `orReplay` pair shared by receipt and expense creates:
+ * `replayDone(id)` lands on the session page (backfilling a missing audit row);
+ * `orReplay(error)` returns `error` unless a concurrent twin has since committed this
+ * very entry (then redirects) or reused the token.
+ */
+export function makeReplayHandlers(opts: {
+  token: string | undefined
+  lookup: () => Promise<SubmissionTokenLookup>
+  audit: ReplayAudit
+}) {
+  const replayDone = (id: number | undefined) => finishReplay(id, opts.audit)
+  const orReplay = <E,>(error: E) =>
+    replayOrError(opts.token, opts.lookup, replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
+  return { replayDone, orReplay }
 }
 
 /**
