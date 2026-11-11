@@ -14,7 +14,7 @@ import { syncEventToWebsite } from "@/lib/websiteSync"
 import { isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { EventImageKind } from "@/lib/generated/prisma/enums"
 import {
-  STALE_EVENT,
+  StaleEventError,
   applyImageOp,
   managedEventData,
   parseImageUpload,
@@ -111,7 +111,7 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
         // same rationale as updateEvent.
         data: { ...data, organizers: organizers.length > 0 ? organizers : [] },
       })
-      if (res.count === 0) throw new Error(STALE_EVENT)
+      if (res.count === 0) throw new StaleEventError()
       await applyImageOp(tx, id, EventImageKind.BANNER, banner)
       await applyImageOp(tx, id, EventImageKind.POSTER, poster)
       await logAuditTx(tx, actorId(session), "EVENT_UPDATED", "Event", id, {
@@ -121,7 +121,7 @@ export async function updateManagedEvent(id: number, _prev: ActionResult, formDa
       })
     })
   } catch (e: unknown) {
-    if (e instanceof Error && e.message === STALE_EVENT) {
+    if (e instanceof StaleEventError) {
       return { error: "This event was changed by someone else since you opened it. Reload the page and reapply your edit." }
     }
     throw e
