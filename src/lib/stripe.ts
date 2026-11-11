@@ -4,7 +4,7 @@ import Stripe from "stripe"
 // feature is inert unless STRIPE_SECRET_KEY is configured. Never construct the
 // client at module load — that would throw at import time when the key is unset.
 /** API version this app is written against; bump deliberately with the SDK, never implicitly. */
-export const STRIPE_API_VERSION = "2026-09-30.endive"
+export const STRIPE_API_VERSION = "2026-10-28.endive"
 
 export function stripeConfigured(): boolean {
   return !!process.env.STRIPE_SECRET_KEY

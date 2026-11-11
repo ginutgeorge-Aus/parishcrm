@@ -57,7 +57,7 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
     // Intentionally non-atomic with event.create (brief-mandated): images are
     // applied via `prisma` right after the row exists, not wrapped in a shared
     // transaction. This asymmetry with updateEvent (which applies inside its
-    // $transaction after the STALE_EVENT guard) is deliberate, not an oversight.
+    // $transaction after the StaleEventError guard) is deliberate, not an oversight.
     await applyImageOp(prisma, event.id, EventImageKind.BANNER, banner)
     await applyImageOp(prisma, event.id, EventImageKind.POSTER, poster)
   } catch (e: unknown) {
