@@ -1,46 +1,30 @@
 // Plain module (no "use server"): kept apart from pettyCashEntry.ts so that file
 // stays free of DB/prisma imports for its pure-builder tests.
 import { redirect } from "next/navigation"
-import { logAuditTx } from "@/lib/audit"
-import { isP2002, isP2034 } from "@/lib/validation"
-import type { Prisma } from "@/lib/generated/prisma/client"
+import { AUDIT_FAILED_ERROR, AuditWriteError, logAuditGuardedTx } from "@/lib/auditGuard"
+import { isP2002 } from "@/lib/validation"
 import { revalidatePettyCashPaths, SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
 
 /** Shown when a create's in-transaction audit write fails; the entry was rolled back. */
-export const PETTY_CASH_AUDIT_FAILED_ERROR =
-  "Couldn't record this entry in the audit log, so it was not saved. Sign out and back in, then try again."
+export const PETTY_CASH_AUDIT_FAILED_ERROR = AUDIT_FAILED_ERROR
+
+export { AuditWriteError }
 
 /**
- * Thrown (inside the write transaction, so the entry rolls back) when the
- * "created" audit insert fails. A distinct, non-Prisma error so `serializableWrite`
- * neither retries it nor maps an FK failure (e.g. a deleted actor's userId, P2003)
- * to the misleading "was just removed" result; the action maps it to
- * `PETTY_CASH_AUDIT_FAILED_ERROR` instead of a 500.
+ * Maps a failed in-transaction audit write (the mutation rolled back) to the action
+ * result, logging the cause server-side.
+ * @param e the `AuditWriteError` caught from the write transaction
  */
-export class AuditWriteError extends Error {
-  /** @param cause the underlying audit-insert failure, kept for server logs */
-  constructor(cause: unknown) {
-    super("petty-cash create audit write failed", { cause })
-    this.name = "AuditWriteError"
-  }
+export function auditFailed(e: AuditWriteError): { error: string } {
+  console.error("petty-cash audit write failed", e.cause)
+  return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
 }
 
 /**
- * Writes a create's audit row on the write transaction client. A failure throws
- * `AuditWriteError` (rolling the create back); a serialization conflict (P2034) is
- * rethrown unchanged so `serializableWrite` still retries the whole transaction.
+ * Writes a create's audit row on the write transaction client (see `logAuditGuardedTx`).
+ * Kept as the create-path name used by the receipt/expense actions.
  */
-export async function logCreateAuditTx(
-  tx: Prisma.TransactionClient,
-  ...args: [userId: number | null, action: string, resourceType: string, resourceId: number, metadata: Record<string, unknown>]
-): Promise<void> {
-  try {
-    await logAuditTx(tx, ...args)
-  } catch (e) {
-    if (isP2034(e)) throw e
-    throw new AuditWriteError(e)
-  }
-}
+export const logCreateAuditTx = logAuditGuardedTx
 
 /**
  * Lands a replayed create on the session page: the entry already committed, so

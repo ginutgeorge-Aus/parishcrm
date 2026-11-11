@@ -98,7 +98,7 @@ export async function attachTransactionReceipt(
       contentType: sniffed,
       size: bytes.length,
     })
-  })
+  }, { maxWait: 10_000, timeout: 15_000 }) // up to 4 MB insert + audit row: the 5s default is too tight
   revalidatePath(`/accounting/transactions/${transactionId}`)
 }
 

@@ -97,6 +97,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { createSession, closeSession, deleteSession, ensureWeeklySession } from "@/lib/actions/pettyCashSession"
 import { createReceipt, updateReceipt, deleteReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense, updateExpense, deleteExpense } from "@/lib/actions/pettyCashExpense"
@@ -321,6 +322,16 @@ describe("deleteSession", () => {
     expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_SESSION_DELETED", "PettyCashSession", 1, {
       title: "11-MAY-2026",
     })
+  })
+
+  it("reports an audit-insert FK failure as an audit error, not 'session has entries'", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindSession.mockResolvedValue(emptySession)
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2003" })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteSession(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
   })
 
   it("blocks PASTOR", async () => {
@@ -584,6 +595,16 @@ describe("deleteReceipt", () => {
     expect(mockDeleteReceipt).toHaveBeenCalledWith({ where: { id: 1 } })
   })
 
+  it("reports an audit-insert failure (even an FK P2003) as an audit error and rolls back", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2003" })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteReceipt(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+  })
+
   it("blocks PASTOR from deleting", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     const result = await deleteReceipt(1)
@@ -673,8 +694,9 @@ describe("deleteReceipt", () => {
   it("blocks the delete when a concurrent reconcile lands inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     // Outer read saw the mirror un-reconciled; the reconcile lands after it.
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
-    mockFindTransaction.mockResolvedValue({ reconciled: true })
+    mockFindReceipt
+      .mockResolvedValueOnce({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
+      .mockResolvedValueOnce({ amount: 10, accountId: 2, sessionId: 5, transaction: { id: 99, reconciled: true } })
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
     expect(mockDeleteReceipt).not.toHaveBeenCalled()

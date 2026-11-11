@@ -19,7 +19,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError, resolveCreateWriteError } from "./pettyCashAudit"
+import { finishReplay, replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -375,6 +375,7 @@ export async function updateReceipt(
     if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
     throw e
   }
   revalidatePettyCashPaths(receipt.sessionId)
@@ -411,15 +412,20 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   try {
     await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, receipt.session.id, "Cannot delete from closed session")
-      if (receipt.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: receipt.transaction.id }, select: { reconciled: true } })
-        if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
-      }
+      // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
+      // concurrent edit between the two can't leave the DELETED row describing stale values.
+      const row = await tx.pettyCashReceipt.findUnique({
+        where: { id },
+        select: { amount: true, accountId: true, sessionId: true, transaction: { select: { id: true, reconciled: true } } },
+      })
+      if (!row) throw new SessionClosedError("Receipt not found")
+      if (row.transaction?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
       await tx.pettyCashReceipt.delete({ where: { id } })
-      await logPettyCashEntryDeletedAuditTx(tx, userId, "Receipt", id, receipt)
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Receipt", id, row)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
     throw e
   }
   revalidatePettyCashPaths(receipt.sessionId)

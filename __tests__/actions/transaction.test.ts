@@ -973,6 +973,26 @@ describe("reconcileMany", () => {
     expect(mockRevalidate).not.toHaveBeenCalledWith("/accounting/reports/funds")
   })
 
+  it("writes no audit row when every selected row is already reconciled", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([
+      { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: true },
+    ])
+    await reconcileMany([1], 1)
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("writes no audit row when a concurrent toggle already flipped every row (count 0)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([
+      { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
+    ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await reconcileMany([1], 1)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
   it("audit-logs the bulk reconcile with a count", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindMany.mockResolvedValue([

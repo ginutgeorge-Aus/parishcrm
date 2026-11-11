@@ -98,23 +98,23 @@ export async function reconcileMany(
   if (lockError) return { error: lockError }
 
   const toReconcile = rows.filter((r) => !r.reconciled).map((r) => r.id)
-  await prisma.$transaction(async (tx) => {
-    let count = 0
-    if (toReconcile.length > 0) {
+  // Nothing to flip: no write and no audit row (a no-op must not log an event).
+  if (toReconcile.length > 0)
+    await prisma.$transaction(async (tx) => {
       // `reconciled: false` guard + the returned count keep the audit row accurate
       // if a concurrent toggle flipped some of these rows after the read above.
       const res = await tx.transaction.updateMany({
         where: { id: { in: toReconcile }, reconciled: false },
         data: { reconciled: true },
       })
-      count = res.count
-    }
-    await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
-      reconciled: true,
-      paymentAccountId: expectedPaymentAccountId,
-      count,
+      // Skip the audit when a concurrent toggle already flipped every row.
+      if (res.count > 0)
+        await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
+          reconciled: true,
+          paymentAccountId: expectedPaymentAccountId,
+          count: res.count,
+        })
     })
-  })
   // No revalidateReports() here: the pl/balance-sheet/budget-vs-actual/
   // funds reports aggregate ALL transactions since asOfDate regardless of the
   // `reconciled` flag (book balance) — flipping reconciled never changes

@@ -10,6 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { logAuditTx } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
 import { MONEY_DECIMAL_RE, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
@@ -234,7 +235,7 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
       const created = await tx.pettyCashSession.create({
         data: { title, custodianId, openingBalance },
       })
-      await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_AUTO_OPENED", "PettyCashSession", created.id, {
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_AUTO_OPENED", "PettyCashSession", created.id, {
         title,
         custodianId,
         openingBalance,
@@ -242,6 +243,13 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
     })
   } catch (e) {
     if (isUniqueViolation(e)) return { status: "exists" }
+    // This runs during the page's server render: a failing audit insert (rolled the
+    // session back) must not make every visit throw. Log it and render without the
+    // auto-opened session; the next load retries.
+    if (e instanceof AuditWriteError) {
+      console.error("ensureWeeklySession audit write failed", e.cause)
+      return { status: "exists" }
+    }
     throw e
   }
 
@@ -367,11 +375,15 @@ export async function deleteSession(id: number): Promise<ActionResult> {
   try {
     await prisma.$transaction(async (tx) => {
       await tx.pettyCashSession.delete({ where: { id } })
-      await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_DELETED", "PettyCashSession", id, {
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_DELETED", "PettyCashSession", id, {
         title: existing.title,
       })
     })
   } catch (e) {
+    if (e instanceof AuditWriteError) {
+      console.error("deleteSession audit write failed", e.cause)
+      return { error: AUDIT_FAILED_ERROR }
+    }
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
       return { error: "Cannot delete — session has entries. Delete them first." }
     throw e
