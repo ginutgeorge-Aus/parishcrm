@@ -782,7 +782,7 @@ describe("deleteTransaction", () => {
       accountId: 5001,
     })
     await deleteTransaction(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_DELETED", "Transaction", 1, {
       amount: 250,
       type: "EXPENSE",
       accountId: 5001,
@@ -845,11 +845,19 @@ describe("toggleReconciled", () => {
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { reconciled: false } })
   })
 
+  it("propagates a failed audit write so the toggle rolls back", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    await expect(toggleReconciled(1, 1)).rejects.toThrow("audit down")
+  })
+
   it("audit-logs the reconciliation state change", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
     await toggleReconciled(1, 1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.objectContaining({ __isTx: true }),
       1, "TRANSACTION_RECONCILED", "Transaction", 1,
       expect.objectContaining({ reconciled: true, paymentAccountId: 1 })
     )
@@ -971,7 +979,8 @@ describe("reconcileMany", () => {
       { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
     ])
     await reconcileMany([1], 1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.objectContaining({ __isTx: true }),
       1, "TRANSACTION_RECONCILED", "Transaction", undefined,
       expect.objectContaining({ reconciled: true, paymentAccountId: 1, count: 1 })
     )

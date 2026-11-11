@@ -6,10 +6,13 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { findUnique: jest.fn() },
     transactionAttachment: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn(), count: jest.fn() },
     appSetting: { findUnique: jest.fn() },
+    // Interactive tx: run the callback against the same mock client, tagged so
+    // tests can assert the audit row is written on the tx.
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn({ transactionAttachment: { create: jest.requireMock("@/lib/prisma").prisma.transactionAttachment.create, delete: jest.requireMock("@/lib/prisma").prisma.transactionAttachment.delete }, __isTx: true })),
   },
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn().mockResolvedValue(undefined), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -20,7 +23,7 @@ jest.mock("@/lib/crypto", () => ({
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { attachTransactionReceipt, removeTransactionReceipt } from "@/lib/actions/transactionAttachment"
 
 const mockAuth = auth as jest.Mock
@@ -101,6 +104,12 @@ describe("attachTransactionReceipt", () => {
     expect(attCreate).not.toHaveBeenCalled()
   })
 
+  it("propagates a failed audit write so the attachment insert rolls back", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    await expect(attachTransactionReceipt(1, undefined, fd(pngFile()))).rejects.toThrow("audit down")
+  })
+
   it("stores a valid image encrypted at rest and logs the audit event", async () => {
     mockAuth.mockResolvedValue(ADMIN)
     const r = await attachTransactionReceipt(1, undefined, fd(pngFile("my scan.png")))
@@ -118,7 +127,7 @@ describe("attachTransactionReceipt", () => {
     expect(Buffer.isBuffer(data.data)).toBe(true)
     const decoded = Buffer.from(data.data.toString("utf8").replace(/^enc:/, ""), "base64")
     expect(Uint8Array.from(decoded)).toEqual(pngBytes())
-    expect(logAudit).toHaveBeenCalledWith(5, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", 1, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 5, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", 1, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/accounting/transactions/1")
   })
 
@@ -205,7 +214,7 @@ describe("removeTransactionReceipt", () => {
     const r = await removeTransactionReceipt(100)
     expect(r).toBeUndefined()
     expect(attDelete).toHaveBeenCalledWith({ where: { id: 100 } })
-    expect(logAudit).toHaveBeenCalledWith(5, "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", 1, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 5, "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", 1, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/accounting/transactions/1")
   })
 

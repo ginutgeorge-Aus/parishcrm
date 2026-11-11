@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { encrypt, encryptBytes } from "@/lib/crypto"
 import { isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
@@ -79,22 +79,24 @@ export async function attachTransactionReceipt(
     return { error: "That file's contents don't match a JPEG, PNG or PDF." }
   }
 
-  await prisma.transactionAttachment.create({
-    data: {
-      transactionId,
-      // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
-      // base64-encoded first so arbitrary bytes survive the string-based cipher.
-      filename: encrypt(sanitizeFilename(file.name)),
+  await prisma.$transaction(async (tx) => {
+    await tx.transactionAttachment.create({
+      data: {
+        transactionId,
+        // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
+        // base64-encoded first so arbitrary bytes survive the string-based cipher.
+        filename: encrypt(sanitizeFilename(file.name)),
+        contentType: sniffed,
+        size: bytes.length,
+        data: encryptBytes(bytes),
+        uploadedById: actorId(session),
+      },
+    })
+  
+    await logAuditTx(tx, actorId(session), "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
       contentType: sniffed,
       size: bytes.length,
-      data: encryptBytes(bytes),
-      uploadedById: actorId(session),
-    },
-  })
-
-  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
-    contentType: sniffed,
-    size: bytes.length,
+    })
   })
   revalidatePath(`/accounting/transactions/${transactionId}`)
 }
@@ -120,9 +122,11 @@ export async function removeTransactionReceipt(attachmentId: number): Promise<Ac
   const lockError = await assertUnlocked(existing.transaction.date)
   if (lockError) return { error: lockError }
 
-  await prisma.transactionAttachment.delete({ where: { id: attachmentId } })
-  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", existing.transactionId, {
-    attachmentId,
+  await prisma.$transaction(async (tx) => {
+    await tx.transactionAttachment.delete({ where: { id: attachmentId } })
+    await logAuditTx(tx, actorId(session), "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", existing.transactionId, {
+      attachmentId,
+    })
   })
   revalidatePath(`/accounting/transactions/${existing.transactionId}`)
 }

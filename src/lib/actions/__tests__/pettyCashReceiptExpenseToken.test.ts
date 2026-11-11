@@ -12,14 +12,14 @@ import { validateAccount } from "@/lib/actions/transaction"
 import { validateFund } from "@/lib/actions/fund"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -112,7 +112,7 @@ describe("createReceipt — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(mock$tx).not.toHaveBeenCalled()
     expect(mockReceiptFindMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(revalidatePath).toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
@@ -149,7 +149,7 @@ describe("createReceipt — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(tx.pettyCashReceipt.create).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
@@ -234,7 +234,7 @@ describe("createReceipt — submission token (#487)", () => {
     mockReceiptFind.mockResolvedValue(sameReceipt)
     await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
     expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { action: "PETTY_CASH_RECEIPT_CREATED", resourceType: "PettyCashReceipt", resourceId: 7 } }))
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 })
 
@@ -301,7 +301,7 @@ describe("createExpense — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(mock$tx).not.toHaveBeenCalled()
     expect(mockExpenseFindMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 

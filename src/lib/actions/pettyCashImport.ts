@@ -21,7 +21,7 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber } from "@/lib/formatting"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { featureGuard } from "@/lib/featureFlags"
 
 export interface ImportPreview {
@@ -394,6 +394,10 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
       const cashAccountId = cashAccount?.id ?? null
       await insertImportReceipts(tx, built.receiptInputs, accountName, titleBySessionId, cashAccountId)
       await insertImportExpenses(tx, built.expenseInputs, accountName, titleBySessionId, cashAccountId)
+      const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
+      await logAuditTx(tx, actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
+        receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
+      })
     }, { maxWait: 10_000, timeout: 60_000 })
   } catch (e) {
     // A closed session mid-import or a DB constraint failure throws inside the
@@ -401,10 +405,6 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
     return { error: e instanceof Error ? e.message : "Import failed" }
   }
 
-  const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
-  await logAudit(actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
-    receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
-  })
   revalidatePath("/accounting/petty-cash")
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")

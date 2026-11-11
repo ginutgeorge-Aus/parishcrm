@@ -2,12 +2,13 @@ jest.mock("@/lib/featureFlags")
 import { updateSessionCustodian } from "@/lib/actions/pettyCashSession"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { logAuditTx } from "@/lib/audit"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -19,6 +20,8 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     pettyCashSession: { findUnique: jest.fn(), update: jest.fn() },
     person: { findFirst: jest.fn() },
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
+      fn({ pettyCashSession: { update: jest.requireMock("@/lib/prisma").prisma.pettyCashSession.update }, __isTx: true })),
   },
 }))
 
@@ -82,4 +85,12 @@ test("valid update persists new custodian + returns success", async () => {
     data: { custodianId: 5 },
   })
   expect(res).toEqual({ success: "Custodian updated" })
+  expect(logAuditTx).toHaveBeenCalledWith(
+    expect.objectContaining({ __isTx: true }), 1, "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", 1, { custodianId: 5 }
+  )
+})
+
+test("a failed audit write propagates so the custodian change rolls back", async () => {
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+  await expect(updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))).rejects.toThrow("audit down")
 })

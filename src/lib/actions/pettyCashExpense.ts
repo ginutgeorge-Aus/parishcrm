@@ -9,7 +9,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch, isP2002 } from "@/lib/validation"
@@ -235,7 +235,6 @@ export async function createExpense(
   // pettyCashTransfer.ts.
   const cashAccount = await getCashAccount()
 
-  let expenseId: number | undefined
   try {
     // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
     const result = await serializableWrite<{ error: string } | { id: number } | { replay: true; id?: number }>(async (tx) => {
@@ -257,11 +256,15 @@ export async function createExpense(
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
+      await logAuditTx(tx, actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", id, {
+        amount: parsed.data.amount,
+        accountId: parsed.data.accountId,
+        sessionId,
+      })
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if ("replay" in result) return replayDone(result.id)
     if ("error" in result) return result
-    expenseId = result.id
   } catch (e) {
     if (e instanceof SessionClosedError) return orReplay({ error: e.message })
     // P2002 with a token: a concurrent submit of the same form won the unique
@@ -273,11 +276,6 @@ export async function createExpense(
     }
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", expenseId, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId,
-  })
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -361,6 +359,11 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
+    await logAuditTx(tx, actorId(session), "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", id, {
+      amount: parsed.data.amount,
+      accountId: parsed.data.accountId,
+      sessionId: expense.sessionId,
+    })
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result
@@ -368,11 +371,6 @@ export async function updateExpense(
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", id, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId: expense.sessionId,
-  })
   revalidatePettyCashPaths(expense.sessionId)
   redirect(`/accounting/petty-cash/sessions/${expense.sessionId}`)
 }
@@ -398,6 +396,7 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (expense.date >= retentionFloor()) return { error: retentionError(expense.date) }
+  const userId = actorId(session)
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
@@ -408,22 +407,21 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
       }
       await tx.pettyCashExpense.delete({ where: { id } })
+      await logAuditTx(tx, userId, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", id, {
+        amount: Number(expense.amount),
+        accountId: expense.accountId,
+        sessionId: expense.sessionId,
+      })
+      // The mirrored ledger row is removed by FK cascade — log it explicitly so the
+      // Transaction audit trail doesn't show a ghost deletion.
+      if (expense.transaction)
+        await logAuditTx(tx, userId, "TRANSACTION_DELETED", "Transaction", expense.transaction.id, {
+          source: "petty-cash", pettyCashExpenseId: id,
+        })
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", id, {
-    amount: Number(expense.amount),
-    accountId: expense.accountId,
-    sessionId: expense.sessionId,
-  })
-  // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion.
-  if (expense.transaction)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", expense.transaction.id, {
-      source: "petty-cash", pettyCashExpenseId: id,
-    })
   revalidatePettyCashPaths(expense.sessionId)
 }

@@ -526,7 +526,7 @@ describe("deleteTransfer — adopted leg", () => {
     const update = setup({ reconciled: false, bankRef: "PC_T_5" })
     await deleteTransfer(5)
     expect(update).not.toHaveBeenCalled()
-    expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
   })
 })
 

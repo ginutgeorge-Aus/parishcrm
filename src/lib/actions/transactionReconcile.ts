@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
@@ -36,13 +36,15 @@ export async function toggleReconciled(
   if (lockError) return { error: lockError }
 
   const next = !existing.reconciled
-  await prisma.transaction.update({
-    where: { id },
-    data: { reconciled: next },
-  })
-  await logAudit(actorId(session), "TRANSACTION_RECONCILED", "Transaction", id, {
-    reconciled: next,
-    paymentAccountId: existing.paymentAccountId,
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: { reconciled: next },
+    })
+    await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", id, {
+      reconciled: next,
+      paymentAccountId: existing.paymentAccountId,
+    })
   })
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
@@ -96,16 +98,18 @@ export async function reconcileMany(
   if (lockError) return { error: lockError }
 
   const toReconcile = rows.filter((r) => !r.reconciled).map((r) => r.id)
-  if (toReconcile.length > 0) {
-    await prisma.transaction.updateMany({
-      where: { id: { in: toReconcile } },
-      data: { reconciled: true },
+  await prisma.$transaction(async (tx) => {
+    if (toReconcile.length > 0) {
+      await tx.transaction.updateMany({
+        where: { id: { in: toReconcile } },
+        data: { reconciled: true },
+      })
+    }
+    await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
+      reconciled: true,
+      paymentAccountId: expectedPaymentAccountId,
+      count: toReconcile.length,
     })
-  }
-  await logAudit(actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
-    reconciled: true,
-    paymentAccountId: expectedPaymentAccountId,
-    count: toReconcile.length,
   })
   // No revalidateReports() here: the pl/balance-sheet/budget-vs-actual/
   // funds reports aggregate ALL transactions since asOfDate regardless of the

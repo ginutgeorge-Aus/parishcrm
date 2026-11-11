@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { logger } from "@/lib/logger"
 import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -77,7 +77,7 @@ export async function saveStatementBalance(
   // retry, recomputing the decision against the new row.
   let outcome: { result: ActionResultWithSuccess; recordId: number; reconciledCount: number | null }
   try {
-    outcome = await finalizeReconciliation(parsed.data.paymentAccountId, date, amount)
+    outcome = await finalizeReconciliation(parsed.data.paymentAccountId, date, amount, userId)
   } catch (e) {
     // this was silently swallowed with no logging — a real DB failure
     // was indistinguishable from any other cause.
@@ -87,20 +87,6 @@ export async function saveStatementBalance(
       statementDate: parsed.data.statementDate,
     })
     return { error: "Failed to save" }
-  }
-
-  // Audit writes happen AFTER commit — never hold the interactive transaction open
-  // across the audit-log inserts.
-  await logAudit(userId, "RECON_STATEMENT_SAVED", "ReconciliationStatement", outcome.recordId, {
-    paymentAccountId: parsed.data.paymentAccountId,
-    statementDate: parsed.data.statementDate,
-  })
-  if (outcome.reconciledCount !== null) {
-    await logAudit(userId, "RECON_AUTO_RECONCILED", "ReconciliationStatement", undefined, {
-      paymentAccountId: parsed.data.paymentAccountId,
-      count: outcome.reconciledCount,
-      closingBalance: amount,
-    })
   }
 
   // reconcileIfBalanced may mark transactions reconciled, changing dashboard
@@ -119,7 +105,8 @@ export async function saveStatementBalance(
 async function finalizeReconciliation(
   paymentAccountId: number,
   statementDate: Date,
-  closingBalance: string
+  closingBalance: string,
+  userId: number | null
 ): Promise<{ result: ActionResultWithSuccess; recordId: number; reconciledCount: number | null }> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -137,6 +124,18 @@ async function finalizeReconciliation(
           // opening balance there is no book balance to check against, so we just
           // record the statement.
           const recon = await reconcileIfBalanced(tx, paymentAccountId, statementDate, closingBalance)
+          // Audit rows join the Serializable tx so a failed audit rolls back the save/reconcile.
+          await logAuditTx(tx, userId, "RECON_STATEMENT_SAVED", "ReconciliationStatement", record.id, {
+            paymentAccountId,
+            statementDate: statementDate.toISOString().slice(0, 10),
+          })
+          if (recon.reconciledCount !== null) {
+            await logAuditTx(tx, userId, "RECON_AUTO_RECONCILED", "ReconciliationStatement", undefined, {
+              paymentAccountId,
+              count: recon.reconciledCount,
+              closingBalance,
+            })
+          }
           return { result: recon.result, recordId: record.id, reconciledCount: recon.reconciledCount }
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }

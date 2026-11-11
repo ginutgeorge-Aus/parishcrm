@@ -7,7 +7,7 @@ import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
@@ -407,20 +407,23 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
       return { error: DEPOSIT_LINKED_ERROR }
     // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
     // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
-    return tx.transaction.deleteMany({
+    const deleted = await tx.transaction.deleteMany({
       where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
     })
+    // Audit in the same tx so a failed audit write rolls the delete back.
+    if (deleted.count > 0)
+      await logAuditTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", id, {
+        amount: Number(existing.amount),
+        type: existing.type,
+        accountId: existing.accountId,
+      })
+    return deleted
   }, DELETE_BUSY, DELETE_REFERENCED)
   if ("error" in result) return result
   const removed = result
   if (removed.count === 0) {
     return { error: "This transaction was changed by someone else since you opened it. Reload the page and try again." }
   }
-  await logAudit(actorId(session), "TRANSACTION_DELETED", "Transaction", id, {
-    amount: Number(existing.amount),
-    type: existing.type,
-    accountId: existing.accountId,
-  })
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
   revalidateReports()
