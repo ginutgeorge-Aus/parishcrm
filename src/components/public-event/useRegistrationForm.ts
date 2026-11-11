@@ -70,6 +70,8 @@ export function useRegistrationForm({
   const router = useRouter()
   const [quantities, setQuantities] = useState<Record<number, number>>({})
   const [names, setNames] = useState<Record<number, string[]>>({})
+  // Set once the visitor tries to submit; reveals inline attendee-name errors.
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
@@ -224,6 +226,7 @@ export function useRegistrationForm({
     if (totalTickets === 0) { setError("Select at least one ticket"); return }
     // Focusable-but-blocked button can fire submit; re-check the gate here.
     if (requirementsUnmet) {
+      setSubmitAttempted(true)
       focusFirstInvalidField(e.currentTarget)
       return
     }
@@ -287,7 +290,7 @@ export function useRegistrationForm({
     // field state
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,
-    quantities, names, attendeeAnswers, answers, setAnswers,
+    quantities, names, attendeeAnswers, answers, setAnswers, submitAttempted,
     method, setMethod,
     // derived
     orderQuestions, totalAmount, ticketSummary, showFee, feeCents, showMethodChoice,

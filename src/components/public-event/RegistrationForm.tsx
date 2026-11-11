@@ -13,7 +13,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
   const {
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,
-    quantities, names, attendeeAnswers, answers, setAnswers,
+    quantities, names, attendeeAnswers, answers, setAnswers, submitAttempted,
     method, setMethod,
     orderQuestions, totalAmount, ticketSummary, showFee, feeCents, showMethodChoice,
     submitBlockers, requirementsUnmet, submitting, error,
@@ -58,6 +58,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
         soldCounts={soldCounts}
         quantities={quantities}
         names={names}
+        showNameErrors={submitAttempted}
         onChange={handleQuantityChange}
         onNameChange={handleNameChange}
         attendeeQuestions={attendeeQuestions}
