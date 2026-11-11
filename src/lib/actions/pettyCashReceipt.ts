@@ -223,11 +223,7 @@ export async function createReceipt(
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "CREATED", id, {
-        amount: parsed.data.amount,
-        accountId: parsed.data.accountId,
-        sessionId,
-      })
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "CREATED", id, parsed.data, sessionId)
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if ("replay" in result) return replayDone(result.id)
@@ -383,11 +379,7 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
-    await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, {
-      amount: parsed.data.amount,
-      accountId: parsed.data.accountId,
-      sessionId: receipt.sessionId,
-    })
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, parsed.data, receipt.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result

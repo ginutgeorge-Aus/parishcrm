@@ -256,11 +256,7 @@ export async function createExpense(
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "CREATED", id, {
-        amount: parsed.data.amount,
-        accountId: parsed.data.accountId,
-        sessionId,
-      })
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "CREATED", id, parsed.data, sessionId)
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if ("replay" in result) return replayDone(result.id)
@@ -359,11 +355,7 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
-    await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "UPDATED", id, {
-      amount: parsed.data.amount,
-      accountId: parsed.data.accountId,
-      sessionId: expense.sessionId,
-    })
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "UPDATED", id, parsed.data, expense.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result
