@@ -11,7 +11,7 @@ import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { logAuditTx } from "@/lib/audit"
 import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
-import { MONEY_DECIMAL_RE, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -246,6 +246,8 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
     // This runs during the page's server render: a failing audit insert (rolled the
     // session back) must not make every visit throw. Log it and render without the
     // auto-opened session; the next load retries.
+    // A serialization conflict (P2034) rolls the session back the same way: recoverable.
+    if (isP2034(e)) return { status: "exists" }
     if (e instanceof AuditWriteError) {
       console.error("ensureWeeklySession audit write failed", e.cause)
       return { status: "exists" }

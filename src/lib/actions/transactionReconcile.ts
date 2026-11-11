@@ -99,8 +99,9 @@ export async function reconcileMany(
 
   const toReconcile = rows.filter((r) => !r.reconciled).map((r) => r.id)
   // Nothing to flip: no write and no audit row (a no-op must not log an event).
+  let reconciledCount = 0
   if (toReconcile.length > 0)
-    await prisma.$transaction(async (tx) => {
+    reconciledCount = await prisma.$transaction(async (tx) => {
       // `reconciled: false` guard + the returned count keep the audit row accurate
       // if a concurrent toggle flipped some of these rows after the read above.
       const res = await tx.transaction.updateMany({
@@ -114,6 +115,7 @@ export async function reconcileMany(
           paymentAccountId: expectedPaymentAccountId,
           count: res.count,
         })
+      return res.count
     })
   // No revalidateReports() here: the pl/balance-sheet/budget-vs-actual/
   // funds reports aggregate ALL transactions since asOfDate regardless of the
@@ -124,6 +126,6 @@ export async function reconcileMany(
   revalidatePath("/accounting/transactions")
   revalidatePath("/accounting/reconciliation")
   return {
-    success: `${toReconcile.length} transaction${toReconcile.length === 1 ? "" : "s"} reconciled.`,
+    success: `${reconciledCount} transaction${reconciledCount === 1 ? "" : "s"} reconciled.`,
   }
 }

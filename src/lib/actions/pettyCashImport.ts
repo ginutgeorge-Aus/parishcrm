@@ -375,6 +375,7 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   // A 2MB CSV can yield thousands of rows; the batched writes still exceed the
   // 5s Prisma interactive-tx default on large imports and would abort after real
   // work. Size the window to the row cap.
+  const userId = actorId(session)
   try {
     await prisma.$transaction(async (tx) => {
       const sessionByTitle = await ensureImportSessions(tx, dates, custodianId)
@@ -395,7 +396,7 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
       await insertImportReceipts(tx, built.receiptInputs, accountName, titleBySessionId, cashAccountId)
       await insertImportExpenses(tx, built.expenseInputs, accountName, titleBySessionId, cashAccountId)
       const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
-      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
+      await logAuditGuardedTx(tx, userId, "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
         receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
       })
     }, { maxWait: 10_000, timeout: 60_000 })

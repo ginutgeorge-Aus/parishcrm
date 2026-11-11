@@ -952,6 +952,7 @@ describe("reconcileMany", () => {
       { id: 2, date: new Date("2026-05-02"), paymentAccountId: 1, reconciled: true },
       { id: 3, date: new Date("2026-05-03"), paymentAccountId: 1, reconciled: false },
     ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 2 })
     const result = await reconcileMany([1, 2, 3], 1)
     expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: { in: [1, 3] }, reconciled: false }, data: { reconciled: true } })
     expect(result).toEqual({ success: "2 transactions reconciled." })
