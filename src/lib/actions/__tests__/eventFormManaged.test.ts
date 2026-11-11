@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { parseManagedEventForm, managedEventData } from "@/lib/actions/eventForm"
+import { parseManagedEventForm, managedEventData, StaleEventError } from "@/lib/actions/eventForm"
 
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData()
@@ -72,5 +72,15 @@ describe("managedEventData", () => {
     expect(data.date).toBeNull()
     expect(data.recurs).toBe("every-sunday")
     expect(data.startTime).toBe("9:30 AM")
+  })
+})
+
+describe("StaleEventError", () => {
+  it("is a typed Error detectable via instanceof", () => {
+    const e = new StaleEventError()
+    expect(e).toBeInstanceOf(StaleEventError)
+    expect(e).toBeInstanceOf(Error)
+    expect(e.name).toBe("StaleEventError")
+    expect(new Error("STALE_EVENT")).not.toBeInstanceOf(StaleEventError)
   })
 })
