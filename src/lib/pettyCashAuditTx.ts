@@ -1,4 +1,5 @@
 import { logAuditTx } from "@/lib/audit"
+import { logCreateAuditTx } from "@/lib/actions/pettyCashAudit"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 type EntryKind = "Receipt" | "Expense"
@@ -6,6 +7,8 @@ type EntryKind = "Receipt" | "Expense"
 /**
  * Writes the create/update audit row for a petty cash receipt or expense inside
  * the caller's transaction, so the audit commits or rolls back with the mutation.
+ * A failed CREATED audit throws `AuditWriteError` (via `logCreateAuditTx`) so the
+ * create action can report it instead of a 500; P2034 is rethrown for retry.
  */
 export async function logPettyCashEntryAuditTx(
   tx: Prisma.TransactionClient,
@@ -16,7 +19,8 @@ export async function logPettyCashEntryAuditTx(
   data: { amount: string; accountId: number },
   sessionId: number
 ): Promise<void> {
-  await logAuditTx(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_${verb}`, `PettyCash${kind}`, id, {
+  const write = verb === "CREATED" ? logCreateAuditTx : logAuditTx
+  await write(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_${verb}`, `PettyCash${kind}`, id, {
     amount: data.amount,
     accountId: data.accountId,
     sessionId,

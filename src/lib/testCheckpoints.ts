@@ -21,6 +21,14 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.14.2-release-smoke",
+    version: "v1.14.2",
+    area: "General",
+    title: "Docker image installs and app starts after v1.14.2 upgrade",
+    steps:
+      "Open the app after the upgrade → sign in → open the dashboard and the What's New page → confirm v1.14.2 is shown and pages load without errors.",
+  },
+  {
     id: "v1.14.1-release-smoke",
     version: "v1.14.1",
     area: "General",
