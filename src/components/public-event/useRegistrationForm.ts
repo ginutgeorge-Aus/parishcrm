@@ -12,6 +12,7 @@ import {
   allRequiredChoicesMade,
   allAttendeeRequiredAnswered,
   allNamesFilled,
+  firstEmptyNameId,
   computePricing,
 } from "@/lib/registrationFormValidation"
 import type { AnswerValue } from "@/lib/registrationFormValidation"
@@ -70,6 +71,8 @@ export function useRegistrationForm({
   const router = useRouter()
   const [quantities, setQuantities] = useState<Record<number, number>>({})
   const [names, setNames] = useState<Record<number, string[]>>({})
+  // Set once the visitor tries to submit; drives inline name errors.
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false)
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
@@ -224,7 +227,16 @@ export function useRegistrationForm({
     if (totalTickets === 0) { setError("Select at least one ticket"); return }
     // Focusable-but-blocked button can fire submit; re-check the gate here.
     if (requirementsUnmet) {
-      focusFirstInvalidField(e.currentTarget)
+      setAttemptedSubmit(true)
+      // Blank names first (native :invalid misses whitespace-only values).
+      const blankId = firstEmptyNameId(ticketTypes, quantities, names)
+      const blankEl = blankId ? document.getElementById(blankId) : null
+      if (blankEl) {
+        blankEl.scrollIntoView({ behavior: "smooth", block: "center" })
+        blankEl.focus()
+      } else {
+        focusFirstInvalidField(e.currentTarget)
+      }
       return
     }
 
@@ -287,7 +299,7 @@ export function useRegistrationForm({
     // field state
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,
-    quantities, names, attendeeAnswers, answers, setAnswers,
+    quantities, names, attemptedSubmit, attendeeAnswers, answers, setAnswers,
     method, setMethod,
     // derived
     orderQuestions, totalAmount, ticketSummary, showFee, feeCents, showMethodChoice,

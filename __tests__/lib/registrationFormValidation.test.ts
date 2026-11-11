@@ -4,6 +4,7 @@ import {
   allRequiredChoicesMade,
   allAttendeeRequiredAnswered,
   allNamesFilled,
+  firstEmptyNameId,
   computePricing,
 } from "@/lib/registrationFormValidation"
 import type { CustomQuestion, TicketType } from "@/lib/registrationFormValidation"
@@ -92,6 +93,19 @@ describe("allNamesFilled", () => {
     expect(allNamesFilled([adult], { 1: 2 }, { 1: ["A", " "] })).toBe(false)
     expect(allNamesFilled([adult], { 1: 2 }, { 1: ["A", "B"] })).toBe(true)
     expect(allNamesFilled([adult], { 1: 0 }, {})).toBe(true)
+  })
+})
+
+describe("firstEmptyNameId", () => {
+  const adult = tt({ id: 1, name: "Adult" })
+  const child = tt({ id: 2, name: "Child" })
+  it("returns the first blank or whitespace seat id in ticket order", () => {
+    expect(firstEmptyNameId([adult, child], { 1: 2, 2: 1 }, { 1: ["A", " "], 2: [""] })).toBe("att-name-1-1")
+    expect(firstEmptyNameId([adult, child], { 1: 1, 2: 1 }, { 1: ["A"] })).toBe("att-name-2-0")
+  })
+  it("returns null when all filled or nothing selected", () => {
+    expect(firstEmptyNameId([adult], { 1: 1 }, { 1: ["A"] })).toBeNull()
+    expect(firstEmptyNameId([adult], { 1: 0 }, {})).toBeNull()
   })
 })
 
