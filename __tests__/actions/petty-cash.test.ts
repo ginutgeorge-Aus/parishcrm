@@ -469,7 +469,7 @@ describe("createReceipt", () => {
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Offering" })
     mockCreateReceipt.mockResolvedValue({ id: 10, date: new Date("2026-05-11"), amount: 250, accountId: 1, sessionId: 5 })
     await createReceipt(5, undefined, fd({ date: "2026-05-11", accountId: "1", amount: "250.00" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 10, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 10, {
       amount: "250.00",
       accountId: 1,
       sessionId: 5,
@@ -1038,7 +1038,7 @@ describe("createExpense", () => {
     mockFindAccount.mockResolvedValue({ type: "EXPENSE", isActive: true, name: "Stationery" })
     mockCreateExpense.mockResolvedValue({ id: 3, date: new Date("2026-05-11"), amount: 45, accountId: 4, sessionId: 5, payee: "Woolworths" })
     await createExpense(5, undefined, fd({ date: "2026-05-11", payee: "Woolworths", accountId: "4", amount: "45.00", description: "Morning tea" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 3, {
       amount: "45.00",
       accountId: 4,
       sessionId: 5,

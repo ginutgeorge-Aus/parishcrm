@@ -11,7 +11,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, isP2002 } from "@/lib/validation"
+import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
@@ -19,7 +19,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError } from "./pettyCashAudit"
+import { finishReplay, replayOrError, logCreateAuditTx, resolveCreateWriteError } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -159,12 +159,8 @@ export async function createReceipt(
     personId: parsed.data.personId, serviceTypeId: parsed.data.serviceTypeId,
     fundId: parsed.data.fundId, notes: parsed.data.notes,
   }
-  /** Lands on the session page — the replayed receipt already committed; backfills a missing audit row. */
-  const replayDone = (id: number | undefined) =>
-    finishReplay(id, {
-      userId: actorId(session), sessionId, action: "PETTY_CASH_RECEIPT_CREATED", resourceType: "PettyCashReceipt",
-      metadata: { amount: sub.amount, accountId: sub.accountId, sessionId },
-    })
+  /** Lands on the session page — the replayed receipt (and its audit row) already committed. */
+  const replayDone = () => finishReplay(sessionId)
   /** Returns `error`, unless a concurrent twin committed this very receipt meanwhile — then redirects. */
   const orReplay = <E,>(error: E) => replayOrError(token, () => receiptTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
   // Replay check runs first — before the session-closed / period-lock guards and
@@ -172,8 +168,8 @@ export async function createReceipt(
   // period locked must still land on the session page, and the earlier attempt's
   // own row would otherwise trip "Possible duplicate".
   if (token) {
-    const { state, id } = await receiptTokenState(prisma, token, sub)
-    if (state === "replay") return replayDone(id)
+    const { state } = await receiptTokenState(prisma, token, sub)
+    if (state === "replay") return replayDone()
     if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
   }
   const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
@@ -202,15 +198,16 @@ export async function createReceipt(
   // pettyCashTransfer.ts.
   const cashAccount = await getCashAccount()
 
-  let receiptId: number | undefined
   try {
-    // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
-    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true; id?: number }>(async (tx) => {
+    // Account re-check + write + audit share one Serializable transaction so a
+    // concurrent retype can't land between them, and the entry can never commit
+    // without its "created" audit row (so a replay never needs to backfill one, #563).
+    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
       // Token re-check inside the tx: a twin submit may have committed since the
       // pre-check (serializableWrite's P2034 retry lands here and sees it).
       if (token) {
-        const { state, id } = await receiptTokenState(tx, token, sub)
-        if (state === "replay") return { replay: true, id }
+        const { state } = await receiptTokenState(tx, token, sub)
+        if (state === "replay") return { replay: true }
         if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
       }
       // Re-assert OPEN inside the tx — a concurrent close between the check
@@ -224,27 +221,18 @@ export async function createReceipt(
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
+      await logCreateAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", id, {
+        amount: parsed.data.amount,
+        accountId: parsed.data.accountId,
+        sessionId,
+      })
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
-    if ("replay" in result) return replayDone(result.id)
+    if ("replay" in result) return replayDone()
     if ("error" in result) return result
-    receiptId = result.id
   } catch (e) {
-    if (e instanceof SessionClosedError) return orReplay({ error: e.message })
-    // P2002 with a token: a concurrent submit of the same form won the unique
-    // index. If it committed this very receipt, treat this attempt as done.
-    if (token && isP2002(e)) {
-      const { state, id } = await receiptTokenState(prisma, token, sub)
-      if (state === "replay") return replayDone(id)
-      if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
-    }
-    throw e
+    return resolveCreateWriteError(e, "createReceipt", token, () => receiptTokenState(prisma, token!, sub), sessionId)
   }
-  await logAudit(actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", receiptId, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId,
-  })
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
