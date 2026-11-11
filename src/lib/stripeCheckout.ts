@@ -13,6 +13,7 @@ import { persistRegistration } from "@/lib/eventRegistrationPersist"
 import type { PricedRegistration, EventWithTickets } from "@/lib/eventRegistrationPricing"
 import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
+import { recordWebhookVerificationFailure } from "@/lib/stripeWebhookAlert"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Money fields arrive as a Prisma Decimal from the DB, but callers may also
@@ -301,6 +302,7 @@ export async function handleStripeWebhook(
     // app-level signal — registrations silently stop completing. Log it
     // loud, like the sibling secret-gated cron entrypoints.
     console.error("STRIPE_WEBHOOK_SECRET unset/corrupt — all webhook deliveries will 400")
+    recordWebhookVerificationFailure()
     return { status: 400 }
   }
   if (!signature) return { status: 400 } // routine bad/forged traffic — never log
@@ -310,6 +312,7 @@ export async function handleStripeWebhook(
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, secret)
   } catch {
+    recordWebhookVerificationFailure()
     return { status: 400 } // bad signature — never log the raw body
   }
   warnOnApiVersionMismatch(event.api_version)
