@@ -12,6 +12,19 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.14.2](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.1...v1.14.2) (2026-11-11)
+
+
+### Fixed
+
+* **docker:** upgrade musl-utils for CVE-2026-107891 ([#587](https://github.com/ginutgeorge-Aus/parishcrm/issues/587)) ([c3a46a0](https://github.com/ginutgeorge-Aus/parishcrm/commit/c3a46a0b3ea4447b5d20a82c562533b4bdeccc71))
+* **petty-cash:** audit receipt/expense create inside write tx ([#563](https://github.com/ginutgeorge-Aus/parishcrm/issues/563)) ([#582](https://github.com/ginutgeorge-Aus/parishcrm/issues/582)) ([ca211c4](https://github.com/ginutgeorge-Aus/parishcrm/commit/ca211c42a70a4ff59a85ee113997ee5b804915e1))
+
+
+### Changed
+
+* **events:** replace STALE_EVENT string sentinel with StaleEventError ([#583](https://github.com/ginutgeorge-Aus/parishcrm/issues/583)) ([1220d81](https://github.com/ginutgeorge-Aus/parishcrm/commit/1220d81fc2a796c1c2495ad7d556cd4c75852948))
+
 ## [1.14.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.0...v1.14.1) (2026-11-10)
 
 
