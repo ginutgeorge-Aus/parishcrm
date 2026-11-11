@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { flushSync } from "react-dom"
 import { useNonce } from "@/components/NonceProvider"
 import { isQuestionApplicable, isAttendeeScoped } from "@/lib/eventQuestions"
 import { startEventCheckout } from "@/lib/actions/eventCheckout"
@@ -220,14 +221,20 @@ export function useRegistrationForm({
     return customQuestions.filter(q => isAttendeeScoped(q) && isQuestionApplicable(q, new Set([tt.name])))
   }
 
+  /** Reveal inline attendee-name errors (native validation blocked submit before handleSubmit ran). */
+  const markSubmitAttempted = () => setSubmitAttempted(true)
+
+  /** Validate and submit the registration; on a blocked submit, flags and focuses the first invalid field. */
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const form = e.currentTarget
     setError(null)
     if (totalTickets === 0) { setError("Select at least one ticket"); return }
     // Focusable-but-blocked button can fire submit; re-check the gate here.
     if (requirementsUnmet) {
-      setSubmitAttempted(true)
-      focusFirstInvalidField(e.currentTarget)
+      // Commit the flag first so aria-invalid is in the DOM before we look for it.
+      flushSync(() => setSubmitAttempted(true))
+      focusFirstInvalidField(form)
       return
     }
 
@@ -290,7 +297,7 @@ export function useRegistrationForm({
     // field state
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,
-    quantities, names, attendeeAnswers, answers, setAnswers, submitAttempted,
+    quantities, names, attendeeAnswers, answers, setAnswers, submitAttempted, markSubmitAttempted,
     method, setMethod,
     // derived
     orderQuestions, totalAmount, ticketSummary, showFee, feeCents, showMethodChoice,

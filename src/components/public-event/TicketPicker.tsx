@@ -21,12 +21,14 @@ type Props = {
   showNameErrors?: boolean
   onChange: (id: number, qty: number) => void
   onNameChange: (id: number, index: number, value: string) => void
+  /** Fired when native validation rejects an empty attendee name, so inline errors can show. */
+  onNameInvalid?: () => void
   attendeeQuestions: (tt: TicketType) => CustomQuestion[]
   attendeeAnswers: Record<number, Array<Record<string, string | string[] | boolean | boolean[]>>>
   onAttendeeAnswerChange: (ttId: number, index: number, qid: string, value: string | string[] | boolean | boolean[]) => void
 }
 
-export function TicketPicker({ ticketTypes, soldCounts, quantities, names, showNameErrors = false, onChange, onNameChange, attendeeQuestions, attendeeAnswers, onAttendeeAnswerChange }: Readonly<Props>) {
+export function TicketPicker({ ticketTypes, soldCounts, quantities, names, showNameErrors = false, onChange, onNameChange, onNameInvalid, attendeeQuestions, attendeeAnswers, onAttendeeAnswerChange }: Readonly<Props>) {
   return (
     <div className="bg-muted rounded-xl border border-border p-4">
       <p className="text-xs font-semibold text-muted-foreground mb-3">Select tickets</p>
@@ -100,14 +102,14 @@ export function TicketPicker({ ticketTypes, soldCounts, quantities, names, showN
                     const nameMissing = showNameErrors && (names[tt.id]?.[i] ?? "").trim().length === 0
                     return (
                     <div key={i} className="flex flex-col gap-1.5">
-                      <label htmlFor={`att-name-${tt.id}-${i}`} className="text-sm font-medium text-foreground">
+                      <label htmlFor={`att-name-${tt.id}-${i}`} className="text-sm font-medium text-foreground after:content-['_*'] after:text-destructive">
                         {`${tt.name} ${i + 1}`}
-                        <span aria-hidden="true" className="text-destructive"> *</span>
                       </label>
                       <input
                         id={`att-name-${tt.id}-${i}`}
                         placeholder={`${tt.name} ${i + 1} — full name`}
                         required
+                        onInvalid={onNameInvalid}
                         aria-invalid={nameMissing ? true : undefined}
                         aria-describedby={nameMissing ? `att-name-err-${tt.id}-${i}` : undefined}
                         autoComplete="off"
