@@ -1,16 +1,16 @@
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
-import { sendEmail } from "@/lib/email"
+import { sendEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 // Repeated Stripe webhook signature failures mean the signing secret is stale or
 // wrong: every delivery 400s and paid registrations stay unpaid. Alert admins once
 // per cooldown instead of waiting for a member to report a missing confirmation.
-export const FAILURE_THRESHOLD = 3
+const FAILURE_THRESHOLD = 3
 export const FAILURE_WINDOW_MS = 10 * 60_000
 export const ALERT_COOLDOWN_MS = 60 * 60_000
-export const LAST_SENT_KEY = "stripeWebhookAlertLastSentAt"
+const LAST_SENT_KEY = "stripeWebhookAlertLastSentAt"
 
 export type WebhookAlertDeps = {
   now: () => number
@@ -32,9 +32,11 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
   return async function recordFailure(): Promise<void> {
     try {
       const now = deps.now()
-      failures = failures.filter((t) => now - t < FAILURE_WINDOW_MS)
-      failures.push(now)
-      if (failures.length < FAILURE_THRESHOLD || sending || now < cooldownUntil) return
+      // During cooldown nothing is retained: the array stays bounded and the hot path is O(1).
+      if (now < cooldownUntil) return
+      // Only the newest FAILURE_THRESHOLD timestamps matter, so cap the array.
+      failures = [...failures.filter((t) => now - t < FAILURE_WINDOW_MS), now].slice(-FAILURE_THRESHOLD)
+      if (failures.length < FAILURE_THRESHOLD || sending) return
 
       sending = true
       try {
@@ -56,10 +58,19 @@ export function createWebhookFailureTracker(deps: WebhookAlertDeps) {
   }
 }
 
+/**
+ * Escapes the characters that are significant in HTML text content.
+ * @param s Raw text.
+ * @returns Text safe to embed in an HTML element body.
+ */
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
+/**
+ * Emails every active ADMIN the webhook-failure alert.
+ * @throws When there is no recipient or every send definitively failed.
+ */
 async function sendAdminAlert(): Promise<void> {
   const admins = await prisma.user.findMany({
     where: { role: UserRole.ADMIN, archivedAt: null },
@@ -87,6 +98,9 @@ async function sendAdminAlert(): Promise<void> {
       await sendEmail(to, subject, html, text)
       sent++
     } catch (err) {
+      // Post-submission socket errors may already have delivered the mail; count
+      // them as sent so the cooldown is persisted and we do not resend per failure.
+      if (isAmbiguousDeliveryError(err)) sent++
       logger.error("[stripeWebhookAlert] email failed", { error: err instanceof Error ? err.message : String(err) })
     }
   }

@@ -77,6 +77,14 @@ it("counts an unset secret toward the admin alert", async () => {
   errSpy.mockRestore()
 })
 
+it("does not count an unsigned request when the secret is unset", async () => {
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  await handleStripeWebhook("{}", null)
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+  errSpy.mockRestore()
+})
+
 it("does not count a missing signature header", async () => {
   await handleStripeWebhook("{}", null)
   expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
