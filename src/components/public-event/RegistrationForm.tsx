@@ -33,6 +33,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
 
   return (
     <form
+      noValidate
       onSubmit={handleSubmit}
       className="flex-[1.2] bg-card border-t md:border-t-0 md:border-l border-border p-4 sm:p-6 flex flex-col gap-4"
     >

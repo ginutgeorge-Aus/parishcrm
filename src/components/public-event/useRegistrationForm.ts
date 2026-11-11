@@ -240,6 +240,14 @@ export function useRegistrationForm({
       return
     }
 
+    // noValidate disables the browser's own submit gate (so our inline name
+    // errors can show); re-run native constraint checks (email/phone types,
+    // other required inputs) here and surface the browser's message.
+    if (!e.currentTarget.checkValidity()) {
+      e.currentTarget.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     try {
       const applicableAnswers = Object.fromEntries(

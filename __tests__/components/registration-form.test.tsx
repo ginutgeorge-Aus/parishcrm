@@ -180,8 +180,8 @@ describe("RegistrationForm attendee names", () => {
     expect(screen.queryByRole("alert")).toBeNull()
     fireEvent.change(first, { target: { value: "Alice" } })
     fireEvent.change(second, { target: { value: "   " } })
-    // submit directly: jsdom's click path would stop at native required validation
-    fireEvent.submit(first.closest("form") as HTMLFormElement)
+    // real click: relies on the form being noValidate, else native required blocks submit
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
     expect(screen.getAllByRole("alert")).toHaveLength(1)
     expect(second).toHaveAttribute("aria-invalid", "true")
     expect(first).not.toHaveAttribute("aria-invalid")
@@ -195,7 +195,19 @@ describe("RegistrationForm attendee names", () => {
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
     const input = screen.getByLabelText(/^Adult 1 attendee name/)
     fireEvent.change(input, { target: { value: "Alice" } })
-    fireEvent.submit(input.closest("form") as HTMLFormElement)
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
     expect(screen.queryByRole("alert")).toBeNull()
+  })
+  it("still enforces native constraints (empty required contact field) under noValidate", () => {
+    const report = jest.spyOn(HTMLFormElement.prototype, "reportValidity").mockImplementation(() => false)
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as never
+    render(<RegistrationForm {...props} />)
+    fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
+    expect(report).toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    report.mockRestore()
   })
 })
