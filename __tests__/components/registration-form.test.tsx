@@ -34,7 +34,7 @@ describe("RegistrationForm custom question types", () => {
       { id: "q1", label: "Meal", type: "checkbox", required: true, options: ["Veg", "Non-veg"] },
     ] as never} />)
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     await userEvent.click(screen.getByRole("checkbox", { name: "Veg" }))
@@ -55,7 +55,7 @@ describe("RegistrationForm custom question types", () => {
       { id: "q3", label: "Waiver", type: "consent", required: true, body: "Policies", statements: ["A", "B"] },
     ] as never} />)
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     // Ticking the statement boxes alone is not enough — the final agree box gates too.
@@ -102,7 +102,7 @@ describe("RegistrationForm — per-ticket-type questions", () => {
     />)
     // Select an Adult ticket and fill in name — the required Child question should not block submit
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     // Submit button should not be blocked by the unapplicable Child question
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "false")
@@ -140,7 +140,7 @@ describe("RegistrationForm attendee-scoped questions", () => {
     ] as never} />)
     const plus = screen.getByLabelText("Increase Adult quantity")
     fireEvent.click(plus)
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     // Fill in the attendee-scoped question
@@ -156,8 +156,8 @@ describe("RegistrationForm attendee names", () => {
     const plus = screen.getByLabelText("Increase Adult quantity")
     fireEvent.click(plus)
     fireEvent.click(plus)
-    expect(screen.getByLabelText("Adult 1")).toBeInTheDocument()
-    expect(screen.getByLabelText("Adult 2")).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Adult 1 attendee name/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Adult 2 attendee name/)).toBeInTheDocument()
   })
 
   it("disables submit while a required attendee name is empty", () => {
@@ -165,7 +165,7 @@ describe("RegistrationForm attendee names", () => {
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice Garcia" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice Garcia" } })
     expect(submit).toHaveAttribute("aria-disabled", "false")
   })
 })
