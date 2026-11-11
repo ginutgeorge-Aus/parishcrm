@@ -11,7 +11,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, isP2002 } from "@/lib/validation"
+import { MONEY_DECIMAL_RE } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
@@ -19,7 +19,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError, logCreateAuditTx, AuditWriteError, PETTY_CASH_AUDIT_FAILED_ERROR } from "./pettyCashAudit"
+import { finishReplay, replayOrError, logCreateAuditTx, resolveCreateWriteError } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -231,20 +231,7 @@ export async function createReceipt(
     if ("replay" in result) return replayDone()
     if ("error" in result) return result
   } catch (e) {
-    if (e instanceof SessionClosedError) return orReplay({ error: e.message })
-    // The audit insert failed, so the receipt rolled back: say so, not "removed" / a 500.
-    if (e instanceof AuditWriteError) {
-      console.error("createReceipt audit write failed", e.cause)
-      return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
-    }
-    // P2002 with a token: a concurrent submit of the same form won the unique
-    // index. If it committed this very receipt, treat this attempt as done.
-    if (token && isP2002(e)) {
-      const { state } = await receiptTokenState(prisma, token, sub)
-      if (state === "replay") return replayDone()
-      if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
-    }
-    throw e
+    return resolveCreateWriteError(e, "createReceipt", token, () => receiptTokenState(prisma, token!, sub), sessionId)
   }
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
