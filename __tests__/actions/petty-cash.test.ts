@@ -293,7 +293,7 @@ describe("closeSession", () => {
     mockUpdateManySession.mockResolvedValue({ count: 0 }) // conditional update matched no OPEN row
     const result = await closeSession(1, undefined, fd({ notes: "late" }))
     expect(result).toEqual({ error: "Session already closed" })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
@@ -318,7 +318,7 @@ describe("deleteSession", () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindSession.mockResolvedValue(emptySession)
     await deleteSession(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_SESSION_DELETED", "PettyCashSession", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_SESSION_DELETED", "PettyCashSession", 1, {
       title: "11-MAY-2026",
     })
   })
@@ -469,7 +469,7 @@ describe("createReceipt", () => {
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Offering" })
     mockCreateReceipt.mockResolvedValue({ id: 10, date: new Date("2026-05-11"), amount: 250, accountId: 1, sessionId: 5 })
     await createReceipt(5, undefined, fd({ date: "2026-05-11", accountId: "1", amount: "250.00" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 10, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 10, {
       amount: "250.00",
       accountId: 1,
       sessionId: 5,
@@ -607,7 +607,7 @@ describe("deleteReceipt", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteReceipt(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", 1, {
       amount: 250,
       accountId: 2,
       sessionId: 5,
@@ -623,7 +623,7 @@ describe("deleteReceipt", () => {
     mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1" })
     await deleteTransfer(1)
     expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
-    expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
+    expect(mockLogAuditTx).not.toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
   })
 
   it("returns a clean error when the transfer vanishes mid-delete", async () => {
@@ -642,7 +642,8 @@ describe("deleteReceipt", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99 },
     })
     await deleteReceipt(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 99, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -762,7 +763,8 @@ describe("deleteTransfer", () => {
       session: { id: 5, status: "OPEN" }, transaction: { id: 99 },
     })
     await deleteTransfer(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 99, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -906,7 +908,7 @@ describe("updateReceipt", () => {
     mockFindReceipt.mockResolvedValue(openReceipt)
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
     await updateReceipt(1, undefined, fd(receiptFd))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", 1, {
       amount: "75.00",
       accountId: 3,
       sessionId: 5,
@@ -1038,7 +1040,7 @@ describe("createExpense", () => {
     mockFindAccount.mockResolvedValue({ type: "EXPENSE", isActive: true, name: "Stationery" })
     mockCreateExpense.mockResolvedValue({ id: 3, date: new Date("2026-05-11"), amount: 45, accountId: 4, sessionId: 5, payee: "Woolworths" })
     await createExpense(5, undefined, fd({ date: "2026-05-11", payee: "Woolworths", accountId: "4", amount: "45.00", description: "Morning tea" }))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 3, {
       amount: "45.00",
       accountId: 4,
       sessionId: 5,
@@ -1151,7 +1153,7 @@ describe("deleteExpense", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteExpense(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", 1, {
       amount: 45,
       accountId: 4,
       sessionId: 5,
@@ -1165,7 +1167,8 @@ describe("deleteExpense", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88 },
     })
     await deleteExpense(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 88, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -1283,7 +1286,7 @@ describe("updateExpense", () => {
     mockFindExpense.mockResolvedValue(openExpense)
     mockFindAccount.mockResolvedValue({ type: "EXPENSE", isActive: true, name: "Stationery" })
     await updateExpense(3, undefined, fd(expenseFd))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", 3, {
       amount: "30.00",
       accountId: 4,
       sessionId: 5,
@@ -1612,7 +1615,8 @@ describe("ensureWeeklySession", () => {
     expect(prisma.pettyCashSession.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ custodianId: 5, openingBalance: 42.5 }),
     })
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       expect.anything(),
       "PETTY_CASH_SESSION_AUTO_OPENED",
       "PettyCashSession",
