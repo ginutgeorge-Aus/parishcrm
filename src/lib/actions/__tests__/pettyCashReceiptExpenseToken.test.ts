@@ -12,14 +12,14 @@ import { validateAccount } from "@/lib/actions/transaction"
 import { validateFund } from "@/lib/actions/fund"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -41,7 +41,6 @@ jest.mock("@/lib/prisma", () => ({
     pettyCashExpense: { findUnique: jest.fn(), findMany: jest.fn() },
     person: { findUnique: jest.fn() },
     serviceType: { findUnique: jest.fn() },
-    auditLog: { findFirst: jest.fn() },
   },
 }))
 
@@ -87,7 +86,6 @@ beforeEach(() => {
     id: 1, status: "OPEN", title: "15-MAY-2026", openingBalance: "100.00", receipts: [], expenses: [], transfers: [],
   })
   ;(assertUnlocked as jest.Mock).mockResolvedValue(null)
-  ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ id: 1 })
   mockReceiptFind.mockResolvedValue(null)
   mockReceiptFindMany.mockResolvedValue([])
   mockExpenseFind.mockResolvedValue(null)
@@ -126,11 +124,20 @@ describe("createReceipt — submission token (#487)", () => {
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
-  it("a replay re-writes the audit row only when the original's is missing (#556)", async () => {
-    mockReceiptFind.mockResolvedValue(sameReceipt)
-    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+  it("a first submit audits inside the write transaction, so the entry never commits unaudited (#563)", async () => {
+    const tx = txMock()
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
-    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 7, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", 7, { amount: "10.00", accountId: 1, sessionId: 1 })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("a failed audit write rolls the create back instead of committing an unaudited receipt (#563)", async () => {
+    const boom = new Error("audit down")
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(boom)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(txMock()))
+    await expect(createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).rejects.toBe(boom)
+    expect(redirect).not.toHaveBeenCalled()
   })
 
   it("a twin whose duplicate warning was tripped by the committed twin redirects (#556)", async () => {
@@ -230,11 +237,19 @@ describe("createReceipt — submission token (#487)", () => {
     expect(redirect).not.toHaveBeenCalled()
   })
 
-  it("a replay does not re-log when the original's audit row exists (#556)", async () => {
+  it("no replay path writes an audit row — the original's in-tx row stands, never a fabricated one (#563)", async () => {
     mockReceiptFind.mockResolvedValue(sameReceipt)
     await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
-    expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { action: "PETTY_CASH_RECEIPT_CREATED", resourceType: "PettyCashReceipt", resourceId: 7 } }))
+    mockReceiptFind.mockReset().mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
+    mock$tx.mockRejectedValue({ code: "P2002" })
+    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    const tx = txMock({ receipt: sameReceipt })
+    mock$tx.mockReset().mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+    mockReceiptFind.mockReset().mockResolvedValue(null)
+    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+    expect(redirect).toHaveBeenCalledTimes(3)
     expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 })
 
@@ -313,11 +328,25 @@ describe("createExpense — submission token (#487)", () => {
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
-  it("a replay re-writes the audit row when the original's is missing (#556)", async () => {
-    mockExpenseFind.mockResolvedValue(sameExpense)
-    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+  it("a first submit audits inside the write transaction; a replay writes no audit row (#563)", async () => {
+    const tx = txMock()
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
     await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
-    expect(logAudit).toHaveBeenCalledWith(1, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 8, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", 8, { amount: "20.00", accountId: 3, sessionId: 1 })
+    jest.clearAllMocks()
+    mockExpenseFind.mockResolvedValue(sameExpense)
+    await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("a failed audit write rolls the create back instead of committing an unaudited expense (#563)", async () => {
+    const boom = new Error("audit down")
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(boom)
+    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(txMock()))
+    await expect(createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).rejects.toBe(boom)
+    expect(redirect).not.toHaveBeenCalled()
   })
 
   it("a twin whose negative-float warning fires redirects when the token now replays (#556)", async () => {
