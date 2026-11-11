@@ -34,7 +34,7 @@ describe("RegistrationForm custom question types", () => {
       { id: "q1", label: "Meal", type: "checkbox", required: true, options: ["Veg", "Non-veg"] },
     ] as never} />)
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     await userEvent.click(screen.getByRole("checkbox", { name: "Veg" }))
@@ -55,7 +55,7 @@ describe("RegistrationForm custom question types", () => {
       { id: "q3", label: "Waiver", type: "consent", required: true, body: "Policies", statements: ["A", "B"] },
     ] as never} />)
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     // Ticking the statement boxes alone is not enough — the final agree box gates too.
@@ -102,7 +102,7 @@ describe("RegistrationForm — per-ticket-type questions", () => {
     />)
     // Select an Adult ticket and fill in name — the required Child question should not block submit
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     // Submit button should not be blocked by the unapplicable Child question
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "false")
@@ -140,7 +140,7 @@ describe("RegistrationForm attendee-scoped questions", () => {
     ] as never} />)
     const plus = screen.getByLabelText("Increase Adult quantity")
     fireEvent.click(plus)
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     // Fill in the attendee-scoped question
@@ -156,8 +156,8 @@ describe("RegistrationForm attendee names", () => {
     const plus = screen.getByLabelText("Increase Adult quantity")
     fireEvent.click(plus)
     fireEvent.click(plus)
-    expect(screen.getByLabelText("Adult 1")).toBeInTheDocument()
-    expect(screen.getByLabelText("Adult 2")).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Adult 1 attendee name/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Adult 2 attendee name/)).toBeInTheDocument()
   })
 
   it("disables submit while a required attendee name is empty", () => {
@@ -165,7 +165,49 @@ describe("RegistrationForm attendee names", () => {
     fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
     const submit = screen.getByRole("button", { name: /Reserve My Tickets/i })
     expect(submit).toHaveAttribute("aria-disabled", "true")
-    fireEvent.change(screen.getByLabelText("Adult 1"), { target: { value: "Alice Garcia" } })
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice Garcia" } })
     expect(submit).toHaveAttribute("aria-disabled", "false")
+  })
+  it("shows inline errors and focuses the first blank name on blocked submit", () => {
+    const scroll = jest.fn()
+    window.HTMLElement.prototype.scrollIntoView = scroll
+    render(<RegistrationForm {...props} />)
+    const plus = screen.getByLabelText("Increase Adult quantity")
+    fireEvent.click(plus)
+    fireEvent.click(plus)
+    const first = screen.getByLabelText(/^Adult 1 attendee name/)
+    const second = screen.getByLabelText(/^Adult 2 attendee name/)
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.change(first, { target: { value: "Alice" } })
+    fireEvent.change(second, { target: { value: "   " } })
+    // real click: relies on the form being noValidate, else native required blocks submit
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    expect(second).toHaveAttribute("aria-invalid", "true")
+    expect(first).not.toHaveAttribute("aria-invalid")
+    expect(document.activeElement).toBe(second)
+    expect(scroll).toHaveBeenCalled()
+  })
+
+  it("falls back to native invalid focus when names are filled but another gate blocks", () => {
+    window.HTMLElement.prototype.scrollIntoView = jest.fn()
+    render(<RegistrationForm {...props} />)
+    fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
+    const input = screen.getByLabelText(/^Adult 1 attendee name/)
+    fireEvent.change(input, { target: { value: "Alice" } })
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+  it("still enforces native constraints (empty required contact field) under noValidate", () => {
+    const report = jest.spyOn(HTMLFormElement.prototype, "reportValidity").mockImplementation(() => false)
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as never
+    render(<RegistrationForm {...props} />)
+    fireEvent.click(screen.getByLabelText("Increase Adult quantity"))
+    fireEvent.change(screen.getByLabelText(/^Adult 1 attendee name/), { target: { value: "Alice" } })
+    fireEvent.click(screen.getByRole("button", { name: /Reserve My Tickets/i }))
+    expect(report).toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    report.mockRestore()
   })
 })
