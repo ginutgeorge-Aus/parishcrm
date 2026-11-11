@@ -72,6 +72,10 @@ export const TICKET_TYPE_IN_USE = "TICKET_TYPE_IN_USE"
 // sold first because the name itself may contain colons.
 export const CAPACITY_BELOW_SOLD = "CAPACITY_BELOW_SOLD"
 
+// Sentinel message for StaleEventError — kept private so callers use
+// `instanceof` rather than comparing message text.
+const STALE_EVENT = "STALE_EVENT"
+
 /**
  * Thrown inside the updateEvent/updateManagedEvent transaction when the
  * optimistic-concurrency guard matches 0 rows — rolls back any writes already
@@ -80,7 +84,7 @@ export const CAPACITY_BELOW_SOLD = "CAPACITY_BELOW_SOLD"
 export class StaleEventError extends Error {
   /** Creates the error with a fixed message; the user-facing text is set by the catching action. */
   constructor() {
-    super("STALE_EVENT")
+    super(STALE_EVENT)
     this.name = "StaleEventError"
   }
 }

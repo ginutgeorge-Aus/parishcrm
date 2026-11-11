@@ -13,7 +13,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
   const {
     firstName, setFirstName, lastName, setLastName, email, setEmail, phone, setPhone,
     website, setWebsite,
-    quantities, names, attendeeAnswers, answers, setAnswers,
+    quantities, names, attemptedSubmit, attendeeAnswers, answers, setAnswers,
     method, setMethod,
     orderQuestions, totalAmount, ticketSummary, showFee, feeCents, showMethodChoice,
     submitBlockers, requirementsUnmet, submitting, error,
@@ -33,6 +33,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
 
   return (
     <form
+      noValidate
       onSubmit={handleSubmit}
       className="flex-[1.2] bg-card border-t md:border-t-0 md:border-l border-border p-4 sm:p-6 flex flex-col gap-4"
     >
@@ -58,6 +59,7 @@ export function RegistrationForm(props: Readonly<RegistrationFormProps>) {
         soldCounts={soldCounts}
         quantities={quantities}
         names={names}
+        showNameErrors={attemptedSubmit}
         onChange={handleQuantityChange}
         onNameChange={handleNameChange}
         attendeeQuestions={attendeeQuestions}

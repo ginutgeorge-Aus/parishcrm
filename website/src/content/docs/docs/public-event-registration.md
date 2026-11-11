@@ -21,8 +21,9 @@ configure an event and [Card Payments Stripe](/parishcrm/docs/card-payments-stri
    looked up from the total number of attendees across the whole order rather than summed
    per-ticket; if a **family waiver** is configured, the parish's configured threshold and
    discount preview is shown as tickets are added.
-3. Enter a name for every attendee (one name per ticket unit) plus the registrant's own contact
-   details (name, email, phone).
+3. Enter a name for every attendee (one name per ticket unit, marked with a red asterisk) plus the
+   registrant's own contact details (name, email, phone). If a name is left blank when you press
+   Reserve, an inline error appears under that ticket and the form scrolls to the first empty name.
 4. Answer any custom questions the parish configured — some apply to the whole order, others are
    asked once per named attendee. A select/radio/checkbox question may offer a free-text
    **"Other"** box alongside its preset options.
