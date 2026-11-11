@@ -137,6 +137,7 @@ const EXEMPT_API_ROUTES: Record<string, string> = {
   "src/app/api/import/families/check/route.ts": "core: family CSV import dry run (admin only)",
   "src/app/api/people/export/route.ts": "core: people CSV export (admin only)",
   "src/app/api/people/[id]/export/route.ts": "core: single person data export (admin only)",
+  "src/app/api/groups/[id]/export-csv/route.ts": "core: group member CSV (canViewGroups), groups has no feature flag",
 }
 
 /**
@@ -345,6 +346,8 @@ const CORE_ACTIONS = new Set([
   "venueBookings.ts",
   // Gated by venueUsage.enabled + ADMIN only: venueCalendar.test.ts.
   "venueCalendar.ts",
+  // Groups & ministries (#303): core, no feature flag; role + group-link gated (group.test.ts).
+  "group.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
