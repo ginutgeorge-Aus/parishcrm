@@ -59,6 +59,7 @@ import { createTransaction, updateTransaction, deleteTransaction } from "@/lib/a
 import { toggleReconciled, reconcileMany } from "@/lib/actions/transactionReconcile"
 import { encrypt } from "@/lib/crypto"
 import { assertUnlocked } from "@/lib/accountingLock"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const mockSession = auth as jest.Mock
 const mockCreate = prisma.transaction.create as jest.Mock
@@ -688,6 +689,18 @@ describe("deleteTransaction", () => {
     }
   })
 
+  it("returns AUDIT_FAILED_ERROR and does not report success when the audit write throws", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, bankRef: null, type: "EXPENSE", amount: 5, accountId: 1, account: { code: "5001" } })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit insert failed"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteTransaction(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    // The throw inside the tx rolls the delete back; no post-commit side effects ran.
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
   it("uses delete-specific messages for conflicts and FK violations", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })
@@ -999,6 +1012,7 @@ describe("reconcileMany", () => {
     mockFindMany.mockResolvedValue([
       { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
     ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 })
     await reconcileMany([1], 1)
     expect(mockLogAuditTx).toHaveBeenCalledWith(
       expect.objectContaining({ __isTx: true }),
