@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAudit } from "@/lib/audit"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isP2002 } from "@/lib/validation"
@@ -19,7 +19,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError } from "./pettyCashAudit"
+import { finishReplay, replayOrError, logCreateAuditTx, AuditWriteError, PETTY_CASH_AUDIT_FAILED_ERROR } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -221,7 +221,7 @@ export async function createReceipt(
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", id, {
+      await logCreateAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", id, {
         amount: parsed.data.amount,
         accountId: parsed.data.accountId,
         sessionId,
@@ -232,6 +232,11 @@ export async function createReceipt(
     if ("error" in result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return orReplay({ error: e.message })
+    // The audit insert failed, so the receipt rolled back: say so, not "removed" / a 500.
+    if (e instanceof AuditWriteError) {
+      console.error("createReceipt audit write failed", e.cause)
+      return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
+    }
     // P2002 with a token: a concurrent submit of the same form won the unique
     // index. If it committed this very receipt, treat this attempt as done.
     if (token && isP2002(e)) {

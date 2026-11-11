@@ -5,7 +5,8 @@
 jest.mock("@/lib/featureFlags")
 import { createReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense } from "@/lib/actions/pettyCashExpense"
-import { SUBMISSION_TOKEN_REUSED_ERROR } from "@/lib/actions/pettyCashEntry"
+import { SUBMISSION_TOKEN_REUSED_ERROR, PETTY_CASH_GONE } from "@/lib/actions/pettyCashEntry"
+import { AuditWriteError, PETTY_CASH_AUDIT_FAILED_ERROR } from "@/lib/actions/pettyCashAudit"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { validateAccount } from "@/lib/actions/transaction"
@@ -132,13 +133,6 @@ describe("createReceipt — submission token (#487)", () => {
     expect(logAudit).not.toHaveBeenCalled()
   })
 
-  it("a failed audit write rolls the create back instead of committing an unaudited receipt (#563)", async () => {
-    const boom = new Error("audit down")
-    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(boom)
-    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(txMock()))
-    await expect(createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))).rejects.toBe(boom)
-    expect(redirect).not.toHaveBeenCalled()
-  })
 
   it("a twin whose duplicate warning was tripped by the committed twin redirects (#556)", async () => {
     mockReceiptFind.mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
@@ -341,13 +335,6 @@ describe("createExpense — submission token (#487)", () => {
     expect(logAuditTx).not.toHaveBeenCalled()
   })
 
-  it("a failed audit write rolls the create back instead of committing an unaudited expense (#563)", async () => {
-    const boom = new Error("audit down")
-    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(boom)
-    mock$tx.mockImplementation((fn: (t: unknown) => unknown) => fn(txMock()))
-    await expect(createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).rejects.toBe(boom)
-    expect(redirect).not.toHaveBeenCalled()
-  })
 
   it("a twin whose negative-float warning fires redirects when the token now replays (#556)", async () => {
     mockExpenseFind.mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
@@ -410,5 +397,72 @@ describe("createExpense — submission token (#487)", () => {
     const err = { code: "P2002" }
     mock$tx.mockRejectedValue(err)
     await expect(createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).rejects.toBe(err)
+  })
+})
+
+/**
+ * Runs each `$transaction` callback against a fresh tx client and records what the
+ * callback threw (Prisma rolls the tx back on a throw), so a test can prove the
+ * entry insert and the audit insert ran in the SAME callback and the audit failure
+ * escaped it rather than being swallowed.
+ */
+function recordingTx() {
+  const txs: ReturnType<typeof txMock>[] = []
+  const thrown: unknown[] = []
+  mock$tx.mockImplementation(async (fn: (t: unknown) => unknown) => {
+    const tx = txMock()
+    txs.push(tx)
+    try {
+      return await fn(tx)
+    } catch (e) {
+      thrown.push(e)
+      throw e
+    }
+  })
+  return { txs, thrown }
+}
+
+describe.each([
+  ["receipt", () => createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN })), "pettyCashReceipt" as const],
+  ["expense", () => createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN })), "pettyCashExpense" as const],
+])("create %s — in-transaction audit failure (#563, #582)", (_label, run, model) => {
+  it("a failed audit write throws out of the same tx callback as the insert (rollback) and surfaces the audit error", async () => {
+    const boom = new Error("audit down")
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(boom)
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const { txs, thrown } = recordingTx()
+    expect(await run()).toEqual({ error: PETTY_CASH_AUDIT_FAILED_ERROR })
+    expect(mock$tx).toHaveBeenCalledTimes(1)
+    const [tx] = txs
+    expect(tx[model].create).toHaveBeenCalledTimes(1)
+    expect((logAuditTx as jest.Mock).mock.calls[0][0]).toBe(tx)
+    expect(tx[model].create.mock.invocationCallOrder[0]).toBeLessThan((logAuditTx as jest.Mock).mock.invocationCallOrder[0])
+    // Not swallowed inside the callback: it threw, so the tx (insert included) rolls back.
+    expect(thrown).toHaveLength(1)
+    expect(thrown[0]).toBeInstanceOf(AuditWriteError)
+    expect((thrown[0] as Error).cause).toBe(boom)
+    expect(redirect).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it("an FK failure on the audit insert (deleted actor) is not retried or reported as 'removed'", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValue({ code: "P2003" })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    recordingTx()
+    const res = await run()
+    expect(res).toEqual({ error: PETTY_CASH_AUDIT_FAILED_ERROR })
+    expect(res).not.toEqual(PETTY_CASH_GONE)
+    expect(mock$tx).toHaveBeenCalledTimes(1)
+    ;(logAuditTx as jest.Mock).mockReset()
+    spy.mockRestore()
+  })
+
+  it("a serialization conflict on the audit insert still retries the whole transaction", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const { txs } = recordingTx()
+    expect(await run()).toBeUndefined()
+    expect(mock$tx).toHaveBeenCalledTimes(2)
+    expect(txs[1][model].create).toHaveBeenCalledTimes(1)
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 })
