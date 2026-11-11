@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAuditTx } from "@/lib/audit"
+import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, isP2002 } from "@/lib/validation"
@@ -223,7 +223,7 @@ export async function createReceipt(
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", id, {
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "CREATED", id, {
         amount: parsed.data.amount,
         accountId: parsed.data.accountId,
         sessionId,
@@ -383,7 +383,7 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
-    await logAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", id, {
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, {
       amount: parsed.data.amount,
       accountId: parsed.data.accountId,
       sessionId: receipt.sessionId,
@@ -434,17 +434,7 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
       }
       await tx.pettyCashReceipt.delete({ where: { id } })
-      await logAuditTx(tx, userId, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", id, {
-        amount: Number(receipt.amount),
-        accountId: receipt.accountId,
-        sessionId: receipt.sessionId,
-      })
-      // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-      // Transaction audit trail doesn't show a ghost deletion.
-      if (receipt.transaction)
-        await logAuditTx(tx, userId, "TRANSACTION_DELETED", "Transaction", receipt.transaction.id, {
-          source: "petty-cash", pettyCashReceiptId: id,
-        })
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Receipt", id, receipt)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }

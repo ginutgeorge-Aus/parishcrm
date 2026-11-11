@@ -9,7 +9,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAuditTx } from "@/lib/audit"
+import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch, isP2002 } from "@/lib/validation"
@@ -256,7 +256,7 @@ export async function createExpense(
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logAuditTx(tx, actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", id, {
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "CREATED", id, {
         amount: parsed.data.amount,
         accountId: parsed.data.accountId,
         sessionId,
@@ -359,7 +359,7 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
-    await logAuditTx(tx, actorId(session), "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", id, {
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "UPDATED", id, {
       amount: parsed.data.amount,
       accountId: parsed.data.accountId,
       sessionId: expense.sessionId,
@@ -407,17 +407,7 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
         if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
       }
       await tx.pettyCashExpense.delete({ where: { id } })
-      await logAuditTx(tx, userId, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", id, {
-        amount: Number(expense.amount),
-        accountId: expense.accountId,
-        sessionId: expense.sessionId,
-      })
-      // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-      // Transaction audit trail doesn't show a ghost deletion.
-      if (expense.transaction)
-        await logAuditTx(tx, userId, "TRANSACTION_DELETED", "Transaction", expense.transaction.id, {
-          source: "petty-cash", pettyCashExpenseId: id,
-        })
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Expense", id, expense)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
