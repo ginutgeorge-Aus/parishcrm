@@ -1,6 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
 import { createEvent, updateEvent, deleteEvent, publishEvent, resyncEventsToWebsite } from "@/lib/actions/event"
+import { StaleEventError } from "@/lib/actions/eventForm"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
@@ -423,10 +424,13 @@ describe("updateEvent — optimistic concurrency", () => {
   })
 
   it("does not treat a foreign Error with the sentinel text as a stale edit", async () => {
-    ;(prisma.event.updateMany as jest.Mock).mockRejectedValue(new Error("STALE_EVENT"))
+    const foreign = new Error("STALE_EVENT")
+    ;(prisma.event.updateMany as jest.Mock).mockRejectedValue(foreign)
     const fd = baseForm()
     fd.set("updatedAt", "2026-01-01T00:00:00.000Z")
-    await expect(updateEvent(1, undefined, fd)).rejects.toThrow("STALE_EVENT")
+    const thrown = await updateEvent(1, undefined, fd).catch((e: unknown) => e)
+    expect(thrown).toBe(foreign)
+    expect(thrown).not.toBeInstanceOf(StaleEventError)
   })
 
   it("succeeds and still syncs to the website when updatedAt matches", async () => {

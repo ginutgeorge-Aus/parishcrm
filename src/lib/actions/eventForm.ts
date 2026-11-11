@@ -75,7 +75,7 @@ export const CAPACITY_BELOW_SOLD = "CAPACITY_BELOW_SOLD"
 // Sentinel thrown inside the updateEvent transaction when the optimistic-
 // concurrency guard matches 0 rows — rolls back any ticket type
 // writes already applied earlier in the same transaction.
-export const STALE_EVENT = "STALE_EVENT"
+const STALE_EVENT = "STALE_EVENT"
 
 /**
  * Typed error thrown when the optimistic-concurrency guard matches 0 rows.

@@ -2,6 +2,7 @@
 jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 import { updateManagedEvent } from "@/lib/actions/eventManaged"
+import { StaleEventError } from "@/lib/actions/eventForm"
 import { auth } from "@/auth"
 import { canManageEvent } from "@/lib/eventManager"
 import { logAuditTx } from "@/lib/audit"
@@ -176,8 +177,11 @@ describe("updateManagedEvent write", () => {
   })
 
   it("does not treat a foreign Error with the sentinel text as a stale edit", async () => {
-    updateMany.mockRejectedValue(new Error("STALE_EVENT"))
-    await expect(run(form({ ...base, updatedAt: "2026-08-01T00:00:00.000Z" }))).rejects.toThrow("STALE_EVENT")
+    const foreign = new Error("STALE_EVENT")
+    updateMany.mockRejectedValue(foreign)
+    const thrown = await run(form({ ...base, updatedAt: "2026-08-01T00:00:00.000Z" })).catch((e: unknown) => e)
+    expect(thrown).toBe(foreign)
+    expect(thrown).not.toBeInstanceOf(StaleEventError)
   })
 
   it("refuses a date that would end before the stored registration deadline", async () => {
