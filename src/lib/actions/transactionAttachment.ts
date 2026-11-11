@@ -79,21 +79,22 @@ export async function attachTransactionReceipt(
     return { error: "That file's contents don't match a JPEG, PNG or PDF." }
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.transactionAttachment.create({
-      data: {
-        transactionId,
-        // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
-        // base64-encoded first so arbitrary bytes survive the string-based cipher.
-        filename: encrypt(sanitizeFilename(file.name)),
-        contentType: sniffed,
-        size: bytes.length,
-        data: encryptBytes(bytes),
-        uploadedById: actorId(session),
-      },
-    })
-  
-    await logAuditTx(tx, actorId(session), "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
+  // Encrypt before opening the transaction: base64 + AES-GCM of up to 4 MB is
+  // CPU-bound and must not eat into the interactive transaction's timeout.
+  const userId = actorId(session)
+  const data = {
+    transactionId,
+    // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
+    // base64-encoded first so arbitrary bytes survive the string-based cipher.
+    filename: encrypt(sanitizeFilename(file.name)),
+    contentType: sniffed,
+    size: bytes.length,
+    data: encryptBytes(bytes),
+    uploadedById: userId,
+  }
+  await prisma.$transaction(async (db) => {
+    await db.transactionAttachment.create({ data })
+    await logAuditTx(db, userId, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
       contentType: sniffed,
       size: bytes.length,
     })

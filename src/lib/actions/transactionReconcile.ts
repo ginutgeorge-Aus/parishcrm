@@ -99,16 +99,20 @@ export async function reconcileMany(
 
   const toReconcile = rows.filter((r) => !r.reconciled).map((r) => r.id)
   await prisma.$transaction(async (tx) => {
+    let count = 0
     if (toReconcile.length > 0) {
-      await tx.transaction.updateMany({
-        where: { id: { in: toReconcile } },
+      // `reconciled: false` guard + the returned count keep the audit row accurate
+      // if a concurrent toggle flipped some of these rows after the read above.
+      const res = await tx.transaction.updateMany({
+        where: { id: { in: toReconcile }, reconciled: false },
         data: { reconciled: true },
       })
+      count = res.count
     }
     await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
       reconciled: true,
       paymentAccountId: expectedPaymentAccountId,
-      count: toReconcile.length,
+      count,
     })
   })
   // No revalidateReports() here: the pl/balance-sheet/budget-vs-actual/
