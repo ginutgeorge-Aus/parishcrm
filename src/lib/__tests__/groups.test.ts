@@ -53,4 +53,12 @@ describe("groupCsvCells", () => {
     expect(line[5]).toBe("2026-11-01")
     expect(line[7]).toBe("'+61400000000")
   })
+
+  it("uses the Sydney calendar day for the joined date", () => {
+    const cells = groupCsvCells([{
+      firstName: "A", lastName: "B", familyName: "B", role: "MEMBER", title: "",
+      joinedAt: new Date("2026-11-01T20:00:00Z"), email: "", mobile: "",
+    }])
+    expect(cells[1][5]).toBe("2026-11-02")
+  })
 })

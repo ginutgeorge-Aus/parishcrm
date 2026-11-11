@@ -51,7 +51,7 @@ export function MembersPanel({ groupId, members, readOnly = false, linkPeople = 
       ) : (
         <ul className="divide-y divide-border" aria-label="Members">
           {members.map((m) => (
-            <MemberItem key={m.personId} groupId={groupId} member={m} readOnly={readOnly} linkPeople={linkPeople} disabled={pending} run={run} />
+            <MemberItem key={`${m.personId}:${m.role}:${m.title}`} groupId={groupId} member={m} readOnly={readOnly} linkPeople={linkPeople} disabled={pending} run={run} />
           ))}
         </ul>
       )}

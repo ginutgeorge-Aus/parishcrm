@@ -177,6 +177,9 @@ export async function searchGroupCandidates(groupId: number, query: string): Pro
   if ("error" in g) return { error: g.error }
   const q = typeof query === "string" ? query.trim().slice(0, 100) : ""
   if (q.length < MIN_PERSON_SEARCH) return { people: [] }
+  // A retained organiser link must not search for an archived group.
+  const live = await prisma.group.findFirst({ where: { id: groupId, archivedAt: null }, select: { id: true } })
+  if (!live) return { error: GROUP_GONE }
   const terms = q.split(/\s+/).slice(0, 3)
   const people = await prisma.person.findMany({
     where: {

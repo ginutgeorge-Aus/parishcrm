@@ -15,6 +15,8 @@ export async function loadMemberRows(groupId: number): Promise<MemberRow[]> {
       role: true, title: true,
       person: { select: { id: true, firstName: true, lastName: true, family: { select: { name: true } } } },
     },
+    // Deterministic order before the cap: leaders survive truncation, then by name.
+    orderBy: [{ role: "asc" }, { person: { lastName: "asc" } }, { person: { firstName: "asc" } }, { personId: "asc" }],
     take: MAX_GROUP_MEMBERS,
   })
   return sortMembers(rows.map((r) => ({
@@ -35,6 +37,8 @@ export async function loadMemberExportRows(groupId: number): Promise<GroupMember
       role: true, title: true, joinedAt: true,
       person: { select: { firstName: true, lastName: true, email: true, mobile: true, family: { select: { name: true } } } },
     },
+    // Deterministic order before the cap: leaders survive truncation, then by name.
+    orderBy: [{ role: "asc" }, { person: { lastName: "asc" } }, { person: { firstName: "asc" } }, { personId: "asc" }],
     take: MAX_GROUP_MEMBERS,
   })
   return sortMembers(rows.map((r) => ({

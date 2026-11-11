@@ -4,7 +4,7 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
   const m = {
-    group: { create: jest.fn(), updateMany: jest.fn() },
+    group: { create: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
     groupMember: { createMany: jest.fn(), updateMany: jest.fn(), deleteMany: jest.fn() },
     groupLeaderAccess: { findUnique: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     person: { findMany: jest.fn() },
@@ -31,7 +31,7 @@ import {
 
 const as = (role: UserRole | undefined) => (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "9", role } } : null)
 const p = prisma as unknown as {
-  group: { create: jest.Mock; updateMany: jest.Mock }
+  group: { create: jest.Mock; updateMany: jest.Mock; findFirst: jest.Mock }
   groupMember: { createMany: jest.Mock; updateMany: jest.Mock; deleteMany: jest.Mock }
   groupLeaderAccess: { findUnique: jest.Mock; createMany: jest.Mock; deleteMany: jest.Mock }
   person: { findMany: jest.Mock }
@@ -63,6 +63,7 @@ beforeEach(() => {
   locks()
   p.group.create.mockResolvedValue({ id: 4 })
   p.group.updateMany.mockResolvedValue({ count: 1 })
+  p.group.findFirst.mockResolvedValue({ id: 4 })
   p.groupMember.createMany.mockResolvedValue({ count: 1 })
   p.groupMember.updateMany.mockResolvedValue({ count: 1 })
   p.groupMember.deleteMany.mockResolvedValue({ count: 1 })
@@ -244,5 +245,11 @@ describe("membership actions", () => {
     expect(arg.where.groupMemberships).toEqual({ none: { groupId: 4 } })
     expect(arg.select).not.toHaveProperty("email")
     expect(arg.take).toBe(20)
+  })
+
+  it("refuses to search for an archived group", async () => {
+    p.group.findFirst.mockResolvedValueOnce(null)
+    await expect(searchGroupCandidates(4, "jo")).resolves.toEqual({ error: "Group not found" })
+    expect(p.person.findMany).not.toHaveBeenCalled()
   })
 })

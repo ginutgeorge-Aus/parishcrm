@@ -7,7 +7,7 @@ jest.mock("@/lib/crypto", () => ({ safeDecrypt: jest.fn((v: string) => v.replace
 jest.mock("server-only", () => ({}))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn(() => true) }))
-jest.mock("@/lib/dates", () => ({ sydneyTodayYMD: () => "2026-11-11" }))
+jest.mock("@/lib/dates", () => ({ ...jest.requireActual("@/lib/dates"), sydneyTodayYMD: () => "2026-11-11" }))
 
 import { GET } from "@/app/api/groups/[id]/export-csv/route"
 import { auth } from "@/auth"

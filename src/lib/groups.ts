@@ -1,5 +1,6 @@
 // Groups & ministries (#303): pure helpers shared by actions, pages and tests.
 
+import { sydneyClock } from "@/lib/dates"
 import { z } from "zod"
 import type { GroupCategory, GroupMemberRole } from "@/lib/generated/prisma/enums"
 
@@ -73,9 +74,9 @@ export type GroupMemberExportRow = {
 
 export const GROUP_CSV_HEADERS = ["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]
 
-/** "2026-11-11" for the joined date (UTC, the stored instant's date). */
+/** "2026-11-11" for the joined date: the Sydney calendar day of the stored instant. */
 function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return sydneyClock(d).ymd
 }
 
 /**
