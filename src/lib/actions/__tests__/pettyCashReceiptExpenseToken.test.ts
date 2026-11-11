@@ -335,6 +335,16 @@ describe("createExpense — submission token (#487)", () => {
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
+  it("a replay skips the audit backfill when the existence check throws (fail closed)", async () => {
+    mockExpenseFind.mockResolvedValueOnce(sameExpense).mockRejectedValue(new Error("db down"))
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+    spy.mockRestore()
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
+  })
+
   it("a replay skips the receipt audit backfill when the receipt was deleted meanwhile (#563)", async () => {
     mockReceiptFind.mockResolvedValueOnce(sameReceipt).mockResolvedValue(null)
     ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)

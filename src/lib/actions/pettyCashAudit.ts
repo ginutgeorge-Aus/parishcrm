@@ -53,7 +53,8 @@ export type ReplayAudit = {
  */
 async function finishReplay(entryId: number | undefined, a: ReplayAudit): Promise<never> {
   if (entryId !== undefined) {
-    let exists = true
+    // Fail closed: if the existence check throws, skip the backfill rather than risk an orphan row.
+    let exists = false
     try {
       exists = await a.entryExists(entryId)
     } catch (err) {
