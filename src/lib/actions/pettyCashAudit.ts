@@ -1,7 +1,7 @@
 // Plain module (no "use server"): kept apart from pettyCashEntry.ts so that file
 // stays free of DB/prisma imports for its pure-builder tests.
 import { redirect } from "next/navigation"
-import { AUDIT_FAILED_ERROR, AuditWriteError, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AUDIT_FAILED_ERROR, AuditWriteError } from "@/lib/auditGuard"
 import { isP2002 } from "@/lib/validation"
 import { revalidatePettyCashPaths, SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
 
@@ -19,12 +19,6 @@ export function auditFailed(e: AuditWriteError): { error: string } {
   console.error("petty-cash audit write failed", e.cause)
   return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
 }
-
-/**
- * Writes a create's audit row on the write transaction client (see `logAuditGuardedTx`).
- * Kept as the create-path name used by the receipt/expense actions.
- */
-export const logCreateAuditTx = logAuditGuardedTx
 
 /**
  * Lands a replayed create on the session page: the entry already committed, so
