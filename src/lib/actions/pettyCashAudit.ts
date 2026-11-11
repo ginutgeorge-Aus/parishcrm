@@ -51,7 +51,7 @@ export type ReplayAudit = {
  * carries `replayBackfill: true` — readers must not take it for the original event (#563).
  * Skipped when the entry no longer exists.
  */
-export async function finishReplay(entryId: number | undefined, a: ReplayAudit): Promise<never> {
+async function finishReplay(entryId: number | undefined, a: ReplayAudit): Promise<never> {
   if (entryId !== undefined) {
     let exists = true
     try {
@@ -91,7 +91,7 @@ export function makeReplayHandlers(opts: {
  * (the guard error is still the truthful answer); `finish` is outside the try because
  * `redirect()` throws.
  */
-export async function replayOrError<E>(
+async function replayOrError<E>(
   token: string | undefined,
   lookup: () => Promise<SubmissionTokenLookup>,
   finish: (id: number | undefined) => Promise<never>,
