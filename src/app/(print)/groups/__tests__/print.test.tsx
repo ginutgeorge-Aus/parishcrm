@@ -38,11 +38,15 @@ beforeEach(() => {
 })
 
 describe("/groups/[id]/print", () => {
-  it("redirects anonymous and non-viewers, 404s bad id and missing group", async () => {
+  it("redirects anonymous and non-admins, 404s bad id and missing group", async () => {
     as()
     await expect(GroupPrintPage(params("4"))).rejects.toThrow("NEXT_REDIRECT /login")
     as("EVENT_ORGANISER")
     await expect(GroupPrintPage(params("4"))).rejects.toThrow("NEXT_REDIRECT /")
+    for (const role of ["VIEWER", "OFFICE_ADMIN", "PASTOR"]) {
+      as(role)
+      await expect(GroupPrintPage(params("4"))).rejects.toThrow("NEXT_REDIRECT /")
+    }
     as("ADMIN")
     await expect(GroupPrintPage(params("x"))).rejects.toThrow("NEXT_NOT_FOUND")
     findUnique.mockResolvedValue(null)

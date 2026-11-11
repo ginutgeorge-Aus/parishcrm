@@ -2,7 +2,7 @@ import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canManageGroups, canViewGroups } from "@/lib/roleGuard"
+import { canManageGroups, canViewGroups, isAdmin } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { GROUP_CATEGORY_LABELS } from "@/lib/groups"
 import { loadMemberRows } from "@/lib/groupMembers"
@@ -16,7 +16,7 @@ import { RestoreGroupButton } from "@/components/groups/ArchiveGroupButton"
 
 /**
  * Group detail: members (add via person search, role/title, remove), print and
- * CSV export, and leader logins. canViewGroups to view (VIEWER read-only);
+ * CSV export (ADMIN only), and leader logins. canViewGroups to view (VIEWER read-only);
  * canManageGroups to change anything. Archived groups are read-only.
  */
 export default async function GroupPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
@@ -60,13 +60,18 @@ export default async function GroupPage(props: Readonly<{ params: Promise<{ id: 
             {group.archivedAt && <Badge variant="secondary">Archived</Badge>}
           </h2>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link href={`/groups/${group.id}/print`} target="_blank">Print</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              {/* Plain <a>: a file download, not a client navigation. */}
-              <a href={`/api/groups/${group.id}/export-csv`}>Export CSV</a>
-            </Button>
+            {/* Print/CSV carry decrypted email/mobile: ADMIN only, as the people export. */}
+            {isAdmin(session.user.role) && (
+              <>
+                <Button variant="outline" asChild>
+                  <Link href={`/groups/${group.id}/print`} target="_blank">Print</Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  {/* Plain <a>: a file download, not a client navigation. */}
+                  <a href={`/api/groups/${group.id}/export-csv`}>Export CSV</a>
+                </Button>
+              </>
+            )}
             {editor && (
               <Button variant="outline" asChild>
                 <Link href={`/groups/${group.id}/edit`}>Edit</Link>

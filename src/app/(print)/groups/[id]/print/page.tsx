@@ -3,7 +3,7 @@ import { headers } from "next/headers"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canViewGroups } from "@/lib/roleGuard"
+import { isAdmin } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromHeaders } from "@/lib/clientIp"
@@ -14,11 +14,11 @@ import { GROUP_CATEGORY_LABELS, GROUP_ROLE_LABELS } from "@/lib/groups"
 import { loadMemberExportRows } from "@/lib/groupMembers"
 import { PrintButton } from "@/components/ui/PrintButton"
 
-/** Printable member list (name, role, title, email, mobile) for one group. canViewGroups only; audited. */
+/** Printable member list (name, role, title, email, mobile) for one group. ADMIN only (decrypted email/mobile, like the families directory print); audited. */
 export default async function GroupPrintPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
-  if (!canViewGroups(session.user.role)) redirect("/")
+  if (!isAdmin(session.user.role)) redirect("/")
   const id = parseRouteId((await props.params).id)
   if (id === null) notFound()
 

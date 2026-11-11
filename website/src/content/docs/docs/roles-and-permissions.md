@@ -69,13 +69,14 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 
 | Feature / capability | ADMIN | PASTOR | OFFICE_ADMIN | AUDITOR | VIEWER | EVENT_ORGANISER |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events` and `/my-classes` |
+| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events`, `/my-classes` and `/my-groups` |
 | View people & families | Yes | Yes | Yes | No | Yes | No |
 | Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) |
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only |
 | Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No |
 | Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) |
+| Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No |
 | Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |

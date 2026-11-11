@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
-import { canViewGroups } from "@/lib/roleGuard"
+import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
 import { rateLimit } from "@/lib/rateLimit"
@@ -22,13 +22,13 @@ function slug(name: string): string {
 
 /**
  * Member CSV for one group (name, family, role, title, joined, email, mobile).
- * canViewGroups only; rate-limited and audited. Every cell goes through
+ * ADMIN only (bulk decrypted email/mobile, like the people export); rate-limited and audited. Every cell goes through
  * `escapeCsv` (formula-injection guard).
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!canViewGroups(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!isAdmin(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   const id = parseRouteId((await ctx.params).id)
   if (id === null) return NextResponse.json({ error: "Not found" }, { status: 404 })
   if (!rateLimit(`export:group:${actorId(session)}`, 10, 60_000)) {

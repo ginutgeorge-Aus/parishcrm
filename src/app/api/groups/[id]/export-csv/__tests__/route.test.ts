@@ -19,7 +19,7 @@ const call = (id = "4") => GET(new NextRequest(`http://localhost/api/groups/${id
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "9", role: "VIEWER" } })
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "9", role: "ADMIN" } })
   p.group.findUnique.mockResolvedValue({ name: "Youth & Choir" })
   p.groupMember.findMany.mockResolvedValue([
     {
@@ -29,7 +29,7 @@ beforeEach(() => {
   ])
 })
 
-it.each(["AUDITOR", "EVENT_ORGANISER"])("forbids %s", async (role) => {
+it.each(["AUDITOR", "EVENT_ORGANISER", "VIEWER", "OFFICE_ADMIN", "PASTOR"])("forbids %s", async (role) => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "9", role } })
   expect((await call()).status).toBe(403)
   expect(p.groupMember.findMany).not.toHaveBeenCalled()
