@@ -767,7 +767,7 @@ describe("deleteTransaction", () => {
     const result = await deleteTransaction(1)
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 

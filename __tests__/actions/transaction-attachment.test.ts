@@ -24,6 +24,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { attachTransactionReceipt, removeTransactionReceipt } from "@/lib/actions/transactionAttachment"
 
 const mockAuth = auth as jest.Mock
@@ -104,10 +105,27 @@ describe("attachTransactionReceipt", () => {
     expect(attCreate).not.toHaveBeenCalled()
   })
 
-  it("propagates a failed audit write so the attachment insert rolls back", async () => {
+  it("reports a failed audit write as an audit error (attachment insert rolls back)", async () => {
     mockAuth.mockResolvedValue(ADMIN)
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
-    await expect(attachTransactionReceipt(1, undefined, fd(pngFile()))).rejects.toThrow("audit down")
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const r = await attachTransactionReceipt(1, undefined, fd(pngFile()))
+    spy.mockRestore()
+    expect(r).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("returns a retry error (not a 500) on a write conflict (P2034)", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const r = await attachTransactionReceipt(1, undefined, fd(pngFile()))
+    expect(r).toEqual({ error: expect.stringMatching(/try again/i) })
+  })
+
+  it("rethrows an unrelated transaction failure", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    attCreate.mockRejectedValueOnce(new Error("db down"))
+    await expect(attachTransactionReceipt(1, undefined, fd(pngFile()))).rejects.toThrow("db down")
   })
 
   it("stores a valid image encrypted at rest and logs the audit event", async () => {
@@ -216,6 +234,17 @@ describe("removeTransactionReceipt", () => {
     expect(attDelete).toHaveBeenCalledWith({ where: { id: 100 } })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 5, "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", 1, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/accounting/transactions/1")
+  })
+
+  it("reports a failed audit write as an audit error (delete rolls back)", async () => {
+    mockAuth.mockResolvedValue(ADMIN)
+    attFind.mockResolvedValue({ id: 100, transactionId: 1, transaction: { date: new Date("2026-05-15") } })
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const r = await removeTransactionReceipt(100)
+    spy.mockRestore()
+    expect(r).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("refuses to remove an attachment from a locked-period transaction", async () => {

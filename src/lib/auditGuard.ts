@@ -25,6 +25,8 @@ export class AuditWriteError extends Error {
  * Writes an audit row on the write transaction client. A failure throws
  * `AuditWriteError` (rolling the mutation back); a serialization conflict (P2034)
  * is rethrown unchanged so `serializableWrite` still retries the whole transaction.
+ * Callers on a plain (non-retrying) `prisma.$transaction` must therefore catch
+ * P2034 themselves (`isP2034`) and return a "try again" result, not a 500.
  * Same args as `logAuditTx`.
  */
 export async function logAuditGuardedTx(

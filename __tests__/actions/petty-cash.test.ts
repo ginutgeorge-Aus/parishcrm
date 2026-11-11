@@ -7,6 +7,8 @@ jest.mock("@/lib/actions/settings", () => ({
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
+    // Row lock on a petty-cash entry's mirror Transaction (assertMirrorNotReconciledTx).
+    $queryRaw: jest.fn(),
     pettyCashSession: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -139,6 +141,7 @@ const mockFindAccount = prisma.account.findUnique as jest.Mock
 const mockCalcBalance = calcRunningBalance as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
 const mockPrismaTransaction = prisma.$transaction as jest.Mock
+const mockQueryRaw = prisma.$queryRaw as jest.Mock
 const mockCreateTransaction = prisma.transaction.create as jest.Mock
 const mockFindTransaction = prisma.transaction.findUnique as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
@@ -162,6 +165,8 @@ beforeEach(() => {
   // reconciled); tests exercising a concurrent reconcile override this. Reset
   // here because clearAllMocks() clears calls but NOT mockResolvedValue impls.
   mockFindTransaction.mockResolvedValue(null)
+  // Default the locked mirror re-check (SELECT ... FOR UPDATE) to un-reconciled.
+  mockQueryRaw.mockResolvedValue([{ reconciled: false }])
   // createTransfer reads the created row's id for audit logging
   mockCreateTransfer.mockResolvedValue({ id: 1 })
   mockFindManyReceipt.mockResolvedValue([])
@@ -693,13 +698,27 @@ describe("deleteReceipt", () => {
 
   it("blocks the delete when a concurrent reconcile lands inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
-    // Outer read saw the mirror un-reconciled; the reconcile lands after it.
+    // Outer read and the in-tx plain read both saw the mirror un-reconciled; the
+    // reconcile committed before the row lock, so only the locked read sees it.
     mockFindReceipt
       .mockResolvedValueOnce({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
-      .mockResolvedValueOnce({ amount: 10, accountId: 2, sessionId: 5, transaction: { id: 99, reconciled: true } })
+      .mockResolvedValueOnce({ amount: 10, accountId: 2, sessionId: 5, transaction: { id: 99, reconciled: false } })
+    mockQueryRaw.mockResolvedValueOnce([{ reconciled: true }])
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
     expect(mockDeleteReceipt).not.toHaveBeenCalled()
+    // The mirror row is re-checked under FOR UPDATE, not a plain read.
+    expect(mockQueryRaw.mock.calls[0][0].join("?")).toMatch(/FROM "Transaction" WHERE id = \? FOR UPDATE/)
+    expect(mockQueryRaw.mock.calls[0][1]).toBe(99)
+  })
+
+  it("returns a retry error (not a 500) when the delete transaction hits a write conflict (P2034)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    // P2034 from the audit insert passes through logAuditGuardedTx; deleteReceipt has no retry loop.
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const result = await deleteReceipt(1)
+    expect(result).toEqual({ error: "Couldn't save the entry. Try again." })
   })
 
   // --- ATO 7-year retention floor ---
@@ -1203,6 +1222,35 @@ describe("deleteExpense", () => {
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
     expect(mockDeleteExpense).not.toHaveBeenCalled()
+  })
+
+  it("blocks the delete when a concurrent reconcile lands before the mirror row lock", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindExpense.mockResolvedValue({
+      id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88, reconciled: false },
+    })
+    mockQueryRaw.mockResolvedValueOnce([{ reconciled: true }])
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: expect.stringContaining("reconciled") })
+    expect(mockDeleteExpense).not.toHaveBeenCalled()
+    expect(mockQueryRaw.mock.calls[0][0].join("?")).toMatch(/FROM "Transaction" WHERE id = \? FOR UPDATE/)
+    expect(mockQueryRaw.mock.calls[0][1]).toBe(88)
+  })
+
+  it("skips the mirror row lock when the expense has no ledger mirror", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    await deleteExpense(1)
+    expect(mockQueryRaw).not.toHaveBeenCalled()
+    expect(mockDeleteExpense).toHaveBeenCalledWith({ where: { id: 1 } })
+  })
+
+  it("returns a retry error (not a 500) when the delete transaction hits a write conflict (P2034)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: "Couldn't save the entry. Try again." })
   })
 
   // --- ATO 7-year retention floor ---
