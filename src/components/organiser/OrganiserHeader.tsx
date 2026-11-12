@@ -37,6 +37,9 @@ export function OrganiserHeader({ showEvents = true, showClasses = true, home }:
             Classes
           </Link>
         )}
+        <Link href="/my-groups" className="rounded-md px-3 py-2 text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground">
+          Groups
+        </Link>
         <button
           onClick={() => logout()}
           aria-label="Sign out"

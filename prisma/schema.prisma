@@ -86,6 +86,7 @@ model Person {
   sundaySchoolTeaching   SundaySchoolTeacher[]
   sundaySchoolEnrolments SundaySchoolEnrolment[]
   sundaySchoolAttendance SundaySchoolAttendance[]
+  groupMemberships       GroupMember[]
   invoices               Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
@@ -146,6 +147,7 @@ model User {
   paymentReminderSends         PaymentReminderSend[]
   auditLogs                    AuditLog[]
   sundaySchoolRollMarkers      SundaySchoolRollMarker[]
+  groupLeaderAccess            GroupLeaderAccess[]
   sundaySchoolAttendanceMarked SundaySchoolAttendance[] @relation("SsAttendanceMarkedBy")
   invitesCreated               FamilyUpdateInvite[]     @relation("InviteCreatedBy")
   submissionsReviewed          FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
@@ -1449,4 +1451,60 @@ model VenueUsageRequest {
 
   @@index([sentById])
   @@index([approvedById])
+}
+
+enum GroupCategory {
+  MINISTRY
+  COMMITTEE
+  FELLOWSHIP
+  OTHER
+}
+
+enum GroupMemberRole {
+  LEADER
+  MEMBER
+}
+
+/// A ministry, committee or fellowship group (#303). Archive-only, never deleted.
+model Group {
+  id           Int                 @id @default(autoincrement())
+  name         String              @unique
+  category     GroupCategory
+  description  String              @default("")
+  archivedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  members      GroupMember[]
+  leaderAccess GroupLeaderAccess[]
+
+  @@index([category])
+}
+
+/// A Person in a Group. `role` LEADER is a label only; login access is GroupLeaderAccess.
+model GroupMember {
+  id       Int             @id @default(autoincrement())
+  groupId  Int
+  personId Int
+  role     GroupMemberRole @default(MEMBER)
+  /// Optional free-text title, e.g. "Secretary". Plaintext (not PII).
+  title    String          @default("")
+  joinedAt DateTime        @default(now())
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  person   Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, personId])
+  @@index([personId])
+}
+
+/// EVENT_ORGANISER login that may manage this group's membership from /my-groups (twin of SundaySchoolRollMarker).
+model GroupLeaderAccess {
+  id        Int      @id @default(autoincrement())
+  groupId   Int
+  userId    Int
+  createdAt DateTime @default(now())
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
 }

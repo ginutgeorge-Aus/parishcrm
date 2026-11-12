@@ -10,6 +10,7 @@ import { sumCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { buildDisplayPerson, groupTransactionsByYear } from "@/lib/personDetailView"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PersonGroupsCard } from "@/components/groups/PersonGroupsCard"
 import { Badge } from "@/components/ui/badge"
 import { CLASSIFICATION_BADGE, CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
 import { DeletePersonButton } from "@/components/people/DeletePersonButton"
@@ -281,6 +282,11 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         where: { year: currentSchoolYear(), class: { archivedAt: null } },
         select: { year: true, class: { select: { id: true, name: true } } },
       },
+      groupMemberships: {
+        where: { group: { archivedAt: null } },
+        orderBy: { group: { name: "asc" } },
+        select: { role: true, title: true, group: { select: { id: true, name: true, category: true } } },
+      },
     },
   })
   // Archived persons are hidden from all listings and only ever archived via
@@ -392,6 +398,10 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         showPastoralNotes={showPastoralNotes}
         clearanceCard={clearanceCard}
         sundaySchool={features.has("sundaySchool") ? sundaySchoolOf(person.sundaySchoolEnrolments) : null}
+      />
+
+      <PersonGroupsCard
+        groups={(person.groupMemberships ?? []).map((m) => ({ ...m.group, role: m.role, title: m.title }))}
       />
 
       {userCanSeeGiving && (
