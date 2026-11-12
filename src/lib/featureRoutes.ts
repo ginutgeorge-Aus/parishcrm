@@ -51,6 +51,7 @@ export const FEATURE_ROUTES: readonly Rule[] = [
   prefix("/accounting/dues", "dues"),
   prefix("/accounting/send-receipts", "receipts"),
   prefix("/accounting/receipt-audit", "receipts"),
+  prefix("/accounting/giving-statements", "receipts"),
   prefix("/accounting/dgr-receipts", "dgrReceipts"),
   prefix("/accounting/invoices", "invoices"),
   prefix("/accounting/customers", "invoices"),

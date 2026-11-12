@@ -90,7 +90,7 @@ shared stop working:
 | ↳ Bank import | Importing bank statement PDFs/CSVs |
 | ↳ Petty cash | Petty cash sessions and counts |
 | ↳ Subscription dues | Member subscription dues (also needs Membership forms) |
-| ↳ Giving receipts | Emailed giving receipts and the send log |
+| ↳ Giving receipts | Emailed giving receipts, annual giving statements and the send logs |
 | ↳ DGR receipts | Tax-deductible (DGR) donation receipts |
 | ↳ Invoices | Invoices and customers |
 | ↳ Budget | Annual budget and the budget-vs-actual report |

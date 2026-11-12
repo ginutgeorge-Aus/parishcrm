@@ -8,6 +8,8 @@ import { WelcomeEmail } from "@/lib/emails/WelcomeEmail"
 import { PasswordResetEmail } from "@/lib/emails/PasswordResetEmail"
 import { FamilyUpdateInviteEmail } from "@/lib/emails/FamilyUpdateInviteEmail"
 import { DgrReceiptEmail } from "@/lib/emails/DgrReceiptEmail"
+import { GivingStatementEmail } from "@/lib/emails/GivingStatementEmail"
+import type { GivingStatementEmailData } from "@/lib/emails/GivingStatementEmail"
 import { RegistrationConfirmationEmail } from "@/lib/emails/RegistrationConfirmationEmail"
 import type { RegistrationConfirmationData } from "@/lib/emails/RegistrationConfirmationEmail"
 import { EventReminderEmail } from "@/lib/emails/EventReminderEmail"
@@ -519,5 +521,24 @@ export async function sendDgrReceiptEmail(
     html: await render(el),
     text: await render(el, { plainText: true }),
     attachments: [{ filename: `${meta.receiptNo}.pdf`, content: pdf, contentType: "application/pdf" }],
+  })
+}
+
+/**
+ * Email an annual giving statement PDF to one recipient.
+ * @param to recipient address
+ * @param pdf rendered statement PDF
+ * @param data covering-email fields (no per-gift detail)
+ */
+export async function sendGivingStatementEmail(to: string, pdf: Buffer, data: GivingStatementEmailData): Promise<void> {
+  const { transporter, user } = makeTransporter()
+  const el = React.createElement(GivingStatementEmail, { data })
+  await sendMailWithRetry(transporter, {
+    from: `"${data.churchName}" <${user}>`,
+    to,
+    subject: `Your giving statement — FY ${data.fyLabel}`,
+    html: await render(el),
+    text: await render(el, { plainText: true }),
+    attachments: [{ filename: `giving-statement-${data.fyLabel}.pdf`, content: pdf, contentType: "application/pdf" }],
   })
 }

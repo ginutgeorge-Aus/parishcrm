@@ -38,7 +38,7 @@ it("links the reports hub instead of each individual report", () => {
   const hrefs = flattenNavItems(groupItems(allTrueFlags, "Accounting")).map((i) => i.href)
   expect(hrefs).toContain("/accounting/reports")
   expect(hrefs.filter((h) => h.startsWith("/accounting/reports/"))).toEqual([])
-  expect(hrefs).toHaveLength(14)
+  expect(hrefs).toHaveLength(15)
 })
 
 it("gives every link a unique icon and a unique href", () => {

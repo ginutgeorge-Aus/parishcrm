@@ -23,6 +23,15 @@ From the transaction list or detail page (or the bulk **Send receipts** screen a
 - **Sending** renders a formal PDF (with the parish's legal/ABN details and the receipt's tax-deductibility wording) and emails it as an attachment; the receipt then moves to **sent** and is permanently frozen — it can no longer be edited or re-sent, since it's now a delivered legal document. A delivery failure moves it to **failed**, which (like a draft) can still be edited or retried.
 - A donor's own view of their donation history is available separately to them via each email; staff never see a bulk unencrypted list of everyone's email on this screen — an individual donor's email is fetched and decrypted only when their receipt is being built.
 
+### Giving statements (annual, non-tax)
+
+`/accounting/giving-statements` (view: ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN; send: ADMIN/PASTOR; part of the **Giving receipts** feature). A yearly summary per family: every gift in the chosen financial year, totalled by fund, as a PDF. It is **not** a tax receipt — it is a plain summary of what the books record, covers *all* giving (DGR or not), and carries no legal wording. Use DGR receipts for the formal tax document.
+
+- The list is built from the ledger automatically (transactions flagged as giving). A gift counts for the family on the transaction, or for the giving person's family. Gifts with neither are left out. Gifts with no fund appear under "General (no fund)".
+- **Preview PDF** opens a family's statement. **Email selected** sends the PDF to the chosen families in bulk (200 per batch). Each family gets one email, to the head of family's address first; members who have opted out of email are never used, and a family with no consenting address is reported, not skipped silently.
+- Families whose latest send for the year succeeded are skipped on a re-send, so a second run never double-emails.
+- The **Send log** on the same page lists every attempt (family, sent/failed, who, when). It is kept in the audit log (`GIVING_STATEMENT_SENT` / `GIVING_STATEMENT_FAILED`, with the family id and FY only — never the email address), so no new table is needed.
+
 ### Receipt log
 
 `/accounting/receipt-audit` (`canViewAccounting` — ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN) lists every per-transaction `ReceiptSend` attempt for a date range: recipient, status (success/failed), timestamp, and who triggered it. This is deliberately one of the few places an AUDITOR sees a decrypted donor email address — auditing exactly who a tax receipt was sent to is core to the receipt-audit function, so it isn't masked here (it *is* masked elsewhere in the app for the accounting-only AUDITOR role). Every view of this page is itself logged, for ADMIN/PASTOR as well as AUDITOR — bulk access to donor contact data always leaves a trail.

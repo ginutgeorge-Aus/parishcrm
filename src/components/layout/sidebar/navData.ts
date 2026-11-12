@@ -4,7 +4,7 @@ import {
   CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, Warehouse, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp,
+  Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 import { featureOn, type NavFlags } from "@/components/layout/navGates"
@@ -87,6 +87,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
             { href: "/accounting/customers", label: "Customers", icon: Building2, show: isAccountingViewer && on("invoices") },
             { href: "/accounting/send-receipts", label: "Send receipts", icon: Send, show: isAccounting && on("receipts") },
             { href: "/accounting/dgr-receipts", label: "DGR receipts", icon: ReceiptText, show: isAccountingViewer && on("dgrReceipts") },
+            { href: "/accounting/giving-statements", label: "Giving statements", icon: ScrollText, show: isAccountingViewer && on("receipts") },
             { href: "/accounting/receipt-audit", label: "Receipt log", icon: History, show: isAccountingViewer && on("receipts") },
           ],
         },
