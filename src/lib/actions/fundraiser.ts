@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@/auth"
+import type { Session } from "next-auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { actorId } from "@/lib/actor"
@@ -8,8 +9,13 @@ import { logAudit } from "@/lib/audit"
 import { canManageFundraiser } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { assertNotDemo } from "@/lib/demoMode"
-import { isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
+import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
 import { toCents } from "@/lib/formatting"
+import { encrypt } from "@/lib/crypto"
+import { entryTotals } from "@/lib/fundraiserMath"
+import { generateUniqueBankRef, mintEntryToken } from "@/lib/fundraiserEntry"
+import { serializableWrite } from "@/lib/serializableWrite"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
 
 const MAX_NAME = 120
@@ -61,5 +67,328 @@ export async function saveFundraiser(
   await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, unitLabel })
   revalidatePath(`/events/${eventId}/fundraiser`)
   revalidatePath("/events")
+  return undefined
+}
+
+const QUANTITY_RE = /^(?!0+$)\d{1,4}$/
+const MAX_EMAIL = 254
+const MAX_PHONE = 40
+const MAX_NOTE = 500
+const SUBMISSION_KEY_RE = /^[A-Za-z0-9_-]{1,100}$/
+/** Whole-transaction attempts for addEntry when a bankRef/publicToken collides. */
+const MAX_ADD_ATTEMPTS = 5
+const BUSY = { error: "Busy, please try again" }
+
+type Guarded = { session: Session } | { error: string }
+
+/**
+ * Shared gate for fundraiser entry/payment mutations: demo block, manager
+ * role, events feature flag.
+ * @returns the session, or `{ error }` to return as-is
+ */
+async function guardManage(): Promise<Guarded> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!session?.user || !canManageFundraiser(session.user.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
+  return { session }
+}
+
+/**
+ * Revalidate the pages that show fundraiser rows/totals for an event.
+ * @param eventId - Event id owning the fundraiser.
+ */
+function revalidateFundraiser(eventId: number): void {
+  revalidatePath(`/events/${eventId}/fundraiser`)
+  revalidatePath("/events")
+}
+
+/**
+ * Take a row lock on one entry inside a transaction, serialising quantity
+ * edits, deletes and payments against the same entry.
+ * @param tx - Transaction client.
+ * @param entryId - Entry id.
+ * @returns true when the row exists (and is now locked)
+ */
+async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE`
+  return rows.length > 0
+}
+
+/**
+ * Add a family (member) or an outside buyer to a fundraiser. Exactly one of
+ * `familyId` / `outsideName` must be given. The unit price is snapshotted from
+ * the fundraiser; outside email/phone are encrypted at rest. Each entry gets a
+ * CSPRNG public token and a unique bank reference.
+ *
+ * @param fundraiserId - Fundraiser id.
+ * @param input - Entry fields; `quantity` is a 1-4 digit positive integer string.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function addEntry(
+  fundraiserId: number,
+  input: { familyId?: number; outsideName?: string; outsideEmail?: string; outsidePhone?: string; quantity: string },
+): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
+
+  const outsideName = (input.outsideName ?? "").trim()
+  const hasFamily = input.familyId !== undefined && input.familyId !== null
+  if (hasFamily === !!outsideName) return { error: "Choose a family or enter an outside name" }
+  if (hasFamily && !isValidPgId(input.familyId as number)) return { error: "Invalid family" }
+  if (outsideName.length > MAX_NAME) return { error: "Name is too long (max 120 characters)" }
+  const quantityStr = (input.quantity ?? "").trim()
+  if (!QUANTITY_RE.test(quantityStr)) return { error: "Quantity must be a whole number from 1 to 9999" }
+  const quantity = Number.parseInt(quantityStr, 10)
+
+  let outsideEmail: string | null = null
+  let outsidePhone: string | null = null
+  if (!hasFamily) {
+    const email = (input.outsideEmail ?? "").trim()
+    if (email && (email.length > MAX_EMAIL || !isValidEmail(email))) return { error: "Invalid email address" }
+    const phone = (input.outsidePhone ?? "").trim()
+    if (phone.length > MAX_PHONE) return { error: "Phone is too long" }
+    outsideEmail = email ? encrypt(email) : null
+    outsidePhone = phone ? encrypt(phone) : null
+  }
+
+  const fundraiser = await prisma.fundraiser.findUnique({
+    where: { id: fundraiserId },
+    select: { id: true, eventId: true, unitPrice: true, refPrefix: true },
+  })
+  if (!fundraiser) return { error: "Fundraiser not found" }
+  const familyId = hasFamily ? (input.familyId as number) : null
+  if (familyId !== null) {
+    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true } })
+    if (!fam) return { error: "Family not found" }
+  }
+
+  const DUP = { error: "Already on this fundraiser" }
+  const isDupFamily = async (db: Prisma.TransactionClient): Promise<boolean> =>
+    familyId !== null &&
+    !!(await db.fundraiserEntry.findUnique({
+      where: { fundraiserId_familyId: { fundraiserId, familyId } },
+      select: { id: true },
+    }))
+
+  for (let attempt = 1; attempt <= MAX_ADD_ATTEMPTS; attempt++) {
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        if (await isDupFamily(tx)) return null
+        const bankRef = await generateUniqueBankRef(tx, fundraiser.refPrefix)
+        return tx.fundraiserEntry.create({
+          data: {
+            fundraiserId,
+            familyId,
+            outsideName: familyId === null ? outsideName : null,
+            outsideEmail,
+            outsidePhone,
+            quantity,
+            unitPrice: fundraiser.unitPrice,
+            publicToken: mintEntryToken(),
+            bankRef,
+          },
+          select: { id: true },
+        })
+      })
+      if (!created) return DUP
+      await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", created.id, {
+        fundraiserId,
+        familyId,
+        outside: familyId === null,
+        quantity,
+      })
+      revalidateFundraiser(fundraiser.eventId)
+      return undefined
+    } catch (e) {
+      if (!isP2002(e)) throw e
+      // A concurrent add of the same family wins the unique index: report it.
+      // Otherwise the collision was bankRef/publicToken: retry with fresh values.
+      if (await isDupFamily(prisma)) return DUP
+    }
+  }
+  return BUSY
+}
+
+/**
+ * Change an entry's quantity. Rejected when the new total (quantity x the
+ * entry's snapshotted unit price) would be below what is already paid. Runs
+ * Serializable with the entry row locked, so it cannot race a payment.
+ *
+ * @param entryId - Entry id.
+ * @param quantity - 1-4 digit positive integer string.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function updateEntryQuantity(entryId: number, quantity: string): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(entryId)) return { error: "Invalid entry" }
+  const q = (quantity ?? "").trim()
+  if (!QUANTITY_RE.test(q)) return { error: "Quantity must be a whole number from 1 to 9999" }
+  const next = Number.parseInt(q, 10)
+
+  const res = await serializableWrite<{ error: string } | { from: number; eventId: number }>(async (tx) => {
+    if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
+    const entry = await tx.fundraiserEntry.findUnique({
+      where: { id: entryId },
+      select: { id: true, quantity: true, unitPrice: true, fundraiser: { select: { eventId: true } }, payments: { select: { amount: true } } },
+    })
+    if (!entry) return { error: "Entry not found" }
+    const { paidCents } = entryTotals(entry, entry.payments)
+    const newOwed = entryTotals({ quantity: next, unitPrice: entry.unitPrice }, []).owedCents
+    if (!(newOwed >= paidCents)) return { error: "Quantity total is below the amount already paid" }
+    await tx.fundraiserEntry.update({ where: { id: entryId }, data: { quantity: next } })
+    return { from: entry.quantity, eventId: entry.fundraiser.eventId }
+  }, BUSY)
+  if ("error" in res) return res
+  await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", entryId, { from: res.from, to: next })
+  revalidateFundraiser(res.eventId)
+  return undefined
+}
+
+/**
+ * Delete an entry. Rejected when any payment exists (delete payments first),
+ * so money records are never cascaded away silently.
+ *
+ * @param entryId - Entry id.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function deleteEntry(entryId: number): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(entryId)) return { error: "Invalid entry" }
+
+  type Deleted = { entry: { fundraiserId: number; familyId: number | null; fundraiser: { eventId: number } } }
+  const res = await serializableWrite<{ error: string } | Deleted>(async (tx) => {
+    if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
+    const entry = await tx.fundraiserEntry.findUnique({
+      where: { id: entryId },
+      select: { id: true, fundraiserId: true, familyId: true, fundraiser: { select: { eventId: true } } },
+    })
+    if (!entry) return { error: "Entry not found" }
+    if ((await tx.fundraiserPayment.count({ where: { entryId } })) > 0) {
+      return { error: "Cannot delete an entry that has payments" }
+    }
+    await tx.fundraiserEntry.delete({ where: { id: entryId } })
+    return { entry }
+  }, BUSY)
+  if ("error" in res) return res
+  await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", entryId, {
+    fundraiserId: res.entry.fundraiserId,
+    familyId: res.entry.familyId,
+  })
+  revalidateFundraiser(res.entry.fundraiser.eventId)
+  return undefined
+}
+
+/**
+ * Record a manual (cash or bank) part payment against an entry. ONLINE
+ * payments are written only by the Stripe webhook.
+ *
+ * Idempotent per `submissionKey`: stored as `stripePaymentRef =
+ * "manual:<key>"` (unique), and checked BEFORE the remaining-balance check, so
+ * a double-click returns success without a second row instead of failing as
+ * "Exceeds remaining balance". Runs Serializable with the entry row locked;
+ * a concurrent twin that loses on the unique index is also treated as success.
+ *
+ * @param entryId - Entry id.
+ * @param input - `amount` 2-dp decimal string > 0 and <= remaining; `paidAt` YYYY-MM-DD.
+ * @returns `{ error }` on failure, `undefined` on success (including a repeat).
+ */
+export async function recordPayment(
+  entryId: number,
+  input: { amount: string; method: "CASH" | "BANK"; paidAt: string; note?: string; submissionKey: string },
+): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(entryId)) return { error: "Invalid entry" }
+  const amount = (input.amount ?? "").trim()
+  if (!MONEY_DECIMAL_RE.test(amount)) return { error: "Amount must be a number with at most 2 decimals" }
+  const amountCents = toCents(amount)
+  if (!(amountCents > 0)) return { error: "Amount must be greater than zero" }
+  if (input.method !== "CASH" && input.method !== "BANK") return { error: "Invalid payment method" }
+  const paidAtStr = (input.paidAt ?? "").trim()
+  if (!isRealCalendarDate(paidAtStr)) return { error: "Invalid payment date" }
+  const note = (input.note ?? "").trim()
+  if (note.length > MAX_NOTE) return { error: "Note is too long (max 500 characters)" }
+  if (!SUBMISSION_KEY_RE.test(input.submissionKey ?? "")) return { error: "Invalid submission" }
+  const ref = `manual:${input.submissionKey}`
+  const method = input.method
+
+  /** Resolve an existing row for this key: same entry = idempotent repeat, else misuse. */
+  const repeatOf = (existing: { entryId: number } | null): ActionResult | null =>
+    existing ? (existing.entryId === entryId ? undefined : { error: "Invalid submission" }) : null
+
+  type Recorded = { error: string } | { repeat: true } | { id: number; eventId: number }
+  let res: Recorded
+  try {
+    res = await serializableWrite<Recorded>(async (tx) => {
+      if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
+      // Key check first: a repeat must not be judged against the balance it already consumed.
+      const prior = repeatOf(await tx.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: { entryId: true } }))
+      if (prior) return prior
+      if (prior === undefined) return { repeat: true as const }
+      const entry = await tx.fundraiserEntry.findUnique({
+        where: { id: entryId },
+        select: { quantity: true, unitPrice: true, fundraiser: { select: { eventId: true } }, payments: { select: { amount: true } } },
+      })
+      if (!entry) return { error: "Entry not found" }
+      const { remainingCents } = entryTotals(entry, entry.payments)
+      if (!(amountCents <= remainingCents)) return { error: "Exceeds remaining balance" }
+      const created = await tx.fundraiserPayment.create({
+        data: {
+          entryId,
+          amount,
+          method,
+          paidAt: new Date(`${paidAtStr}T00:00:00.000Z`),
+          note: note || null,
+          stripePaymentRef: ref,
+          recordedById: actorId(g.session),
+        },
+        select: { id: true },
+      })
+      return { id: created.id, eventId: entry.fundraiser.eventId }
+    }, BUSY)
+  } catch (e) {
+    if (!isP2002(e)) throw e
+    // A concurrent twin committed the same key between our check and insert.
+    const prior = repeatOf(await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: { entryId: true } }))
+    if (prior === null) throw e
+    return prior
+  }
+  if ("error" in res) return res
+  if ("repeat" in res) return undefined
+  await logAudit(actorId(g.session), "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", res.id, { entryId, amount, method, paidAt: paidAtStr })
+  revalidateFundraiser(res.eventId)
+  return undefined
+}
+
+/**
+ * Delete one fundraiser payment; the audit row keeps its amount and method.
+ *
+ * @param paymentId - Payment id.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function deletePayment(paymentId: number): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(paymentId)) return { error: "Invalid payment" }
+  const payment = await prisma.fundraiserPayment.findUnique({
+    where: { id: paymentId },
+    select: { id: true, entryId: true, amount: true, method: true, entry: { select: { fundraiser: { select: { eventId: true } } } } },
+  })
+  if (!payment) return { error: "Payment not found" }
+  // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
+  const { count } = await prisma.fundraiserPayment.deleteMany({ where: { id: paymentId } })
+  if (count === 0) return { error: "Payment not found" }
+  await logAudit(actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
+    entryId: payment.entryId,
+    amount: payment.amount.toString(),
+    method: payment.method,
+  })
+  revalidateFundraiser(payment.entry.fundraiser.eventId)
   return undefined
 }
