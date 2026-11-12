@@ -1,7 +1,7 @@
 /** @jest-environment node */
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    serviceHeadcount: { findMany: jest.fn() },
+    serviceHeadcount: { findMany: jest.fn(), findFirst: jest.fn() },
     serviceType: { findMany: jest.fn() },
   },
 }))
@@ -11,11 +11,12 @@ import {
   getActiveServiceTypes,
   getAllServiceTypes,
   getHeadcountRows,
+  getLatestAttendance,
   getRecentHeadcounts,
 } from "../attendanceQueries"
 
 const p = prisma as unknown as {
-  serviceHeadcount: { findMany: jest.Mock }
+  serviceHeadcount: { findMany: jest.Mock; findFirst: jest.Mock }
   serviceType: { findMany: jest.Mock }
 }
 
@@ -52,6 +53,43 @@ describe("getRecentHeadcounts", () => {
     const arg = p.serviceHeadcount.findMany.mock.calls[0][0]
     expect(arg.take).toBe(20)
     expect(arg.orderBy).toEqual([{ serviceDate: "desc" }, { serviceTypeId: "asc" }])
+  })
+})
+
+describe("getLatestAttendance", () => {
+  it("returns null/empty when nothing is recorded", async () => {
+    p.serviceHeadcount.findFirst.mockResolvedValue(null)
+    expect(await getLatestAttendance()).toEqual({ latest: null, serviceName: null })
+    expect(p.serviceHeadcount.findMany).not.toHaveBeenCalled()
+  })
+
+  it("finds the newest row, then loads that date and the 7 days before it", async () => {
+    p.serviceHeadcount.findFirst.mockResolvedValue({
+      serviceDate: new Date("2026-11-08T00:00:00.000Z"),
+      serviceType: { name: "Sunday" },
+    })
+    p.serviceHeadcount.findMany.mockResolvedValue([
+      { serviceDate: new Date("2026-11-01T00:00:00.000Z"), serviceTypeId: 1, adults: 40, children: 10 },
+      { serviceDate: new Date("2026-11-08T00:00:00.000Z"), serviceTypeId: 1, adults: 50, children: 12 },
+    ])
+    const out = await getLatestAttendance()
+    expect(out.serviceName).toBe("Sunday")
+    expect(out.latest).toEqual({ date: "2026-11-08", serviceTypeId: 1, adults: 50, children: 12, previousTotal: 50 })
+    expect(p.serviceHeadcount.findMany.mock.calls[0][0].where.serviceDate).toEqual({
+      gte: new Date("2026-11-01T00:00:00.000Z"),
+      lte: new Date("2026-11-08T00:00:00.000Z"),
+    })
+  })
+
+  it("is a gap when last week's row was not recorded (a pause is not a zero)", async () => {
+    p.serviceHeadcount.findFirst.mockResolvedValue({
+      serviceDate: new Date("2026-11-08T00:00:00.000Z"),
+      serviceType: { name: "Sunday" },
+    })
+    p.serviceHeadcount.findMany.mockResolvedValue([
+      { serviceDate: new Date("2026-11-08T00:00:00.000Z"), serviceTypeId: 1, adults: 50, children: 12 },
+    ])
+    expect((await getLatestAttendance()).latest?.previousTotal).toBeNull()
   })
 })
 

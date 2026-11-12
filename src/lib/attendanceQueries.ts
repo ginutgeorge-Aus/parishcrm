@@ -3,7 +3,7 @@
 // "YYYY-MM-DD" strings (service date is a calendar date, stored UTC-midnight).
 
 import { prisma } from "@/lib/prisma"
-import type { HeadcountRow } from "@/lib/attendance"
+import { addDays, latestWithDelta, type HeadcountRow } from "@/lib/attendance"
 import { utcDateToYmd, ymdToUtcDate } from "@/lib/venueUsage"
 
 /** A recorded headcount with its service type name, for the edit list. */
@@ -30,6 +30,25 @@ export async function getHeadcountRows(fromYMD: string, toYMD: string): Promise<
     adults: r.adults,
     children: r.children,
   }))
+}
+
+/**
+ * Data for the dashboard tile: the latest headcount by service date (however
+ * long ago) with the same service's total exactly 7 days earlier, if recorded.
+ * Looks up the newest row first so a long pause never shows as "no headcounts".
+ */
+export async function getLatestAttendance(): Promise<{
+  latest: ReturnType<typeof latestWithDelta>
+  serviceName: string | null
+}> {
+  const newest = await prisma.serviceHeadcount.findFirst({
+    orderBy: [{ serviceDate: "desc" }, { serviceTypeId: "asc" }],
+    select: { serviceDate: true, serviceType: { select: { name: true } } },
+  })
+  if (!newest) return { latest: null, serviceName: null }
+  const date = utcDateToYmd(newest.serviceDate)
+  const rows = await getHeadcountRows(addDays(date, -7), date)
+  return { latest: latestWithDelta(rows), serviceName: newest.serviceType.name }
 }
 
 /**

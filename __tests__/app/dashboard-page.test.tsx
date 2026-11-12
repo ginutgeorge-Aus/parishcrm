@@ -30,6 +30,9 @@ jest.mock("@/components/dashboard/AnniversaryWidget", () => ({ AnniversaryWidget
 jest.mock("@/components/dashboard/WhatsNewFooter", () => ({ WhatsNewFooter: () => null }))
 jest.mock("@/components/dashboard/SetupChecklist", () => ({ SetupChecklist: () => null }))
 jest.mock("@/lib/featureFlags", () => ({ getEnabledFeatures: jest.fn() }))
+jest.mock("@/lib/attendanceQueries", () => ({
+  getLatestAttendance: jest.fn(async () => ({ latest: null, serviceName: null })),
+}))
 
 import { renderToStaticMarkup } from "react-dom/server"
 import { PERSON_FETCH_CAP } from "@/lib/constants"
@@ -39,6 +42,7 @@ import { redirect } from "next/navigation"
 import DashboardPage from "@/app/(dashboard)/page"
 import { MarriageAnniversaryWidget } from "@/components/dashboard/MarriageAnniversaryWidget"
 import { getEnabledFeatures } from "@/lib/featureFlags"
+import { getLatestAttendance } from "@/lib/attendanceQueries"
 import { resolveFeatures, FEATURES_ONBOARDING_KEY } from "@/lib/features"
 
 const mockAuth = auth as jest.Mock
@@ -440,6 +444,21 @@ describe("DashboardPage hierarchy and needs-attention list", () => {
     // Nothing an auditor can act on: no section rather than "All caught up".
     expect(html).not.toContain("Needs attention")
     expect(html).not.toContain("All caught up")
+  })
+
+  it.each(["ADMIN", "PASTOR", "OFFICE_ADMIN", "VIEWER"])("shows the attendance tile to %s", async (role) => {
+    ;(getLatestAttendance as jest.Mock).mockClear()
+    const html = await renderAs(role)
+    expect(getLatestAttendance).toHaveBeenCalledTimes(1)
+    expect(html).toContain('id="attendance-heading"')
+    expect(html).toContain("No headcounts yet")
+  })
+
+  it.each(["AUDITOR", "EVENT_ORGANISER"])("neither queries nor shows the attendance tile for %s", async (role) => {
+    ;(getLatestAttendance as jest.Mock).mockClear()
+    const html = await renderAs(role)
+    expect(getLatestAttendance).not.toHaveBeenCalled()
+    expect(html).not.toContain("attendance-heading")
   })
 
   it("links the upcoming-events figure to /events", async () => {

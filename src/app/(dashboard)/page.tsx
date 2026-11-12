@@ -4,7 +4,9 @@ import { Suspense } from "react"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { safeDecrypt } from "@/lib/crypto"
-import { canViewAccounting, canAccessAccounting, canViewPeople, canEdit, isAdmin } from "@/lib/roleGuard"
+import { canViewAccounting, canAccessAccounting, canViewPeople, canEdit, isAdmin, canViewAttendance, canEditAttendance } from "@/lib/roleGuard"
+import { getLatestAttendance } from "@/lib/attendanceQueries"
+import { AttendanceTile } from "@/components/dashboard/AttendanceTile"
 import { accountBalance } from "@/lib/reports/plHelpers"
 import { MONTH_ABBR_TITLE, toCents, centsToNumber, fmtAUD as fmt, safeDobDate, type Money } from "@/lib/formatting"
 import { sydneyToday, sydneyStartOfDayUTC, sydneyEndOfDayUTC, endOfDayUTC } from "@/lib/dates"
@@ -105,6 +107,7 @@ export default async function DashboardPage() {
     pendingUpdates,
     pendingMemberships,
     unreconciledGroups,
+    attendance,
   ] = await Promise.all([
     // People queries (incl. the DOB fetch + decrypt) only for roles that see
     // the people side — AUDITOR never renders them.
@@ -205,6 +208,8 @@ export default async function DashboardPage() {
           _min: { date: true },
         })
       : Promise.resolve([]),
+    // Latest service headcount (#308); same audience as the Attendance nav link.
+    canViewAttendance(role) ? getLatestAttendance() : Promise.resolve(null),
   ])
 
   // A hit cap renders a "may be incomplete" notice in the widget.
@@ -392,6 +397,16 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
+          </div>
+        </section>
+      )}
+
+      {/* Attendance — latest service headcount */}
+      {attendance && (
+        <section aria-labelledby="attendance-heading" className="space-y-3">
+          <h2 id="attendance-heading" className={sectionHeading}>Attendance</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <AttendanceTile latest={attendance.latest} serviceName={attendance.serviceName} canEnter={canEditAttendance(role)} />
           </div>
         </section>
       )}
