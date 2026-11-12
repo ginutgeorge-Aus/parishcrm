@@ -118,3 +118,21 @@ export function canViewGroups(role: UserRole | undefined): boolean {
 export function canManageGroups(role: UserRole | undefined): boolean {
   return canEdit(role)
 }
+
+/**
+ * Enter, edit and delete service headcounts. ADMIN | PASTOR | OFFICE_ADMIN
+ * (= canEdit), kept separate so the rule can diverge.
+ * @param role the caller's role
+ */
+export function canEditAttendance(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
+
+/**
+ * See attendance trends and the dashboard tile (read-only for VIEWER). Same
+ * set as canViewPeople; AUDITOR and EVENT_ORGANISER are excluded.
+ * @param role the caller's role
+ */
+export function canViewAttendance(role: UserRole | undefined): boolean {
+  return canViewPeople(role)
+}

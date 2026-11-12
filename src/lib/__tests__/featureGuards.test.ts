@@ -350,6 +350,8 @@ const CORE_ACTIONS = new Set([
   "venueCalendar.ts",
   // Groups & ministries (#303): core, no feature flag; role + group-link gated (group.test.ts).
   "group.ts",
+  // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
+  "attendance.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
