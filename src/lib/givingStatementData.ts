@@ -52,7 +52,9 @@ export async function loadStatements(fyStartYear: number, familyIds?: number[]):
 export type StatementFamily = {
   id: number
   name: string
-  /** Decrypted, valid, consenting member emails; head of family first. */
+  /** True when at least one consenting, non-archived member has an email on file. */
+  canEmail: boolean
+  /** Decrypted, valid, consenting member emails; head of family first. Empty unless requested. */
   emails: string[]
 }
 
@@ -60,20 +62,22 @@ export type StatementFamily = {
  * Load display name and consenting recipient emails for non-archived families.
  * Members who opted out of email (emailConsent=false) are never included.
  * @param ids family ids
+ * @param withEmails decrypt recipient addresses (only the send path needs them; list and PDF do not)
  */
-export async function loadStatementFamilies(ids: number[]): Promise<Map<number, StatementFamily>> {
+export async function loadStatementFamilies(ids: number[], withEmails = true): Promise<Map<number, StatementFamily>> {
   const families = await prisma.family.findMany({
     where: { id: { in: ids }, archivedAt: null },
     select: { id: true, name: true, people: { where: { archivedAt: null }, select: { email: true, emailConsent: true, role: true } } },
   })
   return new Map(
     families.map((f) => {
-      const emails = f.people
-        .filter((p) => p.email && p.emailConsent)
+      const consenting = f.people.filter((p) => p.email && p.emailConsent)
+      if (!withEmails) return [f.id, { id: f.id, name: f.name, canEmail: consenting.length > 0, emails: [] }]
+      const emails = consenting
         .sort((a, b) => (ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9))
         .map((p) => safeDecrypt(p.email as string).trim())
         .filter((e) => isValidEmail(e))
-      return [f.id, { id: f.id, name: f.name, emails: Array.from(new Set(emails)) }]
+      return [f.id, { id: f.id, name: f.name, canEmail: emails.length > 0, emails: Array.from(new Set(emails)) }]
     })
   )
 }

@@ -49,5 +49,16 @@ describe("loadStatementFamilies", () => {
     const out = await loadStatementFamilies([1])
     expect(findFam.mock.calls[0][0].select.people.where).toEqual({ archivedAt: null })
     expect(out.get(1)?.emails).toEqual(["head@x.com", "kid@x.com"])
+    expect(out.get(1)?.canEmail).toBe(true)
+  })
+
+  it("skips decrypting addresses when withEmails is false but still reports canEmail", async () => {
+    findFam.mockResolvedValue([
+      { id: 1, name: "Smith", people: [{ email: "a@x.com", emailConsent: true, role: "HEAD" }] },
+      { id: 2, name: "Jones", people: [{ email: "b@x.com", emailConsent: false, role: "HEAD" }] },
+    ])
+    const out = await loadStatementFamilies([1, 2], false)
+    expect(out.get(1)).toEqual({ id: 1, name: "Smith", canEmail: true, emails: [] })
+    expect(out.get(2)?.canEmail).toBe(false)
   })
 })

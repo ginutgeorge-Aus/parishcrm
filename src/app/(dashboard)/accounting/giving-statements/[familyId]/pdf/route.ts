@@ -30,9 +30,11 @@ export async function GET(req: NextRequest, props: { params: Promise<{ familyId:
   try {
     statements = await loadStatements(year, [familyId])
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Could not load giving." }, { status: 422 })
+    // Only the known scan-cap message is user-safe; never echo database or decryption errors.
+    const capHit = e instanceof Error && e.message.startsWith("Too many gifts")
+    return NextResponse.json({ error: capHit ? e.message : "Could not load giving." }, { status: 422 })
   }
-  const families = await loadStatementFamilies([familyId])
+  const families = await loadStatementFamilies([familyId], false)
   const statement = statements.get(familyId)
   const family = families.get(familyId)
   if (!statement || !family) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -51,6 +53,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ familyId:
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="giving-statement-${familyId}-${year}.pdf"`,
+      // Family financial data: never cache in the browser or a proxy.
+      "Cache-Control": "no-store",
     },
   })
 }

@@ -28,7 +28,8 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<string | null>(null)
-  const [errors, setErrors] = useState<string[]>([])
+  const [errors, setErrors] = useState<{ familyId: number; text: string }[]>([])
+  const [resend, setResend] = useState(false)
   const emailable = rows.filter((r) => r.canEmail)
 
   /** Toggle one family in the selection. */
@@ -59,9 +60,9 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         let failed = 0
         let skipped = 0
         let fatal: string | null = null
-        const errs: string[] = []
+        const errs: { familyId: number; text: string }[] = []
         for (let i = 0; i < ids.length; i += 200) {
-          const res = await sendGivingStatements(year, ids.slice(i, i + 200))
+          const res = await sendGivingStatements(year, ids.slice(i, i + 200), !resend)
           if ("error" in res) {
             fatal = res.error
             break
@@ -69,11 +70,12 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
           sent += res.sent
           failed += res.failed
           skipped += res.skipped
-          errs.push(...res.errors.map((e) => `${nameById.get(e.familyId) ?? `Family #${e.familyId}`}: ${e.error}`))
+          errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${nameById.get(e.familyId) ?? "Family #" + e.familyId}: ${e.error}` })))
         }
         if (!fatal) setSelected(new Set())
         setErrors(errs)
-        const counts = `Sent ${sent}, failed ${failed}${skipped ? `, skipped ${skipped} already sent` : ""}.`
+        const skippedNote = skipped ? `, skipped ${skipped} already sent` : ""
+        const counts = `Sent ${sent}, failed ${failed}${skippedNote}.`
         setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
       } catch {
         setMessage("Something went wrong, try again")
@@ -94,12 +96,16 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
           <Button type="button" size="sm" onClick={handleSend} disabled={pending || selected.size === 0}>
             {pending ? "Sending…" : `Email selected (${selected.size})`}
           </Button>
-          {message && <span role="status" className="text-sm text-muted-foreground">{message}</span>}
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={resend} disabled={pending} onChange={(e) => setResend(e.target.checked)} />
+            Resend to families already sent
+          </label>
+          {message && <output className="text-sm text-muted-foreground">{message}</output>}
         </div>
       )}
       {errors.length > 0 && (
         <ul role="alert" className="list-disc pl-5 text-xs text-destructive">
-          {errors.map((e) => <li key={e}>{e}</li>)}
+          {errors.map((e) => <li key={e.familyId}>{e.text}</li>)}
         </ul>
       )}
 

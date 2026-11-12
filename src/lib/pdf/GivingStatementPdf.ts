@@ -87,7 +87,7 @@ function drawStatement(doc: PDFKit.PDFDocument, m: GivingStatementModel, letterh
   y = heading(y, [["FUND", margin], ["TOTAL", amtX]])
   for (const f of m.byFund) {
     if (y + ROW_H > maxY) y = heading(newPage(), [["FUND", margin], ["TOTAL", amtX]])
-    doc.fillColor(SLATE_700).text(f.fund, margin, y, { width: amtX - margin - 12 })
+    doc.fillColor(SLATE_700).text(f.fund, margin, y, { width: amtX - margin - 12, height: ROW_H - 4, ellipsis: true })
     doc.text(f.amountLabel, amtX, y, { width: amtW, align: "right" })
     y += ROW_H
   }
@@ -116,12 +116,12 @@ function drawStatement(doc: PDFKit.PDFDocument, m: GivingStatementModel, letterh
   doc.fillColor(PRIMARY_HEX).font("Helvetica-Bold").fontSize(11).text("Total", margin, y)
   doc.fillColor(GREEN).text(m.totalLabel, amtX, y, { width: amtW, align: "right" })
   y += 28
-  if (y + 30 <= maxY) {
-    doc.fillColor(SLATE_500).font("Helvetica").fontSize(8.5).text(
-      "This statement summarises gifts recorded in our books for the period above. It is not a tax receipt.",
-      margin, y, { width: contentW }
-    )
-  }
+  // The not-a-tax-receipt disclaimer must always appear: move to a new page rather than drop it.
+  if (y + 30 > maxY) y = newPage()
+  doc.fillColor(SLATE_500).font("Helvetica").fontSize(8.5).text(
+    "This statement summarises gifts recorded in our books for the period above. It is not a tax receipt.",
+    margin, y, { width: contentW }
+  )
   drawFooter(doc, m, margin, contentW)
 }
 

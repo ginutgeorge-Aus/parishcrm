@@ -6,7 +6,10 @@ import { logAudit } from "@/lib/audit"
 import { sendGivingStatementEmail } from "@/lib/email"
 import { loadStatements, loadStatementFamilies } from "@/lib/givingStatementData"
 import { buildStatements } from "@/lib/givingStatement"
+import { featureGuard } from "@/lib/featureFlags"
+import { isResendAmbiguous } from "@/lib/resendTransport"
 
+jest.mock("@/lib/resendTransport", () => ({ isResendAmbiguous: jest.fn(() => false) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
@@ -22,7 +25,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     auditLog: { findMany: jest.fn() },
     family: { findMany: jest.fn() },
-    appSetting: { create: jest.fn(), deleteMany: jest.fn() },
+    appSetting: { create: jest.fn(), deleteMany: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   },
 }))
 
@@ -34,6 +37,10 @@ const mockLogAudit = logAudit as jest.Mock
 const findLog = prisma.auditLog.findMany as jest.Mock
 const mockClaimCreate = prisma.appSetting.create as jest.Mock
 const mockClaimDelete = prisma.appSetting.deleteMany as jest.Mock
+const mockClaimFind = prisma.appSetting.findUnique as jest.Mock
+const mockClaimSwap = prisma.appSetting.updateMany as jest.Mock
+const mockClaimUpdate = prisma.appSetting.update as jest.Mock
+const mockGuard = featureGuard as jest.Mock
 
 const statements = () =>
   buildStatements([
@@ -47,11 +54,12 @@ beforeEach(() => {
   mockLoad.mockResolvedValue(statements())
   mockFamilies.mockResolvedValue(
     new Map([
-      [1, { id: 1, name: "Smith", emails: ["s@x.com"] }],
-      [2, { id: 2, name: "Jones", emails: [] }],
+      [1, { id: 1, name: "Smith", canEmail: true, emails: ["s@x.com"] }],
+      [2, { id: 2, name: "Jones", canEmail: false, emails: [] }],
     ])
   )
   findLog.mockResolvedValue([])
+  mockGuard.mockResolvedValue(null)
 })
 
 describe("listGivingStatements", () => {
@@ -72,6 +80,17 @@ describe("listGivingStatements", () => {
       expect.objectContaining({ familyName: "Smith", canEmail: true, lastStatus: "SENT", total: 10 }),
     ])
     expect(JSON.stringify(res)).not.toContain("s@x.com")
+  })
+
+  it("does not decrypt addresses for the list and reads the newest attempt per family", async () => {
+    await listGivingStatements(2025)
+    expect(mockFamilies).toHaveBeenCalledWith([1, 2], false)
+    expect(findLog.mock.calls[0][0]).toMatchObject({ distinct: ["resourceId"] })
+  })
+
+  it("surfaces a load failure as an error", async () => {
+    mockLoad.mockRejectedValueOnce(new Error("Too many gifts"))
+    expect(await listGivingStatements(2025)).toEqual({ error: "Too many gifts" })
   })
 })
 
@@ -110,19 +129,89 @@ describe("sendGivingStatements", () => {
     expect(mockSend).not.toHaveBeenCalled()
   })
 
-  it("resend clears the old claim first and releases the claim on failure", async () => {
-    const res = await sendGivingStatements(2025, [1], false)
-    expect(res).toEqual(expect.objectContaining({ sent: 1 }))
-    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
-    mockClaimDelete.mockClear()
+  it("marks the claim SENT after delivery and releases it on a definite failure", async () => {
+    await sendGivingStatements(2025, [1])
+    expect(mockClaimUpdate).toHaveBeenCalledWith({
+      where: { key: "giving-statement-claim:2025:1" },
+      data: { value: expect.stringMatching(/^SENT:\d+$/) },
+    })
     mockSend.mockRejectedValueOnce(new Error("x"))
     await sendGivingStatements(2025, [1])
     expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
   })
 
+  it("keeps the claim as UNKNOWN when delivery is ambiguous", async () => {
+    ;(isResendAmbiguous as jest.Mock).mockReturnValueOnce(true)
+    mockSend.mockRejectedValueOnce(new Error("timeout"))
+    const res = await sendGivingStatements(2025, [1])
+    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })
+    expect(mockClaimDelete).not.toHaveBeenCalled()
+    expect(mockClaimUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
+    expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025, outcome: "unknown" })
+  })
+
+  describe("forced resend", () => {
+    beforeEach(() => mockClaimCreate.mockRejectedValueOnce({ code: "P2002" }))
+
+    it("takes over a SENT claim with an atomic compare-and-swap, never delete-then-create", async () => {
+      mockClaimFind.mockResolvedValue({ key: "k", value: "SENT:1" })
+      mockClaimSwap.mockResolvedValue({ count: 1 })
+      const res = await sendGivingStatements(2025, [1], false)
+      expect(res).toEqual(expect.objectContaining({ sent: 1 }))
+      expect(mockClaimSwap).toHaveBeenCalledWith({
+        where: { key: "giving-statement-claim:2025:1", value: "SENT:1" },
+        data: { value: expect.stringMatching(/^PENDING:/) },
+      })
+      expect(mockClaimDelete).not.toHaveBeenCalled()
+    })
+
+    it("does not steal a live PENDING claim", async () => {
+      mockClaimFind.mockResolvedValue({ key: "k", value: `PENDING:${Date.now()}` })
+      expect(await sendGivingStatements(2025, [1], false)).toEqual(expect.objectContaining({ skipped: 1, sent: 0 }))
+      expect(mockClaimSwap).not.toHaveBeenCalled()
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("takes over a stale PENDING claim (crashed run)", async () => {
+      mockClaimFind.mockResolvedValue({ key: "k", value: `PENDING:${Date.now() - 16 * 60_000}` })
+      mockClaimSwap.mockResolvedValue({ count: 1 })
+      expect(await sendGivingStatements(2025, [1], false)).toEqual(expect.objectContaining({ sent: 1 }))
+    })
+
+    it("skips when another run wins the swap", async () => {
+      mockClaimFind.mockResolvedValue({ key: "k", value: "SENT:1" })
+      mockClaimSwap.mockResolvedValue({ count: 0 })
+      expect(await sendGivingStatements(2025, [1], false)).toEqual(expect.objectContaining({ skipped: 1, sent: 0 }))
+    })
+
+    it("skips when the claim vanished between create and read", async () => {
+      mockClaimFind.mockResolvedValue(null)
+      expect(await sendGivingStatements(2025, [1], false)).toEqual(expect.objectContaining({ skipped: 1 }))
+    })
+  })
+
+  it("rethrows unexpected claim errors", async () => {
+    mockClaimCreate.mockRejectedValueOnce(new Error("db down"))
+    await expect(sendGivingStatements(2025, [1])).rejects.toThrow("db down")
+  })
+
   it("returns a clear error when giving cannot be loaded safely", async () => {
     mockLoad.mockRejectedValueOnce(new Error("Too many gifts"))
     expect(await sendGivingStatements(2025, [1])).toEqual({ error: "Too many gifts" })
+  })
+})
+
+describe("feature guard", () => {
+  const off = { error: "This feature is turned off." }
+  it.each([
+    ["listGivingStatements", () => listGivingStatements(2025)],
+    ["sendGivingStatements", () => sendGivingStatements(2025, [1])],
+    ["listStatementSendLog", () => listStatementSendLog(2025)],
+  ])("%s returns the feature-off error and does no work", async (_n, call) => {
+    mockGuard.mockResolvedValueOnce(off)
+    expect(await call()).toEqual(off)
+    expect(mockLoad).not.toHaveBeenCalled()
+    expect(mockSend).not.toHaveBeenCalled()
   })
 })
 

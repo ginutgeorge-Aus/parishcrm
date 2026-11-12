@@ -1,4 +1,5 @@
 import { toCents, centsToNumber, fmtAUD, formatLongDate, formatDMY } from "@/lib/formatting"
+import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import { fyDateRange, fyRangeLabel, currentFYYear } from "@/lib/fiscalYear"
 
 /** Fund label used for gifts with no fund set. */
@@ -14,8 +15,8 @@ export type StatementGift = {
   familyId: number
 }
 
-export type StatementLine = { date: Date; description: string; fund: string; cents: number }
-export type StatementFundTotal = { fund: string; cents: number }
+type StatementLine = { date: Date; description: string; fund: string; cents: number; unallocated: boolean }
+type StatementFundTotal = { fund: string; cents: number; unallocated: boolean }
 
 /** A family's giving for one financial year. */
 export type FamilyStatement = {
@@ -41,16 +42,21 @@ export function buildStatements(gifts: StatementGift[]): Map<number, FamilyState
       s = { familyId: g.familyId, lines: [], byFund: [], totalCents: 0 }
       out.set(g.familyId, s)
     }
-    s.lines.push({ date: g.date, description: g.description, fund, cents })
+    s.lines.push({ date: g.date, description: g.description, fund, cents, unallocated: g.fundName === null })
     s.totalCents += cents
   }
   for (const s of out.values()) {
     s.lines.sort((a, b) => a.date.getTime() - b.date.getTime())
-    const funds = new Map<string, number>()
-    for (const l of s.lines) funds.set(l.fund, (funds.get(l.fund) ?? 0) + l.cents)
-    s.byFund = Array.from(funds, ([fund, cents]) => ({ fund, cents })).sort((a, b) => {
-      if (a.fund === UNALLOCATED_FUND) return 1
-      if (b.fund === UNALLOCATED_FUND) return -1
+    // Keyed apart so a real fund literally named like the unallocated label never merges with it.
+    const funds = new Map<string, StatementFundTotal>()
+    for (const l of s.lines) {
+      const key = `${l.unallocated ? "u" : "f"}:${l.fund}`
+      const t = funds.get(key) ?? { fund: l.fund, cents: 0, unallocated: l.unallocated }
+      t.cents += l.cents
+      funds.set(key, t)
+    }
+    s.byFund = Array.from(funds.values()).sort((a, b) => {
+      if (a.unallocated !== b.unallocated) return a.unallocated ? 1 : -1
       return a.fund.localeCompare(b.fund)
     })
   }
@@ -97,7 +103,8 @@ export function buildStatementModel(
     familyName,
     fyLabel: fyRangeLabel(fyStartYear, { short: true }),
     periodLabel: `${formatLongDate(start)} to ${formatLongDate(new Date(end.getTime() - 86_400_000))}`,
-    issueDate: formatLongDate(issued),
+    // The issue date is an instant, so read it in the church time zone (period dates are calendar dates, read as UTC).
+    issueDate: new Intl.DateTimeFormat(APP_LOCALE, { day: "numeric", month: "long", year: "numeric", timeZone: APP_TIMEZONE }).format(issued),
     totalLabel: fmtAUD(centsToNumber(statement.totalCents)),
     byFund: statement.byFund.map((f) => ({ fund: f.fund, amountLabel: fmtAUD(centsToNumber(f.cents)) })),
     lines: statement.lines.map((l) => ({

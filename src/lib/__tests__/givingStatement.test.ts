@@ -15,10 +15,22 @@ describe("buildStatements", () => {
     expect(f1.totalCents).toBe(5030)
     expect(f1.lines.map((l) => l.description)).toEqual(["a", "b", "c"])
     expect(f1.byFund).toEqual([
-      { fund: "Building", cents: 30 },
-      { fund: UNALLOCATED_FUND, cents: 5000 },
+      { fund: "Building", cents: 30, unallocated: false },
+      { fund: UNALLOCATED_FUND, cents: 5000, unallocated: true },
     ])
     expect(out.get(2)!.totalCents).toBe(500)
+  })
+
+  it("keeps a real fund named like the unallocated label separate from no-fund gifts", () => {
+    const f = buildStatements([
+      { date: d("2025-08-01"), description: "a", amount: 10, fundName: UNALLOCATED_FUND, familyId: 1 },
+      { date: d("2025-08-02"), description: "b", amount: 5, fundName: null, familyId: 1 },
+    ]).get(1)!
+    expect(f.byFund).toEqual([
+      { fund: UNALLOCATED_FUND, cents: 1000, unallocated: false },
+      { fund: UNALLOCATED_FUND, cents: 500, unallocated: true },
+    ])
+    expect(f.totalCents).toBe(1500)
   })
 
   it("returns no statements for no gifts", () => {

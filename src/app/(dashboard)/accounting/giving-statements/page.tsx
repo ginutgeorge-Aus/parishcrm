@@ -27,7 +27,11 @@ export default async function GivingStatementsPage(props: Readonly<Props>) {
   void logAudit(actorId(session), "VIEW_FINANCIAL_REPORT", "Transaction", undefined, { report: "giving-statements" })
 
   const [rows, log] = await Promise.all([listGivingStatements(year), listStatementSendLog(year)])
-  if ("error" in rows || "error" in log) redirect("/")
+  // Role is checked above and the feature by the layout, so a remaining error is operational
+  // (e.g. the gift scan cap): show it here rather than bouncing to the dashboard.
+  if ("error" in rows || "error" in log) {
+    return <p role="alert" className="text-sm text-destructive">{"error" in rows ? rows.error : (log as { error: string }).error}</p>
+  }
   const canManage = canAccessAccounting(session?.user?.role)
 
   return (
@@ -45,7 +49,7 @@ export default async function GivingStatementsPage(props: Readonly<Props>) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No giving recorded for FY {fyRangeLabel(year, { short: true })}.</p>
       ) : (
-        <GivingStatementsClient year={year} rows={rows} canManage={canManage} />
+        <GivingStatementsClient key={year} year={year} rows={rows} canManage={canManage} />
       )}
 
       <section className="space-y-2">
