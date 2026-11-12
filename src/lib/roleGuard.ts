@@ -82,3 +82,19 @@ export function isEventOrganiser(role: UserRole | undefined): boolean {
 export function canEditOrOrganise(role: UserRole | undefined): boolean {
   return canEdit(role) || isEventOrganiser(role)
 }
+
+/**
+ * Create/edit event fundraisers, entries and payments, and send reminders.
+ * Same set as canEdit (ADMIN | PASTOR | OFFICE_ADMIN).
+ */
+export function canManageFundraiser(role: UserRole | undefined): boolean {
+  return role === UserRole.ADMIN || role === UserRole.PASTOR || role === UserRole.OFFICE_ADMIN
+}
+
+/**
+ * Read-only view of fundraiser totals: managers plus AUDITOR. VIEWER and
+ * EVENT_ORGANISER see nothing.
+ */
+export function canViewFundraiserTotals(role: UserRole | undefined): boolean {
+  return canManageFundraiser(role) || role === UserRole.AUDITOR
+}
