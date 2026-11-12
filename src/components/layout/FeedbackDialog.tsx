@@ -37,8 +37,11 @@ function captureClientContext() {
   }
 }
 
-/** Feedback icon button (top bar) opening the bug/feature/idea dialog. Needs a TooltipProvider ancestor. */
-export function FeedbackDialog() {
+/**
+ * Feedback icon button (top bar) opening the bug/feature/idea dialog. Needs a TooltipProvider ancestor.
+ * `showReportsLink` hides the post-submit "View your feedback" link for roles confined away from /reports.
+ */
+export function FeedbackDialog({ showReportsLink = true }: { showReportsLink?: boolean } = {}) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<FeedbackType>("BUG")
@@ -195,7 +198,7 @@ export function FeedbackDialog() {
               className={`text-sm ${message.type === "success" ? "text-success" : "text-destructive"}`}
             >
               <p>{message.text}</p>
-              {message.type === "success" && (
+              {message.type === "success" && showReportsLink && (
                 <Link href="/reports" className="underline" onClick={() => handleOpenChange(false)}>
                   View your feedback
                 </Link>

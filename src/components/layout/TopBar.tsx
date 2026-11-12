@@ -17,7 +17,7 @@ import { buildQuickAddItems } from "@/components/layout/topbar/quickAdd"
 import { navFlagsFor } from "@/components/layout/navGates"
 import { attentionItems, buildNavGroups } from "@/components/layout/sidebar/navData"
 import { useMenuTooltip } from "@/components/layout/useMenuTooltip"
-import { isAdmin } from "@/lib/roleGuard"
+import { isAdmin, isHeadmaster } from "@/lib/roleGuard"
 import type { FeatureKey } from "@/lib/features"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 
@@ -96,7 +96,7 @@ export function TopBar({
         )}
 
         <div className={quickAdd.length > 0 ? "flex items-center gap-2 md:ml-auto" : "ml-auto flex items-center gap-2"}>
-          <FeedbackDialog />
+          <FeedbackDialog showReportsLink={!isHeadmaster(role)} />
           <DropdownMenu>
             <Tooltip {...bellTip.tooltip}>
               <TooltipTrigger asChild>

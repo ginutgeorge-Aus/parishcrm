@@ -1,9 +1,9 @@
 ---
 title: "Roles and Permissions"
-description: "ParishCRM uses a single role field per user account, chosen from six fixed roles. Every permission check in the app — page access, server actions, API routes…"
+description: "ParishCRM uses a single role field per user account, chosen from eight fixed roles. Every permission check in the app — page access, server actions, API routes…"
 ---
 
-ParishCRM uses a single role field per user account, chosen from six fixed roles. Every
+ParishCRM uses a single role field per user account, chosen from eight fixed roles. Every
 permission check in the app — page access, server actions, API routes — reduces to a small
 set of role-helper functions, so the effective permission model is centralized and
 predictable rather than scattered checks. This page is the reference matrix; see
@@ -21,12 +21,12 @@ how roles are assigned and changed.
 
 ## How it works
 
-All six roles are defined once, in the Prisma `UserRole` enum, and read everywhere through a
+All eight roles are defined once, in the Prisma `UserRole` enum, and read everywhere through a
 small set of helper functions in `src/lib/roleGuard.ts`. Nothing checks `role === "ADMIN"`
 inline outside that file — every gate (page, layout, server action, API route) calls one of
 these helpers, so the permission boundary lives in one place.
 
-### The six roles
+### The eight roles
 
 | Role | Summary |
 |------|---------|

@@ -75,3 +75,20 @@ test("Submit is disabled after a successful report so a double-click can't file 
   fireEvent.click(screen.getByRole("button", { name: "Submit" }))
   expect(mockSubmit).toHaveBeenCalledTimes(1)
 })
+
+test.each([
+  [true, true],
+  [false, false],
+])("showReportsLink=%s -> 'View your feedback' link present=%s after success", async (show, present) => {
+  mockSubmit.mockResolvedValue({ success: "Report filed" })
+
+  render(<TooltipProvider><FeedbackDialog showReportsLink={show} /></TooltipProvider>)
+  fireEvent.click(screen.getByRole("button", { name: "Feedback" }))
+  fireEvent.change(screen.getByLabelText(/what were you doing/i), { target: { value: "editing" } })
+  fireEvent.change(screen.getByLabelText(/what did you expect/i), { target: { value: "save" } })
+  fireEvent.change(screen.getByLabelText(/what actually happened/i), { target: { value: "error" } })
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit" })) })
+
+  expect(screen.getByText("Report filed")).toBeInTheDocument()
+  expect(!!screen.queryByText("View your feedback")).toBe(present)
+})
