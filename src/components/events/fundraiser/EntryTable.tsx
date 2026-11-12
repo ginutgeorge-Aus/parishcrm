@@ -77,12 +77,13 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
       />
       <PaymentsPanel entryId={row.id} name={row.name} remainingCents={row.remainingCents} payments={payments} />
       <DeleteConfirmButton
-        onConfirm={() => deleteEntry(row.id)}
+        // Not `disabled={pending}`: that swaps the trigger for an inert button and
+        // drops an open dialog (blur-save then Delete). Guard the action instead.
+        onConfirm={async () => (pending ? { error: "Saving the quantity, please try again" } : deleteEntry(row.id))}
         title="Delete entry?"
         description={`${row.name}'s entry will be removed from this fundraiser. Entries with payments cannot be deleted.`}
         triggerLabel={<>Delete<span className="sr-only"> {row.name}</span></>}
         triggerSize="xs"
-        disabled={pending}
       />
       <FormFeedback state={{ error }} className="basis-full" />
     </div>

@@ -23,7 +23,7 @@ jest.mock("@/lib/prisma", () => {
 })
 jest.mock("@/lib/crypto", () => ({ decrypt: (s: string) => s, encrypt: (s: string) => s }))
 jest.mock("@/lib/notifications", () => ({ notifyStripeAlert: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 
 import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import { handleStripeWebhook } from "@/lib/stripeCheckout"
@@ -31,7 +31,7 @@ import { entryTotals } from "@/lib/fundraiserMath"
 const { prisma } = require("@/lib/prisma")
 const { getStripe } = require("@/lib/stripe")
 const { notifyStripeAlert } = require("@/lib/notifications")
-const { logAuditTx } = require("@/lib/audit")
+const { logAudit } = require("@/lib/audit")
 const { persistRegistration } = require("@/lib/eventRegistrationPersist")
 
 type Staging = { id: number; status: string; fundraiserEntryId: number | null; totalAmount: string; surchargeCents: number }
@@ -59,13 +59,23 @@ beforeEach(() => {
   prisma.fundraiserPayment.create.mockResolvedValue({ id: 99 })
 })
 
+it("an audit write failure never blocks the captured payment: recorded, 200, ops alerted", async () => {
+  logAudit.mockRejectedValueOnce(new Error("audit down"))
+  const err = jest.spyOn(console, "error").mockImplementation(() => {})
+  expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
+  expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)
+  expect(rowStatus).toBe("COMPLETED")
+  expect(notifyStripeAlert).toHaveBeenCalledWith("fundraiser card payment: audit row missing", expect.stringContaining("payment 99"))
+  err.mockRestore()
+})
+
 it("records one ONLINE payment for the base amount with the PI as ref and a system audit", async () => {
   expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
   expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)
   const data = prisma.fundraiserPayment.create.mock.calls[0][0].data
   expect(data).toMatchObject({ entryId: 7, method: "ONLINE", amount: "30.00", stripePaymentRef: "pi_f", recordedById: null })
   expect(rowStatus).toBe("COMPLETED")
-  expect(logAuditTx).toHaveBeenCalledWith(prisma, null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", 99, expect.objectContaining({ entryId: 7 }))
+  expect(logAudit).toHaveBeenCalledWith(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", 99, expect.objectContaining({ entryId: 7 }))
   expect(notifyStripeAlert).not.toHaveBeenCalled()
 })
 
@@ -87,7 +97,7 @@ it("unique violation on the payment ref is a benign redelivery → 200, no alert
   prisma.fundraiserPayment.create.mockRejectedValue(p2002())
   expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
   expect(notifyStripeAlert).not.toHaveBeenCalled()
-  expect(logAuditTx).not.toHaveBeenCalled()
+  expect(logAudit).not.toHaveBeenCalled()
 })
 
 it("amount mismatch → alert, zero payments, row terminal", async () => {
@@ -177,7 +187,7 @@ it("serialization conflict (P2034) → 500 so Stripe retries, row left OPEN, no 
   expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 500 })
   expect(rowStatus).toBe("OPEN")
   expect(notifyStripeAlert).not.toHaveBeenCalled()
-  expect(logAuditTx).not.toHaveBeenCalled()
+  expect(logAudit).not.toHaveBeenCalled()
   // Expiry pushed out so the hourly sweep cannot expire the row before the retry.
   expect(prisma.checkoutSession.updateMany).toHaveBeenLastCalledWith(
     expect.objectContaining({ where: { id: 11, status: "OPEN" }, data: { expiresAt: expect.any(Date) } }),

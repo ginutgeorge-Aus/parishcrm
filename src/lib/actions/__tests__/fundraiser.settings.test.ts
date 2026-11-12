@@ -11,6 +11,7 @@ import { getFundraiserView } from "@/lib/fundraiserQueries"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const prismaMock = {
   event: { findUnique: jest.fn() },
@@ -65,6 +66,12 @@ describe("saveFundraiser", () => {
   it("rejects missing event", async () => {
     prismaMock.event.findUnique.mockResolvedValue(null)
     expect(await saveFundraiser(7, input)).toEqual({ error: "Event not found" })
+  })
+
+  it("an audit write failure rolls the save back and returns AUDIT_FAILED_ERROR", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await saveFundraiser(7, input)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("upserts on eventId and audits", async () => {

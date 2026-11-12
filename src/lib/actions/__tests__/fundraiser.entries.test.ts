@@ -21,6 +21,7 @@ import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
 import { encrypt } from "@/lib/crypto"
 import { revalidatePath } from "next/cache"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const prismaMock = {
   fundraiser: { findUnique: jest.fn() },
@@ -66,6 +67,26 @@ describe("addEntry", () => {
     expect(await addEntry(3, { familyId: 2, quantity: "2001" })).toEqual({ error: "Total owed is too large (max $999,999.99 per entry)" })
     expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
     expect(await addEntry(3, { familyId: 2, quantity: "1999" })).toBeUndefined()
+  })
+
+  it("an audit write failure rolls the add back and returns AUDIT_FAILED_ERROR", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await addEntry(3, { familyId: 2, quantity: "1" })).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("an audit write failure on a quantity edit or delete returns AUDIT_FAILED_ERROR", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue({
+      id: 11, quantity: 4, unitPrice: "10.00", fundraiserId: 3, familyId: 2, fundraiser: { eventId: 7 }, payments: [],
+    })
+    prismaMock.fundraiserPayment.count.mockResolvedValue(0)
+    prismaMock.checkoutSession.count.mockResolvedValue(0)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await updateEntryQuantity(11, "5")).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await deleteEntry(11)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("rejects an archived family", async () => {

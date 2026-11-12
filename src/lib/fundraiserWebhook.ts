@@ -10,7 +10,7 @@ import { toCents } from "@/lib/formatting"
 import { toStripeAmount } from "@/lib/stripeAmount"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { notifyStripeAlert } from "@/lib/notifications"
-import { logAuditTx } from "@/lib/audit"
+import { logAudit } from "@/lib/audit"
 import { isP2002, isP2034 } from "@/lib/validation"
 // Value import (isolation-level enum), not the @/lib/prisma re-export — see serializableWrite.ts.
 import { Prisma } from "@/lib/generated/prisma/client"
@@ -79,11 +79,11 @@ async function claimUnfulfilled(stagingId: number): Promise<boolean> {
  * @param stagingId CheckoutSession id
  * @param entryId FundraiserEntry id
  * @param amount base amount (charge minus card fee) as staged
- * The FUNDRAISER_PAYMENT_ONLINE audit row is written in the same transaction,
- * so a recorded payment never lacks its audit row (a failed audit write rolls
- * the claim back and Stripe retries).
+ * The audit row is written by the caller after commit, on purpose: the money is
+ * already captured by Stripe, so an audit failure must never roll back (and
+ * keep 500-ing) the payment record. In Postgres a failed statement aborts the
+ * whole transaction, so an in-tx audit cannot be caught and skipped.
  * @param paymentRef Stripe PaymentIntent id (unique per payment)
- * @param surchargeCents card fee charged on top (audit metadata)
  * @returns what happened
  */
 async function claimAndRecord(
@@ -91,7 +91,6 @@ async function claimAndRecord(
   entryId: number,
   amount: FundraiserStaging["totalAmount"],
   paymentRef: string | null,
-  surchargeCents: number,
 ): Promise<Outcome> {
   return prisma.$transaction(async (tx) => {
     // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
@@ -122,12 +121,6 @@ async function claimAndRecord(
       select: { id: true },
     })
     const overpaidCents = Math.max(0, toCents(amount) - remainingCents)
-    await logAuditTx(tx, null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", created.id, {
-      entryId,
-      amountCents: toCents(amount),
-      surchargeCents,
-      overpaidCents,
-    })
     return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
@@ -188,7 +181,7 @@ export async function completeFundraiserPayment(
 
   let outcome: Outcome
   try {
-    outcome = await claimAndRecord(staging.id, entryId, staging.totalAmount, pi, staging.surchargeCents)
+    outcome = await claimAndRecord(staging.id, entryId, staging.totalAmount, pi)
   } catch (err) {
     if (isP2002(err)) {
       // This PaymentIntent is already recorded: a benign redelivery. The tx
@@ -219,6 +212,7 @@ export async function completeFundraiserPayment(
   if (outcome.kind === "missing") await alertEntryMissing(session.id)
   if (outcome.kind !== "recorded") return { status: 200 }
 
+  await auditOnlinePayment(session.id, outcome, staging)
   if (outcome.overpaidCents > 0) {
     await notifyStripeAlert(
       "fundraiser card payment: entry overpaid",
@@ -226,6 +220,39 @@ export async function completeFundraiserPayment(
     )
   }
   return { status: 200 }
+}
+
+/**
+ * Best-effort FUNDRAISER_PAYMENT_ONLINE audit after the payment committed. A
+ * failure is logged and alerted (so the gap can be backfilled) but never fails
+ * the webhook: the payment row is the source of truth for captured money.
+ * @param sessionId Stripe Checkout Session id
+ * @param outcome the recorded payment
+ * @param staging staged amounts (base + card fee)
+ */
+async function auditOnlinePayment(
+  sessionId: string,
+  outcome: { paymentId: number; entryId: number; overpaidCents: number },
+  staging: FundraiserStaging,
+): Promise<void> {
+  try {
+    await logAudit(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", outcome.paymentId, {
+      entryId: outcome.entryId,
+      amountCents: toCents(staging.totalAmount),
+      surchargeCents: staging.surchargeCents,
+      overpaidCents: outcome.overpaidCents,
+    })
+  } catch (err) {
+    console.error(`Stripe webhook: fundraiser payment ${outcome.paymentId} recorded but its audit row failed`, err instanceof Error ? err.message : err)
+    try {
+      await notifyStripeAlert(
+        "fundraiser card payment: audit row missing",
+        `Session ${sessionId}: payment ${outcome.paymentId} on entry ${outcome.entryId} was recorded, but writing its audit row failed. Backfill the audit entry.`,
+      )
+    } catch {
+      // Alerting is best-effort too; the console error above remains.
+    }
+  }
 }
 
 /**

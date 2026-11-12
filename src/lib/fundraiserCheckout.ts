@@ -147,15 +147,27 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
 
 /**
  * Retrieve every OPEN prior session of an entry from Stripe, outside any lock.
+ * One indexed DB read first; Stripe is only called when OPEN rows exist. Never
+ * throws: a DB failure returns an empty map (the caller then retrieves each
+ * prior under the lock), and `retrievePrior` already absorbs Stripe errors.
  * @param stripe Stripe client
  * @param entryId FundraiserEntry id
  * @returns live state keyed by Checkout Session id
  */
 async function prefetchPriors(stripe: Stripe, entryId: number): Promise<Map<string, LivePrior>> {
-  const open = await prisma.checkoutSession.findMany({
-    where: { fundraiserEntryId: entryId, status: "OPEN" },
-    select: { stripeSessionId: true },
-  })
+  let open: { stripeSessionId: string }[]
+  try {
+    open = await prisma.checkoutSession.findMany({
+      where: { fundraiserEntryId: entryId, status: "OPEN" },
+      select: { stripeSessionId: true },
+    })
+  } catch (e) {
+    // Optimisation only: on a DB error, priors are retrieved under the lock instead.
+    console.warn("Fundraiser checkout: prefetching prior sessions for entry %s failed: %s", String(entryId), e instanceof Error ? e.message : String(e))
+    return new Map()
+  }
+  // Common case (first pay click): no OPEN rows, so no Stripe call at all.
+  if (open.length === 0) return new Map()
   const pairs = await Promise.all(
     open.map(async ({ stripeSessionId: id }) => [id, await retrievePrior(stripe, id)] as const),
   )

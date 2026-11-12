@@ -14,6 +14,7 @@ import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { auth } from "@/auth"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 type Row = { entryId: number; stripePaymentRef: string | null; amount: string }
 
@@ -148,9 +149,17 @@ describe("deletePayment", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
   })
 
-  it("an audit write failure fails the delete (rolled back with it), not swallowed", async () => {
+  it("an audit write failure fails the delete (rolled back with it) with AUDIT_FAILED_ERROR, not a 500", async () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
-    await expect(deletePayment(4)).rejects.toThrow("audit down")
+    expect(await deletePayment(4)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("an audit write failure on recordPayment returns AUDIT_FAILED_ERROR (payment rolled back)", async () => {
+    // No prior row for this submission key (this describe's default is an existing payment).
+    prismaMock.fundraiserPayment.findUnique.mockResolvedValue(null)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await recordPayment(11, { ...input, amount: "5.00" })).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 
