@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { isP2034 } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -20,10 +20,7 @@ import { featureGuard } from "@/lib/featureFlags"
  * @param label action name for the server log
  */
 function mapReconcileWriteError(e: unknown, label: string): { error: string } | null {
-  if (e instanceof AuditWriteError) {
-    console.error(`${label} audit write failed`, e.cause)
-    return { error: AUDIT_FAILED_ERROR }
-  }
+  if (e instanceof AuditWriteError) return auditWriteFailedResult(e, label)
   if (isP2034(e)) return { error: "Conflict while saving — please try again." }
   return null
 }

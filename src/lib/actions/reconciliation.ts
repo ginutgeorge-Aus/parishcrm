@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { logger } from "@/lib/logger"
 import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -79,13 +79,7 @@ export async function saveStatementBalance(
   try {
     outcome = await finalizeReconciliation(parsed.data.paymentAccountId, date, amount, userId)
   } catch (e) {
-    if (e instanceof AuditWriteError) {
-      logger.error("saveStatementBalance audit write failed", {
-        error: e.cause instanceof Error ? e.cause.message : String(e.cause),
-        paymentAccountId: parsed.data.paymentAccountId,
-      })
-      return { error: AUDIT_FAILED_ERROR }
-    }
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "saveStatementBalance")
     // this was silently swallowed with no logging — a real DB failure
     // was indistinguishable from any other cause.
     logger.error("saveStatementBalance failed", {

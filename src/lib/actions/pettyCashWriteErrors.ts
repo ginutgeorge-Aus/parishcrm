@@ -1,6 +1,6 @@
 // Plain module (no "use server"): kept apart from pettyCashEntry.ts so that file
 // stays free of DB/prisma imports for its pure-builder tests.
-import { AUDIT_FAILED_ERROR, AuditWriteError } from "@/lib/auditGuard"
+import { AUDIT_FAILED_ERROR, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
 import { isP2002 } from "@/lib/validation"
 import { SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
 
@@ -11,13 +11,12 @@ export { AuditWriteError }
 
 /**
  * Maps a failed in-transaction audit write (the mutation rolled back) to the action
- * result, logging the cause server-side.
+ * result, logging a scrubbed cause server-side (see `auditWriteFailedResult`).
  * @param e the `AuditWriteError` caught from the write transaction
  * @param label action name for the server log
  */
 export function auditFailed(e: AuditWriteError, label: string): { error: string } {
-  console.error(`${label} audit write failed`, e.cause)
-  return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
+  return auditWriteFailedResult(e, label)
 }
 
 /**
