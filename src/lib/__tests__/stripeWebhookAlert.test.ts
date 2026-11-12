@@ -169,4 +169,10 @@ describe("default tracker (prisma + email wiring)", () => {
     await fire(3)
     expect(prisma.appSetting.upsert).toHaveBeenCalledTimes(1)
   })
+
+  it("does not count a connect-phase timeout as sent (no cooldown persisted)", async () => {
+    sendEmail.mockRejectedValue(Object.assign(new Error("connect timeout"), { code: "ETIMEDOUT", command: "CONN" }))
+    await fire(3)
+    expect(prisma.appSetting.upsert).not.toHaveBeenCalled()
+  })
 })

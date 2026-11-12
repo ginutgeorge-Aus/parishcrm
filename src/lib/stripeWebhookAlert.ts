@@ -100,7 +100,8 @@ async function sendAdminAlert(): Promise<void> {
     } catch (err) {
       // Post-submission socket errors may already have delivered the mail; count
       // them as sent so the cooldown is persisted and we do not resend per failure.
-      if (isAmbiguousDeliveryError(err)) sent++
+      // A connect-phase failure (command "CONN") happens before submission: nothing was sent.
+      if (isAmbiguousDeliveryError(err) && (err as { command?: string }).command !== "CONN") sent++
       logger.error("[stripeWebhookAlert] email failed", { error: err instanceof Error ? err.message : String(err) })
     }
   }
