@@ -19,6 +19,7 @@ jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn(() => true) }))
 jest.mock("@/lib/bodyLimit", () => ({ exceedsBodyLimit: jest.fn(() => false) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
+  hmacSuburb: jest.fn((v: string) => `shash:${v.trim().toLowerCase()}`),
   hmacEmail: jest.fn((v: string) => `eh:${v}`),
   hmacMobile: jest.fn((v: string) => `mh:${v}`),
 }))

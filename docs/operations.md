@@ -19,6 +19,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate `PettyCashReceipt`/`Expense` `importKey` values before a `@unique` is added |
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
 | `backfill-mobile-hash` | Populate `Person.mobileHash` / `MembershipApplication.mobileHash` blind index; also encrypts pre-existing plaintext `MembershipApplication.mobile` rows |
+| `backfill-suburb-hash` | Populate the `Family.suburbHash` blind index (OSS-39) for families written before it existed; see [Upgrading: suburb search index](#upgrading-suburb-search-index) |
 | `rehash-mobile` | Unconditionally recompute the mobile blind index after `hmacMobile` gained prefix normalisation |
 | `audit-data-integrity` | **Read-only** diagnostic — scans encrypted-at-rest fields for plaintext leaks (incl. bank account numbers left in `Transaction.bankRef`), checks `emailHash` completeness, verifies invariants FKs can't enforce. Exits non-zero on any finding; run against prod / a restored dump |
 | `purge-registration-pii` | Retention purge — anonymises event-registration PII 6 months after the event ends, preserving financial aggregates. Also covers `Waitlist` and `CheckoutSession.payload`. Idempotent via each table's `anonymizedAt`; runs monthly via CI |
@@ -92,6 +93,27 @@ SELECT lower(email), count(*) FROM "User" GROUP BY 1 HAVING count(*) > 1;
 ```
 
 Any rows returned must be resolved first (rename or delete the extra accounts). Archiving is not enough: the index covers archived users too, so an archived row keeps its email unless it is tombstoned (`archived+<id>+<email>`) or renamed. No rows means it is safe to upgrade.
+
+## Upgrading: suburb search index
+
+Migration `20261113100000_family_suburb_hash` adds `Family.suburbHash`, a keyed HMAC (v1-derived blind index,
+label `suburb`) of the suburb after case and whitespace folding. The families list filters by suburb through it
+instead of decrypting every family. The filter is now an **exact** suburb match (`north sydney` matches
+`North  Sydney`, but `Sydney` no longer matches `North Sydney`).
+
+New and edited families get the hash on write. After `prisma migrate deploy`, fill it for existing families:
+
+```bash
+npx tsx scripts/backfill-suburb-hash.ts               # dry run: counts rows to hash
+npx tsx scripts/backfill-suburb-hash.ts --apply --yes # write
+```
+
+Until the backfill has run, the page still finds unhashed families by decrypting up to 2000 of them per search
+(the old behaviour), and says so if that cap is hit. The hash is derived data, so the backfill is safe to re-run.
+
+Rollback: revert the release, then drop the column (`DROP INDEX "Family_suburbHash_idx"; ALTER TABLE "Family"
+DROP COLUMN "suburbHash";`) and delete the `20261113100000_family_suburb_hash` row from `_prisma_migrations`.
+Leaving the column in place is also harmless: older code ignores it.
 
 ## Health Stack
 

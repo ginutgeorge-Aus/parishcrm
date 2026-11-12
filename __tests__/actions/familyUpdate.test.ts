@@ -16,6 +16,7 @@ jest.mock("@/lib/prisma", () => ({
 jest.mock("@/lib/email", () => ({ sendFamilyUpdateInviteEmail: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
+  hmacSuburb: jest.fn((v: string) => `shash:${v.trim().toLowerCase()}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   safeDecrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
   hmacEmail: jest.fn((v: string) => `hash:${v.trim().toLowerCase()}`),

@@ -32,5 +32,11 @@ describe("FamilyList empty states", () => {
     render(<FamilyList families={[]} canEdit canImport isFiltered />)
     expect(screen.getByText("No families match your filters")).toBeInTheDocument()
     expect(links()).toEqual(["/families"])
+    expect(screen.queryByText(/full suburb name/)).not.toBeInTheDocument()
+  })
+
+  it("explains the exact-match suburb filter when it finds nothing", () => {
+    render(<FamilyList families={[]} canEdit isFiltered suburbFiltered />)
+    expect(screen.getByText(/matches the full suburb name only/)).toBeInTheDocument()
   })
 })

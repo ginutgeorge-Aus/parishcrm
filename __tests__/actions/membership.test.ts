@@ -23,6 +23,7 @@ jest.mock("@/lib/pdf/MembershipPdf", () => ({ renderMembershipPdf: jest.fn() }))
 jest.mock("@/lib/familyFields", () => ({ encryptFamilyFields: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
+  hmacSuburb: jest.fn((v: string) => `shash:${v.trim().toLowerCase()}`),
   safeDecrypt: jest.fn((v: string) => (v.startsWith("enc:") ? v.slice(4) : v)),
   hmacEmail: jest.fn((v: string) => `hash:${v}`),
   hmacMobile: jest.fn((v: string) => `mhash:${v}`),

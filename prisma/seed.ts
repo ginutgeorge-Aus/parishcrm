@@ -2,7 +2,7 @@ import "dotenv/config"
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { hash } from "bcryptjs"
-import { encrypt } from "../src/lib/cryptoCore"
+import { encrypt, hmacSuburb } from "../src/lib/cryptoCore"
 import { currentSchoolYear } from "../src/lib/sundaySchool"
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
@@ -43,6 +43,7 @@ async function main() {
       name: "Sample",
       address: encrypt("1 Example Street"),
       suburb: encrypt("Sampleton"),
+      suburbHash: hmacSuburb("Sampleton"),
       state: "NSW",
       postcode: "2000",
       status: "ACTIVE",
