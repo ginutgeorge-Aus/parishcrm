@@ -56,6 +56,13 @@ describe("addEntry", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/events")
   })
 
+  it("rejects an entry whose total owed exceeds the cap (form error, no write)", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "500.00", refPrefix: "PK" })
+    expect(await addEntry(3, { familyId: 2, quantity: "2001" })).toEqual({ error: "Total owed is too large (max $999,999.99 per entry)" })
+    expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
+    expect(await addEntry(3, { familyId: 2, quantity: "1999" })).toBeUndefined()
+  })
+
   it("rejects an archived family", async () => {
     prismaMock.family.findUnique.mockResolvedValue({ id: 2, archivedAt: new Date() })
     expect(await addEntry(3, { familyId: 2, quantity: "1" })).toEqual({ error: "Family is archived" })
@@ -175,6 +182,14 @@ describe("updateEntryQuantity", () => {
 
   it("rejects a quantity whose total is below what is already paid", async () => {
     expect(await updateEntryQuantity(11, "2")).toEqual({ error: "Quantity total is below the amount already paid" })
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects a quantity whose total owed exceeds the cap", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue({
+      id: 11, quantity: 4, unitPrice: "500.00", fundraiser: { eventId: 7 }, payments: [],
+    })
+    expect(await updateEntryQuantity(11, "2001")).toEqual({ error: "Total owed is too large (max $999,999.99 per entry)" })
     expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
   })
 

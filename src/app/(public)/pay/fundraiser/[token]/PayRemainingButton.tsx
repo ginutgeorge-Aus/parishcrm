@@ -13,13 +13,18 @@ export function PayRemainingButton({ publicToken, feeLabel }: Readonly<{ publicT
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  /** Start checkout; redirect on success, show the error otherwise. */
+  /** Start checkout; redirect on success, show the error (or a generic one if the call throws) otherwise. */
   function onClick() {
     setError(null)
     startTransition(async () => {
-      const res = await startFundraiserCheckout(publicToken)
-      if (res.ok) navigateTo(res.url)
-      else setError(res.error)
+      try {
+        const res = await startFundraiserCheckout(publicToken)
+        if (res.ok) navigateTo(res.url)
+        else setError(res.error)
+      } catch {
+        // A thrown action (network drop, server 500) must not leave a silent button.
+        setError("Could not start the payment. Please try again.")
+      }
     })
   }
 

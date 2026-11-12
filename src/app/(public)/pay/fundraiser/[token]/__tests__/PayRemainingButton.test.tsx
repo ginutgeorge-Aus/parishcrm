@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { PayRemainingButton } from "../PayRemainingButton"
 import { startFundraiserCheckout } from "@/lib/actions/eventCheckout"
@@ -24,6 +25,14 @@ describe("PayRemainingButton", () => {
     expect(screen.queryByText(/processing fee/)).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Pay remaining by card" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("Nothing owing")
+    expect(navigateTo).not.toHaveBeenCalled()
+  })
+
+  it("shows a generic error when the action throws", async () => {
+    ;(startFundraiserCheckout as jest.Mock).mockRejectedValue(new Error("network"))
+    render(<PayRemainingButton publicToken="tok123" feeLabel={null} />)
+    fireEvent.click(screen.getByRole("button", { name: "Pay remaining by card" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start the payment")
     expect(navigateTo).not.toHaveBeenCalled()
   })
 })

@@ -128,6 +128,31 @@ it("expires the Stripe session if staging fails after it was created", async () 
   expect(sessionsExpire).toHaveBeenCalledWith("cs_new")
 })
 
+it("runs the checkout transaction Serializable", async () => {
+  await createFundraiserCheckoutSession(entry, event, "https://app.test")
+  expect(prisma.$transaction.mock.calls[0][1]).toMatchObject({ isolationLevel: "Serializable" })
+})
+
+it("retries a serialization conflict (P2034), expiring the aborted attempt's session", async () => {
+  prisma.checkoutSession.create.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+  sessionsCreate
+    .mockResolvedValueOnce({ id: "cs_first", url: "https://stripe.test/first" })
+    .mockResolvedValueOnce({ id: "cs_second", url: "https://stripe.test/second" })
+  const res = await createFundraiserCheckoutSession(entry, event, "https://app.test")
+  expect(res).toEqual({ url: "https://stripe.test/second" })
+  expect(sessionsExpire).toHaveBeenCalledWith("cs_first")
+  expect(sessionsExpire).not.toHaveBeenCalledWith("cs_second")
+  expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+})
+
+it("surfaces the conflict after 3 Serializable attempts", async () => {
+  prisma.checkoutSession.create.mockRejectedValue(Object.assign(new Error("conflict"), { code: "P2034" }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toThrow("conflict")
+  expect(prisma.$transaction).toHaveBeenCalledTimes(3)
+  expect(sessionsExpire).toHaveBeenCalledTimes(3)
+  prisma.checkoutSession.create.mockReset()
+})
+
 // startFundraiserCheckout (public server action) guards. Uses the module-level
 // mocks above; the action-only collaborators are mocked here.
 describe("startFundraiserCheckout", () => {

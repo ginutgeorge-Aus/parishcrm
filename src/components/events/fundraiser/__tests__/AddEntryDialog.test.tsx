@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { AddEntryDialog } from "@/components/events/fundraiser/AddEntryDialog"
 import { addEntry } from "@/lib/actions/fundraiser"

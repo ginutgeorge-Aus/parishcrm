@@ -100,7 +100,7 @@ export function canViewFundraiserTotals(role: UserRole | undefined): boolean {
 }
 
 /**
- *  * See the /groups list and group detail pages (read-only for VIEWER). Same set
+ * See the /groups list and group detail pages (read-only for VIEWER). Same set
  * as canViewPeople: a member list is member PII. AUDITOR and EVENT_ORGANISER
  * are excluded (organisers use /my-groups, gated per group).
  * @param role the caller's role

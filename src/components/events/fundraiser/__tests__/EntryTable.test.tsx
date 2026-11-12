@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
@@ -14,7 +15,7 @@ jest.mock("@/lib/actions/fundraiser", () => ({
 const mUpdate = updateEntryQuantity as jest.Mock
 const mDelete = deleteEntry as jest.Mock
 
-const base = { familyId: null, quantity: 2, unitPrice: "10.00", bankRef: "REF1", hasEmail: false }
+const base = { familyId: null, quantity: 2, unitPrice: "10.00", bankRef: "REF1" }
 const rows: FundraiserRow[] = [
   { ...base, id: 1, name: "Anna", owedCents: 2000, paidCents: 0, remainingCents: 2000, status: "UNPAID" },
   { ...base, id: 2, name: "Ben", owedCents: 2000, paidCents: 500, remainingCents: 1500, status: "PART" },

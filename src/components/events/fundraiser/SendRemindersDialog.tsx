@@ -29,7 +29,7 @@ export function SendRemindersDialog({
     start(async () => {
       const res = await sendFundraiserReminders(fundraiserId)
       if ("error" in res) { setError(res.error); return }
-      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}.`)
+      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded in the last 10 minutes)` : ""}.`)
     })
   }
 

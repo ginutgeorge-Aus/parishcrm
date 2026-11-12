@@ -81,7 +81,8 @@ async function claimAndRecord(
   paymentRef: string | null,
 ): Promise<Outcome> {
   return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE`
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     const claim = await tx.checkoutSession.updateMany({
       where: { id: stagingId, status: "OPEN" },
       data: locked.length === 0

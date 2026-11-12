@@ -21,7 +21,7 @@ import { sendFundraiserReminderEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { getCardFeeConfig } from "@/lib/cardFeeSettings"
-import { fundraiserSurchargeCents } from "@/lib/fundraiserCheckout"
+import { surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
 import { loadReminderCandidates } from "@/lib/fundraiserReminders"
@@ -31,6 +31,13 @@ import type { ActionResult } from "./types"
 const MAX_NAME = 120
 const MAX_LABEL = 40
 const MAX_PREFIX = 12
+/**
+ * Ceiling on what one entry may owe (quantity x unit price), in cents: AUD
+ * 999,999.99. Below Stripe's per-charge maximum for AUD and far below the
+ * Decimal(10,2) column limit, so a typo can never 500 on write or on checkout.
+ */
+const MAX_OWED_CENTS = 99_999_999
+const OWED_TOO_LARGE = { error: "Total owed is too large (max $999,999.99 per entry)" }
 
 /**
  * Create or update the fundraiser of one event (one per event). Changing the
@@ -58,7 +65,14 @@ export async function saveFundraiser(
   const unitLabel = input.unitLabel.trim()
   if (!unitLabel || unitLabel.length > MAX_LABEL) return { error: "Unit label is required (max 40 characters)" }
   const unitPrice = input.unitPrice.trim()
-  if (!MONEY_DECIMAL_RE.test(unitPrice) || !(toCents(unitPrice) > 0)) {
+  if (!MONEY_DECIMAL_RE.test(unitPrice)) {
+    return { error: "Unit price must be a positive amount with at most 2 decimals" }
+  }
+  // Length check before toCents: a huge digit string would lose precision there.
+  if (unitPrice.length > 12 || toCents(unitPrice) > MAX_OWED_CENTS) {
+    return { error: "Unit price is too large (max $999,999.99)" }
+  }
+  if (!(toCents(unitPrice) > 0)) {
     return { error: "Unit price must be a positive amount with at most 2 decimals" }
   }
   const refPrefix = (input.refPrefix ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, MAX_PREFIX) || null
@@ -123,7 +137,8 @@ function revalidateFundraiser(eventId: number): void {
  * @returns true when the row exists (and is now locked)
  */
 async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise<boolean> {
-  const rows = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE`
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE` // nosemgrep: crm-no-raw-sql
   return rows.length > 0
 }
 
@@ -170,6 +185,7 @@ export async function addEntry(
     select: { id: true, eventId: true, unitPrice: true, refPrefix: true },
   })
   if (!fundraiser) return { error: "Fundraiser not found" }
+  if (quantity * toCents(fundraiser.unitPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
   const familyId = hasFamily ? (input.familyId as number) : null
   if (familyId !== null) {
     const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
@@ -256,6 +272,7 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
     const { paidCents } = entryTotals(entry, entry.payments)
     const newOwed = entryTotals({ quantity: next, unitPrice: entry.unitPrice }, []).owedCents
     if (!(newOwed >= paidCents)) return { error: "Quantity total is below the amount already paid" }
+    if (newOwed > MAX_OWED_CENTS) return OWED_TOO_LARGE
     await tx.fundraiserEntry.update({ where: { id: entryId }, data: { quantity: next } })
     return { from: entry.quantity, eventId: entry.fundraiser.eventId }
   }, BUSY)
@@ -419,16 +436,53 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
 }
 
 /** Result of a reminder run: counts, or an error. */
-export type SendRemindersResult = { error: string } | { sent: number; failed: number; skippedNoEmail: number }
+export type SendRemindersResult =
+  | { error: string }
+  | { sent: number; failed: number; skippedNoEmail: number; skippedRecent: number }
+
+/**
+ * An entry reminded (or being reminded) within this window is skipped, so a
+ * double-click or two staff sending at once never emails anyone twice.
+ */
+const REMINDER_DEDUPE_MS = 10 * 60 * 1000
+const CLAIM_BUSY = { error: "busy" }
+
+/**
+ * Atomically claim the right to remind one entry. Inside a Serializable
+ * transaction: if a PENDING or SUCCESS send row for the entry exists within
+ * `REMINDER_DEDUPE_MS`, give up; otherwise insert a PENDING row. Two concurrent
+ * claims both read the empty range and both insert into it, so Postgres SSI
+ * aborts one (P2034); `serializableWrite` re-runs it, it now sees the winner's
+ * row and gives up. No unique constraint or schema change needed.
+ * @param entryId - Entry to remind.
+ * @param sentTo - Encrypted recipient email.
+ * @param sentById - Acting user id.
+ * @returns the claimed send row id, or null when recently reminded / contended
+ */
+async function claimReminder(entryId: number, sentTo: string, sentById: number): Promise<number | null> {
+  const since = new Date(Date.now() - REMINDER_DEDUPE_MS)
+  const res = await serializableWrite<{ id: number } | null>(async (tx) => {
+    const recent = await tx.fundraiserReminderSend.count({
+      where: { entryId, sentAt: { gte: since }, status: { in: ["PENDING", "SUCCESS"] } },
+    })
+    if (recent > 0) return null
+    return tx.fundraiserReminderSend.create({
+      data: { entryId, sentTo, sentById, status: "PENDING" },
+      select: { id: true },
+    })
+  }, CLAIM_BUSY)
+  return res && "id" in res ? res.id : null
+}
 
 /**
  * Send a payment reminder to every entry that still owes money and has a
- * reachable, consenting email. Each attempt writes its own FundraiserReminderSend
- * row (encrypted recipient); one failure never aborts the rest. Audited once with
- * counts. Raw mail errors are never logged or stored (they embed the address).
+ * reachable, consenting email. Each attempt first claims a PENDING
+ * FundraiserReminderSend row (encrypted recipient; see `claimReminder`), skipping
+ * entries reminded within `REMINDER_DEDUPE_MS`, then marks it SUCCESS or FAILED.
+ * One failure never aborts the rest. Audited once with counts. Raw mail errors are never logged or stored (they embed the address).
  *
  * @param fundraiserId - Fundraiser id.
- * @returns `{ error }`, or the sent / failed / skippedNoEmail counts.
+ * @returns `{ error }`, or the sent / failed / skippedNoEmail / skippedRecent counts.
  */
 export async function sendFundraiserReminders(fundraiserId: number): Promise<SendRemindersResult> {
   const g = await guardManage()
@@ -455,10 +509,21 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   let sent = 0
   let failed = 0
   let skippedNoEmail = 0
+  let skippedRecent = 0
   for (const c of candidates) {
     if (c.remainingCents === 0) continue
     if (!c.recipient) { skippedNoEmail++; continue }
-    const feeCents = fee ? await fundraiserSurchargeCents(c.remainingCents, true) : 0
+    let claimId: number | null
+    try {
+      claimId = await claimReminder(c.entryId, encrypt(c.recipient), sentById)
+    } catch {
+      // Cannot record the attempt: do not send untracked (it could not be deduped).
+      logger.error("[fundraiser-reminder] failed to claim send", { entryId: c.entryId })
+      failed++
+      continue
+    }
+    if (claimId === null) { skippedRecent++; continue }
+    const feeCents = fee ? surchargeCentsFor(c.remainingCents, fee) : 0
     const money = (cents: number) => fmtAUD(centsToNumber(cents))
     let status: "SUCCESS" | "FAILED" = "SUCCESS"
     let errorMessage: string | undefined
@@ -486,16 +551,15 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
       logger.error("[fundraiser-reminder] send failed", { entryId: c.entryId })
     }
     // A tracking-write failure must not abort the batch or turn a delivered email into a failure.
+    // The row stays PENDING then, which still blocks a resend within the window.
     try {
-      await prisma.fundraiserReminderSend.create({
-        data: { entryId: c.entryId, sentTo: encrypt(c.recipient), sentById, status, errorMessage },
-      })
+      await prisma.fundraiserReminderSend.update({ where: { id: claimId }, data: { status, errorMessage } })
     } catch {
       logger.error("[fundraiser-reminder] failed to persist send row", { entryId: c.entryId })
     }
   }
 
-  await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail })
+  await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail, skippedRecent })
   revalidateFundraiser(fundraiser.eventId)
-  return { sent, failed, skippedNoEmail }
+  return { sent, failed, skippedNoEmail, skippedRecent }
 }

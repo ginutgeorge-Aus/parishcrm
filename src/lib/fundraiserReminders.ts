@@ -12,23 +12,32 @@ export type RecipientEntry = {
 }
 
 /**
- * Pick the email address to remind. Member entries: the first family person with
- * an email and email consent, preferring the family head. Outside entries: the
- * decrypted outside email. Returns null when nothing valid is reachable.
- * @param entry - Entry with its family people (member) or outside email.
+ * Decrypt and validate one stored email.
+ * @param raw - Encrypted (or legacy plaintext) email, or null.
+ * @returns the trimmed address, or null when missing or invalid
  */
-export async function resolveRecipient(entry: RecipientEntry): Promise<string | null> {
-  let raw: string | null = null
-  if (entry.familyId != null) {
-    const people = (entry.family?.people ?? []).filter((p) => p.email != null && p.emailConsent)
-    const head = people.find((p) => p.role === "HEAD") ?? people[0]
-    raw = head?.email ?? null
-  } else {
-    raw = entry.outsideEmail
-  }
+function validEmail(raw: string | null): string | null {
   if (!raw) return null
   const email = safeDecrypt(raw).trim()
   return isValidEmail(email) ? email : null
+}
+
+/**
+ * Pick the email address to remind. Member entries: the first consenting family
+ * person whose email decrypts to a valid address, trying the family head first,
+ * so an invalid head address falls through to a reachable spouse. Outside
+ * entries: the decrypted outside email. Returns null when nothing valid is reachable.
+ * @param entry - Entry with its family people (member) or outside email.
+ */
+export async function resolveRecipient(entry: RecipientEntry): Promise<string | null> {
+  if (entry.familyId == null) return validEmail(entry.outsideEmail)
+  const people = (entry.family?.people ?? []).filter((p) => p.email != null && p.emailConsent)
+  const ordered = [...people.filter((p) => p.role === "HEAD"), ...people.filter((p) => p.role !== "HEAD")]
+  for (const p of ordered) {
+    const email = validEmail(p.email)
+    if (email) return email
+  }
+  return null
 }
 
 /** One entry resolved for sending (outside email already decrypted into `recipient`). */

@@ -25,9 +25,19 @@ import { encrypt } from "@/lib/crypto"
 import { sendFundraiserReminderEmail } from "@/lib/email"
 import { stripeConfigured } from "@/lib/stripe"
 
-const prismaMock = {
+const prismaMock: Record<string, unknown> & {
+  fundraiser: { findUnique: jest.Mock }
+  fundraiserReminderSend: { create: jest.Mock; update: jest.Mock; count: jest.Mock; aggregate: jest.Mock }
+  $transaction: jest.Mock
+} = {
   fundraiser: { findUnique: jest.fn() },
-  fundraiserReminderSend: { create: jest.fn(async () => ({})), aggregate: jest.fn(async () => ({ _max: { sentAt: null } })) },
+  fundraiserReminderSend: {
+    create: jest.fn(async (a: { data: { entryId: number } }) => ({ id: 100 + a.data.entryId })),
+    update: jest.fn(async () => ({})),
+    count: jest.fn(async () => 0),
+    aggregate: jest.fn(async () => ({ _max: { sentAt: null } })),
+  },
+  $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prismaMock)),
 }
 jest.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_t, k) => (prismaMock as Record<string | symbol, unknown>)[k] }),
@@ -73,7 +83,7 @@ test("skips PAID, OVERPAID and 0-owed; sends to UNPAID and PART", async () => {
     entry(5, { payments: [{ amount: "5.00" }] }),
   ])
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 2, failed: 0, skippedNoEmail: 0 })
+  expect(res).toEqual({ sent: 2, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
   expect(mSend).toHaveBeenCalledTimes(2)
   expect(mSend.mock.calls[1][1]).toMatchObject({ paid: "$5.00", remaining: "$15.00" })
 })
@@ -85,15 +95,15 @@ test("outside blank email skipped and counted; member without consent skipped", 
     entry(3),
   ])
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 2 })
+  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 2, skippedRecent: 0 })
 })
 
 test("one send rejection does not abort others; FAILED row logged", async () => {
   setEntries([entry(1), entry(2), entry(3)])
   mSend.mockRejectedValueOnce(new Error("smtp b1@example.org"))
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 2, failed: 1, skippedNoEmail: 0 })
-  const rows = prismaMock.fundraiserReminderSend.create.mock.calls.map((c) => (c as unknown as [{ data: E }])[0].data)
+  expect(res).toEqual({ sent: 2, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  const rows = prismaMock.fundraiserReminderSend.update.mock.calls.map((c) => (c as unknown as [{ data: E }])[0].data)
   expect(rows.map((r) => r.status)).toEqual(["FAILED", "SUCCESS", "SUCCESS"])
   expect(JSON.stringify(rows)).not.toContain("smtp")
 })
@@ -103,10 +113,14 @@ test("sentTo stored via encrypt; audit once with counts", async () => {
   await sendFundraiserReminders(3)
   expect(encrypt).toHaveBeenCalledWith("b1@example.org")
   expect(prismaMock.fundraiserReminderSend.create).toHaveBeenCalledWith({
-    data: { entryId: 1, sentTo: "enc:b1@example.org", sentById: 5, status: "SUCCESS", errorMessage: undefined },
+    data: { entryId: 1, sentTo: "enc:b1@example.org", sentById: 5, status: "PENDING" },
+    select: { id: true },
+  })
+  expect(prismaMock.fundraiserReminderSend.update).toHaveBeenCalledWith({
+    where: { id: 101 }, data: { status: "SUCCESS", errorMessage: undefined },
   })
   expect(logAudit).toHaveBeenCalledTimes(1)
-  expect(logAudit).toHaveBeenCalledWith(expect.anything(), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", 3, { sent: 1, failed: 0, skippedNoEmail: 0 })
+  expect(logAudit).toHaveBeenCalledWith(expect.anything(), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", 3, { sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
 })
 
 test("payUrl and cardFee present when Stripe on, event online and passCardFee", async () => {
@@ -145,6 +159,17 @@ test("resolveRecipient prefers head with consent", async () => {
   expect(await resolveRecipient(e)).toBe("h@example.org")
 })
 
+test("resolveRecipient falls back to a valid spouse when the head address is invalid", async () => {
+  const e = {
+    familyId: 1, outsideEmail: null,
+    family: { people: [
+      { email: "enc:not-an-email", emailConsent: true, role: "HEAD" },
+      { email: "enc:s@example.org", emailConsent: true, role: "SPOUSE" },
+    ] },
+  }
+  expect(await resolveRecipient(e)).toBe("s@example.org")
+})
+
 test("loadReminderCandidates only selects non-archived family people", async () => {
   setEntries([entry(1)])
   await planReminders(3)
@@ -176,4 +201,44 @@ test("planReminders counts and last-sent date", async () => {
   const when = new Date("2026-11-01T00:00:00Z")
   prismaMock.fundraiserReminderSend.aggregate.mockResolvedValueOnce({ _max: { sentAt: when } } as never)
   expect(await planReminders(3)).toEqual({ sendable: 1, skippedPaid: 1, skippedNoEmail: 1, lastSentAt: when })
+})
+
+test("claims each send Serializable; skips entries reminded within 10 minutes", async () => {
+  setEntries([entry(1), entry(2)])
+  prismaMock.fundraiserReminderSend.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+  const before = Date.now()
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+  expect(mSend).toHaveBeenCalledTimes(1)
+  expect(mSend.mock.calls[0][0]).toBe("b2@example.org")
+  expect(prismaMock.$transaction.mock.calls[0][1]).toMatchObject({ isolationLevel: "Serializable" })
+  const where = prismaMock.fundraiserReminderSend.count.mock.calls[0][0].where
+  expect(where).toMatchObject({ entryId: 1, status: { in: ["PENDING", "SUCCESS"] } })
+  expect(before - where.sentAt.gte.getTime()).toBeGreaterThanOrEqual(10 * 60 * 1000 - 50)
+  expect(before - where.sentAt.gte.getTime()).toBeLessThanOrEqual(10 * 60 * 1000 + 50)
+})
+
+test("a claim lost to a concurrent run (P2034, retried) is skipped, not double-sent", async () => {
+  setEntries([entry(1)])
+  // First attempt aborts on the SSI conflict; the retry sees the winner's PENDING row.
+  prismaMock.$transaction.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+  prismaMock.fundraiserReminderSend.count.mockResolvedValueOnce(1)
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+  expect(mSend).not.toHaveBeenCalled()
+})
+
+test("a claim that cannot be written is not sent untracked", async () => {
+  setEntries([entry(1)])
+  prismaMock.$transaction.mockRejectedValueOnce(new Error("db down"))
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(mSend).not.toHaveBeenCalled()
+})
+
+test("card fee config is read once per run, not per entry", async () => {
+  const { getCardFeeConfig } = await import("@/lib/cardFeeSettings")
+  setEntries([entry(1), entry(2), entry(3)])
+  await sendFundraiserReminders(3)
+  expect(getCardFeeConfig).toHaveBeenCalledTimes(1)
 })

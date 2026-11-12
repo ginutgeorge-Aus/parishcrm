@@ -11,6 +11,7 @@ import { AddEntryDialog } from "@/components/events/fundraiser/AddEntryDialog"
 import { FundraiserSettingsForm } from "@/components/events/fundraiser/FundraiserSettingsForm"
 import { SendRemindersDialog } from "@/components/events/fundraiser/SendRemindersDialog"
 import { planReminders } from "@/lib/fundraiserReminders"
+import { sydneyTodayYMD, utcYmd } from "@/lib/dates"
 import type { PaymentItem } from "@/components/events/fundraiser/PaymentsPanel"
 
 type Props = { params: Promise<{ id: string }> }
@@ -50,7 +51,9 @@ export default async function FundraiserPage(props: Readonly<Props>) {
         id: p.id,
         amountCents: toCents(p.amount),
         method: p.method,
-        paidAt: p.paidAt.toISOString().slice(0, 10),
+        // Manual rows store the calendar date at UTC midnight; ONLINE rows are a real
+        // capture instant, so take its Sydney calendar day (UTC would be a day early).
+        paidAt: p.method === "ONLINE" ? sydneyTodayYMD(p.paidAt) : utcYmd(p.paidAt),
         note: p.note,
       })
     }

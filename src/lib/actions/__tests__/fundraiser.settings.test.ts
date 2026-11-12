@@ -47,6 +47,15 @@ describe("saveFundraiser", () => {
     expect(prismaMock.fundraiser.upsert).not.toHaveBeenCalled()
   })
 
+  it.each(["1000000.00", "99999999999999999999.99"])("rejects an oversized unitPrice %p with a form error", async (unitPrice) => {
+    expect(await saveFundraiser(7, { ...input, unitPrice })).toEqual({ error: "Unit price is too large (max $999,999.99)" })
+    expect(prismaMock.fundraiser.upsert).not.toHaveBeenCalled()
+  })
+
+  it("accepts the maximum unitPrice", async () => {
+    expect(await saveFundraiser(7, { ...input, unitPrice: "999999.99" })).toBeUndefined()
+  })
+
   it("rejects blank name", async () => {
     expect((await saveFundraiser(7, { ...input, name: "  " }))?.error).toBeTruthy()
   })
@@ -99,26 +108,13 @@ describe("getFundraiserView", () => {
   it("ADMIN gets rows and totals; no encrypted values leak", async () => {
     const v = await getFundraiserView(7, "ADMIN" as never)
     expect(v!.rows).toHaveLength(2)
-    expect(v!.rows[0]).toMatchObject({ name: "Smith", remainingCents: 1500, status: "PART", hasEmail: true })
-    expect(v!.rows[1]).toMatchObject({ name: "Visitor", hasEmail: true })
+    expect(v!.rows[0]).toMatchObject({ name: "Smith", remainingCents: 1500, status: "PART" })
+    expect(v!.rows[1]).toMatchObject({ name: "Visitor" })
     expect(v!.totals).toEqual({ expectedCents: 3000, collectedCents: 500, outstandingCents: 2500 })
     const s = JSON.stringify(v)
     expect(s).not.toContain("SECRET")
     expect(s).not.toContain("outsideEmail")
     expect(s).not.toContain("outsidePhone")
-  })
-
-  it.each([
-    [[{ email: "enc:x", emailConsent: false }]],
-    [[{ email: null, emailConsent: true }]],
-    [[]],
-  ])("member hasEmail false for %j", async (people) => {
-    prismaMock.fundraiser.findUnique.mockResolvedValue({
-      ...fundraiser,
-      entries: [{ ...fundraiser.entries[0], family: { name: "Smith", people } }],
-    })
-    const v = await getFundraiserView(7, "ADMIN" as never)
-    expect(v!.rows[0].hasEmail).toBe(false)
   })
 
   it("AUDITOR gets totals and empty rows", async () => {
