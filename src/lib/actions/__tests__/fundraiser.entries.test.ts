@@ -22,6 +22,7 @@ const prismaMock = {
   family: { findUnique: jest.fn() },
   fundraiserEntry: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
   fundraiserPayment: { count: jest.fn() },
+  checkoutSession: { count: jest.fn() },
   $queryRaw: jest.fn(),
   $transaction: jest.fn(),
 }
@@ -78,8 +79,15 @@ describe("addEntry", () => {
   it("retries a bankRef collision and gives up after 5 attempts", async () => {
     prismaMock.fundraiserEntry.create.mockRejectedValue(p2002())
     const r = await addEntry(3, { outsideName: "Visitor", quantity: "1" })
-    expect(r?.error).toBeTruthy()
+    expect(r).toEqual({ error: "Busy, please try again" })
     expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(5)
+  })
+
+  it("returns busy (no throw) when no free bank reference is found", async () => {
+    // Every probed ref is taken.
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue({ id: 1 })
+    expect(await addEntry(3, { outsideName: "Visitor", quantity: "1" })).toEqual({ error: "Busy, please try again" })
+    expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
   })
 
   it("outside entry stores encrypted email/phone, never plaintext", async () => {
@@ -186,8 +194,18 @@ describe("deleteEntry", () => {
     expect(prismaMock.fundraiserEntry.delete).not.toHaveBeenCalled()
   })
 
+  it("rejects while an OPEN checkout session exists for the entry", async () => {
+    prismaMock.fundraiserPayment.count.mockResolvedValue(0)
+    prismaMock.checkoutSession.count.mockResolvedValue(1)
+    expect(await deleteEntry(11)).toEqual({ error: "Payment in progress" })
+    expect(prismaMock.checkoutSession.count).toHaveBeenCalledWith({ where: { fundraiserEntryId: 11, status: "OPEN" } })
+    expect(prismaMock.fundraiserEntry.delete).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
   it("deletes and audits when no payments", async () => {
     prismaMock.fundraiserPayment.count.mockResolvedValue(0)
+    prismaMock.checkoutSession.count.mockResolvedValue(0)
     expect(await deleteEntry(11)).toBeUndefined()
     expect(prismaMock.fundraiserEntry.delete).toHaveBeenCalledWith({ where: { id: 11 } })
     expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", 11, expect.any(Object))

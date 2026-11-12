@@ -132,7 +132,9 @@ describe("recordPayment", () => {
 describe("deletePayment", () => {
   beforeEach(() => {
     prismaMock.fundraiserPayment.findUnique.mockResolvedValue({
-      id: 4, entryId: 11, amount: "20.00", method: "BANK", entry: { fundraiser: { eventId: 7 } },
+      // Decimal-like: toString() drops trailing zeros, as Prisma's Decimal does.
+      id: 4, entryId: 11, amount: { toString: () => "20", toFixed: (n: number) => (20).toFixed(n) }, method: "BANK",
+      entry: { fundraiser: { eventId: 7 } },
     })
   })
 
@@ -141,6 +143,17 @@ describe("deletePayment", () => {
     expect(prismaMock.fundraiserPayment.deleteMany).toHaveBeenCalledWith({ where: { id: 4 } })
     expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", 4, expect.objectContaining({ amount: "20.00", method: "BANK", entryId: 11 }))
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+  })
+
+  it("blocks deleting an ONLINE (Stripe) payment, even for OFFICE_ADMIN", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "OFFICE_ADMIN" } })
+    prismaMock.fundraiserPayment.findUnique.mockResolvedValue({
+      id: 4, entryId: 11, amount: { toString: () => "20", toFixed: (n: number) => (20).toFixed(n) }, method: "ONLINE",
+      entry: { fundraiser: { eventId: 7 } },
+    })
+    expect(await deletePayment(4)).toEqual({ error: "Online payments must be refunded in Stripe" })
+    expect(prismaMock.fundraiserPayment.deleteMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
   })
 
   it("not found", async () => {

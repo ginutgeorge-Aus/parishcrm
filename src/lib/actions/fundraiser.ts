@@ -2,6 +2,7 @@
 
 import { auth } from "@/auth"
 import type { Session } from "next-auth"
+import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/enums"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { actorId } from "@/lib/actor"
@@ -13,7 +14,7 @@ import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_R
 import { toCents } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
 import { entryTotals } from "@/lib/fundraiserMath"
-import { generateUniqueBankRef, mintEntryToken } from "@/lib/fundraiserEntry"
+import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ActionResult } from "./types"
@@ -204,6 +205,7 @@ export async function addEntry(
       revalidateFundraiser(fundraiser.eventId)
       return undefined
     } catch (e) {
+      if (e instanceof NoFreeBankRefError) return BUSY
       if (!isP2002(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
       // Otherwise the collision was bankRef/publicToken: retry with fresh values.
@@ -216,7 +218,9 @@ export async function addEntry(
 /**
  * Change an entry's quantity. Rejected when the new total (quantity x the
  * entry's snapshotted unit price) would be below what is already paid. Runs
- * Serializable with the entry row locked, so it cannot race a payment.
+ * Serializable: a concurrent payment on the same entry makes Postgres SSI abort
+ * one side (P2034), which `serializableWrite` retries against committed state.
+ * The FOR UPDATE row lock only reduces those aborts; it is not the guarantee.
  *
  * @param entryId - Entry id.
  * @param quantity - 1-4 digit positive integer string.
@@ -272,6 +276,10 @@ export async function deleteEntry(entryId: number): Promise<ActionResult> {
     if ((await tx.fundraiserPayment.count({ where: { entryId } })) > 0) {
       return { error: "Cannot delete an entry that has payments" }
     }
+    // An open card checkout would land its webhook on a vanished entry.
+    if ((await tx.checkoutSession.count({ where: { fundraiserEntryId: entryId, status: CheckoutStatus.OPEN } })) > 0) {
+      return { error: "Payment in progress" }
+    }
     await tx.fundraiserEntry.delete({ where: { id: entryId } })
     return { entry }
   }, BUSY)
@@ -291,8 +299,9 @@ export async function deleteEntry(entryId: number): Promise<ActionResult> {
  * Idempotent per `submissionKey`: stored as `stripePaymentRef =
  * "manual:<key>"` (unique), and checked BEFORE the remaining-balance check, so
  * a double-click returns success without a second row instead of failing as
- * "Exceeds remaining balance". Runs Serializable with the entry row locked;
- * a concurrent twin that loses on the unique index is also treated as success.
+ * "Exceeds remaining balance". Runs Serializable: correctness against a
+ * concurrent payment/quantity edit comes from SSI aborts (P2034) retried by
+ * `serializableWrite`; the FOR UPDATE row lock only reduces aborts. A concurrent twin that loses on the unique index is also treated as success.
  *
  * @param entryId - Entry id.
  * @param input - `amount` 2-dp decimal string > 0 and <= remaining; `paidAt` YYYY-MM-DD.
@@ -381,12 +390,15 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
     select: { id: true, entryId: true, amount: true, method: true, entry: { select: { fundraiser: { select: { eventId: true } } } } },
   })
   if (!payment) return { error: "Payment not found" }
+  // Stripe-captured money is refunded in Stripe; deleting the row here would
+  // desync the ledger and let a webhook replay re-insert it.
+  if (payment.method === FundraiserPaymentMethod.ONLINE) return { error: "Online payments must be refunded in Stripe" }
   // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
   const { count } = await prisma.fundraiserPayment.deleteMany({ where: { id: paymentId } })
   if (count === 0) return { error: "Payment not found" }
   await logAudit(actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
     entryId: payment.entryId,
-    amount: payment.amount.toString(),
+    amount: payment.amount.toFixed(2),
     method: payment.method,
   })
   revalidateFundraiser(payment.entry.fundraiser.eventId)
