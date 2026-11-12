@@ -83,7 +83,8 @@ export async function POST(req: NextRequest) {
           name: family.name,
           memberNo: family.memberNo,
           address: family.address ? encrypt(family.address) : undefined,
-          suburb: family.suburb ? encrypt(family.suburb) : undefined,
+          // Whitespace-only suburb counts as absent, so value and index agree.
+          suburb: family.suburb?.trim() ? encrypt(family.suburb) : undefined,
           suburbHash: family.suburb?.trim() ? hmacSuburb(family.suburb) : undefined,
           state: family.state ? encrypt(family.state) : undefined,
           postcode: family.postcode ? encrypt(family.postcode) : undefined,

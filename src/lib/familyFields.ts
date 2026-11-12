@@ -23,7 +23,10 @@ export function encryptFamilyFields(data: {
   notes?: string | null
 }) {
   if (data.suburb !== undefined) {
-    data.suburbHash = data.suburb?.trim() ? hmacSuburb(data.suburb) : null
+    // A blank or whitespace-only suburb is stored as null, so the stored value
+    // and its index always agree (never an encrypted " " with a null hash).
+    if (!data.suburb?.trim()) data.suburb = null
+    data.suburbHash = data.suburb ? hmacSuburb(data.suburb) : null
   }
   if (data.address) data.address = encrypt(data.address)
   if (data.suburb) data.suburb = encrypt(data.suburb)

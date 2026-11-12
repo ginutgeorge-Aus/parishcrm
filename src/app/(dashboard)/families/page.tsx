@@ -32,6 +32,13 @@ export default async function FamiliesPage(
     ...(q && { name: { contains: q, mode: "insensitive" } }),
     ...(statusFilter && { status: statusFilter }),
   }
+  /**
+   * Load families for the list, ordered by name.
+   *
+   * @param where - Prisma filter (base filters, plus the suburb hash/legacy clause when searching)
+   * @param take - row cap for this query
+   * @returns families with the list columns; `suburb` is still encrypted
+   */
   const fetchFamilies = (where: Prisma.FamilyWhereInput, take: number) =>
     prisma.family.findMany({
       where,
@@ -131,6 +138,7 @@ export default async function FamiliesPage(
         isFiltered={isFiltered}
         canImport={userIsAdmin}
         scanIncomplete={scanIncomplete}
+        suburbFiltered={Boolean(suburbFilter)}
       />
     </div>
   )

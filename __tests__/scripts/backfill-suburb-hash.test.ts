@@ -22,22 +22,35 @@ afterAll(() => {
   for (const k of ["ENCRYPTION_KEY_V1", "ENCRYPTION_KEY_ID", "DATABASE_URL"]) delete process.env[k]
 })
 
-/** In-memory Family table honouring the backfill's query shape. */
-function fakeDb(initial: Row[]) {
+type Guard = { where: { id: number; suburb: string; suburbHash: null }; data: { suburbHash: string } }
+
+/**
+ * In-memory Family table honouring the backfill's query shape and the guarded
+ * updateMany. `afterRead` runs once after the first page is read, to simulate
+ * a concurrent edit between read and write.
+ */
+function fakeDb(initial: Row[], afterRead?: (rows: Map<number, Row>) => void) {
   const rows = new Map(initial.map((r) => [r.id, { ...r }]))
-  const update = jest.fn(async ({ where, data }: { where: { id: number }; data: { suburbHash: string } }) => {
-    rows.get(where.id)!.suburbHash = data.suburbHash
+  let hook = afterRead
+  const update = jest.fn(async ({ where, data }: Guard) => {
+    const r = rows.get(where.id)
+    if (!r || r.suburb !== where.suburb || r.suburbHash !== null) return { count: 0 }
+    r.suburbHash = data.suburbHash
+    return { count: 1 }
   })
   const db = {
     family: {
-      findMany: jest.fn(async ({ where, take }: { where: { id: { gt: number } }; take: number }) =>
-        [...rows.values()]
+      findMany: jest.fn(async ({ where, take }: { where: { id: { gt: number } }; take: number }) => {
+        const page = [...rows.values()]
           .filter((r) => r.id > where.id.gt && r.suburb !== null && r.suburbHash === null)
           .sort((a, b) => a.id - b.id)
           .slice(0, take)
-          .map((r) => ({ id: r.id, suburb: r.suburb })),
-      ),
-      update,
+          .map((r) => ({ id: r.id, suburb: r.suburb }))
+        hook?.(rows)
+        hook = undefined
+        return page
+      }),
+      updateMany: update,
     },
   }
   return { db, rows, update }
@@ -72,5 +85,21 @@ describe("backfillSuburbHash", () => {
     expect(rows.get(6)!.suburbHash).toBe("already")
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Family #3"))
     expect(await mod.backfillSuburbHash(db as never, true, 2)).toEqual({ changed: 0, scanned: 2 })
+  })
+
+  it("does not overwrite a family edited between read and write", async () => {
+    const edited = core.encrypt("Ryde")
+    const { db, rows } = fakeDb([{ id: 1, suburb: core.encrypt("Parramatta"), suburbHash: null }], (r) => {
+      // Concurrent edit through the app: new suburb with its own hash.
+      r.set(1, { id: 1, suburb: edited, suburbHash: core.hmacSuburb("Ryde") })
+    })
+    expect(await mod.backfillSuburbHash(db as never, true, 10)).toEqual({ changed: 0, scanned: 1 })
+    expect(rows.get(1)).toEqual({ id: 1, suburb: edited, suburbHash: core.hmacSuburb("Ryde") })
+  })
+
+  it("hashes a legacy plaintext suburb (decrypt passes plaintext through) without rewriting it", async () => {
+    const { db, rows } = fakeDb([{ id: 1, suburb: "Blacktown", suburbHash: null }])
+    await mod.backfillSuburbHash(db as never, true, 10)
+    expect(rows.get(1)).toEqual({ id: 1, suburb: "Blacktown", suburbHash: core.hmacSuburb("blacktown") })
   })
 })

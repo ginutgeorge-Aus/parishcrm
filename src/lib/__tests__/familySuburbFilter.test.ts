@@ -93,7 +93,11 @@ describe("encryptFamilyFields suburbHash", () => {
     fields.encryptFamilyFields(cleared)
     expect(cleared.suburbHash).toBeNull()
 
-    const untouched: { address?: string | null; suburbHash?: string | null } = { address: "1 Example St" }
+    const blank: { suburb?: string | null; suburbHash?: string | null } = { suburb: "   " }
+    fields.encryptFamilyFields(blank)
+    expect(blank).toEqual({ suburb: null, suburbHash: null })
+
+    const untouched:{ address?: string | null; suburbHash?: string | null } = { address: "1 Example St" }
     fields.encryptFamilyFields(untouched)
     expect("suburbHash" in untouched).toBe(false)
   })

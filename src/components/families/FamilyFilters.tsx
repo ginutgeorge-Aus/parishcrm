@@ -82,14 +82,20 @@ export function FamilyFilters() {
           ))}
         </SelectContent>
       </Select>
-      <Input
-        type="text"
-        className="max-w-xs"
-        value={suburb}
-        onChange={(e) => setSuburb(e.target.value)}
-        placeholder="Suburb (full name)…"
-        aria-label="Filter families by suburb"
-      />
+      <div className="flex flex-col gap-1">
+        <Input
+          type="text"
+          className="max-w-xs"
+          value={suburb}
+          onChange={(e) => setSuburb(e.target.value)}
+          placeholder="Suburb (full name)…"
+          aria-label="Filter families by suburb"
+          aria-describedby="suburb-filter-hint"
+        />
+        <p id="suburb-filter-hint" className="text-xs text-muted-foreground">
+          Exact suburb name (case and spaces ignored)
+        </p>
+      </div>
       {hasFilters && (
         <Button variant="ghost" size="sm" onClick={clear}>
           Clear

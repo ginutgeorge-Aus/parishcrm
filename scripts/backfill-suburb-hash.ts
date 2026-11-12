@@ -19,7 +19,17 @@ import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpe
 // undecryptable suburb is logged by id and skipped; it can never match a
 // suburb search (as before), and it stays in the page's bounded decrypt fallback.
 
-/** Suburb hash for one stored (encrypted) suburb, or null when it is blank or cannot be decrypted. */
+/**
+ * Suburb hash for one stored suburb, or null when it is blank or cannot be decrypted.
+ * Uses `decrypt` (not `safeDecrypt`): it already returns legacy plaintext values
+ * unchanged, so those get hashed too (encrypting them is
+ * `encrypt-family-location`'s job), while a corrupt value throws and is skipped
+ * instead of hashing the `[decryption error]` placeholder.
+ *
+ * @param id - Family id, for the skip log
+ * @param stored - stored suburb (ciphertext, or legacy plaintext)
+ * @returns hex hash, or null to skip the row
+ */
 export function suburbHashFor(id: number, stored: string): string | null {
   let plain: string
   try {
@@ -40,7 +50,10 @@ export type SuburbBackfillDb = {
       take: number
       select: { id: true; suburb: true }
     }): Promise<{ id: number; suburb: string | null }[]>
-    update(args: { where: { id: number }; data: { suburbHash: string } }): Promise<unknown>
+    updateMany(args: {
+      where: { id: number; suburb: string; suburbHash: null }
+      data: { suburbHash: string }
+    }): Promise<{ count: number }>
   }
 }
 
@@ -57,6 +70,7 @@ export async function backfillSuburbHash(db: SuburbBackfillDb, apply: boolean, b
   let afterId = 0
   let changed = 0
   let scanned = 0
+  let skipped = 0
   while (true) {
     const rows = await db.family.findMany({
       where: { id: { gt: afterId }, suburb: { not: null }, suburbHash: null },
@@ -71,10 +85,22 @@ export async function backfillSuburbHash(db: SuburbBackfillDb, apply: boolean, b
       scanned++
       const hash = suburbHashFor(row.id, row.suburb)
       if (!hash) continue
-      changed++
-      if (apply) await db.family.update({ where: { id: row.id }, data: { suburbHash: hash } })
+      if (!apply) {
+        changed++
+        continue
+      }
+      // Guarded write: only if the suburb we hashed is still the stored one and
+      // no hash was set meanwhile. A concurrent edit (which writes its own hash)
+      // is left alone instead of being overwritten with a stale hash.
+      const { count } = await db.family.updateMany({
+        where: { id: row.id, suburb: row.suburb, suburbHash: null },
+        data: { suburbHash: hash },
+      })
+      if (count === 1) changed++
+      else skipped++
     }
   }
+  if (skipped > 0) console.warn(`  ${skipped} row(s) changed during the backfill — skipped (they carry their own hash)`)
   return { changed, scanned }
 }
 

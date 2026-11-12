@@ -41,6 +41,7 @@ export function FamilyList({
   isFiltered = false,
   canImport = false,
   scanIncomplete = false,
+  suburbFiltered = false,
 }: Readonly<{
   families: Family[]
   canEdit: boolean
@@ -50,6 +51,8 @@ export function FamilyList({
   canImport?: boolean
   /** The suburb scan hit its candidate cap, so an empty result may be incomplete. */
   scanIncomplete?: boolean
+  /** A suburb filter is active; it matches the full suburb name only (OSS-39). */
+  suburbFiltered?: boolean
 }>) {
   if (families.length === 0) {
     if (isFiltered && scanIncomplete) {
@@ -67,7 +70,11 @@ export function FamilyList({
         <EmptyState
           icon={House}
           title="No families match your filters"
-          description="Try a different name, status or suburb, or clear the filters."
+          description={
+            suburbFiltered
+              ? "The suburb filter matches the full suburb name only (for example \"North Sydney\", not \"Sydney\"). Try a different name, status or suburb, or clear the filters."
+              : "Try a different name, status or suburb, or clear the filters."
+          }
           actions={[{ label: "Clear filters", href: "/families", variant: "outline" }]}
         />
       )
