@@ -15,8 +15,8 @@ function attendanceLinks(role: UserRole | undefined): Record<string, string> {
 }
 
 describe("attendance nav entries", () => {
-  it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s sees Attendance (entry)", (role) => {
-    expect(attendanceLinks(role)).toEqual({ "/attendance": "Attendance" })
+  it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s sees Attendance (entry) and trends", (role) => {
+    expect(attendanceLinks(role)).toEqual({ "/attendance": "Attendance", "/attendance/trends": "Attendance trends" })
   })
 
   it("VIEWER sees only the trends link", () => {

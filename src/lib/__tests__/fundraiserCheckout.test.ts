@@ -122,6 +122,54 @@ it("expires an open session staged for a stale amount and creates a fresh one", 
   })
 })
 
+it("retrieves prior sessions before taking the entry lock (no Stripe retrieve while locked)", async () => {
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_old", totalAmount: "30.00", surchargeCents: 0 }])
+  const order: string[] = []
+  sessionsRetrieve.mockImplementation(async () => {
+    order.push("retrieve")
+    return { id: "cs_old", status: "open", url: "https://stripe.test/old", expires_at: future() }
+  })
+  prisma.$queryRaw.mockImplementation(async () => {
+    order.push("lock")
+    return [{ id: 7 }]
+  })
+  expect(await createFundraiserCheckoutSession(entry, event, "https://app.test")).toEqual({ url: "https://stripe.test/old" })
+  expect(order).toEqual(["retrieve", "lock"])
+})
+
+it("a prefetched 'open' session that Stripe refuses to expire is re-checked: already expired = dead, checkout proceeds", async () => {
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_old", totalAmount: "40.00", surchargeCents: 0 }])
+  sessionsRetrieve
+    .mockResolvedValueOnce({ id: "cs_old", status: "open", url: "https://stripe.test/old", expires_at: future() })
+    .mockResolvedValueOnce({ id: "cs_old", status: "expired", url: null, expires_at: future() })
+  sessionsExpire.mockRejectedValueOnce(Object.assign(new Error("not open"), { code: "checkout_session_not_open" }))
+  expect(await createFundraiserCheckoutSession(entry, event, "https://app.test")).toEqual({ url: "https://stripe.test/pay" })
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
+    where: { stripeSessionId: { in: ["cs_old"] }, status: "OPEN" },
+    data: { status: "EXPIRED", payload: "" },
+  })
+})
+
+it("a prefetched 'open' session paid before the lock blocks a new session", async () => {
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_old", totalAmount: "40.00", surchargeCents: 0 }])
+  sessionsRetrieve
+    .mockResolvedValueOnce({ id: "cs_old", status: "open", url: "https://stripe.test/old", expires_at: future() })
+    .mockResolvedValueOnce({ id: "cs_old", status: "complete", url: null, expires_at: future() })
+  sessionsExpire.mockRejectedValueOnce(Object.assign(new Error("not open"), { code: "checkout_session_not_open" }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserNotPayableError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
+it("an expire refusal that cannot be re-checked fails the checkout (never a second payable session)", async () => {
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_old", totalAmount: "40.00", surchargeCents: 0 }])
+  sessionsRetrieve
+    .mockResolvedValueOnce({ id: "cs_old", status: "open", url: "https://stripe.test/old", expires_at: future() })
+    .mockRejectedValueOnce(new Error("stripe down"))
+  sessionsExpire.mockRejectedValueOnce(new Error("stripe down"))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toThrow("stripe down")
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
 it("marks a prior row EXPIRED when Stripe already expired its session", async () => {
   prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_lapsed", totalAmount: "30.00", surchargeCents: 0 }])
   sessionsRetrieve.mockResolvedValue({ id: "cs_lapsed", status: "expired", url: null, expires_at: future() })

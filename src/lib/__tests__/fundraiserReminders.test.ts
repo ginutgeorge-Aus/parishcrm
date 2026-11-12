@@ -252,6 +252,30 @@ test("a claim that cannot be written is not sent untracked", async () => {
   expect(mSend).not.toHaveBeenCalled()
 })
 
+test("sends in bounded parallel chunks (at most 5 in flight) and still sends everyone", async () => {
+  setEntries(Array.from({ length: 12 }, (_, i) => entry(i + 1)))
+  let inFlight = 0
+  let peak = 0
+  mSend.mockImplementation(async () => {
+    inFlight++
+    peak = Math.max(peak, inFlight)
+    await new Promise((r) => setTimeout(r, 1))
+    inFlight--
+  })
+  const res = await sendFundraiserReminders(3)
+  expect(res).toMatchObject({ sent: 12, failed: 0 })
+  expect(peak).toBeGreaterThan(1)
+  expect(peak).toBeLessThanOrEqual(5)
+})
+
+test("getReminderPlan returns counts with a formatted last-sent label; non-managers refused", async () => {
+  const { getReminderPlan } = await import("@/lib/actions/fundraiser")
+  setEntries([entry(1), entry(2, { payments: [{ amount: "20.00" }] })])
+  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, lastSentAt: null })
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "AUDITOR" } })
+  expect(await getReminderPlan(3)).toEqual({ error: "Unauthorized" })
+})
+
 test("card fee config is read once per run, not per entry", async () => {
   const { getCardFeeConfig } = await import("@/lib/cardFeeSettings")
   setEntries([entry(1), entry(2), entry(3)])

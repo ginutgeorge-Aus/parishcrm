@@ -238,19 +238,19 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
   redirect(`/events/${id}/edit?saved=1`)
 }
 
-// Refuse to delete an event that still has active registrations or an
-// in-flight card checkout. CheckoutSession.event is onDelete:Cascade,
-// so deleting an event mid-checkout wipes the staging row — the customer then
-// pays, the webhook finds no staging row, and (pre-fix) silently no-ops:
-// a real charge with zero CRM record. It also destroys paid registration
-// records under the no-refund policy. Mirrors resetEventRegistrations' guard
-//: cancel/refund them individually first. An OPEN CheckoutSession is
-// the live-payment window; non-CANCELLED registrations cover PENDING + PAID.
 /**
  * Throw a guard marker when the event still has data a delete would cascade away:
  * active registrations, an OPEN card checkout, or fundraiser entries (the
  * Fundraiser -> FundraiserEntry -> FundraiserPayment cascade would destroy the
  * fundraiser ledger, including recorded payments).
+ *
+ * Why: CheckoutSession.event is onDelete: Cascade, so deleting an event
+ * mid-checkout wipes the staging row; the customer then pays, the webhook finds
+ * no staging row, and (pre-fix) silently no-ops: a real charge with zero CRM
+ * record. It also destroys paid registration records under the no-refund
+ * policy. Mirrors resetEventRegistrations' guard: cancel/refund them
+ * individually first. An OPEN CheckoutSession is the live-payment window;
+ * non-CANCELLED registrations cover PENDING + PAID.
  * @param tx the deleteEvent transaction client
  * @param id Event.id
  * @throws Error("GUARDED_DELETE_BLOCKED") or Error("FUNDRAISER_DELETE_BLOCKED")

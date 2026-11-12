@@ -344,8 +344,24 @@ describe("deleteFamily", () => {
     ;txCountTx.mockResolvedValue(0)
     ;personCountTx.mockResolvedValue(0)
     familyDeleteTx.mockRejectedValue({ code: "P2003" })
+    // An entry was added after the in-tx count: the post-failure re-check sees it.
+    ;(prisma as unknown as Record<string, unknown>).fundraiserEntry = { count: jest.fn().mockResolvedValue(1) }
     const r = await deleteFamily(3)
     expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
+  })
+
+  it("maps a P2003 from another Restrict FK to a generic linked-records error", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
+      id: 3,
+      archivedAt: new Date("2020-01-01T00:00:00.000Z"),
+    })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValue(0)
+    familyDeleteTx.mockRejectedValue({ code: "P2003" })
+    ;(prisma as unknown as Record<string, unknown>).fundraiserEntry = { count: jest.fn().mockResolvedValue(0) }
+    const r = await deleteFamily(3)
+    expect(r).toEqual({ error: "Cannot delete — other records still reference this family. Archive it instead." })
   })
 
   it("blocks deleting a zero-member family that is not past the retention floor", async () => {

@@ -10,7 +10,7 @@ import { toCents } from "@/lib/formatting"
 import { toStripeAmount } from "@/lib/stripeAmount"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { notifyStripeAlert } from "@/lib/notifications"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { isP2002, isP2034 } from "@/lib/validation"
 // Value import (isolation-level enum), not the @/lib/prisma re-export — see serializableWrite.ts.
 import { Prisma } from "@/lib/generated/prisma/client"
@@ -79,7 +79,11 @@ async function claimUnfulfilled(stagingId: number): Promise<boolean> {
  * @param stagingId CheckoutSession id
  * @param entryId FundraiserEntry id
  * @param amount base amount (charge minus card fee) as staged
+ * The FUNDRAISER_PAYMENT_ONLINE audit row is written in the same transaction,
+ * so a recorded payment never lacks its audit row (a failed audit write rolls
+ * the claim back and Stripe retries).
  * @param paymentRef Stripe PaymentIntent id (unique per payment)
+ * @param surchargeCents card fee charged on top (audit metadata)
  * @returns what happened
  */
 async function claimAndRecord(
@@ -87,6 +91,7 @@ async function claimAndRecord(
   entryId: number,
   amount: FundraiserStaging["totalAmount"],
   paymentRef: string | null,
+  surchargeCents: number,
 ): Promise<Outcome> {
   return prisma.$transaction(async (tx) => {
     // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
@@ -116,7 +121,14 @@ async function claimAndRecord(
       },
       select: { id: true },
     })
-    return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents: Math.max(0, toCents(amount) - remainingCents) }
+    const overpaidCents = Math.max(0, toCents(amount) - remainingCents)
+    await logAuditTx(tx, null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", created.id, {
+      entryId,
+      amountCents: toCents(amount),
+      surchargeCents,
+      overpaidCents,
+    })
+    return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 
@@ -176,7 +188,7 @@ export async function completeFundraiserPayment(
 
   let outcome: Outcome
   try {
-    outcome = await claimAndRecord(staging.id, entryId, staging.totalAmount, pi)
+    outcome = await claimAndRecord(staging.id, entryId, staging.totalAmount, pi, staging.surchargeCents)
   } catch (err) {
     if (isP2002(err)) {
       // This PaymentIntent is already recorded: a benign redelivery. The tx
@@ -213,12 +225,6 @@ export async function completeFundraiserPayment(
       `Session ${session.id}: card payment recorded on fundraiser entry ${outcome.entryId}, which is now overpaid by ${outcome.overpaidCents} cents (another payment cleared it first). Review whether to refund.`,
     )
   }
-  await logAudit(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", outcome.paymentId, {
-    entryId: outcome.entryId,
-    amountCents: toCents(staging.totalAmount),
-    surchargeCents: staging.surchargeCents,
-    overpaidCents: outcome.overpaidCents,
-  })
   return { status: 200 }
 }
 

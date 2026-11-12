@@ -43,8 +43,10 @@ export default async function AttendanceTrendsPage(props: Readonly<Props>) {
     const fromMonth = addMonths(today.slice(0, 7), -(MONTHS - 1))
     points = buildMonthly(await getHeadcountRows(`${fromMonth}-01`, today), fromMonth, today.slice(0, 7), filter)
   } else {
-    // ISO week 1 of last year can start in late December two years back.
-    yoy = buildYearOverYear(await getHeadcountRows(`${year - 2}-12-25`, today), year, granularity, filter)
+    // ISO week 1 of last year can start in late December two years back; month
+    // buckets only need last year from 1 January.
+    const yoyFrom = granularity === "week" ? `${year - 2}-12-25` : `${year - 1}-01-01`
+    yoy = buildYearOverYear(await getHeadcountRows(yoyFrom, today), year, granularity, filter)
   }
 
   return (

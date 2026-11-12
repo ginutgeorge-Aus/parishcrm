@@ -4,24 +4,39 @@ import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { sendFundraiserReminders } from "@/lib/actions/fundraiser"
+import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundraiser"
+
+type Plan = { sendable: number; skippedNoEmail: number; lastSentAt: string | null }
 
 /**
  * Button + plain-language confirm dialog for emailing payment reminders. Counts
- * come from the server (`planReminders`); the send itself is re-validated server-side.
+ * are loaded from the server (`getReminderPlan`) each time the dialog opens, so
+ * the page never decrypts recipient emails just to render; the send itself is
+ * re-validated server-side.
  *
  * @param props.fundraiserId - Fundraiser id.
- * @param props.sendable - People who still owe money and can be emailed.
- * @param props.skippedNoEmail - People who owe money but have no usable email.
- * @param props.lastSentAt - Date label of the last reminder run, or null if never.
  */
-export function SendRemindersDialog({
-  fundraiserId, sendable, skippedNoEmail, lastSentAt,
-}: Readonly<{ fundraiserId: number; sendable: number; skippedNoEmail: number; lastSentAt: string | null }>) {
+export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: number }>) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [plan, setPlan] = useState<Plan | null>(null)
+  const [loading, startLoad] = useTransition()
   const [pending, start] = useTransition()
+
+  /** Load the preview counts shown in the dialog. */
+  function loadPlan() {
+    setPlan(null)
+    startLoad(async () => {
+      try {
+        const res = await getReminderPlan(fundraiserId)
+        if ("error" in res) setError(res.error)
+        else setPlan(res)
+      } catch {
+        setError("Could not load reminder details. Please try again.")
+      }
+    })
+  }
 
   /** Send reminders and show the outcome in the dialog. */
   function send() {
@@ -40,7 +55,7 @@ export function SendRemindersDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { setError(null); setDone(null) } }}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) { setError(null); setDone(null); loadPlan() } }}>
       <DialogTrigger asChild><Button size="sm" variant="outline">Send reminders</Button></DialogTrigger>
       <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader><DialogTitle>Send payment reminders</DialogTitle></DialogHeader>
@@ -51,23 +66,12 @@ export function SendRemindersDialog({
           </>
         ) : (
           <div className="space-y-3 text-sm">
-            <p className="text-foreground">
-              {sendable === 0
-                ? "Nobody can be reminded right now."
-                : `This will email ${sendable} ${sendable === 1 ? "person" : "people"} who still owe money.`}
-            </p>
-            {skippedNoEmail > 0 && (
-              <p className="text-muted-foreground">
-                {skippedNoEmail} {skippedNoEmail === 1 ? "person owes" : "people owe"} money but {skippedNoEmail === 1 ? "has" : "have"} no email we can use, so they will be skipped.
-              </p>
-            )}
-            <p className="text-muted-foreground">
-              {lastSentAt ? `Reminders were last sent on ${lastSentAt}.` : "No reminders have been sent yet."}
-            </p>
+            {plan && <PlanSummary plan={plan} />}
+            {!plan && loading && <p className="text-muted-foreground">Loading…</p>}
             <FormFeedback state={{ error }} />
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={send} disabled={pending || sendable === 0}>
+              <Button onClick={send} disabled={pending || !plan || plan.sendable === 0}>
                 {pending ? "Sending…" : "Send reminders"}
               </Button>
             </div>
@@ -75,5 +79,29 @@ export function SendRemindersDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Plain-language preview of a reminder run.
+ * @param props.plan - Counts and last-sent date label from `getReminderPlan`.
+ */
+function PlanSummary({ plan: { sendable, skippedNoEmail, lastSentAt } }: Readonly<{ plan: Plan }>) {
+  return (
+    <>
+      <p className="text-foreground">
+        {sendable === 0
+          ? "Nobody can be reminded right now."
+          : `This will email ${sendable} ${sendable === 1 ? "person" : "people"} who still owe money.`}
+      </p>
+      {skippedNoEmail > 0 && (
+        <p className="text-muted-foreground">
+          {skippedNoEmail} {skippedNoEmail === 1 ? "person owes" : "people owe"} money but {skippedNoEmail === 1 ? "has" : "have"} no email we can use, so they will be skipped.
+        </p>
+      )}
+      <p className="text-muted-foreground">
+        {lastSentAt ? `Reminders were last sent on ${lastSentAt}.` : "No reminders have been sent yet."}
+      </p>
+    </>
   )
 }

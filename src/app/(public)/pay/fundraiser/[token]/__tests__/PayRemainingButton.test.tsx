@@ -13,7 +13,7 @@ describe("PayRemainingButton", () => {
   it("redirects to checkout on success and shows the fee label", async () => {
     ;(startFundraiserCheckout as jest.Mock).mockResolvedValue({ ok: true, url: "https://checkout.example.com/s" })
     render(<PayRemainingButton publicToken="tok123" feeLabel="$1.20" />)
-    expect(screen.getByText("A card processing fee of $1.20 applies.")).toBeInTheDocument()
+    expect(screen.getByText("A card processing fee of about $1.20 is added at checkout; Stripe shows the exact total before you pay.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Pay remaining by card" }))
     await waitFor(() => expect(navigateTo).toHaveBeenCalledWith("https://checkout.example.com/s"))
     expect(startFundraiserCheckout).toHaveBeenCalledWith("tok123")

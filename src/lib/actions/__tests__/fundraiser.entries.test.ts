@@ -3,7 +3,7 @@ jest.mock("server-only", () => ({}))
 jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}), logAuditTx: jest.fn(async () => {}) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -18,7 +18,7 @@ import { addEntry, updateEntryQuantity, deleteEntry } from "@/lib/actions/fundra
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { encrypt } from "@/lib/crypto"
 import { revalidatePath } from "next/cache"
 
@@ -56,7 +56,7 @@ describe("addEntry", () => {
     const data = prismaMock.fundraiserEntry.create.mock.calls[0][0].data
     expect(data).toMatchObject({ fundraiserId: 3, familyId: 2, quantity: 4, unitPrice: "12.50", bankRef: "PK0001" })
     expect(data.publicToken).toMatch(/^[A-Za-z0-9_-]{20,}$/)
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", 11, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
     expect(revalidatePath).toHaveBeenCalledWith("/events")
   })
@@ -69,7 +69,8 @@ describe("addEntry", () => {
   })
 
   it("rejects an archived family", async () => {
-    prismaMock.family.findUnique.mockResolvedValue({ id: 2, archivedAt: new Date() })
+    // Family row lock (FOR SHARE) inside the create tx sees it archived.
+    prismaMock.$queryRaw.mockResolvedValue([{ archivedAt: new Date() }])
     expect(await addEntry(3, { familyId: 2, quantity: "1" })).toEqual({ error: "Family is archived" })
     expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
   })
@@ -118,7 +119,7 @@ describe("addEntry", () => {
     expect(data).toMatchObject({ outsideName: "Visitor", familyId: null, outsideEmail: "enc:visitor@example.com" })
     const plain = JSON.stringify(prismaMock.fundraiserEntry.create.mock.calls[0][0]).replace(/enc:[^"]*/g, "")
     expect(plain).not.toContain("visitor@example.com")
-    expect(JSON.stringify((logAudit as jest.Mock).mock.calls)).not.toContain("visitor@example.com")
+    expect(JSON.stringify((logAuditTx as jest.Mock).mock.calls)).not.toContain("visitor@example.com")
   })
 
   it("blank outside email accepted (stored null)", async () => {
@@ -208,7 +209,7 @@ describe("updateEntryQuantity", () => {
     expect(await updateEntryQuantity(11, "3")).toBeUndefined()
     expect(prismaMock.$queryRaw).toHaveBeenCalled()
     expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11 }, data: { quantity: 3 } }))
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", 11, { from: 4, to: 3 })
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", 11, { from: 4, to: 3 })
   })
 
   it("expires open card checkouts staged for the old amount when quantity changes", async () => {
@@ -251,7 +252,7 @@ describe("deleteEntry", () => {
     expect(await deleteEntry(11)).toEqual({ error: "Payment in progress" })
     expect(prismaMock.checkoutSession.count).toHaveBeenCalledWith({ where: { fundraiserEntryId: 11, status: "OPEN" } })
     expect(prismaMock.fundraiserEntry.delete).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("deletes and audits when no payments", async () => {
@@ -259,7 +260,7 @@ describe("deleteEntry", () => {
     prismaMock.checkoutSession.count.mockResolvedValue(0)
     expect(await deleteEntry(11)).toBeUndefined()
     expect(prismaMock.fundraiserEntry.delete).toHaveBeenCalledWith({ where: { id: 11 } })
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", 11, expect.any(Object))
   })
 
   it("blocks AUDITOR", async () => {

@@ -63,7 +63,7 @@ describe("recordPayment", () => {
     const data = prismaMock.fundraiserPayment.create.mock.calls[0][0].data
     expect(data).toMatchObject({ entryId: 11, amount: "20.00", method: "CASH", stripePaymentRef: "manual:k-1", recordedById: 5 })
     expect(data.paidAt).toEqual(new Date("2026-11-01T00:00:00.000Z"))
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", 1, expect.objectContaining({ amount: "20.00", method: "CASH" }))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", 1, expect.objectContaining({ amount: "20.00", method: "CASH" }))
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
   })
 
@@ -82,7 +82,7 @@ describe("recordPayment", () => {
     expect(await recordPayment(11, { ...input, amount: "30.00" })).toBeUndefined()
     expect(await recordPayment(11, { ...input, amount: "30.00" })).toBeUndefined()
     expect(rows).toHaveLength(1)
-    expect(logAudit).toHaveBeenCalledTimes(1)
+    expect(logAuditTx).toHaveBeenCalledTimes(1)
   })
 
   it("concurrent repeat losing on the unique constraint (P2002) is idempotent success", async () => {

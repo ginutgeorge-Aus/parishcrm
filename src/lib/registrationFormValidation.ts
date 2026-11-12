@@ -6,6 +6,7 @@
 import { isQuestionApplicable, isAttendeeScoped } from "@/lib/eventQuestions"
 import { computeTieredTotal } from "@/lib/eventTieredPricing"
 import { grossUpTotal } from "@/lib/cardFee"
+import { roundCentsForCurrency } from "@/lib/stripeAmount"
 import type { CustomQuestionType } from "@/lib/eventQuestions"
 
 export type TicketType = { id: number; name: string; price: number; capacity: number | null }
@@ -156,7 +157,7 @@ export function computePricing(input: PricingInput): Pricing {
   // fee is still computed and charged server-side at checkout.
   const showFee = passCardFee && method === "card" && totalAmount > 0 && !familyWaiverEnabled
   const feeCents = showFee
-    ? grossUpTotal(Math.round(totalAmount * 100), cardFeePct, cardFeeFixedCents).feeCents
+    ? roundCentsForCurrency(grossUpTotal(Math.round(totalAmount * 100), cardFeePct, cardFeeFixedCents).feeCents)
     : 0
 
   return { totalAmount, tiered, overMax, showFee, feeCents }

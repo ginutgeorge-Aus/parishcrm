@@ -8,6 +8,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PaymentsPanel, type PaymentItem } from "./PaymentsPanel"
 import type { FundraiserRow } from "@/lib/fundraiserQueries"
 
@@ -53,18 +54,13 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
     if (qty === String(row.quantity)) return
     setError(null)
     start(async () => {
-      const res = await updateEntryQuantity(row.id, qty)
-      if (res?.error) { setError(res.error); setQty(String(row.quantity)) }
-    })
-  }
-
-  /** Delete the entry after confirmation. */
-  function remove() {
-    if (!window.confirm(`Delete ${row.name}'s entry?`)) return
-    setError(null)
-    start(async () => {
-      const res = await deleteEntry(row.id)
-      if (res?.error) setError(res.error)
+      try {
+        const res = await updateEntryQuantity(row.id, qty)
+        if (res?.error) { setError(res.error); setQty(String(row.quantity)) }
+      } catch {
+        setError("Could not save the quantity. Please try again.")
+        setQty(String(row.quantity))
+      }
     })
   }
 
@@ -80,7 +76,14 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
         onBlur={saveQty}
       />
       <PaymentsPanel entryId={row.id} name={row.name} remainingCents={row.remainingCents} payments={payments} />
-      <Button variant="ghost" size="xs" disabled={pending} onClick={remove} aria-label={`Delete ${row.name}`}>Delete</Button>
+      <DeleteConfirmButton
+        onConfirm={() => deleteEntry(row.id)}
+        title="Delete entry?"
+        description={`${row.name}'s entry will be removed from this fundraiser. Entries with payments cannot be deleted.`}
+        triggerLabel={<>Delete<span className="sr-only"> {row.name}</span></>}
+        triggerSize="xs"
+        disabled={pending}
+      />
       <FormFeedback state={{ error }} className="basis-full" />
     </div>
   )

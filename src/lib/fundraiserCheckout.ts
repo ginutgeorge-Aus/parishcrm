@@ -146,6 +146,45 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
 }
 
 /**
+ * Retrieve every OPEN prior session of an entry from Stripe, outside any lock.
+ * @param stripe Stripe client
+ * @param entryId FundraiserEntry id
+ * @returns live state keyed by Checkout Session id
+ */
+async function prefetchPriors(stripe: Stripe, entryId: number): Promise<Map<string, LivePrior>> {
+  const open = await prisma.checkoutSession.findMany({
+    where: { fundraiserEntryId: entryId, status: "OPEN" },
+    select: { stripeSessionId: true },
+  })
+  const pairs = await Promise.all(
+    open.map(async ({ stripeSessionId: id }) => [id, await retrievePrior(stripe, id)] as const),
+  )
+  return new Map(pairs)
+}
+
+/**
+ * Expire a session believed open. If Stripe refuses (the prefetched state was
+ * stale), re-check it live instead of failing the checkout.
+ * @param stripe Stripe client
+ * @param id Checkout Session id
+ * @returns "dead" when it can no longer be paid, "complete" when it was paid
+ * @throws the original expire error when the session may still be payable
+ *   (still open, or the re-check failed): never open a second payable session
+ */
+async function expireOrRecheck(stripe: Stripe, id: string): Promise<"dead" | "complete"> {
+  try {
+    await stripe.checkout.sessions.expire(id)
+    return "dead"
+  } catch (e) {
+    if (isResourceMissing(e)) return "dead"
+    const { session, gone } = await retrievePrior(stripe, id)
+    if (gone || session?.status === "expired") return "dead"
+    if (session?.status === "complete") return "complete"
+    throw e
+  }
+}
+
+/**
  * Open (or reuse) a Stripe Checkout Session paying an entry's remaining balance.
  * Mirrors `createExistingRegistrationCheckoutSession`: the entry row is locked in
  * a transaction so concurrent clicks serialise, a live open session for the same
@@ -161,10 +200,15 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
  * then the whole attempt is retried against committed state, up to
  * `MAX_TX_ATTEMPTS`.
  *
- * Stripe calls stay inside the transaction on purpose: the entry lock must span
- * the retrieve → expire → create decision, or two clicks could each open a
- * payable session. A prior session that cannot be retrieved is treated as dead
- * (not reused, not blocking). Prior rows whose session is dead (expired here,
+ * Prior sessions are retrieved from Stripe BEFORE the lock (`prefetchPriors`,
+ * once per attempt), so the lock is not held across N retrieve round-trips. The
+ * expire → create decision stays inside the lock, or two clicks could each open
+ * a payable session. A stale prefetch is safe: every state it can go stale
+ * towards is terminal (complete / expired), an "open" prior is only ever reused
+ * (harmless if it was paid meanwhile) or expired (and an expire that Stripe
+ * refuses is re-checked live: dead → marked EXPIRED, paid → not payable), and
+ * a prior staged after the prefetch is retrieved inside the lock. A prior
+ * session that cannot be retrieved is treated as dead (not reused, not blocking). Prior rows whose session is dead (expired here,
  * already expired, or missing in Stripe) are marked EXPIRED in the same
  * transaction, so `deleteEntry` is not blocked by them until the sweep.
  * @param entry entry id, public token and the caller's remaining (cents)
@@ -189,6 +233,8 @@ export async function createFundraiserCheckoutSession(
   let createdSessionId: string | null = null
   for (let attempt = 1; ; attempt++) {
     createdSessionId = null
+    // Per attempt: an aborted attempt may have expired sessions in Stripe.
+    const prefetched = await prefetchPriors(stripe, entry.id)
     try {
       return await prisma.$transaction(async (tx) => {
         // Same FOR UPDATE lock the staff payment/delete actions take, so this
@@ -214,7 +260,9 @@ export async function createFundraiserCheckoutSession(
           orderBy: { createdAt: "desc" },
           select: { stripeSessionId: true, totalAmount: true, surchargeCents: true },
         })
-        const live = await Promise.all(priors.map((p) => retrievePrior(stripe, p.stripeSessionId)))
+        const live = await Promise.all(
+          priors.map((p) => prefetched.get(p.stripeSessionId) ?? retrievePrior(stripe, p.stripeSessionId)),
+        )
         // Paid, webhook not processed yet: the balance is about to drop. A new
         // session now could charge the same balance twice.
         const paid = live.some((l) => l.session?.status === "complete")
@@ -228,15 +276,17 @@ export async function createFundraiserCheckoutSession(
             })?.session
         // Near expiry, stale amount, or a duplicate: expire so it can't also be paid.
         const dead: string[] = []
+        let paidSince = false
         for (const [i, { session: s, gone }] of live.entries()) {
           if (s?.status === "open" && s !== reuse) {
-            await stripe.checkout.sessions.expire(s.id)
-            dead.push(s.id)
+            const now = await expireOrRecheck(stripe, s.id)
+            if (now === "complete") paidSince = true
+            else dead.push(s.id)
           } else if (gone || s?.status === "expired") {
             dead.push(priors[i].stripeSessionId)
           }
         }
-        if (paid) throw new FundraiserNotPayableError()
+        if (paid || paidSince) throw new FundraiserNotPayableError()
         if (dead.length > 0) {
           await tx.checkoutSession.updateMany({
             where: { stripeSessionId: { in: dead }, status: "OPEN" },

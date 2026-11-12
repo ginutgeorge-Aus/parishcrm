@@ -5,9 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useId } from "react"
-
-/** Largest count the server accepts (see saveHeadcount). */
-const MAX_COUNT = 100000
+import { MAX_COUNT } from "@/lib/attendance"
 
 /**
  * A whole-number counter: − / + buttons (44px tap targets) around a numeric
