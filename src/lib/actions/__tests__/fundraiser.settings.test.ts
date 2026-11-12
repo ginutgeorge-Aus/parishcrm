@@ -4,7 +4,7 @@ jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}) }))
-jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
 import { saveFundraiser } from "@/lib/actions/fundraiser"
 import { getFundraiserView } from "@/lib/fundraiserQueries"

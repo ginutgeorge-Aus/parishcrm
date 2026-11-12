@@ -9,6 +9,8 @@ import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import { AddEntryDialog } from "@/components/events/fundraiser/AddEntryDialog"
 import { FundraiserSettingsForm } from "@/components/events/fundraiser/FundraiserSettingsForm"
+import { SendRemindersDialog } from "@/components/events/fundraiser/SendRemindersDialog"
+import { planReminders } from "@/lib/fundraiserReminders"
 import type { PaymentItem } from "@/components/events/fundraiser/PaymentsPanel"
 
 type Props = { params: Promise<{ id: string }> }
@@ -55,6 +57,11 @@ export default async function FundraiserPage(props: Readonly<Props>) {
     families = fams
   }
 
+  const plan = view && canManage ? await planReminders(view.fundraiser.id) : null
+  const lastSent = plan?.lastSentAt
+    ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" }).format(plan.lastSentAt)
+    : null
+
   const money = (c: number) => fmtAUD(centsToNumber(c))
 
   return (
@@ -95,7 +102,17 @@ export default async function FundraiserPage(props: Readonly<Props>) {
               <section className="mt-6">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-foreground">Entries</h2>
-                  <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
+                  <div className="flex gap-2">
+                    {plan && (
+                      <SendRemindersDialog
+                        fundraiserId={view.fundraiser.id}
+                        sendable={plan.sendable}
+                        skippedNoEmail={plan.skippedNoEmail}
+                        lastSentAt={lastSent}
+                      />
+                    )}
+                    <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
+                  </div>
                 </div>
                 <EntryTable rows={view.rows} canManage payments={payments} />
               </section>

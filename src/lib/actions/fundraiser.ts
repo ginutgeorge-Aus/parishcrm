@@ -11,12 +11,20 @@ import { canManageFundraiser } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { assertNotDemo } from "@/lib/demoMode"
 import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
-import { toCents } from "@/lib/formatting"
+import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
+import { sendFundraiserReminderEmail } from "@/lib/email"
+import { getChurchName } from "@/lib/emailTemplateStore"
+import { getInvoiceSettings } from "@/lib/invoiceSettings"
+import { getCardFeeConfig } from "@/lib/cardFeeSettings"
+import { grossUpTotal } from "@/lib/cardFee"
+import { stripeConfigured } from "@/lib/stripe"
+import { loadReminderCandidates } from "@/lib/fundraiserReminders"
+import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
 
 const MAX_NAME = 120
@@ -403,4 +411,86 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
   })
   revalidateFundraiser(payment.entry.fundraiser.eventId)
   return undefined
+}
+
+/** Result of a reminder run: counts, or an error. */
+export type SendRemindersResult = { error: string } | { sent: number; failed: number; skippedNoEmail: number }
+
+/**
+ * Send a payment reminder to every entry that still owes money and has a
+ * reachable, consenting email. Each attempt writes its own FundraiserReminderSend
+ * row (encrypted recipient); one failure never aborts the rest. Audited once with
+ * counts. Raw mail errors are never logged or stored (they embed the address).
+ *
+ * @param fundraiserId - Fundraiser id.
+ * @returns `{ error }`, or the sent / failed / skippedNoEmail counts.
+ */
+export async function sendFundraiserReminders(fundraiserId: number): Promise<SendRemindersResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
+  const sentById = Number.parseInt(g.session.user.id ?? "", 10)
+  if (Number.isNaN(sentById)) return { error: "Unauthorized" }
+
+  const loaded = await loadReminderCandidates(fundraiserId)
+  if (!loaded) return { error: "Fundraiser not found" }
+  const { fundraiser, candidates } = loaded
+
+  // The pay link is only offered when Stripe is configured and the event takes online payments.
+  const base = process.env.AUTH_URL || process.env.NEXTAUTH_URL || ""
+  let origin: string | null = null
+  try { origin = new URL(base).origin } catch { origin = null }
+  const online = stripeConfigured() && fundraiser.event.onlinePaymentEnabled && origin !== null
+  const [churchName, invoice, fee] = await Promise.all([
+    getChurchName(),
+    getInvoiceSettings(),
+    fundraiser.event.passCardFee && online ? getCardFeeConfig() : Promise.resolve(null),
+  ])
+
+  let sent = 0
+  let failed = 0
+  let skippedNoEmail = 0
+  for (const c of candidates) {
+    if (c.remainingCents === 0) continue
+    if (!c.recipient) { skippedNoEmail++; continue }
+    const feeCents = fee ? grossUpTotal(c.remainingCents, fee.pct, fee.fixedCents).feeCents : 0
+    const money = (cents: number) => fmtAUD(centsToNumber(cents))
+    let status: "SUCCESS" | "FAILED" = "SUCCESS"
+    let errorMessage: string | undefined
+    try {
+      await sendFundraiserReminderEmail(c.recipient, {
+        churchName,
+        eventTitle: fundraiser.event.title,
+        name: c.name,
+        quantity: c.quantity,
+        unitLabel: fundraiser.unitLabel,
+        unitPrice: money(toCents(c.unitPrice)),
+        owed: money(c.owedCents),
+        paid: money(c.paidCents),
+        remaining: money(c.remainingCents),
+        payUrl: online ? `${origin}/pay/fundraiser/${c.publicToken}` : null,
+        cardFee: fee ? money(feeCents) : null,
+        bankDetails: invoice.paymentDetails,
+        bankRef: c.bankRef,
+      })
+      sent++
+    } catch {
+      status = "FAILED"
+      errorMessage = "Email delivery failed"
+      failed++
+      logger.error("[fundraiser-reminder] send failed", { entryId: c.entryId })
+    }
+    // A tracking-write failure must not abort the batch or turn a delivered email into a failure.
+    try {
+      await prisma.fundraiserReminderSend.create({
+        data: { entryId: c.entryId, sentTo: encrypt(c.recipient), sentById, status, errorMessage },
+      })
+    } catch {
+      logger.error("[fundraiser-reminder] failed to persist send row", { entryId: c.entryId })
+    }
+  }
+
+  await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail })
+  revalidateFundraiser(fundraiser.eventId)
+  return { sent, failed, skippedNoEmail }
 }
