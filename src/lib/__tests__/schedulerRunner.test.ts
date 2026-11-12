@@ -12,6 +12,7 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
     errorDigest: jest.fn(async () => ({})),
     clearanceDigest: jest.fn(async () => ({})),
     venueInvoice: jest.fn(async () => ({})),
+    groupMessages: jest.fn(async () => ({})),
     ...overrides,
   }
 }

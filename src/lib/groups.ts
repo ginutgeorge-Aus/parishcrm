@@ -72,7 +72,19 @@ export type GroupMemberExportRow = {
   mobile: string
 }
 
-export const GROUP_CSV_HEADERS = ["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]
+export const MAX_MESSAGE_SUBJECT = 150
+export const MAX_MESSAGE_BODY = 10000
+/** One group email per group per this many ms (dbRateLimit window). */
+export const GROUP_MESSAGE_WINDOW_MS = 5 * 60 * 1000
+
+/** Group email compose form: plain-text subject (single line) and body, length-bounded. */
+export const GroupMessageSchema = z.object({
+  subject: z.string().trim().min(1, "Subject is required").max(MAX_MESSAGE_SUBJECT, `Subject must be ${MAX_MESSAGE_SUBJECT} characters or fewer`)
+    .refine((v) => !/[\r\n]/.test(v), "Subject must be a single line"),
+  body: z.string().trim().min(1, "Message is required").max(MAX_MESSAGE_BODY, `Message must be ${MAX_MESSAGE_BODY} characters or fewer`),
+})
+
+export const GROUP_CSV_HEADERS =["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]
 
 /** "2026-11-11" for the joined date: the Sydney calendar day of the stored instant. */
 function ymd(d: Date): string {

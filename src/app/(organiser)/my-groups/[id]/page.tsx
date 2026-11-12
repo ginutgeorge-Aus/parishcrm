@@ -7,6 +7,7 @@ import { parseRouteId } from "@/lib/validation"
 import { canManageGroupMembers } from "@/lib/groupAccess"
 import { GROUP_CATEGORY_LABELS } from "@/lib/groups"
 import { loadMemberRows } from "@/lib/groupMembers"
+import { Button } from "@/components/ui/button"
 import { MembersPanel } from "@/components/groups/MembersPanel"
 
 /**
@@ -37,6 +38,10 @@ export default async function MyGroupPage(props: Readonly<{ params: Promise<{ id
         </p>
         <h1 className="text-2xl font-bold text-foreground">{group.name}</h1>
         <p className="text-sm text-muted-foreground">{GROUP_CATEGORY_LABELS[group.category]} · {members.length} {members.length === 1 ? "member" : "members"}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button variant="outline" asChild><Link href={`/my-groups/${group.id}/message`}>Email group</Link></Button>
+          <Button variant="outline" asChild><Link href={`/my-groups/${group.id}/messages`}>Sent messages</Link></Button>
+        </div>
       </div>
       <div className="rounded-lg border bg-card p-4">
         <MembersPanel groupId={group.id} members={members} />
