@@ -95,7 +95,7 @@ async function retrievePrior(stripe: Stripe, id: string): Promise<LivePrior> {
   try {
     return { session: await stripe.checkout.sessions.retrieve(id), gone: false }
   } catch (e) {
-    console.warn(`Fundraiser checkout: could not retrieve prior session ${id}; treating it as dead`, e instanceof Error ? e.message : e)
+    console.warn("Fundraiser checkout: could not retrieve prior session %s; treating it as dead: %s", String(id), e instanceof Error ? e.message : String(e))
     return { session: null, gone: isResourceMissing(e) }
   }
 }
@@ -140,7 +140,7 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
     })
     return r.count
   } catch (e) {
-    console.warn(`Fundraiser checkout: expiring open sessions for entry ${entryId} failed`, e instanceof Error ? e.message : e)
+    console.warn("Fundraiser checkout: expiring open sessions for entry %s failed: %s", String(entryId), e instanceof Error ? e.message : String(e))
     return 0
   }
 }
