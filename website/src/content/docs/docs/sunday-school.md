@@ -53,7 +53,7 @@ to the total marks. A child with no score is simply "not marked". There is no pa
 ranking. Scores stay with the class and year the exam belongs to, so moving a child later does not
 change past results. Exams in a locked year are read-only, and every change is in the audit log.
 
-### Who sees what {#who-sees-what}
+### Who sees what
 
 | Role | Sunday School access |
 |---|---|
