@@ -689,6 +689,13 @@ describe("deleteTransaction", () => {
     }
   })
 
+  it("rethrows an unrelated failure from the delete transaction", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, bankRef: null, type: "EXPENSE", amount: 5, accountId: 1, account: { code: "5001" } })
+    mockDelete.mockRejectedValueOnce(new Error("db down"))
+    await expect(deleteTransaction(1)).rejects.toThrow("db down")
+  })
+
   it("returns AUDIT_FAILED_ERROR and does not report success when the audit write throws", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1, bankRef: null, type: "EXPENSE", amount: 5, accountId: 1, account: { code: "5001" } })
@@ -869,6 +876,13 @@ describe("toggleReconciled", () => {
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
+  it("rethrows an unrelated failure from the toggle transaction", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
+    mockUpdate.mockRejectedValueOnce(new Error("db down"))
+    await expect(toggleReconciled(1, 1)).rejects.toThrow("db down")
+  })
+
   it("returns a retry error (not a 500) on a P2034 conflict in the audit write", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
@@ -981,6 +995,15 @@ describe("reconcileMany", () => {
     spy.mockRestore()
     expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("returns a retry error on a P2034 conflict and rethrows an unrelated failure", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([{ id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false }])
+    mockUpdateMany.mockRejectedValueOnce({ code: "P2034" })
+    expect(await reconcileMany([1], 1)).toEqual({ error: expect.stringMatching(/try again/i) })
+    mockUpdateMany.mockRejectedValueOnce(new Error("db down"))
+    await expect(reconcileMany([1], 1)).rejects.toThrow("db down")
   })
 
   it("writes the audit row on the transaction client", async () => {

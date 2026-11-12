@@ -20,4 +20,9 @@ describe("auditWriteFailedResult", () => {
     auditWriteFailedResult(new AuditWriteError("boom"), "x")
     expect(logger.error).toHaveBeenCalledWith("x audit write failed", { name: "string", code: undefined })
   })
+
+  it("tolerates an undefined cause", () => {
+    auditWriteFailedResult(new AuditWriteError(undefined), "y")
+    expect(logger.error).toHaveBeenCalledWith("y audit write failed", { name: "undefined", code: undefined })
+  })
 })

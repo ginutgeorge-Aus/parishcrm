@@ -6,7 +6,7 @@ import { assertNotDemo, isDemoMode, DEMO_IMPORT_MAX_BYTES } from "@/lib/demoMode
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/roleGuard"
-import { isValidPgId } from "@/lib/validation"
+import { isP2034, isValidPgId } from "@/lib/validation"
 import {
   parseRows,
   resolveRows,
@@ -21,7 +21,7 @@ import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber } from "@/lib/formatting"
 import { revalidatePath } from "next/cache"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { featureGuard } from "@/lib/featureFlags"
 
 export interface ImportPreview {
@@ -407,10 +407,9 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
     // anything else (DB/constraint/audit failure) is logged and answered generically so
     // raw driver text never reaches the client.
     if (e instanceof SessionClosedError) return { error: e.message }
-    if (e instanceof AuditWriteError) {
-      console.error("commitImport audit write failed", e.cause)
-      return { error: AUDIT_FAILED_ERROR }
-    }
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "commitImport")
+    // The import runs in a plain (non-retrying) tx: a conflict passed through by logAuditGuardedTx is a "try again".
+    if (isP2034(e)) return { error: "Import conflicted with another change — please try again." }
     // Log the error code/name only: Prisma invocation errors embed query arguments (donor/payee names).
     console.error("commitImport failed", { name: e instanceof Error ? e.name : typeof e, code: (e as { code?: unknown } | null)?.code })
     return { error: "Import failed" }

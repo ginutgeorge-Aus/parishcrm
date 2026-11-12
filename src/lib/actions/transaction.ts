@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAuditTx } from "@/lib/audit"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
@@ -425,10 +425,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
     }, DELETE_BUSY, DELETE_REFERENCED)
   } catch (e) {
     // Audit insert failed (delete rolled back): report it, don't let it read as DELETE_REFERENCED.
-    if (e instanceof AuditWriteError) {
-      console.error("deleteTransaction audit write failed", e.cause)
-      return { error: AUDIT_FAILED_ERROR }
-    }
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteTransaction")
     throw e
   }
   if ("error" in result) return result

@@ -328,6 +328,17 @@ describe("deleteSession", () => {
     expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
   })
 
+  it("maps an audit-write failure to AUDIT_FAILED_ERROR and rethrows an unrelated failure", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindSession.mockResolvedValue(emptySession)
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await deleteSession(1)).toEqual({ error: AUDIT_FAILED_ERROR })
+    mockDeleteSession.mockRejectedValueOnce(new Error("db down"))
+    await expect(deleteSession(1)).rejects.toThrow("db down")
+    spy.mockRestore()
+  })
+
   it("audit-logs PETTY_CASH_SESSION_DELETED", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindSession.mockResolvedValue(emptySession)

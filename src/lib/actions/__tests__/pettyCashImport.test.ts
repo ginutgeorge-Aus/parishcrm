@@ -133,6 +133,23 @@ test("commitImport reports AUDIT_FAILED_ERROR (not a raw failure) when the audit
   expect(res).toEqual({ error: AUDIT_FAILED_ERROR })
 })
 
+test("commitImport maps a P2034 conflict (passed through by the guarded audit write) to the retry message", async () => {
+  arrangeSuccessfulInsert()
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
+})
+
+test("commitImport returns no success when a later batch write (ledger mirror insert) rejects", async () => {
+  arrangeSuccessfulInsert()
+  mockTxCreateMany.mockRejectedValueOnce(new Error("mirror insert down"))
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  spy.mockRestore()
+  expect(res).toEqual({ error: "Import failed" })
+  expect(logAuditTx).not.toHaveBeenCalled()
+})
+
 test("commitImport re-checks the session's lock status right before the batched insert — a concurrent close after the initial read is still caught", async () => {
   // The initial read sees the session OPEN...
   mockSessionFindMany.mockResolvedValue([{ id: 5, title: "01-JUL-2026", status: "OPEN" }])
