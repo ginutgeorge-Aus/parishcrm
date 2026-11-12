@@ -51,6 +51,9 @@ export const FIELDS: Record<string, string[]> = {
   transaction: ["description", "notes"],
   receiptSend: ["sentTo"],
   paymentReminderSend: ["sentTo"],
+  // Fundraiser: outside-buyer contact and reminder recipient email, both encrypt()ed in actions/fundraiser.ts.
+  fundraiserEntry: ["outsideEmail", "outsidePhone"],
+  fundraiserReminderSend: ["sentTo"],
   // customAnswers is encrypt(JSON.stringify(...)) written in
   // eventRegistration.ts's persistRegistration — was omitted here,
   // leaving it on the old key id forever once that key is retired.

@@ -147,7 +147,7 @@ docs/                   topic docs + specs/plans
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
 - **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins.
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails, invoices (optional GST tax invoices, PDF + email, payment matching, void, GST collected).
-- **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
+- **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, a per-event fundraiser (unit sales with part payments and reminders), check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
 - **Venue bookings** — for churches that hire a hall: dated bookings (requested / confirmed / cancelled), booking-request and cancellation emails, a monthly invoice request (manual, or sent automatically from the 1st once an admin approves), and a secret no-login committee calendar.
 - **Membership** — public application form, approval workflow, letters/receipts.

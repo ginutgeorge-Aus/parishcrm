@@ -9,7 +9,8 @@ attendance with waitlists, take card payments via Stripe, and delegate day-of ru
 event to a non-admin volunteer. This page covers creating and configuring an event; see
 [Public Event Registration](/parishcrm/docs/public-event-registration/) for what a registrant sees, [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/) for the
 payment flow, [Registrations Management](/parishcrm/docs/registrations-management/) for the admin registrations list, and
-[Event Organisers](/parishcrm/docs/event-organisers/) / [Volunteer Crew Page](/parishcrm/docs/volunteer-crew-page/) for delegated access.
+[Event Organisers](/parishcrm/docs/event-organisers/) / [Volunteer Crew Page](/parishcrm/docs/volunteer-crew-page/) for delegated access, and
+[Event Fundraiser](/parishcrm/docs/event-fundraiser/) for tracking a per-event sale of units (such as food packets) with part payments and reminders.
 
 ## Using it
 

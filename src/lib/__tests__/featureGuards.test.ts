@@ -54,6 +54,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/eventCheckout.ts": "events",
   "src/lib/actions/eventAccess.ts": "events",
   "src/lib/actions/eventManaged.ts": "events",
+  "src/lib/actions/fundraiser.ts": "events",
   "src/lib/actions/membership.ts": "memberships",
   "src/lib/actions/sundaySchool.ts": "sundaySchool",
   "src/lib/actions/sundaySchoolAttendance.ts": "sundaySchool",
@@ -260,6 +261,7 @@ const GUARD_HELPERS: Record<string, string[]> = {
   "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
   "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
   "src/lib/actions/invoiceSend.ts": ["sendInvoiceGuarded"],
+  "src/lib/actions/fundraiser.ts": ["guardManage"],
 }
 
 it.each(Object.entries(GUARD_HELPERS).flatMap(([file, fns]) => fns.map((fn) => [file, fn])))(
