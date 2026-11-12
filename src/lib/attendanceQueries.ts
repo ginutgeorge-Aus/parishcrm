@@ -80,6 +80,37 @@ export async function getRecentHeadcounts(limit: number): Promise<RecentHeadcoun
   }))
 }
 
+/**
+ * The recorded headcount for one service date + service type, or null if none.
+ * Lets the entry form pre-fill any pair, not only those in the recent list.
+ * @param dateYMD service date, YYYY-MM-DD
+ * @param serviceTypeId service type id
+ */
+export async function getHeadcountByKey(dateYMD: string, serviceTypeId: number): Promise<RecentHeadcount | null> {
+  const r = await prisma.serviceHeadcount.findUnique({
+    where: { serviceDate_serviceTypeId: { serviceDate: ymdToUtcDate(dateYMD), serviceTypeId } },
+    select: {
+      id: true,
+      serviceDate: true,
+      serviceTypeId: true,
+      adults: true,
+      children: true,
+      notes: true,
+      serviceType: { select: { name: true } },
+    },
+  })
+  if (!r) return null
+  return {
+    id: r.id,
+    date: utcDateToYmd(r.serviceDate),
+    serviceTypeId: r.serviceTypeId,
+    serviceTypeName: r.serviceType.name,
+    adults: r.adults,
+    children: r.children,
+    notes: r.notes,
+  }
+}
+
 /** Active service types (entry form options), sorted by name. */
 export async function getActiveServiceTypes(): Promise<{ id: number; name: string }[]> {
   return prisma.serviceType.findMany({

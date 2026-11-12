@@ -14,16 +14,19 @@ import { sydneyTodayYMD } from "@/lib/dates"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import { canEditAttendance } from "@/lib/roleGuard"
+import { getHeadcountByKey, type RecentHeadcount } from "@/lib/attendanceQueries"
 import { isP2002, isValidPgId } from "@/lib/validation"
 import { isValidYMD, utcDateToYmd, ymdToUtcDate } from "@/lib/venueUsage"
 import type { ActionResult } from "./types"
 
 const UNAUTHORIZED = "Unauthorized"
 const MAX_COUNT = 100000
+/** Earliest accepted service date; guards against typo years like 0026. */
+const MIN_DATE = "2000-01-01"
 
 const count = z.number().int().min(0).max(MAX_COUNT)
 
-/** Input shape for {@link saveHeadcount}. Validated server-side; the date may not be in the future. */
+/** Input shape for {@link saveHeadcount}. Validated server-side; the date must be within 2000-01-01..today. */
 const SaveSchema = z.object({
   date: z.string().refine(isValidYMD, "Enter a valid date"),
   serviceTypeId: z.number().int().positive(),
@@ -33,8 +36,32 @@ const SaveSchema = z.object({
 })
 
 /**
+ * True for Prisma's "record to update/delete not found" error.
+ * @param e the caught error
+ */
+function isP2025(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2025"
+}
+
+/**
+ * Look up the recorded headcount for a service date + type (entry-form pre-fill).
+ * Attendance editors only. Returns `{ row: null }` when none is recorded.
+ * @param date service date, YYYY-MM-DD
+ * @param serviceTypeId service type id
+ */
+export async function getHeadcount(
+  date: string,
+  serviceTypeId: number,
+): Promise<{ row: RecentHeadcount | null } | { error: string }> {
+  const session = await auth()
+  if (!canEditAttendance(session?.user?.role)) return { error: UNAUTHORIZED }
+  if (!isValidYMD(date) || !isValidPgId(serviceTypeId)) return { row: null }
+  return { row: await getHeadcountByKey(date, serviceTypeId) }
+}
+
+/**
  * Record (or edit) the headcount for a service date + service type. Allowed for
- * attendance editors; blocked in demo mode. Rejects future dates (Sydney today),
+ * attendance editors; blocked in demo mode. Rejects future dates (Sydney today), dates before 2000,
  * unknown/inactive service types and non-integer or out-of-range counts.
  * @param input date (YYYY-MM-DD), service type id, adults, children, optional notes
  */
@@ -54,6 +81,7 @@ export async function saveHeadcount(input: {
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const { date, serviceTypeId, adults, children } = parsed.data
   const notes = parsed.data.notes || null
+  if (date < MIN_DATE) return { error: "Date cannot be before 2000" }
   if (date > sydneyTodayYMD()) return { error: "Date cannot be in the future" }
 
   const type = await prisma.serviceType.findUnique({ where: { id: serviceTypeId } })
@@ -63,6 +91,8 @@ export async function saveHeadcount(input: {
   const userId = actorId(session)
   const serviceDate = ymdToUtcDate(date)
   const key = { serviceDate_serviceTypeId: { serviceDate, serviceTypeId } }
+  // Notes are free text (may hold personal details) and the audit log is append-only,
+  // so only log THAT notes changed, never their content.
   const meta = { date, serviceTypeId, adults, children }
   const fields = { adults, children, notes }
 
@@ -82,7 +112,20 @@ export async function saveHeadcount(input: {
               select: { id: true },
             })
           : await tx.serviceHeadcount.update({ where: key, data: fields, select: { id: true } })
-      await logAuditTx(tx, userId, "ATTENDANCE_SAVED", "ServiceHeadcount", row.id, prior ? { ...meta, before: prior } : meta)
+      await logAuditTx(
+        tx,
+        userId,
+        "ATTENDANCE_SAVED",
+        "ServiceHeadcount",
+        row.id,
+        prior
+          ? {
+              ...meta,
+              before: { adults: prior.adults, children: prior.children },
+              notesChanged: (prior.notes ?? null) !== notes,
+            }
+          : { ...meta, notesChanged: notes !== null },
+      )
     })
 
   try {
@@ -91,7 +134,13 @@ export async function saveHeadcount(input: {
     // A concurrent create of the same date + type lost the race: the row now
     // exists, so apply this save as an edit instead of surfacing the violation.
     if (!isP2002(e)) throw e
-    await write("update")
+    try {
+      await write("update")
+    } catch (e2) {
+      // The row was deleted between the failed create and this edit: ask for a re-save.
+      if (isP2025(e2)) return { error: "That headcount was deleted while saving. Please save again." }
+      throw e2
+    }
   }
   revalidatePath("/attendance")
   revalidatePath("/")
@@ -121,7 +170,7 @@ export async function deleteHeadcount(id: number): Promise<ActionResult> {
       })
     })
   } catch (e) {
-    if (typeof e === "object" && e !== null && (e as { code?: string }).code === "P2025") {
+    if (isP2025(e)) {
       return { error: "Headcount not found" }
     }
     throw e

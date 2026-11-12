@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { deleteHeadcount, saveHeadcount } from "@/lib/actions/attendance"
+import { deleteHeadcount, getHeadcount, saveHeadcount } from "@/lib/actions/attendance"
 import type { RecentHeadcount } from "@/lib/attendanceQueries"
 import { Counter } from "./Counter"
 import { RecentHeadcounts } from "./RecentHeadcounts"
@@ -16,8 +16,8 @@ type Message = { kind: "ok" | "error"; text: string }
 /**
  * Headcount entry form (mobile-first, single column below md) plus the recent
  * list. Choosing a date + service that already has a recorded row loads its
- * counts (edit mode); saving the same pair edits it. `rows` is the recent list,
- * so a pair older than that window is still safely upserted but not pre-filled.
+ * counts (edit mode, looked up server-side so any date works); saving the same
+ * pair edits it. `rows` is only the recent list shown below the form.
  */
 export function HeadcountForm({
   serviceTypes,
@@ -37,9 +37,12 @@ export function HeadcountForm({
   const [adults, setAdults] = useState(start?.adults ?? 0)
   const [children, setChildren] = useState(start?.children ?? 0)
   const [notes, setNotes] = useState(start?.notes ?? "")
+  const [editing, setEditing] = useState(start !== undefined)
+  const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
   const [isPending, startTransition] = useTransition()
   const formRef = useRef<HTMLFormElement>(null)
+  const chooseSeq = useRef(0)
 
   if (serviceTypes.length === 0) {
     return (
@@ -53,18 +56,46 @@ export function HeadcountForm({
     )
   }
 
-  /** Switch the form to a date + service, loading its recorded counts or resetting to 0. */
-  const choose = (d: string, t: number) => {
-    const row = find(d, t)
-    setDate(d)
-    setTypeId(t)
+  /** Fill the form from a recorded row, or reset it to an empty entry. */
+  const fill = (row: RecentHeadcount | null | undefined) => {
     setAdults(row?.adults ?? 0)
     setChildren(row?.children ?? 0)
     setNotes(row?.notes ?? "")
-    setMessage(null)
+    setEditing(row != null)
   }
 
-  const existing = find(date, typeId)
+  /**
+   * Switch the form to a date + service. A row the caller already holds (the
+   * recent list) fills it at once; otherwise the pair is looked up server-side
+   * so rows older than the recent list still load. Saving is blocked meanwhile.
+   */
+  const choose = (d: string, t: number, known?: RecentHeadcount) => {
+    const seq = ++chooseSeq.current
+    setDate(d)
+    setTypeId(t)
+    setMessage(null)
+    if (known) {
+      fill(known)
+      setLoading(false)
+      return
+    }
+    fill(null)
+    setLoading(true)
+    getHeadcount(d, t)
+      .then((res) => {
+        if (seq !== chooseSeq.current) return
+        if ("error" in res) setMessage({ kind: "error", text: res.error })
+        else fill(res.row)
+      })
+      .catch(() => {
+        if (seq === chooseSeq.current) setMessage({ kind: "error", text: "Could not load the existing headcount" })
+      })
+      .finally(() => {
+        if (seq === chooseSeq.current) setLoading(false)
+      })
+  }
+
+  const existing = editing
 
   /** Save (upsert) the entered headcount and report the outcome. */
   const submit = (e: React.FormEvent) => {
@@ -73,7 +104,10 @@ export function HeadcountForm({
     startTransition(async () => {
       const result = await saveHeadcount({ date, serviceTypeId: typeId, adults, children, notes })
       if (result?.error) setMessage({ kind: "error", text: result.error })
-      else setMessage({ kind: "ok", text: existing ? "Saved (updated existing headcount)" : "Saved" })
+      else {
+        setMessage({ kind: "ok", text: existing ? "Saved (updated existing headcount)" : "Saved" })
+        setEditing(true)
+      }
     })
   }
 
@@ -84,7 +118,11 @@ export function HeadcountForm({
     startTransition(async () => {
       const result = await deleteHeadcount(row.id)
       if (result?.error) setMessage({ kind: "error", text: result.error })
-      else setMessage({ kind: "ok", text: "Deleted" })
+      else {
+        // Deleting the row loaded in the form: reset it so the next Save is a fresh entry, not a silent re-create.
+        if (row.date === date && row.serviceTypeId === typeId) choose(date, typeId)
+        setMessage({ kind: "ok", text: "Deleted" })
+      }
     })
   }
 
@@ -137,6 +175,7 @@ export function HeadcountForm({
         <div className="space-y-1">
           <Label htmlFor="headcount-notes">Notes</Label>
           <Textarea id="headcount-notes" value={notes} maxLength={500} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          <p className="text-xs text-muted-foreground">Notes are not confidential. Do not enter personal details.</p>
         </div>
 
         {message && (
@@ -149,7 +188,7 @@ export function HeadcountForm({
         )}
 
         <div className="sticky bottom-0 -mx-4 border-t bg-background p-3 md:static md:mx-0 md:border-0 md:p-0">
-          <Button type="submit" disabled={isPending} className="h-11 w-full md:w-auto">
+          <Button type="submit" disabled={isPending || loading} className="h-11 w-full md:w-auto">
             {isPending ? "Saving…" : "Save headcount"}
           </Button>
         </div>
@@ -162,7 +201,7 @@ export function HeadcountForm({
           busy={isPending}
           editableTypeIds={new Set(serviceTypes.map((t) => t.id))}
           onEdit={(r) => {
-            choose(r.date, r.serviceTypeId)
+            choose(r.date, r.serviceTypeId, r)
             formRef.current?.scrollIntoView?.({ behavior: "smooth" })
           }}
           onDelete={remove}

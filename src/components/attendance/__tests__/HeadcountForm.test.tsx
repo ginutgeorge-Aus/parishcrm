@@ -5,12 +5,14 @@ import { HeadcountForm } from "../HeadcountForm"
 jest.mock("@/lib/actions/attendance", () => ({
   saveHeadcount: jest.fn(),
   deleteHeadcount: jest.fn(),
+  getHeadcount: jest.fn(),
 }))
 
-import { deleteHeadcount, saveHeadcount } from "@/lib/actions/attendance"
+import { deleteHeadcount, getHeadcount, saveHeadcount } from "@/lib/actions/attendance"
 
 const save = saveHeadcount as jest.Mock
 const del = deleteHeadcount as jest.Mock
+const get = getHeadcount as jest.Mock
 
 const types = [
   { id: 1, name: "Sunday Service" },
@@ -25,6 +27,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   save.mockResolvedValue(undefined)
   del.mockResolvedValue(undefined)
+  get.mockResolvedValue({ row: null })
 })
 
 describe("HeadcountForm", () => {
@@ -71,9 +74,39 @@ describe("HeadcountForm", () => {
     expect(screen.getByLabelText("Adults")).toHaveValue("80")
     expect(screen.getByLabelText("Children")).toHaveValue("20")
     expect(screen.getByText(/editing an existing headcount/i)).toBeInTheDocument()
+    get.mockResolvedValue({ row: rows[0] })
     await userEvent.selectOptions(screen.getByLabelText("Service"), "2")
-    expect(screen.getByLabelText("Adults")).toHaveValue("30")
+    await waitFor(() => expect(screen.getByLabelText("Adults")).toHaveValue("30"))
+    expect(get).toHaveBeenCalledWith("2026-11-08", 2)
     expect(screen.getByLabelText("Notes")).toHaveValue("wet day")
+  })
+
+  it("loads a row older than the recent list via the server lookup and shows the banner", async () => {
+    const old = { id: 3, date: "2025-01-05", serviceTypeId: 1, serviceTypeName: "Sunday Service", adults: 55, children: 9, notes: null }
+    get.mockResolvedValue({ row: old })
+    render(<HeadcountForm serviceTypes={types} rows={[]} today="2026-11-12" />)
+    const date = screen.getByLabelText("Service date")
+    await userEvent.clear(date)
+    await userEvent.type(date, "2025-01-05")
+    await waitFor(() => expect(screen.getByLabelText("Adults")).toHaveValue("55"))
+    expect(get).toHaveBeenLastCalledWith("2025-01-05", 1)
+    expect(screen.getByText(/editing an existing headcount/i)).toBeInTheDocument()
+  })
+
+  it("resets the form and drops the banner after deleting the loaded row", async () => {
+    const confirm = jest.spyOn(window, "confirm").mockReturnValue(true)
+    render(<HeadcountForm serviceTypes={types} rows={rows} today="2026-11-08" />)
+    expect(screen.getByLabelText("Adults")).toHaveValue("80")
+    await userEvent.click(screen.getAllByRole("button", { name: /^Delete Sunday Service/ })[0])
+    await waitFor(() => expect(del).toHaveBeenCalledWith(6))
+    await waitFor(() => expect(screen.getByLabelText("Adults")).toHaveValue("0"))
+    expect(screen.queryByText(/editing an existing headcount/i)).not.toBeInTheDocument()
+    confirm.mockRestore()
+  })
+
+  it("shows a notes confidentiality hint", () => {
+    render(<HeadcountForm serviceTypes={types} rows={[]} today="2026-11-12" />)
+    expect(screen.getByText(/notes are not confidential/i)).toBeInTheDocument()
   })
 
   it("resets counts to 0 when switching to a pair with no row", async () => {

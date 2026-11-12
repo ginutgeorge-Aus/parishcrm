@@ -14,12 +14,14 @@ jest.mock("@/lib/prisma", () => {
 jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("@/lib/attendanceQueries", () => ({ getHeadcountByKey: jest.fn() }))
 jest.mock("@/lib/dates", () => ({ sydneyTodayYMD: jest.fn(() => "2026-11-12") }))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
-import { deleteHeadcount, saveHeadcount } from "@/lib/actions/attendance"
+import { getHeadcountByKey } from "@/lib/attendanceQueries"
+import { deleteHeadcount, getHeadcount, saveHeadcount } from "@/lib/actions/attendance"
 
 const as = (role: UserRole | undefined) =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "9", role } } : null)
@@ -101,8 +103,36 @@ describe("saveHeadcount", () => {
     expect(await saveHeadcount(valid)).toBeUndefined()
     expect(audit).toHaveBeenCalledWith(
       prisma, 9, "ATTENDANCE_SAVED", "ServiceHeadcount", 11,
-      expect.objectContaining({ before: { adults: 80, children: 20, notes: "old" } }),
+      expect.objectContaining({ before: { adults: 80, children: 20 }, notesChanged: true }),
     )
+  })
+
+  it("never writes note text to the audit metadata", async () => {
+    p.serviceHeadcount.findUnique.mockResolvedValue({ adults: 80, children: 20, notes: "old secret" })
+    await saveHeadcount({ ...valid, notes: "new secret" })
+    const json = JSON.stringify(audit.mock.calls[0][5])
+    expect(json).not.toContain("secret")
+  })
+
+  it("reports notesChanged false when notes are unchanged", async () => {
+    p.serviceHeadcount.findUnique.mockResolvedValue({ adults: 1, children: 1, notes: "hi" })
+    await saveHeadcount(valid)
+    expect(audit.mock.calls[0][5].notesChanged).toBe(false)
+  })
+
+  it("rejects a date before 2000", async () => {
+    for (const date of ["0126-11-08", "1999-12-31"]) {
+      expect((await saveHeadcount({ ...valid, date }))?.error).toBe("Date cannot be before 2000")
+    }
+    expect(p.serviceHeadcount.upsert).not.toHaveBeenCalled()
+    expect((await saveHeadcount({ ...valid, date: "2000-01-01" }))).toBeUndefined()
+  })
+
+  it("returns a friendly error when the row is deleted between the P2002 and the retry", async () => {
+    p.serviceHeadcount.upsert.mockRejectedValueOnce({ code: "P2002" })
+    p.serviceHeadcount.update.mockRejectedValueOnce({ code: "P2025" })
+    const r = await saveHeadcount(valid)
+    expect(r?.error).toMatch(/deleted while saving/i)
   })
 
   it("audits a first save without a before value", async () => {
@@ -165,5 +195,29 @@ describe("deleteHeadcount", () => {
   it("maps a missing row (P2025) to a friendly error", async () => {
     p.serviceHeadcount.delete.mockRejectedValueOnce({ code: "P2025" })
     expect(await deleteHeadcount(11)).toEqual({ error: "Headcount not found" })
+  })
+})
+
+describe("getHeadcount", () => {
+  it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER, undefined])(
+    "rejects role %s",
+    async (role) => {
+      as(role)
+      expect(await getHeadcount("2026-11-08", 3)).toEqual({ error: "Unauthorized" })
+      expect(getHeadcountByKey).not.toHaveBeenCalled()
+    },
+  )
+
+  it("returns the row for an editor, however old the date", async () => {
+    const row = { id: 1, date: "2005-03-06", serviceTypeId: 3 }
+    ;(getHeadcountByKey as jest.Mock).mockResolvedValue(row)
+    expect(await getHeadcount("2005-03-06", 3)).toEqual({ row })
+    expect(getHeadcountByKey).toHaveBeenCalledWith("2005-03-06", 3)
+  })
+
+  it("returns null row for invalid input without querying", async () => {
+    expect(await getHeadcount("nope", 3)).toEqual({ row: null })
+    expect(await getHeadcount("2026-11-08", 0)).toEqual({ row: null })
+    expect(getHeadcountByKey).not.toHaveBeenCalled()
   })
 })
