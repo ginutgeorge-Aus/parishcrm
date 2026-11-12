@@ -20,7 +20,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashAudit"
+import { replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashWriteErrors"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -165,8 +165,11 @@ export async function createExpense(
     payee: parsed.data.payee, description: parsed.data.description,
     receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
   }
-  /** Lands on the session page — the replayed expense (and its audit row) already committed. */
-  const replayDone = () => finishReplay(sessionId)
+  /** Lands on the session page — the replayed entry (and its audit row) already committed. */
+  const replayDone = async (): Promise<never> => {
+    revalidatePettyCashPaths(sessionId)
+    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+  }
   /** Returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects. */
   const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
   // Replay check runs first — before the session-closed / period-lock guards and
@@ -260,7 +263,7 @@ export async function createExpense(
     if ("replay" in result) return replayDone()
     if ("error" in result) return result
   } catch (e) {
-    return resolveCreateWriteError(e, "createExpense", token, () => expenseTokenState(prisma, token!, sub), sessionId)
+    return resolveCreateWriteError(e, "createExpense", token, () => expenseTokenState(prisma, token!, sub), replayDone)
   }
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)

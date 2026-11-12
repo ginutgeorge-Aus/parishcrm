@@ -1,9 +1,8 @@
 // Plain module (no "use server"): kept apart from pettyCashEntry.ts so that file
 // stays free of DB/prisma imports for its pure-builder tests.
-import { redirect } from "next/navigation"
 import { AUDIT_FAILED_ERROR, AuditWriteError } from "@/lib/auditGuard"
 import { isP2002 } from "@/lib/validation"
-import { revalidatePettyCashPaths, SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
 
 /** Shown when a create's in-transaction audit write fails; the entry was rolled back. */
 export const PETTY_CASH_AUDIT_FAILED_ERROR = AUDIT_FAILED_ERROR
@@ -18,20 +17,6 @@ export { AuditWriteError }
 export function auditFailed(e: AuditWriteError): { error: string } {
   console.error("petty-cash audit write failed", e.cause)
   return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
-}
-
-/**
- * Lands a replayed create on the session page: the entry already committed, so
- * revalidate and redirect. Shared by receipt and expense creates.
- * Writes no audit row: the original create audits inside its own write
- * transaction (`logAuditTx`), so a committed entry always carries its "created"
- * row, attributed to the original actor and time. Re-logging on a replay would
- * fabricate a second event under the replayer's name and a fresh time (#563).
- * @param sessionId petty-cash session the replayed entry belongs to
- */
-export async function finishReplay(sessionId: number): Promise<never> {
-  revalidatePettyCashPaths(sessionId)
-  return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
 
 /**
@@ -74,16 +59,15 @@ export async function replayOrError<E>(
  * @param label action name for the server log
  * @param token submission token, if the form sent one
  * @param lookup token-state lookup on the base client (`receiptTokenState` / `expenseTokenState`)
- * @param sessionId petty-cash session the entry belongs to
+ * @param replayDone lands on the session page (revalidate + redirect); the entry already committed with its own audit row
  */
 export async function resolveCreateWriteError(
   e: unknown,
   label: string,
   token: string | undefined,
   lookup: () => Promise<SubmissionTokenLookup>,
-  sessionId: number,
+  replayDone: () => Promise<never>,
 ): Promise<{ error: string }> {
-  const replayDone = () => finishReplay(sessionId)
   const reused = { error: SUBMISSION_TOKEN_REUSED_ERROR }
   if (e instanceof SessionClosedError) return replayOrError(token, lookup, replayDone, { error: e.message }, reused)
   if (e instanceof AuditWriteError) {

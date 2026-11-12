@@ -4,6 +4,14 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 type EntryKind = "Receipt" | "Expense"
 
 /**
+ * Builds the `{ amount, accountId, sessionId }` audit payload shared by the
+ * create/update/delete rows of a petty cash receipt or expense.
+ */
+export function entryAuditMeta(amount: string | number, accountId: number, sessionId: number) {
+  return { amount, accountId, sessionId }
+}
+
+/**
  * Writes the create/update audit row for a petty cash receipt or expense inside
  * the caller's transaction, so the audit commits or rolls back with the mutation.
  * A failed audit write throws `AuditWriteError` (see `logAuditGuardedTx`) so the
@@ -18,11 +26,7 @@ export async function logPettyCashEntryAuditTx(
   data: { amount: string; accountId: number },
   sessionId: number
 ): Promise<void> {
-  await logAuditGuardedTx(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_${verb}`, `PettyCash${kind}`, id, {
-    amount: data.amount,
-    accountId: data.accountId,
-    sessionId,
-  })
+  await logAuditGuardedTx(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_${verb}`, `PettyCash${kind}`, id, entryAuditMeta(data.amount, data.accountId, sessionId))
 }
 
 /**
@@ -37,11 +41,7 @@ export async function logPettyCashEntryDeletedAuditTx(
   id: number,
   entry: { amount: unknown; accountId: number; sessionId: number; transaction: { id: number } | null }
 ): Promise<void> {
-  await logAuditGuardedTx(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_DELETED`, `PettyCash${kind}`, id, {
-    amount: Number(entry.amount),
-    accountId: entry.accountId,
-    sessionId: entry.sessionId,
-  })
+  await logAuditGuardedTx(tx, userId, `PETTY_CASH_${kind.toUpperCase()}_DELETED`, `PettyCash${kind}`, id, entryAuditMeta(Number(entry.amount), entry.accountId, entry.sessionId))
   if (entry.transaction)
     await logAuditGuardedTx(tx, userId, "TRANSACTION_DELETED", "Transaction", entry.transaction.id, {
       source: "petty-cash",
