@@ -2,6 +2,7 @@ import {
   buildMonthly,
   buildWeekly,
   buildYearOverYear,
+  formatYMD,
   latestWithDelta,
   weekStartYMD,
   type HeadcountRow,
@@ -13,6 +14,13 @@ const row = (
   adults: number,
   children: number,
 ): HeadcountRow => ({ date, serviceTypeId, adults, children })
+
+describe("formatYMD", () => {
+  it("formats a calendar date with weekday, no timezone shift", () => {
+    expect(formatYMD("2026-11-08")).toBe("Sun 8 Nov 2026")
+    expect(formatYMD("2027-01-01")).toBe("Fri 1 Jan 2027")
+  })
+})
 
 describe("weekStartYMD", () => {
   it("returns the Monday of the ISO week", () => {

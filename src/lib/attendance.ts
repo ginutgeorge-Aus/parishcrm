@@ -50,6 +50,18 @@ function addDays(ymd: string, days: number): string {
   return fmtYMD(d)
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+/**
+ * Display a calendar date as "Sun 8 Nov 2026". Done on the UTC fields so the
+ * viewer's timezone never shifts the day.
+ * @param ymd calendar date string
+ */
+export function formatYMD(ymd: string): string {
+  const d = parseYMD(ymd)
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
 /**
  * The Monday (`YYYY-MM-DD`) of the ISO week containing a calendar date.
  * @param ymd calendar date string
