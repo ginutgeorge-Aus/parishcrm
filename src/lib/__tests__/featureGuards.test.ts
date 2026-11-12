@@ -58,6 +58,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/membership.ts": "memberships",
   "src/lib/actions/sundaySchool.ts": "sundaySchool",
   "src/lib/actions/sundaySchoolAttendance.ts": "sundaySchool",
+  "src/lib/actions/sundaySchoolExam.ts": "sundaySchool",
   "src/lib/actions/clearance.ts": "clearances",
   "src/lib/actions/familyUpdate.ts": "familyUpdates",
   "src/lib/actions/birthday.ts": "celebrations",
@@ -261,6 +262,7 @@ it.each(Object.entries(GUARDED_LAYOUTS))("%s calls requireFeature(%s)", (file, k
 const GUARD_HELPERS: Record<string, string[]> = {
   "src/lib/actions/sundaySchool.ts": ["editor", "editableClass"],
   "src/lib/actions/sundaySchoolAttendance.ts": ["rollGuard", "markerGuard"],
+  "src/lib/actions/sundaySchoolExam.ts": ["examPreamble", "examClassGuard", "examGuard"],
   "src/lib/actions/invoiceSend.ts": ["sendInvoiceGuarded"],
   "src/lib/actions/fundraiser.ts": ["guardManage"],
 }

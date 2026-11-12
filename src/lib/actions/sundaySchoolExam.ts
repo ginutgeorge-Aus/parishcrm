@@ -6,6 +6,7 @@
 // the live-class lock, so a rolled-over (locked) year refuses changes.
 
 import { revalidatePath } from "next/cache"
+import type { Session } from "next-auth"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
@@ -34,22 +35,33 @@ type ExamGuard = { error: string } | { actor: number; classId: number; year: num
  * assignment is checked by canMarkExam.
  * @param role the caller's role
  */
-function mayMarkSomeExam(role: UserRole | undefined): boolean {
+function canMarkSomeExam(role: UserRole | undefined): boolean {
   return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
 }
 
+type Preamble = { error: string } | { session: Session & { user: NonNullable<Session["user"]> } }
+
 /**
- * Shared guard: demo block, signed in, role, feature check, valid class id,
- * canMarkExam for that class, live class. Returns the actor and class year.
+ * Demo block, signed in, coarse role, feature check: runs before any DB read.
  * Module-private ("use server" exports must be async actions).
  */
-async function examClassGuard(classId: number): Promise<ExamGuard> {
+async function examPreamble(): Promise<Preamble> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!session?.user || !mayMarkSomeExam(session.user.role)) return { error: "Unauthorized" }
+  if (!session?.user || !canMarkSomeExam(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
+  return { session: { ...session, user: session.user } }
+}
+
+/**
+ * Per-class checks once the preamble passed: valid class id, canMarkExam for
+ * that class, live class. Returns the actor and class year.
+ * @param session the authenticated session
+ * @param classId the class to act on
+ */
+async function classChecks(session: Session & { user: NonNullable<Session["user"]> }, classId: number): Promise<ExamGuard> {
   if (!isValidPgId(classId)) return { error: "Invalid class" }
   const actor = actorId(session)
   if (!(await canMarkExam(actor, classId, session.user.role))) return { error: "Unauthorized" }
@@ -59,17 +71,31 @@ async function examClassGuard(classId: number): Promise<ExamGuard> {
 }
 
 /**
- * Resolve a live exam by id and run the class guard on its class.
- * Unknown/archived exams and bad ids give the same "Exam not found".
+ * Shared guard: preamble (demo, auth, role, feature), then the class checks.
+ * @param classId the class to act on
+ */
+async function examClassGuard(classId: number): Promise<ExamGuard> {
+  const pre = await examPreamble()
+  if ("error" in pre) return pre
+  return classChecks(pre.session, classId)
+}
+
+/**
+ * Resolve a live exam by id and run the class checks on its class. The
+ * preamble runs first so no exam lookup happens before authz or the feature
+ * check. Unknown/archived exams give "Exam not found".
+ * @param examId the exam to act on
  */
 async function examGuard(examId: number): Promise<(ExamGuard & { totalMarks?: string }) | { error: string }> {
+  const pre = await examPreamble()
+  if ("error" in pre) return pre
   if (!isValidPgId(examId)) return { error: "Invalid exam" }
   const exam = await prisma.sundaySchoolExam.findFirst({
     where: { id: examId, archivedAt: null },
     select: { classId: true, totalMarks: true },
   })
   if (!exam) return { error: EXAM_GONE }
-  const g = await examClassGuard(exam.classId)
+  const g = await classChecks(pre.session, exam.classId)
   if ("error" in g) return g
   return { ...g, totalMarks: exam.totalMarks.toString() }
 }

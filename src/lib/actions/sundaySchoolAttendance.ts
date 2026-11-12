@@ -35,7 +35,7 @@ type RollGuard = { error: string } | { actor: number; ymd: string }
  * assignment is checked by canMarkRoll.
  * @param role the caller's role
  */
-function mayMarkSomeRoll(role: UserRole | undefined): boolean {
+function canMarkSomeRoll(role: UserRole | undefined): boolean {
   return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
 }
 
@@ -48,7 +48,7 @@ async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!session?.user || !mayMarkSomeRoll(session.user.role)) return { error: "Unauthorized" }
+  if (!session?.user || !canMarkSomeRoll(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
   if (!isValidPgId(classId)) return { error: "Invalid class" }

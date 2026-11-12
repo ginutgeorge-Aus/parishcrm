@@ -138,7 +138,7 @@ describe.each(ACTION_FILES)("%s", (file) => {
     .map((m, i, all) => ({ name: m[1], body: src.slice(m.index, all[i + 1]?.index ?? src.length) }))
     // upsertSetting gates per key (needs a real FormData): settings.test.ts covers it.
     .filter(({ name }) => name !== "upsertSetting")
-    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|(?:await|return) (editor|editableClass|rollGuard|markerGuard|templateFeatureGuard|sendInvoiceGuarded)\(/.test(body))
+    .filter(({ body }) => /featureGuard(Any)?\(|assertFeature\(|(?:await|return) (editor|editableClass|rollGuard|markerGuard|examClassGuard|examGuard|templateFeatureGuard|sendInvoiceGuarded)\(/.test(body))
   afterEach(featuresOnAgain)
 
   it.each(fns.map((f) => [f.name, f.body]))("%s stops while its feature is off", async (name, body) => {
