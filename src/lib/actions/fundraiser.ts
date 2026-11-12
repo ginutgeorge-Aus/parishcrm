@@ -50,6 +50,7 @@ export async function saveFundraiser(
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } })
   if (!event) return { error: "Event not found" }
 
+  // Changing refPrefix does not alter bankRef values already issued to entries.
   const data = { name, unitLabel, unitPrice, refPrefix }
   const saved = await prisma.fundraiser.upsert({
     where: { eventId },
@@ -58,6 +59,7 @@ export async function saveFundraiser(
     select: { id: true },
   })
   await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, unitLabel })
-  revalidatePath(`/dashboard/events/${eventId}`)
+  revalidatePath(`/events/${eventId}/fundraiser`)
+  revalidatePath("/events")
   return undefined
 }

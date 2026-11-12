@@ -4,7 +4,11 @@ import { canManageFundraiser, canViewFundraiserTotals } from "@/lib/roleGuard"
 import { entryTotals, fundraiserTotals, type EntryTotals } from "@/lib/fundraiserMath"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 
-/** One fundraiser entry as shown to the client. Never carries outside email/phone. */
+/**
+ * One fundraiser entry as shown to the client. Never carries outside email/phone.
+ * All money values (`owedCents`, `paidCents`, `remainingCents`) are integer cents.
+ * `hasEmail` is true when the entry has a reachable, consenting email.
+ */
 export type FundraiserRow = EntryTotals & {
   id: number
   familyId: number | null
@@ -38,7 +42,7 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
     include: {
       entries: {
         orderBy: { id: "asc" },
-        include: { family: { select: { name: true } }, payments: { select: { amount: true } } },
+        include: { family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } }, payments: { select: { amount: true } } },
       },
     },
   })
@@ -53,7 +57,9 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
         name: e.family?.name ?? e.outsideName ?? "Unknown",
         quantity: e.quantity,
         bankRef: e.bankRef,
-        hasEmail: !!e.outsideEmail,
+        hasEmail: e.familyId != null
+          ? (e.family?.people ?? []).some((p) => p.email != null && p.emailConsent)
+          : !!e.outsideEmail,
       }))
     : []
   return {

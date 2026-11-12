@@ -9,6 +9,7 @@ jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 import { saveFundraiser } from "@/lib/actions/fundraiser"
 import { getFundraiserView } from "@/lib/fundraiserQueries"
 import { auth } from "@/auth"
+import { revalidatePath } from "next/cache"
 import { logAudit } from "@/lib/audit"
 
 const prismaMock = {
@@ -60,6 +61,8 @@ describe("saveFundraiser", () => {
     const arg = prismaMock.fundraiser.upsert.mock.calls[0][0]
     expect(arg.where).toEqual({ eventId: 7 })
     expect(arg.create).toMatchObject({ eventId: 7, name: "Packets", unitLabel: "packet", unitPrice: "12.50", refPrefix: "PK" })
+    expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+    expect(revalidatePath).toHaveBeenCalledWith("/events")
     expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_SAVE", "Fundraiser", 3, expect.any(Object))
   })
 })
@@ -69,7 +72,7 @@ describe("getFundraiserView", () => {
     id: 3, eventId: 7, name: "Packets", unitLabel: "packet", unitPrice: "10.00", refPrefix: null,
     entries: [
       {
-        id: 1, familyId: 2, family: { name: "Smith" }, outsideName: null,
+        id: 1, familyId: 2, family: { name: "Smith", people: [{ email: "enc:SECRET-P", emailConsent: true }] }, outsideName: null,
         outsideEmail: "enc:SECRET-EMAIL", outsidePhone: "enc:SECRET-PHONE",
         quantity: 2, unitPrice: "10.00", bankRef: "FR0001", publicToken: "tok-secret",
         payments: [{ amount: "5.00" }],
@@ -103,6 +106,19 @@ describe("getFundraiserView", () => {
     expect(s).not.toContain("SECRET")
     expect(s).not.toContain("outsideEmail")
     expect(s).not.toContain("outsidePhone")
+  })
+
+  it.each([
+    [[{ email: "enc:x", emailConsent: false }]],
+    [[{ email: null, emailConsent: true }]],
+    [[]],
+  ])("member hasEmail false for %j", async (people) => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({
+      ...fundraiser,
+      entries: [{ ...fundraiser.entries[0], family: { name: "Smith", people } }],
+    })
+    const v = await getFundraiserView(7, "ADMIN" as never)
+    expect(v!.rows[0].hasEmail).toBe(false)
   })
 
   it("AUDITOR gets totals and empty rows", async () => {
