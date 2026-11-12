@@ -89,7 +89,9 @@ async function examClassGuard(classId: number): Promise<ExamGuard> {
 /**
  * Resolve a live exam by id and run the class checks on its class. The
  * preamble runs first so no exam lookup happens before authz or the feature
- * check. Unknown/archived exams give "Exam not found".
+ * check. Callers who can only mark assigned classes (TEACHER, EVENT_ORGANISER)
+ * get "Unauthorized" for missing, archived and other-class exams alike, so exam
+ * ids can't be enumerated; roles that may act on any class get "Exam not found".
  * @param examId the exam to act on
  */
 async function examGuard(examId: number): Promise<ExamTargetGuard> {
@@ -100,7 +102,7 @@ async function examGuard(examId: number): Promise<ExamTargetGuard> {
     where: { id: examId, archivedAt: null },
     select: { classId: true, totalMarks: true },
   })
-  if (!exam) return { error: EXAM_GONE }
+  if (!exam) return { error: canManageSundaySchool(pre.session.user.role) ? EXAM_GONE : "Unauthorized" }
   const g = await classChecks(pre.session, exam.classId)
   if ("error" in g) return g
   return { ...g, totalMarks: exam.totalMarks.toString() }
@@ -221,6 +223,7 @@ export async function setExamScore(examId: number, personId: number, raw: string
   const score = parseScore(raw, g.totalMarks)
   if (!score.ok) return { error: score.error }
 
+  let previous: string | null = null
   try {
     const r = await withLiveClass(g.classId, async (tx) => {
       // FOR SHARE on the exam: it may have been archived since the guard, and a
@@ -231,9 +234,14 @@ export async function setExamScore(examId: number, personId: number, raw: string
         SELECT "totalMarks"::text AS "totalMarks" FROM "SundaySchoolExam"
         WHERE id = ${examId} AND "archivedAt" IS NULL FOR SHARE`
       if (exam.length === 0) throw new Error(EXAM_GONE)
+      const prior = await tx.sundaySchoolExamResult.findUnique({
+        where: { examId_personId: { examId, personId } },
+        select: { score: true },
+      })
+      const previous = prior ? prior.score.toString() : null
       if (score.value === null) {
         await tx.sundaySchoolExamResult.deleteMany({ where: { examId, personId } })
-        return
+        return { previous }
       }
       // FOR SHARE on enrolment + Person: a concurrent move/unenrol/archive waits.
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
@@ -248,13 +256,15 @@ export async function setExamScore(examId: number, personId: number, raw: string
         create: { examId, personId, score: score.value, markedById: g.actor },
         update: { score: score.value, markedById: g.actor },
       })
+      return { previous }
     })
     if (!r.live) return { error: r.error }
+    previous = r.value?.previous ?? null
   } catch (e) {
     if (e instanceof ScoreRejected) return { error: e.message }
     if (e instanceof Error && (e.message === EXAM_GONE || e.message === NOT_IN_CLASS)) return { error: e.message }
     throw e
   }
-  await logAudit(g.actor, "SS_EXAM_SCORE_SET", ENTITY, examId, { personId, cleared: score.value === null })
+  await logAudit(g.actor, "SS_EXAM_SCORE_SET", ENTITY, examId, { personId, previousScore: previous, newScore: score.value, cleared: score.value === null })
   revalidateExams(g.classId)
 }

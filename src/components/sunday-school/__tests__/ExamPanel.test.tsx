@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 
 jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock("@/lib/actions/sundaySchoolExam", () => ({ createExam: jest.fn(), archiveExam: jest.fn() }))
@@ -20,5 +20,19 @@ describe("ExamPanel", () => {
     expect(screen.getByRole("link", { name: /Term 2 Bible/ })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Add exam" })).toBeNull()
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull()
+  })
+})
+
+describe("ExamPanel create feedback", () => {
+  it("shows Exam added and clears the form after a successful create", async () => {
+    const { createExam } = jest.requireMock("@/lib/actions/sundaySchoolExam")
+    ;(createExam as jest.Mock).mockResolvedValue(undefined)
+    render(<ExamPanel classId={1} year={2026} exams={[]} enrolledCount={0} hrefBase="/sunday-school/1/exams" readOnly={false} />)
+    const name = screen.getByLabelText("Name") as HTMLInputElement
+    fireEvent.change(name, { target: { value: "Term 3" } })
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-03-01" } })
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add exam" })) })
+    expect(await screen.findByText("Exam added")).toBeInTheDocument()
+    expect(name.value).toBe("")
   })
 })

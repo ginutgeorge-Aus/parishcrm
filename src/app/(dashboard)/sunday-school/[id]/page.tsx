@@ -81,7 +81,8 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         orderBy: byName,
       }),
       enrolQuery({ equals: "CHILD" }),
-      enrolQuery({ not: "CHILD" }),
+      // HEADMASTER has no people access: never send them adults' names.
+      session.user.role === UserRole.HEADMASTER ? Promise.resolve([]) : enrolQuery({ not: "CHILD" }),
     ])
     : [[], [], []]
   const [rollMarkers, assignableMarkers, sessions] = await Promise.all([

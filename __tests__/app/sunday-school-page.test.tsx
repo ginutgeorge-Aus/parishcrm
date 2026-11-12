@@ -234,6 +234,10 @@ describe("/sunday-school/[id]", () => {
     expect((prisma.user.findMany as jest.Mock).mock.calls[0][0].where).toEqual({
       role: { in: ["TEACHER", "EVENT_ORGANISER"] }, archivedAt: null,
     })
+    // Adults' names are never queried for a HEADMASTER (children only).
+    const roles = (prisma.person.findMany as jest.Mock).mock.calls.map(([a]) => a.where.role)
+    expect(roles).toContainEqual({ equals: "CHILD" })
+    expect(roles).not.toContainEqual({ not: "CHILD" })
   })
 
   it("links people pages for staff who can view people", async () => {

@@ -4,7 +4,7 @@ import { isHeadmasterAllowedPath, isTeacherAllowedPath } from "@/lib/organiserAc
 const INFRA = ["/api/auth/session", "/_next/data/abc.json", "/api/health", "/login", "/e/summer-fete"]
 
 describe("isTeacherAllowedPath", () => {
-  test.each(["/my-classes", "/my-classes/3/roll", ...INFRA])("allows %s", (p) =>
+  test.each(["/my-classes", "/my-classes/3/roll", "/account", "/account/security", "/help", ...INFRA])("allows %s", (p) =>
     expect(isTeacherAllowedPath(p)).toBe(true),
   )
 
@@ -20,7 +20,6 @@ describe("isTeacherAllowedPath", () => {
     "/accounting",
     "/sunday-school",
     "/sunday-school/3",
-    "/account",
     "/api/events/summer-fete/export-csv",
     "/api/events/summer-fete/register",
     "/events/42/registrations/print",

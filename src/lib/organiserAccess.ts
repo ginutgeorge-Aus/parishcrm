@@ -42,7 +42,9 @@ function isConfinedInfraPath(pathname: string): boolean {
  * @param pathname request pathname
  */
 export function isTeacherAllowedPath(pathname: string): boolean {
-  if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return true
+  for (const root of ["/my-classes", "/account", "/help"]) {
+    if (pathname === root || pathname.startsWith(`${root}/`)) return true
+  }
   return isConfinedInfraPath(pathname)
 }
 

@@ -7,7 +7,7 @@ jest.mock("@/lib/prisma", () => {
   const m = {
     sundaySchoolClass: { findFirst: jest.fn() },
     sundaySchoolExam: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
-    sundaySchoolExamResult: { upsert: jest.fn(), deleteMany: jest.fn(), count: jest.fn() },
+    sundaySchoolExamResult: { upsert: jest.fn(), deleteMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
   }
@@ -29,7 +29,7 @@ const as = (role: UserRole) => (auth as jest.Mock).mockResolvedValue({ user: { i
 const p = prisma as unknown as {
   sundaySchoolClass: { findFirst: jest.Mock }
   sundaySchoolExam: { findFirst: jest.Mock; create: jest.Mock; updateMany: jest.Mock; count: jest.Mock }
-  sundaySchoolExamResult: { upsert: jest.Mock; deleteMany: jest.Mock; count: jest.Mock }
+  sundaySchoolExamResult: { upsert: jest.Mock; deleteMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock }
   $queryRaw: jest.Mock
 }
 const LOCKED = "This school year is locked — it can no longer be changed"
@@ -58,6 +58,7 @@ beforeEach(() => {
   p.sundaySchoolExam.updateMany.mockResolvedValue({ count: 1 })
   p.sundaySchoolExam.count.mockResolvedValue(0)
   p.sundaySchoolExamResult.count.mockResolvedValue(0)
+  p.sundaySchoolExamResult.findUnique.mockResolvedValue(null)
   locks([3])
 })
 
@@ -68,7 +69,14 @@ describe("setExamScore", () => {
       create: { examId: 9, personId: 3, score: "0", markedById: 1 },
       update: { score: "0", markedById: 1 },
     }))
-    expect(logAudit).toHaveBeenCalledWith(1, "SS_EXAM_SCORE_SET", "SundaySchoolExam", 9, { personId: 3, cleared: false })
+    expect(logAudit).toHaveBeenCalledWith(1, "SS_EXAM_SCORE_SET", "SundaySchoolExam", 9, { personId: 3, previousScore: null, newScore: "0", cleared: false })
+  })
+  it("audits the previous and new score on overwrite and clear", async () => {
+    p.sundaySchoolExamResult.findUnique.mockResolvedValue({ score: { toString: () => "40.00" } })
+    await setExamScore(9, 3, "55")
+    expect(logAudit).toHaveBeenLastCalledWith(1, "SS_EXAM_SCORE_SET", "SundaySchoolExam", 9, { personId: 3, previousScore: "40.00", newScore: "55", cleared: false })
+    await setExamScore(9, 3, "")
+    expect(logAudit).toHaveBeenLastCalledWith(1, "SS_EXAM_SCORE_SET", "SundaySchoolExam", 9, { personId: 3, previousScore: "40.00", newScore: null, cleared: true })
   })
   it("rejects negative, over total, >2dp, non-numeric", async () => {
     for (const bad of ["-1", "101", "7.555", "abc"]) {
@@ -127,6 +135,14 @@ describe("setExamScore", () => {
     as(UserRole.ADMIN)
     p.sundaySchoolExam.findFirst.mockResolvedValue(null)
     expect(await setExamScore(9, 3, "5")).toEqual({ error: "Exam not found" })
+  })
+  it("gives a teacher the same Unauthorized for a missing exam as for another class's exam", async () => {
+    as(UserRole.TEACHER)
+    p.sundaySchoolExam.findFirst.mockResolvedValue(null)
+    expect(await setExamScore(9, 3, "5")).toEqual({ error: "Unauthorized" })
+    p.sundaySchoolExam.findFirst.mockResolvedValue({ id: 9, classId: 4, totalMarks: { toString: () => "100.00" } })
+    ;(canMarkExam as jest.Mock).mockResolvedValue(false)
+    expect(await setExamScore(9, 3, "5")).toEqual({ error: "Unauthorized" })
   })
 })
 

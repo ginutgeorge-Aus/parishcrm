@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createExam, archiveExam } from "@/lib/actions/sundaySchoolExam"
@@ -28,7 +28,19 @@ export function ExamPanel({
   classId, year, exams, enrolledCount, hrefBase, readOnly,
 }: Readonly<{ classId: number; year: number; exams: ExamListItem[]; enrolledCount: number; hrefBase: string; readOnly: boolean }>) {
   const router = useRouter()
-  const [state, formAction, isPending] = useActionState(createExam.bind(null, classId) as (p: ActionResult, f: FormData) => Promise<ActionResult>, undefined)
+  const formRef = useRef<HTMLFormElement>(null)
+  // createExam resolves to undefined on success: surface that as "Exam added".
+  const create = async (_p: ActionResult | { success: string }, f: FormData): Promise<ActionResult | { success: string }> => {
+    const r = await createExam(classId, undefined, f)
+    return r?.error ? r : { success: "Exam added" }
+  }
+  const [state, formAction, isPending] = useActionState(create, undefined)
+  const added = state !== undefined && "success" in state
+
+  // Clear the fields after each successful create (state is a fresh object).
+  useEffect(() => {
+    if (added) formRef.current?.reset()
+  }, [state, added])
 
   return (
     <div className="space-y-4">
@@ -66,7 +78,7 @@ export function ExamPanel({
       )}
 
       {!readOnly && (
-        <form action={formAction} className="max-w-md space-y-3 border-t border-border pt-4">
+        <form ref={formRef} action={formAction} className="max-w-md space-y-3 border-t border-border pt-4">
           <h3 className="text-sm font-semibold text-foreground">Add an exam</h3>
           <FormFeedback state={state} />
           <div className="space-y-1">
