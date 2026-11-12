@@ -354,7 +354,7 @@ export async function updateExpense(
     if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
-    if (e instanceof AuditWriteError) return auditFailed(e)
+    if (e instanceof AuditWriteError) return auditFailed(e, "updateExpense")
     throw e
   }
   revalidatePettyCashPaths(expense.sessionId)
@@ -402,7 +402,7 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
-    if (e instanceof AuditWriteError) return auditFailed(e)
+    if (e instanceof AuditWriteError) return auditFailed(e, "deleteExpense")
     // Plain (non-retrying) tx: a write conflict/deadlock (P2034, which logAuditGuardedTx
     // passes through for serializableWrite) is a "try again", not a 500.
     if (isP2034(e)) return PETTY_CASH_BUSY

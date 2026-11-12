@@ -2,6 +2,8 @@ jest.mock("@/lib/featureFlags")
 import { commitImport } from "@/lib/actions/pettyCashImport"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 // Value import of `Prisma` in pettyCashImport.ts loads the real generated client
@@ -9,7 +11,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -98,6 +100,54 @@ test("commitImport answers a non-domain failure generically, never with raw driv
   spy.mockRestore()
 
   expect(res).toEqual({ error: "Import failed" })
+})
+
+/** Arranges one OPEN session and a created expense row so commitImport reaches its audit write. */
+function arrangeSuccessfulInsert() {
+  mockSessionFindMany.mockResolvedValue([{ id: 5, title: "01-JUL-2026", status: "OPEN" }])
+  mockExpenseCreateMany.mockResolvedValue([
+    { id: 1, sessionId: 5, accountId: 1, date: new Date("2026-07-01T00:00:00Z"), amount: "10.00", payee: "enc:Test Vendor", notes: "enc:Test description" },
+  ])
+}
+
+test("commitImport writes the PETTY_CASH_IMPORTED audit row on the transaction client", async () => {
+  arrangeSuccessfulInsert()
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  expect(res).toHaveProperty("success")
+  expect(logAuditTx).toHaveBeenCalledWith(
+    prisma,
+    1,
+    "PETTY_CASH_IMPORTED",
+    "PettyCashSession",
+    undefined,
+    expect.objectContaining({ receipts: 0, expenses: 1, skipped: 0, custodianId: 1 }),
+  )
+})
+
+test("commitImport reports AUDIT_FAILED_ERROR (not a raw failure) when the audit write fails", async () => {
+  arrangeSuccessfulInsert()
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  spy.mockRestore()
+  expect(res).toEqual({ error: AUDIT_FAILED_ERROR })
+})
+
+test("commitImport maps a P2034 conflict (passed through by the guarded audit write) to the retry message", async () => {
+  arrangeSuccessfulInsert()
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
+})
+
+test("commitImport returns no success when a later batch write (ledger mirror insert) rejects", async () => {
+  arrangeSuccessfulInsert()
+  mockTxCreateMany.mockRejectedValueOnce(new Error("mirror insert down"))
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  spy.mockRestore()
+  expect(res).toEqual({ error: "Import failed" })
+  expect(logAuditTx).not.toHaveBeenCalled()
 })
 
 test("commitImport re-checks the session's lock status right before the batched insert — a concurrent close after the initial read is still caught", async () => {

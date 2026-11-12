@@ -5,7 +5,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, AUDIT_FAILED_ERROR, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { encrypt, encryptBytes } from "@/lib/crypto"
 import { isP2034, isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
@@ -40,10 +40,7 @@ const ATTACHMENT_BUSY_ERROR = "Couldn't save the change. Try again."
  * @returns the error result, or null when `e` is not one of these (caller rethrows)
  */
 function attachmentWriteError(e: unknown, action: string): { error: string } | null {
-  if (e instanceof AuditWriteError) {
-    console.error(`${action} audit write failed`, e.cause)
-    return { error: AUDIT_FAILED_ERROR }
-  }
+  if (e instanceof AuditWriteError) return auditWriteFailedResult(e, action)
   if (isP2034(e)) return { error: ATTACHMENT_BUSY_ERROR }
   return null
 }

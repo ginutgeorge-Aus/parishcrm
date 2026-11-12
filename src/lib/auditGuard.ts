@@ -1,10 +1,11 @@
 import { logAuditTx } from "@/lib/audit"
 import { isP2034 } from "@/lib/validation"
+import { logger } from "@/lib/logger"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 /** Shown when an in-transaction audit write fails; the mutation was rolled back. */
 export const AUDIT_FAILED_ERROR =
-  "Couldn't record this change in the audit log, so it was not saved. Sign out and back in, then try again."
+  "Couldn't record this change in the audit log, so it was not saved. Please try again. If it keeps happening, sign out and back in, then contact an administrator."
 
 /**
  * Thrown (inside the write transaction, so the mutation rolls back) when an audit
@@ -19,6 +20,22 @@ export class AuditWriteError extends Error {
     super("audit write failed", { cause })
     this.name = "AuditWriteError"
   }
+}
+
+/**
+ * Maps a rolled-back audit write to the action result, logging a scrubbed cause
+ * server-side. Only the error name and Prisma code are logged: Prisma errors embed
+ * the query arguments (donor/payee names), so neither `message` nor the raw error is.
+ * @param e the `AuditWriteError` caught from the write transaction
+ * @param label action name for the server log
+ */
+export function auditWriteFailedResult(e: AuditWriteError, label: string): { error: string } {
+  const cause = e.cause
+  logger.error(`${label} audit write failed`, {
+    name: cause instanceof Error ? cause.name : typeof cause,
+    code: (cause as { code?: unknown } | null | undefined)?.code,
+  })
+  return { error: AUDIT_FAILED_ERROR }
 }
 
 /**

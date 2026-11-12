@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { logAuditTx } from "@/lib/audit"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { toCents } from "@/lib/formatting"
 import { xferOutRef } from "@/lib/xferRefs"
@@ -398,37 +398,34 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   // without a bankRef have no paired leg, so skip that query.
   let result: { error: string } | { count: number }
   try {
-  result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
-    // Eligibility comes from the row as read in this tx (not the pre-read). Only an imported deposit (INCOME
-    // on the XFER account with a bankRef) can have an adoptable leg; any bankRef, including an XFER_OUT_-prefixed
-    // one, can pair with a leg, so no prefix exclusion. Every other row skips the lookup.
-    const row = await tx.transaction.findUnique({
-      where: { id },
-      select: { type: true, amount: true, accountId: true, bankRef: true, account: { select: { code: true } } },
-    })
-    if (row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER" && (await depositLinkedToTransfer(tx, row.bankRef)))
-      return { error: DEPOSIT_LINKED_ERROR }
-    // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
-    // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
-    const deleted = await tx.transaction.deleteMany({
-      where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
-    })
-    // Audit in the same tx so a failed audit write rolls the delete back.
-    // Metadata is from the row read in this tx, not the pre-read, so it can't be stale.
-    if (deleted.count > 0 && row)
-      await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", id, {
-        amount: Number(row.amount),
-        type: row.type,
-        accountId: row.accountId,
+    result = await serializableWrite<{ error: string } | { count: number }>(async (tx) => {
+      // Eligibility comes from the row as read in this tx (not the pre-read). Only an imported deposit (INCOME
+      // on the XFER account with a bankRef) can have an adoptable leg; any bankRef, including an XFER_OUT_-prefixed
+      // one, can pair with a leg, so no prefix exclusion. Every other row skips the lookup.
+      const row = await tx.transaction.findUnique({
+        where: { id },
+        select: { type: true, amount: true, accountId: true, bankRef: true, account: { select: { code: true } } },
       })
-    return deleted
-  }, DELETE_BUSY, DELETE_REFERENCED)
+      if (row?.bankRef && row.type === "INCOME" && row.account?.code === "XFER" && (await depositLinkedToTransfer(tx, row.bankRef)))
+        return { error: DEPOSIT_LINKED_ERROR }
+      // Petty cash links are in the predicate too: createTransfer adoption links an existing leg after the
+      // pre-read above, so a link landing in between matches 0 rows (conflict) instead of orphaning the transfer.
+      const deleted = await tx.transaction.deleteMany({
+        where: { id, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null },
+      })
+      // Audit in the same tx so a failed audit write rolls the delete back.
+      // Metadata is from the row read in this tx, not the pre-read, so it can't be stale.
+      if (deleted.count > 0 && row)
+        await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", id, {
+          amount: Number(row.amount),
+          type: row.type,
+          accountId: row.accountId,
+        })
+      return deleted
+    }, DELETE_BUSY, DELETE_REFERENCED)
   } catch (e) {
     // Audit insert failed (delete rolled back): report it, don't let it read as DELETE_REFERENCED.
-    if (e instanceof AuditWriteError) {
-      console.error("deleteTransaction audit write failed", e.cause)
-      return { error: AUDIT_FAILED_ERROR }
-    }
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteTransaction")
     throw e
   }
   if ("error" in result) return result

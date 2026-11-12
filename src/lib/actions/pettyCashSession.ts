@@ -10,7 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
 import { logAuditTx } from "@/lib/audit"
-import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
 import { MONEY_DECIMAL_RE, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
@@ -249,7 +249,7 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
     // A serialization conflict (P2034) rolls the session back the same way: recoverable.
     if (isP2034(e)) return { status: "exists" }
     if (e instanceof AuditWriteError) {
-      console.error("ensureWeeklySession audit write failed", e.cause)
+      auditWriteFailedResult(e, "ensureWeeklySession")
       return { status: "exists" }
     }
     throw e
@@ -382,12 +382,11 @@ export async function deleteSession(id: number): Promise<ActionResult> {
       })
     })
   } catch (e) {
-    if (e instanceof AuditWriteError) {
-      console.error("deleteSession audit write failed", e.cause)
-      return { error: AUDIT_FAILED_ERROR }
-    }
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteSession")
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
       return { error: "Cannot delete — session has entries. Delete them first." }
+    // Plain (non-retrying) tx: a P2034 passed through by logAuditGuardedTx is a "try again", not a 500.
+    if (isP2034(e)) return { error: "Conflict while deleting — please try again." }
     throw e
   }
   revalidatePath("/accounting/petty-cash")

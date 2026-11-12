@@ -105,7 +105,7 @@ describe("attachTransactionReceipt", () => {
     expect(attCreate).not.toHaveBeenCalled()
   })
 
-  it("reports a failed audit write as an audit error (attachment insert rolls back)", async () => {
+  it("reports a failed audit write as an audit error (mocked tx callback threw; a real DB would roll the insert back)", async () => {
     mockAuth.mockResolvedValue(ADMIN)
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     const spy = jest.spyOn(console, "error").mockImplementation(() => {})
@@ -145,7 +145,7 @@ describe("attachTransactionReceipt", () => {
     expect(Buffer.isBuffer(data.data)).toBe(true)
     const decoded = Buffer.from(data.data.toString("utf8").replace(/^enc:/, ""), "base64")
     expect(Uint8Array.from(decoded)).toEqual(pngBytes())
-    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 5, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", 1, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 5, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", 1, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/accounting/transactions/1")
   })
 
@@ -232,11 +232,11 @@ describe("removeTransactionReceipt", () => {
     const r = await removeTransactionReceipt(100)
     expect(r).toBeUndefined()
     expect(attDelete).toHaveBeenCalledWith({ where: { id: 100 } })
-    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 5, "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", 1, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 5, "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", 1, expect.any(Object))
     expect(revalidatePath).toHaveBeenCalledWith("/accounting/transactions/1")
   })
 
-  it("reports a failed audit write as an audit error (delete rolls back)", async () => {
+  it("reports a failed audit write as an audit error (mocked tx callback threw; a real DB would roll the delete back)", async () => {
     mockAuth.mockResolvedValue(ADMIN)
     attFind.mockResolvedValue({ id: 100, transactionId: 1, transaction: { date: new Date("2026-05-15") } })
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
