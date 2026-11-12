@@ -298,6 +298,13 @@ describe("middleware wiring", () => {
     const feature = src.indexOf("isFeatureRouteOff(pathname)")
     expect(feature).toBeGreaterThan(src.indexOf("loginRedirectPath("))
     expect(feature).toBeGreaterThan(src.indexOf("isOrganiserAllowedPath(pathname)"))
+    expect(feature).toBeGreaterThan(src.indexOf("isTeacherAllowedPath(pathname)"))
+    expect(feature).toBeGreaterThan(src.indexOf("isHeadmasterAllowedPath(pathname)"))
+  })
+
+  it("confines TEACHER to /my-classes and HEADMASTER to /sunday-school", () => {
+    expect(src).toMatch(/role === "TEACHER" && !isTeacherAllowedPath\(pathname\)[\s\S]{0,200}"\/my-classes"/)
+    expect(src).toMatch(/role === "HEADMASTER" && !isHeadmasterAllowedPath\(pathname\)[\s\S]{0,200}"\/sunday-school"/)
   })
 
   it("leaves Server Actions (POST) and API routes to their own guards", () => {

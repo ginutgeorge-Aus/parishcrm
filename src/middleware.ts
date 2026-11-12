@@ -4,7 +4,7 @@ import { authConfig } from "@/auth.config"
 import { buildCsp, isPublicPath, SECURITY_HEADERS, EVENT_IMAGE_PATH } from "@/lib/csp"
 import { loginRedirectPath } from "@/lib/safeNext"
 import { publicBodyTooLarge } from "@/lib/bodyLimit"
-import { isOrganiserAllowedPath } from "@/lib/organiserAccess"
+import { isHeadmasterAllowedPath, isOrganiserAllowedPath, isTeacherAllowedPath } from "@/lib/organiserAccess"
 import { FEATURE_OFF_REWRITE_PATH, featureOffRedirect, isFeatureRouteOff } from "@/lib/featureRoutes"
 import {
   getMaintenanceState,
@@ -79,8 +79,17 @@ export default auth(async (req) => {
   // Event organisers are confined to /my-events (+ membership-gated export/print
   // + public/auth/asset paths). Any other path redirects to their home, so a
   // hand-typed /people or /accounting URL never renders.
-  if (req.auth?.user?.role === "EVENT_ORGANISER" && !isOrganiserAllowedPath(pathname)) {
+  const role = req.auth?.user?.role
+  if (role === "EVENT_ORGANISER" && !isOrganiserAllowedPath(pathname)) {
     return withSecurityHeaders(NextResponse.redirect(new URL("/my-events", req.nextUrl)), csp)
+  }
+  // Teachers are confined to /my-classes, headmasters to /sunday-school (+ own
+  // account/help) — same idea: Sunday school only, never people or accounting.
+  if (role === "TEACHER" && !isTeacherAllowedPath(pathname)) {
+    return withSecurityHeaders(NextResponse.redirect(new URL("/my-classes", req.nextUrl)), csp)
+  }
+  if (role === "HEADMASTER" && !isHeadmasterAllowedPath(pathname)) {
+    return withSecurityHeaders(NextResponse.redirect(new URL("/sunday-school", req.nextUrl)), csp)
   }
 
   // Set the nonce on the request headers so Next.js applies it to its own
