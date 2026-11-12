@@ -415,6 +415,8 @@ describe("FIELDS map", () => {
     receiptSend: ["sentTo"],
     // PaymentReminderSend mirrors ReceiptSend: sentTo (recipient email) is PII.
     paymentReminderSend: ["sentTo"],
+    fundraiserEntry: ["outsideEmail", "outsidePhone"],
+    fundraiserReminderSend: ["sentTo"],
     registration: ["email", "phone"],
     pettyCashExpense: ["payee", "description"],
     pettyCashReceipt: ["notes"],

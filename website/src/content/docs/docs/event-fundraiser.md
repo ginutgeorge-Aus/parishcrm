@@ -1,0 +1,95 @@
+---
+title: "Event Fundraiser"
+description: "Track a per-event fundraiser (for example packets of food sold for a feast): who ordered how many, part payments, reminder emails, and card or bank-transfer payment."
+---
+
+An event can have one **fundraiser**: a simple order book for something sold in units, such as
+packets of food for a feast. Each row is a family (or an outside buyer) with a quantity. Staff
+record what each row has paid, send reminder emails to those who still owe, and rows can pay the
+remainder by card or bank transfer. This page is the staff how-to; see
+[Events Overview](/parishcrm/docs/events-overview/) for events in general and
+[Card Payments Stripe](/parishcrm/docs/card-payments-stripe/) for the Stripe setup.
+
+## Who can use it
+
+| Role | Access |
+|---|---|
+| `ADMIN`, `PASTOR`, `OFFICE_ADMIN` | Full: set up, add and edit rows, record and delete payments, send reminders |
+| `AUDITOR` | Read-only: sees the totals only (no names, no contact details) |
+| `VIEWER`, `EVENT_ORGANISER` | No access |
+
+The Events feature must be switched on. The tab is hidden otherwise.
+
+## Setting it up
+
+1. Open the event and choose its **Fundraiser** tab (`/events/[id]/fundraiser`).
+2. In the settings form, enter:
+   - **Name** (for example "Feast packets"), up to 120 characters.
+   - **Unit label** (for example "packet"), up to 40 characters.
+   - **Unit price**, a positive amount with at most 2 decimals.
+   - **Bank reference prefix** (optional): letters and numbers only. It is upper-cased and
+     used to build each row's bank-transfer reference, such as `FEAST0001`. Leave it blank for
+     the default `FR`.
+3. Save. There is one fundraiser per event.
+
+Changing the unit price later only affects rows added afterwards. Each row keeps the price it
+had when it was added.
+
+## Adding rows
+
+Click **Add** and choose one of:
+
+- **Member family** - pick a family from the list and enter the quantity. A family can appear
+  only once per fundraiser.
+- **Outside buyer** - enter a name and a quantity, and optionally an email and phone. Outside
+  contact details are encrypted at rest. Without an email the buyer cannot be sent reminders.
+
+Quantity is a whole number from 1 to 9999. You can change a row's quantity later, but not below
+what it has already paid. A row can be deleted only while it has no payments.
+
+The totals strip at the top shows expected, collected and outstanding amounts. Each row shows a
+status: **Unpaid**, **Part paid**, **Paid** or **Overpaid**.
+
+## Recording payments
+
+Open a row's payments panel and add a **cash** or **bank** payment with an amount, a date and an
+optional note. A row can take several part payments. A payment cannot exceed the remaining
+balance. A double-click does not create a second payment.
+
+To correct a mistake, delete the manual payment and record it again.
+
+## Card or bank transfer
+
+- **Bank transfer**: the buyer pays into the parish account and quotes their row's reference.
+  Staff then record the payment by hand (as above).
+- **Card**: each row has a private pay link. When Stripe is configured and the event has online
+  payment enabled, the reminder email and the link let the buyer pay the **remaining balance** by
+  card. If the event passes on the card fee, the fee is added to the card total. The payment is
+  recorded automatically when Stripe confirms it, and the row's status updates (for example to
+  **Paid**).
+
+Card payments are marked **Online**. **Online payments cannot be deleted or adjusted in the
+app.** A refund must be made in the Stripe dashboard. The parish's no-refund policy still applies;
+see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/). After a refund or dispute, the
+payment still counts as paid in the app. The app sends ops an alert, and whoever runs the server
+must correct the fundraiser payment directly in the database.
+
+## Sending reminders
+
+Click **Send reminders**. The confirm dialog shows how many emails will go out, how many rows are
+skipped, and when reminders were last sent.
+
+- Rows that owe nothing are skipped.
+- Member rows go to the first family member with an email address and email consent, preferring
+  the head of the family. A row with no such person is skipped.
+- Outside rows go to the outside email, if one was entered.
+- Each email states the quantity, the amount owed, paid and remaining, the bank reference, and a
+  card pay link when card payment is available.
+
+You can send again at any time. Every attempt is logged with its status.
+
+## Related
+
+- [Events Overview](/parishcrm/docs/events-overview/)
+- [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/)
+- [Registrations Management](/parishcrm/docs/registrations-management/)

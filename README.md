@@ -148,7 +148,7 @@ docs/                   topic docs + specs/plans
 - **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins.
 - **Groups & ministries** — ministry/committee/fellowship groups with category filter and member counts, leader/member roles and titles, print + CSV export, a Groups card on each person, and volunteer leader logins that manage their own groups' members from a phone.
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, receipt emails, invoices (optional GST tax invoices, PDF + email, payment matching, void, GST collected).
-- **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, check-in, CSV export.
+- **Events** — public registration pages (`/e/[slug]`), ticketed events with custom questions, tiered pricing, optional Stripe card payments, a per-event fundraiser (unit sales with part payments and reminders), check-in, CSV export.
 - **Petty cash** — multiple concurrent sessions, cash-in / cash-out / bank-transfer entries, running balance, close-with-variance.
 - **Venue bookings** — for churches that hire a hall: dated bookings (requested / confirmed / cancelled), booking-request and cancellation emails, a monthly invoice request (manual, or sent automatically from the 1st once an admin approves), and a secret no-login committee calendar.
 - **Membership** — public application form, approval workflow, letters/receipts.

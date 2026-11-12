@@ -14,6 +14,8 @@ import { EventReminderEmail } from "@/lib/emails/EventReminderEmail"
 import type { EventReminderData } from "@/lib/emails/EventReminderEmail"
 import { PaymentReminderEmail } from "@/lib/emails/PaymentReminderEmail"
 import type { PaymentReminderData } from "@/lib/emails/PaymentReminderEmail"
+import { FundraiserReminderEmail } from "@/lib/emails/FundraiserReminderEmail"
+import type { FundraiserReminderData } from "@/lib/emails/FundraiserReminderEmail"
 import { MembershipNotificationEmail } from "@/lib/emails/MembershipNotificationEmail"
 import { WelcomeLetterEmail } from "@/lib/emails/WelcomeLetterEmail"
 import type { WelcomeLetterModel } from "@/lib/welcomeLetter"
@@ -421,6 +423,27 @@ export async function sendPaymentReminderEmail(
     // Event title is organiser-authored via the authenticated CRM, not attacker
     // input — safe in the subject. No PII, no amount in the subject.
     subject: `Payment pending — ${data.eventTitle}`,
+    html: await render(el),
+    text: await render(el, { plainText: true }),
+  })
+}
+
+/**
+ * Send one fundraiser payment reminder. Subject carries only the organiser-authored
+ * event title: no amount, no recipient PII.
+ * @param to - Recipient email.
+ * @param data - Reminder content.
+ */
+export async function sendFundraiserReminderEmail(
+  to: string,
+  data: FundraiserReminderData
+): Promise<void> {
+  const { transporter, user } = makeTransporter()
+  const el = React.createElement(FundraiserReminderEmail, data)
+  await sendMailWithRetry(transporter, {
+    from: `"${data.churchName}" <${user}>`,
+    to,
+    subject: `Payment reminder — ${data.eventTitle}`,
     html: await render(el),
     text: await render(el, { plainText: true }),
   })

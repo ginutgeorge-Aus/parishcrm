@@ -180,6 +180,13 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/venue/a/b")).toBe(false)
     expect(isPublicPath("/venue-usage")).toBe(false)
   })
+  it("treats only the token-scoped fundraiser pay page as public", () => {
+    expect(isPublicPath("/pay/fundraiser/abc_DEF-123")).toBe(true)
+    expect(isPublicPath("/pay/fundraiser")).toBe(false)
+    expect(isPublicPath("/pay")).toBe(false)
+    expect(isPublicPath("/pay/fundraiser/a/b")).toBe(false)
+    expect(isPublicPath("/pay/other/abc")).toBe(false)
+  })
   it("keeps bare /family gated", () => {
     expect(isPublicPath("/family")).toBe(false)
     expect(isPublicPath("/families")).toBe(false)

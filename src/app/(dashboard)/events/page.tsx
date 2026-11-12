@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { formatSydneyDate } from "@/lib/dates"
-import { canEdit, isAdmin, canViewPeople } from "@/lib/roleGuard"
+import { canEdit, isAdmin, canViewPeople, canViewFundraiserTotals } from "@/lib/roleGuard"
 import { deleteEvent } from "@/lib/actions/event"
 import { DeleteEventButton } from "@/components/events/DeleteEventButton"
 import { ResyncEventsButton } from "@/components/events/ResyncEventsButton"
@@ -173,6 +173,11 @@ export default async function EventsPage(
                     <Link href={`/events/${event.id}/registrations`}>Registrations</Link>
                   </Button>
                 )}
+                {canViewFundraiserTotals(session.user.role) && (
+                  <Button asChild variant="link" size="xs">
+                    <Link href={`/events/${event.id}/fundraiser`}>Fundraiser</Link>
+                  </Button>
+                )}
                 {canEdit(session.user.role) && (
                   <Button asChild variant="link" size="xs" className="text-muted-foreground">
                     <Link href={`/events/${event.id}/edit`}>Edit</Link>
@@ -233,6 +238,11 @@ export default async function EventsPage(
                       {canViewPeople(session.user.role) && (
                         <Button asChild variant="link" size="xs">
                           <Link href={`/events/${event.id}/registrations`}>Registrations</Link>
+                        </Button>
+                      )}
+                      {canViewFundraiserTotals(session.user.role) && (
+                        <Button asChild variant="link" size="xs">
+                          <Link href={`/events/${event.id}/fundraiser`}>Fundraiser</Link>
                         </Button>
                       )}
                       {canEdit(session.user.role) && (

@@ -246,6 +246,15 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 // records under the no-refund policy. Mirrors resetEventRegistrations' guard
 //: cancel/refund them individually first. An OPEN CheckoutSession is
 // the live-payment window; non-CANCELLED registrations cover PENDING + PAID.
+/**
+ * Throw a guard marker when the event still has data a delete would cascade away:
+ * active registrations, an OPEN card checkout, or fundraiser entries (the
+ * Fundraiser -> FundraiserEntry -> FundraiserPayment cascade would destroy the
+ * fundraiser ledger, including recorded payments).
+ * @param tx the deleteEvent transaction client
+ * @param id Event.id
+ * @throws Error("GUARDED_DELETE_BLOCKED") or Error("FUNDRAISER_DELETE_BLOCKED")
+ */
 async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClient, id: number): Promise<void> {
   const activeRegistrations = await tx.registration.count({
     where: { eventId: id, paymentStatus: { not: "CANCELLED" } },
@@ -256,16 +265,29 @@ async function assertNoActiveRegistrationsOrCheckouts(tx: Prisma.TransactionClie
   if (activeRegistrations > 0 || openCheckouts > 0) {
     throw new Error("GUARDED_DELETE_BLOCKED")
   }
+  const fundraiserEntries = await tx.fundraiserEntry.count({
+    where: { fundraiser: { eventId: id } },
+  })
+  if (fundraiserEntries > 0) throw new Error("FUNDRAISER_DELETE_BLOCKED")
 }
 
-// Maps a deleteEvent transaction failure to its caller-facing result. The
-// P2034 serialization race is handled by the retry loop in deleteEvent itself
-// (it needs the attempt counter), so it never reaches here.
+/**
+ * Map a deleteEvent transaction failure to its caller-facing result. The
+ * P2034 serialization race is handled by the retry loop in deleteEvent itself
+ * (it needs the attempt counter), so it never reaches here.
+ * @param e the error thrown by the delete transaction
+ * @returns a friendly ActionResult error
+ */
 function deleteEventFailureResult(e: unknown): ActionResult {
   const msg = e instanceof Error ? e.message : String(e)
   if (msg === "GUARDED_DELETE_BLOCKED") {
     return {
       error: "This event has registrations or a payment in progress — cancel them individually before deleting.",
+    }
+  }
+  if (msg === "FUNDRAISER_DELETE_BLOCKED") {
+    return {
+      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event. Entries with card payments cannot be removed in-app.",
     }
   }
   logger.error("[deleteEvent] delete failed", { error: msg })

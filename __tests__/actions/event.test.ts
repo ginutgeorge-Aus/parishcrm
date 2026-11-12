@@ -39,6 +39,7 @@ jest.mock("@/lib/prisma", () => {
     registrationItem: { count: jest.fn(), aggregate: jest.fn(), groupBy: jest.fn() },
     registration: { count: jest.fn().mockResolvedValue(0) },
     checkoutSession: { count: jest.fn().mockResolvedValue(0) },
+    fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
     eventImage: {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
@@ -58,6 +59,7 @@ beforeEach(() => {
   // test that deletes an event. Re-assert the "nothing blocking" baseline.
   ;(prisma.registration.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.checkoutSession.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(0)
   // Re-establish the default interactive-transaction behaviour (run the callback
   // against the same mocks). A retry test overrides this to reject with
   // P2034; restoring it here stops that override leaking into later tests.
@@ -363,6 +365,19 @@ describe("deleteEvent", () => {
     })
     expect(prisma.event.delete).not.toHaveBeenCalled()
     expect(prisma.checkoutSession.count).toHaveBeenCalledWith({ where: { eventId: 1, status: "OPEN" } })
+  })
+
+  it("refuses to delete an event whose fundraiser has entries — the cascade would destroy its payments", async () => {
+    mockSession("ADMIN")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1 })
+    ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(3)
+    const result = await deleteEvent(1)
+    expect(result).toEqual({
+      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event. Entries with card payments cannot be removed in-app.",
+    })
+    expect(prisma.event.delete).not.toHaveBeenCalled()
+    expect(syncEventDeletion).not.toHaveBeenCalled()
+    expect(prisma.fundraiserEntry.count).toHaveBeenCalledWith({ where: { fundraiser: { eventId: 1 } } })
   })
 })
 

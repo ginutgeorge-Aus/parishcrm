@@ -84,6 +84,22 @@ export function canEditOrOrganise(role: UserRole | undefined): boolean {
 }
 
 /**
+ * Create/edit event fundraisers, entries and payments, and send reminders.
+ * Same set as canEdit (ADMIN | PASTOR | OFFICE_ADMIN).
+ */
+export function canManageFundraiser(role: UserRole | undefined): boolean {
+  return role === UserRole.ADMIN || role === UserRole.PASTOR || role === UserRole.OFFICE_ADMIN
+}
+
+/**
+ * Read-only view of fundraiser totals: managers plus AUDITOR. VIEWER and
+ * EVENT_ORGANISER see nothing.
+ */
+export function canViewFundraiserTotals(role: UserRole | undefined): boolean {
+  return canManageFundraiser(role) || role === UserRole.AUDITOR
+}
+
+/**
  * See the /groups list and group detail pages (read-only for VIEWER). Same set
  * as canViewPeople: a member list is member PII. AUDITOR and EVENT_ORGANISER
  * are excluded (organisers use /my-groups, gated per group).

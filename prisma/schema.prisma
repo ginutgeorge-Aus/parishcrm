@@ -29,6 +29,7 @@ model Family {
   updateInvites          FamilyUpdateInvite[]
   updateSubmissions      FamilyUpdateSubmission[]
   membershipApplications MembershipApplication[]  @relation("MembershipFamily")
+  fundraiserEntries      FundraiserEntry[]
 
   @@unique([name])
   @@index([archivedAt])
@@ -112,7 +113,7 @@ model User {
   // (migration 20261028000000_user_email_lower_unique; Prisma can't model expression indexes).
   // App code should lowercase on write (see the login-email normalisation work); the index is the backstop.
   email                        String                   @unique
-  passwordHash                String
+  passwordHash                 String
   role                         UserRole                 @default(VIEWER)
   failedLoginAttempts          Int                      @default(0)
   lockedUntil                  DateTime?
@@ -145,6 +146,8 @@ model User {
   venueUsageRequestsSent       VenueUsageRequest[]      @relation("VenueUsageRequestSentBy")
   venueUsageRequestsApproved   VenueUsageRequest[]      @relation("VenueUsageRequestApprovedBy")
   paymentReminderSends         PaymentReminderSend[]
+  fundraiserReminderSends      FundraiserReminderSend[]
+  fundraiserPaymentsRecorded   FundraiserPayment[]
   auditLogs                    AuditLog[]
   sundaySchoolRollMarkers      SundaySchoolRollMarker[]
   groupLeaderAccess            GroupLeaderAccess[]
@@ -634,6 +637,7 @@ model Event {
   waitlist              Waitlist[]
   images                EventImage[]
   checkoutSessions      CheckoutSession[]
+  fundraisers           Fundraiser[]
   managers              EventManager[]
 }
 
@@ -700,8 +704,15 @@ model CheckoutSession {
   registrationId  Int?
   registration    Registration?  @relation(fields: [registrationId], references: [id], onDelete: SetNull)
 
+  // When set, this checkout pays a fundraiser entry (part payment) so the
+  // webhook can find it. `payload` stays "" on this path. SetNull so deleting
+  // an entry never errors on this FK.
+  fundraiserEntryId Int?
+  fundraiserEntry   FundraiserEntry? @relation(fields: [fundraiserEntryId], references: [id], onDelete: SetNull)
+
   @@index([status, expiresAt])
   @@index([registrationId])
+  @@index([fundraiserEntryId])
 }
 
 model EventImage {
@@ -877,27 +888,27 @@ model PettyCashSession {
 }
 
 model PettyCashReceipt {
-  id            Int              @id @default(autoincrement())
-  sessionId     Int
-  session       PettyCashSession @relation(fields: [sessionId], references: [id])
-  date          DateTime
-  serviceTypeId Int?
-  serviceType   ServiceType?     @relation(fields: [serviceTypeId], references: [id])
-  accountId     Int
-  account       Account          @relation(fields: [accountId], references: [id])
-  personId      Int?
-  person        Person?          @relation(fields: [personId], references: [id])
-  amount        Decimal          @db.Decimal(10, 2)
-  notes         String?
-  importKey     String?
-  createdAt     DateTime         @default(now())
-  transaction   Transaction?
-  fundId        Int?
-  fund          Fund?            @relation(fields: [fundId], references: [id])
+  id              Int              @id @default(autoincrement())
+  sessionId       Int
+  session         PettyCashSession @relation(fields: [sessionId], references: [id])
+  date            DateTime
+  serviceTypeId   Int?
+  serviceType     ServiceType?     @relation(fields: [serviceTypeId], references: [id])
+  accountId       Int
+  account         Account          @relation(fields: [accountId], references: [id])
+  personId        Int?
+  person          Person?          @relation(fields: [personId], references: [id])
+  amount          Decimal          @db.Decimal(10, 2)
+  notes           String?
+  importKey       String?
+  createdAt       DateTime         @default(now())
+  transaction     Transaction?
+  fundId          Int?
+  fund            Fund?            @relation(fields: [fundId], references: [id])
   // Per-form-mount token (#487): a retried submit whose first attempt committed
   // but lost its response finds this row instead of booking a second receipt +
   // mirror. Nullable — older rows and imported receipts have none.
-  submissionToken String?        @unique
+  submissionToken String?          @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres
@@ -913,23 +924,23 @@ model PettyCashReceipt {
 }
 
 model PettyCashExpense {
-  id          Int              @id @default(autoincrement())
-  sessionId   Int
-  session     PettyCashSession @relation(fields: [sessionId], references: [id])
-  date        DateTime
-  payee       String
-  accountId   Int
-  account     Account          @relation(fields: [accountId], references: [id])
-  amount      Decimal          @db.Decimal(10, 2)
-  description String
-  receiptRef  String?
-  importKey   String?
-  createdAt   DateTime         @default(now())
-  transaction Transaction?
-  fundId      Int?
-  fund        Fund?            @relation(fields: [fundId], references: [id])
+  id              Int              @id @default(autoincrement())
+  sessionId       Int
+  session         PettyCashSession @relation(fields: [sessionId], references: [id])
+  date            DateTime
+  payee           String
+  accountId       Int
+  account         Account          @relation(fields: [accountId], references: [id])
+  amount          Decimal          @db.Decimal(10, 2)
+  description     String
+  receiptRef      String?
+  importKey       String?
+  createdAt       DateTime         @default(now())
+  transaction     Transaction?
+  fundId          Int?
+  fund            Fund?            @relation(fields: [fundId], references: [id])
   // Per-form-mount token (#487) — see PettyCashReceipt.submissionToken.
-  submissionToken String?      @unique
+  submissionToken String?          @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres
@@ -1451,6 +1462,83 @@ model VenueUsageRequest {
 
   @@index([sentById])
   @@index([approvedById])
+}
+
+enum FundraiserPaymentMethod {
+  CASH
+  BANK
+  ONLINE
+}
+
+/// One fundraiser per event (v1): a unit-priced sale (e.g. packets) tracked per family.
+model Fundraiser {
+  id        Int               @id @default(autoincrement())
+  eventId   Int
+  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name      String
+  unitLabel String            @default("packet")
+  unitPrice Decimal           @db.Decimal(10, 2)
+  refPrefix String?
+  createdAt DateTime          @default(now())
+  entries   FundraiserEntry[]
+
+  @@unique([eventId])
+}
+
+/// A family's (or outside buyer's) quantity under a fundraiser, with part payments.
+model FundraiserEntry {
+  id               Int                      @id @default(autoincrement())
+  fundraiserId     Int
+  fundraiser       Fundraiser               @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
+  // Restrict: a family with fundraiser history cannot be hard-deleted.
+  familyId         Int?
+  family           Family?                  @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  outsideName      String?
+  outsideEmail     String? // encrypt(email) — PII
+  outsidePhone     String? // encrypt(phone) — PII
+  quantity         Int
+  unitPrice        Decimal                  @db.Decimal(10, 2) // snapshot of Fundraiser.unitPrice at entry time
+  publicToken      String                   @unique
+  bankRef          String                   @unique
+  createdAt        DateTime                 @default(now())
+  payments         FundraiserPayment[]
+  reminderSends    FundraiserReminderSend[]
+  checkoutSessions CheckoutSession[]
+
+  @@unique([fundraiserId, familyId])
+  // fundraiserId lookups use the unique index's leading column; family delete/merge count by familyId.
+  @@index([familyId])
+}
+
+model FundraiserPayment {
+  id               Int                     @id @default(autoincrement())
+  entryId          Int
+  entry            FundraiserEntry         @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  amount           Decimal                 @db.Decimal(10, 2)
+  method           FundraiserPaymentMethod
+  paidAt           DateTime
+  note             String?
+  stripePaymentRef String?                 @unique
+  recordedById     Int?
+  recordedBy       User?                   @relation(fields: [recordedById], references: [id])
+  createdAt        DateTime                @default(now())
+
+  @@index([entryId])
+}
+
+model FundraiserReminderSend {
+  id           Int             @id @default(autoincrement())
+  entryId      Int
+  entry        FundraiserEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  sentTo       String // encrypt(email) — recipient email is PII
+  sentAt       DateTime        @default(now())
+  sentById     Int
+  sentBy       User            @relation(fields: [sentById], references: [id])
+  status       String // "SUCCESS" | "FAILED"
+  errorMessage String?
+
+  @@index([entryId])
+  @@index([sentAt])
 }
 
 enum GroupCategory {

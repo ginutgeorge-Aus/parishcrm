@@ -36,6 +36,7 @@ jest.mock("@/lib/prisma", () => {
     family: { ...family, delete: jest.fn() },
     person: { ...(prisma.person as object), count: jest.fn() },
     transaction: { count: jest.fn() },
+    fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
     auditLog: { create: jest.fn(), createMany: jest.fn() },
   }
   family.delete = outsideTx()

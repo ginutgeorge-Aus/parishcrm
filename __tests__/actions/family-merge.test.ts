@@ -11,6 +11,7 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { count: jest.fn(), updateMany: jest.fn() },
     familyUpdateSubmission: { count: jest.fn() },
     membershipApplication: { updateMany: jest.fn() },
+    fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
     $transaction: jest.fn(),
   },
 }))
@@ -132,6 +133,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
       })
     )
@@ -163,6 +165,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
       })
     )
@@ -194,6 +197,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
       })
     )
