@@ -157,7 +157,7 @@ async function finalizeReconciliation(
  * equation exactly so the on-screen Difference and this decision never disagree.
  * Runs on the caller's transaction client (`tx`) so the read and the updateMany
  * are one atomic Serializable unit. Returns the reconciled count (or
- * null when nothing was reconciled) for the caller to audit after commit.
+ * null when nothing was reconciled) for the caller to audit inside the same transaction.
  */
 async function reconcileIfBalanced(
   tx: Prisma.TransactionClient,
