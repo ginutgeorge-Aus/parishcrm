@@ -23,7 +23,12 @@ export async function renderExamList({
       exams: {
         where: { archivedAt: null },
         orderBy: [{ date: "desc" }, { id: "desc" }],
-        select: { id: true, name: true, date: true, totalMarks: true, _count: { select: { results: true } } },
+        select: {
+          id: true, name: true, date: true, totalMarks: true,
+          // "N of M marked": only children still enrolled (and not archived),
+          // matching enrolledCount — a moved-out child's old mark isn't counted.
+          _count: { select: { results: { where: { person: { archivedAt: null, sundaySchoolEnrolments: { some: { classId } } } } } } },
+        },
       },
     },
   })

@@ -10,11 +10,13 @@ import { ClearanceStatusBadge } from "@/components/people/PersonClearances"
 import { addTeacher, removeTeacher } from "@/lib/actions/sundaySchool"
 import type { ClearanceStatus } from "@/lib/clearanceStatus"
 
-type Teacher = { id: number; name: string; wwcc: ClearanceStatus }
+/** `wwcc` is null when the viewer may not see clearance status (canViewClearanceStatus). */
+type Teacher = { id: number; name: string; wwcc: ClearanceStatus | null }
 type Candidate = { id: number; name: string }
 
 /**
- * A class's teachers, each with their WWCC status badge. Editors can remove a
+ * A class's teachers, each with their WWCC status badge (omitted when
+ * `wwcc` is null: the viewer can't see clearance status). Editors can remove a
  * teacher or add one of the People tagged Sunday school teacher. `linkPeople`
  * false (HEADMASTER: no people access) shows names as plain text.
  */
@@ -49,8 +51,12 @@ export function TeachersPanel({
             <li key={t.id} className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
               <span className="flex items-center gap-2">
                 {linkPeople ? <Link href={`/people/${t.id}`} className="hover:underline">{t.name}</Link> : t.name}
-                <span className="text-xs text-muted-foreground">WWCC</span>
-                <ClearanceStatusBadge status={t.wwcc} />
+                {t.wwcc && (
+                  <>
+                    <span className="text-xs text-muted-foreground">WWCC</span>
+                    <ClearanceStatusBadge status={t.wwcc} />
+                  </>
+                )}
               </span>
               {!readOnly && (
                 <DeleteConfirmButton

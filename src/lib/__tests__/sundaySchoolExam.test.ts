@@ -12,6 +12,12 @@ describe("parseScore", () => {
       expect(parseScore(bad, "100")).toMatchObject({ ok: false })
     }
   })
+  it("strips leading zeros before the too-large check and returns the normalised value", () => {
+    expect(parseScore("0000012", "100")).toEqual({ ok: true, value: "12" })
+    expect(parseScore("00.5", "100")).toEqual({ ok: true, value: "0.5" })
+    expect(parseScore("000", "100")).toEqual({ ok: true, value: "0" })
+    expect(parseScore("0001234567", "9999999")).toEqual({ ok: false, error: "Score is too large" })
+  })
   it("blank clears", () => {
     expect(parseScore("", "100")).toEqual({ ok: true, clear: true, value: null })
     expect(parseScore("   ", "100")).toEqual({ ok: true, clear: true, value: null })
@@ -21,6 +27,12 @@ describe("parseScore", () => {
 describe("ExamFormSchema / isDateInYear", () => {
   const ok = { name: " Term 1 ", date: "2026-03-01", totalMarks: "50" }
   it("accepts and trims", () => expect(ExamFormSchema.parse(ok).name).toBe("Term 1"))
+  it("normalises leading zeros in the total (no false too-large)", () => {
+    expect(ExamFormSchema.parse({ ...ok, totalMarks: "0000050" }).totalMarks).toBe("50")
+    expect(ExamFormSchema.parse({ ...ok, totalMarks: "000999999.50" }).totalMarks).toBe("999999.50")
+    expect(ExamFormSchema.safeParse({ ...ok, totalMarks: "0001234567" }).success).toBe(false)
+    expect(ExamFormSchema.safeParse({ ...ok, totalMarks: "000" }).success).toBe(false)
+  })
   it("rejects blank name, zero or bad total, bad date", () => {
     expect(ExamFormSchema.safeParse({ ...ok, name: "" }).success).toBe(false)
     expect(ExamFormSchema.safeParse({ ...ok, totalMarks: "0" }).success).toBe(false)

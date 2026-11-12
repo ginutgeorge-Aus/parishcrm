@@ -27,8 +27,14 @@ const ENTITY = "SundaySchoolExam"
 const CLASS_GONE = "Class not found"
 const EXAM_GONE = "Exam not found"
 const NOT_IN_CLASS = "Child is not in this class"
+const DUPLICATE_EXAM = "This class already has an exam with that name on that date"
 
 type ExamGuard = { error: string } | { actor: number; classId: number; year: number }
+/** examGuard result: the class guard plus the exam's total marks (decimal string). */
+type ExamTargetGuard = { error: string } | { actor: number; classId: number; year: number; totalMarks: string }
+
+/** Thrown inside setExamScore's transaction when the locked total rejects the score. */
+class ScoreRejected extends Error {}
 
 /**
  * Coarse role pre-check: could this role mark exams for ANY class? Per-class
@@ -86,7 +92,7 @@ async function examClassGuard(classId: number): Promise<ExamGuard> {
  * check. Unknown/archived exams give "Exam not found".
  * @param examId the exam to act on
  */
-async function examGuard(examId: number): Promise<(ExamGuard & { totalMarks?: string }) | { error: string }> {
+async function examGuard(examId: number): Promise<ExamTargetGuard> {
   const pre = await examPreamble()
   if ("error" in pre) return pre
   if (!isValidPgId(examId)) return { error: "Invalid exam" }
@@ -101,16 +107,17 @@ async function examGuard(examId: number): Promise<(ExamGuard & { totalMarks?: st
 }
 
 /**
- * Run `fn` in a transaction holding FOR SHARE on the live class row, so an
- * archive waits and a locked year (rollover) is refused. Returns
- * `{ live: false, error }` when skipped.
+ * Run `fn` in a transaction holding FOR SHARE (or FOR UPDATE, `mode`) on the
+ * live class row, so an archive waits and a locked year (rollover) is refused.
+ * Returns `{ live: false, error }` when skipped.
  */
 async function withLiveClass<T>(
   classId: number,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  mode: "share" | "update" = "share",
 ): Promise<{ live: false; error: string } | { live: true; value: T }> {
   return prisma.$transaction(async (tx) => {
-    const state = await lockLiveClass(tx, classId)
+    const state = await lockLiveClass(tx, classId, mode)
     if (state === "gone") return { live: false as const, error: CLASS_GONE }
     if (state === "locked") return { live: false as const, error: YEAR_LOCKED }
     return { live: true as const, value: await fn(tx) }
@@ -142,10 +149,17 @@ export async function createExam(classId: number, _prev: ActionResult, formData:
   const form = parseExamForm(formData, g.year)
   if ("error" in form) return { error: form.error }
 
-  const r = await withLiveClass(g.classId, (tx) =>
-    tx.sundaySchoolExam.create({ data: { classId: g.classId, year: g.year, ...form.data }, select: { id: true } }),
-  )
+  // FOR UPDATE on the class serialises concurrent creates, so two double-submits
+  // can't both pass the duplicate check.
+  const r = await withLiveClass(g.classId, async (tx) => {
+    const dup = await tx.sundaySchoolExam.count({
+      where: { classId: g.classId, year: g.year, name: { equals: form.data.name, mode: "insensitive" }, date: form.data.date, archivedAt: null },
+    })
+    if (dup > 0) return null
+    return tx.sundaySchoolExam.create({ data: { classId: g.classId, year: g.year, ...form.data }, select: { id: true } })
+  }, "update")
   if (!r.live) return { error: r.error }
+  if (r.value === null) return { error: DUPLICATE_EXAM }
   await logAudit(g.actor, "SS_EXAM_CREATED", ENTITY, r.value.id, { classId: g.classId, name: form.data.name, totalMarks: form.data.totalMarks })
   revalidateExams(g.classId)
 }
@@ -161,6 +175,13 @@ export async function updateExam(id: number, _prev: ActionResult, formData: Form
   if ("error" in form) return { error: form.error }
 
   const r = await withLiveClass(g.classId, async (tx) => {
+    // FOR UPDATE on the exam: a concurrent setExamScore (FOR SHARE) either
+    // commits first (and its score is counted below) or waits and re-reads the
+    // new total.
+    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+    const live = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM "SundaySchoolExam" WHERE id = ${id} AND "archivedAt" IS NULL FOR UPDATE`
+    if (live.length === 0) return "gone" as const
     const over = await tx.sundaySchoolExamResult.count({ where: { examId: id, score: { gt: form.data.totalMarks } } })
     if (over > 0) return "over" as const
     const { count } = await tx.sundaySchoolExam.updateMany({ where: { id, archivedAt: null }, data: form.data })
@@ -197,14 +218,19 @@ export async function setExamScore(examId: number, personId: number, raw: string
   const g = await examGuard(examId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  const score = parseScore(raw, g.totalMarks ?? "0")
+  const score = parseScore(raw, g.totalMarks)
   if (!score.ok) return { error: score.error }
 
   try {
     const r = await withLiveClass(g.classId, async (tx) => {
-      // Exam may have been archived since the guard.
-      const exam = await tx.sundaySchoolExam.findFirst({ where: { id: examId, archivedAt: null }, select: { id: true } })
-      if (!exam) throw new Error(EXAM_GONE)
+      // FOR SHARE on the exam: it may have been archived since the guard, and a
+      // concurrent updateExam (FOR UPDATE) may have lowered the total — re-check
+      // the score against the committed total while holding the lock.
+      // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+      const exam = await tx.$queryRaw<{ totalMarks: string }[]>`
+        SELECT "totalMarks"::text AS "totalMarks" FROM "SundaySchoolExam"
+        WHERE id = ${examId} AND "archivedAt" IS NULL FOR SHARE`
+      if (exam.length === 0) throw new Error(EXAM_GONE)
       if (score.value === null) {
         await tx.sundaySchoolExamResult.deleteMany({ where: { examId, personId } })
         return
@@ -215,6 +241,8 @@ export async function setExamScore(examId: number, personId: number, raw: string
         SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
         WHERE e."classId" = ${g.classId} AND e."personId" = ${personId} AND p."archivedAt" IS NULL FOR SHARE`
       if (enrolled.length === 0) throw new Error(NOT_IN_CLASS)
+      const fresh = parseScore(score.value, exam[0].totalMarks)
+      if (!fresh.ok) throw new ScoreRejected(fresh.error)
       await tx.sundaySchoolExamResult.upsert({
         where: { examId_personId: { examId, personId } },
         create: { examId, personId, score: score.value, markedById: g.actor },
@@ -223,6 +251,7 @@ export async function setExamScore(examId: number, personId: number, raw: string
     })
     if (!r.live) return { error: r.error }
   } catch (e) {
+    if (e instanceof ScoreRejected) return { error: e.message }
     if (e instanceof Error && (e.message === EXAM_GONE || e.message === NOT_IN_CLASS)) return { error: e.message }
     throw e
   }

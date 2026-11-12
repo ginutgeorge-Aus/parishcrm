@@ -26,6 +26,16 @@ function toHundredths(s: string): bigint {
 }
 
 /**
+ * Strip leading zeros from the whole part of a MONEY_DECIMAL_RE string
+ * ("0012.50" -> "12.50", "000" -> "0", "00.5" -> "0.5") so the digit-length
+ * check sees the real magnitude and the stored value is canonical.
+ * @param s a string that matched MONEY_DECIMAL_RE
+ */
+function stripLeadingZeros(s: string): string {
+  return s.replace(/^0+(?=\d)/, "")
+}
+
+/**
  * Validate a typed score against the exam total. Blank (after trim) means
  * "clear the mark". Otherwise: plain non-negative decimal, at most 2 dp,
  * 0 <= score <= total. "0" is a real mark.
@@ -36,10 +46,10 @@ export function parseScore(raw: string, totalMarks: string): ScoreParse {
   const s = typeof raw === "string" ? raw.trim() : ""
   if (s === "") return { ok: true, clear: true, value: null }
   if (!MONEY_DECIMAL_RE.test(s)) return { ok: false, error: "Score must be a number with at most 2 decimal places, 0 or more" }
-  const whole = s.split(".")[0]
-  if (whole.length > MAX_DIGITS) return { ok: false, error: "Score is too large" }
-  if (toHundredths(s) > toHundredths(totalMarks)) return { ok: false, error: `Score cannot be more than the total (${totalMarks})` }
-  return { ok: true, value: s }
+  const n = stripLeadingZeros(s)
+  if (n.split(".")[0].length > MAX_DIGITS) return { ok: false, error: "Score is too large" }
+  if (toHundredths(n) > toHundredths(totalMarks)) return { ok: false, error: `Score cannot be more than the total (${totalMarks})` }
+  return { ok: true, value: n }
 }
 
 /** Zod schema for the exam create/edit form (date is checked against the class year by the action). */
@@ -50,6 +60,7 @@ export const ExamFormSchema = z.object({
     .string()
     .trim()
     .regex(MONEY_DECIMAL_RE, "Total marks must be a number with at most 2 decimal places")
+    .transform(stripLeadingZeros)
     .refine((s) => s.split(".")[0].length <= MAX_DIGITS, "Total marks is too large")
     .refine((s) => toHundredths(s) > BigInt(0), "Total marks must be more than 0"),
 })

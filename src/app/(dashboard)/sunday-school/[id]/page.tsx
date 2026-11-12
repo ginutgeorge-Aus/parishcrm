@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { canBrowseSundaySchool, canManageSundaySchool, canViewPeople } from "@/lib/roleGuard"
+import { canBrowseSundaySchool, canManageSundaySchool, canViewClearanceStatus, canViewPeople } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { clearanceStatus } from "@/lib/clearanceStatus"
 import { sydneyToday } from "@/lib/dates"
@@ -30,6 +30,9 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
   const id = parseRouteId((await props.params).id)
   if (id === null) notFound()
 
+  // WWCC status is clearance data: HEADMASTER (and other roles without
+  // canViewClearanceStatus) must not receive it, so the select takes none.
+  const showWwcc = canViewClearanceStatus(session.user.role)
   const cls = await prisma.sundaySchoolClass.findUnique({
     where: { id },
     select: {
@@ -40,7 +43,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         orderBy: { person: { lastName: "asc" } },
         select: { person: { select: {
           id: true, firstName: true, lastName: true,
-          clearances: { where: { type: "WWCC" }, select: { verifiedAt: true, expiresAt: true } },
+          clearances: { where: { type: "WWCC" }, take: showWwcc ? undefined : 0, select: { verifiedAt: true, expiresAt: true } },
         } } },
       },
       enrolments: {
@@ -109,7 +112,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
 
   const today = sydneyToday()
   const teachers = cls.teachers.map(({ person: p }) => ({
-    id: p.id, name: `${p.firstName} ${p.lastName}`, wwcc: clearanceStatus(p.clearances[0] ?? null, today),
+    id: p.id, name: `${p.firstName} ${p.lastName}`, wwcc: showWwcc ? clearanceStatus(p.clearances[0] ?? null, today) : null,
   }))
   const enrolled = cls.enrolments.map(({ person: p }) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`, familyName: p.family.name }))
   const candidates = enrolCandidates.map((p) => ({
