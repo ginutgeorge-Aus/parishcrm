@@ -10,7 +10,7 @@ import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
-import { MONEY_DECIMAL_RE, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2003, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
 import { isFeatureOn } from "@/lib/featureFlags"
 
@@ -168,11 +168,15 @@ export async function updateFamily(
   redirect(`/families/${id}`)
 }
 
+/** Friendly error when FundraiserEntry.familyId (onDelete: Restrict) blocks a family delete/merge. */
+const FUNDRAISER_FAMILY_ERROR = "Remove or move this family's fundraiser entries first."
+
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
  * past the retention floor with no linked transactions or active members.
  * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED,
- * in the same transaction as the delete.
+ * in the same transaction as the delete. Blocked while the family has
+ * fundraiser entries (Restrict FK); a P2003 is mapped to the same error.
  * @param id Family.id
  */
 export async function deleteFamily(id: number): Promise<ActionResult> {
@@ -183,78 +187,91 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
   if (!target) return { error: "Not found" }
 
   const actor = actorId(session)
-  const blocked = await prisma.$transaction(async (tx): Promise<{ error: string } | null> => {
-    // Lock the family, then its members in id order (archiveFamily's order, so
-    // the two can't deadlock), before any check. Each racing write then either
-    // committed first — and the checks below see it — or waits until we
-    // commit: an unarchive (UPDATE Family/Person), a new linked transaction
-    // (its FK takes KEY SHARE on the family row), or a new clearance
-    // (upsertClearance takes FOR SHARE on the person row).
-    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-    const locked = await tx.$queryRaw<{ archivedAt: Date | null }[]>`
-      SELECT "archivedAt" FROM "Family" WHERE id = ${id} FOR UPDATE`
-    if (locked.length === 0) return { error: "Not found" }
-    // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-    await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`
+  let blocked: { error: string } | null
+  try {
+    blocked = await prisma.$transaction(async (tx): Promise<{ error: string } | null> => {
+      // Lock the family, then its members in id order (archiveFamily's order, so
+      // the two can't deadlock), before any check. Each racing write then either
+      // committed first — and the checks below see it — or waits until we
+      // commit: an unarchive (UPDATE Family/Person), a new linked transaction
+      // (its FK takes KEY SHARE on the family row), or a new clearance
+      // (upsertClearance takes FOR SHARE on the person row).
+      // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+      const locked = await tx.$queryRaw<{ archivedAt: Date | null }[]>`
+        SELECT "archivedAt" FROM "Family" WHERE id = ${id} FOR UPDATE`
+      if (locked.length === 0) return { error: "Not found" }
+      // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+      await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`
 
-    // Transaction.familyId is SetNull on delete — deleting a family with giving
-    // history would silently orphan those rows and break annual statements.
-    // Block and steer to archive instead, mirroring deleteAccount.
-    const txCount = await tx.transaction.count({ where: { familyId: id } })
-    if (txCount > 0) {
-      return { error: `Cannot delete — ${txCount} transaction(s) linked to this family. Archive it instead.` }
-    }
-
-    // Person.familyId is onDelete: Cascade — deleting a family with members would
-    // silently and permanently destroy every person record. Block and steer
-    // to archive, which soft-archives the family and its members together —
-    // EXCEPT once the family has sat archived past the 7-year ATO retention floor
-    //: the archived-families page then offers permanent deletion, and it
-    // must actually work rather than always failing on the members it archived
-    // alongside the family. Still block if any member is somehow not archived.
-    //
-    // The retention floor applies regardless of member count: a family still holds
-    // its own encrypted PII (address/suburb/state/postcode/homePhone/notes), so a
-    // zero-member family must also be archived and past the floor before hard
-    // delete. Previously this guard was nested under `memberCount > 0`, letting a
-    // same-day archive+delete of a memberless family destroy PII early.
-    const archivedAt = locked[0].archivedAt
-    const pastRetention = archivedAt !== null && archivedAt < retentionFloor()
-    const memberCount = await tx.person.count({ where: { familyId: id } })
-    if (!pastRetention) {
-      if (memberCount > 0) {
-        return { error: `Cannot delete — ${memberCount} member(s) in this family. Archive it instead.` }
+      // Transaction.familyId is SetNull on delete — deleting a family with giving
+      // history would silently orphan those rows and break annual statements.
+      // Block and steer to archive instead, mirroring deleteAccount.
+      const txCount = await tx.transaction.count({ where: { familyId: id } })
+      if (txCount > 0) {
+        return { error: `Cannot delete — ${txCount} transaction(s) linked to this family. Archive it instead.` }
       }
-      return { error: "Cannot delete — a family can only be permanently deleted 7 years after it was archived. Archive it instead." }
-    }
-    // Past the floor: still block if any member somehow remains active (the archive
-    // step should have archived them alongside the family).
-    const activeMemberCount = await tx.person.count({ where: { familyId: id, archivedAt: null } })
-    if (activeMemberCount > 0) {
-      return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
-    }
 
-    // Clearances cascade with the members (family -> person -> clearance), so
-    // capture them under the member locks and audit each as CLEARANCE_REMOVED
-    // in this transaction — a failed audit write rolls the delete back.
-    const removedClearances = await tx.personClearance.findMany({
-      where: { person: { familyId: id } },
-      select: { id: true, type: true, personId: true },
+      // Person.familyId is onDelete: Cascade — deleting a family with members would
+      // silently and permanently destroy every person record. Block and steer
+      // to archive, which soft-archives the family and its members together —
+      // EXCEPT once the family has sat archived past the 7-year ATO retention floor
+      //: the archived-families page then offers permanent deletion, and it
+      // must actually work rather than always failing on the members it archived
+      // alongside the family. Still block if any member is somehow not archived.
+      //
+      // The retention floor applies regardless of member count: a family still holds
+      // its own encrypted PII (address/suburb/state/postcode/homePhone/notes), so a
+      // zero-member family must also be archived and past the floor before hard
+      // delete. Previously this guard was nested under `memberCount > 0`, letting a
+      // same-day archive+delete of a memberless family destroy PII early.
+      const archivedAt = locked[0].archivedAt
+      const pastRetention = archivedAt !== null && archivedAt < retentionFloor()
+      const memberCount = await tx.person.count({ where: { familyId: id } })
+      if (!pastRetention) {
+        if (memberCount > 0) {
+          return { error: `Cannot delete — ${memberCount} member(s) in this family. Archive it instead.` }
+        }
+        return { error: "Cannot delete — a family can only be permanently deleted 7 years after it was archived. Archive it instead." }
+      }
+      // Past the floor: still block if any member somehow remains active (the archive
+      // step should have archived them alongside the family).
+      const activeMemberCount = await tx.person.count({ where: { familyId: id, archivedAt: null } })
+      if (activeMemberCount > 0) {
+        return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
+      }
+
+      // Clearances cascade with the members (family -> person -> clearance), so
+      // capture them under the member locks and audit each as CLEARANCE_REMOVED
+      // in this transaction — a failed audit write rolls the delete back.
+      const removedClearances = await tx.personClearance.findMany({
+        where: { person: { familyId: id } },
+        select: { id: true, type: true, personId: true },
+      })
+      // FundraiserEntry.familyId is onDelete: Restrict — the delete below would
+      // throw P2003 (an unhandled 500). Check first for a friendly error.
+      if ((await tx.fundraiserEntry.count({ where: { familyId: id } })) > 0) {
+        return { error: FUNDRAISER_FAMILY_ERROR }
+      }
+      await tx.family.delete({ where: { id } })
+      await logAuditTx(tx, actor, "FAMILY_DELETED", "Family", id)
+      await logAuditManyTx(
+        tx,
+        removedClearances.map((c) => ({
+          userId: actor,
+          action: "CLEARANCE_REMOVED",
+          resourceType: "Person",
+          resourceId: c.personId,
+          metadata: { type: c.type, clearanceId: c.id, cascade: true },
+        })),
+      )
+      return null
     })
-    await tx.family.delete({ where: { id } })
-    await logAuditTx(tx, actor, "FAMILY_DELETED", "Family", id)
-    await logAuditManyTx(
-      tx,
-      removedClearances.map((c) => ({
-        userId: actor,
-        action: "CLEARANCE_REMOVED",
-        resourceType: "Person",
-        resourceId: c.personId,
-        metadata: { type: c.type, clearanceId: c.id, cascade: true },
-      })),
-    )
-    return null
-  })
+  } catch (e: unknown) {
+    // Backstop: a fundraiser entry added after the count above (or any other
+    // Restrict FK) still fails the delete — answer friendly, not a 500.
+    if (isP2003(e)) return { error: FUNDRAISER_FAMILY_ERROR }
+    throw e
+  }
   if (blocked) return blocked
   revalidatePath("/families")
   redirect("/families")
@@ -318,6 +335,18 @@ const ARCHIVED_MERGE_ERROR = "Archived families can't be merged — unarchive fi
 
 class ArchivedDuringMerge extends Error {}
 
+/** Thrown inside the merge tx when the source family gained fundraiser entries after preview. */
+class FundraiserEntriesDuringMerge extends Error {}
+
+/**
+ * Validate a merge of `sourceId` into `targetId` and summarise it: archived or
+ * missing families, and a source with fundraiser entries (Restrict FK on
+ * delete), return an error; person-name clashes and pending self-update
+ * submissions are returned as conflicts.
+ * @param sourceId family to merge away (deleted)
+ * @param targetId surviving family
+ * @returns the preview, or an error
+ */
 async function _previewMergeCore(
   sourceId: number,
   targetId: number
@@ -337,7 +366,7 @@ async function _previewMergeCore(
   const source = { id: sourceRow.id, name: sourceRow.name, memberNo: sourceRow.memberNo }
   const target = { id: targetRow.id, name: targetRow.name, memberNo: targetRow.memberNo }
 
-  const [sourcePeople, targetPeople, transactionCount, pendingSubmissions] = await Promise.all([
+  const [sourcePeople, targetPeople, transactionCount, pendingSubmissions, fundraiserEntries] = await Promise.all([
     // Include archived people on BOTH sides: the merge moves every source Person
     // (archived or not) into the target, and Person(familyId,firstName,lastName)
     // is a plain (non-partial) unique that blocks a name collision against an
@@ -351,7 +380,11 @@ async function _previewMergeCore(
     // FamilyUpdateSubmission rows. Block the merge while a self-update awaits
     // review so it isn't silently lost — admin must approve/reject first.
     prisma.familyUpdateSubmission.count({ where: { familyId: sourceId, status: "PENDING" } }),
+    // FundraiserEntry.familyId is onDelete: Restrict — deleting the source
+    // would fail with P2003. Block up front with a friendly error.
+    prisma.fundraiserEntry.count({ where: { familyId: sourceId } }),
   ])
+  if (fundraiserEntries > 0) return { error: FUNDRAISER_FAMILY_ERROR }
 
   const targetNames = new Set(targetPeople.map((p) => `${p.firstName} ${p.lastName}`))
   const conflicts = sourcePeople
@@ -375,6 +408,15 @@ export async function previewMerge(
   return _previewMergeCore(sourceId, targetId)
 }
 
+/**
+ * Merge `sourceId` into `targetId` (ADMIN only): move people, giving,
+ * membership applications and self-update history, then delete the source.
+ * Blocked while the source has fundraiser entries (Restrict FK); a P2003 is
+ * mapped to the same friendly error.
+ * @param sourceId family to merge away
+ * @param targetId surviving family
+ * @returns success, an error, or person-name conflicts
+ */
 export async function mergeFamilies(
   sourceId: number,
   targetId: number
@@ -411,10 +453,16 @@ export async function mergeFamilies(
       // history is moved here.
       await tx.familyUpdateInvite.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
+      // Re-check under the family row lock: an entry added after preview
+      // would make the delete below fail on the Restrict FK.
+      if ((await tx.fundraiserEntry.count({ where: { familyId: sourceId } })) > 0) {
+        throw new FundraiserEntriesDuringMerge()
+      }
       await tx.family.delete({ where: { id: sourceId } })
     })
   } catch (e: unknown) {
     if (e instanceof ArchivedDuringMerge) return { error: ARCHIVED_MERGE_ERROR }
+    if (e instanceof FundraiserEntriesDuringMerge || isP2003(e)) return { error: FUNDRAISER_FAMILY_ERROR }
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
       return { conflicts: ["Merge failed: a duplicate person name was added concurrently. Please re-run preview."] }
     }

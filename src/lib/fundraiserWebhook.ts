@@ -9,8 +9,9 @@ import { toStripeAmount } from "@/lib/stripeAmount"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { notifyStripeAlert } from "@/lib/notifications"
 import { logAudit } from "@/lib/audit"
-import { isP2002 } from "@/lib/validation"
-import type { Prisma } from "@/lib/generated/prisma/client"
+import { isP2002, isP2034 } from "@/lib/validation"
+// Value import (isolation-level enum), not the @/lib/prisma re-export — see serializableWrite.ts.
+import { Prisma } from "@/lib/generated/prisma/client"
 
 // After a failed attempt, give Stripe's retry room before the hourly sweep
 // could expire the row (mirrors stripeCheckout.ts).
@@ -56,9 +57,17 @@ async function claimUnfulfilled(stagingId: number): Promise<boolean> {
 
 /**
  * Lock the entry, claim the staging row (OPEN→COMPLETED) and insert the ONLINE
- * payment in one transaction. The entry lock serialises with `deleteEntry`, so
- * an entry cannot vanish between claim and insert, and a failure rolls the
- * claim back so Stripe's retry can try again.
+ * payment in one Serializable transaction. The entry lock serialises with
+ * `deleteEntry`, so an entry cannot vanish between claim and insert, and a
+ * failure rolls the claim back so Stripe's retry can try again.
+ *
+ * Why Serializable: `recordPayment` / `updateEntryQuantity` run Serializable
+ * and take the same FOR UPDATE lock, but their snapshot is fixed when the
+ * lock statement starts, before it waits on ours — so the row lock alone does
+ * not make them see this insert. SSI only catches that read/write conflict when
+ * both sides are Serializable; under Read Committed here a staff payment could
+ * commit against a stale balance (silent overpay). A conflict now aborts one
+ * side with P2034; on this side the caller returns 500 so Stripe redelivers.
  * @param stagingId CheckoutSession id
  * @param entryId FundraiserEntry id
  * @param amount base amount (charge minus card fee) as staged
@@ -99,6 +108,18 @@ async function claimAndRecord(
       select: { id: true },
     })
     return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents: Math.max(0, toCents(amount) - remainingCents) }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
+/**
+ * Leave the staging row OPEN for Stripe's retry, pushing its expiry past the
+ * retry window so the hourly sweep does not expire it first.
+ * @param stagingId CheckoutSession id
+ */
+async function extendForRetry(stagingId: number): Promise<void> {
+  await prisma.checkoutSession.updateMany({
+    where: { id: stagingId, status: "OPEN" },
+    data: { expiresAt: new Date(Date.now() + RETRY_EXPIRY_MS) },
   })
 }
 
@@ -108,6 +129,8 @@ async function claimAndRecord(
  * redeliveries (atomic claim + unique `stripePaymentRef`). An amount mismatch or
  * a deleted entry records nothing and alerts ops. An overpayment (a cash/bank
  * payment cleared the balance first) is still recorded, and ops is alerted.
+ * A serialization conflict (P2034) with a concurrent staff write returns 500
+ * without an alert: the claim rolled back and Stripe redelivers.
  * @param session the paid Stripe Checkout Session
  * @param staging the staged CheckoutSession row for it
  * @returns HTTP status for the webhook response (500 = let Stripe retry)
@@ -160,15 +183,20 @@ export async function completeFundraiserPayment(
       })
       return { status: 200 }
     }
+    if (isP2034(err)) {
+      // Lost a Serializable conflict with a concurrent staff payment/quantity
+      // edit on this entry. The claim rolled back; Stripe's retry re-reads the
+      // committed balance. Transient, so no ops alert.
+      console.warn(`Stripe webhook: fundraiser payment for session ${session.id} hit a serialization conflict; Stripe will retry`)
+      await extendForRetry(staging.id)
+      return { status: 500 }
+    }
     console.error(`Stripe webhook: recording fundraiser payment for session ${session.id} failed; Stripe will retry`, err)
     await notifyStripeAlert(
       "fundraiser card payment: record failed — Stripe retrying",
       `Session ${session.id}: payment settled but recording it threw (${err instanceof Error ? err.message : String(err)}). Row left OPEN for Stripe retry; if retries exhaust, record it manually.`,
     )
-    await prisma.checkoutSession.updateMany({
-      where: { id: staging.id, status: "OPEN" },
-      data: { expiresAt: new Date(Date.now() + RETRY_EXPIRY_MS) },
-    })
+    await extendForRetry(staging.id)
     return { status: 500 }
   }
 

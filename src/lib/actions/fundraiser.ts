@@ -228,7 +228,9 @@ export async function addEntry(
  * entry's snapshotted unit price) would be below what is already paid. Runs
  * Serializable: a concurrent payment on the same entry makes Postgres SSI abort
  * one side (P2034), which `serializableWrite` retries against committed state.
- * The FOR UPDATE row lock only reduces those aborts; it is not the guarantee.
+ * This covers the Stripe webhook's ONLINE insert only because that transaction
+ * also runs Serializable (`fundraiserWebhook.ts`). The FOR UPDATE row lock only
+ * reduces those aborts; it is not the guarantee (the snapshot predates the wait).
  *
  * @param entryId - Entry id.
  * @param quantity - 1-4 digit positive integer string.
@@ -309,7 +311,8 @@ export async function deleteEntry(entryId: number): Promise<ActionResult> {
  * a double-click returns success without a second row instead of failing as
  * "Exceeds remaining balance". Runs Serializable: correctness against a
  * concurrent payment/quantity edit comes from SSI aborts (P2034) retried by
- * `serializableWrite`; the FOR UPDATE row lock only reduces aborts. A concurrent twin that loses on the unique index is also treated as success.
+ * `serializableWrite` (the webhook's ONLINE insert runs Serializable too, which
+ * SSI needs); the FOR UPDATE row lock only reduces aborts. A concurrent twin that loses on the unique index is also treated as success.
  *
  * @param entryId - Entry id.
  * @param input - `amount` 2-dp decimal string > 0 and <= remaining; `paidAt` YYYY-MM-DD.

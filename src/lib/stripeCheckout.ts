@@ -789,7 +789,8 @@ async function cancelRegistrationByPaymentIntent(pi: string | null, reason: stri
 // booking) — the caller re-checks paymentRef once, then acknowledges.
 // A fundraiser card payment never gets a registration or a publicToken, so its
 // COMPLETED row is settled, not in flight: alert ops (the recorded ONLINE
-// payment can't be removed in-app) and let the caller acknowledge.
+// payment can't be removed in-app; ops corrects it in the database) and let the
+// caller acknowledge.
 async function checkoutInFlight(pi: string): Promise<boolean> {
   const { data } = await getStripe().checkout.sessions.list({ payment_intent: pi, limit: 1 })
   if (!data[0]) return false
@@ -799,10 +800,13 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
   })
   if (staging?.fundraiserEntryId != null || data[0].metadata?.fundraiserEntryId) {
     if (staging?.status === "OPEN") return true
-    console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; fundraiser ledger not adjusted, manual review needed`)
+    const entryRef = staging?.fundraiserEntryId ?? data[0].metadata?.fundraiserEntryId ?? "unknown"
+    console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; fundraiser ledger not adjusted, database correction needed`)
     await notifyStripeAlert(
       "fundraiser card payment refunded or disputed",
-      `PI ${pi} (session ${data[0].id}): a fundraiser card payment was refunded or disputed in Stripe. The recorded payment was not changed; adjust the fundraiser manually.`,
+      `PI ${pi} (session ${data[0].id}, fundraiser entry ${entryRef}): a refund or dispute was received for a fundraiser card payment. ` +
+        `The payment stays counted as paid in the app, and online payments cannot be removed in-app. ` +
+        `Ops must correct the ledger directly in the database: the FundraiserPayment row with stripePaymentRef = ${pi} on that entry.`,
     )
     return false
   }

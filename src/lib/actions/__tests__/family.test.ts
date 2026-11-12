@@ -59,6 +59,7 @@ jest.mock("@/lib/prisma", () => ({
     membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     familyUpdateSubmission: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
+    fundraiserEntry: { count: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn().mockResolvedValue([]),
   },
@@ -78,10 +79,14 @@ const familyDeleteTx = jest.fn()
 // deleteFamily's eligibility counts likewise exist only on the tx client.
 const personCountTx = jest.fn()
 const txCountTx = jest.fn()
+// FundraiserEntry count on the tx client (deleteFamily + merge re-check).
+const fundraiserCountTx = jest.fn()
 
 beforeEach(() => {
   jest.clearAllMocks()
   familyDeleteTx.mockResolvedValue({})
+  fundraiserCountTx.mockResolvedValue(0)
+  ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(0)
   for (const m of [prisma.family.delete, prisma.person.count, prisma.transaction.count]) {
     ;(m as jest.Mock).mockImplementation(() => {
       throw new Error("called outside the transaction")
@@ -108,6 +113,7 @@ beforeEach(() => {
           delete: familyDeleteTx,
         },
         personClearance: prisma.personClearance,
+        fundraiserEntry: { count: fundraiserCountTx },
       })
     }
     return Promise.all(arg as unknown[])
@@ -314,6 +320,34 @@ describe("deleteFamily", () => {
     expect(familyDeleteTx).toHaveBeenCalledWith({ where: { id: 3 } })
   })
 
+  it("blocks a past-retention delete while the family has fundraiser entries (Restrict FK)", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
+      id: 3,
+      archivedAt: new Date("2020-01-01T00:00:00.000Z"),
+    })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValue(0)
+    fundraiserCountTx.mockResolvedValue(1)
+    const r = await deleteFamily(3)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(fundraiserCountTx).toHaveBeenCalledWith({ where: { familyId: 3 } })
+    expect(familyDeleteTx).not.toHaveBeenCalled()
+  })
+
+  it("maps a P2003 FK failure on the delete to the friendly fundraiser error, not a 500", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
+      id: 3,
+      archivedAt: new Date("2020-01-01T00:00:00.000Z"),
+    })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValue(0)
+    familyDeleteTx.mockRejectedValue({ code: "P2003" })
+    const r = await deleteFamily(3)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+  })
+
   it("blocks deleting a zero-member family that is not past the retention floor", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     // Never archived → not past retention; zero members.
@@ -452,6 +486,41 @@ describe("previewMerge / mergeFamilies", () => {
     expect(r.conflicts.some((c) => c.includes("pending self-update"))).toBe(true)
   })
 
+  it("previewMerge refuses when the source family has fundraiser entries", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(2)
+    const r = await previewMerge(1, 2)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(prisma.fundraiserEntry.count).toHaveBeenCalledWith({ where: { familyId: 1 } })
+  })
+
+  it("mergeFamilies refuses before the transaction when the source has fundraiser entries", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(1)
+    const r = await mergeFamilies(1, 2)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("mergeFamilies aborts without deleting when a fundraiser entry is added after preview", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    fundraiserCountTx.mockResolvedValue(1)
+    const r = await mergeFamilies(1, 2)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(familyDeleteTx).not.toHaveBeenCalled()
+  })
+
+  it("mergeFamilies maps a P2003 FK failure to the friendly fundraiser error", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2003" })
+    const r = await mergeFamilies(1, 2)
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+  })
+
   it("mergeFamilies rejects merging a family into itself", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     const r = await mergeFamilies(1, 1)
@@ -542,6 +611,7 @@ describe("previewMerge / mergeFamilies", () => {
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: inviteUpdate },
         familyUpdateSubmission: { updateMany: submissionUpdate },
+        fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: familyDelete },
       })
     )

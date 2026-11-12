@@ -68,9 +68,11 @@ To correct a mistake, delete the manual payment and record it again.
   recorded automatically when Stripe confirms it, and the row's status updates (for example to
   **Paid**).
 
-Card payments are marked **Online**. **Online payments cannot be deleted in the app.** To undo
-one, refund it in the Stripe dashboard. The parish's no-refund policy still applies; see
-[Card Payments Stripe](/parishcrm/docs/card-payments-stripe/).
+Card payments are marked **Online**. **Online payments cannot be deleted or adjusted in the
+app.** A refund must be made in the Stripe dashboard. The parish's no-refund policy still applies;
+see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/). After a refund or dispute, the
+payment still counts as paid in the app. The app sends ops an alert, and whoever runs the server
+must correct the fundraiser payment directly in the database.
 
 ## Sending reminders
 

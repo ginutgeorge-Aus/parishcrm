@@ -146,6 +146,29 @@ it("unexpected DB error → 500 so Stripe retries, row left OPEN", async () => {
   expect(notifyStripeAlert).toHaveBeenCalled()
 })
 
+it("runs the claim + insert transaction Serializable (SSI must see it vs staff payments)", async () => {
+  await completeFundraiserPayment(session(), staging())
+  expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" })
+})
+
+it("serialization conflict (P2034) → 500 so Stripe retries, row left OPEN, no ops alert", async () => {
+  const p2034 = Object.assign(new Error("could not serialize access"), { code: "P2034" })
+  prisma.fundraiserPayment.create.mockRejectedValue(p2034)
+  prisma.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => {
+    const before = rowStatus
+    try { return await fn(prisma) } catch (e) { rowStatus = before; throw e }
+  })
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 500 })
+  expect(rowStatus).toBe("OPEN")
+  expect(notifyStripeAlert).not.toHaveBeenCalled()
+  expect(logAudit).not.toHaveBeenCalled()
+  // Expiry pushed out so the hourly sweep cannot expire the row before the retry.
+  expect(prisma.checkoutSession.updateMany).toHaveBeenLastCalledWith(
+    expect.objectContaining({ where: { id: 11, status: "OPEN" }, data: { expiresAt: expect.any(Date) } }),
+  )
+})
+
 describe("routing through handleStripeWebhook", () => {
   beforeEach(() => { process.env.STRIPE_WEBHOOK_SECRET = "whsec_x" })
 
@@ -197,6 +220,13 @@ describe("refund/dispute of a fundraiser card payment", () => {
     jest.spyOn(console, "error").mockImplementation(() => {})
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
     expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringMatching(/fundraiser/), expect.any(String))
+    // No in-app adjustment exists: the alert must say so and point ops at the DB row.
+    const body = notifyStripeAlert.mock.calls[0][1] as string
+    expect(body).toContain("stays counted as paid")
+    expect(body).toContain("directly in the database")
+    expect(body).toContain("fundraiser entry 7")
+    expect(body).toContain("stripePaymentRef = pi_f")
+    expect(body).not.toMatch(/adjust the fundraiser manually/)
     expect(prisma.registration.update).not.toHaveBeenCalled()
   })
 })
