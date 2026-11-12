@@ -2,10 +2,10 @@ import "server-only"
 import { prisma } from "@/lib/prisma"
 
 /** Messages shown on the history page (newest first). */
-export const HISTORY_LIMIT = 50
+const HISTORY_LIMIT = 50
 
 /** One recipient's delivery state in the history view. Names only, never an address. */
-export type HistoryRecipient = { personId: number; name: string; status: string }
+type HistoryRecipient = { personId: number; name: string; status: string }
 
 /** One sent message with its per-recipient delivery state. */
 export type HistoryMessage = {
