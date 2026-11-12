@@ -333,10 +333,10 @@ export async function closeSession(
       },
     })
     if (count === 0) return false
-  // Always audit the close — it is a state-locking mutation (afterwards all
-  // receipts/expenses/transfers are rejected), so who closed it must be on the
-  // trail whether or not a physical count was taken. `counted` records
-  // which; countedCash/variance are null on a count-less close.
+    // Always audit the close — it is a state-locking mutation (afterwards all
+    // receipts/expenses/transfers are rejected), so who closed it must be on the
+    // trail whether or not a physical count was taken. `counted` records
+    // which; countedCash/variance are null on a count-less close.
     await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
       counted: countedCash !== null,
       countedCash,
