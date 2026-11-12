@@ -19,7 +19,7 @@ jest.mock("@/lib/prisma", () => ({
   },
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -38,6 +38,9 @@ import { previewImport, commitImport } from "@/lib/actions/pettyCashImport"
 import { getAccountingLockDate } from "@/lib/accountingLock"
 import { dedupeKey } from "@/lib/pettyCashImport"
 import { decrypt, safeDecrypt } from "@/lib/crypto"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
+import { revalidatePath } from "next/cache"
 
 const mockSession = auth as jest.Mock
 const mockLockDate = getAccountingLockDate as jest.Mock
@@ -171,6 +174,28 @@ describe("commitImport", () => {
     expect(res).toEqual({ error: expect.stringMatching(/is closed/) })
     expect(fakeTx.pettyCashReceipt.createManyAndReturn).not.toHaveBeenCalled()
     expect(fakeTx.transaction.createMany).not.toHaveBeenCalled()
+  })
+
+  it("returns AUDIT_FAILED_ERROR and does not report success when the audit write throws", async () => {
+    const fakeTx = {
+      pettyCashSession: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(async ({ create }: any) => ({ id: 100, status: "OPEN", ...create })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pettyCashReceipt: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
+      pettyCashExpense: { createManyAndReturn: jest.fn(async ({ data }: any) => data.map((d: any, i: number) => ({ id: i + 1, ...d }))) },
+      transaction: { createMany: jest.fn(async () => ({ count: 1 })) },
+    }
+    mockTx.mockImplementation(async (cb: any) => cb(fakeTx))
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit insert failed"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const res = await commitImport(commitFd(`${HEADER}\n2025-09-07,receipt,Sunday Offertory,,122,`))
+    spy.mockRestore()
+    expect(res).toEqual({ error: AUDIT_FAILED_ERROR })
+    // The throw inside the tx rolls the import back; no post-commit side effects ran.
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("rejects the import when a row is in the locked accounting period", async () => {

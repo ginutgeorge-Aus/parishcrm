@@ -14,6 +14,7 @@ Run via `npx tsx scripts/<name>.ts`. Backfills are **idempotent + dry-run by def
 | `rotate-encryption-key` | Re-encrypt all fields under a new key (usage in the script header). Safe with the app running: each write is conditional on the ciphertext it read, so a concurrent edit is never reverted. A changed row is re-read and retried (3x); rows that keep changing are reported as conflicts and the run exits non-zero — re-run to finish |
 | `set-default-monthly-dues` | One-time backfill: `Family.monthlyDues` for member families with no amount |
 | `backfill-petty-cash-sundays` | Backfill the weekly petty-cash session for past Sundays that never had one auto-opened |
+| `backfill-petty-cash-xfer-legs` | Backfill (#487): set `paymentAccountId` to the cash account on legacy `XFER_OUT_` petty-cash legs where it is null. Always prints the count; writes only with `--apply --yes` and exactly one active CASH account. Idempotent, dry-run default |
 | `hash-bankref-account` | Backfill (#459): rewrite legacy `Transaction.bankRef` values that embed the bank account number to the hashed at-rest format. Idempotent, dry-run default, conflict-safe; see [Bank import: `bankRef` at rest](#bank-import-bankref-at-rest) |
 | `check-pettycash-importkey-dups` | **Read-only** pre-migration safety check — reports duplicate `PettyCashReceipt`/`Expense` `importKey` values before a `@unique` is added |
 | `backfill-email-hash` | Populate `Person.emailHash` / `Registration.emailHash` blind index for pre-existing rows |
@@ -100,6 +101,23 @@ Any rows returned must be resolved first (rename or delete the extra accounts). 
 - deadcode: `npx knip`
 - SBOM: `npm run sbom` (CycloneDX format)
 - license check: `npm run license:check`
+
+## Stripe webhook secret
+
+Card payments are only marked paid when Stripe's webhook (`<APP_URL>/api/stripe/webhook`) verifies. A stale
+or wrong `STRIPE_WEBHOOK_SECRET` makes every delivery 400: the payment completes at Stripe, but the
+registration stays unpaid and no confirmation email goes out.
+
+- After a Stripe SDK major bump (the pinned `STRIPE_API_VERSION` moves to a new release train) or any
+  endpoint change, recreate the webhook endpoint in the Stripe Dashboard and update `STRIPE_WEBHOOK_SECRET`
+  with the new signing secret.
+- Boot warning: if `STRIPE_SECRET_KEY` is set but `STRIPE_WEBHOOK_SECRET` is unset or blank, startup logs a
+  warning.
+- Admin alert: 3 signature-verification failures within 10 minutes email every active ADMIN once, then
+  stay quiet for 1 hour (the last-sent time is kept in the `stripeWebhookAlertLastSentAt` app setting).
+  Deliveries with no signature header are routine junk traffic and are not counted. Failures are counted
+  in memory per process, so with several replicas the 3-failure threshold applies per replica.
+- Self-hosters: also alert on the log line `STRIPE_WEBHOOK_SECRET unset/corrupt` in your log platform.
 
 ## Availability Monitoring
 

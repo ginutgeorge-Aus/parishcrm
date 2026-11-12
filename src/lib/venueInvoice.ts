@@ -11,8 +11,8 @@ import { isP2002 } from "@/lib/validation"
 import { VENUE_SENDING_WARNING_TTL_MS } from "@/lib/venueApproval"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddressesWithDropped,
-  type MonthCompleteness, type VenueUsageLine,
+  buildRequestEmail, confirmedOnly, monthCompleteness, monthRange, ccAddressesWithDropped, totalHours,
+  type MonthCompleteness, type VenueBookingStatusValue, type VenueUsageLine,
 } from "@/lib/venueUsage"
 
 /** Most bookings one month may hold; creates enforce it and month reads `take` it (warning when they hit it). */
@@ -136,6 +136,8 @@ export function bookingRecipients(settings: VenueUsageSettings, actor: ActorInfo
 export type InvoicePrep = {
   settings: VenueUsageSettings
   rows: VenueUsageLine[]
+  /** Version of the month's CONFIRMED rows when `rows` was read; the claim and post-send check compare against it. */
+  version: MonthVersion
   completeness: MonthCompleteness
   subject: string
   text: string
@@ -160,34 +162,62 @@ function readMonthRows(start: Date, end: Date, db: Pick<Prisma.TransactionClient
     where: { date: { gte: start, lte: end } },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
     take: MAX_ROWS_PER_MONTH,
-    select: { date: true, startTime: true, endTime: true, status: true },
+    select: { date: true, startTime: true, endTime: true, status: true, updatedAt: true },
   })
 }
 
+/** Cheap change marker for a month's CONFIRMED rows: how many there are and the newest `updatedAt` (ms, or null). */
+type MonthVersion = { count: number; maxUpdatedMs: number | null }
+
 /**
- * A comparable key for what an invoice request lists: each CONFIRMED row's date and hours, order-independent.
+ * The {@link MonthVersion} of rows already in memory (the prepare read), so it matches {@link readMonthVersion}.
  * @param rows rows of one month (any status; non-CONFIRMED rows are ignored)
  */
-function invoiceFingerprint(rows: readonly VenueUsageLine[]): string {
-  return confirmedOnly(rows).map((r) => `${r.date.toISOString()}|${r.startTime}|${r.endTime}`).sort().join(",")
+function versionOfRows(rows: readonly { status?: VenueBookingStatusValue; updatedAt: Date }[]): MonthVersion {
+  const confirmed = confirmedOnly(rows)
+  return { count: confirmed.length, maxUpdatedMs: confirmed.reduce<number | null>((m, r) => Math.max(m ?? 0, r.updatedAt.getTime()), null) }
+}
+
+/**
+ * Aggregate version of a month's CONFIRMED rows (count + max `updatedAt`) without reading the rows. Any add, delete,
+ * status change or edit moves it (edits bump `updatedAt`); a booking-request stamp on a row also does, which only
+ * makes the check conservative (refused send, retry).
+ * @param start first day of the month (UTC midnight)
+ * @param end last day of the month (UTC midnight)
+ * @param db client to read with (a transaction client inside the send claim)
+ */
+async function readMonthVersion(start: Date, end: Date, db: Pick<Prisma.TransactionClient, "venueUsage"> = prisma): Promise<MonthVersion> {
+  const a = await db.venueUsage.aggregate({
+    where: { date: { gte: start, lte: end }, status: "CONFIRMED" },
+    _count: { _all: true },
+    _max: { updatedAt: true },
+  })
+  return { count: a._count._all, maxUpdatedMs: a._max.updatedAt?.getTime() ?? null }
+}
+
+/** Whether two {@link MonthVersion}s are equal. */
+function sameVersion(a: MonthVersion, b: MonthVersion): boolean {
+  return a.count === b.count && a.maxUpdatedMs === b.maxUpdatedMs
 }
 
 /**
  * After a successful send, whether the month's CONFIRMED rows still match what the email listed. A booking edit
  * that committed between {@link prepareInvoiceRequest} and the send is otherwise invisible. Never throws (the
- * email has gone): a failed re-read is logged and reported as not stale.
+ * email has gone): a failed re-read is logged and reported as `null` (unknown), so the caller can leave the check
+ * recoverable instead of recording a clean result (#550).
  * @param p the prepared request that was sent
  * @param month "YYYY-MM"
+ * @returns true when changed, false when unchanged, null when the re-read failed
  */
-async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean> {
+async function changedDuringSend(p: InvoicePrep, month: string): Promise<boolean | null> {
   try {
     const { start, end } = monthRange(month)
-    const stale = invoiceFingerprint(await readMonthRows(start, end)) !== invoiceFingerprint(p.rows)
+    const stale = !sameVersion(await readMonthVersion(start, end), p.version)
     if (stale) logger.warn("[venueInvoice] bookings changed while the invoice request was being sent", { month })
     return stale
   } catch (e) {
     logger.error("[venueInvoice] post-send re-check of the month failed", { month, error: e instanceof Error ? e.message : String(e) })
-    return false
+    return null
   }
 }
 
@@ -200,7 +230,7 @@ type SendClaim = { refused: string } | { refused: null; stamp: Date }
  *   overlapping the job);
  * - the month is already sent and this is not an explicit resend, or (for a resend) another send succeeded after
  *   `p` was prepared (a second click that arrives once the first finished, or the job after a manual send);
- * - the month's CONFIRMED rows no longer match `p` (an edit committed after prepare: sending would email old hours);
+ * - the month's CONFIRMED rows no longer match the version `p` was prepared from (an edit committed after prepare: sending would email old hours);
  * - the transaction kept hitting serialization conflicts (a racing claim, or booking edits of the month).
  *
  * Runs in one Serializable transaction that also re-reads the month's bookings. Booking edits run Serializable and
@@ -228,7 +258,7 @@ async function claimSending(p: InvoicePrep, month: string, resend: boolean): Pro
       const alreadySent = row?.status === "SUCCESS" && (!resend || row.sentAt?.getTime() !== p.last?.sentAt?.getTime())
       if (alreadySent) return { refused: INVOICE_ALREADY_SENT_ERROR }
       const { start, end } = monthRange(month)
-      if (invoiceFingerprint(await readMonthRows(start, end, tx)) !== invoiceFingerprint(p.rows)) return { refused: INVOICE_ROWS_CHANGED_ERROR }
+      if (!sameVersion(await readMonthVersion(start, end, tx), p.version)) return { refused: INVOICE_ROWS_CHANGED_ERROR }
       await tx.venueUsageRequest.upsert({ where: { month }, create: { month, sendingAt: stamp }, update: { sendingAt: stamp } })
       return { refused: null, stamp }
     }, { error: "conflict" })
@@ -284,7 +314,7 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
   })
   const { to, cc, replyTo } = invoiceRecipients(settings, actor)
   return {
-    settings, rows, completeness: monthCompleteness(month, all), subject, text, html, to, cc, replyTo,
+    settings, rows, version: versionOfRows(all), completeness: monthCompleteness(month, all), subject, text, html, to, cc, replyTo,
     last: last
       ? {
           status: last.status, sentAt: last.sentAt, errorMessage: last.errorMessage,
@@ -315,21 +345,30 @@ export async function prepareInvoiceRequest(month: string, actor: ActorInfo | nu
  * refused until it expires); if it did not land, a clear fenced on the stamp's own value runs instead. While the
  * stamp is live, a booking edit warns the editor (see `sentOrSendingMonthsTx`; `status` keeps its SUCCESS/FAILED
  * meaning). An edit that lands after the claim is caught by re-reading the month once the SUCCESS is recorded:
- * `stale: true` means the venue got rows that no longer match, it is kept in the audit metadata (the job's notice
- * retry reads it back), and callers tell staff to check and resend.
+ * `stale: true` means the venue got rows that no longer match. The SUCCESS outcome write stores `staleAt: null` and the
+ * `sentRowCount`/`sentHours` snapshot (the job's notices-only retry reads them); a separate fenced best-effort write then
+ * sets `staleAt` when stale (the audit metadata also carries `stale`) and callers tell staff to check and resend.
+ * If that write fails, the job's notices-only retry falls back to the audit row's `stale` flag (the row carries this send's
+ * `sentAt`); if the process dies before the audit row too, the retry re-derives the check from the rows (#550).
+ * When a SUCCESS went out but the outcome write failed over an earlier SUCCESS, the row still holds the earlier
+ * send's `staleAt`/snapshot; a fenced best-effort write replaces them with this send's values.
  * @param p result of {@link prepareInvoiceRequest}
  * @param ctx month, acting user (null = scheduler), whether the scheduler sent it, whether it is an explicit resend
  * @returns the send status (BUSY = refused before sending; `errorMessage` is the user-facing reason), its error, whether the outcome row was
- *   written (`recorded`), and whether the month's CONFIRMED rows changed during the send (`stale`)
+ *   written (`recorded`), whether the month's CONFIRMED rows changed during the send (`stale`), and the row count and
+ *   total hours the request listed (`snapshot`, the same values stored as `sentRowCount`/`sentHours`)
  */
 export async function deliverInvoiceRequest(
   p: InvoicePrep,
   ctx: { month: string; userId: number | null; autoSent: boolean; resend: boolean },
-): Promise<{ status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean }> {
+): Promise<{
+  status: "SUCCESS" | "FAILED" | "BUSY"; errorMessage: string | null; recorded: boolean; stale: boolean; snapshot: { rowCount: number; hours: number }
+}> {
+  const snapshot = { rowCount: p.rows.length, hours: totalHours(p.rows) }
   const claim = await claimSending(p, ctx.month, ctx.resend)
   if (claim.refused !== null) {
     logger.warn("[venueInvoice] invoice request refused before sending", { month: ctx.month, reason: claim.refused })
-    return { status: "BUSY", errorMessage: claim.refused, recorded: false, stale: false }
+    return { status: "BUSY", errorMessage: claim.refused, recorded: false, stale: false, snapshot }
   }
   let status: "SUCCESS" | "FAILED" = "SUCCESS"
   let errorMessage: string | null = null
@@ -342,7 +381,11 @@ export async function deliverInvoiceRequest(
     status = "FAILED"
     errorMessage = (err instanceof Error ? err.message : "Send failed").slice(0, 500)
   }
-  const data = { sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null }
+  const data = {
+    sentAt: new Date(), sentTo: encrypt(p.to), status, errorMessage, sentById: ctx.userId, autoSent: ctx.autoSent, sendingAt: null,
+    // A SUCCESS send replaces the stale flag and the sent snapshot; a FAILED one leaves them alone.
+    ...(status === "SUCCESS" ? { staleAt: null, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours } : {}),
+  }
   const record = () => prisma.venueUsageRequest.upsert({ where: { month: ctx.month }, create: { month: ctx.month, ...data }, update: data })
   let recorded = false
   try {
@@ -361,10 +404,34 @@ export async function deliverInvoiceRequest(
     if (!recorded) await clearSending(ctx.month, claim.stamp)
   }
   // Re-check only after the outcome is recorded, so no read sits between the send and its record.
-  const stale = status === "SUCCESS" && (await changedDuringSend(p, ctx.month))
+  const checked = status === "SUCCESS" ? await changedDuringSend(p, ctx.month) : false
+  const stale = checked === true
+  // The re-check itself failed (not "unchanged"): the audit row must not claim a finished clean check (#550).
+  const recheckFailed = checked === null
+  // Best-effort and separate from the outcome upsert, so a failure here never undoes the success record after the email
+  // went out. Two tries; fenced on this send's `sentAt` so a later send's row is never touched. The outcome write
+  // already cleared `staleAt`, so this only ever sets it.
+  if (stale && recorded) {
+    await afterSendWrite("staleAt write failed", ctx.month, () => prisma.venueUsageRequest.updateMany({
+      where: { month: ctx.month, sentAt: data.sentAt }, data: { staleAt: new Date() },
+    }), 2)
+  }
+  // A SUCCESS that could not be recorded over an earlier SUCCESS leaves that send's flag and snapshot on the row. Replace
+  // them, and the send's provenance, with this send's (fenced on the earlier `sentAt`, so a later send's row is never touched); best-effort.
+  if (status === "SUCCESS" && !recorded && p.last?.status === "SUCCESS" && p.last.sentAt) {
+    await afterSendWrite("could not replace the earlier send's snapshot", ctx.month, () => prisma.venueUsageRequest.updateMany({
+      where: { month: ctx.month, status: "SUCCESS", sentAt: p.last!.sentAt! },
+      data: { staleAt: stale ? new Date() : null, sentAt: data.sentAt, sentTo: data.sentTo, sentById: data.sentById, autoSent: data.autoSent, sentRowCount: snapshot.rowCount, sentHours: snapshot.hours },
+    }), 2)
+  }
   await afterSendWrite("audit write failed", ctx.month, () => logAudit(
     ctx.userId, status === "SUCCESS" ? "VENUE_USAGE_REQUEST_SENT" : "VENUE_USAGE_REQUEST_FAILED", "VenueUsageRequest", undefined,
-    { month: ctx.month, rows: p.rows.length, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}) },
+    {
+      month: ctx.month, rows: snapshot.rowCount, resend: ctx.resend, autoSent: ctx.autoSent, ...(stale ? { stale: true } : {}),
+      // Ties the row to this send, so the notices-only retry can tell a finished stale check from a lost one (#550).
+      // When the re-check itself failed, `sentAt` is left out and `recheckFailed` set, so the retry re-derives instead.
+      ...(status === "SUCCESS" ? (recheckFailed ? { recheckFailed: true } : { sentAt: data.sentAt.toISOString() }) : {}),
+    },
   ), 1)
-  return { status, errorMessage, recorded, stale }
+  return { status, errorMessage, recorded, stale, snapshot }
 }

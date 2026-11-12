@@ -20,6 +20,29 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.14.2",
+    date: "2026-11-11",
+    highlights: [
+      "Maintenance release: fixes the v1.14.1 container image build so it can be published and installed. No other changes.",
+    ],
+  },
+  {
+    version: "v1.14.1",
+    date: "2026-11-10",
+    highlights: [
+      "Maintenance release: fixes the v1.14.0 packaging so it can be installed. No other changes.",
+    ],
+  },
+  {
+    version: "v1.14.0",
+    date: "2026-11-10",
+    highlights: [
+      "Petty cash: retrying a receipt, expense or transfer no longer creates duplicates, and transfers no longer clash with bank imports.",
+      "Venue invoices: clearer warnings when a month was already sent, and safer handling of repeated send attempts.",
+      "Bank import: more reliable duplicate detection.",
+    ],
+  },
+  {
     version: "v1.13.1",
     date: "2026-11-03",
     highlights: [

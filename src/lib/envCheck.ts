@@ -291,6 +291,10 @@ export function collectEnvWarnings(): string[] {
     }
   }
 
+  if (process.env.STRIPE_SECRET_KEY?.trim() && !process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
+    warnings.push("STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is not — every Stripe webhook delivery will 400, so paid registrations stay unpaid; copy the endpoint's signing secret from the Stripe Dashboard")
+  }
+
   if (isDemoMode()) {
     warnings.push(
       "DEMO_MODE=true — one-click demo logins are enabled and account/settings changes are blocked. This must only ever be the public live demo.",

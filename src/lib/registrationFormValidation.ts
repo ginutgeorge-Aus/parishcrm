@@ -91,6 +91,25 @@ export function allNamesFilled(ticketTypes: TicketType[], quantities: Quantities
   })
 }
 
+/**
+ * DOM id of the first blank attendee-name input (ticket order, then seat order),
+ * or null when every selected seat has a name. Ids match TicketPicker's
+ * `att-name-<ticketTypeId>-<index>` inputs.
+ * @param ticketTypes - ticket types in display order
+ * @param quantities - selected quantity per ticket type id
+ * @param names - typed names per ticket type id
+ * @returns the input id to focus, or null
+ */
+export function firstEmptyNameId(ticketTypes: TicketType[], quantities: Quantities, names: Names): string | null {
+  for (const tt of ticketTypes) {
+    const qty = quantities[tt.id] ?? 0
+    for (let i = 0; i < qty; i++) {
+      if ((names[tt.id]?.[i] ?? "").trim().length === 0) return `att-name-${tt.id}-${i}`
+    }
+  }
+  return null
+}
+
 export type PricingInput = {
   ticketTypes: TicketType[]
   quantities: Quantities

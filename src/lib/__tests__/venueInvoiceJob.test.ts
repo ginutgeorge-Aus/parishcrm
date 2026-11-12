@@ -34,7 +34,7 @@ const OPEN_3RD = new Date("2026-11-03T00:00:00Z") // 3 Nov 11:00 AEDT: still in 
 const CLOSED = new Date("2026-10-31T21:00:00Z") // 1 Nov 08:00 AEDT
 const AFTER_WINDOW = new Date("2026-11-07T22:00:00Z") // 8 Nov 09:00 AEDT
 const ZERO = { sent: 0, notified: 0, failed: 0, inFlight: 0 }
-const complete = ["04", "11", "18", "25"].map((d) => ({ date: new Date(`2026-10-${d}T00:00:00Z`), status: "CONFIRMED" }))
+const complete = ["04", "11", "18", "25"].map((d) => ({ date: new Date(`2026-10-${d}T00:00:00Z`), status: "CONFIRMED", startTime: "17:00", endTime: "20:30" }))
 const staff = [{ email: "a@example.com" }, { email: "b@example.com" }]
 const updateMany = () => prisma.venueUsageRequest.updateMany as jest.Mock
 const findUnique = () => prisma.venueUsageRequest.findUnique as jest.Mock
@@ -49,7 +49,7 @@ beforeEach(() => {
   ;(prisma.user.findMany as jest.Mock).mockResolvedValue(staff)
   ;(getChurchName as jest.Mock).mockResolvedValue("Example Church")
   ;(prepareInvoiceRequest as jest.Mock).mockResolvedValue({ rows: complete.map((r) => ({ ...r, startTime: "17:00", endTime: "20:30" })) })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: false, snapshot: { rowCount: 4, hours: 14 } })
 })
 
 it("does nothing outside the Sydney 1st-7th >= 09:00 window", async () => {
@@ -150,12 +150,28 @@ it("a failed invoice send releases the claim, reports failed, and never sets rem
 
 it("a manual send in flight (BUSY) releases the claim, reports inFlight, and notifies nobody (#528)", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   expect(await runVenueInvoiceJob(OPEN)).toEqual({ ...ZERO, inFlight: 1 })
   expect(sendEmail).not.toHaveBeenCalled()
   const datas = updateMany().mock.calls.map((c) => c[0].data)
   expect(datas.some((d) => d.reminderSentAt)).toBe(false)
   expect(datas.at(-1)).toEqual({ reminderClaimedAt: null })
+})
+
+it("BUSY on the last window day logs an error to escalate; earlier days only warn (#536)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "BUSY", errorMessage: "busy", recorded: false, stale: false })
+  jest.useFakeTimers()
+  try {
+    jest.setSystemTime(new Date("2026-11-07T01:00:00Z")) // 7 Nov 12:00 AEDT, last window day
+    await runVenueInvoiceJob(new Date("2026-11-07T01:00:00Z"))
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("send it by hand"))
+    jest.setSystemTime(OPEN)
+    await runVenueInvoiceJob(OPEN)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("refused (BUSY"))
+  } finally {
+    jest.useRealTimers()
+  }
 })
 
 it("all notices failing keeps the month open; a partial failure does not", async () => {
@@ -168,7 +184,7 @@ it("all notices failing keeps the month open; a partial failure does not", async
 
 it("sent but unrecorded + every notice failed: closes the month (never releases) so the venue is not emailed twice", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   ;(sendEmail as jest.Mock).mockRejectedValue(new Error("smtp"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
   const calls = updateMany().mock.calls.map((c) => c[0])
@@ -183,7 +199,7 @@ const doneWrites = () => updateMany().mock.calls.filter((c) => c[0].data.reminde
 
 it("notifyEditors throwing after an unrecorded send still records completion and keeps the claim", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
   ;(prisma.user.findMany as jest.Mock).mockRejectedValue(new Error("db down"))
   expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ sent: 1, notified: 0 })
   expect(doneWrites()).toHaveLength(1)
@@ -239,7 +255,7 @@ it("a run on the 3rd with no prior run does the work for October", async () => {
 })
 
 describe("auto-sent request whose staff notices all failed", () => {
-  const sentByJob = { id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: true }
+  const sentByJob = { id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: true, staleAt: null }
 
   it("the retry re-sends only the staff notices (never the venue email) and then sets reminderSentAt", async () => {
     // Run 1: the venue email goes out, every notice fails, the claim is released.
@@ -277,33 +293,162 @@ it("checks the month read against the row cap (truncation is never silent)", asy
 
 it("a send that raced a booking change tells staff to check and resend (#509 #512)", async () => {
   findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
-  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: true, stale: true, snapshot: { rowCount: 4, hours: 14 } })
   expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent.*Send again/)
 })
 
-describe("notices-only retry recovers the stale flag from the send's audit row", () => {
+describe("notices-only retry rebuilds the notice from the persisted send (#536 #549)", () => {
   const sentByJob = { id: 3, status: "SUCCESS", approvedAt: null, autoSent: true }
-  const findFirst = () => prisma.auditLog.findFirst as jest.Mock
+  const mailText = () => (sendEmail as jest.Mock).mock.calls[0][3] as string
 
-  it("adds the check-and-resend line when the recorded send was stale", async () => {
-    findUnique().mockResolvedValue(sentByJob)
-    findFirst().mockResolvedValue({ metadata: { month: "2026-10", stale: true } })
-    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
-    expect(findFirst()).toHaveBeenCalledWith({
-      where: { action: "VENUE_USAGE_REQUEST_SENT", resourceType: "VenueUsageRequest", metadata: { path: ["month"], equals: "2026-10" } },
-      orderBy: { id: "desc" }, select: { metadata: true },
-    })
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).toMatch(/bookings changed while it was being sent/)
-  })
-  it("leaves the line out when the send was not stale, or the lookup fails", async () => {
-    findUnique().mockResolvedValue(sentByJob)
-    findFirst().mockResolvedValue({ metadata: { month: "2026-10" } })
+  it("reads staleAt and the sent snapshot in the single top-level findUnique (one read, no torn pair)", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 4, sentHours: "14" })
     await runVenueInvoiceJob(OPEN)
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).not.toMatch(/changed/)
-    ;(sendEmail as jest.Mock).mockClear()
-    findFirst().mockRejectedValue(new Error("db blip"))
-    expect(await runVenueInvoiceJob(OPEN)).toMatchObject({ notified: 2 })
-    expect((sendEmail as jest.Mock).mock.calls[0][3]).not.toMatch(/changed/)
+    expect(findUnique()).toHaveBeenCalledTimes(1)
+    expect(findUnique().mock.calls[0][0].select).toMatchObject({ staleAt: true, sentRowCount: true, sentHours: true })
   })
+  it("uses the persisted rows/hours and does not call prepareInvoiceRequest", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toContain("2 confirmed dates, 7.5 hours")
+    expect(mailText()).toMatch(/7\.5 hours/)
+    expect(mailText()).not.toMatch(/changed/)
+  })
+  it("adds the check-and-resend line when the persisted send was stale", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z"), sentRowCount: 2, sentHours: "7.5" })
+    await runVenueInvoiceJob(OPEN)
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("legacy row (null snapshot) counts the current CONFIRMED rows with a cheap read (no prepare), still honouring staleAt", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: new Date("2026-11-01T00:00:00Z"), sentRowCount: null, sentHours: null })
+    ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue([
+      { date: new Date("2026-10-04T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "CONFIRMED" },
+      { date: new Date("2026-10-11T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED" },
+    ])
+    await runVenueInvoiceJob(OPEN)
+    expect(prepareInvoiceRequest).not.toHaveBeenCalled()
+    expect(mailText()).toMatch(/3\.5 hours/)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("staleAt null but the send's audit row says stale: the warning is kept (legacy row or a lost staleAt write)", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true }, createdAt: new Date("2026-11-02T00:00:00Z") })
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: null, sentHours: null })
+    ;(sendEmail as jest.Mock).mockClear()
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).toMatch(/bookings changed while it was being sent/)
+  })
+  it("an audit read failure never blocks the retry (treated as not stale)", async () => {
+    ;(prisma.auditLog.findFirst as jest.Mock).mockRejectedValue(new Error("db"))
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: 2, sentHours: "7.5" })
+    expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+    expect(mailText()).not.toMatch(/changed/)
+  })
+  it("leaves the line out when the send was not stale (legacy row)", async () => {
+    findUnique().mockResolvedValue({ ...sentByJob, staleAt: null, sentRowCount: null, sentHours: null })
+    await runVenueInvoiceJob(OPEN)
+    expect(mailText()).not.toMatch(/changed/)
+  })
+
+  describe("crash between the SUCCESS outcome write and the stale marker (#550)", () => {
+    const sentAt = new Date("2026-10-31T22:00:00.000Z")
+    const old = new Date("2026-10-20T00:00:00Z")
+    const recorded = { ...sentByJob, staleAt: null, sentAt, sentRowCount: 4, sentHours: "14" }
+    const rows = (updatedAt: Date[]) => complete.map((r, i) => ({ ...r, updatedAt: updatedAt[i] ?? old }))
+
+    it("no audit row for this send (process died before staleAt and audit): a row edited during the send keeps the warning", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() - 1000)]))
+      expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+      expect(findUnique().mock.calls[0][0].select).toMatchObject({ sentAt: true })
+      expect(mailText()).toContain("4 confirmed dates, 14 hours")
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+    it("re-derived: a CONFIRMED row deleted since the send (count no longer matches the snapshot) keeps the warning", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]).slice(1))
+      await runVenueInvoiceJob(OPEN)
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+    it("re-derived: rows untouched since well before the send and matching the snapshot leave the line out", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]))
+      await runVenueInvoiceJob(OPEN)
+      expect(mailText()).not.toMatch(/changed/)
+    })
+    it("an audit row from an earlier send does not stand in for this one: the check is re-derived", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", sentAt: "2026-10-01T00:00:00.000Z" } })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() + 1000)]))
+      await runVenueInvoiceJob(OPEN)
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+    it("this send's audit row without a stale flag means the check ran clean: no re-derive, no line", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", sentAt: sentAt.toISOString() } })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() + 1000)]))
+      await runVenueInvoiceJob(OPEN)
+      expect(prisma.venueUsage.findMany).not.toHaveBeenCalled()
+      expect(mailText()).not.toMatch(/changed/)
+    })
+    it("an audit row flagged recheckFailed (post-send re-check threw) is re-derived", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", recheckFailed: true } })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([new Date(sentAt.getTime() + 1000)]))
+      await runVenueInvoiceJob(OPEN)
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+    it("an older send's audit row (stale, other sentAt) does not carry over to this send: the check is re-derived", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true, sentAt: "2026-10-01T00:00:00.000Z" }, createdAt: new Date("2026-10-01T00:00:00Z") })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]))
+      await runVenueInvoiceJob(OPEN)
+      expect(prisma.venueUsage.findMany).toHaveBeenCalled()
+      expect(mailText()).not.toMatch(/bookings changed/)
+    })
+    it("a legacy audit row (no sentAt) written before this send is re-derived, not trusted", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue({ metadata: { month: "2026-10", stale: true }, createdAt: new Date(sentAt.getTime() - 60_000) })
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockResolvedValue(rows([]))
+      await runVenueInvoiceJob(OPEN)
+      expect(prisma.venueUsage.findMany).toHaveBeenCalled()
+      expect(mailText()).not.toMatch(/bookings changed/)
+    })
+    it("a failed re-derive read errs toward the warning and never blocks the retry", async () => {
+      ;(prisma.auditLog.findFirst as jest.Mock).mockResolvedValue(null)
+      findUnique().mockResolvedValue(recorded)
+      ;(prisma.venueUsage.findMany as jest.Mock).mockRejectedValue(new Error("db"))
+      expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 0, notified: 2, failed: 0, inFlight: 0 })
+      expect(mailText()).toMatch(/bookings changed while it was being sent/)
+    })
+  })
+})
+
+it("a month sent but unrecorded whose completion write also failed reports no failure so the scheduler memo stops later ticks, and logs loudly", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
+  updateMany().mockResolvedValueOnce({ count: 1 }).mockRejectedValue(new Error("db down"))
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 0, inFlight: 0 })
+  expect(releases()).toHaveLength(0)
+  expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/Do NOT restart.*withdrawVenueApproval/))
+})
+
+it("a month sent but unrecorded whose completion write fails withdraws the approval and reports a failure (no restart resend)", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: null, approvedAt: new Date() })
+  ;(deliverInvoiceRequest as jest.Mock).mockResolvedValue({ status: "SUCCESS", errorMessage: null, recorded: false, stale: false, snapshot: { rowCount: 4, hours: 14 } })
+  updateMany().mockImplementation(async (a: { data: Record<string, unknown> }) => {
+    if (a.data.reminderSentAt) throw new Error("db blip")
+    return { count: 1 }
+  })
+  expect(await runVenueInvoiceJob(OPEN)).toEqual({ sent: 1, notified: 2, failed: 1, inFlight: 0 })
+  expect(updateMany()).toHaveBeenCalledWith({ where: { month: "2026-10", approvedAt: { not: null } }, data: { approvedAt: null, approvedById: null } })
+  expect(releases()).toHaveLength(0)
 })

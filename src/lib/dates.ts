@@ -25,6 +25,11 @@ export function sydneyParts(at: Date = new Date()): { year: number; month: numbe
   return { year: get("year"), month: get("month"), day: get("day") }
 }
 
+/** The server clock as epoch ms (for pages that hand it to a client to measure clock skew). */
+export function nowMs(): number {
+  return Date.now()
+}
+
 /** The Sydney calendar date as `YYYY-MM-DD`. */
 export function sydneyTodayYMD(at: Date = new Date()): string {
   const { year, month, day } = sydneyParts(at)

@@ -85,6 +85,43 @@ describe("collectEnvWarnings — CRON_SECRET", () => {
   })
 })
 
+describe("collectEnvWarnings — Stripe webhook secret", () => {
+  const origKey = process.env.STRIPE_SECRET_KEY
+  const origWh = process.env.STRIPE_WEBHOOK_SECRET
+  const has = () => collectEnvWarnings().some((w) => w.includes("STRIPE_WEBHOOK_SECRET"))
+
+  afterEach(() => {
+    if (origKey === undefined) delete process.env.STRIPE_SECRET_KEY
+    else process.env.STRIPE_SECRET_KEY = origKey
+    if (origWh === undefined) delete process.env.STRIPE_WEBHOOK_SECRET
+    else process.env.STRIPE_WEBHOOK_SECRET = origWh
+  })
+
+  it("warns when the secret key is set but the webhook secret is unset", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_x"
+    delete process.env.STRIPE_WEBHOOK_SECRET
+    expect(has()).toBe(true)
+  })
+
+  it("warns when the webhook secret is blank", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_x"
+    process.env.STRIPE_WEBHOOK_SECRET = "  "
+    expect(has()).toBe(true)
+  })
+
+  it("does not warn when both are set", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_x"
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_x"
+    expect(has()).toBe(false)
+  })
+
+  it("does not warn when Stripe is not configured", () => {
+    delete process.env.STRIPE_SECRET_KEY
+    delete process.env.STRIPE_WEBHOOK_SECRET
+    expect(has()).toBe(false)
+  })
+})
+
 describe("collectEnvErrors — regional config validation", () => {
   const orig = process.env.APP_FY_START_MONTH
   afterEach(() => {

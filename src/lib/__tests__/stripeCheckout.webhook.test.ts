@@ -20,7 +20,7 @@ jest.mock("@/lib/stripe", () => {
   const webhooks = { constructEvent: jest.fn() }
   const refunds = { create: jest.fn() }
   const checkout = { sessions: { list: jest.fn() } }
-  return { getStripe: () => ({ webhooks, refunds, checkout }) }
+  return { getStripe: () => ({ webhooks, refunds, checkout }), STRIPE_API_VERSION: "2026-10-28.endive" }
 })
 jest.mock("@/lib/eventRegistrationPersist", () => ({ persistRegistration: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({ prisma: {
@@ -30,6 +30,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: {
 } }))
 jest.mock("@/lib/crypto", () => ({ decrypt: (s: string) => s.replace("enc:", "") }))
 jest.mock("@/lib/notifications", () => ({ notifyStripeAlert: jest.fn() }))
+jest.mock("@/lib/stripeWebhookAlert", () => ({ recordWebhookVerificationFailure: jest.fn() }))
 
 const { prisma } = require("@/lib/prisma")
 const { persistRegistration } = require("@/lib/eventRegistrationPersist")
@@ -60,6 +61,41 @@ it("rejects a bad signature with 400", async () => {
   expect(persistRegistration).not.toHaveBeenCalled()
 })
 
+const { recordWebhookVerificationFailure } = require("@/lib/stripeWebhookAlert")
+
+it("counts a bad signature toward the admin alert", async () => {
+  constructEvent.mockImplementation(() => { throw new Error("bad sig") })
+  await handleStripeWebhook("{}", "t=1,v1=bad")
+  expect(recordWebhookVerificationFailure).toHaveBeenCalledTimes(1)
+})
+
+it("counts an unset secret toward the admin alert", async () => {
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  await handleStripeWebhook("{}", "sig")
+  expect(recordWebhookVerificationFailure).toHaveBeenCalledTimes(1)
+  errSpy.mockRestore()
+})
+
+it("does not count an unsigned request when the secret is unset", async () => {
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  await handleStripeWebhook("{}", null)
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+  errSpy.mockRestore()
+})
+
+it("does not count a missing signature header", async () => {
+  await handleStripeWebhook("{}", null)
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+})
+
+it("does not count a verified event", async () => {
+  constructEvent.mockReturnValue({ type: "ping", data: { object: {} } })
+  await handleStripeWebhook("{}", "sig")
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+})
+
 it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is unset", async () => {
   delete process.env.STRIPE_WEBHOOK_SECRET
   const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
@@ -69,6 +105,26 @@ it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is unset", 
   // Own-side misconfig must be observable, not silent like routine bad traffic.
   expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"))
   errSpy.mockRestore()
+})
+
+it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is whitespace-only", async () => {
+  process.env.STRIPE_WEBHOOK_SECRET = "   "
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 400 })
+  expect(constructEvent).not.toHaveBeenCalled()
+  expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"))
+  errSpy.mockRestore()
+})
+
+it("warns once when the endpoint api_version differs from the app's", async () => {
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_x"
+  const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {})
+  constructEvent.mockReturnValue({ type: "ping", api_version: "2026-08-26.dahlia", data: { object: {} } })
+  await handleStripeWebhook("{}", "sig")
+  await handleStripeWebhook("{}", "sig")
+  expect(warnSpy).toHaveBeenCalledTimes(1)
+  expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("2026-08-26.dahlia"))
+  warnSpy.mockRestore()
 })
 
 it("rejects with 400 when signature header is missing — silent, routine bad traffic", async () => {

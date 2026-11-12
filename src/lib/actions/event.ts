@@ -19,7 +19,7 @@ import {
   applyImageOp,
   TICKET_TYPE_IN_USE,
   CAPACITY_BELOW_SOLD,
-  STALE_EVENT,
+  StaleEventError,
 } from "./eventForm"
 
 import type { ActionResult, ActionResultWithSuccess } from "./types"
@@ -57,7 +57,7 @@ export async function createEvent(_prev: ActionResult, formData: FormData): Prom
     // Intentionally non-atomic with event.create (brief-mandated): images are
     // applied via `prisma` right after the row exists, not wrapped in a shared
     // transaction. This asymmetry with updateEvent (which applies inside its
-    // $transaction after the STALE_EVENT guard) is deliberate, not an oversight.
+    // $transaction after the StaleEventError guard) is deliberate, not an oversight.
     await applyImageOp(prisma, event.id, EventImageKind.BANNER, banner)
     await applyImageOp(prisma, event.id, EventImageKind.POSTER, poster)
   } catch (e: unknown) {
@@ -195,7 +195,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           organizers: organizers.length > 0 ? organizers : [],
         },
       })
-      if (updateResult.count === 0) throw new Error(STALE_EVENT)
+      if (updateResult.count === 0) throw new StaleEventError()
 
       await applyImageOp(tx, id, EventImageKind.BANNER, banner)
       await applyImageOp(tx, id, EventImageKind.POSTER, poster)
@@ -203,7 +203,7 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
     break
    } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    if (msg === STALE_EVENT) {
+    if (e instanceof StaleEventError) {
       return {
         error: "This event was changed by someone else since you opened it. Reload the page and reapply your edit.",
       }

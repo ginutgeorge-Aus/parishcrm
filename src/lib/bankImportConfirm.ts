@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { contentKeyFromBankRef } from "@/lib/anzParser"
 import { encrypt } from "@/lib/crypto"
 import { getXferAccountId } from "@/lib/xferAccount"
-import { XFER_OUT_PREFIX, xferOutRef } from "@/lib/xferRefs"
+import { XFER_OUT_PREFIX, XFER_WINDOW_MS, xferOutRef } from "@/lib/xferRefs"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { toCents } from "@/lib/formatting"
 import { hasDuplicateDonorSplit } from "@/lib/bankSplit"
@@ -427,7 +427,6 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
   // never a silent double-reduction. Read per row INSIDE the pair's write
   // transaction (see the petty-cash branch below), not from an earlier
   // snapshot (#493).
-  const XFER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
   const consumedMirrorIds = new Set<number>()
   /** Session-transfer mirrors within ±XFER_WINDOW_MS of `rowTime`, read through `tx`. */
   const readTransferMirrors = (tx: Prisma.TransactionClient, rowTime: number) =>
@@ -656,12 +655,11 @@ export async function confirmBankImport(rawBody: unknown): Promise<BankImportRes
       // transaction, and createTransfer is Serializable too. A manual transfer
       // racing this import for the same deposit reads "no XFER_OUT leg" while we
       // read "no mirror" — Postgres SSI sees the read/write cycle and aborts one
-      // side, so both cash-outs can't commit. SCOPE: this covers a transfer dated
-      // the SAME UTC day as the deposit — createTransfer's manual-path guard only
-      // reads same-day legs. A transfer dated a different day (still inside our
-      // ±7-day mirror window) is not guarded against an import that committed
-      // first; that is the pre-existing sequential behaviour, not a race this
-      // closes. Chosen over an advisory lock: the
+      // side, so both cash-outs can't commit. SCOPE: createTransfer's manual-path
+      // guard reads unlinked legs across the same ±7-day window (#487 item 1), so
+      // this covers a transfer dated any day inside our mirror window, and a
+      // transfer entered after this import committed is rejected outright.
+      // Chosen over an advisory lock: the
       // lock's SELECT would fix createTransfer's Serializable snapshot BEFORE it
       // waits, so it could still miss our committed leg; and no unique
       // constraint fits (the two rows share only amount + a date window). On a

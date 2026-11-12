@@ -9,8 +9,9 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents, pettyCashTitle, sessionDateFromTitle } from "@/lib/formatting"
-import { logAudit } from "@/lib/audit"
-import { MONEY_DECIMAL_RE, isValidPgId, isRealCalendarDate } from "@/lib/validation"
+import { logAuditTx } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { MONEY_DECIMAL_RE, isP2034, isValidPgId, isRealCalendarDate } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { mostRecentSundayYMD } from "@/lib/dates"
 import { getPettyCashDefaultCustodianId } from "./settings"
@@ -109,12 +110,14 @@ export async function updateSessionCustodian(
   })
   if (!custodian) return { error: "Custodian not found" }
 
-  await prisma.pettyCashSession.update({
-    where: { id },
-    data: { custodianId: parsed.data.custodianId },
-  })
-  await logAudit(actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
-    custodianId: parsed.data.custodianId,
+  await prisma.$transaction(async (tx) => {
+    await tx.pettyCashSession.update({
+      where: { id },
+      data: { custodianId: parsed.data.custodianId },
+    })
+    await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CUSTODIAN_UPDATED", "PettyCashSession", id, {
+      custodianId: parsed.data.custodianId,
+    })
   })
 
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
@@ -228,16 +231,27 @@ export async function ensureWeeklySession(): Promise<EnsureWeeklyResult> {
   // "already exists" (the winner created it). Rethrow anything else so real
   // failures aren't hidden.
   try {
-    const created = await prisma.pettyCashSession.create({
-      data: { title, custodianId, openingBalance },
-    })
-    await logAudit(actorId(session), "PETTY_CASH_SESSION_AUTO_OPENED", "PettyCashSession", created.id, {
-      title,
-      custodianId,
-      openingBalance,
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.pettyCashSession.create({
+        data: { title, custodianId, openingBalance },
+      })
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_AUTO_OPENED", "PettyCashSession", created.id, {
+        title,
+        custodianId,
+        openingBalance,
+      })
     })
   } catch (e) {
     if (isUniqueViolation(e)) return { status: "exists" }
+    // This runs during the page's server render: a failing audit insert (rolled the
+    // session back) must not make every visit throw. Log it and render without the
+    // auto-opened session; the next load retries.
+    // A serialization conflict (P2034) rolls the session back the same way: recoverable.
+    if (isP2034(e)) return { status: "exists" }
+    if (e instanceof AuditWriteError) {
+      console.error("ensureWeeklySession audit write failed", e.cause)
+      return { status: "exists" }
+    }
     throw e
   }
 
@@ -307,26 +321,30 @@ export async function closeSession(
   // conditional updateMany lets exactly one win — the loser matches no row and
   // is told the session is already closed, so it can't overwrite the earlier,
   // already-audited close (countedCash/variance/notes/closedAt).
-  const { count } = await prisma.pettyCashSession.updateMany({
-    where: { id, status: "OPEN" },
-    data: {
-      status: "CLOSED",
-      closedAt: new Date(),
-      notes: parsed.data.notes,
-      countedCash,
-      closingVariance,
-    },
-  })
-  if (count === 0) return { error: "Session already closed" }
+  const closed = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.pettyCashSession.updateMany({
+      where: { id, status: "OPEN" },
+      data: {
+        status: "CLOSED",
+        closedAt: new Date(),
+        notes: parsed.data.notes,
+        countedCash,
+        closingVariance,
+      },
+    })
+    if (count === 0) return false
   // Always audit the close — it is a state-locking mutation (afterwards all
   // receipts/expenses/transfers are rejected), so who closed it must be on the
   // trail whether or not a physical count was taken. `counted` records
   // which; countedCash/variance are null on a count-less close.
-  await logAudit(actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
-    counted: countedCash !== null,
-    countedCash,
-    variance: closingVariance,
+    await logAuditTx(tx, actorId(session), "PETTY_CASH_SESSION_CLOSED", "PettyCashSession", id, {
+      counted: countedCash !== null,
+      countedCash,
+      variance: closingVariance,
+    })
+    return true
   })
+  if (!closed) return { error: "Session already closed" }
   revalidatePath("/accounting/petty-cash")
   revalidatePath(`/accounting/petty-cash/sessions/${id}`)
   revalidatePath("/") // dashboard open-session count
@@ -357,15 +375,21 @@ export async function deleteSession(id: number): Promise<ActionResult> {
   // window makes delete hit a FK violation (P2003). Catch it and return the
   // same clean error rather than a raw 500.
   try {
-    await prisma.pettyCashSession.delete({ where: { id } })
+    await prisma.$transaction(async (tx) => {
+      await tx.pettyCashSession.delete({ where: { id } })
+      await logAuditGuardedTx(tx, actorId(session), "PETTY_CASH_SESSION_DELETED", "PettyCashSession", id, {
+        title: existing.title,
+      })
+    })
   } catch (e) {
+    if (e instanceof AuditWriteError) {
+      console.error("deleteSession audit write failed", e.cause)
+      return { error: AUDIT_FAILED_ERROR }
+    }
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
       return { error: "Cannot delete — session has entries. Delete them first." }
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_SESSION_DELETED", "PettyCashSession", id, {
-    title: existing.title,
-  })
   revalidatePath("/accounting/petty-cash")
   revalidatePath("/") // dashboard open-session count
 }

@@ -1,12 +1,12 @@
 # Base pinned by digest for reproducible builds. Tag documents intent;
 # digest is authoritative. node:24-alpine as of 2026-07-02 — bump when updating.
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
+FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 COPY prisma ./prisma/
 RUN npm ci
 
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
+FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -31,7 +31,7 @@ RUN PRISMA_VERSION=$(node -p "require('/app/node_modules/prisma/package.json').v
     npm install --omit=dev --no-audit --no-fund "prisma@${PRISMA_VERSION}" "dotenv@${DOTENV_VERSION}" && \
     cp -r /app/prisma ./prisma && cp /app/prisma.config.ts ./prisma.config.ts
 
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
+FROM node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -40,9 +40,9 @@ ENV HOSTNAME="0.0.0.0"
 # Alpine's openssl runtime libs (libcrypto3/libssl3) pick up newly-published HIGH
 # CVEs (e.g. CVE-2026-14456, OpenSSL unbounded-memory DoS: 3.5.7-r0 → fixed 3.5.8-r0)
 # ahead of a base-image refresh, failing the Trivy gate. Upgrade just those packages
-# so the build stays current without waiting on a new node:24-alpine digest. zlib + musl
+# so the build stays current without waiting on a new node:24-alpine digest. zlib + musl + musl-utils
 # are included for CVE-2026-85091 / CVE-2026-107891.
-RUN apk --no-cache upgrade libcrypto3 libssl3 zlib musl
+RUN apk --no-cache upgrade libcrypto3 libssl3 zlib musl musl-utils
 
 # Strip bundled npm + corepack from the deployed image. Runtime is `node server.js`
 # (Next.js standalone) and never invokes npm, but the base image's bundled npm ships

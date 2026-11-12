@@ -2,6 +2,15 @@
 export const XFER_OUT_PREFIX = "XFER_OUT_"
 
 /**
+ * Half-width (ms) of the ±7-day window (inclusive) in which a bank-import deposit and a session-transfer
+ * mirror are treated as the same cash movement. Shared by confirmBankImport and the manual-transfer guard.
+ */
+export const XFER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/** Fragment present in the cross-day window-guard error (and only it), so the form can offer the admin override. */
+export const WINDOW_GUARD_TAG = "(within 7 days of this transfer)"
+
+/**
  * Bank ref of the XFER_OUT cash-out leg paired with the imported deposit `depositBankRef`.
  * @param depositBankRef bank ref of the imported deposit
  * @returns the paired leg's bank ref

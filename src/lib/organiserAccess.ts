@@ -8,6 +8,8 @@ import { isPublicPath } from "@/lib/csp"
 export function isOrganiserAllowedPath(pathname: string): boolean {
   if (pathname === "/my-events" || pathname.startsWith("/my-events/")) return true
   if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return true
+  // /my-groups pages self-gate on GroupLeaderAccess (canManageGroupMembers).
+  if (pathname === "/my-groups" || pathname.startsWith("/my-groups/")) return true
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true
   if (pathname.startsWith("/_next")) return true
   if (pathname === "/api/health") return true

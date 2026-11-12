@@ -34,7 +34,7 @@ jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 // Keep ACCOUNTING_LOCK_DATE_KEY/isDateLocked real (pure, no DB) — only
 // assertUnlocked (the statement-date pre-check) is mocked.
 jest.mock("@/lib/accountingLock", () => ({

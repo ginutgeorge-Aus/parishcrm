@@ -8,16 +8,18 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR } from "./pettyCashEntry"
+import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { finishReplay, replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -93,7 +95,51 @@ async function findDuplicateReceiptWarning(
     : null
 }
 
-/** Record a petty cash receipt. ADMIN/PASTOR only. */
+/** The submitted receipt fields compared against a stored receipt to decide replay vs reuse. */
+type ReceiptSubmission = {
+  sessionId: number
+  amount: string
+  accountId: number
+  personId: number | undefined
+  serviceTypeId: number | undefined
+  fundId: number | null
+  notes: string | undefined
+}
+
+/**
+ * Looks up the receipt already carrying this form submission token (#487).
+ * "replay" only when every persisted field of the submission matches the stored
+ * receipt (the date is fixed by the session): Back/forward can restore a cached
+ * form with its old token, and an edited receipt entered there must not be
+ * silently dropped — that is "reused". Runs before the duplicate warning, inside
+ * the write transaction, and after a P2002 on the token's unique index.
+ */
+async function receiptTokenState(
+  db: Pick<Prisma.TransactionClient, "pettyCashReceipt">,
+  token: string,
+  sub: ReceiptSubmission,
+): Promise<SubmissionTokenLookup> {
+  const prior = await db.pettyCashReceipt.findUnique({
+    where: { submissionToken: token },
+    select: { id: true, sessionId: true, amount: true, accountId: true, personId: true, serviceTypeId: true, fundId: true, notes: true },
+  })
+  if (!prior) return { state: "unused" }
+  const same =
+    prior.sessionId === sub.sessionId &&
+    toCents(String(prior.amount)) === toCents(sub.amount) &&
+    prior.accountId === sub.accountId &&
+    (prior.personId ?? undefined) === sub.personId &&
+    (prior.serviceTypeId ?? undefined) === sub.serviceTypeId &&
+    (prior.fundId ?? null) === sub.fundId &&
+    (prior.notes ? safeDecrypt(prior.notes) : undefined) === sub.notes
+  return { state: same ? "replay" : "reused", id: prior.id }
+}
+
+/**
+ * Record a petty cash receipt. ADMIN/PASTOR only. A replayed submission (same
+ * form `submissionToken` as a committed receipt) redirects to the session
+ * without creating a second receipt or ledger mirror (#487).
+ */
 export async function createReceipt(
   sessionId: number,
   _prev: ActionResult,
@@ -103,15 +149,38 @@ export async function createReceipt(
   if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("pettyCash")
   if (off) return off
+  const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const tokenParsed = parseSubmissionToken(formData)
+  if ("error" in tokenParsed) return { error: tokenParsed.error }
+  const token = tokenParsed.token
+  const sub: ReceiptSubmission = {
+    sessionId, amount: parsed.data.amount, accountId: parsed.data.accountId,
+    personId: parsed.data.personId, serviceTypeId: parsed.data.serviceTypeId,
+    fundId: parsed.data.fundId, notes: parsed.data.notes,
+  }
+  /** Lands on the session page — the replayed receipt (and its audit row) already committed. */
+  const replayDone = () => finishReplay(sessionId)
+  /** Returns `error`, unless a concurrent twin committed this very receipt meanwhile — then redirects. */
+  const orReplay = <E,>(error: E) => replayOrError(token, () => receiptTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
+  // Replay check runs first — before the session-closed / period-lock guards and
+  // the duplicate warning: a lost-response retry after the session closed or the
+  // period locked must still land on the session page, and the earlier attempt's
+  // own row would otherwise trip "Possible duplicate".
+  if (token) {
+    const { state } = await receiptTokenState(prisma, token, sub)
+    if (state === "replay") return replayDone()
+    if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
+  }
   const existing = await prisma.pettyCashSession.findUnique({ where: { id: sessionId } })
   if (!existing) return { error: "Session not found" }
-  if (existing.status === "CLOSED") return { error: "Session is closed" }
+  // Guard errors re-check the token (orReplay): a twin may have committed and the
+  // session closed / period locked since the first lookup (#563).
+  if (existing.status === "CLOSED") return orReplay({ error: "Session is closed" })
   const sessionDate = sessionDateFromTitle(existing.title)
   if (!sessionDate) return { error: "Invalid session date" }
   const lockError = await assertUnlocked(sessionDate)
-  if (lockError) return { error: lockError }
-  const parsed = ReceiptSchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  if (lockError) return orReplay({ error: lockError })
   const account = await validateAccount(parsed.data.accountId, "INCOME")
   if (!account) return { error: "Invalid account" }
   const fundError = await validateReceiptFund(parsed.data.fundId)
@@ -121,16 +190,26 @@ export async function createReceipt(
   const serviceTypeError = await validateReceiptServiceType(parsed.data.serviceTypeId)
   if (serviceTypeError) return { error: serviceTypeError }
   const dupWarning = await findDuplicateReceiptWarning(sessionId, sessionDate, parsed.data)
-  if (dupWarning) return { error: dupWarning, duplicateWarning: true }
+  // A concurrent twin of this very submit may have committed the row that
+  // tripped the warning — orReplay re-checks the token so the twin redirects instead.
+  if (dupWarning) return orReplay({ error: dupWarning, duplicateWarning: true })
 
   // Resolved once, not per row — mirrors the xferAccountId pattern in
   // pettyCashTransfer.ts.
   const cashAccount = await getCashAccount()
 
-  let receiptId: number | undefined
   try {
-    // Account re-check + write share one Serializable transaction so a concurrent retype can't land between them.
-    const result = await serializableWrite<{ error: string } | { id: number }>(async (tx) => {
+    // Account re-check + write + audit share one Serializable transaction so a
+    // concurrent retype can't land between them, and the entry can never commit
+    // without its "created" audit row (so a replay never needs to backfill one, #563).
+    const result = await serializableWrite<{ error: string } | { id: number } | { replay: true }>(async (tx) => {
+      // Token re-check inside the tx: a twin submit may have committed since the
+      // pre-check (serializableWrite's P2034 retry lands here and sees it).
+      if (token) {
+        const { state } = await receiptTokenState(tx, token, sub)
+        if (state === "replay") return { replay: true }
+        if (state === "reused") return { error: SUBMISSION_TOKEN_REUSED_ERROR }
+      }
       // Re-assert OPEN inside the tx — a concurrent close between the check
       // above and this write must not post into a closed session.
       await assertSessionOpenTx(tx, sessionId)
@@ -140,21 +219,16 @@ export async function createReceipt(
         sessionId, date: sessionDate, accountId: parsed.data.accountId, accountName: fresh.name,
         amount: parsed.data.amount, personId: parsed.data.personId, serviceTypeId: parsed.data.serviceTypeId,
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
-        cashAccountId: cashAccount?.id ?? null,
+        cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "CREATED", id, parsed.data, sessionId)
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
+    if ("replay" in result) return replayDone()
     if ("error" in result) return result
-    receiptId = result.id
   } catch (e) {
-    if (e instanceof SessionClosedError) return { error: e.message }
-    throw e
+    return resolveCreateWriteError(e, "createReceipt", token, () => receiptTokenState(prisma, token!, sub), sessionId)
   }
-  await logAudit(actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", receiptId, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId,
-  })
   revalidatePettyCashPaths(sessionId)
   redirect(`/accounting/petty-cash/sessions/${sessionId}`)
 }
@@ -295,18 +369,15 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, parsed.data, receipt.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", id, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId: receipt.sessionId,
-  })
   revalidatePettyCashPaths(receipt.sessionId)
   redirect(`/accounting/petty-cash/sessions/${receipt.sessionId}`)
 }
@@ -332,6 +403,7 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (receipt.date >= retentionFloor()) return { error: retentionError(receipt.date) }
+  const userId = actorId(session)
   // Re-assert OPEN + not-reconciled INSIDE the delete transaction: the
   // checks above run outside any tx, so a concurrent closeSession / reconcile
   // landing in the gap would otherwise let the delete drift a closed session's
@@ -340,27 +412,25 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   try {
     await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, receipt.session.id, "Cannot delete from closed session")
-      if (receipt.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: receipt.transaction.id }, select: { reconciled: true } })
-        if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
-      }
+      // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
+      // concurrent edit between the two can't leave the DELETED row describing stale values.
+      const row = await tx.pettyCashReceipt.findUnique({
+        where: { id },
+        select: { amount: true, accountId: true, sessionId: true, transaction: { select: { id: true, reconciled: true } } },
+      })
+      if (!row) throw new SessionClosedError("Receipt not found")
+      // Locked re-check: a reconcile must not commit between this check and the cascade delete.
+      await assertMirrorNotReconciledTx(tx, row.transaction?.id)
       await tx.pettyCashReceipt.delete({ where: { id } })
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Receipt", id, row)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
+    // Plain (non-retrying) tx: a write conflict/deadlock (P2034, which logAuditGuardedTx
+    // passes through for serializableWrite) is a "try again", not a 500.
+    if (isP2034(e)) return PETTY_CASH_BUSY
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", id, {
-    amount: Number(receipt.amount),
-    accountId: receipt.accountId,
-    sessionId: receipt.sessionId,
-  })
-  // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion.
-  if (receipt.transaction)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", receipt.transaction.id, {
-      source: "petty-cash", pettyCashReceiptId: id,
-    })
   revalidatePettyCashPaths(receipt.sessionId)
 }

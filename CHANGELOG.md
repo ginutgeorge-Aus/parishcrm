@@ -12,6 +12,65 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.14.2](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.1...v1.14.2) (2026-11-11)
+
+
+### Fixed
+
+* **docker:** upgrade musl-utils for CVE-2026-107891 ([#587](https://github.com/ginutgeorge-Aus/parishcrm/issues/587)) ([c3a46a0](https://github.com/ginutgeorge-Aus/parishcrm/commit/c3a46a0b3ea4447b5d20a82c562533b4bdeccc71))
+* **petty-cash:** audit receipt/expense create inside write tx ([#563](https://github.com/ginutgeorge-Aus/parishcrm/issues/563)) ([#582](https://github.com/ginutgeorge-Aus/parishcrm/issues/582)) ([ca211c4](https://github.com/ginutgeorge-Aus/parishcrm/commit/ca211c42a70a4ff59a85ee113997ee5b804915e1))
+
+
+### Changed
+
+* **events:** replace STALE_EVENT string sentinel with StaleEventError ([#583](https://github.com/ginutgeorge-Aus/parishcrm/issues/583)) ([1220d81](https://github.com/ginutgeorge-Aus/parishcrm/commit/1220d81fc2a796c1c2495ad7d556cd4c75852948))
+
+## [1.14.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.0...v1.14.1) (2026-11-10)
+
+
+### Fixed
+
+* **docker:** copy .npmrc so npm ci honours legacy-peer-deps ([#575](https://github.com/ginutgeorge-Aus/parishcrm/issues/575)) ([66e4242](https://github.com/ginutgeorge-Aus/parishcrm/commit/66e4242306206bb31b7aa8e63bf5ecc388d92532))
+
+## [1.14.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.13.1...v1.14.0) (2026-11-10)
+
+
+### Added
+
+* **venue:** store stale-send flag on VenueUsageRequest ([#536](https://github.com/ginutgeorge-Aus/parishcrm/issues/536)) ([#548](https://github.com/ginutgeorge-Aus/parishcrm/issues/548)) ([bda90e7](https://github.com/ginutgeorge-Aus/parishcrm/commit/bda90e74d48102b59491a7792f6f30b3329ab47e))
+
+
+### Fixed
+
+* **bank-import:** bankRef hash edge cases + centralise legacy dedup toggle ([#514](https://github.com/ginutgeorge-Aus/parishcrm/issues/514) [#511](https://github.com/ginutgeorge-Aus/parishcrm/issues/511)) ([#526](https://github.com/ginutgeorge-Aus/parishcrm/issues/526)) ([3841459](https://github.com/ginutgeorge-Aus/parishcrm/commit/384145986b25b445ea400260d120baad23794838))
+* **ci:** coderabbit-nudge follow-ups ([#500](https://github.com/ginutgeorge-Aus/parishcrm/issues/500)) ([#525](https://github.com/ginutgeorge-Aus/parishcrm/issues/525)) ([e1af819](https://github.com/ginutgeorge-Aus/parishcrm/commit/e1af819c30ebe2bd98d5f8ddce3df0232e3f2116))
+* **petty-cash:** dedupe manual transfer retries and serialise against bank import ([#491](https://github.com/ginutgeorge-Aus/parishcrm/issues/491) [#493](https://github.com/ginutgeorge-Aus/parishcrm/issues/493)) ([#539](https://github.com/ginutgeorge-Aus/parishcrm/issues/539)) ([452f007](https://github.com/ginutgeorge-Aus/parishcrm/commit/452f0078f4821071c94c2373a3093aee60fb3ad5))
+* **petty-cash:** guard cross-day transfer vs import race inside mirror window ([#487](https://github.com/ginutgeorge-Aus/parishcrm/issues/487)) ([#553](https://github.com/ginutgeorge-Aus/parishcrm/issues/553)) ([e86ceb9](https://github.com/ginutgeorge-Aus/parishcrm/commit/e86ceb9948c59be1f45cbc956cfe15720e5f3129))
+* **petty-cash:** harden token replay edge cases ([#556](https://github.com/ginutgeorge-Aus/parishcrm/issues/556)) ([#561](https://github.com/ginutgeorge-Aus/parishcrm/issues/561)) ([f41e625](https://github.com/ginutgeorge-Aus/parishcrm/commit/f41e625dfee8731f0ca6a1f223c8bbf91e9cac4e))
+* **petty-cash:** idempotency token for receipt and expense creates ([#487](https://github.com/ginutgeorge-Aus/parishcrm/issues/487)) ([#554](https://github.com/ginutgeorge-Aus/parishcrm/issues/554)) ([783f49d](https://github.com/ginutgeorge-Aus/parishcrm/commit/783f49d1929ec12ce1ce673c8c3d3608371a37d1))
+* **petty-cash:** picker lookup by date+amount reaches deposits beyond caps ([#531](https://github.com/ginutgeorge-Aus/parishcrm/issues/531)) ([957f523](https://github.com/ginutgeorge-Aus/parishcrm/commit/957f5237bb470ab6311fb860fb5a62044fcd3b3b))
+* **petty-cash:** reject manual transfer for a deposit already adopted by a transfer ([#492](https://github.com/ginutgeorge-Aus/parishcrm/issues/492)) ([#543](https://github.com/ginutgeorge-Aus/parishcrm/issues/543)) ([e39d3e5](https://github.com/ginutgeorge-Aus/parishcrm/commit/e39d3e56cdd05f02a7e802bf1ed0fe04fbbf1841))
+* **petty-cash:** token replay races ([#556](https://github.com/ginutgeorge-Aus/parishcrm/issues/556), [#563](https://github.com/ginutgeorge-Aus/parishcrm/issues/563)) ([#564](https://github.com/ginutgeorge-Aus/parishcrm/issues/564)) ([3c4493c](https://github.com/ginutgeorge-Aus/parishcrm/commit/3c4493c33c7ac2128cfc500c71bd1b08a08d0c2b))
+* **petty-cash:** transfer guard follow-ups ([#562](https://github.com/ginutgeorge-Aus/parishcrm/issues/562), [#487](https://github.com/ginutgeorge-Aus/parishcrm/issues/487)) ([#565](https://github.com/ginutgeorge-Aus/parishcrm/issues/565)) ([d91f34c](https://github.com/ginutgeorge-Aus/parishcrm/commit/d91f34c45dd3c9749ca1bfbba3887edaee45609d))
+* **petty-cash:** transfer guard follow-ups from [#553](https://github.com/ginutgeorge-Aus/parishcrm/issues/553) review ([#559](https://github.com/ginutgeorge-Aus/parishcrm/issues/559)) ([4104a34](https://github.com/ginutgeorge-Aus/parishcrm/commit/4104a34be95f38c248e036b7cb55abd6400e5a10))
+* **petty-cash:** treat legacy null-funding XFER_OUT legs as cash legs ([#487](https://github.com/ginutgeorge-Aus/parishcrm/issues/487)) ([#546](https://github.com/ginutgeorge-Aus/parishcrm/issues/546)) ([31abdd4](https://github.com/ginutgeorge-Aus/parishcrm/commit/31abdd433904da454cca4729e12c5c258250073c))
+* **stripe:** hardcode API version pin, warn on webhook version mismatch ([#558](https://github.com/ginutgeorge-Aus/parishcrm/issues/558)) ([c4aa994](https://github.com/ginutgeorge-Aus/parishcrm/commit/c4aa99427f32dd44aa813881b61b83a4cbb3b00f))
+* **venue:** close invoice-send races and widen sent-month warnings ([#509](https://github.com/ginutgeorge-Aus/parishcrm/issues/509) [#512](https://github.com/ginutgeorge-Aus/parishcrm/issues/512) [#513](https://github.com/ginutgeorge-Aus/parishcrm/issues/513) [#528](https://github.com/ginutgeorge-Aus/parishcrm/issues/528)) ([#535](https://github.com/ginutgeorge-Aus/parishcrm/issues/535)) ([4009196](https://github.com/ginutgeorge-Aus/parishcrm/commit/400919637e9874e2172aa1d2e6d73b67b1c1078b))
+* **venue:** escalate repeated BUSY refusals on last window day ([#536](https://github.com/ginutgeorge-Aus/parishcrm/issues/536)) ([#545](https://github.com/ginutgeorge-Aus/parishcrm/issues/545)) ([2187941](https://github.com/ginutgeorge-Aus/parishcrm/commit/21879411557df8ff77dd92bb80c88702cb7221c8))
+* **venue:** re-derive lost stale check on notices-only retry ([#550](https://github.com/ginutgeorge-Aus/parishcrm/issues/550)) ([#551](https://github.com/ginutgeorge-Aus/parishcrm/issues/551)) ([2853892](https://github.com/ginutgeorge-Aus/parishcrm/commit/28538921fd2caf5e713eae465940612fa12acdc6))
+* **venue:** sent-month warning gaps and in-flight invoice race ([#510](https://github.com/ginutgeorge-Aus/parishcrm/issues/510) [#513](https://github.com/ginutgeorge-Aus/parishcrm/issues/513) [#509](https://github.com/ginutgeorge-Aus/parishcrm/issues/509) [#512](https://github.com/ginutgeorge-Aus/parishcrm/issues/512)) ([#527](https://github.com/ginutgeorge-Aus/parishcrm/issues/527)) ([19dd0fb](https://github.com/ginutgeorge-Aus/parishcrm/commit/19dd0fb50fac8ff9541699155894d2227141e6f9))
+* **venue:** split job lease from sending-warning TTL, correct markSending wording ([#532](https://github.com/ginutgeorge-Aus/parishcrm/issues/532)) ([40ba4b8](https://github.com/ginutgeorge-Aus/parishcrm/commit/40ba4b8f7e27ba2c42e33acbab25186ea4c9b1a7))
+
+
+### Dependencies
+
+* bump stripe from 22.6.2 to 23.0.1 ([#521](https://github.com/ginutgeorge-Aus/parishcrm/issues/521)) ([e5f25e0](https://github.com/ginutgeorge-Aus/parishcrm/commit/e5f25e00c0be8c51ed7e7187db56f116147e2b20))
+* Bump the minor-and-patch group across 1 directory with 8 updates ([#570](https://github.com/ginutgeorge-Aus/parishcrm/issues/570)) ([7c0de4b](https://github.com/ginutgeorge-Aus/parishcrm/commit/7c0de4b93408ceb4b811c8c1555003501a9019a1))
+* bump the minor-and-patch group with 12 updates ([#520](https://github.com/ginutgeorge-Aus/parishcrm/issues/520)) ([c5732f4](https://github.com/ginutgeorge-Aus/parishcrm/commit/c5732f46858652e50737cc5d5d87341191dbe33c))
+* Bump the next-ecosystem group with 2 updates ([#566](https://github.com/ginutgeorge-Aus/parishcrm/issues/566)) ([1b0e624](https://github.com/ginutgeorge-Aus/parishcrm/commit/1b0e624af106b96719e1a2ca53e612d626be3066))
+* Bump the website group in /website with 3 updates ([#568](https://github.com/ginutgeorge-Aus/parishcrm/issues/568)) ([f0eac66](https://github.com/ginutgeorge-Aus/parishcrm/commit/f0eac6652efbd6a37d532bfa85d59bd31d3d3ff6))
+* Bump unpdf from 1.9.1 to 2.1.0 ([#571](https://github.com/ginutgeorge-Aus/parishcrm/issues/571)) ([b0e0d8c](https://github.com/ginutgeorge-Aus/parishcrm/commit/b0e0d8cd613732104e5b7541a4e70c8123422e6d))
+
 ## [1.13.1](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.13.0...v1.13.1) (2026-11-02)
 
 

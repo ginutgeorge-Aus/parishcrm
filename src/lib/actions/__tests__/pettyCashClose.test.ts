@@ -2,7 +2,7 @@ jest.mock("@/lib/featureFlags")
 import { closeSession } from "@/lib/actions/pettyCashSession"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 // Value import of `Prisma` in pettyCash.ts loads the real generated client
@@ -10,7 +10,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -21,13 +21,15 @@ jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     pettyCashSession: { findUnique: jest.fn(), updateMany: jest.fn() },
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
+      fn({ pettyCashSession: { updateMany: jest.requireMock("@/lib/prisma").prisma.pettyCashSession.updateMany }, __isTx: true })),
   },
 }))
 
 const mockAuth = auth as jest.Mock
 const mockFind = prisma.pettyCashSession.findUnique as jest.Mock
 const mockUpdate = prisma.pettyCashSession.updateMany as jest.Mock
-const mockAudit = logAudit as jest.Mock
+const mockAudit = logAuditTx as jest.Mock
 
 // system balance = 100.00 (opening 100, no entries)
 function openSession(overrides = {}) {
@@ -74,6 +76,7 @@ test("count-less close still writes an audit record with counted:false", async (
   mockFind.mockResolvedValue(openSession())
   await closeSession(1, undefined, fd({ notes: "handover" }))
   expect(mockAudit).toHaveBeenCalledWith(
+    expect.objectContaining({ __isTx: true }),
     1,
     "PETTY_CASH_SESSION_CLOSED",
     "PettyCashSession",
@@ -86,6 +89,7 @@ test("counted close audits counted:true with the count + variance", async () => 
   mockFind.mockResolvedValue(openSession())
   await closeSession(1, undefined, fd({ countedCash: "100.00" }))
   expect(mockAudit).toHaveBeenCalledWith(
+    expect.objectContaining({ __isTx: true }),
     1,
     "PETTY_CASH_SESSION_CLOSED",
     "PettyCashSession",
@@ -167,4 +171,10 @@ test("concurrent close losing the race is rejected without an audit", async () =
   const res = await closeSession(1, undefined, fd({ notes: "handover" }))
   expect(res).toEqual({ error: "Session already closed" })
   expect(mockAudit).not.toHaveBeenCalled()
+})
+
+test("a failed audit write propagates so the close rolls back", async () => {
+  mockFind.mockResolvedValue(openSession())
+  mockAudit.mockRejectedValueOnce(new Error("audit down"))
+  await expect(closeSession(1, undefined, fd({ notes: "handover" }))).rejects.toThrow("audit down")
 })

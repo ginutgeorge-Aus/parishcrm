@@ -10,26 +10,58 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
-import { logAudit, logAuditTx } from "@/lib/audit"
-import { assertUnlocked } from "@/lib/accountingLock"
+import { logAuditTx } from "@/lib/audit"
+import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { ADOPTION_ERRORS, adoptionProblem } from "@/lib/pettyCashAdoption"
-import { depositRefOfLeg, xferOutRef, XFER_OUT_PREFIX } from "@/lib/xferRefs"
+import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
+import { xferOutRef, XFER_OUT_PREFIX, XFER_WINDOW_MS, WINDOW_GUARD_TAG } from "@/lib/xferRefs"
 import { MONEY_DECIMAL_RE, isP2002, isP2034, parseRouteId } from "@/lib/validation"
 import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
 import { featureGuard } from "@/lib/featureFlags"
-import { utcDayRange } from "@/lib/dates"
+import { utcDayRange, utcYmd } from "@/lib/dates"
 
 /** Rejection for a manual transfer that would double-count an imported cash-out already adopted by another transfer (#492). */
 const DUPLICATE_ADOPTED_LEG_ERROR =
   "An imported deposit for this amount and date is already recorded as a petty cash transfer. Check the session's transfers before adding another. If this is a separate deposit, use a different date."
 
+/**
+ * Rejection for adopting a legacy (null funding source) imported cash-out when a manual transfer already mirrors the same amount and day.
+ * @param transferId the existing transfer whose `PC_T_` mirror matched (null if its link is missing)
+ * @returns the user-facing message naming that transfer
+ */
+function legacyMirrorError(transferId: number | null): string {
+  const which = transferId === null ? "A petty cash transfer" : `Petty cash transfer #${transferId}`
+  return `${which} for this amount and date is already recorded. Adopting this imported deposit as well would count the cash-out twice. Delete that transfer first if it is the same deposit, or use a different date.`
+}
+
 /** Rejection for a manual transfer that would double-count an unlinked imported cash-out. */
 const DUPLICATE_LEG_ERROR =
-  "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit does not appear in the picker, ask an admin."
+  "An imported cash-out for this amount and date already exists. If it is already reconciled, un-reconcile it first, then pick the imported deposit in the form instead of entering it manually. If the deposit is not in the list (it shows only the newest deposits), use the \"Look up deposits for the date and amount entered\" link under the picker; if it still cannot be picked, ask an admin."
+
+/**
+ * Rejection for a manual transfer when an unlinked imported cash-out matches but its deposit was re-dated to a
+ * different day than the cash-out (#562). The picker and adoption both require deposit day = cash-out day = transfer
+ * day, so the deposit cannot be picked and setting the date would not help; the carrying tag lets an ADMIN override.
+ * @param legDay the cash-out's UTC day (YYYY-MM-DD)
+ * @param depositDay the re-dated deposit's UTC day (YYYY-MM-DD)
+ * @returns the user-facing message naming both days
+ */
+function redatedDepositError(legDay: string, depositDay: string): string {
+  return `An imported cash-out for this amount ${WINDOW_GUARD_TAG} was found, but its dates do not line up: the cash-out is dated ${legDay} and its deposit is dated ${depositDay}, so the deposit cannot be picked in the form. If this transfer is that deposit, the cash-out and the deposit must have the same date, and this transfer must use that date too; otherwise ask an admin to record this transfer anyway.`
+}
+
+/**
+ * Rejection for a manual transfer within the bank import's mirror window of an unlinked imported
+ * cash-out on a different day (#487 item 1).
+ * @param depositDay the imported deposit's UTC day (YYYY-MM-DD)
+ * @returns the user-facing message naming that day
+ */
+function windowLegError(depositDay: string): string {
+  return `An imported deposit for this amount on ${depositDay} ${WINDOW_GUARD_TAG} already booked its petty cash cash-out, so entering it manually would count it twice. If this transfer is that deposit, set the date to ${depositDay} and pick the imported deposit in the form (un-reconcile its cash-out first if needed). If it is a separate deposit, record the imported one first by picking it, then enter this one.`
+}
 
 // Thrown inside the createTransfer Serializable transaction to surface a
 // validation failure as a clean ActionResult error (caught just outside).
@@ -142,6 +174,12 @@ const TransferSchema = z.object({
     // Strict digits-only parse: Number() would accept "0x10", "1e1" or " 12 ".
     .transform((v) => (v ? (parseRouteId(v) ?? NaN) : undefined))
     .refine((v) => v === undefined || !Number.isNaN(v), "Invalid imported deposit"),
+  // ADMIN-only bypass of the cross-day window guard (never the same-day duplicate guard).
+  // Parsed here so it is validated like every other field; honoured only for admins in the action.
+  overrideWindowGuard: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
   // Per-page-load idempotency token from the form (#491). Optional so older
   // clients / direct callers still work, just without replay protection.
   submissionToken: z
@@ -154,7 +192,9 @@ const TransferSchema = z.object({
 /**
  * Record a petty cash transfer. ADMIN/PASTOR only. A replayed submission (same
  * form `submissionToken` as a committed transfer) redirects to the session
- * without creating a duplicate (#491).
+ * without creating a duplicate (#491). An ADMIN may set `overrideWindowGuard=true`
+ * to record a separate deposit despite the cross-day window guard; the same-day
+ * duplicate guard is never overridable, and the override is audit-logged.
  */
 export async function createTransfer(
   sessionId: number,
@@ -182,6 +222,9 @@ export async function createTransfer(
   // petty-cash pair write (#493), which is Serializable too: a concurrent import
   // of this deposit and this manual transfer can't both commit a cash-out.
   const token = parsed.data.submissionToken
+  // Server-side role check: a non-admin sending the field is silently ignored.
+  const windowOverride = parsed.data.overrideWindowGuard && isAdmin(session?.user?.role)
+  let windowOverridden = false
   const sub: TokenSubmission = {
     sessionId,
     amount: parsed.data.amount,
@@ -199,6 +242,8 @@ export async function createTransfer(
   }
   try {
     await prisma.$transaction(async (tx) => {
+      // A Serializable retry re-runs this callback: don't carry the flag over from an aborted attempt.
+      windowOverridden = false
       // Replay check first: the earlier attempt already reduced the balance, so
       // the balance check below would otherwise reject the retry misleadingly.
       if (token) {
@@ -228,6 +273,7 @@ export async function createTransfer(
       // as this transfer's ledger mirror — creating a second one would reduce
       // petty cash twice. All validation runs before any write.
       let adoptLegId: number | null = null
+      let adoptLegLegacy = false
       if (parsed.data.importedTransactionId !== undefined) {
         const deposit = await tx.transaction.findUnique({
           where: { id: parsed.data.importedTransactionId },
@@ -244,6 +290,20 @@ export async function createTransfer(
           xferAccountId, cashAccountId: cashAccount?.id ?? null,
         })
         if (problem) throw new TransferError(ADOPTION_ERRORS[problem])
+        adoptLegLegacy = leg!.paymentAccountId === null
+        if (adoptLegLegacy) {
+          // A manual transfer recorded before the cash account existed (or before the #487 guard matched null legs)
+          // may already mirror this deposit's cash-out as PC_T_<id>; adopting too would reduce petty cash twice.
+          // The mirror carries no link to the leg, so match on amount + UTC day and refuse rather than guess.
+          const mirror = await tx.transaction.findFirst({
+            where: {
+              accountId: xferAccountId, type: "EXPENSE", bankRef: { startsWith: "PC_T_" },
+              amount: parsed.data.amount, date: utcDayRange(parsed.data.date),
+            },
+            select: { pettyCashTransferId: true },
+          })
+          if (mirror) throw new TransferError(legacyMirrorError(mirror.pettyCashTransferId))
+        }
         adoptLegId = leg!.id
       } else {
         // Manual transfer: an unlinked bank-import XFER_OUT leg for the same amount and
@@ -255,36 +315,69 @@ export async function createTransfer(
         // manual entry stays the only path. A leg already adopted by another transfer
         // (#492) counts too, so recording the same deposit manually after adopting it
         // is rejected; that case has no picker path, so it gets its own message.
-        const dayRange = utcDayRange(parsed.data.date)
+        // #487 item 1: legs are read across the bank import's ±7-day mirror window, not just the
+        // transfer's day. The import suppresses its own leg when a same-amount transfer mirror lies in
+        // that window; this is the converse, so an import that committed first (on a different day)
+        // is caught too. It also makes the race symmetric: both Serializable transactions now read
+        // the range the other writes into, so Postgres SSI aborts one (the import retries and skips).
+        // Different-day legs only count while unlinked: an adopted leg's deposit is already paired with
+        // a transfer, so a same-amount transfer days later is a separate deposit (#492 stays same-day).
+        const transferDay = utcYmd(parsed.data.date)
+        // Centre the window on the UTC-midnight day, not the raw timestamp: a date with a time component
+        // would otherwise shift the window and miss a leg exactly 7 days away.
+        const t = utcDayRange(parsed.data.date).gte.getTime()
+        const windowRange = { gte: new Date(t - XFER_WINDOW_MS), lte: new Date(t + XFER_WINDOW_MS) }
         const legs = await tx.transaction.findMany({
           where: {
             accountId: xferAccountId,
             type: "EXPENSE",
             bankRef: { startsWith: XFER_OUT_PREFIX },
-            paymentAccountId: cashAccount?.id ?? null,
+            // Null too: legacy legs written before a cash account existed (#487).
+            OR: [{ paymentAccountId: null }, ...(cashAccount ? [{ paymentAccountId: cashAccount.id }] : [])],
             amount: parsed.data.amount,
-            date: dayRange,
+            date: windowRange,
           },
-          select: { bankRef: true, pettyCashTransferId: true },
+          select: { bankRef: true, pettyCashTransferId: true, date: true },
         })
-        const linkedByDepositRef = new Map<string, boolean>()
-        for (const l of legs) if (l.bankRef) linkedByDepositRef.set(depositRefOfLeg(l.bankRef), l.pettyCashTransferId !== null)
-        const dups = linkedByDepositRef.size
+        // Read the lock inside this transaction so a retry or a concurrent lock change is never stale (#562).
+        // Skipped when no leg matched (the common path): no extra round trip or SSI read.
+        const lockDate = legs.length ? await getAccountingLockDate(tx) : null
+        // Legs in a locked period can't be un-reconciled or re-dated, so neither remedy in windowLegError
+        // would work: skip them rather than dead-end the user (the transfer date itself is unlocked).
+        // Deferred (#562): this skip leaves no audit trace / admin override flag.
+        const legByDepositRef = legsByDepositRef(legs.filter((l) => !isDateLocked(l.date, lockDate)), transferDay)
+        const dups = legByDepositRef.size
           ? await tx.transaction.findMany({
               where: {
                 accountId: xferAccountId,
                 type: "INCOME",
-                bankRef: { in: [...linkedByDepositRef.keys()] },
+                bankRef: { in: [...legByDepositRef.keys()] },
                 amount: parsed.data.amount,
-                date: dayRange,
               },
-              select: { bankRef: true },
+              select: { bankRef: true, date: true },
             })
           : []
         if (dups.length) {
-          // Unlinked first: the picker can still resolve it, so that guidance is the more useful one.
-          const unlinked = dups.some((d) => d.bankRef && linkedByDepositRef.get(d.bankRef) === false)
-          throw new TransferError(unlinked ? DUPLICATE_LEG_ERROR : DUPLICATE_ADOPTED_LEG_ERROR)
+          // bankRef is unique and legByDepositRef is keyed by it, so every dup has a leg. The deposit is matched
+          // on bankRef + amount only (no date window): its date may have been edited after import. `adoptable`
+          // mirrors the picker/adoptionProblem rule (deposit day = cash-out day); a re-dated deposit is not,
+          // so telling the user to "pick the imported deposit" would dead-end them (#562).
+          const kinds = dups.map((d) => {
+            const leg = legByDepositRef.get(d.bankRef!)!
+            const depositDay = utcYmd(d.date)
+            return { ...leg, depositDay, adoptable: depositDay === leg.day }
+          })
+          // Same-day unlinked first: the picker resolves it with the date as entered. Then a
+          // different-day unlinked leg (re-date + pick), then a same-day adopted one (#492).
+          if (kinds.some((k) => k.sameDay && !k.linked && k.adoptable)) throw new TransferError(DUPLICATE_LEG_ERROR)
+          // Prefer an adoptable entry so the message never depends on DB row order.
+          const other = kinds.find((k) => !k.linked && k.adoptable) ?? kinds.find((k) => !k.linked)
+          // The window guard alone is admin-overridable (e.g. fixed recurring weekly deposits). A re-dated
+          // deposit (not adoptable even on the same day) gets the same override instead of a dead end.
+          if (other && !windowOverride)
+            throw new TransferError(other.adoptable ? windowLegError(other.depositDay) : redatedDepositError(other.day, other.depositDay))
+          if (other) windowOverridden = true
+          if (kinds.some((k) => k.linked)) throw new TransferError(DUPLICATE_ADOPTED_LEG_ERROR)
         }
       }
       const transfer = await tx.pettyCashTransfer.create({
@@ -304,7 +397,8 @@ export async function createTransfer(
         await tx.transaction.update({
           where: { id: adoptLegId },
           // Link only: the leg's own reference is never touched, so unlink needs no restore.
-          data: { pettyCashTransferId: transfer.id },
+          // A legacy null funding source is set to the cash account so the ledger cash balance agrees (#487).
+          data: { pettyCashTransferId: transfer.id, ...(adoptLegLegacy && cashAccount ? { paymentAccountId: cashAccount.id } : {}) },
         })
         await logAuditTx(tx, actorId(session), "TRANSACTION_UPDATED", "Transaction", adoptLegId, {
           source: "petty-cash", pettyCashTransferId: transfer.id, action: "adopted-as-transfer-mirror",
@@ -332,6 +426,7 @@ export async function createTransfer(
       }
       await logAuditTx(tx, actorId(session), "PETTY_CASH_TRANSFER_CREATED", "PettyCashTransfer", transfer.id, {
         amount: parsed.data.amount, sessionId,
+        ...(windowOverridden ? { windowGuardOverridden: true } : {}),
         ...(adoptLegId !== null ? { importedTransactionId: parsed.data.importedTransactionId, adoptedLegId: adoptLegId } : {}),
       })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -383,9 +478,8 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (transfer.date >= retentionFloor()) return { error: retentionError(transfer.date) }
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
-  let adopted = false
   try {
-    adopted = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
       // Concurrent delete: return a clean error instead of a P2025 from the delete below.
       if (!(await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true } })))
@@ -416,6 +510,13 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         amount: Number(transfer.amount),
         sessionId: transfer.sessionId,
       })
+      // The mirrored XFER ledger row is removed by FK cascade (Transaction
+      // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
+      // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).
+      if (transfer.transaction && !isAdopted)
+        await logAuditTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
+          source: "petty-cash", pettyCashTransferId: id,
+        })
       return isAdopted
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
@@ -424,13 +525,5 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
     if (isP2034(e)) return { error: "Transfer conflict — please try again." }
     throw e
   }
-  const userId = actorId(session)
-  // The mirrored XFER ledger row is removed by FK cascade (Transaction
-  // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).
-  if (transfer.transaction && !adopted)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
-      source: "petty-cash", pettyCashTransferId: id,
-    })
   revalidatePettyCashPaths(transfer.sessionId)
 }

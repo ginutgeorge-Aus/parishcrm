@@ -8,7 +8,7 @@ jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/generated/prisma/client", () => ({
   Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -31,6 +31,8 @@ jest.mock("@/lib/actions/pettyCashEntry", () => ({
   SessionClosedError: class SessionClosedError extends Error {},
   RECONCILED_EDIT_ERROR: "recon-edit",
   RECONCILED_DELETE_ERROR: "recon-delete",
+  SUBMISSION_TOKEN_REUSED_ERROR: "token-reused",
+  parseSubmissionToken: jest.fn(() => ({ token: undefined })),
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {

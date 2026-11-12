@@ -5,9 +5,9 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAudit } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
 import { encrypt, encryptBytes } from "@/lib/crypto"
-import { isValidPgId } from "@/lib/validation"
+import { isP2034, isValidPgId } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult } from "./types"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -27,6 +27,26 @@ import { featureGuard } from "@/lib/featureFlags"
 // Bound attachments per transaction — an editor could otherwise pin unlimited
 // 5 MB blobs to a single row (storage DoS). 20 covers any real receipt set.
 const MAX_ATTACHMENTS_PER_TX = 20
+
+/** Shown when the attachment write hit a write conflict/deadlock (P2034) and was rolled back. */
+const ATTACHMENT_BUSY_ERROR = "Couldn't save the change. Try again."
+
+/**
+ * Maps a failure of an attachment write transaction to a safe result: an audit-insert
+ * failure (`AuditWriteError`, write rolled back) to `AUDIT_FAILED_ERROR`, and a P2034
+ * (plain, non-retrying tx — `logAuditGuardedTx` passes it through) to a "try again".
+ * @param e - the error thrown by the write transaction
+ * @param action - action name for the server log
+ * @returns the error result, or null when `e` is not one of these (caller rethrows)
+ */
+function attachmentWriteError(e: unknown, action: string): { error: string } | null {
+  if (e instanceof AuditWriteError) {
+    console.error(`${action} audit write failed`, e.cause)
+    return { error: AUDIT_FAILED_ERROR }
+  }
+  if (isP2034(e)) return { error: ATTACHMENT_BUSY_ERROR }
+  return null
+}
 
 /** Attach a receipt file to a transaction. ADMIN/PASTOR (canAccessAccounting); blocked in demo mode and while Accounting is off. */
 export async function attachTransactionReceipt(
@@ -79,23 +99,32 @@ export async function attachTransactionReceipt(
     return { error: "That file's contents don't match a JPEG, PNG or PDF." }
   }
 
-  await prisma.transactionAttachment.create({
-    data: {
-      transactionId,
-      // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
-      // base64-encoded first so arbitrary bytes survive the string-based cipher.
-      filename: encrypt(sanitizeFilename(file.name)),
-      contentType: sniffed,
-      size: bytes.length,
-      data: encryptBytes(bytes),
-      uploadedById: actorId(session),
-    },
-  })
-
-  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
+  // Encrypt before opening the transaction: base64 + AES-GCM of up to 4 MB is
+  // CPU-bound and must not eat into the interactive transaction's timeout.
+  const userId = actorId(session)
+  const data = {
+    transactionId,
+    // Encrypt at rest (encryption.md) — filename can carry PII; the blob is
+    // base64-encoded first so arbitrary bytes survive the string-based cipher.
+    filename: encrypt(sanitizeFilename(file.name)),
     contentType: sniffed,
     size: bytes.length,
-  })
+    data: encryptBytes(bytes),
+    uploadedById: userId,
+  }
+  try {
+    await prisma.$transaction(async (db) => {
+      await db.transactionAttachment.create({ data })
+      await logAuditGuardedTx(db, userId, "TRANSACTION_ATTACHMENT_ADDED", "Transaction", transactionId, {
+        contentType: sniffed,
+        size: bytes.length,
+      })
+    }, { maxWait: 10_000, timeout: 15_000 }) // up to 4 MB insert + audit row: the 5s default is too tight
+  } catch (e) {
+    const mapped = attachmentWriteError(e, "attachTransactionReceipt")
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(`/accounting/transactions/${transactionId}`)
 }
 
@@ -120,9 +149,17 @@ export async function removeTransactionReceipt(attachmentId: number): Promise<Ac
   const lockError = await assertUnlocked(existing.transaction.date)
   if (lockError) return { error: lockError }
 
-  await prisma.transactionAttachment.delete({ where: { id: attachmentId } })
-  await logAudit(actorId(session), "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", existing.transactionId, {
-    attachmentId,
-  })
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.transactionAttachment.delete({ where: { id: attachmentId } })
+      await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_ATTACHMENT_REMOVED", "Transaction", existing.transactionId, {
+        attachmentId,
+      })
+    })
+  } catch (e) {
+    const mapped = attachmentWriteError(e, "removeTransactionReceipt")
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(`/accounting/transactions/${existing.transactionId}`)
 }

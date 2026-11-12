@@ -7,6 +7,8 @@ describe("isOrganiserAllowedPath", () => {
     "/my-events/42/edit",
     "/my-classes",
     "/my-classes/4/roll",
+    "/my-groups",
+    "/my-groups/4",
     "/api/auth/session",
     "/_next/data/abc.json",
     "/api/health",
@@ -29,5 +31,10 @@ describe("isOrganiserAllowedPath", () => {
     "/sunday-school",
     "/sunday-school/4/roll",
     "/my-classesx",
+    "/groups",
+    "/groups/4",
+    "/groups/4/print",
+    "/api/groups/4/export-csv",
+    "/my-groupsx",
   ])("blocks %s", (p) => expect(isOrganiserAllowedPath(p)).toBe(false))
 })

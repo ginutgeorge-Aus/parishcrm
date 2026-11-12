@@ -35,7 +35,7 @@ these helpers, so the permission boundary lives in one place.
 | `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN or PASTOR accounts or grant either role (self-escalation guard). |
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
-| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages and the rolls of Sunday School classes they're assigned to (`/my-classes`). They can edit the public details of events they manage at /my-events/[id]/edit. |
+| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages the rolls of Sunday School classes they're assigned to (`/my-classes`) and the members of groups linked to their login (`/my-groups`). They can edit the public details of events they manage at /my-events/[id]/edit. |
 
 ### Role-assignment limits (privilege escalation guard)
 
@@ -69,11 +69,14 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 
 | Feature / capability | ADMIN | PASTOR | OFFICE_ADMIN | AUDITOR | VIEWER | EVENT_ORGANISER |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events` and `/my-classes` |
+| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events`, `/my-classes` and `/my-groups` |
 | View people & families | Yes | Yes | Yes | No | Yes | No |
 | Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) |
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only |
+| Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No |
+| Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) |
+| Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No |
 | Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No |
 | Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |
@@ -105,6 +108,9 @@ Role helpers and where each lives, for reference:
 | `canManageUsers` | ADMIN \| OFFICE_ADMIN (target/role limits per `canAssignRole`) |
 | `canAssignRole(actor, target)` | Whether `actor` may assign/act on `target` role |
 | `canMarkRoll` (`src/lib/sundaySchoolAccess.ts`) | Editors for any class; EVENT_ORGANISER only for classes they are assigned to as roll marker |
+| `canViewGroups` | Same as `canViewPeople` |
+| `canManageGroups` | ADMIN \| PASTOR \| OFFICE_ADMIN (same as `canEdit`) |
+| `canManageGroupMembers` (`src/lib/groupAccess.ts`) | Group managers for any group; EVENT_ORGANISER only for groups linked to their login |
 | `isAdmin` | ADMIN only |
 | `isEventOrganiser` | EVENT_ORGANISER only |
 
@@ -113,7 +119,7 @@ Role helpers and where each lives, for reference:
 Unlike the other five roles, `EVENT_ORGANISER` is enforced primarily in `src/middleware.ts`
 rather than by a role-helper gate on each page: any authenticated request from an
 `EVENT_ORGANISER` whose path isn't on the organiser allow-list (their own `/my-events`
-and `/my-classes` pages, plus a small set of shared public/auth/asset paths) is redirected straight back to
+`/my-classes` and `/my-groups` pages, plus a small set of shared public/auth/asset paths) is redirected straight back to
 `/my-events`. A hand-typed URL to `/people` or `/accounting` never renders for this role.
 
 ## Configuration

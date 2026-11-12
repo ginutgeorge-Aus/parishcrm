@@ -87,6 +87,7 @@ model Person {
   sundaySchoolTeaching   SundaySchoolTeacher[]
   sundaySchoolEnrolments SundaySchoolEnrolment[]
   sundaySchoolAttendance SundaySchoolAttendance[]
+  groupMemberships       GroupMember[]
   invoices               Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
@@ -149,6 +150,7 @@ model User {
   fundraiserPaymentsRecorded   FundraiserPayment[]
   auditLogs                    AuditLog[]
   sundaySchoolRollMarkers      SundaySchoolRollMarker[]
+  groupLeaderAccess            GroupLeaderAccess[]
   sundaySchoolAttendanceMarked SundaySchoolAttendance[] @relation("SsAttendanceMarkedBy")
   invitesCreated               FamilyUpdateInvite[]     @relation("InviteCreatedBy")
   submissionsReviewed          FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
@@ -886,23 +888,27 @@ model PettyCashSession {
 }
 
 model PettyCashReceipt {
-  id            Int              @id @default(autoincrement())
-  sessionId     Int
-  session       PettyCashSession @relation(fields: [sessionId], references: [id])
-  date          DateTime
-  serviceTypeId Int?
-  serviceType   ServiceType?     @relation(fields: [serviceTypeId], references: [id])
-  accountId     Int
-  account       Account          @relation(fields: [accountId], references: [id])
-  personId      Int?
-  person        Person?          @relation(fields: [personId], references: [id])
-  amount        Decimal          @db.Decimal(10, 2)
-  notes         String?
-  importKey     String?
-  createdAt     DateTime         @default(now())
-  transaction   Transaction?
-  fundId        Int?
-  fund          Fund?            @relation(fields: [fundId], references: [id])
+  id              Int              @id @default(autoincrement())
+  sessionId       Int
+  session         PettyCashSession @relation(fields: [sessionId], references: [id])
+  date            DateTime
+  serviceTypeId   Int?
+  serviceType     ServiceType?     @relation(fields: [serviceTypeId], references: [id])
+  accountId       Int
+  account         Account          @relation(fields: [accountId], references: [id])
+  personId        Int?
+  person          Person?          @relation(fields: [personId], references: [id])
+  amount          Decimal          @db.Decimal(10, 2)
+  notes           String?
+  importKey       String?
+  createdAt       DateTime         @default(now())
+  transaction     Transaction?
+  fundId          Int?
+  fund            Fund?            @relation(fields: [fundId], references: [id])
+  // Per-form-mount token (#487): a retried submit whose first attempt committed
+  // but lost its response finds this row instead of booking a second receipt +
+  // mirror. Nullable — older rows and imported receipts have none.
+  submissionToken String?          @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres
@@ -918,21 +924,23 @@ model PettyCashReceipt {
 }
 
 model PettyCashExpense {
-  id          Int              @id @default(autoincrement())
-  sessionId   Int
-  session     PettyCashSession @relation(fields: [sessionId], references: [id])
-  date        DateTime
-  payee       String
-  accountId   Int
-  account     Account          @relation(fields: [accountId], references: [id])
-  amount      Decimal          @db.Decimal(10, 2)
-  description String
-  receiptRef  String?
-  importKey   String?
-  createdAt   DateTime         @default(now())
-  transaction Transaction?
-  fundId      Int?
-  fund        Fund?            @relation(fields: [fundId], references: [id])
+  id              Int              @id @default(autoincrement())
+  sessionId       Int
+  session         PettyCashSession @relation(fields: [sessionId], references: [id])
+  date            DateTime
+  payee           String
+  accountId       Int
+  account         Account          @relation(fields: [accountId], references: [id])
+  amount          Decimal          @db.Decimal(10, 2)
+  description     String
+  receiptRef      String?
+  importKey       String?
+  createdAt       DateTime         @default(now())
+  transaction     Transaction?
+  fundId          Int?
+  fund            Fund?            @relation(fields: [fundId], references: [id])
+  // Per-form-mount token (#487) — see PettyCashReceipt.submissionToken.
+  submissionToken String?          @unique
 
   // @unique (not just @@index) so a concurrent double-import can't both pass the
   // app-side read dedup and double-count the mirrored ledger. Postgres
@@ -1440,6 +1448,11 @@ model VenueUsageRequest {
   reminderClaimedAt DateTime?
   /// Set just before an invoice request email is sent, cleared when the outcome is recorded (in-flight marker).
   sendingAt         DateTime?
+  /// Set when the bookings changed while the SUCCESS send went out (the venue may hold old hours); set by a best-effort update after the outcome, cleared by the next SUCCESS send's outcome write (a failed resend over an earlier SUCCESS keeps it).
+  staleAt           DateTime?
+  /// Rows and CONFIRMED hours the SUCCESS invoice request listed (#549); null on rows sent before this existed. Written with the SUCCESS outcome (a failed resend keeps the earlier send's values).
+  sentRowCount      Int?
+  sentHours         Decimal?  @db.Decimal(7, 2)
   approvedAt        DateTime?
   approvedById      Int?
   approvedBy        User?     @relation("VenueUsageRequestApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
@@ -1525,4 +1538,60 @@ model FundraiserReminderSend {
 
   @@index([entryId])
   @@index([sentAt])
+}
+
+enum GroupCategory {
+  MINISTRY
+  COMMITTEE
+  FELLOWSHIP
+  OTHER
+}
+
+enum GroupMemberRole {
+  LEADER
+  MEMBER
+}
+
+/// A ministry, committee or fellowship group (#303). Archive-only, never deleted.
+model Group {
+  id           Int                 @id @default(autoincrement())
+  name         String              @unique
+  category     GroupCategory
+  description  String              @default("")
+  archivedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  members      GroupMember[]
+  leaderAccess GroupLeaderAccess[]
+
+  @@index([category])
+}
+
+/// A Person in a Group. `role` LEADER is a label only; login access is GroupLeaderAccess.
+model GroupMember {
+  id       Int             @id @default(autoincrement())
+  groupId  Int
+  personId Int
+  role     GroupMemberRole @default(MEMBER)
+  /// Optional free-text title, e.g. "Secretary". Plaintext (not PII).
+  title    String          @default("")
+  joinedAt DateTime        @default(now())
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  person   Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, personId])
+  @@index([personId])
+}
+
+/// EVENT_ORGANISER login that may manage this group's membership from /my-groups (twin of SundaySchoolRollMarker).
+model GroupLeaderAccess {
+  id        Int      @id @default(autoincrement())
+  groupId   Int
+  userId    Int
+  createdAt DateTime @default(now())
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
 }

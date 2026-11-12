@@ -14,14 +14,14 @@ import {
   dedupeKey,
   type ResolvedRow,
 } from "@/lib/pettyCashImport"
-import { receiptCreateData, expenseCreateData, receiptMirrorData, expenseMirrorData } from "./pettyCashEntry"
+import { receiptCreateData, expenseCreateData, receiptMirrorData, expenseMirrorData, SessionClosedError } from "./pettyCashEntry"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber } from "@/lib/formatting"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
 import { featureGuard } from "@/lib/featureFlags"
 
 export interface ImportPreview {
@@ -176,7 +176,7 @@ function buildRowInput(
 ): RowInputResult {
   const title = sessionTitle(r.date!)
   const sess = sessionByTitle.get(title)!
-  if (sess.status === "CLOSED") throw new Error(`Session ${title} is closed`)
+  if (sess.status === "CLOSED") throw new SessionClosedError(`Session ${title} is closed`)
   // Dedupe text must mirror what is stored, or re-import won't detect dupes:
   // receipts store notes = payeeOrDonor || notes; expenses store payee = payeeOrDonor.
   const text = r.type === "expense" ? r.payeeOrDonor : (r.payeeOrDonor || r.notes || "")
@@ -245,7 +245,7 @@ async function assertImportSessionsStillOpen(
       where: { id: sid, status: "OPEN" },
       data: { status: "OPEN" },
     })
-    if (count === 0) throw new Error(`Session ${titleBySessionId.get(sid)} is closed`)
+    if (count === 0) throw new SessionClosedError(`Session ${titleBySessionId.get(sid)} is closed`)
   }
 }
 
@@ -376,6 +376,9 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
   // 5s Prisma interactive-tx default on large imports and would abort after real
   // work. Size the window to the row cap.
   try {
+    // Resolved before the tx (fail fast, no wasted inserts) but inside the try so a bad
+    // session id yields the safe import error instead of an unhandled throw.
+    const userId = actorId(session)
     await prisma.$transaction(async (tx) => {
       const sessionByTitle = await ensureImportSessions(tx, dates, custodianId)
 
@@ -394,17 +397,24 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
       const cashAccountId = cashAccount?.id ?? null
       await insertImportReceipts(tx, built.receiptInputs, accountName, titleBySessionId, cashAccountId)
       await insertImportExpenses(tx, built.expenseInputs, accountName, titleBySessionId, cashAccountId)
+      const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
+      await logAuditGuardedTx(tx, userId, "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
+        receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
+      })
     }, { maxWait: 10_000, timeout: 60_000 })
   } catch (e) {
-    // A closed session mid-import or a DB constraint failure throws inside the
-    // transaction — surface the message instead of an unhandled 500.
-    return { error: e instanceof Error ? e.message : "Import failed" }
+    // Only the domain error (a session closed mid-import) carries a user-safe message;
+    // anything else (DB/constraint/audit failure) is logged and answered generically so
+    // raw driver text never reaches the client.
+    if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) {
+      console.error("commitImport audit write failed", e.cause)
+      return { error: AUDIT_FAILED_ERROR }
+    }
+    console.error("commitImport failed", e)
+    return { error: "Import failed" }
   }
 
-  const sortedDates = [...dates].sort((a, b) => a.localeCompare(b))
-  await logAudit(actorId(session), "PETTY_CASH_IMPORTED", "PettyCashSession", undefined, {
-    receipts, expenses, skipped, custodianId, dateRange: `${sortedDates[0]}..${sortedDates.at(-1)}`,
-  })
   revalidatePath("/accounting/petty-cash")
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")

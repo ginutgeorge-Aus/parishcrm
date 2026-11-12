@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useActionState, useRef, useState } from "react"
+import { useActionState, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,23 +10,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { fmtAUD, toCents } from "@/lib/formatting"
 import type { ActionResult } from "@/lib/actions/types"
+import { WINDOW_GUARD_TAG } from "@/lib/xferRefs"
 import { APP_CURRENCY } from "@/lib/appConfig"
 import type { ImportedTransferOption } from "@/lib/pettyCashTransferCandidates"
-
-/**
- * Builds a v4 UUID for the submission token. Prefers crypto.randomUUID (secure
- * contexts only) and falls back to crypto.getRandomValues, which also works on
- * plain-http self-hosted installs.
- */
-function newToken(): string {
-  const c = globalThis.crypto
-  if (typeof c.randomUUID === "function") return c.randomUUID()
-  const b = c.getRandomValues(new Uint8Array(16))
-  b[6] = (b[6] & 0x0f) | 0x40
-  b[8] = (b[8] & 0x3f) | 0x80
-  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
-}
+import { useSubmissionToken } from "./useSubmissionToken"
 
 export function TransferForm({
   action,
@@ -34,6 +21,7 @@ export function TransferForm({
   imported = [],
   importedTruncated = false,
   importedFiltered = false,
+  isAdmin = false,
 }: Readonly<{
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   maxAmount: number
@@ -43,20 +31,15 @@ export function TransferForm({
   importedTruncated?: boolean
   /** True when the list is narrowed to one amount + day via the lookup link. */
   importedFiltered?: boolean
+  /** Viewer is ADMIN: may override the cross-day window guard (server re-checks the role). */
+  isAdmin?: boolean
 }>) {
   const router = useRouter()
-  // Idempotency token (#491), created once per mounted form — not per server
-  // render: the lookup links re-render the page client-side while this form
-  // keeps its draft, so a page-made token would change mid-form. Made lazily on
-  // first submit (no SSR/hydration mismatch) and reused by every later submit.
-  const tokenRef = useRef<string | null>(null)
-  /** Adds the stable submission token to the form data, then runs the server action. */
-  const submitWithToken = (prev: ActionResult, formData: FormData) => {
-    tokenRef.current ??= newToken()
-    formData.set("submissionToken", tokenRef.current)
-    return action(prev, formData)
-  }
+  // Idempotency token (#491), stable per mounted form — see useSubmissionToken.
+  const submitWithToken = useSubmissionToken(action)
   const [state, formAction, isPending] = useActionState(submitWithToken, undefined)
+  // Controlled (not an uncontrolled field) so it survives React's post-action form reset.
+  const [override, setOverride] = useState(false)
   const [importedId, setImportedId] = useState("")
   const [date, setDate] = useState(() => sydneyTodayYMD())
   const [amount, setAmount] = useState("")
@@ -87,6 +70,19 @@ export function TransferForm({
   return (
     <form action={formAction} className="max-w-lg space-y-4">
       {state?.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
+
+      {isAdmin && state?.error?.includes(WINDOW_GUARD_TAG) && (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={override}
+            onChange={(e) => setOverride(e.target.checked)}
+            className="mt-1 size-4 shrink-0"
+          />
+          <span>Admin: record anyway (separate deposit)</span>
+        </label>
+      )}
+      <input type="hidden" name="overrideWindowGuard" value={override ? "true" : ""} />
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm">
         Current cash in hand: <span className="font-semibold">{fmtAUD(maxAmount)}</span>

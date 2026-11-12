@@ -98,3 +98,23 @@ export function canManageFundraiser(role: UserRole | undefined): boolean {
 export function canViewFundraiserTotals(role: UserRole | undefined): boolean {
   return canManageFundraiser(role) || role === UserRole.AUDITOR
 }
+
+/**
+ *  * See the /groups list and group detail pages (read-only for VIEWER). Same set
+ * as canViewPeople: a member list is member PII. AUDITOR and EVENT_ORGANISER
+ * are excluded (organisers use /my-groups, gated per group).
+ * @param role the caller's role
+ */
+export function canViewGroups(role: UserRole | undefined): boolean {
+  return canViewPeople(role)
+}
+
+/**
+ * Create, edit, archive any group, manage any group's members and assign
+ * leader logins. ADMIN | PASTOR | OFFICE_ADMIN (= canEdit), kept separate so
+ * the rule can diverge.
+ * @param role the caller's role
+ */
+export function canManageGroups(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
