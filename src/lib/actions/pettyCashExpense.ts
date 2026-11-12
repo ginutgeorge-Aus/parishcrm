@@ -9,18 +9,18 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, hasEncryptedFieldMatch, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError, logCreateAuditTx, resolveCreateWriteError } from "./pettyCashAudit"
+import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { finishReplay, replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -254,11 +254,7 @@ export async function createExpense(
         receiptRef: parsed.data.receiptRef, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logCreateAuditTx(tx, actorId(session), "PETTY_CASH_EXPENSE_CREATED", "PettyCashExpense", id, {
-        amount: parsed.data.amount,
-        accountId: parsed.data.accountId,
-        sessionId,
-      })
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "CREATED", id, parsed.data, sessionId)
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if ("replay" in result) return replayDone()
@@ -349,18 +345,15 @@ export async function updateExpense(
         fundId: parsed.data.fundId,
       },
     })
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Expense", "UPDATED", id, parsed.data, expense.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", id, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId: expense.sessionId,
-  })
   revalidatePettyCashPaths(expense.sessionId)
   redirect(`/accounting/petty-cash/sessions/${expense.sessionId}`)
 }
@@ -386,32 +379,31 @@ export async function deleteExpense(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (expense.date >= retentionFloor()) return { error: retentionError(expense.date) }
+  const userId = actorId(session)
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
   try {
     await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, expense.session.id, "Cannot delete from closed session")
-      if (expense.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: expense.transaction.id }, select: { reconciled: true } })
-        if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
-      }
+      // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
+      // concurrent edit between the two can't leave the DELETED row describing stale values.
+      const row = await tx.pettyCashExpense.findUnique({
+        where: { id },
+        select: { amount: true, accountId: true, sessionId: true, transaction: { select: { id: true, reconciled: true } } },
+      })
+      if (!row) throw new SessionClosedError("Expense not found")
+      // Locked re-check: a reconcile must not commit between this check and the cascade delete.
+      await assertMirrorNotReconciledTx(tx, row.transaction?.id)
       await tx.pettyCashExpense.delete({ where: { id } })
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Expense", id, row)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
+    // Plain (non-retrying) tx: a write conflict/deadlock (P2034, which logAuditGuardedTx
+    // passes through for serializableWrite) is a "try again", not a 500.
+    if (isP2034(e)) return PETTY_CASH_BUSY
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", id, {
-    amount: Number(expense.amount),
-    accountId: expense.accountId,
-    sessionId: expense.sessionId,
-  })
-  // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion.
-  if (expense.transaction)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", expense.transaction.id, {
-      source: "petty-cash", pettyCashExpenseId: id,
-    })
   revalidatePettyCashPaths(expense.sessionId)
 }

@@ -111,7 +111,7 @@ describe("createReceipt — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(mock$tx).not.toHaveBeenCalled()
     expect(mockReceiptFindMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(revalidatePath).toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
@@ -150,7 +150,7 @@ describe("createReceipt — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(tx.pettyCashReceipt.create).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 
@@ -310,7 +310,7 @@ describe("createExpense — submission token (#487)", () => {
     expect(res).toBeUndefined()
     expect(mock$tx).not.toHaveBeenCalled()
     expect(mockExpenseFindMany).not.toHaveBeenCalled()
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith("/accounting/petty-cash/sessions/1")
   })
 

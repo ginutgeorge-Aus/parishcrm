@@ -7,6 +7,8 @@ jest.mock("@/lib/actions/settings", () => ({
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: jest.fn(),
+    // Row lock on a petty-cash entry's mirror Transaction (assertMirrorNotReconciledTx).
+    $queryRaw: jest.fn(),
     pettyCashSession: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -97,6 +99,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 import { createSession, closeSession, deleteSession, ensureWeeklySession } from "@/lib/actions/pettyCashSession"
 import { createReceipt, updateReceipt, deleteReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense, updateExpense, deleteExpense } from "@/lib/actions/pettyCashExpense"
@@ -138,6 +141,7 @@ const mockFindAccount = prisma.account.findUnique as jest.Mock
 const mockCalcBalance = calcRunningBalance as jest.Mock
 const mockRedirect = redirect as unknown as jest.Mock
 const mockPrismaTransaction = prisma.$transaction as jest.Mock
+const mockQueryRaw = prisma.$queryRaw as jest.Mock
 const mockCreateTransaction = prisma.transaction.create as jest.Mock
 const mockFindTransaction = prisma.transaction.findUnique as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
@@ -161,6 +165,8 @@ beforeEach(() => {
   // reconciled); tests exercising a concurrent reconcile override this. Reset
   // here because clearAllMocks() clears calls but NOT mockResolvedValue impls.
   mockFindTransaction.mockResolvedValue(null)
+  // Default the locked mirror re-check (SELECT ... FOR UPDATE) to un-reconciled.
+  mockQueryRaw.mockResolvedValue([{ reconciled: false }])
   // createTransfer reads the created row's id for audit logging
   mockCreateTransfer.mockResolvedValue({ id: 1 })
   mockFindManyReceipt.mockResolvedValue([])
@@ -293,7 +299,7 @@ describe("closeSession", () => {
     mockUpdateManySession.mockResolvedValue({ count: 0 }) // conditional update matched no OPEN row
     const result = await closeSession(1, undefined, fd({ notes: "late" }))
     expect(result).toEqual({ error: "Session already closed" })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
@@ -318,9 +324,19 @@ describe("deleteSession", () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindSession.mockResolvedValue(emptySession)
     await deleteSession(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_SESSION_DELETED", "PettyCashSession", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_SESSION_DELETED", "PettyCashSession", 1, {
       title: "11-MAY-2026",
     })
+  })
+
+  it("reports an audit-insert FK failure as an audit error, not 'session has entries'", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindSession.mockResolvedValue(emptySession)
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2003" })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteSession(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
   })
 
   it("blocks PASTOR", async () => {
@@ -584,6 +600,16 @@ describe("deleteReceipt", () => {
     expect(mockDeleteReceipt).toHaveBeenCalledWith({ where: { id: 1 } })
   })
 
+  it("reports an audit-insert failure (even an FK P2003) as an audit error and rolls back", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2003" })
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteReceipt(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+  })
+
   it("blocks PASTOR from deleting", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "PASTOR" } })
     const result = await deleteReceipt(1)
@@ -607,7 +633,7 @@ describe("deleteReceipt", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteReceipt(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", 1, {
       amount: 250,
       accountId: 2,
       sessionId: 5,
@@ -623,7 +649,7 @@ describe("deleteReceipt", () => {
     mockFindTransaction.mockResolvedValueOnce({ reconciled: false, bankRef: "XFER_OUT_ANZ_1" })
     await deleteTransfer(1)
     expect(prisma.transaction.update).toHaveBeenCalledWith({ where: { id: 99 }, data: { pettyCashTransferId: null } })
-    expect(mockLogAudit).not.toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
+    expect(mockLogAuditTx).not.toHaveBeenCalledWith(expect.anything(), 7, "TRANSACTION_DELETED", "Transaction", 99, expect.anything())
   })
 
   it("returns a clean error when the transfer vanishes mid-delete", async () => {
@@ -642,7 +668,8 @@ describe("deleteReceipt", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99 },
     })
     await deleteReceipt(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 99, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -671,12 +698,27 @@ describe("deleteReceipt", () => {
 
   it("blocks the delete when a concurrent reconcile lands inside the transaction", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
-    // Outer read saw the mirror un-reconciled; the reconcile lands after it.
-    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
-    mockFindTransaction.mockResolvedValue({ reconciled: true })
+    // Outer read and the in-tx plain read both saw the mirror un-reconciled; the
+    // reconcile committed before the row lock, so only the locked read sees it.
+    mockFindReceipt
+      .mockResolvedValueOnce({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 99, reconciled: false } })
+      .mockResolvedValueOnce({ amount: 10, accountId: 2, sessionId: 5, transaction: { id: 99, reconciled: false } })
+    mockQueryRaw.mockResolvedValueOnce([{ reconciled: true }])
     const result = await deleteReceipt(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
     expect(mockDeleteReceipt).not.toHaveBeenCalled()
+    // The mirror row is re-checked under FOR UPDATE, not a plain read.
+    expect(mockQueryRaw.mock.calls[0][0].join("?")).toMatch(/FROM "Transaction" WHERE id = \? FOR UPDATE/)
+    expect(mockQueryRaw.mock.calls[0][1]).toBe(99)
+  })
+
+  it("returns a retry error (not a 500) when the delete transaction hits a write conflict (P2034)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    // P2034 from the audit insert passes through logAuditGuardedTx; deleteReceipt has no retry loop.
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const result = await deleteReceipt(1)
+    expect(result).toEqual({ error: "Couldn't save the entry. Try again." })
   })
 
   // --- ATO 7-year retention floor ---
@@ -762,7 +804,8 @@ describe("deleteTransfer", () => {
       session: { id: 5, status: "OPEN" }, transaction: { id: 99 },
     })
     await deleteTransfer(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 99, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -906,7 +949,7 @@ describe("updateReceipt", () => {
     mockFindReceipt.mockResolvedValue(openReceipt)
     mockFindAccount.mockResolvedValue({ type: "INCOME", isActive: true, name: "Tithe" })
     await updateReceipt(1, undefined, fd(receiptFd))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", 1, {
       amount: "75.00",
       accountId: 3,
       sessionId: 5,
@@ -1151,7 +1194,7 @@ describe("deleteExpense", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" },
     })
     await deleteExpense(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_DELETED", "PettyCashExpense", 1, {
       amount: 45,
       accountId: 4,
       sessionId: 5,
@@ -1165,7 +1208,8 @@ describe("deleteExpense", () => {
       session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88 },
     })
     await deleteExpense(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       7, "TRANSACTION_DELETED", "Transaction", 88, expect.objectContaining({ source: "petty-cash" })
     )
   })
@@ -1178,6 +1222,35 @@ describe("deleteExpense", () => {
     const result = await deleteExpense(1)
     expect(result).toEqual({ error: expect.stringContaining("reconciled") })
     expect(mockDeleteExpense).not.toHaveBeenCalled()
+  })
+
+  it("blocks the delete when a concurrent reconcile lands before the mirror row lock", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindExpense.mockResolvedValue({
+      id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" }, transaction: { id: 88, reconciled: false },
+    })
+    mockQueryRaw.mockResolvedValueOnce([{ reconciled: true }])
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: expect.stringContaining("reconciled") })
+    expect(mockDeleteExpense).not.toHaveBeenCalled()
+    expect(mockQueryRaw.mock.calls[0][0].join("?")).toMatch(/FROM "Transaction" WHERE id = \? FOR UPDATE/)
+    expect(mockQueryRaw.mock.calls[0][1]).toBe(88)
+  })
+
+  it("skips the mirror row lock when the expense has no ledger mirror", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    await deleteExpense(1)
+    expect(mockQueryRaw).not.toHaveBeenCalled()
+    expect(mockDeleteExpense).toHaveBeenCalledWith({ where: { id: 1 } })
+  })
+
+  it("returns a retry error (not a 500) when the delete transaction hits a write conflict (P2034)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindExpense.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const result = await deleteExpense(1)
+    expect(result).toEqual({ error: "Couldn't save the entry. Try again." })
   })
 
   // --- ATO 7-year retention floor ---
@@ -1283,7 +1356,7 @@ describe("updateExpense", () => {
     mockFindExpense.mockResolvedValue(openExpense)
     mockFindAccount.mockResolvedValue({ type: "EXPENSE", isActive: true, name: "Stationery" })
     await updateExpense(3, undefined, fd(expenseFd))
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", 3, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.anything(), 7, "PETTY_CASH_EXPENSE_UPDATED", "PettyCashExpense", 3, {
       amount: "30.00",
       accountId: 4,
       sessionId: 5,
@@ -1612,7 +1685,8 @@ describe("ensureWeeklySession", () => {
     expect(prisma.pettyCashSession.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ custodianId: 5, openingBalance: 42.5 }),
     })
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.anything(),
       expect.anything(),
       "PETTY_CASH_SESSION_AUTO_OPENED",
       "PettyCashSession",

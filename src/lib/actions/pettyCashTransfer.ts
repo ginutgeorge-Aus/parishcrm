@@ -10,7 +10,7 @@ import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { calcRunningBalance } from "@/lib/pettyCashLedger"
 import { toCents } from "@/lib/formatting"
 import { encrypt, decrypt } from "@/lib/crypto"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
 import { assertUnlocked, getAccountingLockDate, isDateLocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
 import { ADOPTION_ERRORS, adoptionProblem, legsByDepositRef } from "@/lib/pettyCashAdoption"
@@ -478,9 +478,8 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
   if (transfer.date >= retentionFloor()) return { error: retentionError(transfer.date) }
   // Re-assert OPEN + not-reconciled inside the delete transaction — see
   // deleteReceipt; closes the concurrent close/reconcile race left open by.
-  let adopted = false
   try {
-    adopted = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, transfer.session.id, "Cannot delete from closed session")
       // Concurrent delete: return a clean error instead of a P2025 from the delete below.
       if (!(await tx.pettyCashTransfer.findUnique({ where: { id }, select: { id: true } })))
@@ -511,6 +510,13 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         amount: Number(transfer.amount),
         sessionId: transfer.sessionId,
       })
+      // The mirrored XFER ledger row is removed by FK cascade (Transaction
+      // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
+      // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).
+      if (transfer.transaction && !isAdopted)
+        await logAuditTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
+          source: "petty-cash", pettyCashTransferId: id,
+        })
       return isAdopted
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
@@ -519,13 +525,5 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
     if (isP2034(e)) return { error: "Transfer conflict — please try again." }
     throw e
   }
-  const userId = actorId(session)
-  // The mirrored XFER ledger row is removed by FK cascade (Transaction
-  // .pettyCashTransferId onDelete: Cascade) — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion (matches deleteReceipt).
-  if (transfer.transaction && !adopted)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
-      source: "petty-cash", pettyCashTransferId: id,
-    })
   revalidatePettyCashPaths(transfer.sessionId)
 }

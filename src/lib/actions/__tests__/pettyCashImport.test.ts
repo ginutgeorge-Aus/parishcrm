@@ -88,6 +88,18 @@ test("commitImport rejects a row whose date maps to a CLOSED session, and writes
   expect(mockTxCreateMany).not.toHaveBeenCalled()
 })
 
+test("commitImport answers a non-domain failure generically, never with raw driver text", async () => {
+  mockSessionFindMany.mockResolvedValue([{ id: 5, title: "01-JUL-2026", status: "OPEN" }])
+  mockReceiptCreateMany.mockRejectedValue(new Error('Invalid `prisma.pettyCashReceipt.createMany()` invocation: secret'))
+  mockExpenseCreateMany.mockRejectedValue(new Error('Invalid `prisma.pettyCashExpense.createMany()` invocation: secret'))
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+
+  const res = await commitImport(fd({ custodianId: "1", csv: CSV }))
+  spy.mockRestore()
+
+  expect(res).toEqual({ error: "Import failed" })
+})
+
 test("commitImport re-checks the session's lock status right before the batched insert — a concurrent close after the initial read is still caught", async () => {
   // The initial read sees the session OPEN...
   mockSessionFindMany.mockResolvedValue([{ id: 5, title: "01-JUL-2026", status: "OPEN" }])

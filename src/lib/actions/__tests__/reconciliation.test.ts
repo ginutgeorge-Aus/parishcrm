@@ -5,7 +5,7 @@ import { saveStatementBalance } from "../reconciliation"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("@/lib/actor", () => ({ actorId: jest.fn(() => 1) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 // Keep ACCOUNTING_LOCK_DATE_KEY/isDateLocked real (pure, no DB) — only

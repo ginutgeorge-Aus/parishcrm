@@ -519,14 +519,14 @@ describe("deleteTransfer — adopted leg", () => {
     await deleteTransfer(5)
     expect(update).toHaveBeenCalledWith({ where: { id: 11 }, data: { pettyCashTransferId: null } })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_UPDATED", "Transaction", 11, expect.objectContaining({ action: "unlinked-from-transfer" }))
-    expect(logAudit).not.toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.anything())
+    expect(logAuditTx).not.toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_DELETED", "Transaction", 11, expect.anything())
   })
 
   it("treats a normal mirror as not adopted (cascade delete audited)", async () => {
     const update = setup({ reconciled: false, bankRef: "PC_T_5" })
     await deleteTransfer(5)
     expect(update).not.toHaveBeenCalled()
-    expect(logAudit).toHaveBeenCalledWith(1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 1, "TRANSACTION_DELETED", "Transaction", 11, expect.any(Object))
   })
 })
 

@@ -59,6 +59,7 @@ import { createTransaction, updateTransaction, deleteTransaction } from "@/lib/a
 import { toggleReconciled, reconcileMany } from "@/lib/actions/transactionReconcile"
 import { encrypt } from "@/lib/crypto"
 import { assertUnlocked } from "@/lib/accountingLock"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const mockSession = auth as jest.Mock
 const mockCreate = prisma.transaction.create as jest.Mock
@@ -688,6 +689,18 @@ describe("deleteTransaction", () => {
     }
   })
 
+  it("returns AUDIT_FAILED_ERROR and does not report success when the audit write throws", async () => {
+    mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
+    mockFindUnique.mockResolvedValue({ id: 1, bankRef: null, type: "EXPENSE", amount: 5, accountId: 1, account: { code: "5001" } })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit insert failed"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await deleteTransaction(1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    // The throw inside the tx rolls the delete back; no post-commit side effects ran.
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
   it("uses delete-specific messages for conflicts and FK violations", async () => {
     mockSession.mockResolvedValue({ user: { id: "999", role: "ADMIN" } })
     mockFindUnique.mockResolvedValue({ id: 1 })
@@ -767,7 +780,7 @@ describe("deleteTransaction", () => {
     const result = await deleteTransaction(1)
     expect(result).toEqual({ error: expect.stringMatching(/changed by someone else/i) })
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 1, invoiceId: null, pettyCashReceiptId: null, pettyCashExpenseId: null, pettyCashTransferId: null } })
-    expect(mockLogAudit).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
@@ -782,7 +795,7 @@ describe("deleteTransaction", () => {
       accountId: 5001,
     })
     await deleteTransaction(1)
-    expect(mockLogAudit).toHaveBeenCalledWith(7, "TRANSACTION_DELETED", "Transaction", 1, {
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 7, "TRANSACTION_DELETED", "Transaction", 1, {
       amount: 250,
       type: "EXPENSE",
       accountId: 5001,
@@ -845,11 +858,19 @@ describe("toggleReconciled", () => {
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { reconciled: false } })
   })
 
+  it("propagates a failed audit write so the toggle rolls back", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    await expect(toggleReconciled(1, 1)).rejects.toThrow("audit down")
+  })
+
   it("audit-logs the reconciliation state change", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
     await toggleReconciled(1, 1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.objectContaining({ __isTx: true }),
       1, "TRANSACTION_RECONCILED", "Transaction", 1,
       expect.objectContaining({ reconciled: true, paymentAccountId: 1 })
     )
@@ -944,8 +965,9 @@ describe("reconcileMany", () => {
       { id: 2, date: new Date("2026-05-02"), paymentAccountId: 1, reconciled: true },
       { id: 3, date: new Date("2026-05-03"), paymentAccountId: 1, reconciled: false },
     ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 2 })
     const result = await reconcileMany([1, 2, 3], 1)
-    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: { in: [1, 3] } }, data: { reconciled: true } })
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: { in: [1, 3] }, reconciled: false }, data: { reconciled: true } })
     expect(result).toEqual({ success: "2 transactions reconciled." })
   })
 
@@ -965,13 +987,35 @@ describe("reconcileMany", () => {
     expect(mockRevalidate).not.toHaveBeenCalledWith("/accounting/reports/funds")
   })
 
+  it("writes no audit row when every selected row is already reconciled", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([
+      { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: true },
+    ])
+    await reconcileMany([1], 1)
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
+  it("writes no audit row when a concurrent toggle already flipped every row (count 0)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([
+      { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
+    ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await reconcileMany([1], 1)
+    expect(mockLogAuditTx).not.toHaveBeenCalled()
+  })
+
   it("audit-logs the bulk reconcile with a count", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindMany.mockResolvedValue([
       { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
     ])
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 })
     await reconcileMany([1], 1)
-    expect(mockLogAudit).toHaveBeenCalledWith(
+    expect(mockLogAuditTx).toHaveBeenCalledWith(
+      expect.objectContaining({ __isTx: true }),
       1, "TRANSACTION_RECONCILED", "Transaction", undefined,
       expect.objectContaining({ reconciled: true, paymentAccountId: 1, count: 1 })
     )

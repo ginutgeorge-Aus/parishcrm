@@ -8,18 +8,18 @@ import { prisma } from "@/lib/prisma"
 import { canAccessAccounting, isAdmin } from "@/lib/roleGuard"
 import { toCents, sessionDateFromTitle } from "@/lib/formatting"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
-import { logAudit } from "@/lib/audit"
+import { logPettyCashEntryAuditTx, logPettyCashEntryDeletedAuditTx } from "@/lib/pettyCashAuditTx"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { retentionFloor, retentionError } from "@/lib/retention"
-import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2034 } from "@/lib/validation"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { validateAccount } from "./transaction"
 import { accountMatches } from "@/lib/accountMatches"
 import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
-import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { finishReplay, replayOrError, logCreateAuditTx, resolveCreateWriteError } from "./pettyCashAudit"
+import { createReceiptEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { finishReplay, replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashAudit"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -221,11 +221,7 @@ export async function createReceipt(
         notes: parsed.data.notes, sessionTitle: existing.title, fundId: parsed.data.fundId,
         cashAccountId: cashAccount?.id ?? null, submissionToken: token,
       })
-      await logCreateAuditTx(tx, actorId(session), "PETTY_CASH_RECEIPT_CREATED", "PettyCashReceipt", id, {
-        amount: parsed.data.amount,
-        accountId: parsed.data.accountId,
-        sessionId,
-      })
+      await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "CREATED", id, parsed.data, sessionId)
       return { id }
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if ("replay" in result) return replayDone()
@@ -373,18 +369,15 @@ export async function updateReceipt(
         isGiving: !!family?.familyId,
       },
     })
+    await logPettyCashEntryAuditTx(tx, actorId(session), "Receipt", "UPDATED", id, parsed.data, receipt.sessionId)
     return null
     }, PETTY_CASH_BUSY, PETTY_CASH_GONE)
     if (result) return result
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
     throw e
   }
-  await logAudit(actorId(session), "PETTY_CASH_RECEIPT_UPDATED", "PettyCashReceipt", id, {
-    amount: parsed.data.amount,
-    accountId: parsed.data.accountId,
-    sessionId: receipt.sessionId,
-  })
   revalidatePettyCashPaths(receipt.sessionId)
   redirect(`/accounting/petty-cash/sessions/${receipt.sessionId}`)
 }
@@ -410,6 +403,7 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   // ATO retention: same fixed 7-year floor as deleteTransaction —
   // independent of the admin-configurable period lock above.
   if (receipt.date >= retentionFloor()) return { error: retentionError(receipt.date) }
+  const userId = actorId(session)
   // Re-assert OPEN + not-reconciled INSIDE the delete transaction: the
   // checks above run outside any tx, so a concurrent closeSession / reconcile
   // landing in the gap would otherwise let the delete drift a closed session's
@@ -418,27 +412,25 @@ export async function deleteReceipt(id: number): Promise<ActionResult> {
   try {
     await prisma.$transaction(async (tx) => {
       await assertSessionOpenTx(tx, receipt.session.id, "Cannot delete from closed session")
-      if (receipt.transaction) {
-        const mirror = await tx.transaction.findUnique({ where: { id: receipt.transaction.id }, select: { reconciled: true } })
-        if (mirror?.reconciled) throw new SessionClosedError(RECONCILED_DELETE_ERROR)
-      }
+      // Audit metadata comes from the row as read INSIDE the tx (not the pre-read), so a
+      // concurrent edit between the two can't leave the DELETED row describing stale values.
+      const row = await tx.pettyCashReceipt.findUnique({
+        where: { id },
+        select: { amount: true, accountId: true, sessionId: true, transaction: { select: { id: true, reconciled: true } } },
+      })
+      if (!row) throw new SessionClosedError("Receipt not found")
+      // Locked re-check: a reconcile must not commit between this check and the cascade delete.
+      await assertMirrorNotReconciledTx(tx, row.transaction?.id)
       await tx.pettyCashReceipt.delete({ where: { id } })
+      await logPettyCashEntryDeletedAuditTx(tx, userId, "Receipt", id, row)
     })
   } catch (e) {
     if (e instanceof SessionClosedError) return { error: e.message }
+    if (e instanceof AuditWriteError) return auditFailed(e)
+    // Plain (non-retrying) tx: a write conflict/deadlock (P2034, which logAuditGuardedTx
+    // passes through for serializableWrite) is a "try again", not a 500.
+    if (isP2034(e)) return PETTY_CASH_BUSY
     throw e
   }
-  const userId = actorId(session)
-  await logAudit(userId, "PETTY_CASH_RECEIPT_DELETED", "PettyCashReceipt", id, {
-    amount: Number(receipt.amount),
-    accountId: receipt.accountId,
-    sessionId: receipt.sessionId,
-  })
-  // The mirrored ledger row is removed by FK cascade — log it explicitly so the
-  // Transaction audit trail doesn't show a ghost deletion.
-  if (receipt.transaction)
-    await logAudit(userId, "TRANSACTION_DELETED", "Transaction", receipt.transaction.id, {
-      source: "petty-cash", pettyCashReceiptId: id,
-    })
   revalidatePettyCashPaths(receipt.sessionId)
 }
