@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -20,16 +20,19 @@ export function GroupMessageForm({
   canSend,
 }: Readonly<{ action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>; canSend: boolean }>) {
   const [state, formAction, isPending] = useActionState(action, undefined)
+  // Controlled: React 19 resets uncontrolled fields after a form action, which would wipe the draft on an error.
+  const [subject, setSubject] = useState("")
+  const [body, setBody] = useState("")
   return (
     <form action={formAction} className="max-w-2xl space-y-4">
       <FormFeedback state={state} />
       <div className="space-y-1">
         <Label htmlFor="subject">Subject</Label>
-        <Input id="subject" name="subject" maxLength={MAX_MESSAGE_SUBJECT} required />
+        <Input id="subject" name="subject" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={MAX_MESSAGE_SUBJECT} required />
       </div>
       <div className="space-y-1">
         <Label htmlFor="body">Message</Label>
-        <Textarea id="body" name="body" rows={10} maxLength={MAX_MESSAGE_BODY} required />
+        <Textarea id="body" name="body" value={body} onChange={(e) => setBody(e.target.value)} rows={10} maxLength={MAX_MESSAGE_BODY} required />
         <p className="text-xs text-muted-foreground">Plain text. Each person is greeted by first name and the church name is added below.</p>
       </div>
       <Button type="submit" disabled={isPending || !canSend} className="w-full sm:w-auto">

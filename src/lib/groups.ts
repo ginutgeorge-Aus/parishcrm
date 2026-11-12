@@ -84,7 +84,7 @@ export const GroupMessageSchema = z.object({
   body: z.string().trim().min(1, "Message is required").max(MAX_MESSAGE_BODY, `Message must be ${MAX_MESSAGE_BODY} characters or fewer`),
 })
 
-export const GROUP_CSV_HEADERS =["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]
+export const GROUP_CSV_HEADERS = ["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]
 
 /** "2026-11-11" for the joined date: the Sydney calendar day of the stored instant. */
 function ymd(d: Date): string {
