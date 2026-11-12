@@ -13,6 +13,7 @@ model Family {
   memberNo               String?                  @unique
   address                String?
   suburb                 String?
+  suburbHash             String? // HMAC blind index of normalised suburb (OSS-39)
   state                  String?
   postcode               String?
   homePhone              String?
@@ -34,6 +35,7 @@ model Family {
   @@unique([name])
   @@index([archivedAt])
   @@index([status])
+  @@index([suburbHash])
 }
 
 model Person {

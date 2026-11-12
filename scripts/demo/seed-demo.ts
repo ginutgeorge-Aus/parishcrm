@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto"
 import { hash } from "bcryptjs"
 import { PrismaClient } from "../../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
-import { encrypt, hmacEmail, hmacMobile } from "../../src/lib/cryptoCore"
+import { encrypt, hmacEmail, hmacMobile, hmacSuburb } from "../../src/lib/cryptoCore"
 import { buildDemoData, centsToDecimal } from "./demoData"
 import { sydneyToday } from "../../src/lib/dates"
 
@@ -75,7 +75,7 @@ async function main() {
       const fam = await tx.family.create({
         data: {
           name: f.name, status: f.status, joinedDate: f.joinedDate, marriageDate: f.marriageDate, createdAt: f.joinedDate,
-          address: encrypt(f.address), suburb: encrypt(f.suburb), state: encrypt(f.state), postcode: encrypt(f.postcode),
+          address: encrypt(f.address), suburb: encrypt(f.suburb), suburbHash: hmacSuburb(f.suburb), state: encrypt(f.state), postcode: encrypt(f.postcode),
         },
       })
       familyIds.push(fam.id)

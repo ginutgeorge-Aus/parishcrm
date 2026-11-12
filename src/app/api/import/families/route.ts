@@ -7,7 +7,7 @@ import { parseCsv } from "@/lib/csv"
 import { isAdmin } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { auditIpFromRequest } from "@/lib/clientIp"
-import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
+import { encrypt, hmacEmail, hmacMobile, hmacSuburb } from "@/lib/crypto"
 import { actorId } from "@/lib/actor"
 import { rateLimit } from "@/lib/rateLimit"
 import { exceedsBodyLimit } from "@/lib/bodyLimit"
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
           memberNo: family.memberNo,
           address: family.address ? encrypt(family.address) : undefined,
           suburb: family.suburb ? encrypt(family.suburb) : undefined,
+          suburbHash: family.suburb?.trim() ? hmacSuburb(family.suburb) : undefined,
           state: family.state ? encrypt(family.state) : undefined,
           postcode: family.postcode ? encrypt(family.postcode) : undefined,
         },

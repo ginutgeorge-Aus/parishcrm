@@ -244,6 +244,32 @@ export function hmacMobile(mobile: string): string {
 }
 
 /**
+ * Canonical form of a suburb for the blind index: Unicode NFC, trimmed,
+ * internal whitespace runs collapsed to one space, lower-cased. So
+ * "  North   Sydney ", "north sydney" and "NORTH SYDNEY" all hash identically.
+ *
+ * @param suburb - plaintext suburb as typed or stored
+ * @returns the folded form (empty string for a blank suburb)
+ */
+export function normaliseSuburb(suburb: string): string {
+  return suburb.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+/**
+ * Blind index over `Family.suburb` (OSS-39): same v1-derived HMAC pattern as
+ * hmacEmail, domain-separated by its own `suburb` label, over the
+ * normalised suburb. Lets the families list filter by suburb with an indexed
+ * `WHERE suburbHash = ...` instead of decrypting every candidate row.
+ * Equality only — it cannot answer substring queries.
+ *
+ * @param suburb - plaintext suburb
+ * @returns 64 lowercase hex characters
+ */
+export function hmacSuburb(suburb: string): string {
+  return createHmac("sha256", blindIndexKey("suburb")).update(normaliseSuburb(suburb)).digest("hex")
+}
+
+/**
  * Keyed, deterministic fingerprint of a bank account number (#449) — same
  * v1-derived blind-index pattern as hmacEmail, domain-separated by its own
  * label. Lets the browser tell two accounts apart (e.g. same last 4 digits)
@@ -297,7 +323,7 @@ export function assertKeyringHealthy(): void {
     console.warn(
       `[crypto] keyring holds non-current key id(s) ${retirable.join(", ")} (current: ${currentId}). ` +
         `Once the rotation script reports 0 rows on an old id, retire that key — but NEVER v1: ` +
-        `blind indexes (emailHash/mobileHash, Transaction.bankRef account hashes) are keyed on it. See scripts/rotate-encryption-key.ts.`,
+        `blind indexes (emailHash/mobileHash/suburbHash, Transaction.bankRef account hashes) are keyed on it. See scripts/rotate-encryption-key.ts.`,
     )
   }
 }

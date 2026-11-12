@@ -87,7 +87,7 @@ export function FamilyFilters() {
         className="max-w-xs"
         value={suburb}
         onChange={(e) => setSuburb(e.target.value)}
-        placeholder="Filter by suburb…"
+        placeholder="Suburb (full name)…"
         aria-label="Filter families by suburb"
       />
       {hasFilters && (

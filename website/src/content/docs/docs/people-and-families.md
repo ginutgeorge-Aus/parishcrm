@@ -10,13 +10,13 @@ ParishCRM organises every member around two linked records: a **Family** (a hous
 **Nav:** *Families* and *People* in the main sidebar (both under the authenticated dashboard).
 
 ### Families list (`/families`)
-- Search by family name, filter by status (Active / Inactive / Visitor) and suburb.
+- Search by family name, filter by status (Active / Inactive / Visitor) and suburb. The suburb filter matches the full suburb name, ignoring case and extra spaces (`north sydney` finds "North Sydney", but `Sydney` alone does not).
 - Each row shows name, member number, suburb, status, and active member count.
 - **New family** button opens the create form (name, member number, address, phone, status, joined date, marriage date, monthly dues, notes).
 - **Import CSV** (ADMIN) links to the bulk family/member importer — see [Family CSV Import](/parishcrm/docs/family-csv-import/).
 - **Print Directory** (ADMIN) opens a print-friendly family directory in a new tab.
 - **View archived** and **Merge duplicates** links (ADMIN only) — see below.
-- **Empty lists** tell "nothing yet" apart from "no matches": an empty directory offers **Add family** / **Add person** (editors) and **Import CSV** (ADMIN), while a filter that hides everything offers **Clear filters**. Read-only roles see the message without the add/import buttons (**Clear filters** still shows). A suburb search that hit its scan cap says so instead of claiming nothing matches. Events, invoices and customers have their own empty states: Events offers **View all events** on an empty tab, and Customers has no filters.
+- **Empty lists** tell "nothing yet" apart from "no matches": an empty directory offers **Add family** / **Add person** (editors) and **Import CSV** (ADMIN), while a filter that hides everything offers **Clear filters**. Read-only roles see the message without the add/import buttons (**Clear filters** still shows). A suburb search that could not check every family (only before an upgrade's suburb index backfill has run) says so instead of claiming nothing matches. Events, invoices and customers have their own empty states: Events offers **View all events** on an empty tab, and Customers has no filters.
 
 ### Family detail (`/families/[id]`)
 Shows the family's contact details, member list, and (for roles that can view accounting) a giving summary link. Action buttons vary by role:
@@ -93,7 +93,7 @@ The portal link is the app setting `clearance.wwccVerifyUrl` (an `https://` URL)
 `canSeePastoralNotes` (`src/lib/roleGuard.ts`) governs both rendering (the UI never shows the field to a role that can't see it) and the action layer (the field is `delete`d from the payload server-side). ADMIN and PASTOR can see and edit pastoral notes and emergency-contact details; OFFICE_ADMIN, AUDITOR, VIEWER, and EVENT_ORGANISER cannot.
 
 ### Encryption
-Encrypted-at-rest fields (AES-256-GCM, `src/lib/crypto.ts`): on `Family` — address, suburb, state, postcode, homePhone, notes; on `Person` — email, dateOfBirth, mobile, workPhone, homePhone, notes, pastoralNotes, emergencyContactName, emergencyContactPhone. `Person.email` and `Person.mobile` also get a deterministic HMAC **blind index** (`emailHash`/`mobileHash`) computed from the plaintext before encryption, so equality lookups (matching a member to their event registrations, or a membership application to an existing family) can use an indexed query instead of decrypting every row. `bankingName` is deliberately left plaintext — it's a name a member already shares publicly with the bank for transfer matching.
+Encrypted-at-rest fields (AES-256-GCM, `src/lib/crypto.ts`): on `Family` — address, suburb, state, postcode, homePhone, notes; on `Person` — email, dateOfBirth, mobile, workPhone, homePhone, notes, pastoralNotes, emergencyContactName, emergencyContactPhone. `Person.email`, `Person.mobile` and `Family.suburb` also get a deterministic HMAC **blind index** (`emailHash`/`mobileHash`/`suburbHash`) computed from the plaintext before encryption, so equality lookups (matching a member to their event registrations, a membership application to an existing family, or the families suburb filter) can use an indexed query instead of decrypting every row. `bankingName` is deliberately left plaintext — it's a name a member already shares publicly with the bank for transfer matching.
 
 ### Audit logging
 Every mutation is audited (`src/lib/audit.ts`): `FAMILY_CREATED/UPDATED/ARCHIVED/UNARCHIVED/MERGED`, `PERSON_CREATED/UPDATED/DELETED`. Person audit metadata deliberately excludes member PII — only the linked `familyId`. `PERSON_UPDATED` also records the person's ministry roles (not PII). `FAMILY_MERGED` records the source family id/name on the target's audit entry. Bulk CSV import is audited as `IMPORT_CSV`; bulk people CSV export as `EXPORT_CSV`.
@@ -102,7 +102,7 @@ Every mutation is audited (`src/lib/audit.ts`): `FAMILY_CREATED/UPDATED/ARCHIVED
 - A same-name person within a family (`familyId, firstName, lastName` collision) returns a clean validation error rather than a raw database error.
 - Renaming a family to collide with another name, or reusing a member number, returns a specific error distinguishing the two unique constraints.
 - Editing an archived family or person directly (bypassing the UI, e.g. a stale tab) is rejected — archived records return "Not found" rather than silently succeeding.
-- List views cap results (500 for people and families, a higher in-memory scan cap when filtering by the encrypted `suburb` field, since that filter can't be pushed to the database) and show a banner when a search is truncated.
+- List views cap results (500 for people and families) and show a banner when a search is truncated. The families suburb filter uses the `suburbHash` index; families not yet backfilled (see `scripts/backfill-suburb-hash.ts`) are matched by decrypting at most 2000 of them.
 
 ## Configuration
 

@@ -298,7 +298,7 @@ export async function approveFamilyUpdate(submissionId: number): Promise<ActionR
   // Reuse family.ts's encryptFamilyFields so the encrypted-field list
   // stays in one place — mutates famData in place, encrypting truthy fields.
   const famData: {
-    address: string | null; suburb: string | null; state: string | null
+    address: string | null; suburb: string | null; suburbHash?: string | null; state: string | null
     postcode: string | null; homePhone: string | null
     marriageDate: Date | null
   } = {

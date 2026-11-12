@@ -9,14 +9,8 @@ import { FamilyFilters } from "@/components/families/FamilyFilters"
 import { Button } from "@/components/ui/button"
 import { safeDecrypt } from "@/lib/crypto"
 import { FamilyStatus } from "@/lib/generated/prisma/enums"
-
-const FAMILY_CAP = 500
-// When the suburb filter is active we must decrypt rows in memory to match, so
-// we can't push the filter to the DB — but we still bound the scan/decrypt loop
-// so a broad name/status filter can't load tens of thousands of rows. The
-// post-decrypt match + the existing amber "narrow your filters" warning operate
-// within this window.
-const SUBURB_SCAN_CAP = 2000
+import type { Prisma } from "@/lib/generated/prisma/client"
+import { FAMILY_CAP, LEGACY_SUBURB_SCAN_CAP, findFamiliesBySuburb } from "@/lib/familySuburbFilter"
 
 export default async function FamiliesPage(
   props: Readonly<{ searchParams: Promise<{ q?: string; status?: string; suburb?: string }> }>
@@ -33,51 +27,41 @@ export default async function FamiliesPage(
     : null
   const suburbFilter = searchParams.suburb?.trim() ?? ""
 
-  // suburb is encrypted — filter in memory after decrypt when active
-  const families = await prisma.family.findMany({
-    where: {
-      archivedAt: null,
-      ...(q && { name: { contains: q, mode: "insensitive" } }),
-      ...(statusFilter && { status: statusFilter }),
-    },
-    // Suburb filter runs in memory after decrypt, so use a higher scan cap; the
-    // plain list caps at FAMILY_CAP. Neither branch is ever unbounded.
-    take: suburbFilter ? SUBURB_SCAN_CAP : FAMILY_CAP,
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      memberNo: true,
-      suburb: true,
-      status: true,
-      _count: { select: { people: { where: { archivedAt: null } } } },
-    },
-  })
+  const baseWhere: Prisma.FamilyWhereInput = {
+    archivedAt: null,
+    ...(q && { name: { contains: q, mode: "insensitive" } }),
+    ...(statusFilter && { status: statusFilter }),
+  }
+  const fetchFamilies = (where: Prisma.FamilyWhereInput, take: number) =>
+    prisma.family.findMany({
+      where,
+      take,
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        memberNo: true,
+        suburb: true,
+        status: true,
+        _count: { select: { people: { where: { archivedAt: null } } } },
+      },
+    })
 
-  const decrypted = families.map((f) => ({
-    ...f,
-    suburb: f.suburb ? safeDecrypt(f.suburb) : null,
-  }))
-
-  const allFiltered = suburbFilter
-    ? decrypted.filter((f) =>
-        (f.suburb ?? "").toLowerCase().includes(suburbFilter.toLowerCase())
-      )
-    : decrypted
-
-  const suburbCapped = suburbFilter && allFiltered.length > FAMILY_CAP
-  const visibleFamilies = suburbCapped ? allFiltered.slice(0, FAMILY_CAP) : allFiltered
-  const totalCount = await prisma.family.count({
-    where: {
-      archivedAt: null,
-      ...(q && { name: { contains: q, mode: "insensitive" } }),
-      ...(statusFilter && { status: statusFilter }),
-    },
-  })
-
-  // totalCount is the candidate set the suburb scan draws from, so more
-  // candidates than the scan cap means some were never searched.
-  const scanIncomplete = Boolean(suburbFilter) && totalCount > SUBURB_SCAN_CAP
+  // suburb is encrypted: match it through the suburbHash blind index (OSS-39),
+  // see lib/familySuburbFilter.ts. Neither branch is ever unbounded.
+  let visibleFamilies: Awaited<ReturnType<typeof fetchFamilies>>
+  let suburbCapped = false
+  let scanIncomplete = false
+  if (suburbFilter) {
+    const result = await findFamiliesBySuburb(fetchFamilies, baseWhere, suburbFilter)
+    visibleFamilies = result.families
+    suburbCapped = result.capped
+    scanIncomplete = result.scanIncomplete
+  } else {
+    const families = await fetchFamilies(baseWhere, FAMILY_CAP)
+    visibleFamilies = families.map((f) => ({ ...f, suburb: f.suburb ? safeDecrypt(f.suburb) : null }))
+  }
+  const totalCount = await prisma.family.count({ where: baseWhere })
 
   const isFiltered = Boolean(q || statusFilter || suburbFilter)
   // Empty directory: the list's empty state carries Add family / Import CSV,
@@ -131,7 +115,7 @@ export default async function FamiliesPage(
       {suburbFilter && (suburbCapped || scanIncomplete) && (
         <p className="text-sm text-warning bg-warning/10 border border-warning/40 rounded px-3 py-2">
           {scanIncomplete
-            ? `Suburb results may be incomplete: only the first ${SUBURB_SCAN_CAP} candidate families were searched. Showing up to ${FAMILY_CAP} matches. Narrow other filters to reduce results.`
+            ? `Suburb results may be incomplete: more than ${LEGACY_SUBURB_SCAN_CAP} families are not yet in the suburb search index, so only the first ${LEGACY_SUBURB_SCAN_CAP} of them were searched. An administrator can run the suburb index backfill, or narrow other filters.`
             : `Showing first ${FAMILY_CAP} suburb matches. Narrow other filters to reduce results.`}
         </p>
       )}
