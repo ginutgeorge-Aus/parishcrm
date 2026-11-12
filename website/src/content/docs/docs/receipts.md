@@ -27,9 +27,9 @@ From the transaction list or detail page (or the bulk **Send receipts** screen a
 
 `/accounting/giving-statements` (view: ADMIN, PASTOR, AUDITOR, OFFICE_ADMIN; send: ADMIN/PASTOR; part of the **Giving receipts** feature). A yearly summary per family: every gift in the chosen financial year, totalled by fund, as a PDF. It is **not** a tax receipt — it is a plain summary of what the books record, covers *all* giving (DGR or not), and carries no legal wording. Use DGR receipts for the formal tax document.
 
-- The list is built from the ledger automatically (transactions flagged as giving). A gift counts for the family on the transaction, or for the giving person's family. Gifts with neither are left out. Gifts with no fund appear under "General (no fund)".
+- The list is built from the ledger automatically (income transactions flagged as giving, counted for the transaction's family). Gifts with no fund appear under "General (no fund)".
 - **Preview PDF** opens a family's statement. **Email selected** sends the PDF to the chosen families in bulk (200 per batch). Each family gets one email, to the head of family's address first; members who have opted out of email are never used, and a family with no consenting address is reported, not skipped silently.
-- Families whose latest send for the year succeeded are skipped on a re-send, so a second run never double-emails.
+- Each family is claimed (a unique `AppSetting` row per family and year) before sending, so two people sending at once, or a second run, never double-email; failed sends release the claim so they can be retried. A crash mid-send leaves the claim in place, which the resend action clears. Archived members are never used as recipients.
 - The **Send log** on the same page lists every attempt (family, sent/failed, who, when). It is kept in the audit log (`GIVING_STATEMENT_SENT` / `GIVING_STATEMENT_FAILED`, with the family id and FY only — never the email address), so no new table is needed.
 
 ### Receipt log

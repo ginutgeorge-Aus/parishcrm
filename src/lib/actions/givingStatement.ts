@@ -12,7 +12,7 @@ import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { renderGivingStatementPdf } from "@/lib/pdf/GivingStatementPdf"
 import { sendGivingStatementEmail } from "@/lib/email"
 import { centsToNumber } from "@/lib/formatting"
-import { isValidPgId } from "@/lib/validation"
+import { isValidPgId, isP2002 } from "@/lib/validation"
 import {
   buildStatementModel,
   parseStatementYear,
@@ -25,6 +25,7 @@ const LIST_PATH = "/accounting/giving-statements"
 const MAX_BATCH = 200
 // Cap on send-log rows read per FY (one row per attempt, so this is generous).
 const LOG_CAP = 5000
+const CLAIM_PREFIX = "giving-statement-claim:"
 
 export type StatementListRow = {
   familyId: number
@@ -74,7 +75,12 @@ export async function listGivingStatements(year: number): Promise<StatementListR
   const fy = parseStatementYear(year)
   if (fy === null) return { error: "Invalid financial year." }
 
-  const statements = await loadStatements(fy)
+  let statements
+  try {
+    statements = await loadStatements(fy)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not load giving." }
+  }
   const ids = Array.from(statements.keys())
   const [families, sent] = await Promise.all([loadStatementFamilies(ids), latestSendByFamily(fy)])
   return ids
@@ -102,7 +108,11 @@ export async function listGivingStatements(year: number): Promise<StatementListR
  * opted out of email are never used. ADMIN/PASTOR only.
  * @param year FY start year
  * @param familyIds families to send to (max 200 per batch)
- * @param skipAlreadySent leave out families whose latest attempt for this FY succeeded
+ * Concurrency: each family+FY is claimed with a unique `AppSetting` row
+ * (`giving-statement-claim:<fy>:<id>`) before sending; a lost claim counts as skipped.
+ * The claim is released on failure and kept on success. A crash mid-send leaves
+ * the claim in place; use resend (skipAlreadySent=false) to clear it.
+ * @param skipAlreadySent skip families already claimed/sent for this FY; false forces a resend
  */
 export async function sendGivingStatements(
   year: number,
@@ -125,11 +135,13 @@ export async function sendGivingStatements(
   if ("error" in churchRes) return { error: churchRes.error }
   const church = churchRes.church
 
-  const [statements, families, already] = await Promise.all([
-    loadStatements(fy, ids),
-    loadStatementFamilies(ids),
-    skipAlreadySent ? latestSendByFamily(fy) : Promise.resolve(new Map()),
-  ])
+  let statements
+  try {
+    statements = await loadStatements(fy, ids)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not load giving." }
+  }
+  const families = await loadStatementFamilies(ids)
 
   let sent = 0
   let failed = 0
@@ -143,15 +155,24 @@ export async function sendGivingStatements(
       errors.push({ familyId: id, error: "No giving recorded for this family in the financial year." })
       continue
     }
-    if (already.get(id)?.status === "SENT") {
-      skipped++
-      continue
-    }
     const to = family.emails[0]
     if (!to) {
       failed++
       errors.push({ familyId: id, error: "No email address on file (or no member has consented to email)." })
       continue
+    }
+    // Claim before sending so concurrent runs can't both email the family. A
+    // resend (skipAlreadySent=false) first clears the old claim, then must still win the create.
+    const claimKey = `${CLAIM_PREFIX}${fy}:${id}`
+    if (!skipAlreadySent) await prisma.appSetting.deleteMany({ where: { key: claimKey } })
+    try {
+      await prisma.appSetting.create({ data: { key: claimKey, value: new Date().toISOString() } })
+    } catch (e) {
+      if (isP2002(e)) {
+        skipped++
+        continue
+      }
+      throw e
     }
     const model = buildStatementModel(statement, family.name, fy, church)
     try {
@@ -169,6 +190,8 @@ export async function sendGivingStatements(
     } catch {
       // Never log the raw error — SMTP messages embed the recipient address.
       logger.error("sendGivingStatements delivery failed", { familyId: id })
+      // Release the claim so the failed family can be retried.
+      await prisma.appSetting.deleteMany({ where: { key: claimKey } })
       await logAudit(uid, STATEMENT_FAILED, "Family", id, { fyStartYear: fy })
       failed++
       errors.push({ familyId: id, error: "Email delivery failed" })

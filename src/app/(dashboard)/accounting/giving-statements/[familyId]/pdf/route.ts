@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { canViewAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
-import { getChurchSettingsStrict } from "@/lib/churchSettings"
+import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { renderGivingStatementPdf } from "@/lib/pdf/GivingStatementPdf"
 import { buildStatementModel, parseStatementYear } from "@/lib/givingStatement"
 import { loadStatements, loadStatementFamilies } from "@/lib/givingStatementData"
@@ -26,12 +26,20 @@ export async function GET(req: NextRequest, props: { params: Promise<{ familyId:
   const year = parseStatementYear(req.nextUrl.searchParams.get("year"))
   if (year === null) return NextResponse.json({ error: "Invalid year" }, { status: 400 })
 
-  const [statements, families] = await Promise.all([loadStatements(year, [familyId]), loadStatementFamilies([familyId])])
+  let statements
+  try {
+    statements = await loadStatements(year, [familyId])
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Could not load giving." }, { status: 422 })
+  }
+  const families = await loadStatementFamilies([familyId])
   const statement = statements.get(familyId)
   const family = families.get(familyId)
   if (!statement || !family) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const church = await getChurchSettingsStrict()
+  const churchRes = await getChurchSettingsForReceipt()
+  if ("error" in churchRes) return NextResponse.json({ error: churchRes.error }, { status: 409 })
+  const church = churchRes.church
   const pdf = await renderGivingStatementPdf(buildStatementModel(statement, family.name, year, church))
 
   void logAudit(actorId(session), "EXPORT_FINANCIAL_REPORT", "Family", familyId, {

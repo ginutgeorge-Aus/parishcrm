@@ -1,6 +1,5 @@
 import { toCents, centsToNumber, fmtAUD, formatLongDate, formatDMY } from "@/lib/formatting"
-import { fyDateRange, fyRangeLabel } from "@/lib/fiscalYear"
-import { currentFyEndYear } from "@/lib/dgr"
+import { fyDateRange, fyRangeLabel, currentFYYear } from "@/lib/fiscalYear"
 
 /** Fund label used for gifts with no fund set. */
 export const UNALLOCATED_FUND = "General (no fund)"
@@ -11,7 +10,7 @@ export type StatementGift = {
   description: string
   amount: { toString(): string } | number
   fundName: string | null
-  /** Family the gift is attributed to (direct, or via the giving person). */
+  /** Family the gift is attributed to (the transaction's family). */
   familyId: number
 }
 
@@ -111,13 +110,15 @@ export function buildStatementModel(
 }
 
 /**
- * Parse a FY start year from a query/form value. Accepts 2000 up to the year
- * after the current FY's start.
+ * Parse a FY start year from a query/form value: a plain 4-digit integer from
+ * 2000 up to the current FY's start year plus one (the range the year picker offers).
  * @returns the year, or null when malformed or out of range
  */
 export function parseStatementYear(raw: string | number | null | undefined): number | null {
-  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? ""), 10)
-  if (!Number.isInteger(n) || n < 2000 || n > currentFyEndYear() + 1) return null
+  const str = String(raw ?? "")
+  if (!/^\d{4}$/.test(str)) return null
+  const n = Number(str)
+  if (n < 2000 || n > currentFYYear() + 1) return null
   return n
 }
 

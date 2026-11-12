@@ -39,7 +39,7 @@ describe("buildStatementModel", () => {
 })
 
 describe("parseStatementYear", () => {
-  it.each([["abc"], [""], [null], [undefined], ["1999"], ["2999"]])("rejects %p", (v) => {
+  it.each([["abc"], [""], [null], [undefined], ["1999"], ["2999"], ["2025abc"], ["2025.9"], ["+2025"]])("rejects %p", (v) => {
     expect(parseStatementYear(v)).toBeNull()
   })
   it("accepts a plausible year", () => {

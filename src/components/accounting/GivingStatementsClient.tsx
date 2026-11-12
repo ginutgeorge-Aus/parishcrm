@@ -58,21 +58,23 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         let sent = 0
         let failed = 0
         let skipped = 0
+        let fatal: string | null = null
         const errs: string[] = []
         for (let i = 0; i < ids.length; i += 200) {
           const res = await sendGivingStatements(year, ids.slice(i, i + 200))
           if ("error" in res) {
-            setMessage(res.error)
-            return
+            fatal = res.error
+            break
           }
           sent += res.sent
           failed += res.failed
           skipped += res.skipped
           errs.push(...res.errors.map((e) => `${nameById.get(e.familyId) ?? `Family #${e.familyId}`}: ${e.error}`))
         }
-        setSelected(new Set())
+        if (!fatal) setSelected(new Set())
         setErrors(errs)
-        setMessage(`Sent ${sent}, failed ${failed}${skipped ? `, skipped ${skipped} already sent` : ""}.`)
+        const counts = `Sent ${sent}, failed ${failed}${skipped ? `, skipped ${skipped} already sent` : ""}.`
+        setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
       } catch {
         setMessage("Something went wrong, try again")
       }

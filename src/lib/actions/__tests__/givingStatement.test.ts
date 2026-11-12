@@ -19,7 +19,11 @@ jest.mock("@/lib/churchSettings", () => ({
   })),
 }))
 jest.mock("@/lib/prisma", () => ({
-  prisma: { auditLog: { findMany: jest.fn() }, family: { findMany: jest.fn() } },
+  prisma: {
+    auditLog: { findMany: jest.fn() },
+    family: { findMany: jest.fn() },
+    appSetting: { create: jest.fn(), deleteMany: jest.fn() },
+  },
 }))
 
 const mockAuth = auth as jest.Mock
@@ -28,6 +32,8 @@ const mockFamilies = loadStatementFamilies as jest.Mock
 const mockSend = sendGivingStatementEmail as jest.Mock
 const mockLogAudit = logAudit as jest.Mock
 const findLog = prisma.auditLog.findMany as jest.Mock
+const mockClaimCreate = prisma.appSetting.create as jest.Mock
+const mockClaimDelete = prisma.appSetting.deleteMany as jest.Mock
 
 const statements = () =>
   buildStatements([
@@ -98,12 +104,25 @@ describe("sendGivingStatements", () => {
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025 })
   })
 
-  it("skips families already sent unless asked to resend", async () => {
-    findLog.mockResolvedValue([{ action: "GIVING_STATEMENT_SENT", resourceId: 1, createdAt: new Date() }])
+  it("skips a family whose claim already exists (concurrent or already sent)", async () => {
+    mockClaimCreate.mockRejectedValueOnce({ code: "P2002" })
     expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 1, errors: [] })
     expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it("resend clears the old claim first and releases the claim on failure", async () => {
     const res = await sendGivingStatements(2025, [1], false)
     expect(res).toEqual(expect.objectContaining({ sent: 1 }))
+    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
+    mockClaimDelete.mockClear()
+    mockSend.mockRejectedValueOnce(new Error("x"))
+    await sendGivingStatements(2025, [1])
+    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
+  })
+
+  it("returns a clear error when giving cannot be loaded safely", async () => {
+    mockLoad.mockRejectedValueOnce(new Error("Too many gifts"))
+    expect(await sendGivingStatements(2025, [1])).toEqual({ error: "Too many gifts" })
   })
 })
 
