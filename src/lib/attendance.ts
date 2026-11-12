@@ -44,7 +44,7 @@ function fmtYMD(d: Date): string {
  * @param ymd calendar date string
  * @param days days to add (may be negative)
  */
-function addDays(ymd: string, days: number): string {
+export function addDays(ymd: string, days: number): string {
   const d = parseYMD(ymd)
   d.setUTCDate(d.getUTCDate() + days)
   return fmtYMD(d)
@@ -90,7 +90,7 @@ function isoYearWeek(ymd: string): { year: number; week: number } {
  * @param month month key
  * @param n months to add
  */
-function addMonths(month: string, n: number): string {
+export function addMonths(month: string, n: number): string {
   const [y, m] = month.split("-").map(Number)
   const idx = y * 12 + (m - 1) + n
   return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`

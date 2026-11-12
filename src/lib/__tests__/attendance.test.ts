@@ -1,4 +1,6 @@
 import {
+  addDays,
+  addMonths,
   buildMonthly,
   buildWeekly,
   buildYearOverYear,
@@ -19,6 +21,17 @@ describe("formatYMD", () => {
   it("formats a calendar date with weekday, no timezone shift", () => {
     expect(formatYMD("2026-11-08")).toBe("Sun 8 Nov 2026")
     expect(formatYMD("2027-01-01")).toBe("Fri 1 Jan 2027")
+  })
+})
+
+describe("addDays / addMonths", () => {
+  it("adds days across month and year boundaries", () => {
+    expect(addDays("2026-12-30", 5)).toBe("2027-01-04")
+    expect(addDays("2026-03-01", -1)).toBe("2026-02-28")
+  })
+  it("adds months across a year boundary", () => {
+    expect(addMonths("2026-11", 3)).toBe("2027-02")
+    expect(addMonths("2026-02", -11)).toBe("2025-03")
   })
 })
 
