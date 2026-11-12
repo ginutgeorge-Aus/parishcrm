@@ -10,15 +10,8 @@ import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
 import { randomUuid } from "@/lib/randomUuid"
-
-/** One recorded payment as shown in the panel (amount in integer cents, `paidAt` as YYYY-MM-DD). */
-export type PaymentItem = {
-  id: number
-  amountCents: number
-  method: "CASH" | "BANK" | "ONLINE"
-  paidAt: string
-  note: string | null
-}
+// Type-only (erased at build), so the server-only query module never reaches the client bundle.
+import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
 
 /**
  * Format integer cents as a plain 2-dp decimal string for an input default.
@@ -40,7 +33,7 @@ function centsToInput(cents: number): string {
  */
 export function PaymentsPanel({
   entryId, name, remainingCents, payments,
-}: Readonly<{ entryId: number; name: string; remainingCents: number; payments: PaymentItem[] }>) {
+}: Readonly<{ entryId: number; name: string; remainingCents: number; payments: FundraiserPaymentItem[] }>) {
   const [open, setOpen] = useState(false)
   const [key, setKey] = useState("")
   const [amount, setAmount] = useState("")

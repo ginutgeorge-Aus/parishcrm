@@ -9,8 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
-import { PaymentsPanel, type PaymentItem } from "./PaymentsPanel"
-import type { FundraiserRow } from "@/lib/fundraiserQueries"
+import { PaymentsPanel } from "./PaymentsPanel"
+import type { FundraiserPaymentItem, FundraiserRow } from "@/lib/fundraiserQueries"
 
 const STATUS_LABEL: Record<FundraiserRow["status"], string> = {
   UNPAID: "Unpaid",
@@ -37,7 +37,7 @@ function StatusBadge({ status }: Readonly<{ status: FundraiserRow["status"] }>) 
  * @param props.row - The entry row.
  * @param props.payments - The entry's payments.
  */
-function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: PaymentItem[] }>) {
+function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: FundraiserPaymentItem[] }>) {
   const [qty, setQty] = useState(String(row.quantity))
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
@@ -105,7 +105,7 @@ function money(cents: number): string {
  */
 export function EntryTable({
   rows, canManage, payments,
-}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, PaymentItem[]> }>) {
+}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, FundraiserPaymentItem[]> }>) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No entries yet.</p>
   return (
     <>
