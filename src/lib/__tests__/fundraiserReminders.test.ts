@@ -244,12 +244,58 @@ test("a claim lost to a concurrent run (P2034, retried) is skipped, not double-s
   expect(mSend).not.toHaveBeenCalled()
 })
 
+test("a claim still contended after its retries is retried sequentially and sent, not counted as recent", async () => {
+  setEntries([entry(1)])
+  const p2034 = () => Object.assign(new Error("conflict"), { code: "P2034" })
+  // All 3 attempts of the parallel pass conflict (false positive from a sibling claim).
+  prismaMock.$transaction
+    .mockRejectedValueOnce(p2034())
+    .mockRejectedValueOnce(p2034())
+    .mockRejectedValueOnce(p2034())
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(mSend).toHaveBeenCalledTimes(1)
+})
+
+test("a claim contended on the sequential retry too counts as failed, never as recently reminded", async () => {
+  setEntries([entry(1)])
+  const p2034 = () => Object.assign(new Error("conflict"), { code: "P2034" })
+  for (let i = 0; i < 6; i++) prismaMock.$transaction.mockRejectedValueOnce(p2034())
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(mSend).not.toHaveBeenCalled()
+})
+
 test("a claim that cannot be written is not sent untracked", async () => {
   setEntries([entry(1)])
   prismaMock.$transaction.mockRejectedValueOnce(new Error("db down"))
   const res = await sendFundraiserReminders(3)
   expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
   expect(mSend).not.toHaveBeenCalled()
+})
+
+test("sends in bounded parallel chunks (at most 5 in flight) and still sends everyone", async () => {
+  setEntries(Array.from({ length: 12 }, (_, i) => entry(i + 1)))
+  let inFlight = 0
+  let peak = 0
+  mSend.mockImplementation(async () => {
+    inFlight++
+    peak = Math.max(peak, inFlight)
+    await new Promise((r) => setTimeout(r, 1))
+    inFlight--
+  })
+  const res = await sendFundraiserReminders(3)
+  expect(res).toMatchObject({ sent: 12, failed: 0 })
+  expect(peak).toBeGreaterThan(1)
+  expect(peak).toBeLessThanOrEqual(5)
+})
+
+test("getReminderPlan returns counts with a formatted last-sent label; non-managers refused", async () => {
+  const { getReminderPlan } = await import("@/lib/actions/fundraiser")
+  setEntries([entry(1), entry(2, { payments: [{ amount: "20.00" }] })])
+  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, lastSentAt: null })
+  ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "AUDITOR" } })
+  expect(await getReminderPlan(3)).toEqual({ error: "Unauthorized" })
 })
 
 test("card fee config is read once per run, not per entry", async () => {

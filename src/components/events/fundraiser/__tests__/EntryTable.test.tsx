@@ -89,25 +89,35 @@ test("quantity error is shown and the value reverts", async () => {
   await waitFor(() => expect(input.value).toBe("2"))
 })
 
-test("delete asks for confirmation, then calls the action", async () => {
-  const confirm = jest.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true)
+test("delete asks for confirmation in a dialog, then calls the action", async () => {
   const user = userEvent.setup()
   render(<EntryTable rows={one} canManage payments={{}} />)
-  const btn = screen.getAllByRole("button", { name: "Delete Anna" })[0]
-  await user.click(btn)
+  await user.click(screen.getAllByRole("button", { name: "Delete Anna" })[0])
   expect(mDelete).not.toHaveBeenCalled()
-  await user.click(btn)
+  expect(screen.getByText("Delete entry?")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Delete" }))
   await waitFor(() => expect(mDelete).toHaveBeenCalledWith(1))
-  confirm.mockRestore()
 })
 
 test("delete error is shown", async () => {
-  jest.spyOn(window, "confirm").mockReturnValue(true)
   mDelete.mockResolvedValue({ error: "Cannot delete" })
   const user = userEvent.setup()
   render(<EntryTable rows={one} canManage payments={{}} />)
   await user.click(screen.getAllByRole("button", { name: "Delete Anna" })[0])
+  await user.click(screen.getByRole("button", { name: "Delete" }))
   expect((await screen.findAllByText("Cannot delete")).length).toBeGreaterThan(0)
+})
+
+test("a thrown quantity save shows a generic error and restores the value", async () => {
+  mUpdate.mockRejectedValue(new Error("network"))
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  const input = screen.getAllByLabelText("Quantity for Anna")[0] as HTMLInputElement
+  await user.clear(input)
+  await user.type(input, "5")
+  await user.tab()
+  expect((await screen.findAllByText("Could not save the quantity. Please try again.")).length).toBeGreaterThan(0)
+  await waitFor(() => expect(input.value).toBe("2"))
 })
 
 test("shows the bank ref to staff", () => {

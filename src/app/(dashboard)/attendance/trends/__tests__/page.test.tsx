@@ -84,12 +84,19 @@ describe("/attendance/trends page", () => {
   it("year view compares this year with last, by month by default", async () => {
     as("VIEWER")
     const { container } = render(await TrendsPage(sp({ view: "year" })))
-    expect(getHeadcountRows).toHaveBeenCalledWith("2024-12-25", "2026-11-12")
+    // Month buckets only need last year from 1 January.
+    expect(getHeadcountRows).toHaveBeenCalledWith("2025-01-01", "2026-11-12")
     const p = props(container)
     expect(p.year).toBe(2026)
     expect(p.granularity).toBe("month")
     expect(p.yoy).toHaveLength(12)
     expect(p.yoy[10]).toEqual({ period: 11, thisYear: 66, lastYear: null })
+  })
+
+  it("year view by week starts in late December two years back (ISO week 1)", async () => {
+    as("VIEWER")
+    render(await TrendsPage(sp({ view: "year", g: "week" })))
+    expect(getHeadcountRows).toHaveBeenCalledWith("2024-12-25", "2026-11-12")
   })
 
   it("falls back to weekly for an unknown view", async () => {

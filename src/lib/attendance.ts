@@ -21,7 +21,11 @@ export type Point = {
   children: number | null
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+/** Short month labels, January first. Shared by chart labels and the year-over-year chart. */
+export const MONTHS: readonly string[] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** Largest adults/children count accepted per headcount (server validation and the Counter input). */
+export const MAX_COUNT = 100000
 
 /**
  * Parse a `YYYY-MM-DD` string to a UTC-midnight Date.

@@ -8,8 +8,9 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
-import { PaymentsPanel, type PaymentItem } from "./PaymentsPanel"
-import type { FundraiserRow } from "@/lib/fundraiserQueries"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+import { PaymentsPanel } from "./PaymentsPanel"
+import type { FundraiserPaymentItem, FundraiserRow } from "@/lib/fundraiserQueries"
 
 const STATUS_LABEL: Record<FundraiserRow["status"], string> = {
   UNPAID: "Unpaid",
@@ -36,7 +37,7 @@ function StatusBadge({ status }: Readonly<{ status: FundraiserRow["status"] }>) 
  * @param props.row - The entry row.
  * @param props.payments - The entry's payments.
  */
-function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: PaymentItem[] }>) {
+function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: FundraiserPaymentItem[] }>) {
   const [qty, setQty] = useState(String(row.quantity))
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
@@ -53,18 +54,13 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
     if (qty === String(row.quantity)) return
     setError(null)
     start(async () => {
-      const res = await updateEntryQuantity(row.id, qty)
-      if (res?.error) { setError(res.error); setQty(String(row.quantity)) }
-    })
-  }
-
-  /** Delete the entry after confirmation. */
-  function remove() {
-    if (!window.confirm(`Delete ${row.name}'s entry?`)) return
-    setError(null)
-    start(async () => {
-      const res = await deleteEntry(row.id)
-      if (res?.error) setError(res.error)
+      try {
+        const res = await updateEntryQuantity(row.id, qty)
+        if (res?.error) { setError(res.error); setQty(String(row.quantity)) }
+      } catch {
+        setError("Could not save the quantity. Please try again.")
+        setQty(String(row.quantity))
+      }
     })
   }
 
@@ -80,7 +76,15 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
         onBlur={saveQty}
       />
       <PaymentsPanel entryId={row.id} name={row.name} remainingCents={row.remainingCents} payments={payments} />
-      <Button variant="ghost" size="xs" disabled={pending} onClick={remove} aria-label={`Delete ${row.name}`}>Delete</Button>
+      <DeleteConfirmButton
+        // Not `disabled={pending}`: that swaps the trigger for an inert button and
+        // drops an open dialog (blur-save then Delete). Guard the action instead.
+        onConfirm={async () => (pending ? { error: "Saving the quantity, please try again" } : deleteEntry(row.id))}
+        title="Delete entry?"
+        description={`${row.name}'s entry will be removed from this fundraiser. Entries with payments cannot be deleted.`}
+        triggerLabel={<>Delete<span className="sr-only"> {row.name}</span></>}
+        triggerSize="xs"
+      />
       <FormFeedback state={{ error }} className="basis-full" />
     </div>
   )
@@ -101,7 +105,7 @@ function money(cents: number): string {
  */
 export function EntryTable({
   rows, canManage, payments,
-}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, PaymentItem[]> }>) {
+}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, FundraiserPaymentItem[]> }>) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No entries yet.</p>
   return (
     <>

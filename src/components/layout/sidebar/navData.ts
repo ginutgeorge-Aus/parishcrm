@@ -54,9 +54,9 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         // Groups (#303): same audience as canViewGroups (= canViewPeople).
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
-        // VIEWER (canViewAttendance only) just the trends. AUDITOR/EVENT_ORGANISER neither.
+        // everyone with canViewAttendance (editors + VIEWER) the trends. AUDITOR/EVENT_ORGANISER neither.
         { href: "/attendance", label: "Attendance", icon: ClipboardList, show: isEditor },
-        { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople && !isEditor },
+        { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor && on("memberships"), badge: membershipPending },

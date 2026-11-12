@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
-import { PaymentsPanel, type PaymentItem } from "@/components/events/fundraiser/PaymentsPanel"
+import { PaymentsPanel } from "@/components/events/fundraiser/PaymentsPanel"
+import type { FundraiserPaymentItem as PaymentItem } from "@/lib/fundraiserQueries"
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 
 jest.mock("@/lib/actions/fundraiser", () => ({ recordPayment: jest.fn(), deletePayment: jest.fn() }))

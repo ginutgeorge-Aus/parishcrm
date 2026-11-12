@@ -14,6 +14,7 @@ import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { auth } from "@/auth"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 type Row = { entryId: number; stripePaymentRef: string | null; amount: string }
 
@@ -63,7 +64,7 @@ describe("recordPayment", () => {
     const data = prismaMock.fundraiserPayment.create.mock.calls[0][0].data
     expect(data).toMatchObject({ entryId: 11, amount: "20.00", method: "CASH", stripePaymentRef: "manual:k-1", recordedById: 5 })
     expect(data.paidAt).toEqual(new Date("2026-11-01T00:00:00.000Z"))
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", 1, expect.objectContaining({ amount: "20.00", method: "CASH" }))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", 1, expect.objectContaining({ amount: "20.00", method: "CASH" }))
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
   })
 
@@ -82,7 +83,7 @@ describe("recordPayment", () => {
     expect(await recordPayment(11, { ...input, amount: "30.00" })).toBeUndefined()
     expect(await recordPayment(11, { ...input, amount: "30.00" })).toBeUndefined()
     expect(rows).toHaveLength(1)
-    expect(logAudit).toHaveBeenCalledTimes(1)
+    expect(logAuditTx).toHaveBeenCalledTimes(1)
   })
 
   it("concurrent repeat losing on the unique constraint (P2002) is idempotent success", async () => {
@@ -148,9 +149,17 @@ describe("deletePayment", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
   })
 
-  it("an audit write failure fails the delete (rolled back with it), not swallowed", async () => {
+  it("an audit write failure fails the delete (rolled back with it) with AUDIT_FAILED_ERROR, not a 500", async () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
-    await expect(deletePayment(4)).rejects.toThrow("audit down")
+    expect(await deletePayment(4)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("an audit write failure on recordPayment returns AUDIT_FAILED_ERROR (payment rolled back)", async () => {
+    // No prior row for this submission key (this describe's default is an existing payment).
+    prismaMock.fundraiserPayment.findUnique.mockResolvedValue(null)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await recordPayment(11, { ...input, amount: "5.00" })).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 

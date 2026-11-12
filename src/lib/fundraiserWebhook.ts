@@ -79,6 +79,10 @@ async function claimUnfulfilled(stagingId: number): Promise<boolean> {
  * @param stagingId CheckoutSession id
  * @param entryId FundraiserEntry id
  * @param amount base amount (charge minus card fee) as staged
+ * The audit row is written by the caller after commit, on purpose: the money is
+ * already captured by Stripe, so an audit failure must never roll back (and
+ * keep 500-ing) the payment record. In Postgres a failed statement aborts the
+ * whole transaction, so an in-tx audit cannot be caught and skipped.
  * @param paymentRef Stripe PaymentIntent id (unique per payment)
  * @returns what happened
  */
@@ -116,7 +120,8 @@ async function claimAndRecord(
       },
       select: { id: true },
     })
-    return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents: Math.max(0, toCents(amount) - remainingCents) }
+    const overpaidCents = Math.max(0, toCents(amount) - remainingCents)
+    return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 
@@ -207,19 +212,47 @@ export async function completeFundraiserPayment(
   if (outcome.kind === "missing") await alertEntryMissing(session.id)
   if (outcome.kind !== "recorded") return { status: 200 }
 
+  await auditOnlinePayment(session.id, outcome, staging)
   if (outcome.overpaidCents > 0) {
     await notifyStripeAlert(
       "fundraiser card payment: entry overpaid",
       `Session ${session.id}: card payment recorded on fundraiser entry ${outcome.entryId}, which is now overpaid by ${outcome.overpaidCents} cents (another payment cleared it first). Review whether to refund.`,
     )
   }
-  await logAudit(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", outcome.paymentId, {
-    entryId: outcome.entryId,
-    amountCents: toCents(staging.totalAmount),
-    surchargeCents: staging.surchargeCents,
-    overpaidCents: outcome.overpaidCents,
-  })
   return { status: 200 }
+}
+
+/**
+ * Best-effort FUNDRAISER_PAYMENT_ONLINE audit after the payment committed. A
+ * failure is logged and alerted (so the gap can be backfilled) but never fails
+ * the webhook: the payment row is the source of truth for captured money.
+ * @param sessionId Stripe Checkout Session id
+ * @param outcome the recorded payment
+ * @param staging staged amounts (base + card fee)
+ */
+async function auditOnlinePayment(
+  sessionId: string,
+  outcome: { paymentId: number; entryId: number; overpaidCents: number },
+  staging: FundraiserStaging,
+): Promise<void> {
+  try {
+    await logAudit(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", outcome.paymentId, {
+      entryId: outcome.entryId,
+      amountCents: toCents(staging.totalAmount),
+      surchargeCents: staging.surchargeCents,
+      overpaidCents: outcome.overpaidCents,
+    })
+  } catch (err) {
+    console.error(`Stripe webhook: fundraiser payment ${outcome.paymentId} recorded but its audit row failed`, err instanceof Error ? err.message : err)
+    try {
+      await notifyStripeAlert(
+        "fundraiser card payment: audit row missing",
+        `Session ${sessionId}: payment ${outcome.paymentId} on entry ${outcome.entryId} was recorded, but writing its audit row failed. Backfill the audit entry.`,
+      )
+    } catch {
+      // Alerting is best-effort too; the console error above remains.
+    }
+  }
 }
 
 /**

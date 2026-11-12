@@ -89,7 +89,7 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
 
         {justPaid && (
           <p role="status" className="mb-4 rounded-lg border border-border bg-muted p-3 text-sm text-foreground">
-            Thank you, your card payment was received. It can take a minute to show below.
+            Thank you. If your card payment went through, it will show below within a minute.
           </p>
         )}
 

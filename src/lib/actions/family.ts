@@ -170,6 +170,19 @@ export async function updateFamily(
 
 /** Friendly error when FundraiserEntry.familyId (onDelete: Restrict) blocks a family delete/merge. */
 const FUNDRAISER_FAMILY_ERROR = "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app."
+const LINKED_RECORDS_ERROR = "Cannot delete — other records still reference this family. Archive it instead."
+
+/**
+ * Friendly message for a family delete that failed on a Restrict foreign key
+ * (P2003). Prisma's P2003 does not reliably name the constraint across driver
+ * adapters, so re-check the one known Restrict child (fundraiser entries).
+ * @param familyId - Family whose delete failed.
+ * @returns the fundraiser message when the family has entries, else a generic one
+ */
+async function restrictFkError(familyId: number): Promise<string> {
+  const entries = await prisma.fundraiserEntry.count({ where: { familyId } })
+  return entries > 0 ? FUNDRAISER_FAMILY_ERROR : LINKED_RECORDS_ERROR
+}
 
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
@@ -268,8 +281,9 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
     })
   } catch (e: unknown) {
     // Backstop: a fundraiser entry added after the count above (or any other
-    // Restrict FK) still fails the delete — answer friendly, not a 500.
-    if (isP2003(e)) return { error: FUNDRAISER_FAMILY_ERROR }
+    // Restrict FK) still fails the delete — answer friendly, not a 500. Only
+    // blame fundraiser entries when the family actually has some now.
+    if (isP2003(e)) return { error: await restrictFkError(id) }
     throw e
   }
   if (blocked) return blocked

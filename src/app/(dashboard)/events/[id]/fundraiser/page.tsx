@@ -5,14 +5,11 @@ import { prisma } from "@/lib/prisma"
 import { canManageFundraiser, canViewFundraiserTotals } from "@/lib/roleGuard"
 import { getFundraiserView } from "@/lib/fundraiserQueries"
 import { parseRouteId } from "@/lib/validation"
-import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
+import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import { AddEntryDialog } from "@/components/events/fundraiser/AddEntryDialog"
 import { FundraiserSettingsForm } from "@/components/events/fundraiser/FundraiserSettingsForm"
 import { SendRemindersDialog } from "@/components/events/fundraiser/SendRemindersDialog"
-import { planReminders } from "@/lib/fundraiserReminders"
-import { formatSydneyDate, sydneyTodayYMD, utcYmd } from "@/lib/dates"
-import type { PaymentItem } from "@/components/events/fundraiser/PaymentsPanel"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -35,34 +32,11 @@ export default async function FundraiserPage(props: Readonly<Props>) {
 
   const view = await getFundraiserView(eventId, role)
 
-  const payments: Record<number, PaymentItem[]> = {}
-  let families: { id: number; name: string }[] = []
-  if (view && canManage) {
-    const [rows, fams] = await Promise.all([
-      prisma.fundraiserPayment.findMany({
-        where: { entry: { fundraiserId: view.fundraiser.id } },
-        orderBy: { paidAt: "desc" },
-        select: { id: true, entryId: true, amount: true, method: true, paidAt: true, note: true },
-      }),
-      prisma.family.findMany({ where: { archivedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    ])
-    for (const p of rows) {
-      ;(payments[p.entryId] ??= []).push({
-        id: p.id,
-        amountCents: toCents(p.amount),
-        method: p.method,
-        // Manual rows store the calendar date at UTC midnight; ONLINE rows are a real
-        // capture instant, so take its Sydney calendar day (UTC would be a day early).
-        paidAt: p.method === "ONLINE" ? sydneyTodayYMD(p.paidAt) : utcYmd(p.paidAt),
-        note: p.note,
-      })
-    }
-    families = fams
-  }
-
-  const plan = view && canManage ? await planReminders(view.fundraiser.id) : null
-  // Configured APP_TIMEZONE (formatSydneyDate), not a hard-coded zone/locale.
-  const lastSent = plan?.lastSentAt ? formatSydneyDate(plan.lastSentAt) : null
+  // Payments come with the view (one query); reminder counts load lazily in the dialog.
+  const families =
+    view && canManage
+      ? await prisma.family.findMany({ where: { archivedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : []
 
   const money = (c: number) => fmtAUD(centsToNumber(c))
 
@@ -105,18 +79,11 @@ export default async function FundraiserPage(props: Readonly<Props>) {
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-foreground">Entries</h2>
                   <div className="flex gap-2">
-                    {plan && (
-                      <SendRemindersDialog
-                        fundraiserId={view.fundraiser.id}
-                        sendable={plan.sendable}
-                        skippedNoEmail={plan.skippedNoEmail}
-                        lastSentAt={lastSent}
-                      />
-                    )}
+                    <SendRemindersDialog fundraiserId={view.fundraiser.id} />
                     <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
                   </div>
                 </div>
-                <EntryTable rows={view.rows} canManage payments={payments} />
+                <EntryTable rows={view.rows} canManage payments={view.payments} />
               </section>
             </>
           )}

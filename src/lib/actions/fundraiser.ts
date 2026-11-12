@@ -6,7 +6,8 @@ import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { actorId } from "@/lib/actor"
-import { logAudit, logAuditTx } from "@/lib/audit"
+import { logAudit } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
 import { canManageFundraiser } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -24,7 +25,8 @@ import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { expireOpenFundraiserCheckouts, surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
-import { loadReminderCandidates } from "@/lib/fundraiserReminders"
+import { loadReminderCandidates, planReminders } from "@/lib/fundraiserReminders"
+import { formatSydneyDate } from "@/lib/dates"
 import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
 
@@ -52,12 +54,9 @@ export async function saveFundraiser(
   eventId: number,
   input: { name: string; unitLabel: string; unitPrice: string; refPrefix?: string },
 ): Promise<ActionResult> {
-  const demo = assertNotDemo()
-  if (demo) return demo
-  const session = await auth()
-  if (!session?.user || !canManageFundraiser(session.user.role)) return { error: "Unauthorized" }
-  const off = await featureGuard("events")
-  if (off) return off
+  const g = await guardManage()
+  if ("error" in g) return g
+  const { session } = g
   if (!isValidPgId(eventId)) return { error: "Invalid event" }
 
   const name = input.name.trim()
@@ -82,13 +81,17 @@ export async function saveFundraiser(
 
   // Changing refPrefix does not alter bankRef values already issued to entries.
   const data = { name, unitLabel, unitPrice, refPrefix }
-  const saved = await prisma.fundraiser.upsert({
-    where: { eventId },
-    create: { eventId, ...data },
-    update: data,
-    select: { id: true },
-  })
-  await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, unitLabel })
+  // Price change and its audit row commit together (security.md: logAuditTx for money).
+  const saveErr = await prisma.$transaction(async (tx) => {
+    const saved = await tx.fundraiser.upsert({
+      where: { eventId },
+      create: { eventId, ...data },
+      update: data,
+      select: { id: true },
+    })
+    await logAuditGuardedTx(tx, actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, unitLabel })
+  }).catch(auditFailedOrThrow)
+  if (saveErr) return saveErr
   revalidatePath(`/events/${eventId}/fundraiser`)
   revalidatePath("/events")
   return undefined
@@ -102,6 +105,19 @@ const SUBMISSION_KEY_RE = /^[A-Za-z0-9_-]{1,100}$/
 /** Whole-transaction attempts for addEntry when a bankRef/publicToken collides. */
 const MAX_ADD_ATTEMPTS = 5
 const BUSY = { error: "Busy, please try again" }
+const AUDIT_FAILED = { error: AUDIT_FAILED_ERROR }
+
+/**
+ * `.catch` handler for a money-mutating transaction: an in-transaction audit
+ * failure (`AuditWriteError`, the mutation rolled back) becomes the user-facing
+ * `AUDIT_FAILED_ERROR`; anything else is rethrown.
+ * @param e - Thrown value.
+ * @returns `{ error: AUDIT_FAILED_ERROR }`
+ */
+function auditFailedOrThrow(e: unknown): { error: string } {
+  if (e instanceof AuditWriteError) return AUDIT_FAILED
+  throw e
+}
 
 type Guarded = { session: Session } | { error: string }
 
@@ -143,10 +159,30 @@ async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise
 }
 
 /**
+ * Share-lock a family row and check it is live, inside the entry-creating
+ * transaction. `archiveFamily` / `deleteFamily` update or delete that row, so
+ * they wait for this transaction (or it waits for them and then sees the
+ * archived/deleted state): an entry can never be added to a family archived
+ * concurrently.
+ * @param tx - Transaction client.
+ * @param familyId - Family id.
+ * @returns `{ error }` when missing or archived, null when live (and now locked)
+ */
+async function lockLiveFamily(tx: Prisma.TransactionClient, familyId: number): Promise<{ error: string } | null> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ archivedAt: Date | null }[]>`SELECT "archivedAt" FROM "Family" WHERE id = ${familyId} FOR SHARE` // nosemgrep: crm-no-raw-sql
+  if (rows.length === 0) return { error: "Family not found" }
+  if (rows[0].archivedAt) return { error: "Family is archived" }
+  return null
+}
+
+/**
  * Add a family (member) or an outside buyer to a fundraiser. Exactly one of
  * `familyId` / `outsideName` must be given. The unit price is snapshotted from
  * the fundraiser; outside email/phone are encrypted at rest. Each entry gets a
- * CSPRNG public token and a unique bank reference.
+ * CSPRNG public token and a unique bank reference. A member entry share-locks
+ * the family row (`lockLiveFamily`), so it cannot race `archiveFamily`. The
+ * audit row commits with the entry.
  *
  * @param fundraiserId - Fundraiser id.
  * @param input - Entry fields; `quantity` is a 1-4 digit positive integer string.
@@ -187,11 +223,6 @@ export async function addEntry(
   if (!fundraiser) return { error: "Fundraiser not found" }
   if (quantity * toCents(fundraiser.unitPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
   const familyId = hasFamily ? (input.familyId as number) : null
-  if (familyId !== null) {
-    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
-    if (!fam) return { error: "Family not found" }
-    if (fam.archivedAt) return { error: "Family is archived" }
-  }
 
   const DUP = { error: "Already on this fundraiser" }
   const isDupFamily = async (db: Prisma.TransactionClient): Promise<boolean> =>
@@ -204,9 +235,13 @@ export async function addEntry(
   for (let attempt = 1; attempt <= MAX_ADD_ATTEMPTS; attempt++) {
     try {
       const created = await prisma.$transaction(async (tx) => {
+        if (familyId !== null) {
+          const famErr = await lockLiveFamily(tx, familyId)
+          if (famErr) return famErr
+        }
         if (await isDupFamily(tx)) return null
         const bankRef = await generateUniqueBankRef(tx, fundraiser.refPrefix)
-        return tx.fundraiserEntry.create({
+        const entry = await tx.fundraiserEntry.create({
           data: {
             fundraiserId,
             familyId,
@@ -220,17 +255,20 @@ export async function addEntry(
           },
           select: { id: true },
         })
+        await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", entry.id, {
+          fundraiserId,
+          familyId,
+          outside: familyId === null,
+          quantity,
+        })
+        return entry
       })
       if (!created) return DUP
-      await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", created.id, {
-        fundraiserId,
-        familyId,
-        outside: familyId === null,
-        quantity,
-      })
+      if ("error" in created) return created
       revalidateFundraiser(fundraiser.eventId)
       return undefined
     } catch (e) {
+      if (e instanceof AuditWriteError) return AUDIT_FAILED
       if (e instanceof NoFreeBankRefError) return BUSY
       if (!isP2002(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
@@ -280,11 +318,11 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
     if (!(newOwed >= paidCents)) return { error: "Quantity total is below the amount already paid" }
     if (newOwed > MAX_OWED_CENTS) return OWED_TOO_LARGE
     await tx.fundraiserEntry.update({ where: { id: entryId }, data: { quantity: next } })
+    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", entryId, { from: entry.quantity, to: next })
     return { from: entry.quantity, eventId: entry.fundraiser.eventId }
-  }, BUSY)
+  }, BUSY).catch(auditFailedOrThrow)
   if ("error" in res) return res
   if (res.from !== next) await expireOpenFundraiserCheckouts(entryId)
-  await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", entryId, { from: res.from, to: next })
   revalidateFundraiser(res.eventId)
   return undefined
 }
@@ -317,13 +355,13 @@ export async function deleteEntry(entryId: number): Promise<ActionResult> {
       return { error: "Payment in progress" }
     }
     await tx.fundraiserEntry.delete({ where: { id: entryId } })
+    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", entryId, {
+      fundraiserId: entry.fundraiserId,
+      familyId: entry.familyId,
+    })
     return { entry }
-  }, BUSY)
+  }, BUSY).catch(auditFailedOrThrow)
   if ("error" in res) return res
-  await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_DELETE", "FundraiserEntry", entryId, {
-    fundraiserId: res.entry.fundraiserId,
-    familyId: res.entry.familyId,
-  })
   revalidateFundraiser(res.entry.fundraiser.eventId)
   return undefined
 }
@@ -396,9 +434,11 @@ export async function recordPayment(
         },
         select: { id: true },
       })
+      await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", created.id, { entryId, amount, method, paidAt: paidAtStr })
       return { id: created.id, eventId: entry.fundraiser.eventId }
     }, BUSY)
   } catch (e) {
+    if (e instanceof AuditWriteError) return AUDIT_FAILED
     if (!isP2002(e)) throw e
     // A concurrent twin committed the same key between our check and insert.
     const prior = repeatOf(await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: { entryId: true } }))
@@ -407,7 +447,6 @@ export async function recordPayment(
   }
   if ("error" in res) return res
   if ("repeat" in res) return undefined
-  await logAudit(actorId(g.session), "FUNDRAISER_PAYMENT_ADD", "FundraiserPayment", res.id, { entryId, amount, method, paidAt: paidAtStr })
   revalidateFundraiser(res.eventId)
   return undefined
 }
@@ -436,16 +475,44 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
     // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
     const { count } = await tx.fundraiserPayment.deleteMany({ where: { id: paymentId } })
     if (count === 0) return false
-    await logAuditTx(tx, actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
+    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
       entryId: payment.entryId,
       amount: payment.amount.toFixed(2),
       method: payment.method,
     })
     return true
-  })
+  }).catch(auditFailedOrThrow)
+  if (typeof deleted === "object") return deleted
   if (!deleted) return { error: "Payment not found" }
   revalidateFundraiser(payment.entry.fundraiser.eventId)
   return undefined
+}
+
+/** Counts for the send-reminders confirm dialog, or an error. */
+export type ReminderPlanResult =
+  | { error: string }
+  | { sendable: number; skippedNoEmail: number; lastSentAt: string | null }
+
+/**
+ * Load the send-reminders preview (who would be emailed). Called lazily when
+ * the dialog opens, so the fundraiser page does not decrypt every entry's
+ * email on each render. Read-only: managers only, events feature on.
+ *
+ * @param fundraiserId - Fundraiser id.
+ * @returns counts plus the last-sent date label (configured timezone), or `{ error }`.
+ */
+export async function getReminderPlan(fundraiserId: number): Promise<ReminderPlanResult> {
+  const session = await auth()
+  if (!session?.user || !canManageFundraiser(session.user.role)) return { error: "Unauthorized" }
+  const off = await featureGuard("events")
+  if (off) return off
+  if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
+  const plan = await planReminders(fundraiserId)
+  return {
+    sendable: plan.sendable,
+    skippedNoEmail: plan.skippedNoEmail,
+    lastSentAt: plan.lastSentAt ? formatSydneyDate(plan.lastSentAt) : null,
+  }
 }
 
 /** Result of a reminder run: counts, or an error. */
@@ -459,6 +526,8 @@ export type SendRemindersResult =
  */
 const REMINDER_DEDUPE_MS = 10 * 60 * 1000
 const CLAIM_BUSY = { error: "busy" }
+/** Reminders sent in parallel per chunk (claim tx + SMTP + status update each). */
+const REMINDER_CONCURRENCY = 5
 
 /**
  * Atomically claim the right to remind one entry. Inside a Serializable
@@ -470,9 +539,11 @@ const CLAIM_BUSY = { error: "busy" }
  * @param entryId - Entry to remind.
  * @param sentTo - Encrypted recipient email.
  * @param sentById - Acting user id.
- * @returns the claimed send row id, or null when recently reminded / contended
+ * @returns the claimed send row id; "recent" when reminded within the window;
+ *   "busy" when serialization conflicts outlasted the retries (nothing claimed:
+ *   parallel claims on different entries can conflict on shared index pages)
  */
-async function claimReminder(entryId: number, sentTo: string, sentById: number): Promise<number | null> {
+async function claimReminder(entryId: number, sentTo: string, sentById: number): Promise<number | "recent" | "busy"> {
   const since = new Date(Date.now() - REMINDER_DEDUPE_MS)
   const res = await serializableWrite<{ id: number } | null>(async (tx) => {
     const recent = await tx.fundraiserReminderSend.count({
@@ -484,7 +555,8 @@ async function claimReminder(entryId: number, sentTo: string, sentById: number):
       select: { id: true },
     })
   }, CLAIM_BUSY)
-  return res && "id" in res ? res.id : null
+  if (res === null) return "recent"
+  return "id" in res ? res.id : "busy"
 }
 
 /**
@@ -492,6 +564,8 @@ async function claimReminder(entryId: number, sentTo: string, sentById: number):
  * reachable, consenting email. Each attempt first claims a PENDING
  * FundraiserReminderSend row (encrypted recipient; see `claimReminder`), skipping
  * entries reminded within `REMINDER_DEDUPE_MS`, then marks it SUCCESS or FAILED.
+ * Entries are processed in chunks of `REMINDER_CONCURRENCY` in parallel, so a
+ * large fundraiser finishes within the request timeout.
  * One failure never aborts the rest. Audited once with counts. Raw mail errors are never logged or stored (they embed the address).
  *
  * @param fundraiserId - Fundraiser id.
@@ -528,21 +602,39 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   let failed = 0
   let skippedNoEmail = 0
   let skippedRecent = 0
-  for (const c of candidates) {
-    if (c.remainingCents === 0) continue
-    if (!c.recipient) { skippedNoEmail++; continue }
-    let claimId: number | null
+  const money = (cents: number) => fmtAUD(centsToNumber(cents))
+  type Due = (typeof candidates)[number] & { recipient: string }
+  const busy: Due[] = []
+
+  /**
+   * Claim, send and record one reminder. Never throws: every outcome is
+   * counted, so one failure never aborts the rest of the run. A contended
+   * ("busy") claim is queued for a sequential retry after the parallel chunks;
+   * on that final try it counts as failed, never as "recently reminded".
+   * @param c - Candidate with a recipient and a positive balance.
+   * @param final - True on the sequential retry pass.
+   */
+  const remindOne = async (c: Due, final = false): Promise<void> => {
+    let claimId: number | "recent" | "busy"
     try {
       claimId = await claimReminder(c.entryId, encrypt(c.recipient), sentById)
     } catch {
       // Cannot record the attempt: do not send untracked (it could not be deduped).
       logger.error("[fundraiser-reminder] failed to claim send", { entryId: c.entryId })
       failed++
-      continue
+      return
     }
-    if (claimId === null) { skippedRecent++; continue }
+    if (claimId === "recent") { skippedRecent++; return }
+    if (claimId === "busy") {
+      if (final) {
+        logger.error("[fundraiser-reminder] claim still contended after retry", { entryId: c.entryId })
+        failed++
+      } else {
+        busy.push(c)
+      }
+      return
+    }
     const feeCents = fee ? surchargeCentsFor(c.remainingCents, fee) : 0
-    const money = (cents: number) => fmtAUD(centsToNumber(cents))
     let status: "SUCCESS" | "FAILED" = "SUCCESS"
     let errorMessage: string | undefined
     try {
@@ -576,6 +668,20 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
       logger.error("[fundraiser-reminder] failed to persist send row", { entryId: c.entryId })
     }
   }
+
+  const due: Due[] = []
+  for (const c of candidates) {
+    if (c.remainingCents === 0) continue
+    if (c.recipient) due.push({ ...c, recipient: c.recipient })
+    else skippedNoEmail++
+  }
+  // Bounded concurrency: a few hundred entries finish within the request
+  // timeout without opening hundreds of SMTP connections / DB transactions.
+  for (let i = 0; i < due.length; i += REMINDER_CONCURRENCY) {
+    await Promise.all(due.slice(i, i + REMINDER_CONCURRENCY).map((c) => remindOne(c)))
+  }
+  // Contended claims: retry one at a time (no parallel claims left to conflict with).
+  for (const c of busy) await remindOne(c, true)
 
   await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail, skippedRecent })
   revalidateFundraiser(fundraiser.eventId)

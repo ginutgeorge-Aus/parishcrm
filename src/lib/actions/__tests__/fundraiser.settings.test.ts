@@ -3,18 +3,20 @@ jest.mock("server-only", () => ({}))
 jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}), logAuditTx: jest.fn(async () => {}) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
 import { saveFundraiser } from "@/lib/actions/fundraiser"
 import { getFundraiserView } from "@/lib/fundraiserQueries"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const prismaMock = {
   event: { findUnique: jest.fn() },
   fundraiser: { upsert: jest.fn(), findUnique: jest.fn() },
+  $transaction: jest.fn(),
 }
 jest.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_t, k) => (prismaMock as Record<string | symbol, unknown>)[k] }),
@@ -27,6 +29,7 @@ beforeEach(() => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "ADMIN" } })
   prismaMock.event.findUnique.mockResolvedValue({ id: 7 })
   prismaMock.fundraiser.upsert.mockResolvedValue({ id: 3 })
+  prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
 })
 
 describe("saveFundraiser", () => {
@@ -65,6 +68,12 @@ describe("saveFundraiser", () => {
     expect(await saveFundraiser(7, input)).toEqual({ error: "Event not found" })
   })
 
+  it("an audit write failure rolls the save back and returns AUDIT_FAILED_ERROR", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await saveFundraiser(7, input)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
   it("upserts on eventId and audits", async () => {
     expect(await saveFundraiser(7, input)).toBeUndefined()
     const arg = prismaMock.fundraiser.upsert.mock.calls[0][0]
@@ -72,7 +81,7 @@ describe("saveFundraiser", () => {
     expect(arg.create).toMatchObject({ eventId: 7, name: "Packets", unitLabel: "packet", unitPrice: "12.50", refPrefix: "PK" })
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
     expect(revalidatePath).toHaveBeenCalledWith("/events")
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_SAVE", "Fundraiser", 3, expect.any(Object))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_SAVE", "Fundraiser", 3, expect.any(Object))
   })
 })
 
@@ -84,7 +93,7 @@ describe("getFundraiserView", () => {
         id: 1, familyId: 2, family: { name: "Smith", people: [{ email: "enc:SECRET-P", emailConsent: true }] }, outsideName: null,
         outsideEmail: "enc:SECRET-EMAIL", outsidePhone: "enc:SECRET-PHONE",
         quantity: 2, unitPrice: "10.00", bankRef: "FR0001", publicToken: "tok-secret",
-        payments: [{ amount: "5.00" }],
+        payments: [{ id: 41, amount: "5.00", method: "CASH", paidAt: new Date("2026-11-01T00:00:00Z"), note: null }],
       },
       {
         id: 2, familyId: null, family: null, outsideName: "Visitor",
@@ -111,6 +120,8 @@ describe("getFundraiserView", () => {
     expect(v!.rows[0]).toMatchObject({ name: "Smith", remainingCents: 1500, status: "PART" })
     expect(v!.rows[1]).toMatchObject({ name: "Visitor" })
     expect(v!.totals).toEqual({ expectedCents: 3000, collectedCents: 500, outstandingCents: 2500 })
+    // Payments come from the same query, keyed by entry (no second payments query).
+    expect(v!.payments).toEqual({ 1: [{ id: 41, amountCents: 500, method: "CASH", paidAt: "2026-11-01", note: null }] })
     const s = JSON.stringify(v)
     expect(s).not.toContain("SECRET")
     expect(s).not.toContain("outsideEmail")
@@ -120,6 +131,7 @@ describe("getFundraiserView", () => {
   it("AUDITOR gets totals and empty rows", async () => {
     const v = await getFundraiserView(7, "AUDITOR" as never)
     expect(v!.rows).toEqual([])
+    expect(v!.payments).toEqual({})
     expect(v!.totals.expectedCents).toBe(3000)
     expect(JSON.stringify(v)).not.toContain("SECRET")
   })

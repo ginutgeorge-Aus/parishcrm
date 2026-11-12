@@ -59,6 +59,16 @@ beforeEach(() => {
   prisma.fundraiserPayment.create.mockResolvedValue({ id: 99 })
 })
 
+it("an audit write failure never blocks the captured payment: recorded, 200, ops alerted", async () => {
+  logAudit.mockRejectedValueOnce(new Error("audit down"))
+  const err = jest.spyOn(console, "error").mockImplementation(() => {})
+  expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
+  expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)
+  expect(rowStatus).toBe("COMPLETED")
+  expect(notifyStripeAlert).toHaveBeenCalledWith("fundraiser card payment: audit row missing", expect.stringContaining("payment 99"))
+  err.mockRestore()
+})
+
 it("records one ONLINE payment for the base amount with the PI as ref and a system audit", async () => {
   expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
   expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)

@@ -39,7 +39,7 @@ export function PayRemainingButton({ publicToken, feeLabel }: Readonly<{ publicT
         {pending ? "Redirecting…" : "Pay remaining by card"}
       </button>
       {feeLabel && (
-        <p className="mt-2 text-center text-xs text-muted-foreground">A card processing fee of {feeLabel} applies.</p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">A card processing fee of about {feeLabel} is added at checkout; Stripe shows the exact total before you pay.</p>
       )}
       {error && (
         <p role="alert" className="mt-2 text-center text-sm text-destructive">{error}</p>

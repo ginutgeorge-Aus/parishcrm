@@ -2,8 +2,7 @@
 
 import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+import { MONTHS } from "@/lib/attendance"
 
 const chartConfig = {
   thisYear: { label: "This year", color: "hsl(var(--primary))" },

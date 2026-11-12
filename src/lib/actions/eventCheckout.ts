@@ -76,16 +76,8 @@ export async function startEventCheckout(
     return { ok: false, status: 400, error: "This event is free — register without payment" }
   }
 
-  // Base URL for Stripe's post-payment success/cancel redirects must come from
-  // trusted config, NOT the request's origin header — Stripe redirects the
-  // payer there after a real charge, so a spoofed header would be an
-  // open-redirect off the back of a payment. In production the trusted base is
-  // required (AUTH_URL is always set — login itself breaks without it); the
-  // origin-header fallback is dev-only. A missing base in prod is a config
-  // error, never a reason to trust the client header.
-  const trustedBase = process.env.AUTH_URL ?? process.env.APP_URL
-  const origin =
-    trustedBase ?? (process.env.NODE_ENV === "production" ? "" : h.get("origin") ?? "")
+  // Stripe return URLs: trusted config only (see trustedReturnOrigin).
+  const origin = trustedReturnOrigin(trustedBaseUrl(), h.get("origin"))
   if (!origin) {
     return { ok: false, status: 500, error: "Payment configuration error" }
   }
@@ -150,9 +142,7 @@ export async function startExistingRegistrationCheckout(
     return { ok: false, status: 400, error: "This registration is free — nothing to pay" }
   }
 
-  const trustedBase = process.env.AUTH_URL ?? process.env.APP_URL
-  const origin =
-    trustedBase ?? (process.env.NODE_ENV === "production" ? "" : h.get("origin") ?? "")
+  const origin = trustedReturnOrigin(trustedBaseUrl(), h.get("origin"))
   if (!origin) {
     return { ok: false, status: 500, error: "Payment configuration error" }
   }
@@ -209,7 +199,7 @@ export async function startFundraiserCheckout(
   const { remainingCents } = entryTotals(entry, entry.payments)
   if (remainingCents <= 0) return { ok: false, status: 400, error: "Nothing left to pay" }
 
-  const origin = fundraiserReturnOrigin(trustedBaseUrl(), h.get("origin"))
+  const origin = trustedReturnOrigin(trustedBaseUrl(), h.get("origin"))
   if (!origin) {
     return { ok: false, status: 500, error: "Payment configuration error" }
   }
@@ -234,15 +224,18 @@ export async function startFundraiserCheckout(
 }
 
 /**
- * Origin (scheme + host + port) for Stripe's fundraiser return URLs. The trusted
- * base may carry a path (e.g. AUTH_URL `https://host/api/auth`), so only its
- * origin is kept, matching the reminder email's pay link. The request's Origin
- * header is a dev-only fallback.
+ * Origin (scheme + host + port) for Stripe's return URLs (ticket, existing
+ * registration and fundraiser checkouts). Must come from trusted config, never
+ * the request: Stripe redirects the payer there after a real charge, so a
+ * spoofed header would be an open redirect. The trusted base may carry a path
+ * (e.g. AUTH_URL `https://host/api/auth`), so only its origin is kept, matching
+ * the reminder email's pay link. The request's Origin header is a dev-only
+ * fallback; a missing base in production is a config error (returns "").
  * @param trustedBase configured base URL (AUTH_URL / APP_URL), if any
  * @param headerOrigin the request's Origin header, if any
  * @returns the origin, or "" when none is usable (config error)
  */
-function fundraiserReturnOrigin(trustedBase: string | undefined, headerOrigin: string | null): string {
+function trustedReturnOrigin(trustedBase: string | undefined, headerOrigin: string | null): string {
   if (trustedBase !== undefined) {
     try {
       const { origin } = new URL(trustedBase)

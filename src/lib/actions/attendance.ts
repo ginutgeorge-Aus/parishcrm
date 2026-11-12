@@ -17,10 +17,10 @@ import { canEditAttendance } from "@/lib/roleGuard"
 import { getHeadcountByKey, type RecentHeadcount } from "@/lib/attendanceQueries"
 import { isP2002, isValidPgId } from "@/lib/validation"
 import { isValidYMD, utcDateToYmd, ymdToUtcDate } from "@/lib/venueUsage"
+import { MAX_COUNT } from "@/lib/attendance"
 import type { ActionResult } from "./types"
 
 const UNAUTHORIZED = "Unauthorized"
-const MAX_COUNT = 100000
 /** Earliest accepted service date; guards against typo years like 0026. */
 const MIN_DATE = "2000-01-01"
 
