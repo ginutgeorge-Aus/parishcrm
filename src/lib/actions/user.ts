@@ -29,6 +29,8 @@ const ROLE_LABEL: Record<string, string> = {
   AUDITOR: "Auditor",
   OFFICE_ADMIN: "Office Admin",
   EVENT_ORGANISER: "Event Organiser",
+  HEADMASTER: "Headmaster",
+  TEACHER: "Teacher",
 }
 
 

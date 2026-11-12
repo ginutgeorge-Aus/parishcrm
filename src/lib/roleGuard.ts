@@ -136,3 +136,40 @@ export function canEditAttendance(role: UserRole | undefined): boolean {
 export function canViewAttendance(role: UserRole | undefined): boolean {
   return canViewPeople(role)
 }
+
+/**
+ * Sunday school headmaster: runs all classes (setup, enrolment, roll, exams)
+ * and nothing outside Sunday school.
+ * @param role the caller's role
+ */
+export function isHeadmaster(role: UserRole | undefined): boolean {
+  return role === UserRole.HEADMASTER
+}
+
+/**
+ * Sunday school teacher: roll + exam marks for assigned classes only
+ * (SundaySchoolRollMarker rows), nothing outside Sunday school.
+ * @param role the caller's role
+ */
+export function isTeacher(role: UserRole | undefined): boolean {
+  return role === UserRole.TEACHER
+}
+
+/**
+ * Sunday school setup: classes, teachers, enrolment, roll markers, rollover —
+ * and roll/exam marks on any class. Editors (ADMIN | PASTOR | OFFICE_ADMIN)
+ * plus HEADMASTER.
+ * @param role the caller's role
+ */
+export function canManageSundaySchool(role: UserRole | undefined): boolean {
+  return canEdit(role) || isHeadmaster(role)
+}
+
+/**
+ * See Sunday school screens: managers plus VIEWER (read-only) and TEACHER
+ * (assigned classes only, checked per class via sundaySchoolAccess.ts).
+ * @param role the caller's role
+ */
+export function canViewSundaySchool(role: UserRole | undefined): boolean {
+  return canManageSundaySchool(role) || role === UserRole.VIEWER || isTeacher(role)
+}

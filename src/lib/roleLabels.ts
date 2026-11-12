@@ -8,4 +8,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   AUDITOR: "Auditor",
   OFFICE_ADMIN: "Office Admin",
   EVENT_ORGANISER: "Event Organiser",
+  HEADMASTER: "Headmaster",
+  TEACHER: "Teacher",
 }

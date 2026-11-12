@@ -30,6 +30,8 @@ const roleVariant: Record<UserRole, "default" | "secondary" | "outline"> = {
   AUDITOR: "outline",
   OFFICE_ADMIN: "secondary",
   EVENT_ORGANISER: "outline",
+  HEADMASTER: "secondary",
+  TEACHER: "outline",
 }
 
 const roleLabel = ROLE_LABELS
