@@ -14,6 +14,8 @@ export type FundraiserRow = EntryTotals & {
   familyId: number | null
   name: string
   quantity: number
+  /** Unit price snapshotted on the entry at creation (2-dp string). */
+  unitPrice: string
   bankRef: string
   hasEmail: boolean
 }
@@ -56,6 +58,7 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
         familyId: e.familyId,
         name: e.family?.name ?? e.outsideName ?? "Unknown",
         quantity: e.quantity,
+        unitPrice: e.unitPrice.toString(),
         bankRef: e.bankRef,
         hasEmail: e.familyId != null
           ? (e.family?.people ?? []).some((p) => p.email != null && p.emailConsent)

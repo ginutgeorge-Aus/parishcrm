@@ -97,7 +97,7 @@ export default async function FundraiserPage(props: Readonly<Props>) {
                   <h2 className="text-sm font-semibold text-foreground">Entries</h2>
                   <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
                 </div>
-                <EntryTable rows={view.rows} unitPrice={view.fundraiser.unitPrice} canManage payments={payments} />
+                <EntryTable rows={view.rows} canManage payments={payments} />
               </section>
             </>
           )}

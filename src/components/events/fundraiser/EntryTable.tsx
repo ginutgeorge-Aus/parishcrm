@@ -89,13 +89,12 @@ function money(cents: number): string {
  * controls render only when `canManage`.
  *
  * @param props.rows - Entry rows from `getFundraiserView`.
- * @param props.unitPrice - Fundraiser unit price (2-dp string) for display.
  * @param props.canManage - Show quantity/payment/delete controls.
  * @param props.payments - Payments keyed by entry id.
  */
 export function EntryTable({
-  rows, unitPrice, canManage, payments,
-}: Readonly<{ rows: FundraiserRow[]; unitPrice: string; canManage: boolean; payments: Record<number, PaymentItem[]> }>) {
+  rows, canManage, payments,
+}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, PaymentItem[]> }>) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No entries yet.</p>
   return (
     <>
@@ -107,7 +106,7 @@ export function EntryTable({
               <StatusBadge status={r.status} />
             </div>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 tabular">
-              <dt className="text-muted-foreground">Qty x price</dt><dd>{r.quantity} x {money(toCents(unitPrice))}</dd>
+              <dt className="text-muted-foreground">Qty x price</dt><dd>{r.quantity} x {money(toCents(r.unitPrice))}</dd>
               <dt className="text-muted-foreground">Owed</dt><dd>{money(r.owedCents)}</dd>
               <dt className="text-muted-foreground">Paid</dt><dd>{money(r.paidCents)}</dd>
               <dt className="text-muted-foreground">Remaining</dt><dd>{money(r.remainingCents)}</dd>
@@ -135,7 +134,7 @@ export function EntryTable({
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.name}</TableCell>
                 <TableCell className="tabular">{r.quantity}</TableCell>
-                <TableCell className="tabular">{money(toCents(unitPrice))}</TableCell>
+                <TableCell className="tabular">{money(toCents(r.unitPrice))}</TableCell>
                 <TableCell className="tabular">{money(r.owedCents)}</TableCell>
                 <TableCell className="tabular">{money(r.paidCents)}</TableCell>
                 <TableCell className="tabular">{money(r.remainingCents)}</TableCell>
