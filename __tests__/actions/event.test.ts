@@ -373,7 +373,7 @@ describe("deleteEvent", () => {
     ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(3)
     const result = await deleteEvent(1)
     expect(result).toEqual({
-      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event.",
+      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event. Entries with card payments cannot be removed in-app.",
     })
     expect(prisma.event.delete).not.toHaveBeenCalled()
     expect(syncEventDeletion).not.toHaveBeenCalled()

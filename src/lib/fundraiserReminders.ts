@@ -32,7 +32,7 @@ export async function resolveRecipient(entry: RecipientEntry): Promise<string | 
 }
 
 /** One entry resolved for sending (outside email already decrypted into `recipient`). */
-export type ReminderCandidate = {
+type ReminderCandidate = {
   entryId: number
   name: string
   quantity: number

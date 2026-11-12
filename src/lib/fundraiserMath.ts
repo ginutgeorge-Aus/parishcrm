@@ -1,7 +1,7 @@
 import { toCents, type Money } from "@/lib/formatting"
 
 /** Payment state of one fundraiser entry. */
-export type FundraiserStatus = "UNPAID" | "PART" | "PAID" | "OVERPAID"
+type FundraiserStatus = "UNPAID" | "PART" | "PAID" | "OVERPAID"
 
 /** Per-entry totals in integer cents. */
 export type EntryTotals = {

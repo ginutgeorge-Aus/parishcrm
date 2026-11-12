@@ -201,7 +201,7 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
         SELECT "archivedAt" FROM "Family" WHERE id = ${id} FOR UPDATE`
       if (locked.length === 0) return { error: "Not found" }
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-      await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE` // nosemgrep: crm-no-raw-sql
 
       // Transaction.familyId is SetNull on delete — deleting a family with giving
       // history would silently orphan those rows and break annual statements.
