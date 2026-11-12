@@ -75,6 +75,17 @@ describe("/groups", () => {
     await expect(GroupsPage(sp())).rejects.toThrow("NEXT_REDIRECT /")
   })
 
+  it("redirects AUDITOR home without querying", async () => {
+    as("AUDITOR")
+    await expect(GroupsPage(sp())).rejects.toThrow("NEXT_REDIRECT /")
+    expect(p.group.findMany).not.toHaveBeenCalled()
+  })
+
+  it("ignores an invalid category filter", async () => {
+    await GroupsPage(sp({ category: "bogus" }))
+    expect(p.group.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { archivedAt: null } }))
+  })
+
   it("lists groups with counts, singular/plural, and a New button for managers", async () => {
     p.group.findMany.mockResolvedValue([
       { id: 1, name: "Choir", category: "MINISTRY", description: "Sings", _count: { members: 1 } },
