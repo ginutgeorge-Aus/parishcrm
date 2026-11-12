@@ -102,6 +102,23 @@ Any rows returned must be resolved first (rename or delete the extra accounts). 
 - SBOM: `npm run sbom` (CycloneDX format)
 - license check: `npm run license:check`
 
+## Stripe webhook secret
+
+Card payments are only marked paid when Stripe's webhook (`<APP_URL>/api/stripe/webhook`) verifies. A stale
+or wrong `STRIPE_WEBHOOK_SECRET` makes every delivery 400: the payment completes at Stripe, but the
+registration stays unpaid and no confirmation email goes out.
+
+- After a Stripe SDK major bump (the pinned `STRIPE_API_VERSION` moves to a new release train) or any
+  endpoint change, recreate the webhook endpoint in the Stripe Dashboard and update `STRIPE_WEBHOOK_SECRET`
+  with the new signing secret.
+- Boot warning: if `STRIPE_SECRET_KEY` is set but `STRIPE_WEBHOOK_SECRET` is unset or blank, startup logs a
+  warning.
+- Admin alert: 3 signature-verification failures within 10 minutes email every active ADMIN once, then
+  stay quiet for 1 hour (the last-sent time is kept in the `stripeWebhookAlertLastSentAt` app setting).
+  Deliveries with no signature header are routine junk traffic and are not counted. Failures are counted
+  in memory per process, so with several replicas the 3-failure threshold applies per replica.
+- Self-hosters: also alert on the log line `STRIPE_WEBHOOK_SECRET unset/corrupt` in your log platform.
+
 ## Availability Monitoring
 
 External uptime probe against `/api/health` — the one place that reports a real DB-backed readiness

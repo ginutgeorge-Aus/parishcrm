@@ -30,6 +30,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: {
 } }))
 jest.mock("@/lib/crypto", () => ({ decrypt: (s: string) => s.replace("enc:", "") }))
 jest.mock("@/lib/notifications", () => ({ notifyStripeAlert: jest.fn() }))
+jest.mock("@/lib/stripeWebhookAlert", () => ({ recordWebhookVerificationFailure: jest.fn() }))
 
 const { prisma } = require("@/lib/prisma")
 const { persistRegistration } = require("@/lib/eventRegistrationPersist")
@@ -58,6 +59,41 @@ it("rejects a bad signature with 400", async () => {
   constructEvent.mockImplementation(() => { throw new Error("bad sig") })
   expect(await handleStripeWebhook("{}", "t=1,v1=bad")).toEqual({ status: 400 })
   expect(persistRegistration).not.toHaveBeenCalled()
+})
+
+const { recordWebhookVerificationFailure } = require("@/lib/stripeWebhookAlert")
+
+it("counts a bad signature toward the admin alert", async () => {
+  constructEvent.mockImplementation(() => { throw new Error("bad sig") })
+  await handleStripeWebhook("{}", "t=1,v1=bad")
+  expect(recordWebhookVerificationFailure).toHaveBeenCalledTimes(1)
+})
+
+it("counts an unset secret toward the admin alert", async () => {
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  await handleStripeWebhook("{}", "sig")
+  expect(recordWebhookVerificationFailure).toHaveBeenCalledTimes(1)
+  errSpy.mockRestore()
+})
+
+it("does not count an unsigned request when the secret is unset", async () => {
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+  await handleStripeWebhook("{}", null)
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+  errSpy.mockRestore()
+})
+
+it("does not count a missing signature header", async () => {
+  await handleStripeWebhook("{}", null)
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
+})
+
+it("does not count a verified event", async () => {
+  constructEvent.mockReturnValue({ type: "ping", data: { object: {} } })
+  await handleStripeWebhook("{}", "sig")
+  expect(recordWebhookVerificationFailure).not.toHaveBeenCalled()
 })
 
 it("rejects with 400 + loud console.error when STRIPE_WEBHOOK_SECRET is unset", async () => {
