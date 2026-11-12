@@ -6,7 +6,7 @@ jest.mock("@/lib/featureFlags")
 import { createReceipt } from "@/lib/actions/pettyCashReceipt"
 import { createExpense } from "@/lib/actions/pettyCashExpense"
 import { SUBMISSION_TOKEN_REUSED_ERROR, PETTY_CASH_GONE } from "@/lib/actions/pettyCashEntry"
-import { AuditWriteError, PETTY_CASH_AUDIT_FAILED_ERROR } from "@/lib/actions/pettyCashAudit"
+import { AuditWriteError, PETTY_CASH_AUDIT_FAILED_ERROR } from "@/lib/actions/pettyCashWriteErrors"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { validateAccount } from "@/lib/actions/transaction"
@@ -231,19 +231,33 @@ describe("createReceipt — submission token (#487)", () => {
     expect(redirect).not.toHaveBeenCalled()
   })
 
-  it("no replay path writes an audit row — the original's in-tx row stands, never a fabricated one (#563)", async () => {
-    mockReceiptFind.mockResolvedValue(sameReceipt)
-    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
-    mockReceiptFind.mockReset().mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
-    mock$tx.mockRejectedValue({ code: "P2002" })
-    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
-    const tx = txMock({ receipt: sameReceipt })
-    mock$tx.mockReset().mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
-    mockReceiptFind.mockReset().mockResolvedValue(null)
-    await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
-    expect(redirect).toHaveBeenCalledTimes(3)
-    expect(logAudit).not.toHaveBeenCalled()
-    expect(logAuditTx).not.toHaveBeenCalled()
+  describe("receipt: no replay path writes an audit row — the original's in-tx row stands (#563)", () => {
+    it("pre-check replay", async () => {
+      mockReceiptFind.mockResolvedValue(sameReceipt)
+      await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
+
+    it("P2002 from a concurrent twin", async () => {
+      mockReceiptFind.mockReset().mockResolvedValueOnce(null).mockResolvedValue(sameReceipt)
+      mock$tx.mockRejectedValue({ code: "P2002" })
+      await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
+
+    it("in-tx token re-check", async () => {
+      const tx = txMock({ receipt: sameReceipt })
+      mock$tx.mockReset().mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      mockReceiptFind.mockReset().mockResolvedValue(null)
+      await createReceipt(1, undefined, fd({ ...receiptFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
   })
 })
 
@@ -397,6 +411,35 @@ describe("createExpense — submission token (#487)", () => {
     const err = { code: "P2002" }
     mock$tx.mockRejectedValue(err)
     await expect(createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))).rejects.toBe(err)
+  })
+
+  describe("expense: no replay path writes an audit row — the original's in-tx row stands (#563)", () => {
+    it("pre-check replay", async () => {
+      mockExpenseFind.mockResolvedValue(sameExpense)
+      await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
+
+    it("P2002 from a concurrent twin", async () => {
+      mockExpenseFind.mockReset().mockResolvedValueOnce(null).mockResolvedValue(sameExpense)
+      mock$tx.mockRejectedValue({ code: "P2002" })
+      await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
+
+    it("in-tx token re-check", async () => {
+      const tx = txMock({ expense: sameExpense })
+      mock$tx.mockReset().mockImplementation((fn: (t: unknown) => unknown) => fn(tx))
+      mockExpenseFind.mockReset().mockResolvedValue(null)
+      await createExpense(1, undefined, fd({ ...expenseFields, submissionToken: TOKEN }))
+      expect(redirect).toHaveBeenCalledTimes(1)
+      expect(logAudit).not.toHaveBeenCalled()
+      expect(logAuditTx).not.toHaveBeenCalled()
+    })
   })
 })
 

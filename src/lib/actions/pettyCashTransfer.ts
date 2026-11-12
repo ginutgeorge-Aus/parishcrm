@@ -517,7 +517,6 @@ export async function deleteTransfer(id: number): Promise<ActionResult> {
         await logAuditTx(tx, actorId(session), "TRANSACTION_DELETED", "Transaction", transfer.transaction.id, {
           source: "petty-cash", pettyCashTransferId: id,
         })
-      return isAdopted
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   } catch (e) {
     if (e instanceof SessionClosedError || e instanceof TransferError) return { error: e.message }

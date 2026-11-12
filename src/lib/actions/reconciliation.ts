@@ -75,7 +75,7 @@ export async function saveStatementBalance(
   // reconcile could leave the statement saved but the period unreconciled. One
   // atomic unit closes both windows; a concurrent insert aborts with P2034 and we
   // retry, recomputing the decision against the new row.
-  let outcome: { result: ActionResultWithSuccess; recordId: number; reconciledCount: number | null }
+  let outcome: { result: ActionResultWithSuccess }
   try {
     outcome = await finalizeReconciliation(parsed.data.paymentAccountId, date, amount, userId)
   } catch (e) {
@@ -107,7 +107,7 @@ async function finalizeReconciliation(
   statementDate: Date,
   closingBalance: string,
   userId: number | null
-): Promise<{ result: ActionResultWithSuccess; recordId: number; reconciledCount: number | null }> {
+): Promise<{ result: ActionResultWithSuccess }> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await prisma.$transaction(
@@ -125,6 +125,9 @@ async function finalizeReconciliation(
           // record the statement.
           const recon = await reconcileIfBalanced(tx, paymentAccountId, statementDate, closingBalance)
           // Audit rows join the Serializable tx so a failed audit rolls back the save/reconcile.
+          // Trade-off: a P2034 retry re-runs the whole callback, so these inserts repeat per
+          // attempt (the earlier attempt's rows rolled back, so no duplicates land) — bounded
+          // by MAX_TX_ATTEMPTS and cheaper than a window where the save commits unaudited.
           await logAuditTx(tx, userId, "RECON_STATEMENT_SAVED", "ReconciliationStatement", record.id, {
             paymentAccountId,
             statementDate: statementDate.toISOString().slice(0, 10),
@@ -136,7 +139,7 @@ async function finalizeReconciliation(
               closingBalance,
             })
           }
-          return { result: recon.result, recordId: record.id, reconciledCount: recon.reconciledCount }
+          return { result: recon.result }
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       )
