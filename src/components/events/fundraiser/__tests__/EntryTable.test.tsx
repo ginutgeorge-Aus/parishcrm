@@ -1,4 +1,6 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import type { FundraiserRow } from "@/lib/fundraiserQueries"
 
@@ -8,6 +10,9 @@ jest.mock("@/lib/actions/fundraiser", () => ({
   recordPayment: jest.fn(),
   deletePayment: jest.fn(),
 }))
+
+const mUpdate = updateEntryQuantity as jest.Mock
+const mDelete = deleteEntry as jest.Mock
 
 const base = { familyId: null, quantity: 2, unitPrice: "10.00", bankRef: "REF1", hasEmail: false }
 const rows: FundraiserRow[] = [
@@ -44,4 +49,62 @@ test("each row shows its own snapshot price", () => {
   render(<EntryTable rows={two} canManage={false} payments={{}} />)
   expect(screen.getAllByText(/\$10\.00/).length).toBeGreaterThan(0)
   expect(screen.getAllByText(/\$12\.50/).length).toBeGreaterThan(0)
+})
+
+const one = [rows[0]]
+
+beforeEach(() => { jest.clearAllMocks(); mUpdate.mockResolvedValue({}); mDelete.mockResolvedValue({}) })
+
+test("shows the empty state", () => {
+  render(<EntryTable rows={[]} canManage={false} payments={{}} />)
+  expect(screen.getByText("No entries yet.")).toBeInTheDocument()
+})
+
+test("saving a changed quantity calls the action", async () => {
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  const input = screen.getAllByLabelText("Quantity for Anna")[0]
+  await user.clear(input)
+  await user.type(input, "5")
+  fireEvent.blur(input)
+  await waitFor(() => expect(mUpdate).toHaveBeenCalledWith(1, "5"))
+})
+
+test("blur without change does not call the action", () => {
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  fireEvent.blur(screen.getAllByLabelText("Quantity for Anna")[0])
+  expect(mUpdate).not.toHaveBeenCalled()
+})
+
+test("quantity error is shown and the value reverts", async () => {
+  mUpdate.mockResolvedValue({ error: "Bad qty" })
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  const input = screen.getAllByLabelText("Quantity for Anna")[0] as HTMLInputElement
+  await user.clear(input)
+  await user.type(input, "9")
+  fireEvent.blur(input)
+  expect((await screen.findAllByText("Bad qty")).length).toBeGreaterThan(0)
+  await waitFor(() => expect(input.value).toBe("2"))
+})
+
+test("delete asks for confirmation, then calls the action", async () => {
+  const confirm = jest.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true)
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  const btn = screen.getAllByRole("button", { name: "Delete Anna" })[0]
+  await user.click(btn)
+  expect(mDelete).not.toHaveBeenCalled()
+  await user.click(btn)
+  await waitFor(() => expect(mDelete).toHaveBeenCalledWith(1))
+  confirm.mockRestore()
+})
+
+test("delete error is shown", async () => {
+  jest.spyOn(window, "confirm").mockReturnValue(true)
+  mDelete.mockResolvedValue({ error: "Cannot delete" })
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  await user.click(screen.getAllByRole("button", { name: "Delete Anna" })[0])
+  expect((await screen.findAllByText("Cannot delete")).length).toBeGreaterThan(0)
 })
