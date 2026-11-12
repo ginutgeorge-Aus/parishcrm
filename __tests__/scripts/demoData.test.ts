@@ -20,7 +20,7 @@ describe("buildDemoData", () => {
     expect(data.transactions.length).toBeGreaterThan(400)
     expect(data.events.filter((e) => e.date < TODAY)).toHaveLength(3)
     expect(data.events.filter((e) => e.date > TODAY)).toHaveLength(2)
-    expect(data.users).toHaveLength(6)
+    expect(data.users).toHaveLength(8)
   })
 
   it("uses unique family names and per-family-unique person names", () => {

@@ -1,11 +1,12 @@
 ---
 title: "Sunday School"
-description: "Set up Sunday School classes for each school year, assign teachers, enrol children from People, take the class roll on a phone, and roll the whole school over to next year in one step."
+description: "Set up Sunday School classes for each school year, assign teachers, enrol children from People, take the class roll on a phone, record exam marks, and roll the whole school over to next year in one step."
 ---
 
 Sunday School lives under **Community → Sunday School** (`/sunday-school`). Classes belong to a
-school year (the calendar year). ADMIN, PASTOR and OFFICE_ADMIN can set classes up; VIEWER can
-look but not change anything.
+school year (the calendar year). ADMIN, PASTOR, OFFICE_ADMIN and **Headmaster** can set classes up;
+VIEWER can look but not change anything. **Teacher** logins only see the classes they are assigned to
+(see [Who sees what](#who-sees-what)).
 
 ## Using it
 
@@ -35,11 +36,34 @@ everyone you haven't marked, so for a full class you tap only the absentees. Cou
 update as you go. Late counts as attended. The class page lists the last ten rolls with their
 counts.
 
-Volunteer teachers don't need dashboard access: create a login with the **Event organiser** role,
-then add it under **Roll markers** on the class. On their phone they sign in, go to **Classes**
-(`/my-classes`) and see only the classes they're assigned to. VIEWER accounts can see rolls but not
-change them. Rolls for archived classes, and for a year that has been rolled over, are read-only. Future dates, and dates outside the class's
+Volunteer teachers don't need dashboard access: create a login with the **Teacher** role
+(Users → New user), then add it under **Roll markers** on the class. On their phone they sign in,
+land on **Classes** (`/my-classes`) and see only the classes they're assigned to. A teacher can be
+assigned to any number of classes, and a class can have several. VIEWER accounts can see rolls but not
+change them. (Older Event organiser logins that were assigned to classes keep working; the upgrade
+converted the ones used only for rolls to Teacher.) Rolls for archived classes, and for a year that has been rolled over, are read-only. Future dates, and dates outside the class's
 year, are refused.
+
+### Exams
+
+Open a class and press **Exams** (`/sunday-school/[id]/exams`). *New exam* takes a name ("Term 2
+Bible"), a date and **total marks**. A class can have any number of exams in its year; use a
+separate exam for each subject. Open an exam to enter a **score** for each enrolled child, from 0 up
+to the total marks. A child with no score is simply "not marked". There is no pass or fail and no
+ranking. Scores stay with the class and year the exam belongs to, so moving a child later does not
+change past results. Exams in a locked year are read-only, and every change is in the audit log.
+
+### Who sees what {#who-sees-what}
+
+| Role | Sunday School access |
+|---|---|
+| ADMIN, PASTOR, OFFICE_ADMIN | Everything: classes, teachers, enrolment, rolls, exams, rollover |
+| **Headmaster** | All classes: setup, enrolment, rolls, exams, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
+| **Teacher** | Only classes they are assigned to (`/my-classes`): see the children, take the roll, enter exam marks. Cannot change class setup. Sees child names and class only, no family contact details |
+| VIEWER | Read-only |
+
+There can be several Headmasters. OFFICE_ADMIN and ADMIN can create Headmaster and Teacher logins
+under Users; only ADMIN can assign ADMIN or PASTOR.
 
 ## How it works
 
