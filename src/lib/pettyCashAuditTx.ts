@@ -7,7 +7,7 @@ type EntryKind = "Receipt" | "Expense"
  * Builds the `{ amount, accountId, sessionId }` audit payload shared by the
  * create/update/delete rows of a petty cash receipt or expense.
  */
-export function entryAuditMeta(amount: string | number, accountId: number, sessionId: number) {
+function entryAuditMeta(amount: string | number, accountId: number, sessionId: number) {
   return { amount, accountId, sessionId }
 }
 
