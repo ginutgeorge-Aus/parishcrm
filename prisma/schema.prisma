@@ -1506,7 +1506,8 @@ model FundraiserEntry {
   checkoutSessions CheckoutSession[]
 
   @@unique([fundraiserId, familyId])
-  @@index([fundraiserId])
+  // fundraiserId lookups use the unique index's leading column; family delete/merge count by familyId.
+  @@index([familyId])
 }
 
 model FundraiserPayment {

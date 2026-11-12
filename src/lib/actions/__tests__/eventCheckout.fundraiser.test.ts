@@ -5,7 +5,8 @@ jest.mock("@/lib/stripe", () => ({ stripeConfigured: jest.fn() }))
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn() }))
 jest.mock("@/lib/fundraiserCheckout", () => {
   class FundraiserNotPayableError extends Error {}
-  return { createFundraiserCheckoutSession: jest.fn(), FundraiserNotPayableError }
+  class FundraiserAmountOutOfRangeError extends Error {}
+  return { createFundraiserCheckoutSession: jest.fn(), FundraiserNotPayableError, FundraiserAmountOutOfRangeError }
 })
 jest.mock("@/lib/prisma", () => ({ prisma: { fundraiserEntry: { findUnique: jest.fn() } } }))
 

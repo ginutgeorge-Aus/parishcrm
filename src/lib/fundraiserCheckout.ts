@@ -21,9 +21,17 @@ const CHECKOUT_EXPIRY_MS = 31 * 60 * 1000
 const REUSE_MIN_REMAINING_MS = 5 * 60 * 1000
 // Serializable attempts before a conflict is surfaced (same as serializableWrite).
 const MAX_TX_ATTEMPTS = 3
+// Stripe charge limits, in app cents: the 0.50 minimum of AUD/USD/EUR and most
+// two-decimal currencies, and Stripe's 8-digit amount maximum (999,999.99).
+// https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts
+const STRIPE_MIN_CHARGE_CENTS = 50
+const STRIPE_MAX_CHARGE_CENTS = 99_999_999
 
 /** Nothing is owed on the entry, it is gone, or a card payment for it is already settling. */
 export class FundraiserNotPayableError extends Error {}
+
+/** The balance (plus card fee) is outside what Stripe can charge in one payment. */
+export class FundraiserAmountOutOfRangeError extends Error {}
 
 /**
  * Format integer cents as a 2-dp decimal string for a `Decimal(10,2)` column,
@@ -163,7 +171,11 @@ export async function expireOpenFundraiserCheckouts(entryId: number): Promise<nu
  * @param event the entry's event (title for the line item, card-fee flag)
  * @param origin trusted app base URL for Stripe's return redirects
  * @returns the Stripe Checkout URL
+ * A P2034 retry happens only when the aborted attempt opened no Stripe session
+ * or that session was expired: a still-payable orphan plus a retry's new session
+ * would leave two payable sessions for one balance, so that case throws.
  * @throws FundraiserNotPayableError when nothing remains or a payment is settling
+ * @throws FundraiserAmountOutOfRangeError when the charge is outside Stripe's limits
  */
 export async function createFundraiserCheckoutSession(
   entry: { id: number; publicToken: string; remainingCents: number },
@@ -192,6 +204,10 @@ export async function createFundraiserCheckoutSession(
         const remainingCents = entryTotals(row, row.payments).remainingCents
         if (remainingCents <= 0) throw new FundraiserNotPayableError()
         const surchargeCents = await fundraiserSurchargeCents(remainingCents, event.passCardFee)
+        const chargeCents = remainingCents + surchargeCents
+        if (chargeCents < STRIPE_MIN_CHARGE_CENTS || chargeCents > STRIPE_MAX_CHARGE_CENTS) {
+          throw new FundraiserAmountOutOfRangeError(`Charge of ${chargeCents} cents is outside Stripe's limits`)
+        }
 
         const priors = await tx.checkoutSession.findMany({
           where: { fundraiserEntryId: entry.id, status: "OPEN" },
@@ -280,14 +296,20 @@ export async function createFundraiserCheckoutSession(
     } catch (e) {
       // The tx failed after a session was created: it has no staging row, so
       // expire it rather than leave it payable.
+      let orphanLive = false
       if (createdSessionId) {
         try {
           await stripe.checkout.sessions.expire(createdSessionId)
-        } catch {
-          // best effort — surface the original failure
+        } catch (expireErr) {
+          orphanLive = true
+          console.error(
+            `Fundraiser checkout: could not expire orphan session ${createdSessionId} for entry ${entry.id}`,
+            expireErr instanceof Error ? expireErr.message : expireErr,
+          )
         }
       }
-      if (isP2034(e) && attempt < MAX_TX_ATTEMPTS) continue
+      // Never retry past a still-payable orphan: the retry would open a second one.
+      if (isP2034(e) && attempt < MAX_TX_ATTEMPTS && !orphanLive) continue
       throw e
     }
   }

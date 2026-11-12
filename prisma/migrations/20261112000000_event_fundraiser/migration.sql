@@ -72,7 +72,7 @@ CREATE UNIQUE INDEX "FundraiserEntry_publicToken_key" ON "FundraiserEntry"("publ
 CREATE UNIQUE INDEX "FundraiserEntry_bankRef_key" ON "FundraiserEntry"("bankRef");
 
 -- CreateIndex
-CREATE INDEX "FundraiserEntry_fundraiserId_idx" ON "FundraiserEntry"("fundraiserId");
+CREATE INDEX "FundraiserEntry_familyId_idx" ON "FundraiserEntry"("familyId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "FundraiserEntry_fundraiserId_familyId_key" ON "FundraiserEntry"("fundraiserId", "familyId");

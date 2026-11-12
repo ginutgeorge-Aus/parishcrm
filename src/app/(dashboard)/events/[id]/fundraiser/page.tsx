@@ -11,7 +11,7 @@ import { AddEntryDialog } from "@/components/events/fundraiser/AddEntryDialog"
 import { FundraiserSettingsForm } from "@/components/events/fundraiser/FundraiserSettingsForm"
 import { SendRemindersDialog } from "@/components/events/fundraiser/SendRemindersDialog"
 import { planReminders } from "@/lib/fundraiserReminders"
-import { sydneyTodayYMD, utcYmd } from "@/lib/dates"
+import { formatSydneyDate, sydneyTodayYMD, utcYmd } from "@/lib/dates"
 import type { PaymentItem } from "@/components/events/fundraiser/PaymentsPanel"
 
 type Props = { params: Promise<{ id: string }> }
@@ -61,9 +61,8 @@ export default async function FundraiserPage(props: Readonly<Props>) {
   }
 
   const plan = view && canManage ? await planReminders(view.fundraiser.id) : null
-  const lastSent = plan?.lastSentAt
-    ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" }).format(plan.lastSentAt)
-    : null
+  // Configured APP_TIMEZONE (formatSydneyDate), not a hard-coded zone/locale.
+  const lastSent = plan?.lastSentAt ? formatSydneyDate(plan.lastSentAt) : null
 
   const money = (c: number) => fmtAUD(centsToNumber(c))
 

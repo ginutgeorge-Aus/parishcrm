@@ -21,6 +21,7 @@ import {
   expireOpenFundraiserCheckouts,
   fundraiserSurchargeCents,
   FundraiserNotPayableError,
+  FundraiserAmountOutOfRangeError,
 } from "@/lib/fundraiserCheckout"
 import { grossUpTotal } from "@/lib/cardFee"
 const { getStripe } = require("@/lib/stripe")
@@ -189,6 +190,31 @@ it("retries a serialization conflict (P2034), expiring the aborted attempt's ses
   expect(prisma.$transaction).toHaveBeenCalledTimes(2)
 })
 
+it("does not retry a conflict when the aborted attempt's session could not be expired", async () => {
+  prisma.checkoutSession.create.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+  sessionsCreate.mockResolvedValueOnce({ id: "cs_orphan", url: "https://stripe.test/orphan" })
+  sessionsExpire.mockRejectedValueOnce(new Error("stripe down"))
+  // A retry would open a second payable session next to the still-live orphan.
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toThrow("conflict")
+  expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+  expect(sessionsCreate).toHaveBeenCalledTimes(1)
+})
+
+it("rejects a balance below Stripe's minimum charge with a handled error", async () => {
+  // 4 x $10 owed, $39.70 paid → $0.30 remaining.
+  prisma.fundraiserEntry.findUnique.mockResolvedValue({ quantity: 4, unitPrice: "10.00", payments: [{ amount: "39.70" }] })
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test"))
+    .rejects.toBeInstanceOf(FundraiserAmountOutOfRangeError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
+it("rejects a balance plus card fee above Stripe's maximum charge with a handled error", async () => {
+  prisma.fundraiserEntry.findUnique.mockResolvedValue({ quantity: 1, unitPrice: "999999.00", payments: [] })
+  await expect(createFundraiserCheckoutSession(entry, { ...event, passCardFee: true }, "https://app.test"))
+    .rejects.toBeInstanceOf(FundraiserAmountOutOfRangeError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
 it("surfaces the conflict after 3 Serializable attempts", async () => {
   prisma.checkoutSession.create.mockRejectedValue(Object.assign(new Error("conflict"), { code: "P2034" }))
   await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toThrow("conflict")
@@ -278,5 +304,26 @@ describe("startFundraiserCheckout", () => {
   it("owing entry → Stripe URL", async () => {
     prisma.fundraiserEntry.findUnique.mockResolvedValueOnce(owing).mockResolvedValue(owing)
     expect(await startFundraiserCheckout("tok-7")).toEqual({ ok: true, url: "https://stripe.test/pay" })
+  })
+
+  it("an AUTH_URL with a path still gives origin-only Stripe return URLs", async () => {
+    process.env.AUTH_URL = "https://app.test/api/auth"
+    prisma.fundraiserEntry.findUnique.mockResolvedValueOnce(owing).mockResolvedValue(owing)
+    expect(await startFundraiserCheckout("tok-7")).toMatchObject({ ok: true })
+    expect(sessionsCreate.mock.calls[0][0].cancel_url).toBe("https://app.test/pay/fundraiser/tok-7")
+  })
+
+  it("a malformed AUTH_URL is a handled configuration error", async () => {
+    process.env.AUTH_URL = "not a url"
+    prisma.fundraiserEntry.findUnique.mockResolvedValue(owing)
+    expect(await startFundraiserCheckout("tok-7")).toMatchObject({ ok: false, status: 500 })
+    expect(sessionsCreate).not.toHaveBeenCalled()
+  })
+
+  it("an amount outside Stripe's limits → 400, not an uncaught 500", async () => {
+    const tiny = { ...owing, payments: [{ amount: "39.70" }] }
+    prisma.fundraiserEntry.findUnique.mockResolvedValue(tiny)
+    expect(await startFundraiserCheckout("tok-7")).toMatchObject({ ok: false, status: 400 })
+    expect(sessionsCreate).not.toHaveBeenCalled()
   })
 })

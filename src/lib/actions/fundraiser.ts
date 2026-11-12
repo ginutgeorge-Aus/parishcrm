@@ -6,7 +6,7 @@ import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { actorId } from "@/lib/actor"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { canManageFundraiser } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -414,6 +414,8 @@ export async function recordPayment(
 
 /**
  * Delete one fundraiser payment; the audit row keeps its amount and method.
+ * The delete and its audit row commit together: the audit row is the only record
+ * of the removed money, so an audit failure rolls the delete back.
  *
  * @param paymentId - Payment id.
  * @returns `{ error }` on failure, `undefined` on success.
@@ -430,14 +432,18 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
   // Stripe-captured money is refunded in Stripe; deleting the row here would
   // desync the ledger and let a webhook replay re-insert it.
   if (payment.method === FundraiserPaymentMethod.ONLINE) return { error: "Online payments must be refunded in Stripe" }
-  // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
-  const { count } = await prisma.fundraiserPayment.deleteMany({ where: { id: paymentId } })
-  if (count === 0) return { error: "Payment not found" }
-  await logAudit(actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
-    entryId: payment.entryId,
-    amount: payment.amount.toFixed(2),
-    method: payment.method,
+  const deleted = await prisma.$transaction(async (tx) => {
+    // deleteMany: a concurrent double-delete gets "not found" instead of a P2025 throw.
+    const { count } = await tx.fundraiserPayment.deleteMany({ where: { id: paymentId } })
+    if (count === 0) return false
+    await logAuditTx(tx, actorId(g.session), "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", paymentId, {
+      entryId: payment.entryId,
+      amount: payment.amount.toFixed(2),
+      method: payment.method,
+    })
+    return true
   })
+  if (!deleted) return { error: "Payment not found" }
   revalidateFundraiser(payment.entry.fundraiser.eventId)
   return undefined
 }
@@ -512,6 +518,11 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
     getInvoiceSettings(),
     fundraiser.event.passCardFee && online ? getCardFeeConfig() : Promise.resolve(null),
   ])
+  // Without a pay link the bank details are the only way to pay: never send a
+  // reminder that tells the recipient to pay but not how.
+  if (!online && !invoice.paymentDetails.trim()) {
+    return { error: "Set payment details in Invoice settings first: online payment is unavailable, so reminders need bank details" }
+  }
 
   let sent = 0
   let failed = 0

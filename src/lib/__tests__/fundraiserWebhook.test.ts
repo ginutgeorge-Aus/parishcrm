@@ -244,4 +244,20 @@ describe("refund/dispute of a fundraiser card payment", () => {
     expect(body).not.toMatch(/adjust the fundraiser manually/)
     expect(prisma.registration.update).not.toHaveBeenCalled()
   })
+
+  it("a reversal on an unrecorded charge (staging not COMPLETED) does not claim a payment row exists", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue({
+      type: "charge.refunded",
+      data: { object: { id: "ch_1", payment_intent: "pi_u", amount: 3000, amount_refunded: 3000 } },
+    })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    getStripe().checkout.sessions.list.mockResolvedValue({ data: [{ id: "cs_u", metadata: { fundraiserEntryId: "7" } }] })
+    prisma.checkoutSession.findUnique.mockResolvedValue({ status: "UNFULFILLED", publicToken: null, fundraiserEntryId: 7 })
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    const body = notifyStripeAlert.mock.calls[0][1] as string
+    expect(body).not.toContain("stays counted as paid")
+    expect(body).toContain("no FundraiserPayment row was recorded")
+    expect(body).toContain("UNFULFILLED")
+  })
 })

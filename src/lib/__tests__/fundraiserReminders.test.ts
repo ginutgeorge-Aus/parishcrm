@@ -206,16 +206,32 @@ test("planReminders counts and last-sent date", async () => {
 test("claims each send Serializable; skips entries reminded within 10 minutes", async () => {
   setEntries([entry(1), entry(2)])
   prismaMock.fundraiserReminderSend.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
-  const before = Date.now()
-  const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+  // Frozen clock: the dedupe window is checked exactly, not within a timing tolerance.
+  const now = new Date("2026-11-12T01:00:00Z")
+  jest.useFakeTimers({ now })
+  try {
+    const res = await sendFundraiserReminders(3)
+    expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+  } finally {
+    jest.useRealTimers()
+  }
   expect(mSend).toHaveBeenCalledTimes(1)
   expect(mSend.mock.calls[0][0]).toBe("b2@example.org")
   expect(prismaMock.$transaction.mock.calls[0][1]).toMatchObject({ isolationLevel: "Serializable" })
   const where = prismaMock.fundraiserReminderSend.count.mock.calls[0][0].where
   expect(where).toMatchObject({ entryId: 1, status: { in: ["PENDING", "SUCCESS"] } })
-  expect(before - where.sentAt.gte.getTime()).toBeGreaterThanOrEqual(10 * 60 * 1000 - 50)
-  expect(before - where.sentAt.gte.getTime()).toBeLessThanOrEqual(10 * 60 * 1000 + 50)
+  expect(where.sentAt.gte.getTime()).toBe(now.getTime() - 10 * 60 * 1000)
+})
+
+test("offline-only reminder with no bank details configured is refused, nothing sent", async () => {
+  ;(stripeConfigured as jest.Mock).mockReturnValue(false)
+  const { getInvoiceSettings } = await import("@/lib/invoiceSettings")
+  ;(getInvoiceSettings as jest.Mock).mockResolvedValueOnce({ gstRegistered: false, paymentDetails: "   " })
+  setEntries([entry(1)])
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ error: expect.stringMatching(/payment details/i) })
+  expect(mSend).not.toHaveBeenCalled()
+  expect(prismaMock.fundraiserReminderSend.create).not.toHaveBeenCalled()
 })
 
 test("a claim lost to a concurrent run (P2034, retried) is skipped, not double-sent", async () => {

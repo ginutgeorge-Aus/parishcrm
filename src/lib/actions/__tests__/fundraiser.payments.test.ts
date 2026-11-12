@@ -3,7 +3,7 @@ jest.mock("server-only", () => ({}))
 jest.mock("@/lib/featureFlags")
 jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoMode: jest.fn(() => false), DEMO_ERROR: "demo" }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}) }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}), logAuditTx: jest.fn(async () => {}) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
@@ -12,7 +12,7 @@ jest.mock("@/lib/crypto", () => ({
 
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 
 type Row = { entryId: number; stripePaymentRef: string | null; amount: string }
@@ -59,6 +59,7 @@ describe("recordPayment", () => {
   it("records a payment with the manual submission key, locks the entry row, audits", async () => {
     expect(await recordPayment(11, input)).toBeUndefined()
     expect(prismaMock.$queryRaw).toHaveBeenCalled()
+    expect(prismaMock.$transaction.mock.calls[0][1]).toMatchObject({ isolationLevel: "Serializable" })
     const data = prismaMock.fundraiserPayment.create.mock.calls[0][0].data
     expect(data).toMatchObject({ entryId: 11, amount: "20.00", method: "CASH", stripePaymentRef: "manual:k-1", recordedById: 5 })
     expect(data.paidAt).toEqual(new Date("2026-11-01T00:00:00.000Z"))
@@ -138,11 +139,25 @@ describe("deletePayment", () => {
     })
   })
 
-  it("deletes and audits amount + method", async () => {
+  it("deletes and audits amount + method in one transaction", async () => {
     expect(await deletePayment(4)).toBeUndefined()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
     expect(prismaMock.fundraiserPayment.deleteMany).toHaveBeenCalledWith({ where: { id: 4 } })
-    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", 4, expect.objectContaining({ amount: "20.00", method: "BANK", entryId: 11 }))
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_PAYMENT_DELETE", "FundraiserPayment", 4, expect.objectContaining({ amount: "20.00", method: "BANK", entryId: 11 }))
+    expect(logAudit).not.toHaveBeenCalled()
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+  })
+
+  it("an audit write failure fails the delete (rolled back with it), not swallowed", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    await expect(deletePayment(4)).rejects.toThrow("audit down")
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("concurrent double-delete: second gets not found, no audit row", async () => {
+    prismaMock.fundraiserPayment.deleteMany.mockResolvedValueOnce({ count: 0 })
+    expect(await deletePayment(4)).toEqual({ error: "Payment not found" })
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("blocks deleting an ONLINE (Stripe) payment, even for OFFICE_ADMIN", async () => {

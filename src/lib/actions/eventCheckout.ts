@@ -209,16 +209,15 @@ export async function startFundraiserCheckout(
   const { remainingCents } = entryTotals(entry, entry.payments)
   if (remainingCents <= 0) return { ok: false, status: 400, error: "Nothing left to pay" }
 
-  const trustedBase = trustedBaseUrl()
-  const origin =
-    trustedBase ?? (process.env.NODE_ENV === "production" ? "" : h.get("origin") ?? "")
+  const origin = fundraiserReturnOrigin(trustedBaseUrl(), h.get("origin"))
   if (!origin) {
     return { ok: false, status: 500, error: "Payment configuration error" }
   }
 
   // Loaded lazily: fundraiserCheckout pulls cardFeeSettings (next/cache), which
   // the ticket-checkout action tests' jsdom env can't load.
-  const { createFundraiserCheckoutSession, FundraiserNotPayableError } = await import("@/lib/fundraiserCheckout")
+  const { createFundraiserCheckoutSession, FundraiserNotPayableError, FundraiserAmountOutOfRangeError } =
+    await import("@/lib/fundraiserCheckout")
   try {
     return await withCurrencyGuard(() =>
       createFundraiserCheckoutSession({ id: entry.id, publicToken: entry.publicToken, remainingCents }, event, origin),
@@ -227,8 +226,33 @@ export async function startFundraiserCheckout(
     if (e instanceof FundraiserNotPayableError) {
       return { ok: false, status: 400, error: "Nothing left to pay, or a card payment is already being processed" }
     }
+    if (e instanceof FundraiserAmountOutOfRangeError) {
+      return { ok: false, status: 400, error: "This amount can't be paid by card — please contact the organiser" }
+    }
     throw e
   }
+}
+
+/**
+ * Origin (scheme + host + port) for Stripe's fundraiser return URLs. The trusted
+ * base may carry a path (e.g. AUTH_URL `https://host/api/auth`), so only its
+ * origin is kept, matching the reminder email's pay link. The request's Origin
+ * header is a dev-only fallback.
+ * @param trustedBase configured base URL (AUTH_URL / APP_URL), if any
+ * @param headerOrigin the request's Origin header, if any
+ * @returns the origin, or "" when none is usable (config error)
+ */
+function fundraiserReturnOrigin(trustedBase: string | undefined, headerOrigin: string | null): string {
+  if (trustedBase !== undefined) {
+    try {
+      const { origin } = new URL(trustedBase)
+      // Non-http(s) schemes have an opaque origin, serialised as "null".
+      return origin === "null" ? "" : origin
+    } catch {
+      return ""
+    }
+  }
+  return process.env.NODE_ENV === "production" ? "" : headerOrigin ?? ""
 }
 
 // A ticket price the configured currency can't charge (fractional amount in a
