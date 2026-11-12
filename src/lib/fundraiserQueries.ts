@@ -44,7 +44,7 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
     include: {
       entries: {
         orderBy: { id: "asc" },
-        include: { family: { select: { name: true, people: { select: { email: true, emailConsent: true } } } }, payments: { select: { amount: true } } },
+        include: { family: { select: { name: true, people: { where: { archivedAt: null }, select: { email: true, emailConsent: true } } } }, payments: { select: { amount: true } } },
       },
     },
   })

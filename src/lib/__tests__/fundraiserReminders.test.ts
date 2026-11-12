@@ -145,6 +145,32 @@ test("resolveRecipient prefers head with consent", async () => {
   expect(await resolveRecipient(e)).toBe("h@example.org")
 })
 
+test("loadReminderCandidates only selects non-archived family people", async () => {
+  setEntries([entry(1)])
+  await planReminders(3)
+  const sel = prismaMock.fundraiser.findUnique.mock.calls[0][0].select.entries.select.family.select.people
+  expect(sel.where).toEqual({ archivedAt: null })
+})
+
+test("card fee in the email uses the checkout surcharge (rounded)", async () => {
+  setEntries([entry(1)])
+  await sendFundraiserReminders(3)
+  const { fundraiserSurchargeCents } = await import("@/lib/fundraiserCheckout")
+  const expected = await fundraiserSurchargeCents(2000, true)
+  expect(mSend.mock.calls[0][1].cardFee).toBe(`$${(expected / 100).toFixed(2)}`)
+})
+
+test("reminder origin falls back to APP_URL like checkout, never NEXTAUTH_URL", async () => {
+  Reflect.deleteProperty(process.env, "AUTH_URL")
+  process.env.APP_URL = "https://app2.example.org"
+  process.env.NEXTAUTH_URL = "https://wrong.example.org"
+  setEntries([entry(1)])
+  await sendFundraiserReminders(3)
+  expect(mSend.mock.calls[0][1].payUrl).toBe("https://app2.example.org/pay/fundraiser/tok-1")
+  Reflect.deleteProperty(process.env, "APP_URL")
+  Reflect.deleteProperty(process.env, "NEXTAUTH_URL")
+})
+
 test("planReminders counts and last-sent date", async () => {
   setEntries([entry(1, { payments: [{ amount: "20.00" }] }), entry(2, { outsideEmail: null }), entry(3)])
   const when = new Date("2026-11-01T00:00:00Z")

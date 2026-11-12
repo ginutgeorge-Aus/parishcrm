@@ -21,7 +21,8 @@ import { sendFundraiserReminderEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { getCardFeeConfig } from "@/lib/cardFeeSettings"
-import { grossUpTotal } from "@/lib/cardFee"
+import { fundraiserSurchargeCents } from "@/lib/fundraiserCheckout"
+import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
 import { loadReminderCandidates } from "@/lib/fundraiserReminders"
 import { logger } from "@/lib/logger"
@@ -171,8 +172,9 @@ export async function addEntry(
   if (!fundraiser) return { error: "Fundraiser not found" }
   const familyId = hasFamily ? (input.familyId as number) : null
   if (familyId !== null) {
-    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true } })
+    const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
     if (!fam) return { error: "Family not found" }
+    if (fam.archivedAt) return { error: "Family is archived" }
   }
 
   const DUP = { error: "Already on this fundraiser" }
@@ -440,7 +442,7 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   const { fundraiser, candidates } = loaded
 
   // The pay link is only offered when Stripe is configured and the event takes online payments.
-  const base = process.env.AUTH_URL || process.env.NEXTAUTH_URL || ""
+  const base = trustedBaseUrl() ?? ""
   let origin: string | null = null
   try { origin = new URL(base).origin } catch { origin = null }
   const online = stripeConfigured() && fundraiser.event.onlinePaymentEnabled && origin !== null
@@ -456,7 +458,7 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   for (const c of candidates) {
     if (c.remainingCents === 0) continue
     if (!c.recipient) { skippedNoEmail++; continue }
-    const feeCents = fee ? grossUpTotal(c.remainingCents, fee.pct, fee.fixedCents).feeCents : 0
+    const feeCents = fee ? await fundraiserSurchargeCents(c.remainingCents, true) : 0
     const money = (cents: number) => fmtAUD(centsToNumber(cents))
     let status: "SUCCESS" | "FAILED" = "SUCCESS"
     let errorMessage: string | undefined

@@ -56,6 +56,12 @@ describe("addEntry", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/events")
   })
 
+  it("rejects an archived family", async () => {
+    prismaMock.family.findUnique.mockResolvedValue({ id: 2, archivedAt: new Date() })
+    expect(await addEntry(3, { familyId: 2, quantity: "1" })).toEqual({ error: "Family is archived" })
+    expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
+  })
+
   it("second add of the same family errors (pre-check)", async () => {
     prismaMock.fundraiserEntry.findUnique.mockImplementation(async (a: { where: Record<string, unknown> }) =>
       a.where.fundraiserId_familyId ? { id: 9 } : null,
@@ -145,6 +151,14 @@ describe("generateUniqueBankRef", () => {
     prismaMock.fundraiserEntry.findMany.mockResolvedValue([{ bankRef: "PK0007" }, { bankRef: "PK0002" }, { bankRef: "PKX0099" }])
     prismaMock.fundraiserEntry.findUnique.mockResolvedValueOnce({ id: 1 }).mockResolvedValue(null)
     expect(await generateUniqueBankRef(prismaMock as never, "pk")).toBe("PK0009")
+  })
+
+  it("ignores refs of a longer prefix that merely start with this prefix (FR vs FR1)", async () => {
+    prismaMock.fundraiserEntry.findMany.mockResolvedValue([{ bankRef: "FR0003" }, { bankRef: "FR10001" }])
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(null)
+    expect(await generateUniqueBankRef(prismaMock as never, "FR")).toBe("FR0004")
+    prismaMock.fundraiserEntry.findMany.mockResolvedValue([{ bankRef: "FR10001" }, { bankRef: "FR0003" }])
+    expect(await generateUniqueBankRef(prismaMock as never, "FR1")).toBe("FR10002")
   })
 
   it("default prefix starts at 1", async () => {

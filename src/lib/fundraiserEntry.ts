@@ -26,7 +26,7 @@ export function mintEntryToken(): string {
 
 /**
  * Pick the next free bank-transfer reference for a prefix: highest existing
- * numeric suffix for that exact prefix + 1, then probe forward (max 5) past any
+ * 4-digit suffix for that exact prefix + 1 (so "FR" ignores "FR10001" of prefix "FR1"), then probe forward (max 5) past any
  * taken value. `bankRef` is globally unique, and fundraisers may share a prefix
  * (the default "FR"), so the scan is across all entries, not one fundraiser.
  * Two concurrent callers can still pick the same value; the caller's create
@@ -43,7 +43,7 @@ export async function generateUniqueBankRef(tx: Prisma.TransactionClient, prefix
     where: { bankRef: { startsWith: clean } },
     select: { bankRef: true },
   })
-  const suffixRe = new RegExp(`^${clean}(\\d+)$`) // clean is [A-Z0-9] only: no regex metachars
+  const suffixRe = new RegExp(`^${clean}(\\d{4})$`) // clean is [A-Z0-9] only: no regex metachars
   let max = 0
   for (const { bankRef } of existing) {
     const m = suffixRe.exec(bankRef)

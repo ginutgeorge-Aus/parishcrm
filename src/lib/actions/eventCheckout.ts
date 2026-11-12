@@ -11,6 +11,7 @@ import { toCents } from "@/lib/formatting"
 import { featureGuard } from "@/lib/featureFlags"
 import { rateKeyFromHeaders, resolveClientIp } from "@/lib/clientIp"
 import { entryTotals } from "@/lib/fundraiserMath"
+import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 
 // Fundraiser entry public tokens are base64url (mintEntryToken); reject anything else before a DB lookup.
 const FUNDRAISER_TOKEN_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -208,7 +209,7 @@ export async function startFundraiserCheckout(
   const { remainingCents } = entryTotals(entry, entry.payments)
   if (remainingCents <= 0) return { ok: false, status: 400, error: "Nothing left to pay" }
 
-  const trustedBase = process.env.AUTH_URL ?? process.env.APP_URL
+  const trustedBase = trustedBaseUrl()
   const origin =
     trustedBase ?? (process.env.NODE_ENV === "production" ? "" : h.get("origin") ?? "")
   if (!origin) {

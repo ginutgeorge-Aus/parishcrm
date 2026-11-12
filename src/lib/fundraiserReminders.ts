@@ -61,7 +61,7 @@ export async function loadReminderCandidates(fundraiserId: number) {
         select: {
           id: true, familyId: true, outsideName: true, outsideEmail: true, quantity: true, unitPrice: true,
           bankRef: true, publicToken: true,
-          family: { select: { name: true, people: { select: { email: true, emailConsent: true, role: true } } } },
+          family: { select: { name: true, people: { where: { archivedAt: null }, select: { email: true, emailConsent: true, role: true } } } },
           payments: { select: { amount: true } },
         },
       },

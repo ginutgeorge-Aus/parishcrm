@@ -317,7 +317,8 @@ describe("resetEventRegistrations", () => {
     // Each deleteMany scoped to the event.
     expect(prisma.registration.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1 } })
     expect(prisma.waitlist.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1 } })
-    expect(prisma.checkoutSession.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1 } })
+    // Fundraiser staging rows (fundraiserEntryId set) must survive a reset.
+    expect(prisma.checkoutSession.deleteMany).toHaveBeenCalledWith({ where: { eventId: 1, fundraiserEntryId: null } })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(logAudit).toHaveBeenCalledWith(1, "EVENT_REGISTRATIONS_RESET", "Event", 1, {
       deletedRegistrations: 3,

@@ -43,7 +43,7 @@ export default async function FundraiserPage(props: Readonly<Props>) {
         orderBy: { paidAt: "desc" },
         select: { id: true, entryId: true, amount: true, method: true, paidAt: true, note: true },
       }),
-      prisma.family.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.family.findMany({ where: { archivedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     ])
     for (const p of rows) {
       ;(payments[p.entryId] ??= []).push({

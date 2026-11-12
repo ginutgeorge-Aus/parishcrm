@@ -167,12 +167,13 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
     return { error: "A payment is in progress — wait for it to finish before resetting." }
   }
 
+  // Fundraiser staging rows (fundraiserEntryId set) are not registrations: keep them.
   // RegistrationItem + Attendee cascade via schema onDelete: Cascade. One
   // transaction so a mid-way failure leaves nothing half-deleted.
   const [regs, waitlist, checkouts] = await prisma.$transaction([
     prisma.registration.deleteMany({ where: { eventId } }),
     prisma.waitlist.deleteMany({ where: { eventId } }),
-    prisma.checkoutSession.deleteMany({ where: { eventId } }),
+    prisma.checkoutSession.deleteMany({ where: { eventId, fundraiserEntryId: null } }),
   ])
 
   await logAudit(actorId(session), "EVENT_REGISTRATIONS_RESET", "Event", eventId, {
