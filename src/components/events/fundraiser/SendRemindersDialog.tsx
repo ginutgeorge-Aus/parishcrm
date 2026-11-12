@@ -27,7 +27,13 @@ export function SendRemindersDialog({
   function send() {
     setError(null)
     start(async () => {
-      const res = await sendFundraiserReminders(fundraiserId)
+      let res: Awaited<ReturnType<typeof sendFundraiserReminders>>
+      try {
+        res = await sendFundraiserReminders(fundraiserId)
+      } catch {
+        setError("Could not send reminders. Please try again.")
+        return
+      }
       if ("error" in res) { setError(res.error); return }
       setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded in the last 10 minutes)` : ""}.`)
     })

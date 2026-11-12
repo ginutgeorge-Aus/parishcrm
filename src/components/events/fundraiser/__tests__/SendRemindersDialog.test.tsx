@@ -62,3 +62,12 @@ describe("SendRemindersDialog", () => {
     await waitFor(() => expect(screen.queryByText("Send payment reminders")).toBeNull())
   })
 })
+
+describe("SendRemindersDialog thrown action", () => {
+  it("shows a generic error when the action throws", async () => {
+    ;(sendFundraiserReminders as jest.Mock).mockRejectedValue(new Error("boom"))
+    open()
+    fireEvent.click(confirmBtn())
+    expect(await screen.findByText("Could not send reminders. Please try again.")).toBeInTheDocument()
+  })
+})

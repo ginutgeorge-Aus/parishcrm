@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { randomUuid } from "@/lib/randomUuid"
 
 /** One recorded payment as shown in the panel (amount in integer cents, `paidAt` as YYYY-MM-DD). */
 export type PaymentItem = {
@@ -53,7 +54,7 @@ export function PaymentsPanel({
   function onOpenChange(next: boolean) {
     setOpen(next)
     if (next) {
-      setKey(crypto.randomUUID())
+      setKey(randomUuid())
       setAmount(remainingCents > 0 ? centsToInput(remainingCents) : "")
       setMethod("CASH")
       setPaidAt(sydneyTodayYMD())
@@ -70,7 +71,7 @@ export function PaymentsPanel({
       const res = await recordPayment(entryId, { amount, method, paidAt, note, submissionKey: key })
       if (res?.error) setError(res.error)
       else {
-        setKey(crypto.randomUUID())
+        setKey(randomUuid())
         setAmount("")
         setNote("")
       }

@@ -109,3 +109,14 @@ test("delete error is shown", async () => {
   await user.click(screen.getAllByRole("button", { name: "Delete Anna" })[0])
   expect((await screen.findAllByText("Cannot delete")).length).toBeGreaterThan(0)
 })
+
+test("shows the bank ref to staff", () => {
+  render(<EntryTable rows={one} canManage={false} payments={{}} />)
+  expect(screen.getAllByText(/REF1/).length).toBeGreaterThan(0)
+})
+
+test("quantity input resyncs when the row quantity changes", () => {
+  const { rerender } = render(<EntryTable rows={one} canManage payments={{}} />)
+  rerender(<EntryTable rows={[{ ...one[0], quantity: 7 }]} canManage payments={{}} />)
+  expect((screen.getAllByLabelText("Quantity for Anna")[0] as HTMLInputElement).value).toBe("7")
+})

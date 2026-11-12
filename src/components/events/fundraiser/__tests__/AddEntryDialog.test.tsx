@@ -81,3 +81,13 @@ describe("AddEntryDialog", () => {
     expect(addEntry).not.toHaveBeenCalled()
   })
 })
+
+describe("AddEntryDialog thrown action", () => {
+  it("shows a generic error when the action throws", async () => {
+    ;(addEntry as jest.Mock).mockRejectedValue(new Error("boom"))
+    openDialog()
+    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "8" } })
+    fireEvent.submit(screen.getByLabelText("Family").closest("form")!)
+    expect(await screen.findByText("Could not add the entry. Please try again.")).toBeInTheDocument()
+  })
+})

@@ -33,12 +33,18 @@ export function AddEntryDialog({
     e.preventDefault()
     setError(null)
     start(async () => {
-      const res = await addEntry(
-        fundraiserId,
-        mode === "member"
-          ? { familyId: familyId ? Number.parseInt(familyId, 10) : undefined, quantity }
-          : { outsideName, outsideEmail, outsidePhone, quantity },
-      )
+      let res: Awaited<ReturnType<typeof addEntry>>
+      try {
+        res = await addEntry(
+          fundraiserId,
+          mode === "member"
+            ? { familyId: familyId ? Number.parseInt(familyId, 10) : undefined, quantity }
+            : { outsideName, outsideEmail, outsidePhone, quantity },
+        )
+      } catch {
+        setError("Could not add the entry. Please try again.")
+        return
+      }
       if (res?.error) { setError(res.error); return }
       setOpen(false)
       setFamilyId(""); setOutsideName(""); setOutsideEmail(""); setOutsidePhone(""); setQuantity("1")

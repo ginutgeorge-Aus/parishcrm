@@ -41,6 +41,13 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
+  // Resync the draft when the server quantity changes (revalidation, other editor).
+  const [seenQty, setSeenQty] = useState(row.quantity)
+  if (seenQty !== row.quantity) {
+    setSeenQty(row.quantity)
+    setQty(String(row.quantity))
+  }
+
   /** Save a changed quantity. */
   function saveQty() {
     if (qty === String(row.quantity)) return
@@ -102,7 +109,10 @@ export function EntryTable({
         {rows.map((r) => (
           <div key={r.id} className="rounded-lg border bg-card p-3 text-sm">
             <div className="flex items-start justify-between gap-2">
-              <div className="font-medium text-foreground">{r.name}</div>
+              <div>
+                <div className="font-medium text-foreground">{r.name}</div>
+                <div className="text-xs text-muted-foreground">Ref {r.bankRef}</div>
+              </div>
               <StatusBadge status={r.status} />
             </div>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 tabular">
@@ -120,6 +130,7 @@ export function EntryTable({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Bank ref</TableHead>
               <TableHead>Qty</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Owed</TableHead>
@@ -133,6 +144,7 @@ export function EntryTable({
             {rows.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.name}</TableCell>
+                <TableCell className="tabular">{r.bankRef}</TableCell>
                 <TableCell className="tabular">{r.quantity}</TableCell>
                 <TableCell className="tabular">{money(toCents(r.unitPrice))}</TableCell>
                 <TableCell className="tabular">{money(r.owedCents)}</TableCell>

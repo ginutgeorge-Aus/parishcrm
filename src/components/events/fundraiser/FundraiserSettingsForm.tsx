@@ -8,6 +8,15 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { saveFundraiser } from "@/lib/actions/fundraiser"
 
 /**
+ * Mirror the server's bank-ref prefix normalisation: uppercase A-Z and 0-9 only.
+ * @param v - Raw input text.
+ * @returns The normalised prefix.
+ */
+function normalisePrefix(v: string): string {
+  return v.toUpperCase().replace(/[^A-Z0-9]/g, "")
+}
+
+/**
  * Create/edit form for an event's fundraiser settings. Changing the unit price
  * only affects entries created afterwards (entries snapshot the price).
  *
@@ -30,6 +39,7 @@ export function FundraiserSettingsForm({
     setState(null)
     start(async () => {
       const res = await saveFundraiser(eventId, { name, unitLabel, unitPrice, refPrefix })
+      if (!res?.error) setRefPrefix(normalisePrefix(refPrefix))
       setState(res?.error ? { error: res.error } : { success: "Saved" })
     })
   }

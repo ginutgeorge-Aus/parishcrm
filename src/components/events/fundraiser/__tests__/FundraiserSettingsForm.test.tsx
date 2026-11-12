@@ -30,3 +30,13 @@ describe("FundraiserSettingsForm", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Bad price")
   })
 })
+
+describe("FundraiserSettingsForm prefix normalisation", () => {
+  it("shows the normalised prefix after a successful save", async () => {
+    ;(saveFundraiser as jest.Mock).mockResolvedValue({ success: "ok" })
+    render(<FundraiserSettingsForm eventId={5} initial={{ name: "Gala", unitLabel: "seat", unitPrice: "25.00", refPrefix: null }} />)
+    fireEvent.change(screen.getByLabelText("Bank ref prefix"), { target: { value: "ra-f 1" } })
+    fireEvent.submit(screen.getByLabelText("Bank ref prefix").closest("form")!)
+    await waitFor(() => expect(screen.getByLabelText("Bank ref prefix")).toHaveValue("RAF1"))
+  })
+})
