@@ -847,11 +847,31 @@ enum CheckpointStatus {
 }
 
 model ServiceType {
-  id        Int                @id @default(autoincrement())
-  name      String             @unique
-  isActive  Boolean            @default(true)
-  createdAt DateTime           @default(now())
-  receipts  PettyCashReceipt[]
+  id         Int                @id @default(autoincrement())
+  name       String             @unique
+  isActive   Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  receipts   PettyCashReceipt[]
+  headcounts ServiceHeadcount[]
+}
+
+// Adults/children headcount per service date + service type (OSS-308). A missing
+// row is a gap in the trend charts, never a zero. createdById is a plain column
+// (no FK): the audit log carries the actor, and user deletion must not touch history.
+model ServiceHeadcount {
+  id            Int         @id @default(autoincrement())
+  serviceDate   DateTime    @db.Date
+  serviceTypeId Int
+  serviceType   ServiceType @relation(fields: [serviceTypeId], references: [id], onDelete: Restrict)
+  adults        Int
+  children      Int
+  notes         String?
+  createdById   Int?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([serviceDate, serviceTypeId])
+  @@index([serviceDate])
 }
 
 model PettyCashSession {
