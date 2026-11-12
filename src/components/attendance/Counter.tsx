@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { useId } from "react"
 
 /** Largest count the server accepts (see saveHeadcount). */
-export const MAX_COUNT = 100000
+const MAX_COUNT = 100000
 
 /**
  * A whole-number counter: − / + buttons (44px tap targets) around a numeric

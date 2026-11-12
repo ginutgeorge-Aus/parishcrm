@@ -225,8 +225,10 @@ export function latestWithDelta(rows: HeadcountRow[]): {
   previousTotal: number | null
 } | null {
   if (rows.length === 0) return null
-  const latest = rows.reduce((best, r) =>
-    r.date > best.date || (r.date === best.date && r.serviceTypeId < best.serviceTypeId) ? r : best,
+  const latest = rows.reduce(
+    (best, r) =>
+      r.date > best.date || (r.date === best.date && r.serviceTypeId < best.serviceTypeId) ? r : best,
+    rows[0],
   )
   const prevDate = addDays(latest.date, -7)
   const prev = rows.find((r) => r.date === prevDate && r.serviceTypeId === latest.serviceTypeId)
