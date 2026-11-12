@@ -42,9 +42,13 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
     })
   }
 
-  /** Select every emailable family not already sent, or clear when all are selected. */
+  /**
+   * Select every emailable family with no send claim, or clear when all are selected. Families
+   * that are sent, in progress or delivery-unknown (UNKNOWN/PENDING claim) are left out: those
+   * need a human check, then the Resend option.
+   */
   function toggleAll() {
-    const pendingIds = emailable.filter((r) => r.lastStatus !== "SENT").map((r) => r.familyId)
+    const pendingIds = emailable.filter((r) => r.lastStatus !== "SENT" && r.claim === null).map((r) => r.familyId)
     setSelected((prev) => (pendingIds.every((i) => prev.has(i)) ? new Set() : new Set(pendingIds)))
   }
 
@@ -59,6 +63,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         let sent = 0
         let failed = 0
         let skipped = 0
+        let inProgress = 0
         let fatal: string | null = null
         const errs: { familyId: number; text: string }[] = []
         for (let i = 0; i < ids.length; i += 200) {
@@ -70,12 +75,16 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
           sent += res.sent
           failed += res.failed
           skipped += res.skipped
+          inProgress += res.inProgress
           errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${nameById.get(e.familyId) ?? "Family #" + e.familyId}: ${e.error}` })))
         }
         if (!fatal) setSelected(new Set())
         setErrors(errs)
         const skippedNote = skipped ? `, skipped ${skipped} already sent` : ""
-        const counts = `Sent ${sent}, failed ${failed}${skippedNote}.`
+        const progressNote = inProgress
+          ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
+          : ""
+        const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.`
         setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
       } catch {
         setMessage("Something went wrong, try again")
@@ -135,7 +144,8 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
                 )}
                 <td className="px-4 py-2 font-medium">
                   {r.familyName}
-                  {!r.canEmail && <span className="ml-2 text-xs text-muted-foreground">no email</span>}
+                  {r.archived && <span className="ml-2 text-xs text-muted-foreground">archived</span>}
+                  {!r.canEmail && !r.archived && <span className="ml-2 text-xs text-muted-foreground">no email</span>}
                 </td>
                 <td className="px-4 py-2 text-muted-foreground">{r.giftCount}</td>
                 <td className="px-4 py-2 font-medium whitespace-nowrap">{fmtAUD(r.total)}</td>
@@ -170,7 +180,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
                 <span className="min-w-0">
                   <span className="block font-medium">{r.familyName}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {r.giftCount} gift{r.giftCount === 1 ? "" : "s"}{!r.canEmail && " · no email"}
+                    {r.giftCount} gift{r.giftCount === 1 ? "" : "s"}{r.archived ? " · archived" : !r.canEmail && " · no email"}
                   </span>
                 </span>
               </label>

@@ -29,7 +29,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
   ;(featureNotFound as jest.Mock).mockResolvedValue(null)
   mockLoad.mockResolvedValue(
-    buildStatements([{ date: new Date("2025-08-01T00:00:00Z"), description: "x", amount: 10, fundName: null, familyId: 1 }])
+    buildStatements([{ date: new Date("2025-08-01T00:00:00Z"), amount: 10, fundName: null, familyId: 1 }])
   )
   mockFamilies.mockResolvedValue(new Map([[1, { id: 1, name: "Smith", canEmail: true, emails: [] }]]))
   mockChurch.mockResolvedValue({ church: { name: "C", abn: "1", address: "a", email: "c@x.com", website: "" } })

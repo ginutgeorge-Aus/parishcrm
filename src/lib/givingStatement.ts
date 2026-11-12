@@ -5,17 +5,16 @@ import { fyDateRange, fyRangeLabel, currentFYYear } from "@/lib/fiscalYear"
 /** Fund label used for gifts with no fund set. */
 export const UNALLOCATED_FUND = "General (no fund)"
 
-/** One giving transaction, already decrypted, as read by the statement loader. */
+/** One giving transaction as read by the statement loader. Ledger descriptions are deliberately not carried. */
 export type StatementGift = {
   date: Date
-  description: string
   amount: { toString(): string } | number
   fundName: string | null
   /** Family the gift is attributed to (the transaction's family). */
   familyId: number
 }
 
-type StatementLine = { date: Date; description: string; fund: string; cents: number; unallocated: boolean }
+type StatementLine = { date: Date; fund: string; cents: number; unallocated: boolean }
 type StatementFundTotal = { fund: string; cents: number; unallocated: boolean }
 
 /** A family's giving for one financial year. */
@@ -42,7 +41,7 @@ export function buildStatements(gifts: StatementGift[]): Map<number, FamilyState
       s = { familyId: g.familyId, lines: [], byFund: [], totalCents: 0 }
       out.set(g.familyId, s)
     }
-    s.lines.push({ date: g.date, description: g.description, fund, cents, unallocated: g.fundName === null })
+    s.lines.push({ date: g.date, fund, cents, unallocated: g.fundName === null })
     s.totalCents += cents
   }
   for (const s of out.values()) {
@@ -75,11 +74,11 @@ export type GivingStatementModel = {
   issueDate: string
   totalLabel: string
   byFund: { fund: string; amountLabel: string }[]
-  lines: { dateLabel: string; description: string; fund: string; amountLabel: string }[]
+  lines: { dateLabel: string; fund: string; amountLabel: string }[]
 }
 
 /**
- * Turn a family statement into display strings. Pure. The FY is identified by
+ * Turn a family statement into display strings. Pure. Lines carry date, fund and amount only (no ledger description text). The FY is identified by
  * its START year (same convention as /accounting/reports and the family giving page).
  * @param statement the family's grouped gifts
  * @param familyName display name on the statement
@@ -109,7 +108,6 @@ export function buildStatementModel(
     byFund: statement.byFund.map((f) => ({ fund: f.fund, amountLabel: fmtAUD(centsToNumber(f.cents)) })),
     lines: statement.lines.map((l) => ({
       dateLabel: formatDMY(l.date),
-      description: l.description,
       fund: l.fund,
       amountLabel: fmtAUD(centsToNumber(l.cents)),
     })),

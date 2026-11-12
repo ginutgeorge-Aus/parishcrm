@@ -29,9 +29,8 @@ export default async function GivingStatementsPage(props: Readonly<Props>) {
   const [rows, log] = await Promise.all([listGivingStatements(year), listStatementSendLog(year)])
   // Role is checked above and the feature by the layout, so a remaining error is operational
   // (e.g. the gift scan cap): show it here rather than bouncing to the dashboard.
-  if ("error" in rows || "error" in log) {
-    return <p role="alert" className="text-sm text-destructive">{"error" in rows ? rows.error : (log as { error: string }).error}</p>
-  }
+  if ("error" in rows) return <p role="alert" className="text-sm text-destructive">{rows.error}</p>
+  if ("error" in log) return <p role="alert" className="text-sm text-destructive">{log.error}</p>
   const canManage = canAccessAccounting(session?.user?.role)
 
   return (

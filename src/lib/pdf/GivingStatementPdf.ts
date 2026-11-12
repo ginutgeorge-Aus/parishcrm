@@ -94,17 +94,15 @@ function drawStatement(doc: PDFKit.PDFDocument, m: GivingStatementModel, letterh
   y += 18
 
   // Itemised gifts.
-  const descX = margin + 80
-  const fundX = margin + 270
-  const itemCols: [string, number][] = [["DATE", margin], ["DESCRIPTION", descX], ["FUND", fundX], ["AMOUNT", amtX]]
+  const fundX = margin + 110
+  const itemCols: [string, number][] = [["DATE", margin], ["FUND", fundX], ["AMOUNT", amtX]]
   if (y + 60 > maxY) y = newPage()
   y = heading(y, itemCols)
   for (const l of m.lines) {
     if (y + ROW_H > maxY) y = heading(newPage(), itemCols)
     doc.fillColor(SLATE_700)
-    // Single-line cells: width-bound + ellipsis so a long description never wraps into the next row.
+    // Single-line cells: width-bound + ellipsis so a long fund name never wraps into the next row.
     doc.text(l.dateLabel, margin, y)
-    doc.text(l.description, descX, y, { width: fundX - descX - 8, height: ROW_H - 4, ellipsis: true })
     doc.text(l.fund, fundX, y, { width: amtX - fundX - 8, height: ROW_H - 4, ellipsis: true })
     doc.text(l.amountLabel, amtX, y, { width: amtW, align: "right" })
     y += ROW_H

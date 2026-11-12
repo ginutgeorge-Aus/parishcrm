@@ -21,7 +21,7 @@ import {
   STATEMENT_SENT,
   STATEMENT_FAILED,
 } from "@/lib/givingStatement"
-import { loadStatements, loadStatementFamilies, type StatementFamily } from "@/lib/givingStatementData"
+import { loadStatements, loadStatementSummaries, loadStatementFamilies, type StatementFamily } from "@/lib/givingStatementData"
 
 const LIST_PATH = "/accounting/giving-statements"
 const MAX_BATCH = 200
@@ -31,6 +31,11 @@ const CLAIM_PREFIX = "giving-statement-claim:"
 // A PENDING claim older than this is treated as a crashed run and may be taken over by a forced resend.
 const CLAIM_STALE_MS = 15 * 60 * 1000
 
+type ClaimOutcome =
+  | { status: "acquired"; pending: string; previous: string | null }
+  | { status: "sent" }
+  | { status: "in_progress" }
+
 /**
  * Take the per-family+FY send claim. The claim row value tracks its state:
  * `PENDING:<ms>` while sending, `SENT:<ms>` once delivered, `UNKNOWN:<ms>` when
@@ -39,23 +44,23 @@ const CLAIM_STALE_MS = 15 * 60 * 1000
  * so two forced runs (or a forced run and a live sender) can never both win.
  * @param key claim row key
  * @param force true for an explicit resend
- * @returns true when this caller now owns the claim
+ * @returns acquired (with the value to restore if the send fails definitively), or why it was not
  */
-async function acquireClaim(key: string, force: boolean): Promise<boolean> {
+async function acquireClaim(key: string, force: boolean): Promise<ClaimOutcome> {
   const pending = `PENDING:${Date.now()}`
   try {
     await prisma.appSetting.create({ data: { key, value: pending } })
-    return true
+    return { status: "acquired", pending, previous: null }
   } catch (e) {
     if (!isP2002(e)) throw e
   }
-  if (!force) return false
   const existing = await prisma.appSetting.findUnique({ where: { key } })
-  if (!existing) return false
+  if (!existing) return { status: "in_progress" }
   const [state, at] = existing.value.split(":")
-  if (state === "PENDING" && Date.now() - Number(at) < CLAIM_STALE_MS) return false
+  if (!force) return { status: state === "SENT" ? "sent" : "in_progress" }
+  if (state === "PENDING" && Date.now() - Number(at) < CLAIM_STALE_MS) return { status: "in_progress" }
   const res = await prisma.appSetting.updateMany({ where: { key, value: existing.value }, data: { value: pending } })
-  return res.count === 1
+  return res.count === 1 ? { status: "acquired", pending, previous: existing.value } : { status: "in_progress" }
 }
 
 /**
@@ -67,38 +72,86 @@ async function settleClaim(key: string, state: "SENT" | "UNKNOWN"): Promise<void
   await prisma.appSetting.update({ where: { key }, data: { value: `${state}:${Date.now()}` } })
 }
 
+/**
+ * Undo a claim after a definite failure. A fresh claim is deleted; a claim taken over from an
+ * earlier SENT/UNKNOWN/stale value is put back (compare-and-swap on our PENDING value) so the
+ * duplicate-send guard survives a failed resend.
+ * @param key claim row key
+ * @param claim the acquired claim
+ */
+async function releaseClaim(key: string, claim: { pending: string; previous: string | null }): Promise<void> {
+  if (claim.previous === null) await prisma.appSetting.deleteMany({ where: { key } })
+  else await prisma.appSetting.updateMany({ where: { key, value: claim.pending }, data: { value: claim.previous } })
+}
+
+/**
+ * Run a best-effort bookkeeping step after the email outcome is known. A DB failure here is logged
+ * (ids only) and swallowed so it cannot abort the batch or change the reported send result.
+ * @param label log label
+ * @param familyId family id for the log
+ * @param fn the step
+ */
+async function bestEffort(label: string, familyId: number, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn()
+  } catch {
+    logger.error(`sendGivingStatements ${label} failed`, { familyId })
+  }
+}
+
 export type StatementListRow = {
   familyId: number
   familyName: string
   giftCount: number
   total: number
-  /** True when at least one consenting member has a valid email. Addresses never leave the server. */
+  /** True when at least one consenting member has a valid email (and the family is not archived). Addresses never leave the server. */
   canEmail: boolean
+  /** Archived family: listed and previewable, never emailed. */
+  archived: boolean
+  /** Send-claim state: PENDING (in progress or crashed), SENT, UNKNOWN (delivery unconfirmed) or null (none). */
+  claim: "PENDING" | "SENT" | "UNKNOWN" | null
   lastStatus: "SENT" | "FAILED" | null
   lastAt: Date | null
 }
 
 export type StatementSendResult =
-  | { sent: number; failed: number; skipped: number; errors: { familyId: number; error: string }[] }
+  | { sent: number; failed: number; skipped: number; inProgress: number; errors: { familyId: number; error: string }[] }
   | { error: string }
 
 /**
  * Latest send outcome per family for a FY, newest attempt wins. The send log is
  * the audit trail: one row per attempt, resourceId = familyId, metadata.fyStartYear.
+ * Grouped in the database (newest per family and action), so at most two rows per
+ * family come back however many attempts exist.
  */
 async function latestSendByFamily(year: number): Promise<Map<number, { status: "SENT" | "FAILED"; at: Date }>> {
-  const rows = await prisma.auditLog.findMany({
+  const rows = await prisma.auditLog.groupBy({
+    by: ["resourceId", "action"],
     where: { action: { in: [STATEMENT_SENT, STATEMENT_FAILED] }, metadata: { path: ["fyStartYear"], equals: year } },
-    orderBy: { createdAt: "desc" },
-    // One row per family (the newest), so the result is never truncated by other families' attempts.
-    distinct: ["resourceId"],
-    select: { action: true, resourceId: true, createdAt: true },
+    _max: { createdAt: true },
   })
   const out = new Map<number, { status: "SENT" | "FAILED"; at: Date }>()
   for (const r of rows) {
-    if (r.resourceId != null && !out.has(r.resourceId)) {
-      out.set(r.resourceId, { status: r.action === STATEMENT_SENT ? "SENT" : "FAILED", at: r.createdAt })
-    }
+    const at = r._max.createdAt
+    if (r.resourceId == null || !at) continue
+    const prev = out.get(r.resourceId)
+    if (!prev || at > prev.at) out.set(r.resourceId, { status: r.action === STATEMENT_SENT ? "SENT" : "FAILED", at })
+  }
+  return out
+}
+
+/**
+ * Send-claim state per family for a FY (one AppSetting row per family; value `STATE:<ms>`).
+ * @param year FY start year
+ */
+async function claimStateByFamily(year: number): Promise<Map<number, "PENDING" | "SENT" | "UNKNOWN">> {
+  const prefix = `${CLAIM_PREFIX}${year}:`
+  const rows = await prisma.appSetting.findMany({ where: { key: { startsWith: prefix } }, select: { key: true, value: true } })
+  const out = new Map<number, "PENDING" | "SENT" | "UNKNOWN">()
+  for (const r of rows) {
+    const id = Number(r.key.slice(prefix.length))
+    const state = r.value.split(":")[0]
+    if (Number.isInteger(id) && (state === "PENDING" || state === "SENT" || state === "UNKNOWN")) out.set(id, state)
   }
   return out
 }
@@ -116,26 +169,28 @@ export async function listGivingStatements(year: number): Promise<StatementListR
   const fy = parseStatementYear(year)
   if (fy === null) return { error: "Invalid financial year." }
 
-  let statements
+  let summaries
   try {
-    statements = await loadStatements(fy)
+    summaries = await loadStatementSummaries(fy)
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not load giving." }
   }
-  const ids = Array.from(statements.keys())
-  const [families, sent] = await Promise.all([loadStatementFamilies(ids, false), latestSendByFamily(fy)])
+  const ids = Array.from(summaries.keys())
+  const [families, sent, claims] = await Promise.all([loadStatementFamilies(ids, false), latestSendByFamily(fy), claimStateByFamily(fy)])
   return ids
     .flatMap((id) => {
       const f = families.get(id)
-      const s = statements.get(id)
-      if (!f || !s) return [] // archived or deleted family
+      const s = summaries.get(id)
+      if (!f || !s) return [] // family row no longer exists
       const last = sent.get(id)
       return [{
         familyId: id,
         familyName: f.name,
-        giftCount: s.lines.length,
+        giftCount: s.giftCount,
         total: centsToNumber(s.totalCents),
         canEmail: f.canEmail,
+        archived: f.archived,
+        claim: claims.get(id) ?? null,
         lastStatus: last?.status ?? null,
         lastAt: last?.at ?? null,
       }]
@@ -154,7 +209,7 @@ type SendOneArgs = {
   family: StatementFamily | undefined
 }
 
-type SendOneResult = { status: "sent" } | { status: "skipped" } | { status: "failed"; error: string }
+type SendOneResult = { status: "sent" } | { status: "skipped"; reason: "sent" | "in_progress" } | { status: "failed"; error: string }
 
 /**
  * Claim, render, email and log one family's statement. Never logs the address.
@@ -162,15 +217,19 @@ type SendOneResult = { status: "sent" } | { status: "skipped" } | { status: "fai
  */
 async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   const { id, fy, uid, church, statement, family } = a
-  if (!statement || !family) return { status: "failed", error: "No giving recorded for this family in the financial year." }
+  if (!family) return { status: "failed", error: "Family not found." }
+  if (!statement) return { status: "failed", error: "No giving recorded for this family in the financial year." }
+  if (family.archived) return { status: "failed", error: "Family is archived; statements are not emailed." }
   const to = family.emails[0]
   if (!to) return { status: "failed", error: "No email address on file (or no member has consented to email)." }
   // Claim before sending so concurrent runs can't both email the family. A
   // resend takes over an old claim atomically; it never steals a live one.
   const claimKey = `${CLAIM_PREFIX}${fy}:${id}`
-  if (!(await acquireClaim(claimKey, a.force))) return { status: "skipped" }
-  const model = buildStatementModel(statement, family.name, fy, church)
+  const claim = await acquireClaim(claimKey, a.force)
+  if (claim.status !== "acquired") return { status: "skipped", reason: claim.status }
   try {
+    // Built inside the try so a failure here releases the claim instead of leaving it PENDING.
+    const model = buildStatementModel(statement, family.name, fy, church)
     const pdf = await renderGivingStatementPdf(model)
     await sendGivingStatementEmail(to, pdf, {
       churchName: model.churchName,
@@ -188,17 +247,19 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
     const unknown = isResendAmbiguous(e)
     if (unknown) {
       // The provider may have accepted the mail: keep the claim so a plain retry can't double-send.
-      await settleClaim(claimKey, "UNKNOWN")
+      await bestEffort("claim settle", id, () => settleClaim(claimKey, "UNKNOWN"))
     } else {
-      // Definite failure: release the claim so the family can be retried.
-      await prisma.appSetting.deleteMany({ where: { key: claimKey } })
+      // Definite failure: release a fresh claim, or restore the one a resend took over.
+      await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
     }
-    await logAudit(uid, STATEMENT_FAILED, "Family", id, { fyStartYear: fy, ...(unknown ? { outcome: "unknown" } : {}) })
+    await bestEffort("audit", id, () => logAudit(uid, STATEMENT_FAILED, "Family", id, { fyStartYear: fy, ...(unknown ? { outcome: "unknown" } : {}) }))
     return { status: "failed", error: unknown ? "Delivery status unknown; check before resending" : "Email delivery failed" }
   }
-  await settleClaim(claimKey, "SENT")
-  // Delivered. Audit metadata holds ids and totals only — never the address.
-  await logAudit(uid, STATEMENT_SENT, "Family", id, { fyStartYear: fy, totalCents: statement.totalCents })
+  // Delivered: a bookkeeping failure must not abort the batch or report the family as failed.
+  // A claim left PENDING here goes stale and blocks a plain re-run in the meantime.
+  await bestEffort("claim settle", id, () => settleClaim(claimKey, "SENT"))
+  // Audit metadata holds ids and totals only — never the address.
+  await bestEffort("audit", id, () => logAudit(uid, STATEMENT_SENT, "Family", id, { fyStartYear: fy, totalCents: statement.totalCents }))
   return { status: "sent" }
 }
 
@@ -213,6 +274,8 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
  * The claim is released on a definite failure and kept on success or ambiguous
  * delivery. A crash mid-send leaves a PENDING claim; once it is stale (15 min) a
  * resend (skipAlreadySent=false) can take it over, atomically.
+ * `skipped` counts families already sent; `inProgress` those whose claim is PENDING or UNKNOWN (check, then resend).
+ * A forced resend that fails definitively restores the previous claim rather than deleting it.
  * @param skipAlreadySent skip families already claimed/sent for this FY; false forces a resend
  */
 export async function sendGivingStatements(
@@ -247,6 +310,7 @@ export async function sendGivingStatements(
   let sent = 0
   let failed = 0
   let skipped = 0
+  let inProgress = 0
   const errors: { familyId: number; error: string }[] = []
   for (const id of ids) {
     // Sequential on purpose: each send claims a row first and the mail provider is rate limited.
@@ -254,14 +318,17 @@ export async function sendGivingStatements(
       id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family: families.get(id),
     })
     if (r.status === "sent") sent++
-    else if (r.status === "skipped") skipped++
+    else if (r.status === "skipped") {
+      if (r.reason === "sent") skipped++
+      else inProgress++
+    }
     else {
       failed++
       errors.push({ familyId: id, error: r.error })
     }
   }
   revalidatePath(LIST_PATH)
-  return { sent, failed, skipped, errors }
+  return { sent, failed, skipped, inProgress, errors }
 }
 
 export type StatementLogRow = {
