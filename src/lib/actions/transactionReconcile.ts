@@ -6,10 +6,27 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAuditTx } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
+import { isP2034 } from "@/lib/validation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
+
+/**
+ * Maps a failed reconcile write transaction to an action result: a rolled-back audit
+ * write gets the audit-specific message (logged server-side); a P2034 conflict on this
+ * plain (non-retrying) tx is a "try again". Anything else returns null (caller rethrows).
+ * @param e the caught error
+ * @param label action name for the server log
+ */
+function mapReconcileWriteError(e: unknown, label: string): { error: string } | null {
+  if (e instanceof AuditWriteError) {
+    console.error(`${label} audit write failed`, e.cause)
+    return { error: AUDIT_FAILED_ERROR }
+  }
+  if (isP2034(e)) return { error: "Conflict while saving — please try again." }
+  return null
+}
 
 /** Flip a transaction's reconciled flag. ADMIN/PASTOR only. */
 export async function toggleReconciled(
@@ -36,16 +53,22 @@ export async function toggleReconciled(
   if (lockError) return { error: lockError }
 
   const next = !existing.reconciled
-  await prisma.$transaction(async (tx) => {
-    await tx.transaction.update({
-      where: { id },
-      data: { reconciled: next },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id },
+        data: { reconciled: next },
+      })
+      await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", id, {
+        reconciled: next,
+        paymentAccountId: existing.paymentAccountId,
+      })
     })
-    await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", id, {
-      reconciled: next,
-      paymentAccountId: existing.paymentAccountId,
-    })
-  })
+  } catch (e) {
+    const failed = mapReconcileWriteError(e, "toggleReconciled")
+    if (failed) return failed
+    throw e
+  }
   revalidatePath("/accounting")
   revalidatePath("/accounting/transactions")
   revalidatePath("/accounting/reconciliation")
@@ -100,23 +123,30 @@ export async function reconcileMany(
   const toReconcile = rows.filter((r) => !r.reconciled).map((r) => r.id)
   // Nothing to flip: no write and no audit row (a no-op must not log an event).
   let reconciledCount = 0
-  if (toReconcile.length > 0)
-    reconciledCount = await prisma.$transaction(async (tx) => {
-      // `reconciled: false` guard + the returned count keep the audit row accurate
-      // if a concurrent toggle flipped some of these rows after the read above.
-      const res = await tx.transaction.updateMany({
-        where: { id: { in: toReconcile }, reconciled: false },
-        data: { reconciled: true },
-      })
-      // Skip the audit when a concurrent toggle already flipped every row.
-      if (res.count > 0)
-        await logAuditTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
-          reconciled: true,
-          paymentAccountId: expectedPaymentAccountId,
-          count: res.count,
+  if (toReconcile.length > 0) {
+    try {
+      reconciledCount = await prisma.$transaction(async (tx) => {
+        // `reconciled: false` guard + the returned count keep the audit row accurate
+        // if a concurrent toggle flipped some of these rows after the read above.
+        const res = await tx.transaction.updateMany({
+          where: { id: { in: toReconcile }, reconciled: false },
+          data: { reconciled: true },
         })
-      return res.count
-    })
+        // Skip the audit when a concurrent toggle already flipped every row.
+        if (res.count > 0)
+          await logAuditGuardedTx(tx, actorId(session), "TRANSACTION_RECONCILED", "Transaction", undefined, {
+            reconciled: true,
+            paymentAccountId: expectedPaymentAccountId,
+            count: res.count,
+          })
+        return res.count
+      })
+    } catch (e) {
+      const failed = mapReconcileWriteError(e, "reconcileMany")
+      if (failed) return failed
+      throw e
+    }
+  }
   // No revalidateReports() here: the pl/balance-sheet/budget-vs-actual/
   // funds reports aggregate ALL transactions since asOfDate regardless of the
   // `reconciled` flag (book balance) — flipping reconciled never changes

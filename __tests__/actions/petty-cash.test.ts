@@ -320,6 +320,14 @@ describe("deleteSession", () => {
     expect(mockDeleteSession).toHaveBeenCalledWith({ where: { id: 1 } })
   })
 
+  it("returns a retry error (not a 500) on a P2034 conflict in the audit write", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
+    mockFindSession.mockResolvedValue(emptySession)
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const res = await deleteSession(1)
+    expect(res).toEqual({ error: expect.stringMatching(/try again/i) })
+  })
+
   it("audit-logs PETTY_CASH_SESSION_DELETED", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindSession.mockResolvedValue(emptySession)
@@ -600,7 +608,7 @@ describe("deleteReceipt", () => {
     expect(mockDeleteReceipt).toHaveBeenCalledWith({ where: { id: 1 } })
   })
 
-  it("reports an audit-insert failure (even an FK P2003) as an audit error and rolls back", async () => {
+  it("reports an audit-insert failure (even an FK P2003) as an audit error (mocked tx callback threw; a real DB would roll back)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "7" } })
     mockFindReceipt.mockResolvedValue({ id: 1, sessionId: 5, amount: 10, accountId: 2, session: { id: 5, status: "OPEN", title: "15-JUN-2026" } })
     mockLogAuditTx.mockRejectedValueOnce({ code: "P2003" })
@@ -1656,6 +1664,32 @@ describe("ensureWeeklySession", () => {
     // Called during the page's server render — revalidatePath there is
     // unsupported by Next.js; the page lists after ensure anyway.
     expect(jest.requireMock("next/cache").revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("degrades to exists (no throw) when the audit write fails and the session rolls back", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    getCustodian.mockResolvedValue(5)
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
+    mockFindManySession.mockResolvedValue([])
+    ;(prisma.pettyCashSession.create as jest.Mock).mockResolvedValue({ id: 99 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const res = await ensureWeeklySession()
+    spy.mockRestore()
+    expect(res).toEqual({ status: "exists" })
+  })
+
+  it("degrades to exists (no throw) on a P2034 conflict in the audit write", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    getCustodian.mockResolvedValue(5)
+    ;(prisma.person.findFirst as jest.Mock).mockResolvedValue({ id: 5 })
+    ;(prisma.pettyCashSession.findFirst as jest.Mock).mockResolvedValue(null)
+    mockFindManySession.mockResolvedValue([])
+    ;(prisma.pettyCashSession.create as jest.Mock).mockResolvedValue({ id: 99 })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const res = await ensureWeeklySession()
+    expect(res).toEqual({ status: "exists" })
   })
 
   it("carries forward the prior session's closing balance as the opening balance", async () => {

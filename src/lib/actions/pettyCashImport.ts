@@ -411,7 +411,8 @@ export async function commitImport(formData: FormData): Promise<CommitResult> {
       console.error("commitImport audit write failed", e.cause)
       return { error: AUDIT_FAILED_ERROR }
     }
-    console.error("commitImport failed", e)
+    // Log the error code/name only: Prisma invocation errors embed query arguments (donor/payee names).
+    console.error("commitImport failed", { name: e instanceof Error ? e.name : typeof e, code: (e as { code?: unknown } | null)?.code })
     return { error: "Import failed" }
   }
 

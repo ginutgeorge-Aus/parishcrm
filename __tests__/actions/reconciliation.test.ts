@@ -49,6 +49,8 @@ import { revalidatePath } from "next/cache"
 import { saveStatementBalance } from "@/lib/actions/reconciliation"
 import { assertUnlocked } from "@/lib/accountingLock"
 import { logger } from "@/lib/logger"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const mockSession = auth as jest.Mock
 const mockAssertUnlocked = assertUnlocked as jest.Mock
@@ -286,6 +288,24 @@ describe("saveStatementBalance", () => {
     const result = await saveStatementBalance(1, "2026-05-31", "12820.00")
     expect(result).toEqual({ success: "Saved" })
     expect(mockTransaction).toHaveBeenCalledTimes(2)
+  })
+
+  it("writes both audit rows on the transaction client", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpsert.mockResolvedValue({ id: 9 })
+    mockOpening.mockResolvedValue(null)
+    await saveStatementBalance(1, "2026-05-31", "12820.00")
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "RECON_STATEMENT_SAVED", "ReconciliationStatement", 9, expect.any(Object))
+  })
+
+  it("returns AUDIT_FAILED_ERROR (no success, no revalidate) when the audit write fails", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpsert.mockResolvedValue({ id: 9 })
+    mockOpening.mockResolvedValue(null)
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    const result = await saveStatementBalance(1, "2026-05-31", "12820.00")
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 
   it("gives up after MAX_TX_ATTEMPTS serialization conflicts", async () => {

@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { canAccessAccounting } from "@/lib/roleGuard"
-import { logAuditTx } from "@/lib/audit"
+import { AuditWriteError, AUDIT_FAILED_ERROR, logAuditGuardedTx } from "@/lib/auditGuard"
 import { logger } from "@/lib/logger"
 import { endOfDayUTC } from "@/lib/dates"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -79,6 +79,13 @@ export async function saveStatementBalance(
   try {
     outcome = await finalizeReconciliation(parsed.data.paymentAccountId, date, amount, userId)
   } catch (e) {
+    if (e instanceof AuditWriteError) {
+      logger.error("saveStatementBalance audit write failed", {
+        error: e.cause instanceof Error ? e.cause.message : String(e.cause),
+        paymentAccountId: parsed.data.paymentAccountId,
+      })
+      return { error: AUDIT_FAILED_ERROR }
+    }
     // this was silently swallowed with no logging — a real DB failure
     // was indistinguishable from any other cause.
     logger.error("saveStatementBalance failed", {
@@ -128,12 +135,12 @@ async function finalizeReconciliation(
           // Trade-off: a P2034 retry re-runs the whole callback, so these inserts repeat per
           // attempt (the earlier attempt's rows rolled back, so no duplicates land) — bounded
           // by MAX_TX_ATTEMPTS and cheaper than a window where the save commits unaudited.
-          await logAuditTx(tx, userId, "RECON_STATEMENT_SAVED", "ReconciliationStatement", record.id, {
+          await logAuditGuardedTx(tx, userId, "RECON_STATEMENT_SAVED", "ReconciliationStatement", record.id, {
             paymentAccountId,
             statementDate: statementDate.toISOString().slice(0, 10),
           })
           if (recon.reconciledCount !== null) {
-            await logAuditTx(tx, userId, "RECON_AUTO_RECONCILED", "ReconciliationStatement", undefined, {
+            await logAuditGuardedTx(tx, userId, "RECON_AUTO_RECONCILED", "ReconciliationStatement", undefined, {
               paymentAccountId,
               count: recon.reconciledCount,
               closingBalance,

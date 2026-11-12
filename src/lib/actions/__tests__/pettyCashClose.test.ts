@@ -173,7 +173,7 @@ test("concurrent close losing the race is rejected without an audit", async () =
   expect(mockAudit).not.toHaveBeenCalled()
 })
 
-test("a failed audit write propagates so the close rolls back", async () => {
+test("a failed audit write propagates out of the tx callback (a real DB would roll the close back)", async () => {
   mockFind.mockResolvedValue(openSession())
   mockAudit.mockRejectedValueOnce(new Error("audit down"))
   await expect(closeSession(1, undefined, fd({ notes: "handover" }))).rejects.toThrow("audit down")

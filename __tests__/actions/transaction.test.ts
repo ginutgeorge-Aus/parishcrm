@@ -858,11 +858,23 @@ describe("toggleReconciled", () => {
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { reconciled: false } })
   })
 
-  it("propagates a failed audit write so the toggle rolls back", async () => {
+  it("maps a failed audit write to AUDIT_FAILED_ERROR (the tx callback threw, so Prisma would roll back)", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
     mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
     mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
-    await expect(toggleReconciled(1, 1)).rejects.toThrow("audit down")
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await toggleReconciled(1, 1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("returns a retry error (not a 500) on a P2034 conflict in the audit write", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindUnique.mockResolvedValue({ id: 1, reconciled: false, paymentAccountId: 1 })
+    mockLogAuditTx.mockRejectedValueOnce({ code: "P2034" })
+    const result = await toggleReconciled(1, 1)
+    expect(result).toEqual({ error: expect.stringMatching(/try again/i) })
   })
 
   it("audit-logs the reconciliation state change", async () => {
@@ -950,12 +962,33 @@ describe("reconcileMany", () => {
 
   it("guards the earliest date against the lock", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpdateMany.mockResolvedValueOnce({ count: 2 })
     mockFindMany.mockResolvedValue([
       { id: 1, date: new Date("2026-05-10"), paymentAccountId: 1, reconciled: false },
       { id: 2, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
     ])
     await reconcileMany([1, 2], 1)
     expect(mockAssertUnlocked).toHaveBeenCalledWith(new Date("2026-05-01"))
+  })
+
+  it("maps a failed audit write to AUDIT_FAILED_ERROR with no success message", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([{ id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false }])
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 })
+    mockLogAuditTx.mockRejectedValueOnce(new Error("audit down"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const result = await reconcileMany([1], 1)
+    spy.mockRestore()
+    expect(result).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("writes the audit row on the transaction client", async () => {
+    mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockFindMany.mockResolvedValue([{ id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false }])
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 })
+    await reconcileMany([1], 1)
+    expect(mockLogAuditTx).toHaveBeenCalledWith(expect.objectContaining({ __isTx: true }), 1, "TRANSACTION_RECONCILED", "Transaction", undefined, expect.objectContaining({ count: 1 }))
   })
 
   it("reconciles only the pending rows and reports the count", async () => {
@@ -977,6 +1010,7 @@ describe("reconcileMany", () => {
   // dead work and inconsistent with toggleReconciled (which never did either).
   it("does not revalidate the report paths", async () => {
     mockSession.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    mockUpdateMany.mockResolvedValueOnce({ count: 1 })
     mockFindMany.mockResolvedValue([
       { id: 1, date: new Date("2026-05-01"), paymentAccountId: 1, reconciled: false },
     ])

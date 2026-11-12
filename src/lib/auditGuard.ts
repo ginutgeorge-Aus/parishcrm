@@ -4,7 +4,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 
 /** Shown when an in-transaction audit write fails; the mutation was rolled back. */
 export const AUDIT_FAILED_ERROR =
-  "Couldn't record this change in the audit log, so it was not saved. Sign out and back in, then try again."
+  "Couldn't record this change in the audit log, so it was not saved. Please try again; if it keeps happening, contact an administrator."
 
 /**
  * Thrown (inside the write transaction, so the mutation rolls back) when an audit

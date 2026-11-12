@@ -13,9 +13,10 @@ export { AuditWriteError }
  * Maps a failed in-transaction audit write (the mutation rolled back) to the action
  * result, logging the cause server-side.
  * @param e the `AuditWriteError` caught from the write transaction
+ * @param label action name for the server log
  */
-export function auditFailed(e: AuditWriteError): { error: string } {
-  console.error("petty-cash audit write failed", e.cause)
+export function auditFailed(e: AuditWriteError, label: string): { error: string } {
+  console.error(`${label} audit write failed`, e.cause)
   return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
 }
 
@@ -70,10 +71,7 @@ export async function resolveCreateWriteError(
 ): Promise<{ error: string }> {
   const reused = { error: SUBMISSION_TOKEN_REUSED_ERROR }
   if (e instanceof SessionClosedError) return replayOrError(token, lookup, replayDone, { error: e.message }, reused)
-  if (e instanceof AuditWriteError) {
-    console.error(`${label} audit write failed`, e.cause)
-    return { error: PETTY_CASH_AUDIT_FAILED_ERROR }
-  }
+  if (e instanceof AuditWriteError) return auditFailed(e, label)
   if (token && isP2002(e)) {
     const { state } = await lookup()
     if (state === "replay") return replayDone()

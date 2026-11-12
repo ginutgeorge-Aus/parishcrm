@@ -388,6 +388,8 @@ export async function deleteSession(id: number): Promise<ActionResult> {
     }
     if (e && typeof e === "object" && "code" in e && e.code === "P2003")
       return { error: "Cannot delete — session has entries. Delete them first." }
+    // Plain (non-retrying) tx: a P2034 passed through by logAuditGuardedTx is a "try again", not a 500.
+    if (isP2034(e)) return { error: "Conflict while deleting — please try again." }
     throw e
   }
   revalidatePath("/accounting/petty-cash")

@@ -90,7 +90,7 @@ test("valid update persists new custodian + returns success", async () => {
   )
 })
 
-test("a failed audit write propagates so the custodian change rolls back", async () => {
+test("a failed audit write propagates out of the tx callback (a real DB would roll the change back)", async () => {
   ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
   await expect(updateSessionCustodian(1, undefined, fd({ custodianId: "5" }))).rejects.toThrow("audit down")
 })
