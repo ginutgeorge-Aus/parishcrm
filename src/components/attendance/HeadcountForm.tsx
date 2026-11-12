@@ -160,6 +160,7 @@ export function HeadcountForm({
         <RecentHeadcounts
           rows={rows}
           busy={isPending}
+          editableTypeIds={new Set(serviceTypes.map((t) => t.id))}
           onEdit={(r) => {
             choose(r.date, r.serviceTypeId)
             formRef.current?.scrollIntoView?.({ behavior: "smooth" })

@@ -68,6 +68,11 @@ export async function saveHeadcount(input: {
 
   const write = (mode: "upsert" | "update") =>
     prisma.$transaction(async (tx) => {
+      // Keep the values this save replaces, so an overwrite is recoverable from the audit log.
+      const prior = await tx.serviceHeadcount.findUnique({
+        where: key,
+        select: { adults: true, children: true, notes: true },
+      })
       const row =
         mode === "upsert"
           ? await tx.serviceHeadcount.upsert({
@@ -77,7 +82,7 @@ export async function saveHeadcount(input: {
               select: { id: true },
             })
           : await tx.serviceHeadcount.update({ where: key, data: fields, select: { id: true } })
-      await logAuditTx(tx, userId, "ATTENDANCE_SAVED", "ServiceHeadcount", row.id, meta)
+      await logAuditTx(tx, userId, "ATTENDANCE_SAVED", "ServiceHeadcount", row.id, prior ? { ...meta, before: prior } : meta)
     })
 
   try {

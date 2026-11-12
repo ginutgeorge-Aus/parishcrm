@@ -4,7 +4,7 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
   const m = {
-    serviceHeadcount: { upsert: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    serviceHeadcount: { upsert: jest.fn(), update: jest.fn(), delete: jest.fn(), findUnique: jest.fn() },
     serviceType: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   }
@@ -24,7 +24,7 @@ import { deleteHeadcount, saveHeadcount } from "@/lib/actions/attendance"
 const as = (role: UserRole | undefined) =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "9", role } } : null)
 const p = prisma as unknown as {
-  serviceHeadcount: { upsert: jest.Mock; update: jest.Mock; delete: jest.Mock }
+  serviceHeadcount: { upsert: jest.Mock; update: jest.Mock; delete: jest.Mock; findUnique: jest.Mock }
   serviceType: { findUnique: jest.Mock }
   $transaction: jest.Mock
 }
@@ -94,6 +94,22 @@ describe("saveHeadcount", () => {
       prisma, 9, "ATTENDANCE_SAVED", "ServiceHeadcount", 11,
       expect.objectContaining({ date: "2026-11-08", serviceTypeId: 3, adults: 50, children: 12 }),
     )
+  })
+
+  it("keeps the overwritten values in the audit row when editing an existing headcount", async () => {
+    p.serviceHeadcount.findUnique.mockResolvedValue({ adults: 80, children: 20, notes: "old" })
+    expect(await saveHeadcount(valid)).toBeUndefined()
+    expect(audit).toHaveBeenCalledWith(
+      prisma, 9, "ATTENDANCE_SAVED", "ServiceHeadcount", 11,
+      expect.objectContaining({ before: { adults: 80, children: 20, notes: "old" } }),
+    )
+  })
+
+  it("audits a first save without a before value", async () => {
+    p.serviceHeadcount.findUnique.mockResolvedValue(null)
+    await saveHeadcount(valid)
+    const meta = audit.mock.calls[0][5]
+    expect(meta.before).toBeUndefined()
   })
 
   it("rejects an unknown service type", async () => {

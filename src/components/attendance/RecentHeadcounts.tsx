@@ -11,11 +11,14 @@ import type { RecentHeadcount } from "@/lib/attendanceQueries"
 export function RecentHeadcounts({
   rows,
   busy,
+  editableTypeIds,
   onEdit,
   onDelete,
 }: Readonly<{
   rows: RecentHeadcount[]
   busy: boolean
+  /** Service types still active; rows of other types can be deleted but not edited (the form can't select them). */
+  editableTypeIds: ReadonlySet<number>
   onEdit: (row: RecentHeadcount) => void
   onDelete: (row: RecentHeadcount) => void
 }>) {
@@ -25,7 +28,7 @@ export function RecentHeadcounts({
   const name = (r: RecentHeadcount) => `${r.serviceTypeName} ${formatYMD(r.date)}`
   const actions = (r: RecentHeadcount) => (
     <div className="flex gap-2">
-      <Button type="button" variant="outline" size="sm" className="min-h-11 md:min-h-8" aria-label={`Edit ${name(r)}`} onClick={() => onEdit(r)}>
+      <Button type="button" variant="outline" size="sm" className="min-h-11 md:min-h-8" aria-label={`Edit ${name(r)}`} disabled={!editableTypeIds.has(r.serviceTypeId)} title={editableTypeIds.has(r.serviceTypeId) ? undefined : "This service type is deactivated"} onClick={() => onEdit(r)}>
         Edit
       </Button>
       <Button type="button" variant="outline" size="sm" className="min-h-11 md:min-h-8" aria-label={`Delete ${name(r)}`} disabled={busy} onClick={() => onDelete(r)}>

@@ -99,6 +99,14 @@ describe("HeadcountForm", () => {
     expect(screen.getByLabelText("Adults")).toHaveValue("30")
   })
 
+  it("cannot edit a row of a deactivated service type (delete still works)", async () => {
+    const old = { id: 9, date: "2026-10-04", serviceTypeId: 99, serviceTypeName: "Old Mass", adults: 9, children: 1, notes: null }
+    render(<HeadcountForm serviceTypes={types} rows={[old, ...rows]} today="2026-11-12" />)
+    for (const b of screen.getAllByRole("button", { name: /^Edit Old Mass/ })) expect(b).toBeDisabled()
+    for (const b of screen.getAllByRole("button", { name: /^Delete Old Mass/ })) expect(b).toBeEnabled()
+    expect(screen.getAllByRole("button", { name: /^Edit Evening/ })[0]).toBeEnabled()
+  })
+
   it("delete asks to confirm, then calls deleteHeadcount", async () => {
     const confirm = jest.spyOn(window, "confirm").mockReturnValue(true)
     render(<HeadcountForm serviceTypes={types} rows={rows} today="2026-11-12" />)
