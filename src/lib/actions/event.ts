@@ -287,7 +287,7 @@ function deleteEventFailureResult(e: unknown): ActionResult {
   }
   if (msg === "FUNDRAISER_DELETE_BLOCKED") {
     return {
-      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event.",
+      error: "This event has fundraiser entries — remove them from the Fundraiser tab before deleting the event. Entries with card payments cannot be removed in-app.",
     }
   }
   logger.error("[deleteEvent] delete failed", { error: msg })

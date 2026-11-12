@@ -330,7 +330,7 @@ describe("deleteFamily", () => {
     ;personCountTx.mockResolvedValue(0)
     fundraiserCountTx.mockResolvedValue(1)
     const r = await deleteFamily(3)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
     expect(fundraiserCountTx).toHaveBeenCalledWith({ where: { familyId: 3 } })
     expect(familyDeleteTx).not.toHaveBeenCalled()
   })
@@ -345,7 +345,7 @@ describe("deleteFamily", () => {
     ;personCountTx.mockResolvedValue(0)
     familyDeleteTx.mockRejectedValue({ code: "P2003" })
     const r = await deleteFamily(3)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
   })
 
   it("blocks deleting a zero-member family that is not past the retention floor", async () => {
@@ -491,7 +491,7 @@ describe("previewMerge / mergeFamilies", () => {
     stubPreview()
     ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(2)
     const r = await previewMerge(1, 2)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
     expect(prisma.fundraiserEntry.count).toHaveBeenCalledWith({ where: { familyId: 1 } })
   })
 
@@ -500,7 +500,7 @@ describe("previewMerge / mergeFamilies", () => {
     stubPreview()
     ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(1)
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
@@ -509,7 +509,7 @@ describe("previewMerge / mergeFamilies", () => {
     stubPreview()
     fundraiserCountTx.mockResolvedValue(1)
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
     expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
@@ -518,7 +518,7 @@ describe("previewMerge / mergeFamilies", () => {
     stubPreview()
     ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2003" })
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first." })
+    expect(r).toEqual({ error: "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app." })
   })
 
   it("mergeFamilies rejects merging a family into itself", async () => {

@@ -169,7 +169,7 @@ export async function updateFamily(
 }
 
 /** Friendly error when FundraiserEntry.familyId (onDelete: Restrict) blocks a family delete/merge. */
-const FUNDRAISER_FAMILY_ERROR = "Remove or move this family's fundraiser entries first."
+const FUNDRAISER_FAMILY_ERROR = "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app."
 
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
