@@ -24,8 +24,9 @@ export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; i
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-    pendingUpdates, verifyPending, membershipPending, features, venueUsage,
+    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly,
   } = flags
+  const canViewSundaySchool = flags.canViewSundaySchool ?? canViewPeople
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
 
@@ -37,7 +38,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
       label: "Main",
       headless: true,
       items: [
-        { href: "/", label: "Dashboard", icon: LayoutDashboard, show: true },
+        { href: "/", label: "Dashboard", icon: LayoutDashboard, show: !sundaySchoolOnly },
         { href: "/people", label: "People", icon: User, show: canViewPeople },
         { href: "/families", label: "Families", icon: Users, show: canViewPeople },
         { href: "/events", label: "Events", icon: CalendarDays, show: canViewPeople && on("events") },
@@ -49,7 +50,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
       items: [
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople && on("celebrations") },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople && on("celebrations") },
-        { href: "/sunday-school", label: "Sunday School", icon: School, show: canViewPeople && on("sundaySchool") },
+        { href: "/sunday-school", label: "Sunday School", icon: School, show: canViewSundaySchool && on("sundaySchool") },
         // Groups (#303): same audience as canViewGroups (= canViewPeople).
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
@@ -103,7 +104,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
       icon: Settings,
       items: [
         { href: "/account", label: "My Account", icon: MonitorSmartphone, show: true },
-        { href: "/reports", label: "My Feedback", icon: MessagesSquare, show: true },
+        { href: "/reports", label: "My Feedback", icon: MessagesSquare, show: !sundaySchoolOnly },
         { href: "/help", label: "Help", icon: HelpCircle, show: true },
         { href: "/import", label: "Import CSV", icon: Upload, show: isAdmin },
         { href: "/users", label: "Users", icon: UserCog, show: canUsers },

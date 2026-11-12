@@ -3,7 +3,7 @@
 // The public demo (docs/live-demo.md) sets DEMO_MODE=true; every real
 // deployment leaves it unset, which must mean zero behaviour change.
 
-export type UserRoleName = "ADMIN" | "PASTOR" | "OFFICE_ADMIN" | "AUDITOR" | "VIEWER" | "EVENT_ORGANISER"
+export type UserRoleName = "ADMIN" | "PASTOR" | "OFFICE_ADMIN" | "AUDITOR" | "VIEWER" | "EVENT_ORGANISER" | "HEADMASTER" | "TEACHER"
 
 export const DEMO_ERROR = "Disabled in the live demo"
 export const DEMO_EMAIL_DOMAIN = "@demo.invalid"
@@ -22,6 +22,8 @@ export const DEMO_LOGINS: ReadonlyArray<{ role: UserRoleName; label: string; ema
   { role: "AUDITOR", label: "Auditor", email: `auditor${DEMO_EMAIL_DOMAIN}` },
   { role: "VIEWER", label: "Viewer", email: `viewer${DEMO_EMAIL_DOMAIN}` },
   { role: "EVENT_ORGANISER", label: "Event Organiser", email: `organiser${DEMO_EMAIL_DOMAIN}` },
+  { role: "HEADMASTER", label: "Headmaster", email: `headmaster${DEMO_EMAIL_DOMAIN}` },
+  { role: "TEACHER", label: "Teacher", email: `teacher${DEMO_EMAIL_DOMAIN}` },
 ]
 
 export function isDemoMode(env: Record<string, string | undefined> = process.env): boolean {

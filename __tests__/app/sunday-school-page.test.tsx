@@ -6,6 +6,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     sundaySchoolClass: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     person: { findMany: jest.fn() },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolRollMarker: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolSession: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolYearLock: { findMany: jest.fn().mockResolvedValue([]) },
@@ -21,18 +22,17 @@ jest.mock("@/components/sunday-school/RolloverButton", () => ({
 jest.mock("@/components/sunday-school/ClassForm", () => ({ ClassForm: () => null }))
 jest.mock("@/components/sunday-school/ArchiveClassButton", () => ({ ArchiveClassButton: () => null }))
 jest.mock("@/components/sunday-school/TeachersPanel", () => ({
-  TeachersPanel: (p: { readOnly: boolean; teachers: { name: string; wwcc: string }[] }) =>
-    <div data-testid="teachers" data-readonly={String(p.readOnly)}>{p.teachers.map((t) => `${t.name}:${t.wwcc}`).join(",")}</div>,
+  TeachersPanel: (p: { readOnly: boolean; linkPeople?: boolean; teachers: { name: string; wwcc: string }[] }) =>
+    <div data-testid="teachers" data-readonly={String(p.readOnly)} data-link={String(p.linkPeople)}>{p.teachers.map((t) => `${t.name}:${t.wwcc}`).join(",")}</div>,
 }))
 jest.mock("@/components/sunday-school/EnrolPanel", () => ({
-  EnrolPanel: (p: { readOnly: boolean; candidates: { name: string; isChild: boolean; currentClass: string | null }[] }) =>
-    <div data-testid="enrol" data-readonly={String(p.readOnly)}>{p.candidates.map((c) => `${c.name}:${c.isChild}:${c.currentClass}`).join(",")}</div>,
+  EnrolPanel: (p: { readOnly: boolean; linkPeople?: boolean; candidates: { name: string; isChild: boolean; currentClass: string | null }[] }) =>
+    <div data-testid="enrol" data-readonly={String(p.readOnly)} data-link={String(p.linkPeople)}>{p.candidates.map((c) => `${c.name}:${c.isChild}:${c.currentClass}`).join(",")}</div>,
 }))
 jest.mock("@/components/sunday-school/RollMarkersPanel", () => ({
   RollMarkersPanel: (p: { markers: { name: string; active: boolean }[] }) =>
     <div data-testid="markers">{p.markers.map((m) => `${m.name}:${m.active}`).join(",")}</div>,
 }))
-jest.mock("@/lib/actions/eventAccess", () => ({ listAssignableOrganisers: jest.fn().mockResolvedValue([]) }))
 jest.mock("@/lib/actions/sundaySchool", () => ({ createClass: jest.fn(), updateClass: jest.fn() }))
 
 import { auth } from "@/auth"
@@ -91,6 +91,18 @@ describe("/sunday-school", () => {
     expect(prisma.sundaySchoolClass.count).toHaveBeenCalledWith({ where: { year: 2027 } })
   })
 
+  it("shows New class and Roll over to a HEADMASTER", async () => {
+    as("HEADMASTER")
+    const html = await render("2026")
+    expect(html).toContain("New class")
+    expect(html).toContain("Roll over to 2027")
+  })
+
+  it("redirects a TEACHER home (teachers use /my-classes)", async () => {
+    as("TEACHER")
+    await expect(render()).rejects.toThrow("REDIRECT /")
+  })
+
   it("hides Roll over once next year has classes", async () => {
     as("ADMIN")
     ;(prisma.sundaySchoolClass.count as jest.Mock).mockResolvedValue(4)
@@ -117,6 +129,14 @@ describe("/sunday-school/new and /[id]/edit", () => {
     as("VIEWER")
     await expect(NewClassPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT /sunday-school")
     await expect(EditClassPage({ params: Promise.resolve({ id: "1" }) })).rejects.toThrow("REDIRECT /sunday-school")
+  })
+
+  it("send a TEACHER back to the list, but let a HEADMASTER in", async () => {
+    as("TEACHER")
+    await expect(NewClassPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("REDIRECT /sunday-school")
+    await expect(EditClassPage({ params: Promise.resolve({ id: "1" }) })).rejects.toThrow("REDIRECT /sunday-school")
+    as("HEADMASTER")
+    await expect(NewClassPage({ searchParams: Promise.resolve({}) })).resolves.toBeTruthy()
   })
 
   it("404s on a bad id or an archived class", async () => {
@@ -190,6 +210,41 @@ describe("/sunday-school/[id]", () => {
     expect((prisma.person.findMany as jest.Mock).mock.calls[0][0].where).toEqual({
       archivedAt: null, ministryRoles: { has: "SUNDAY_SCHOOL_TEACHER" }, sundaySchoolTeaching: { none: { classId: 1 } },
     })
+  })
+
+  it("redirects a TEACHER home", async () => {
+    as("TEACHER")
+    await expect(renderClass()).rejects.toThrow("REDIRECT /")
+  })
+
+  it("lets a HEADMASTER manage, with TEACHER markers active and no /people links", async () => {
+    as("HEADMASTER")
+    ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.sundaySchoolRollMarker.findMany as jest.Mock).mockResolvedValueOnce([
+      { user: { id: 9, name: "Teach One", email: "t1@example.com", role: "TEACHER" } },
+      { user: { id: 7, name: "Vol Two", email: "v2@example.com", role: "EVENT_ORGANISER" } },
+    ])
+    const html = await renderClass()
+    expect(html).toContain(">Take roll<")
+    expect(html).toContain(">Edit<")
+    expect(html).toContain('data-readonly="false"')
+    expect(html).toContain('data-link="false"')
+    expect(html).toContain("Teach One:true,Vol Two:true")
+    expect((prisma.user.findMany as jest.Mock).mock.calls[0][0].where).toEqual({
+      role: { in: ["TEACHER", "EVENT_ORGANISER"] }, archivedAt: null,
+    })
+    // Adults' names are never queried for a HEADMASTER (children only).
+    const roles = (prisma.person.findMany as jest.Mock).mock.calls.map(([a]) => a.where.role)
+    expect(roles).toContainEqual({ equals: "CHILD" })
+    expect(roles).not.toContainEqual({ not: "CHILD" })
+  })
+
+  it("links people pages for staff who can view people", async () => {
+    as("OFFICE_ADMIN")
+    ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+    expect(await renderClass()).toContain('data-link="true"')
   })
 
   it("renders an archived class read-only even for an editor", async () => {

@@ -618,6 +618,15 @@ describe("user actions — OFFICE_ADMIN escalation guards", () => {
     await expect(createUser(undefined, fd({ name: "X", email: "x@y.com", password: "Abcdef1!", role: "VIEWER" })))
       .rejects.toThrow("REDIRECT")                      // redirect() throws on success
   })
+  it.each(["HEADMASTER", "TEACHER"])("OFFICE_ADMIN can create a %s", async (role) => {
+    mockAuth({ user: { id: "1", role: "OFFICE_ADMIN" } })
+    mockQueryRaw.mockResolvedValue([])
+    prismaMock.create.mockResolvedValue({ id: 9 } as never)
+    mockRedirect.mockImplementationOnce(() => { throw new Error("REDIRECT") })
+    await expect(createUser(undefined, fd({ name: "X", email: "x@example.com", password: "Abcdef1!", role })))
+      .rejects.toThrow("REDIRECT")
+    expect(prismaMock.create).toHaveBeenCalled()
+  })
   // PASTOR is elevated (canAccessAccounting + canSeePastoralNotes, both denied
   // to OFFICE_ADMIN). Granting/editing it must be ADMIN-only too, not just ADMIN
   // — else an OFFICE_ADMIN self-grants PASTOR or takes over a

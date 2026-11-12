@@ -10,22 +10,53 @@ export function isOrganiserAllowedPath(pathname: string): boolean {
   if (pathname === "/my-classes" || pathname.startsWith("/my-classes/")) return true
   // /my-groups pages self-gate on GroupLeaderAccess (canManageGroupMembers).
   if (pathname === "/my-groups" || pathname.startsWith("/my-groups/")) return true
-  if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true
-  if (pathname.startsWith("/_next")) return true
-  if (pathname === "/api/health") return true
-
-  // Public paths that organisers can access, but exclude the public register/waitlist APIs
-  if (isPublicPath(pathname)) {
-    // Block the public event register and waitlist endpoints (they are public to unauth users
-    // but organisers shouldn't hit them directly — they use the web UI)
-    if (pathname.startsWith("/api/events/") && (pathname.endsWith("/register") || pathname.endsWith("/waitlist"))) {
-      return false
-    }
-    return true
-  }
+  if (isConfinedInfraPath(pathname)) return true
 
   // Membership-gated export + print entry points (self-gated downstream).
   if (pathname.startsWith("/api/events/") && pathname.endsWith("/export-csv")) return true
   if (pathname.startsWith("/events/") && pathname.endsWith("/registrations/print")) return true
   return false
+}
+
+/**
+ * Paths every confined login (EVENT_ORGANISER, TEACHER, HEADMASTER) needs:
+ * auth, framework assets, health, and public pages — minus the public event
+ * register/waitlist APIs (public to anonymous visitors, but a confined login
+ * uses the web UI, not those endpoints directly).
+ * @param pathname request pathname
+ */
+function isConfinedInfraPath(pathname: string): boolean {
+  if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true
+  if (pathname.startsWith("/_next")) return true
+  if (pathname === "/api/health") return true
+  if (isPublicPath(pathname)) {
+    return !(pathname.startsWith("/api/events/") && (pathname.endsWith("/register") || pathname.endsWith("/waitlist")))
+  }
+  return false
+}
+
+/**
+ * The ONLY paths a TEACHER may reach: /my-classes (pages self-gate per class on
+ * canMarkRoll) plus confined infra. No /my-events or /my-groups; everything else
+ * redirects to /my-classes.
+ * @param pathname request pathname
+ */
+export function isTeacherAllowedPath(pathname: string): boolean {
+  for (const root of ["/my-classes", "/account", "/help"]) {
+    if (pathname === root || pathname.startsWith(`${root}/`)) return true
+  }
+  return isConfinedInfraPath(pathname)
+}
+
+/**
+ * The ONLY paths a HEADMASTER may reach: /sunday-school, their own /account
+ * (password, 2FA, passkeys) and /help, plus confined infra. Everything else
+ * (people, accounting, every other API) redirects to /sunday-school.
+ * @param pathname request pathname
+ */
+export function isHeadmasterAllowedPath(pathname: string): boolean {
+  for (const root of ["/sunday-school", "/account", "/help"]) {
+    if (pathname === root || pathname.startsWith(`${root}/`)) return true
+  }
+  return isConfinedInfraPath(pathname)
 }

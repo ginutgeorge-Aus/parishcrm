@@ -37,58 +37,59 @@ model Family {
 }
 
 model Person {
-  id                     Int                      @id @default(autoincrement())
-  familyId               Int
-  family                 Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  firstName              String
-  lastName               String
-  middleName             String?
-  title                  String?
-  suffix                 String?
-  gender                 Gender?
-  dateOfBirth            String?
-  role                   FamilyRole               @default(OTHER)
-  classification         Classification           @default(MEMBER)
-  email                  String?
+  id                      Int                      @id @default(autoincrement())
+  familyId                Int
+  family                  Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  firstName               String
+  lastName                String
+  middleName              String?
+  title                   String?
+  suffix                  String?
+  gender                  Gender?
+  dateOfBirth             String?
+  role                    FamilyRole               @default(OTHER)
+  classification          Classification           @default(MEMBER)
+  email                   String?
   // Deterministic blind index of email (HMAC, see crypto-core.hmacEmail) so the
   // person-export matches registrations by an indexed lookup instead of a
   // full-table decrypt scan. Set wherever `email` is written.
-  emailHash              String?
-  mobile                 String?
+  emailHash               String?
+  mobile                  String?
   // Deterministic blind index of mobile (HMAC, see crypto-core.hmacMobile) so
   // MembershipApplication family-match can look up an encrypted mobile by an
   // indexed lookup instead of a decrypt scan. Set wherever `mobile` is written.
-  mobileHash             String?
-  workPhone              String?
-  homePhone              String?
-  photoUrl               String?
-  membershipDate         DateTime?
-  baptismDate            DateTime?
-  notes                  String? // encrypted at rest
-  profession             String?
-  motherParish           String?
-  maritalStatus          String?
-  pastoralNotes          String?
-  emergencyContactName   String?
-  emergencyContactPhone  String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  emailConsent           Boolean                  @default(true)
-  consentUpdatedAt       DateTime?
-  archivedAt             DateTime?
-  bankingName            String?
-  ministryRoles          MinistryRole[]           @default([])
-  transactions           Transaction[]
-  pettyCashSessions      PettyCashSession[]
-  pettyCashReceipts      PettyCashReceipt[]
-  dgrReceipts            DgrReceipt[]
-  celebrationSends       CelebrationSend[]
-  clearances             PersonClearance[]
-  sundaySchoolTeaching   SundaySchoolTeacher[]
-  sundaySchoolEnrolments SundaySchoolEnrolment[]
-  sundaySchoolAttendance SundaySchoolAttendance[]
-  groupMemberships       GroupMember[]
-  invoices               Invoice[]
+  mobileHash              String?
+  workPhone               String?
+  homePhone               String?
+  photoUrl                String?
+  membershipDate          DateTime?
+  baptismDate             DateTime?
+  notes                   String? // encrypted at rest
+  profession              String?
+  motherParish            String?
+  maritalStatus           String?
+  pastoralNotes           String?
+  emergencyContactName    String?
+  emergencyContactPhone   String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  emailConsent            Boolean                  @default(true)
+  consentUpdatedAt        DateTime?
+  archivedAt              DateTime?
+  bankingName             String?
+  ministryRoles           MinistryRole[]           @default([])
+  transactions            Transaction[]
+  pettyCashSessions       PettyCashSession[]
+  pettyCashReceipts       PettyCashReceipt[]
+  dgrReceipts             DgrReceipt[]
+  celebrationSends        CelebrationSend[]
+  clearances              PersonClearance[]
+  sundaySchoolTeaching    SundaySchoolTeacher[]
+  sundaySchoolEnrolments  SundaySchoolEnrolment[]
+  sundaySchoolAttendance  SundaySchoolAttendance[]
+  sundaySchoolExamResults SundaySchoolExamResult[]
+  groupMemberships        GroupMember[]
+  invoices                Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -152,6 +153,7 @@ model User {
   sundaySchoolRollMarkers      SundaySchoolRollMarker[]
   groupLeaderAccess            GroupLeaderAccess[]
   sundaySchoolAttendanceMarked SundaySchoolAttendance[] @relation("SsAttendanceMarkedBy")
+  sundaySchoolExamMarked       SundaySchoolExamResult[] @relation("SsExamMarkedBy")
   invitesCreated               FamilyUpdateInvite[]     @relation("InviteCreatedBy")
   submissionsReviewed          FamilyUpdateSubmission[] @relation("SubmissionReviewedBy")
   trustedDevices               TrustedDevice[]
@@ -543,6 +545,8 @@ enum UserRole {
   AUDITOR
   OFFICE_ADMIN
   EVENT_ORGANISER
+  HEADMASTER
+  TEACHER
 }
 
 enum AccountType {
@@ -1329,6 +1333,7 @@ model SundaySchoolClass {
   enrolments  SundaySchoolEnrolment[]
   sessions    SundaySchoolSession[]
   rollMarkers SundaySchoolRollMarker[]
+  exams       SundaySchoolExam[]
 
   @@unique([year, name, location])
   // Target of SundaySchoolEnrolment's (classId, year) FK, so an enrolment's year
@@ -1420,6 +1425,43 @@ model SundaySchoolRollMarker {
 
   @@unique([classId, userId])
   @@index([userId])
+}
+
+// An exam set for a class in its school year. `year` is copied from the class
+// (FK on (classId, year), like enrolment) so results stay on the class/year the
+// exam belongs to when a child later moves class. Archive, never delete.
+model SundaySchoolExam {
+  id         Int                      @id @default(autoincrement())
+  classId    Int
+  year       Int
+  name       String
+  date       DateTime                 @db.Date
+  totalMarks Decimal                  @db.Decimal(10, 2)
+  archivedAt DateTime?
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+  class      SundaySchoolClass        @relation(fields: [classId, year], references: [id, year], onDelete: Cascade)
+  results    SundaySchoolExamResult[]
+
+  @@index([classId, archivedAt])
+}
+
+// One score per child per exam (0..totalMarks). No row = not marked; a "0"
+// score is a real mark.
+model SundaySchoolExamResult {
+  id         Int              @id @default(autoincrement())
+  examId     Int
+  personId   Int
+  score      Decimal          @db.Decimal(10, 2)
+  markedAt   DateTime         @updatedAt
+  markedById Int?
+  exam       SundaySchoolExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  person     Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+  markedBy   User?            @relation("SsExamMarkedBy", fields: [markedById], references: [id], onDelete: SetNull)
+
+  @@unique([examId, personId])
+  @@index([personId])
+  @@index([markedById])
 }
 
 enum VenueBookingStatus {

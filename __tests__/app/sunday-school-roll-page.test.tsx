@@ -46,6 +46,15 @@ describe("/sunday-school/[id]/roll", () => {
     as("AUDITOR")
     await expect(staff()).rejects.toThrow("REDIRECT /")
   })
+  it("redirects a TEACHER home (teachers use /my-classes)", async () => {
+    as("TEACHER")
+    await expect(staff()).rejects.toThrow("REDIRECT /")
+  })
+  it("lets a HEADMASTER mark", async () => {
+    as("HEADMASTER")
+    ;(canMarkRoll as jest.Mock).mockResolvedValue(true)
+    expect(await staff()).toContain('data-readonly="false"')
+  })
   it("is read-only for a VIEWER", async () => {
     as("VIEWER")
     ;(canMarkRoll as jest.Mock).mockResolvedValue(false)

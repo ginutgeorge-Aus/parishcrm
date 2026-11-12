@@ -18,6 +18,6 @@ describe("RollMarkersPanel", () => {
     expect(screen.getByText(/Volunteer One/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull()
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
-    expect(screen.queryByText(/No unassigned Event organiser logins/)).toBeNull()
+    expect(screen.queryByText(/No unassigned Teacher logins/)).toBeNull()
   })
 })

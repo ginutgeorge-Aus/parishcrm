@@ -3,7 +3,7 @@
  */
 import { render, screen } from "@testing-library/react"
 import { OrganiserHeader } from "@/components/organiser/OrganiserHeader"
-import { organiserHome } from "@/lib/organiserHome"
+import { CLASSES_HOME, organiserHome } from "@/lib/organiserHome"
 
 jest.mock("@/lib/actions/session", () => ({ logout: jest.fn() }))
 jest.mock("next/image", () => ({ __esModule: true, default: () => null }))
@@ -37,4 +37,12 @@ it("brands with the home resolved by the layout", () => {
   render(<OrganiserHeader showEvents={false} home={organiserHome(new Set(["sundaySchool"]))} />)
   expect(screen.getByRole("link", { name: "My Classes" })).toHaveAttribute("href", "/my-classes")
   expect(screen.queryByRole("link", { name: "My Events" })).not.toBeInTheDocument()
+})
+
+it("shows only the Classes link for a teacher (no Events, no Groups)", () => {
+  render(<OrganiserHeader showEvents={false} showGroups={false} home={CLASSES_HOME} />)
+  expect(screen.getByRole("link", { name: "Classes" })).toHaveAttribute("href", "/my-classes")
+  expect(screen.queryByRole("link", { name: "Events" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "Groups" })).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "My Classes" })).toHaveAttribute("href", "/my-classes")
 })

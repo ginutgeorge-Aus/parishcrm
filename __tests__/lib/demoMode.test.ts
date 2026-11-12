@@ -33,7 +33,7 @@ describe("demoMode", () => {
 
   it("has one login per role, all on the reserved domain", () => {
     expect(DEMO_LOGINS.map((l) => l.role).sort()).toEqual(
-      ["ADMIN", "AUDITOR", "EVENT_ORGANISER", "OFFICE_ADMIN", "PASTOR", "VIEWER"],
+      ["ADMIN", "AUDITOR", "EVENT_ORGANISER", "HEADMASTER", "OFFICE_ADMIN", "PASTOR", "TEACHER", "VIEWER"],
     )
     for (const l of DEMO_LOGINS) expect(l.email.endsWith(DEMO_EMAIL_DOMAIN)).toBe(true)
   })

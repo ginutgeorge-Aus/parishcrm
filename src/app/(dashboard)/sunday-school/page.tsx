@@ -2,7 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canEdit, canViewPeople, isAdmin } from "@/lib/roleGuard"
+import { canBrowseSundaySchool, canManageSundaySchool, isAdmin } from "@/lib/roleGuard"
 import { LockedYearNotice, LockYearButton } from "@/components/sunday-school/LockedYearNotice"
 import { currentSchoolYear, parseSchoolYear } from "@/lib/sundaySchool"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
@@ -25,16 +25,16 @@ function rolledSummary(raw: string | undefined): string | null {
   return raw && ROLLED.test(raw) ? raw : null
 }
 
-/** Sunday School classes for one school year, grouped by location. canViewPeople to view; canEdit sees controls. */
+/** Sunday School classes for one school year, grouped by location. canBrowseSundaySchool to view; canManageSundaySchool sees controls. */
 export default async function SundaySchoolPage(props: Readonly<Props>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
-  if (!canViewPeople(session.user.role)) redirect("/")
+  if (!canBrowseSundaySchool(session.user.role)) redirect("/")
   const sp = await props.searchParams
   const year = parseSchoolYear(sp.year)
   const locked = (await lockedYears([year])).has(year)
   // A rolled-over year is closed: no new classes or second rollover.
-  const editor = canEdit(session.user.role) && !locked
+  const editor = canManageSundaySchool(session.user.role) && !locked
   const rolled = rolledSummary(sp.rolled)
 
   const classes = await prisma.sundaySchoolClass.findMany({

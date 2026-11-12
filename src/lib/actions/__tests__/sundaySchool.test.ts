@@ -62,7 +62,7 @@ beforeEach(() => {
 })
 
 describe("lockSundaySchoolYear", () => {
-  it.each([UserRole.PASTOR, UserRole.OFFICE_ADMIN, UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])(
+  it.each([UserRole.PASTOR, UserRole.OFFICE_ADMIN, UserRole.HEADMASTER, UserRole.TEACHER, UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])(
     "%s is rejected with no write and no audit", async (role) => {
       as(role)
       expect(await lockSundaySchoolYear(2025)).toEqual({ error: "Unauthorized" })
@@ -219,7 +219,7 @@ describe("year lock (rolled-over year)", () => {
 })
 
 describe("guards", () => {
-  it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER])("%s cannot mutate", async (role) => {
+  it.each([UserRole.VIEWER, UserRole.AUDITOR, UserRole.EVENT_ORGANISER, UserRole.TEACHER])("%s cannot mutate", async (role) => {
     as(role)
     expect(await archiveClass(1)).toEqual({ error: "Unauthorized" })
     expect(await enrolChildren(1, [2])).toEqual({ error: "Unauthorized" })
@@ -247,6 +247,18 @@ describe("guards", () => {
 })
 
 describe("createClass", () => {
+  it("lets a HEADMASTER create a class", async () => {
+    as(UserRole.HEADMASTER)
+    ;(prisma.sundaySchoolClass.create as jest.Mock).mockResolvedValue({ id: 5 })
+    await expect(createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).rejects.toThrow("NEXT_REDIRECT")
+    expect(prisma.sundaySchoolClass.create).toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith("/sunday-school/5")
+  })
+  it("refuses a TEACHER", async () => {
+    as(UserRole.TEACHER)
+    expect(await createClass(2026, undefined, form({ name: "Kindy", level: "0" }))).toEqual({ error: "Unauthorized" })
+    expect(prisma.sundaySchoolClass.create).not.toHaveBeenCalled()
+  })
   it("maps a duplicate to a friendly error", async () => {
     as(UserRole.ADMIN)
     ;(prisma.sundaySchoolClass.create as jest.Mock).mockRejectedValue({ code: "P2002" })

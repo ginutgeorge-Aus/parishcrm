@@ -86,6 +86,20 @@ describe("roll guards", () => {
     expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
     expect(p.sundaySchoolAttendance.createMany).not.toHaveBeenCalled()
   })
+  it("lets a TEACHER mark an assigned class, not another", async () => {
+    as(UserRole.TEACHER)
+    expect(await setAttendance(4, "2026-10-11", 3, "PRESENT")).toBeUndefined()
+    expect(canMarkRoll).toHaveBeenCalledWith(1, 4, UserRole.TEACHER)
+    expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalledTimes(1)
+    ;(canMarkRoll as jest.Mock).mockResolvedValue(false)
+    expect(await setAttendance(5, "2026-10-11", 3, "PRESENT")).toEqual({ error: "Unauthorized" })
+    expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalledTimes(1)
+  })
+  it("lets a HEADMASTER mark", async () => {
+    as(UserRole.HEADMASTER)
+    expect(await setAttendance(4, "2026-10-11", 3, "PRESENT")).toBeUndefined()
+    expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalledTimes(1)
+  })
   it("refuses a signed-out user", async () => {
     ;(auth as jest.Mock).mockResolvedValue(null)
     expect(await setAttendance(4, "2026-10-11", 3, "PRESENT")).toEqual({ error: "Unauthorized" })
@@ -210,7 +224,7 @@ describe("markUnmarkedPresent", () => {
 })
 
 describe("roll markers", () => {
-  it.each([UserRole.EVENT_ORGANISER, UserRole.VIEWER, UserRole.AUDITOR])("%s cannot assign", async (role) => {
+  it.each([UserRole.EVENT_ORGANISER, UserRole.TEACHER, UserRole.VIEWER, UserRole.AUDITOR])("%s cannot assign", async (role) => {
     as(role)
     expect(await addRollMarker(4, 9)).toEqual({ error: "Unauthorized" })
     expect(await removeRollMarker(4, 9)).toEqual({ error: "Unauthorized" })
@@ -220,7 +234,7 @@ describe("roll markers", () => {
   it("refuses a non-organiser or archived target", async () => {
     as(UserRole.OFFICE_ADMIN)
     p.user.findFirst.mockResolvedValueOnce({ role: UserRole.VIEWER }).mockResolvedValueOnce(null)
-    expect(await addRollMarker(4, 9)).toEqual({ error: "User is not an event organiser" })
+    expect(await addRollMarker(4, 9)).toEqual({ error: "User is not a teacher or event organiser" })
     expect(await addRollMarker(4, 9)).toEqual({ error: "User not found" })
     expect(p.user.findFirst.mock.calls[0][0].where).toEqual({ id: 9, archivedAt: null })
   })
@@ -230,6 +244,12 @@ describe("roll markers", () => {
     expect(p.sundaySchoolRollMarker.createMany).toHaveBeenCalledWith({ data: [{ classId: 4, userId: 9 }], skipDuplicates: true })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_ROLL_MARKER_ADDED", "SundaySchoolClass", 4, { targetUserId: 9 })
     expect(revalidatePath).toHaveBeenCalledWith("/my-classes")
+  })
+  it.each([UserRole.TEACHER, UserRole.EVENT_ORGANISER])("a HEADMASTER assigns a %s login", async (target) => {
+    as(UserRole.HEADMASTER)
+    p.user.findFirst.mockResolvedValue({ role: target })
+    expect(await addRollMarker(4, 9)).toBeUndefined()
+    expect(p.sundaySchoolRollMarker.createMany).toHaveBeenCalledWith({ data: [{ classId: 4, userId: 9 }], skipDuplicates: true })
   })
   it("refuses marker changes once the class is archived under the lock", async () => {
     p.user.findFirst.mockResolvedValue({ role: UserRole.EVENT_ORGANISER })

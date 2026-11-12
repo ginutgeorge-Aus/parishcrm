@@ -1,9 +1,9 @@
 ---
 title: "Roles and Permissions"
-description: "ParishCRM uses a single role field per user account, chosen from six fixed roles. Every permission check in the app — page access, server actions, API routes…"
+description: "ParishCRM uses a single role field per user account, chosen from eight fixed roles. Every permission check in the app — page access, server actions, API routes…"
 ---
 
-ParishCRM uses a single role field per user account, chosen from six fixed roles. Every
+ParishCRM uses a single role field per user account, chosen from eight fixed roles. Every
 permission check in the app — page access, server actions, API routes — reduces to a small
 set of role-helper functions, so the effective permission model is centralized and
 predictable rather than scattered checks. This page is the reference matrix; see
@@ -21,12 +21,12 @@ how roles are assigned and changed.
 
 ## How it works
 
-All six roles are defined once, in the Prisma `UserRole` enum, and read everywhere through a
+All eight roles are defined once, in the Prisma `UserRole` enum, and read everywhere through a
 small set of helper functions in `src/lib/roleGuard.ts`. Nothing checks `role === "ADMIN"`
 inline outside that file — every gate (page, layout, server action, API route) calls one of
 these helpers, so the permission boundary lives in one place.
 
-### The six roles
+### The eight roles
 
 | Role | Summary |
 |------|---------|
@@ -35,7 +35,9 @@ these helpers, so the permission boundary lives in one place.
 | `OFFICE_ADMIN` | Day-to-day office operations: people/family/event editing, read-only accounting, and user management — except it cannot touch ADMIN or PASTOR accounts or grant either role (self-escalation guard). |
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
-| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages the rolls of Sunday School classes they're assigned to (`/my-classes`) and the members of groups linked to their login (`/my-groups`). They can edit the public details of events they manage at /my-events/[id]/edit. |
+| `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages, the members of groups linked to their login (`/my-groups`), and (legacy roll-marker logins) the rolls of assigned Sunday School classes (`/my-classes`). They can edit the public details of events they manage at /my-events/[id]/edit. |
+| `HEADMASTER` | Sunday School only. Confined by middleware to `/sunday-school`, their own account page and help. All classes: setup, teachers, enrolment, rolls, exams, rollover. No people, accounting or pastoral notes. OFFICE_ADMIN may assign this role. |
+| `TEACHER` | Sunday School only. Confined to `/my-classes`: the classes they are assigned to (roll markers), taking the roll and entering exam marks. Sees child names only, no contact details. OFFICE_ADMIN may assign this role. |
 
 ### Role-assignment limits (privilege escalation guard)
 
@@ -67,32 +69,33 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 
 ### Full feature × role matrix
 
-| Feature / capability | ADMIN | PASTOR | OFFICE_ADMIN | AUDITOR | VIEWER | EVENT_ORGANISER |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events`, `/my-classes` and `/my-groups` |
-| View people & families | Yes | Yes | Yes | No | Yes | No |
-| Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) |
-| Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No |
-| Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only |
-| Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No |
-| Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) |
-| Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No |
-| Pastoral notes (view) | Yes | Yes | No | No | No | No |
-| Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No |
-| Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No |
-| Clearance digest email (monthly, opt-in) | Yes | Yes | No | No | No | No |
-| Safeguarding clearances — status badge only | Yes | Yes | Yes | No | Yes | No |
-| Accounting — view (transactions, reports, petty cash, Receipt log) | Yes | Yes | Yes | Yes | No | No |
-| Accounting — mutate (create/edit transactions, reconcile, close petty cash) | Yes | Yes | No | No | No | No |
-| CSV export (accounting) | Yes | Yes | Yes | Yes | No | No |
-| Invoices & customers — create, edit, send | Yes | Yes | No | No | No | No |
-| Invoices — view; recipient contact details and PDF download | Yes | Yes | Yes | Names/totals only, no contact or PDF | No | No |
-| Venue bookings — manage bookings, send requests, approve automatic send (`/venue-usage`) | Yes | Yes | Yes | No | No | No |
-| Venue bookings — settings and calendar link create/reset | Yes | No | No | No | No | No |
-| User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR targets) | No | No | No |
-| Assign ADMIN or PASTOR role | Yes | No | No | No | No | No |
-| Own event: view registrations, check attendees in | Yes | Yes | Yes | No | No | Yes (own events) |
-| Full CRUD everywhere / accounting admin | Yes | No | No | No | No | No |
+| Feature / capability | ADMIN | PASTOR | OFFICE_ADMIN | AUDITOR | VIEWER | EVENT_ORGANISER | HEADMASTER | TEACHER |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Dashboard / sidebar access | Yes | Yes | Yes | Yes | Yes | No — confined to `/my-events`, `/my-classes` and `/my-groups` | No — `/sunday-school` only | No — `/my-classes` only |
+| View people & families | Yes | Yes | Yes | No | Yes | No | No | No |
+| Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) | No | No |
+| Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No | Yes | No |
+| Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only | Yes | Assigned classes only |
+| Sunday School exams: create, enter marks (`/sunday-school/[id]/exams`) | Yes | Yes | Yes | No | View only | No | Yes | Assigned classes: enter marks only |
+| Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No | No | No |
+| Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) | No | No |
+| Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No | No | No |
+| Pastoral notes (view) | Yes | Yes | No | No | No | No | No | No |
+| Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No | No | No |
+| Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No | No | No |
+| Clearance digest email (monthly, opt-in) | Yes | Yes | No | No | No | No | No | No |
+| Safeguarding clearances — status badge only | Yes | Yes | Yes | No | Yes | No | No | No |
+| Accounting — view (transactions, reports, petty cash, Receipt log) | Yes | Yes | Yes | Yes | No | No | No | No |
+| Accounting — mutate (create/edit transactions, reconcile, close petty cash) | Yes | Yes | No | No | No | No | No | No |
+| CSV export (accounting) | Yes | Yes | Yes | Yes | No | No | No | No |
+| Invoices & customers — create, edit, send | Yes | Yes | No | No | No | No | No | No |
+| Invoices — view; recipient contact details and PDF download | Yes | Yes | Yes | Names/totals only, no contact or PDF | No | No | No | No |
+| Venue bookings — manage bookings, send requests, approve automatic send (`/venue-usage`) | Yes | Yes | Yes | No | No | No | No | No |
+| Venue bookings — settings and calendar link create/reset | Yes | No | No | No | No | No | No | No |
+| User management (create/edit/deactivate/unlock) | Yes | No | Yes (not ADMIN/PASTOR targets) | No | No | No | No | No |
+| Assign ADMIN or PASTOR role | Yes | No | No | No | No | No | No | No |
+| Own event: view registrations, check attendees in | Yes | Yes | Yes | No | No | Yes (own events) | No | No |
+| Full CRUD everywhere / accounting admin | Yes | No | No | No | No | No | No | No |
 
 Role helpers and where each lives, for reference:
 
@@ -107,7 +110,7 @@ Role helpers and where each lives, for reference:
 | `canSeePastoralNotes` | ADMIN \| PASTOR |
 | `canManageUsers` | ADMIN \| OFFICE_ADMIN (target/role limits per `canAssignRole`) |
 | `canAssignRole(actor, target)` | Whether `actor` may assign/act on `target` role |
-| `canMarkRoll` (`src/lib/sundaySchoolAccess.ts`) | Editors for any class; EVENT_ORGANISER only for classes they are assigned to as roll marker |
+| `canMarkRoll` (`src/lib/sundaySchoolAccess.ts`) | Editors and HEADMASTER for any class; TEACHER (and legacy EVENT_ORGANISER) only for classes they are assigned to as roll marker |
 | `canViewGroups` | Same as `canViewPeople` |
 | `canManageGroups` | ADMIN \| PASTOR \| OFFICE_ADMIN (same as `canEdit`) |
 | `canManageGroupMembers` (`src/lib/groupAccess.ts`) | Group managers for any group; EVENT_ORGANISER only for groups linked to their login |

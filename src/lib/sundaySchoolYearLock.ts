@@ -88,7 +88,8 @@ export async function blockYearClosers(tx: Prisma.TransactionClient): Promise<vo
 }
 
 /**
- * Count `personId`'s Sunday School rows (teacher, enrolment, attendance) in
+ * Count `personId`'s Sunday School rows (teacher, enrolment, attendance, exam
+ * result) in
  * locked years. A hard person delete would cascade them away and rewrite closed
  * history, so deletePerson refuses while this is non-zero. Run it in the
  * delete's Serializable transaction, after blockYearClosers, so a concurrent
@@ -98,12 +99,13 @@ export async function lockedYearRefs(tx: Prisma.TransactionClient, personId: num
   const years = (await tx.sundaySchoolYearLock.findMany({ select: { year: true } })).map((r) => r.year)
   if (years.length === 0) return 0
   const inLocked = { year: { in: years } }
-  const [teaching, enrolled, marked] = await Promise.all([
+  const [teaching, enrolled, marked, scored] = await Promise.all([
     tx.sundaySchoolTeacher.count({ where: { personId, class: inLocked } }),
     tx.sundaySchoolEnrolment.count({ where: { personId, ...inLocked } }),
     tx.sundaySchoolAttendance.count({ where: { personId, session: { class: inLocked } } }),
+    tx.sundaySchoolExamResult.count({ where: { personId, exam: inLocked } }),
   ])
-  return teaching + enrolled + marked
+  return teaching + enrolled + marked + scored
 }
 
 /** Years (from `years`) that are locked, for pages deciding whether to show edit UI. */

@@ -1,8 +1,9 @@
 "use server"
 
 // Sunday School roll (OSS-10): marking attendance and assigning roll markers.
-// Marking = canMarkRoll (editors for any class, an assigned EVENT_ORGANISER for
-// their classes); roll-marker assignment = canEdit.
+// Marking = canMarkRoll (editors + HEADMASTER for any class, an assigned TEACHER
+// or EVENT_ORGANISER for their classes); roll-marker assignment =
+// canManageSundaySchool.
 
 import { revalidatePath } from "next/cache"
 import type { Session } from "next-auth"
@@ -14,7 +15,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { UserRole, type AttendanceStatus } from "@/lib/generated/prisma/enums"
-import { canEdit, canEditOrOrganise } from "@/lib/roleGuard"
+import { canManageSundaySchool, isEventOrganiser, isTeacher } from "@/lib/roleGuard"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
 import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
@@ -30,6 +31,15 @@ const KEEP_HISTORY = "This child has left the class, so their mark can be change
 type RollGuard = { error: string } | { actor: number; ymd: string }
 
 /**
+ * Coarse, DB-free pre-check: could this role mark ANY class? The per-class
+ * assignment is checked by canMarkRoll.
+ * @param role the caller's role
+ */
+function canMarkSomeRoll(role: UserRole | undefined): boolean {
+  return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
+}
+
+/**
  * Shared guard for the two roll actions: demo block, feature check, signed in, valid id,
  * canMarkRoll, live class, and a real past-or-today date inside the class year.
  * Module-private ("use server" exports must be async actions).
@@ -38,7 +48,7 @@ async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!session?.user || !canEditOrOrganise(session.user.role)) return { error: "Unauthorized" }
+  if (!session?.user || !canMarkSomeRoll(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
   if (!isValidPgId(classId)) return { error: "Invalid class" }
@@ -192,12 +202,15 @@ export async function markUnmarkedPresent(classId: number, ymd: string): Promise
 
 type EditorGuard = { error: string } | { session: Session | null }
 
-/** Demo block, feature check, editor role, valid ids, live class — for roll-marker assignment. */
+/**
+ * Demo block, feature check, manager role (canManageSundaySchool), valid ids,
+ * live class — for roll-marker assignment.
+ */
 async function markerGuard(classId: number, userId: number): Promise<EditorGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!canEdit(session?.user?.role)) return { error: "Unauthorized" }
+  if (!canManageSundaySchool(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
   if (!isValidPgId(classId) || !isValidPgId(userId)) return { error: "Invalid input" }
@@ -207,8 +220,8 @@ async function markerGuard(classId: number, userId: number): Promise<EditorGuard
 }
 
 /**
- * Let a live EVENT_ORGANISER login take this class's roll. canEdit-gated.
- * Duplicate = success (unique classId_userId).
+ * Let a live TEACHER (or legacy EVENT_ORGANISER) login take this class's roll.
+ * canManageSundaySchool-gated. Duplicate = success (unique classId_userId).
  */
 export async function addRollMarker(classId: number, userId: number): Promise<ActionResult> {
   const g = await markerGuard(classId, userId)
@@ -216,7 +229,9 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
   // findFirst so an archived (soft-deleted) user can't be assigned by id.
   const user = await prisma.user.findFirst({ where: { id: userId, archivedAt: null }, select: { role: true } })
   if (!user) return { error: "User not found" }
-  if (user.role !== UserRole.EVENT_ORGANISER) return { error: "User is not an event organiser" }
+  if (user.role !== UserRole.TEACHER && user.role !== UserRole.EVENT_ORGANISER) {
+    return { error: "User is not a teacher or event organiser" }
+  }
 
   // Under the class lock, so an archive can't commit between the guard and the write.
   const r = await withLiveClass(classId, async (tx) => {
@@ -230,7 +245,7 @@ export async function addRollMarker(classId: number, userId: number): Promise<Ac
   revalidatePath("/my-classes")
 }
 
-/** Remove a roll marker from a class (missing link = success). canEdit-gated. */
+/** Remove a roll marker from a class (missing link = success). canManageSundaySchool-gated. */
 export async function removeRollMarker(classId: number, userId: number): Promise<ActionResult> {
   const g = await markerGuard(classId, userId)
   if ("error" in g) return { error: g.error }

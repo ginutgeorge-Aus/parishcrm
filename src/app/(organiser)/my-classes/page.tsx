@@ -27,16 +27,22 @@ export default async function MyClassesPage() {
       ) : (
         <ul className="space-y-3">
           {classes.map((c) => (
-            <li key={c.id}>
+            <li key={c.id} className="flex items-stretch gap-2">
               <Link
                 href={`/my-classes/${c.id}/roll`}
-                className="flex items-center justify-between rounded-lg border bg-card p-4 transition-colors duration-200 hover:bg-accent"
+                className="flex min-w-0 flex-1 items-center justify-between rounded-lg border bg-card p-4 transition-colors duration-200 hover:bg-accent"
               >
                 <div>
                   <p className="font-medium text-foreground">{c.name}</p>
                   <p className="text-sm text-muted-foreground">{[c.location, String(c.year)].filter(Boolean).join(" · ")}</p>
                 </div>
                 <span className="text-sm text-muted-foreground">Take roll →</span>
+              </Link>
+              <Link
+                href={`/my-classes/${c.id}/exams`}
+                className="flex items-center rounded-lg border bg-card px-4 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent"
+              >
+                Exams
               </Link>
             </li>
           ))}
