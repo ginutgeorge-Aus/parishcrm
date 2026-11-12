@@ -173,3 +173,12 @@ export function canManageSundaySchool(role: UserRole | undefined): boolean {
 export function canViewSundaySchool(role: UserRole | undefined): boolean {
   return canManageSundaySchool(role) || role === UserRole.VIEWER || isTeacher(role)
 }
+
+/**
+ * The staff /sunday-school screens (every class): managers plus VIEWER
+ * (read-only). TEACHER is excluded — teachers use /my-classes, gated per class.
+ * @param role the caller's role
+ */
+export function canBrowseSundaySchool(role: UserRole | undefined): boolean {
+  return canManageSundaySchool(role) || role === UserRole.VIEWER
+}

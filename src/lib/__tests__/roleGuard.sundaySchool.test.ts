@@ -1,5 +1,6 @@
 import { UserRole } from "@/lib/generated/prisma/enums"
 import {
+  canBrowseSundaySchool,
   canEdit,
   canManageSundaySchool,
   canViewAccounting,
@@ -34,6 +35,12 @@ describe("canViewSundaySchool", () => {
   it.each([...MANAGERS, ...VIEW_ONLY])("allows %s", (role) => expect(canViewSundaySchool(role)).toBe(true))
   it.each(BLOCKED)("denies %s", (role) => expect(canViewSundaySchool(role)).toBe(false))
   it("denies a role-less session", () => expect(canViewSundaySchool(undefined)).toBe(false))
+})
+
+describe("canBrowseSundaySchool", () => {
+  it.each([...MANAGERS, UserRole.VIEWER])("allows %s", (role) => expect(canBrowseSundaySchool(role)).toBe(true))
+  it.each([UserRole.TEACHER, ...BLOCKED])("denies %s", (role) => expect(canBrowseSundaySchool(role)).toBe(false))
+  it("denies a role-less session", () => expect(canBrowseSundaySchool(undefined)).toBe(false))
 })
 
 // Headmasters and teachers run Sunday school only: no people/PII, no accounting,

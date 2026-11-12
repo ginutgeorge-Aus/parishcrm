@@ -2,17 +2,17 @@ import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canEdit } from "@/lib/roleGuard"
+import { canManageSundaySchool } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { updateClass } from "@/lib/actions/sundaySchool"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { ClassForm } from "@/components/sunday-school/ClassForm"
 import { ArchiveClassButton } from "@/components/sunday-school/ArchiveClassButton"
 
-/** Edit a live Sunday School class (name, level, location) or archive it. canEdit only. */
+/** Edit a live Sunday School class (name, level, location) or archive it. canManageSundaySchool only. */
 export default async function EditClassPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const session = await auth()
-  if (!canEdit(session?.user?.role)) redirect("/sunday-school")
+  if (!canManageSundaySchool(session?.user?.role)) redirect("/sunday-school")
   const id = parseRouteId((await props.params).id)
   if (id === null) notFound()
 

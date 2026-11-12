@@ -15,14 +15,16 @@ type Candidate = { id: number; name: string }
 
 /**
  * A class's teachers, each with their WWCC status badge. Editors can remove a
- * teacher or add one of the People tagged Sunday school teacher.
+ * teacher or add one of the People tagged Sunday school teacher. `linkPeople`
+ * false (HEADMASTER: no people access) shows names as plain text.
  */
 export function TeachersPanel({
   classId,
   teachers,
   candidates,
   readOnly,
-}: Readonly<{ classId: number; teachers: Teacher[]; candidates: Candidate[]; readOnly: boolean }>) {
+  linkPeople = true,
+}: Readonly<{ classId: number; teachers: Teacher[]; candidates: Candidate[]; readOnly: boolean; linkPeople?: boolean }>) {
   const [personId, setPersonId] = useState("")
   const [result, setResult] = useState<{ error?: string } | null>(null)
   const [pending, startTransition] = useTransition()
@@ -46,7 +48,7 @@ export function TeachersPanel({
           {teachers.map((t) => (
             <li key={t.id} className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
               <span className="flex items-center gap-2">
-                <Link href={`/people/${t.id}`} className="hover:underline">{t.name}</Link>
+                {linkPeople ? <Link href={`/people/${t.id}`} className="hover:underline">{t.name}</Link> : t.name}
                 <span className="text-xs text-muted-foreground">WWCC</span>
                 <ClearanceStatusBadge status={t.wwcc} />
               </span>

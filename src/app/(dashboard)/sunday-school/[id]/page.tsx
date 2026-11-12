@@ -2,7 +2,8 @@ import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { canEdit, canViewPeople } from "@/lib/roleGuard"
+import { UserRole } from "@/lib/generated/prisma/enums"
+import { canBrowseSundaySchool, canManageSundaySchool, canViewPeople } from "@/lib/roleGuard"
 import { parseRouteId } from "@/lib/validation"
 import { clearanceStatus } from "@/lib/clearanceStatus"
 import { sydneyToday } from "@/lib/dates"
@@ -12,7 +13,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TeachersPanel } from "@/components/sunday-school/TeachersPanel"
 import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
 import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
-import { listAssignableOrganisers } from "@/lib/actions/eventAccess"
 import { rollCounts } from "@/lib/sundaySchoolRollView"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 
@@ -21,12 +21,12 @@ const byName = [{ lastName: "asc" as const }, { firstName: "asc" as const }]
 
 /**
  * Class detail: teachers (with WWCC status), enrolled children, recent rolls and
- * roll markers. canViewPeople to view; canEdit manages.
+ * roll markers. canBrowseSundaySchool to view; canManageSundaySchool manages.
  */
 export default async function ClassPage(props: Readonly<{ params: Promise<{ id: string }> }>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
-  if (!canViewPeople(session.user.role)) redirect("/")
+  if (!canBrowseSundaySchool(session.user.role)) redirect("/")
   const id = parseRouteId((await props.params).id)
   if (id === null) notFound()
 
@@ -54,9 +54,11 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
 
   // A rolled-over year is closed: same read-only view as an archived class.
   const locked = (await lockedYears([cls.year])).has(cls.year)
-  // Locked years stay viewable: editors still see roll-marker assignments, read-only.
-  const markerViewer = canEdit(session.user.role) && !cls.archivedAt
+  // Locked years stay viewable: managers still see roll-marker assignments, read-only.
+  const markerViewer = canManageSundaySchool(session.user.role) && !cls.archivedAt
   const editor = markerViewer && !locked
+  // HEADMASTER has no people access, so names are plain text, not /people links.
+  const linkPeople = canViewPeople(session.user.role)
   // Children and everyone else are capped separately so a large adult roll can
   // never crowd children out of the picker (the usual "Children only" view).
   const enrolQuery = (role: { equals: "CHILD" } | { not: "CHILD" }) => prisma.person.findMany({
@@ -87,7 +89,14 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         orderBy: { user: { name: "asc" } },
       })
       : [],
-    editor ? listAssignableOrganisers() : [],
+    // Logins that can be made roll markers: TEACHER, plus legacy EVENT_ORGANISER.
+    editor
+      ? prisma.user.findMany({
+        where: { role: { in: [UserRole.TEACHER, UserRole.EVENT_ORGANISER] }, archivedAt: null },
+        select: { id: true, name: true, email: true },
+        orderBy: { name: "asc" },
+      })
+      : [],
     prisma.sundaySchoolSession.findMany({
       where: { classId: id },
       orderBy: { date: "desc" },
@@ -146,6 +155,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
             teachers={teachers}
             candidates={teacherCandidates.map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))}
             readOnly={!editor}
+            linkPeople={linkPeople}
           />
         </CardContent>
       </Card>
@@ -153,7 +163,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
       <Card>
         <CardHeader><CardTitle>Children ({enrolled.length})</CardTitle></CardHeader>
         <CardContent>
-          <EnrolPanel classId={cls.id} enrolled={enrolled} candidates={candidates} readOnly={!editor} />
+          <EnrolPanel classId={cls.id} enrolled={enrolled} candidates={candidates} readOnly={!editor} linkPeople={linkPeople} />
         </CardContent>
       </Card>
 
@@ -185,7 +195,7 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
         <Card>
           <CardHeader><CardTitle>Roll markers</CardTitle></CardHeader>
           <CardContent>
-            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === "EVENT_ORGANISER" }))} assignable={assignableMarkers} readOnly={!editor} />
+            <RollMarkersPanel classId={cls.id} markers={rollMarkers.map(({ user: { role, ...u } }) => ({ ...u, active: role === UserRole.TEACHER || role === UserRole.EVENT_ORGANISER }))} assignable={assignableMarkers} readOnly={!editor} />
           </CardContent>
         </Card>
       )}

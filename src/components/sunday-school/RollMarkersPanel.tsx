@@ -9,12 +9,12 @@ import {
 import { addRollMarker, removeRollMarker } from "@/lib/actions/sundaySchoolAttendance"
 
 type Login = { id: number; name: string; email: string }
-/** An assigned marker; `active` false = the login is no longer an Event organiser, so it grants nothing. */
+/** An assigned marker; `active` false = the login is no longer a Teacher or Event organiser, so it grants nothing. */
 type Marker = Login & { active: boolean }
 
 /**
- * Assign volunteer logins (EVENT_ORGANISER) that may take this class's roll
- * from /my-classes. Editor-only; rendered inside the class page's card.
+ * Assign teacher logins (TEACHER, or legacy EVENT_ORGANISER) that may take this
+ * class's roll from /my-classes. Manager-only (canManageSundaySchool); rendered inside the class page's card.
  * `readOnly` (a locked year) lists the assignments without add/remove.
  */
 export function RollMarkersPanel({
@@ -42,7 +42,7 @@ export function RollMarkersPanel({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Volunteer logins (role <em>Event organiser</em>) that can take this class&apos;s roll from their phone.
+        Teacher logins (role <em>Teacher</em> or <em>Event organiser</em>) that can take this class&apos;s roll from their phone.
         Create the login under Users.
       </p>
       {markers.length > 0 ? (
@@ -51,7 +51,7 @@ export function RollMarkersPanel({
             <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
               <span className="min-w-0 truncate">
                 {m.name} <span className="text-muted-foreground">({m.email})</span>
-                {!m.active && <span className="ml-2 text-xs text-destructive">inactive: no longer an Event organiser</span>}
+                {!m.active && <span className="ml-2 text-xs text-destructive">inactive: no longer a Teacher or Event organiser</span>}
               </span>
               {!readOnly && (
                 <Button
@@ -92,7 +92,7 @@ export function RollMarkersPanel({
           </Button>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">No unassigned Event organiser logins. Create one in Users.</p>
+        <p className="text-xs text-muted-foreground">No unassigned Teacher logins. Create one in Users.</p>
       )}
       <FormFeedback state={{ error }} />
     </div>

@@ -17,13 +17,15 @@ type Candidate = { id: number; name: string; familyName: string; isChild: boolea
  * children" picker. Candidates are filtered by name and, by default, to people
  * whose family role is Child; one already in another class this year is
  * labelled "will move" (enrolChildren moves them). `readOnly` hides every control.
+ * `linkPeople` false (HEADMASTER: no people access) shows names as plain text.
  */
 export function EnrolPanel({
   classId,
   enrolled,
   candidates,
   readOnly,
-}: Readonly<{ classId: number; enrolled: Enrolled[]; candidates: Candidate[]; readOnly: boolean }>) {
+  linkPeople = true,
+}: Readonly<{ classId: number; enrolled: Enrolled[]; candidates: Candidate[]; readOnly: boolean; linkPeople?: boolean }>) {
   const [query, setQuery] = useState("")
   const [childrenOnly, setChildrenOnly] = useState(true)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -70,7 +72,7 @@ export function EnrolPanel({
           {enrolled.map((p) => (
             <li key={p.id} className="flex min-h-11 items-center justify-between gap-2 py-1">
               <span>
-                <Link href={`/people/${p.id}`} className="hover:underline">{p.name}</Link>
+                {linkPeople ? <Link href={`/people/${p.id}`} className="hover:underline">{p.name}</Link> : p.name}
                 <span className="text-sm text-muted-foreground"> · {p.familyName}</span>
               </span>
               {!readOnly && (

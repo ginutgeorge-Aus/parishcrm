@@ -1,16 +1,16 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { canEdit } from "@/lib/roleGuard"
+import { canManageSundaySchool } from "@/lib/roleGuard"
 import { parseSchoolYear } from "@/lib/sundaySchool"
 import { createClass } from "@/lib/actions/sundaySchool"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { ClassForm } from "@/components/sunday-school/ClassForm"
 
-/** New Sunday School class for `?year=` (default: current school year). canEdit only. */
+/** New Sunday School class for `?year=` (default: current school year). canManageSundaySchool only. */
 export default async function NewClassPage(props: Readonly<{ searchParams: Promise<{ year?: string }> }>) {
   const session = await auth()
-  if (!canEdit(session?.user?.role)) redirect("/sunday-school")
+  if (!canManageSundaySchool(session?.user?.role)) redirect("/sunday-school")
   const year = parseSchoolYear((await props.searchParams).year)
   // Rolled-over years are read-only; createClass refuses them too.
   if ((await lockedYears([year])).has(year)) redirect(`/sunday-school?year=${year}`)
