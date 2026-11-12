@@ -21,6 +21,7 @@ What's shown, top to bottom:
   - *Open petty cash sessions* → `/accounting/petty-cash` (Admin, Pastor — the roles that can close a session)
   - *Birthdays in the next 7 days* → `/people/birthdays` (roles that view people). Shown as "N+" when the birthday source list hit its fetch cap, since the true number may be higher.
 - **Money** (accounting-viewing roles only): one primary figure — this month's giving so far, with the change against the same month last year — plus a tile per payment account showing its balance since the opening balance. Balance tiles are tinted green in credit and red when overdrawn, and the figure carries a `+`/`−` marker so the sign never relies on colour alone.
+- **Attendance** (ADMIN, PASTOR, OFFICE_ADMIN and VIEWER): the latest service headcount with the change versus the same service a week earlier — see [Service Attendance](/parishcrm/docs/attendance/).
 - **People** widgets: birthdays and wedding anniversaries in the next 7 days, plus every couple with an anniversary in the current calendar month.
 - A **What's New** footer surfacing recent release notes.
 
