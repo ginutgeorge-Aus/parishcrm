@@ -13,6 +13,7 @@ import { persistRegistration } from "@/lib/eventRegistrationPersist"
 import type { PricedRegistration, EventWithTickets } from "@/lib/eventRegistrationPricing"
 import { EVENT_CAPACITY_INCLUDE } from "@/lib/eventCapacityInclude"
 import { notifyStripeAlert } from "@/lib/notifications"
+import { completeFundraiserPayment } from "@/lib/fundraiserWebhook"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Money fields arrive as a Prisma Decimal from the DB, but callers may also
@@ -575,6 +576,12 @@ async function completePaidCheckout(
     )
     return { status: 200 }
   }
+  // Fundraiser card payment: its own claim/record path. Checked before the
+  // non-OPEN handling (which is ticket-specific). The session metadata catches
+  // a row whose fundraiserEntryId was nulled by an entry delete.
+  if (staging.fundraiserEntryId != null || session.metadata?.fundraiserEntryId) {
+    return completeFundraiserPayment(session, staging)
+  }
   if (staging.status !== "OPEN") return handleNonOpenStaging(session, staging)
 
   // Atomically claim the row: flip OPEN→COMPLETED in a single conditional
@@ -780,12 +787,24 @@ async function cancelRegistrationByPaymentIntent(pi: string | null, reason: stri
 // completion lands. Any other state means no registration will ever carry this
 // PI (unknown PI, expired, unfulfilled, or a second charge on an already-settled
 // booking) — the caller re-checks paymentRef once, then acknowledges.
+// A fundraiser card payment never gets a registration or a publicToken, so its
+// COMPLETED row is settled, not in flight: alert ops (the recorded ONLINE
+// payment can't be removed in-app) and let the caller acknowledge.
 async function checkoutInFlight(pi: string): Promise<boolean> {
   const { data } = await getStripe().checkout.sessions.list({ payment_intent: pi, limit: 1 })
   if (!data[0]) return false
   const staging = await prisma.checkoutSession.findUnique({
     where: { stripeSessionId: data[0].id },
-    select: { status: true, publicToken: true },
+    select: { status: true, publicToken: true, fundraiserEntryId: true },
   })
+  if (staging?.fundraiserEntryId != null || data[0].metadata?.fundraiserEntryId) {
+    if (staging?.status === "OPEN") return true
+    console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; fundraiser ledger not adjusted, manual review needed`)
+    await notifyStripeAlert(
+      "fundraiser card payment refunded or disputed",
+      `PI ${pi} (session ${data[0].id}): a fundraiser card payment was refunded or disputed in Stripe. The recorded payment was not changed; adjust the fundraiser manually.`,
+    )
+    return false
+  }
   return staging?.status === "OPEN" || (staging?.status === "COMPLETED" && !staging.publicToken)
 }

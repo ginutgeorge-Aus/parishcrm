@@ -362,6 +362,7 @@ const PUBLIC_ACTIONS = new Set([
   "familyUpdate.ts:submitFamilyUpdate",
   "eventCheckout.ts:startEventCheckout",
   "eventCheckout.ts:startExistingRegistrationCheckout",
+  "eventCheckout.ts:startFundraiserCheckout",
 ])
 
 // Feature-only helpers (no auth of their own): their callers are checked instead.

@@ -61,6 +61,10 @@ const PUBLIC_FAMILY_UPDATE = /^\/family\/update\/[^/]+$/
 // only gate (constant-time compared in the page). Bare "/venue" and deeper
 // paths stay gated, as does the admin page at "/venue-usage".
 const PUBLIC_VENUE_CALENDAR = /^\/venue\/[A-Za-z0-9_-]+$/
+// Public fundraiser pay page: /pay/fundraiser/[token] (linked from reminder
+// emails). The opaque entry token is the only gate; bare "/pay" and deeper
+// paths stay gated. Pay is a server action (no API route).
+const PUBLIC_FUNDRAISER_PAY = /^\/pay\/fundraiser\/[A-Za-z0-9_-]+$/
 
 // Static security headers applied to every dynamic response by middleware
 // (AUDIT-054). next.config `headers()` does not reach App-Router Route
@@ -103,7 +107,8 @@ export function isPublicPath(pathname: string): boolean {
     PUBLIC_EVENT_PAGES.test(path) ||
     PUBLIC_EVENT_API.test(path) ||
     PUBLIC_FAMILY_UPDATE.test(path) ||
-    PUBLIC_VENUE_CALENDAR.test(path)
+    PUBLIC_VENUE_CALENDAR.test(path) ||
+    PUBLIC_FUNDRAISER_PAY.test(path)
   )
 }
 

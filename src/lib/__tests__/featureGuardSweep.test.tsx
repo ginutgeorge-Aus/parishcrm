@@ -58,11 +58,12 @@ const ARGS: Record<string, unknown[]> = {
   "familyUpdate.ts:submitFamilyUpdate": [{ token: "t", payload: {} }],
   "eventCheckout.ts:startEventCheckout": ["fete", {}],
   "eventCheckout.ts:startExistingRegistrationCheckout": ["fete", "tok"],
+  "eventCheckout.ts:startFundraiserCheckout": ["tok"],
 }
 // Public actions answer anonymous callers without the admin wording.
 const PUBLIC_OFF = new Set(["membership.ts:submitMembershipApplication", "familyUpdate.ts:submitFamilyUpdate"])
 // Public actions (no sign-in): throttle → feature, so the anonymous test skips them.
-const PUBLIC = new Set([...PUBLIC_OFF, "eventCheckout.ts:startEventCheckout", "eventCheckout.ts:startExistingRegistrationCheckout"])
+const PUBLIC = new Set([...PUBLIC_OFF, "eventCheckout.ts:startEventCheckout", "eventCheckout.ts:startExistingRegistrationCheckout", "eventCheckout.ts:startFundraiserCheckout"])
 // Feature checks run after auth, so the off test signs in as an ADMIN.
 const ADMIN = { user: { id: "1", role: "ADMIN", email: "admin@example.com" } }
 
