@@ -21,7 +21,7 @@ import { sendFundraiserReminderEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
 import { getCardFeeConfig } from "@/lib/cardFeeSettings"
-import { surchargeCentsFor } from "@/lib/fundraiserCheckout"
+import { expireOpenFundraiserCheckouts, surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
 import { loadReminderCandidates } from "@/lib/fundraiserReminders"
@@ -250,6 +250,12 @@ export async function addEntry(
  * also runs Serializable (`fundraiserWebhook.ts`). The FOR UPDATE row lock only
  * reduces those aborts; it is not the guarantee (the snapshot predates the wait).
  *
+ * When the quantity changes, open card checkouts staged for the old amount are
+ * expired (Stripe + staging row) after commit, best-effort, so the payer cannot
+ * pay a stale amount; the next pay click stages a fresh session. A Stripe
+ * failure there never fails the action (the sweep and the webhook's overpay
+ * alert cover a session that slips through).
+ *
  * @param entryId - Entry id.
  * @param quantity - 1-4 digit positive integer string.
  * @returns `{ error }` on failure, `undefined` on success.
@@ -277,6 +283,7 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
     return { from: entry.quantity, eventId: entry.fundraiser.eventId }
   }, BUSY)
   if ("error" in res) return res
+  if (res.from !== next) await expireOpenFundraiserCheckouts(entryId)
   await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", entryId, { from: res.from, to: next })
   revalidateFundraiser(res.eventId)
   return undefined

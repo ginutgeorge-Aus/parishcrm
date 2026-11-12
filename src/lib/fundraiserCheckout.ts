@@ -62,6 +62,81 @@ export function surchargeCentsFor(remainingCents: number, cfg: { pct: number; fi
   return roundCentsForCurrency(grossUpTotal(remainingCents, cfg.pct, cfg.fixedCents).feeCents)
 }
 
+/** A prior session as seen from Stripe; `session` is null when it could not be retrieved. */
+type LivePrior = { session: Stripe.Checkout.Session | null; gone: boolean }
+
+/**
+ * True when a Stripe error says the object does not exist (deleted, or from
+ * another account/mode). Such a session can never be paid.
+ * @param e thrown value
+ * @returns whether it is Stripe's `resource_missing`
+ */
+function isResourceMissing(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "resource_missing"
+}
+
+/**
+ * Retrieve one prior session, treating a failure as a dead session so one bad
+ * row cannot block every checkout for the entry. `gone` marks a session Stripe
+ * says does not exist (safe to mark its staging row EXPIRED).
+ * @param stripe Stripe client
+ * @param id Checkout Session id
+ * @returns the session, or null with `gone` set for resource_missing
+ */
+async function retrievePrior(stripe: Stripe, id: string): Promise<LivePrior> {
+  try {
+    return { session: await stripe.checkout.sessions.retrieve(id), gone: false }
+  } catch (e) {
+    console.warn(`Fundraiser checkout: could not retrieve prior session ${id}; treating it as dead`, e instanceof Error ? e.message : e)
+    return { session: null, gone: isResourceMissing(e) }
+  }
+}
+
+/**
+ * Best-effort: expire every OPEN card checkout staged for an entry, in Stripe
+ * and in the staging table. Used when the amount owed changes (quantity edit),
+ * so a session priced for the old amount cannot still be paid. A row is marked
+ * EXPIRED only once Stripe confirms the session is dead (expired now, already
+ * expired, or missing); a completed session is left for its webhook. Never
+ * throws: a Stripe or DB failure is logged and the sweep cleans up later.
+ * @param entryId FundraiserEntry id
+ * @returns number of staging rows marked EXPIRED
+ */
+export async function expireOpenFundraiserCheckouts(entryId: number): Promise<number> {
+  try {
+    const open = await prisma.checkoutSession.findMany({
+      where: { fundraiserEntryId: entryId, status: "OPEN" },
+      select: { stripeSessionId: true },
+    })
+    if (open.length === 0) return 0
+    const stripe = getStripe()
+    const dead: string[] = []
+    for (const { stripeSessionId: id } of open) {
+      try {
+        await stripe.checkout.sessions.expire(id)
+        dead.push(id)
+      } catch (e) {
+        if (isResourceMissing(e)) {
+          dead.push(id)
+          continue
+        }
+        // Expire refuses a session that is not open: check whether it is already dead.
+        const { session, gone } = await retrievePrior(stripe, id)
+        if (gone || session?.status === "expired") dead.push(id)
+      }
+    }
+    if (dead.length === 0) return 0
+    const r = await prisma.checkoutSession.updateMany({
+      where: { stripeSessionId: { in: dead }, status: "OPEN" },
+      data: { status: "EXPIRED", payload: "" },
+    })
+    return r.count
+  } catch (e) {
+    console.warn(`Fundraiser checkout: expiring open sessions for entry ${entryId} failed`, e instanceof Error ? e.message : e)
+    return 0
+  }
+}
+
 /**
  * Open (or reuse) a Stripe Checkout Session paying an entry's remaining balance.
  * Mirrors `createExistingRegistrationCheckoutSession`: the entry row is locked in
@@ -77,6 +152,13 @@ export function surchargeCentsFor(remainingCents: number, cfg: { pct: number; fi
  * aborts one (P2034). The aborted attempt's Stripe session (if any) is expired,
  * then the whole attempt is retried against committed state, up to
  * `MAX_TX_ATTEMPTS`.
+ *
+ * Stripe calls stay inside the transaction on purpose: the entry lock must span
+ * the retrieve → expire → create decision, or two clicks could each open a
+ * payable session. A prior session that cannot be retrieved is treated as dead
+ * (not reused, not blocking). Prior rows whose session is dead (expired here,
+ * already expired, or missing in Stripe) are marked EXPIRED in the same
+ * transaction, so `deleteEntry` is not blocked by them until the sweep.
  * @param entry entry id, public token and the caller's remaining (cents)
  * @param event the entry's event (title for the line item, card-fee flag)
  * @param origin trusted app base URL for Stripe's return redirects
@@ -116,20 +198,35 @@ export async function createFundraiserCheckoutSession(
           orderBy: { createdAt: "desc" },
           select: { stripeSessionId: true, totalAmount: true, surchargeCents: true },
         })
-        const live = await Promise.all(priors.map((p) => stripe.checkout.sessions.retrieve(p.stripeSessionId)))
+        const live = await Promise.all(priors.map((p) => retrievePrior(stripe, p.stripeSessionId)))
         // Paid, webhook not processed yet: the balance is about to drop. A new
         // session now could charge the same balance twice.
-        const paid = live.some((s) => s.status === "complete")
+        const paid = live.some((l) => l.session?.status === "complete")
         const sameAmount = (i: number) =>
           toCents(priors[i].totalAmount) === remainingCents && priors[i].surchargeCents === surchargeCents
         const reuse = paid
           ? undefined
-          : live.find((s, i) => s.status === "open" && s.url && sameAmount(i) && s.expires_at * 1000 - Date.now() > REUSE_MIN_REMAINING_MS)
+          : live.find((l, i) => {
+              const s = l.session
+              return s?.status === "open" && s.url && sameAmount(i) && s.expires_at * 1000 - Date.now() > REUSE_MIN_REMAINING_MS
+            })?.session
         // Near expiry, stale amount, or a duplicate: expire so it can't also be paid.
-        for (const s of live) {
-          if (s.status === "open" && s !== reuse) await stripe.checkout.sessions.expire(s.id)
+        const dead: string[] = []
+        for (const [i, { session: s, gone }] of live.entries()) {
+          if (s?.status === "open" && s !== reuse) {
+            await stripe.checkout.sessions.expire(s.id)
+            dead.push(s.id)
+          } else if (gone || s?.status === "expired") {
+            dead.push(priors[i].stripeSessionId)
+          }
         }
         if (paid) throw new FundraiserNotPayableError()
+        if (dead.length > 0) {
+          await tx.checkoutSession.updateMany({
+            where: { stripeSessionId: { in: dead }, status: "OPEN" },
+            data: { status: "EXPIRED", payload: "" },
+          })
+        }
         if (reuse?.url) return { url: reuse.url }
 
         const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [

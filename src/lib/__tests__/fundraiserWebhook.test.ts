@@ -48,8 +48,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   rowStatus = "OPEN"
   prisma.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(prisma))
-  prisma.checkoutSession.updateMany.mockImplementation(({ where, data }: { where: { status: string }; data: { status?: string } }) => {
-    if (where.status !== rowStatus) return Promise.resolve({ count: 0 })
+  prisma.checkoutSession.updateMany.mockImplementation(({ where, data }: { where: { status: string | { in: string[] } }; data: { status?: string } }) => {
+    const matches = typeof where.status === "string" ? where.status === rowStatus : where.status.in.includes(rowStatus)
+    if (!matches) return Promise.resolve({ count: 0 })
     if (data.status) rowStatus = data.status
     return Promise.resolve({ count: 1 })
   })
@@ -127,10 +128,24 @@ it("entry row gone at lock time → alert, no payment", async () => {
   expect(rowStatus).toBe("UNFULFILLED")
 })
 
-it("paid after the row expired → alert, no payment", async () => {
+it("paid after the sweep expired the row → payment still recorded, row COMPLETED, no alert", async () => {
+  rowStatus = "EXPIRED"
+  jest.spyOn(console, "warn").mockImplementation(() => {})
   expect(await completeFundraiserPayment(session(), staging({ status: "EXPIRED" }))).toEqual({ status: 200 })
-  expect(prisma.fundraiserPayment.create).not.toHaveBeenCalled()
-  expect(notifyStripeAlert).toHaveBeenCalled()
+  expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)
+  expect(prisma.fundraiserPayment.create).toHaveBeenCalledWith(
+    expect.objectContaining({ data: expect.objectContaining({ entryId: 7, amount: "30.00", method: "ONLINE", stripePaymentRef: "pi_f" }) }),
+  )
+  expect(rowStatus).toBe("COMPLETED")
+  expect(notifyStripeAlert).not.toHaveBeenCalled()
+})
+
+it("late payment on an EXPIRED row redelivered → exactly one payment", async () => {
+  rowStatus = "EXPIRED"
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  await completeFundraiserPayment(session(), staging({ status: "EXPIRED" }))
+  await completeFundraiserPayment(session(), staging({ status: "EXPIRED" }))
+  expect(prisma.fundraiserPayment.create).toHaveBeenCalledTimes(1)
 })
 
 it("unexpected DB error → 500 so Stripe retries, row left OPEN", async () => {

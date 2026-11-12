@@ -2,6 +2,8 @@
 // `src/lib/fundraiserCheckout.ts`). Called from `completePaidCheckout` in
 // `src/lib/stripeCheckout.ts`. No refunds: every "charged but not recorded"
 // outcome keeps the money and alerts ops, like the ticket flow.
+// A payment that lands after the hourly sweep marked its row EXPIRED is still
+// recorded: entry and amount are both known, so there is nothing to resolve by hand.
 import type Stripe from "stripe"
 import { prisma } from "@/lib/prisma"
 import { toCents } from "@/lib/formatting"
@@ -12,10 +14,16 @@ import { logAudit } from "@/lib/audit"
 import { isP2002, isP2034 } from "@/lib/validation"
 // Value import (isolation-level enum), not the @/lib/prisma re-export — see serializableWrite.ts.
 import { Prisma } from "@/lib/generated/prisma/client"
+import type { CheckoutStatus } from "@/lib/generated/prisma/enums"
 
 // After a failed attempt, give Stripe's retry room before the hourly sweep
 // could expire the row (mirrors stripeCheckout.ts).
 const RETRY_EXPIRY_MS = 31 * 60 * 1000
+
+// Staging statuses a paid delivery may still claim. EXPIRED is claimable because
+// the sweep only means "abandoned by the clock", not "cannot have been paid"
+// (late completion, delayed or retried webhook). COMPLETED/UNFULFILLED are terminal.
+const CLAIMABLE = { in: ["OPEN", "EXPIRED"] as CheckoutStatus[] }
 
 /** Staged CheckoutSession fields the fundraiser branch needs. */
 export type FundraiserStaging = {
@@ -42,21 +50,21 @@ function piOf(pi: string | { id: string } | null | undefined): string | null {
 }
 
 /**
- * Terminalise an OPEN row without recording a payment. Doubles as the claim:
- * only one delivery flips OPEN→UNFULFILLED.
+ * Terminalise an OPEN/EXPIRED row without recording a payment. Doubles as the
+ * claim: only one delivery flips it to UNFULFILLED.
  * @param stagingId CheckoutSession id
  * @returns true when this delivery owned the transition
  */
 async function claimUnfulfilled(stagingId: number): Promise<boolean> {
   const r = await prisma.checkoutSession.updateMany({
-    where: { id: stagingId, status: "OPEN" },
+    where: { id: stagingId, status: CLAIMABLE },
     data: { status: "UNFULFILLED", completedAt: new Date() },
   })
   return r.count > 0
 }
 
 /**
- * Lock the entry, claim the staging row (OPEN→COMPLETED) and insert the ONLINE
+ * Lock the entry, claim the staging row (OPEN/EXPIRED→COMPLETED) and insert the ONLINE
  * payment in one Serializable transaction. The entry lock serialises with
  * `deleteEntry`, so an entry cannot vanish between claim and insert, and a
  * failure rolls the claim back so Stripe's retry can try again.
@@ -84,7 +92,7 @@ async function claimAndRecord(
     // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
     const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     const claim = await tx.checkoutSession.updateMany({
-      where: { id: stagingId, status: "OPEN" },
+      where: { id: stagingId, status: CLAIMABLE },
       data: locked.length === 0
         ? { status: "UNFULFILLED", completedAt: new Date() }
         : { status: "COMPLETED", completedAt: new Date() },
@@ -127,7 +135,8 @@ async function extendForRetry(stagingId: number): Promise<void> {
 /**
  * Settle a paid fundraiser Checkout Session: record one ONLINE payment for the
  * base amount (charge minus the snapshotted card fee). Idempotent across Stripe
- * redeliveries (atomic claim + unique `stripePaymentRef`). An amount mismatch or
+ * redeliveries (atomic claim + unique `stripePaymentRef`). A row the sweep
+ * already marked EXPIRED is still claimed and recorded (late payment). An amount mismatch or
  * a deleted entry records nothing and alerts ops. An overpayment (a cash/bank
  * payment cleared the balance first) is still recorded, and ops is alerted.
  * A serialization conflict (P2034) with a concurrent staff write returns 500
@@ -140,16 +149,10 @@ export async function completeFundraiserPayment(
   session: Stripe.Checkout.Session,
   staging: FundraiserStaging,
 ): Promise<{ status: number }> {
-  if (staging.status !== "OPEN") {
-    // COMPLETED/UNFULFILLED: already handled by an earlier delivery.
-    if (staging.status === "EXPIRED") {
-      console.error(`Stripe webhook: paid fundraiser session ${session.id} matched an EXPIRED staging row; no payment recorded, money retained`)
-      await notifyStripeAlert(
-        "fundraiser card payment after checkout expired — money retained",
-        `Session ${session.id}: payment settled after the staging row expired. No fundraiser payment was recorded; record it manually.`,
-      )
-    }
-    return { status: 200 }
+  // COMPLETED/UNFULFILLED: already handled by an earlier delivery.
+  if (staging.status !== "OPEN" && staging.status !== "EXPIRED") return { status: 200 }
+  if (staging.status === "EXPIRED") {
+    console.warn(`Stripe webhook: paid fundraiser session ${session.id} matched an EXPIRED staging row; recording it anyway`)
   }
 
   const pi = piOf(session.payment_intent)
@@ -179,7 +182,7 @@ export async function completeFundraiserPayment(
       // This PaymentIntent is already recorded: a benign redelivery. The tx
       // rolled the claim back, so close the row now.
       await prisma.checkoutSession.updateMany({
-        where: { id: staging.id, status: "OPEN" },
+        where: { id: staging.id, status: CLAIMABLE },
         data: { status: "COMPLETED", completedAt: new Date() },
       })
       return { status: 200 }

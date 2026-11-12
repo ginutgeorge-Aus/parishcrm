@@ -9,7 +9,7 @@ jest.mock("@/lib/clientIp", () => ({ rateKeyFromHeaders: () => "1.2.3.4", resolv
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn() }))
 jest.mock("@/lib/featureFlags", () => ({ featureGuard: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
-  const checkoutSession = { create: jest.fn(), findMany: jest.fn() }
+  const checkoutSession = { create: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() }
   const fundraiserEntry = { findUnique: jest.fn() }
   const tx = { checkoutSession, fundraiserEntry, $queryRaw: jest.fn() }
   return { prisma: { ...tx, $transaction: jest.fn((fn: (t: unknown) => unknown) => fn(tx)) } }
@@ -18,6 +18,7 @@ jest.mock("@/lib/cardFeeSettings", () => ({ getCardFeeConfig: jest.fn() }))
 
 import {
   createFundraiserCheckoutSession,
+  expireOpenFundraiserCheckouts,
   fundraiserSurchargeCents,
   FundraiserNotPayableError,
 } from "@/lib/fundraiserCheckout"
@@ -40,6 +41,7 @@ beforeEach(() => {
   // 4 x $10 owed, $10 paid → $30 remaining.
   prisma.fundraiserEntry.findUnique.mockResolvedValue({ quantity: 4, unitPrice: "10.00", payments: [{ amount: "10.00" }] })
   prisma.checkoutSession.findMany.mockResolvedValue([])
+  prisma.checkoutSession.updateMany.mockResolvedValue({ count: 1 })
   getCardFeeConfig.mockResolvedValue({ pct: 1.7, fixedCents: 30 })
 })
 
@@ -112,6 +114,48 @@ it("expires an open session staged for a stale amount and creates a fresh one", 
   const res = await createFundraiserCheckoutSession(entry, event, "https://app.test")
   expect(sessionsExpire).toHaveBeenCalledWith("cs_old")
   expect(res).toEqual({ url: "https://stripe.test/pay" })
+  // Its staging row is closed too, so deleteEntry is not blocked until the sweep.
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
+    where: { stripeSessionId: { in: ["cs_old"] }, status: "OPEN" },
+    data: { status: "EXPIRED", payload: "" },
+  })
+})
+
+it("marks a prior row EXPIRED when Stripe already expired its session", async () => {
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_lapsed", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockResolvedValue({ id: "cs_lapsed", status: "expired", url: null, expires_at: future() })
+  await createFundraiserCheckoutSession(entry, event, "https://app.test")
+  expect(sessionsExpire).not.toHaveBeenCalled()
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(
+    expect.objectContaining({ where: { stripeSessionId: { in: ["cs_lapsed"] }, status: "OPEN" } }),
+  )
+})
+
+it("a prior session Stripe reports missing does not block checkout; its row is marked EXPIRED", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([
+    { stripeSessionId: "cs_gone", totalAmount: "30.00", surchargeCents: 0 },
+    { stripeSessionId: "cs_old", totalAmount: "40.00", surchargeCents: 0 },
+  ])
+  sessionsRetrieve.mockImplementation(async (id: string) => {
+    if (id === "cs_gone") throw Object.assign(new Error("No such checkout.session"), { code: "resource_missing" })
+    return { id, status: "open", url: "https://stripe.test/old", expires_at: future() }
+  })
+  const res = await createFundraiserCheckoutSession(entry, event, "https://app.test")
+  expect(res).toEqual({ url: "https://stripe.test/pay" })
+  expect(sessionsExpire).toHaveBeenCalledWith("cs_old")
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(
+    expect.objectContaining({ where: { stripeSessionId: { in: ["cs_gone", "cs_old"] }, status: "OPEN" } }),
+  )
+})
+
+it("a transient retrieve failure is treated as dead: checkout proceeds, row left OPEN for the sweep", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_flaky", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockRejectedValue(new Error("network"))
+  const res = await createFundraiserCheckoutSession(entry, event, "https://app.test")
+  expect(res).toEqual({ url: "https://stripe.test/pay" })
+  expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
 })
 
 it("refuses while a paid session is still awaiting its webhook", async () => {
@@ -151,6 +195,44 @@ it("surfaces the conflict after 3 Serializable attempts", async () => {
   expect(prisma.$transaction).toHaveBeenCalledTimes(3)
   expect(sessionsExpire).toHaveBeenCalledTimes(3)
   prisma.checkoutSession.create.mockReset()
+})
+
+describe("expireOpenFundraiserCheckouts", () => {
+  it("expires each open session in Stripe and marks its rows EXPIRED", async () => {
+    prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_a" }, { stripeSessionId: "cs_b" }])
+    sessionsExpire.mockResolvedValue({})
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 2 })
+    expect(await expireOpenFundraiserCheckouts(7)).toBe(2)
+    expect(sessionsExpire).toHaveBeenCalledWith("cs_a")
+    expect(sessionsExpire).toHaveBeenCalledWith("cs_b")
+    expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith({
+      where: { stripeSessionId: { in: ["cs_a", "cs_b"] }, status: "OPEN" },
+      data: { status: "EXPIRED", payload: "" },
+    })
+  })
+
+  it("leaves a completed session's row OPEN for its webhook and never throws on Stripe errors", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_paid" }, { stripeSessionId: "cs_lapsed" }])
+    sessionsExpire.mockRejectedValue(new Error("not open"))
+    sessionsRetrieve.mockImplementation(async (id: string) => ({ id, status: id === "cs_paid" ? "complete" : "expired" }))
+    prisma.checkoutSession.updateMany.mockResolvedValue({ count: 1 })
+    expect(await expireOpenFundraiserCheckouts(7)).toBe(1)
+    expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { stripeSessionId: { in: ["cs_lapsed"] }, status: "OPEN" } }),
+    )
+  })
+
+  it("does nothing (no Stripe call) when no session is open", async () => {
+    expect(await expireOpenFundraiserCheckouts(7)).toBe(0)
+    expect(sessionsExpire).not.toHaveBeenCalled()
+  })
+
+  it("swallows a DB failure", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    prisma.checkoutSession.findMany.mockRejectedValue(new Error("db down"))
+    expect(await expireOpenFundraiserCheckouts(7)).toBe(0)
+  })
 })
 
 // startFundraiserCheckout (public server action) guards. Uses the module-level

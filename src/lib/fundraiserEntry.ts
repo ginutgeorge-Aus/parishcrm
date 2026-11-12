@@ -27,7 +27,9 @@ export function mintEntryToken(): string {
 /**
  * Pick the next free bank-transfer reference for a prefix: highest existing
  * 4-digit suffix for that exact prefix + 1 (so "FR" ignores "FR10001" of prefix "FR1"), then probe forward (max 5) past any
- * taken value. `bankRef` is globally unique, and fundraisers may share a prefix
+ * taken value. Once the 4-digit range is full (9999 issued), `makeBankRef`
+ * emits 5+ digit suffixes, so those count too — otherwise the max would stick at
+ * 9999 and every add would fail after the probe budget. `bankRef` is globally unique, and fundraisers may share a prefix
  * (the default "FR"), so the scan is across all entries, not one fundraiser.
  * Two concurrent callers can still pick the same value; the caller's create
  * then fails on the unique index (P2002) and must retry the whole transaction.
@@ -43,11 +45,21 @@ export async function generateUniqueBankRef(tx: Prisma.TransactionClient, prefix
     where: { bankRef: { startsWith: clean } },
     select: { bankRef: true },
   })
-  const suffixRe = new RegExp(`^${clean}(\\d{4})$`) // clean is [A-Z0-9] only: no regex metachars
+  // clean is [A-Z0-9] only: no regex metachars. Unpadded 5+ digit seqs never start with 0.
+  const fourRe = new RegExp(`^${clean}(\\d{4})$`)
+  const longRe = new RegExp(`^${clean}([1-9]\\d{4,})$`)
   let max = 0
   for (const { bankRef } of existing) {
-    const m = suffixRe.exec(bankRef)
+    const m = fourRe.exec(bankRef)
     if (m) max = Math.max(max, Number.parseInt(m[1], 10))
+  }
+  // A 5+ digit suffix is only this prefix's own once its 4-digit range is used
+  // up; before that "FR10001" belongs to prefix "FR1".
+  if (max === 9999) {
+    for (const { bankRef } of existing) {
+      const m = longRe.exec(bankRef)
+      if (m) max = Math.max(max, Number.parseInt(m[1], 10))
+    }
   }
   for (let seq = max + 1; seq <= max + MAX_REF_PROBES; seq++) {
     const ref = makeBankRef(prefix, seq)

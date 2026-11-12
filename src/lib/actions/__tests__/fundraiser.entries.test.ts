@@ -9,8 +9,13 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
+jest.mock("@/lib/fundraiserCheckout", () => ({
+  ...jest.requireActual("@/lib/fundraiserCheckout"),
+  expireOpenFundraiserCheckouts: jest.fn(async () => 0),
+}))
 
 import { addEntry, updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
+import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
@@ -168,6 +173,12 @@ describe("generateUniqueBankRef", () => {
     expect(await generateUniqueBankRef(prismaMock as never, "FR1")).toBe("FR10002")
   })
 
+  it("keeps counting past 9999 (5+ digit suffixes) instead of sticking at FR10000", async () => {
+    prismaMock.fundraiserEntry.findMany.mockResolvedValue([{ bankRef: "FR9999" }, { bankRef: "FR10000" }, { bankRef: "FR10001" }])
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(null)
+    expect(await generateUniqueBankRef(prismaMock as never, "FR")).toBe("FR10002")
+  })
+
   it("default prefix starts at 1", async () => {
     expect(await generateUniqueBankRef(prismaMock as never, null)).toBe("FR0001")
   })
@@ -198,6 +209,17 @@ describe("updateEntryQuantity", () => {
     expect(prismaMock.$queryRaw).toHaveBeenCalled()
     expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11 }, data: { quantity: 3 } }))
     expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", 11, { from: 4, to: 3 })
+  })
+
+  it("expires open card checkouts staged for the old amount when quantity changes", async () => {
+    expect(await updateEntryQuantity(11, "3")).toBeUndefined()
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
+  })
+
+  it("leaves open checkouts alone when quantity is unchanged or the update is rejected", async () => {
+    expect(await updateEntryQuantity(11, "4")).toBeUndefined()
+    expect(await updateEntryQuantity(11, "2")).toEqual({ error: "Quantity total is below the amount already paid" })
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })
 
   it("rejects bad quantity and missing entry", async () => {
