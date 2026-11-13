@@ -3,17 +3,15 @@ import { listGivingStatements, sendGivingStatements, listStatementSendLog } from
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAudit } from "@/lib/audit"
-import { sendGivingStatementEmail } from "@/lib/email"
+import { sendGivingStatementEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { loadStatements, loadStatementSummaries, loadStatementFamilies } from "@/lib/givingStatementData"
 import { buildStatements } from "@/lib/givingStatement"
 import { featureGuard } from "@/lib/featureFlags"
-import { isResendAmbiguous } from "@/lib/resendTransport"
 
-jest.mock("@/lib/resendTransport", () => ({ isResendAmbiguous: jest.fn(() => false) }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/email", () => ({ sendGivingStatementEmail: jest.fn() }))
+jest.mock("@/lib/email", () => ({ sendGivingStatementEmail: jest.fn(), isAmbiguousDeliveryError: jest.fn(() => false) }))
 jest.mock("@/lib/pdf/GivingStatementPdf", () => ({ renderGivingStatementPdf: jest.fn(async () => Buffer.from("%PDF-")) }))
 jest.mock("@/lib/givingStatementData", () => ({ loadStatements: jest.fn(), loadStatementSummaries: jest.fn(), loadStatementFamilies: jest.fn() }))
 jest.mock("@/lib/churchSettings", () => ({
@@ -136,7 +134,7 @@ describe("listGivingStatements", () => {
 
   it("surfaces a load failure as an error", async () => {
     mockSummaries.mockRejectedValueOnce(new Error("db down"))
-    expect(await listGivingStatements(2025)).toEqual({ error: "db down" })
+    expect(await listGivingStatements(2025)).toEqual({ error: "Could not load giving." })
     mockSummaries.mockRejectedValueOnce("x")
     expect(await listGivingStatements(2025)).toEqual({ error: "Could not load giving." })
   })
@@ -241,7 +239,7 @@ describe("sendGivingStatements", () => {
   })
 
   it("keeps the claim as UNKNOWN when delivery is ambiguous", async () => {
-    ;(isResendAmbiguous as jest.Mock).mockReturnValueOnce(true)
+    ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValueOnce(true)
     mockSend.mockRejectedValueOnce(new Error("timeout"))
     const res = await sendGivingStatements(2025, [1])
     expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })

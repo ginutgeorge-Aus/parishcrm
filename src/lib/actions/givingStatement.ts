@@ -10,10 +10,9 @@ import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
 import { renderGivingStatementPdf } from "@/lib/pdf/GivingStatementPdf"
-import { sendGivingStatementEmail } from "@/lib/email"
+import { sendGivingStatementEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { centsToNumber } from "@/lib/formatting"
 import { isValidPgId, isP2002 } from "@/lib/validation"
-import { isResendAmbiguous } from "@/lib/resendTransport"
 import {
   buildStatementModel,
   parseStatementYear,
@@ -163,6 +162,16 @@ async function claimStateByFamily(year: number): Promise<Map<number, "PENDING" |
  * Accounting viewers only.
  * @param year FY start year
  */
+/**
+ * Client-safe message for a failed giving load: only the known gift-cap message
+ * passes through; anything else (e.g. Prisma/DB errors) is replaced.
+ * @param e - the thrown value
+ * @returns message safe to return to the browser
+ */
+function loadErrorMessage(e: unknown): string {
+  return e instanceof Error && e.message.startsWith("Too many gifts") ? e.message : "Could not load giving."
+}
+
 export async function listGivingStatements(year: number): Promise<StatementListRow[] | { error: string }> {
   const session = await auth()
   if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
@@ -175,7 +184,7 @@ export async function listGivingStatements(year: number): Promise<StatementListR
   try {
     summaries = await loadStatementSummaries(fy)
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Could not load giving." }
+    return { error: loadErrorMessage(e) }
   }
   const ids = Array.from(summaries.keys())
   const [families, sent, claims] = await Promise.all([loadStatementFamilies(ids, false), latestSendByFamily(fy), claimStateByFamily(fy)])
@@ -246,7 +255,7 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   } catch (e) {
     // Never log the raw error — SMTP messages embed the recipient address.
     logger.error("sendGivingStatements delivery failed", { familyId: id })
-    const unknown = isResendAmbiguous(e)
+    const unknown = isAmbiguousDeliveryError(e)
     if (unknown) {
       // The provider may have accepted the mail: keep the claim so a plain retry can't double-send.
       await bestEffort("claim settle", id, () => settleClaim(claimKey, claim.pending, "UNKNOWN"))
@@ -305,7 +314,7 @@ export async function sendGivingStatements(
   try {
     statements = await loadStatements(fy, ids)
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Could not load giving." }
+    return { error: loadErrorMessage(e) }
   }
 
   let sent = 0
