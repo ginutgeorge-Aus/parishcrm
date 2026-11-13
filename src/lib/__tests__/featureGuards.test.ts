@@ -126,6 +126,7 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/(dashboard)/accounting/dgr-receipts/[id]/pdf/route.ts": "dgrReceipts",
   "src/app/(dashboard)/accounting/giving-statements/[familyId]/pdf/route.ts": "receipts",
   "src/app/(dashboard)/accounting/invoices/[id]/pdf/route.ts": "invoices",
+  "src/app/(dashboard)/sunday-school/reports/export/route.ts": "sundaySchool",
 }
 
 // API routes deliberately not owned by an optional feature, with the reason.

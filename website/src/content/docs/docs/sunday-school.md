@@ -1,6 +1,6 @@
 ---
 title: "Sunday School"
-description: "Set up Sunday School classes for each school year, assign teachers, enrol children from People, take the class roll on a phone, record exam marks, and roll the whole school over to next year in one step."
+description: "Set up Sunday School classes for each school year, assign teachers, enrol children from People, take the class roll on a phone, record exam marks, download attendance and marks reports, and roll the whole school over to next year in one step."
 ---
 
 Sunday School lives under **Community → Sunday School** (`/sunday-school`). Classes belong to a
@@ -62,14 +62,33 @@ with no score is simply "not marked". There is no pass or fail and no ranking.
 Scores stay with the class and year the exam belongs to, so moving a child later does not change
 past results. Exams in a locked year are read-only, and every change is in the audit log.
 
+### Reports
+
+Press **Reports** on the class list (`/sunday-school/reports`). Pick a **year**, one **class** or
+*All classes*, and the **columns** you want, then press **Show report** to preview it on screen.
+The child's name is always included; the optional columns are:
+
+- **Family** — the child's family name.
+- **Attendance** — how many rolls the child was marked Present, Late and Absent on in that class,
+  and **Attendance %** = (present + late) ÷ rolls marked. Rolls where the child wasn't marked don't count.
+- **Exam marks** — for one class, a column per exam with the child's score (blank = not marked);
+  for all classes, how many exams the child has a score in. **Marks %** = total score ÷ total marks
+  of the exams the child was marked in, so an unmarked exam doesn't pull the percentage down.
+
+**Download Excel** saves a `.xlsx` workbook (numbers stay numbers, ready to sort or chart) and
+**Download PDF** a landscape A4 table for printing. Archived classes and archived exams are left out.
+Reports are read-only, so everyone who can browse Sunday School (ADMIN, PASTOR, OFFICE_ADMIN,
+Headmaster, VIEWER) can run them; Teacher logins cannot. Each download is written to the audit log
+(year, format and columns, never the children's names).
+
 ### Who sees what
 
 | Role | Sunday School access |
 |---|---|
-| ADMIN, PASTOR, OFFICE_ADMIN | Everything: classes, teachers, enrolment, rolls, exams, rollover |
-| **Headmaster** | All classes: setup, enrolment, rolls, exams, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
+| ADMIN, PASTOR, OFFICE_ADMIN | Everything: classes, teachers, enrolment, rolls, exams, reports, rollover |
+| **Headmaster** | All classes: setup, enrolment, rolls, exams, reports, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
 | **Teacher** | Only classes they are assigned to (`/my-classes`): see the children, take the roll, enter exam marks. Cannot change class setup. Sees child names and class only, no family contact details |
-| VIEWER | Read-only |
+| VIEWER | Read-only, including reports |
 
 There can be several Headmasters. OFFICE_ADMIN and ADMIN can create Headmaster and Teacher logins
 under Users; only ADMIN can assign ADMIN or PASTOR.

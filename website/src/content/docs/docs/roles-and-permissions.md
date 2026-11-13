@@ -36,7 +36,7 @@ these helpers, so the permission boundary lives in one place.
 | `AUDITOR` | Accounting-only, read-only. Deliberately excluded from people/family records so it never sees decrypted member PII. |
 | `VIEWER` | Read-only people/families/events. No pastoral notes, no accounting. |
 | `EVENT_ORGANISER` | No dashboard access at all. Confined by middleware to their own assigned event's management pages, the members of groups linked to their login (`/my-groups`), and (legacy roll-marker logins) the rolls of assigned Sunday School classes (`/my-classes`). They can edit the public details of events they manage at /my-events/[id]/edit. |
-| `HEADMASTER` | Sunday School only. Confined by middleware to `/sunday-school`, their own account page and help. All classes: setup, teachers, enrolment, rolls, exams, rollover. No people, accounting or pastoral notes. OFFICE_ADMIN may assign this role. |
+| `HEADMASTER` | Sunday School only. Confined by middleware to `/sunday-school`, their own account page and help. All classes: setup, teachers, enrolment, rolls, exams, reports, rollover. No people, accounting or pastoral notes. OFFICE_ADMIN may assign this role. |
 | `TEACHER` | Sunday School only. Confined to `/my-classes`: the classes they are assigned to (roll markers), taking the roll and entering exam marks. Sees child names only, no contact details. OFFICE_ADMIN may assign this role. |
 
 ### Role-assignment limits (privilege escalation guard)
@@ -77,6 +77,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No | Yes | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only | Yes | Assigned classes only |
 | Sunday School exams: create, enter marks (`/sunday-school/[id]/exams`) | Yes | Yes | Yes | No | View only | No | Yes | Assigned classes: enter marks only |
+| Sunday School reports + Excel/PDF download (`/sunday-school/reports`) | Yes | Yes | Yes | No | Yes | No | Yes | No |
 | Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No | No | No |
 | Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) | No | No |
 | Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No | No | No |

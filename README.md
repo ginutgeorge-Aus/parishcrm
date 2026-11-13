@@ -145,7 +145,7 @@ docs/                   topic docs + specs/plans
 
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by) with a compliance page (filters, CSV), an OCG verify-batch helper and a monthly expiry digest email.
 - **Families & members** — family + person records with member numbers, email-consent tracking, soft-archive, role-gated pastoral notes, and WWCC / Safe Ministry clearance tracking (encrypted document, expiry, verified-by).
-- **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins.
+- **Sunday School** — classes per school year with levels and locations, teacher assignment (clearance status shown), child enrolment from People, one-step year rollover, mobile roll (present/late/absent) for staff and assigned volunteer logins, exam marks, and attendance/marks reports with Excel and PDF download.
 - **Groups & ministries** — ministry/committee/fellowship groups with category filter and member counts, leader/member roles and titles, print + CSV export, group email to consenting members with per-person delivery status, a Groups card on each person, and volunteer leader logins that manage their own groups' members from a phone.
 - **Service attendance** — adults/children headcount per service date and service type (mobile tap counters, edit/delete, audit-logged), weekly, monthly and year-over-year trend charts where a missing week is a gap not a zero, and a latest-headcount tile on the dashboard.
 - **Accounting** — chart of accounts, transaction ledger, bank-statement import with member auto-match, budgets, P&L + trial balance / cash flow / general ledger reports, annual giving summary, per-family annual giving statements (PDF, bulk email with a send log), receipt emails, invoices (optional GST tax invoices, PDF + email, payment matching, void, GST collected).
@@ -171,7 +171,7 @@ Full per-feature guides (usage by role, internals, configuration) live in the **
 | `AUDITOR` | Read-only accounting (transactions, reports, petty cash, CSV export) — no member PII, no mutations |
 | `VIEWER` | Read-only people/families/events (clearance status badge only) — no pastoral notes, no accounting |
 | `EVENT_ORGANISER` | No dashboard — own managed events only (registrations, check-in, edit public details) and members of groups linked to them; older logins assigned as Sunday School roll markers keep roll access |
-| `HEADMASTER` | Sunday School only — all classes: setup, enrolment, rolls, exam marks, rollover. No people, accounting or pastoral notes |
+| `HEADMASTER` | Sunday School only — all classes: setup, enrolment, rolls, exam marks, reports, rollover. No people, accounting or pastoral notes |
 | `TEACHER` | Sunday School only — rolls and exam marks for the classes they're assigned to; child names only, no contact details |
 
 Role helpers live in `src/lib/roleGuard.ts`. Accounting **read** paths gate on `canViewAccounting`; accounting **mutations** require `canAccessAccounting` (ADMIN | PASTOR only). All DB mutations are guarded at **both** the page and the action.

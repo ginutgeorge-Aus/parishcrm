@@ -72,6 +72,8 @@ describe("/sunday-school", () => {
     expect(html).not.toContain("New class")
     expect(html).not.toContain("Roll over")
     expect(prisma.sundaySchoolClass.count).not.toHaveBeenCalled()
+    // Reports are read-only, so every browsing role gets the link.
+    expect(html).toContain('href="/sunday-school/reports?year=2026"')
   })
 
   it("shows the roll-over summary passed in ?rolled=, ignoring any other text", async () => {
