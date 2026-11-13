@@ -38,6 +38,7 @@ const GUARDED_LAYOUTS: Record<string, string> = {
   "src/app/(dashboard)/accounting/send-receipts/layout.tsx": "receipts",
   "src/app/(dashboard)/accounting/receipt-audit/layout.tsx": "receipts",
   "src/app/(dashboard)/accounting/dgr-receipts/layout.tsx": "dgrReceipts",
+  "src/app/(dashboard)/accounting/giving-statements/layout.tsx": "receipts",
   "src/app/(dashboard)/accounting/invoices/layout.tsx": "invoices",
   "src/app/(dashboard)/accounting/customers/layout.tsx": "invoices",
   "src/app/(dashboard)/accounting/budget/layout.tsx": "budget",
@@ -73,6 +74,7 @@ const GUARDED_ACTIONS: Record<string, string> = {
   "src/lib/actions/customer.ts": "invoices",
   "src/lib/actions/welcomeLetter.ts": "welcomeLetter",
   "src/lib/actions/dgrReceipt.ts": "dgrReceipts",
+  "src/lib/actions/givingStatement.ts": "receipts",
   "src/lib/actions/receipt.ts": "receipts",
   "src/lib/actions/receiptSettings.ts": "receipts",
   "src/lib/actions/pettyCashExpense.ts": "pettyCash",
@@ -122,6 +124,7 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/api/cron/send-clearance-digest/route.ts": "clearances",
   // Route handlers inside gated page segments: a segment layout never wraps a route.ts.
   "src/app/(dashboard)/accounting/dgr-receipts/[id]/pdf/route.ts": "dgrReceipts",
+  "src/app/(dashboard)/accounting/giving-statements/[familyId]/pdf/route.ts": "receipts",
   "src/app/(dashboard)/accounting/invoices/[id]/pdf/route.ts": "invoices",
 }
 
