@@ -3,7 +3,11 @@
 -- not represented in schema.prisma (see the comment on SundaySchoolExam).
 
 -- Pre-check: abort with a clear message if live duplicates already exist.
--- Resolve them (archive or rename the extra exams) and re-run the deploy.
+-- A failed migration is recorded as failed, so `migrate deploy` then refuses
+-- every later run (P3009) and the container exits at start. To recover:
+--   1. archive or rename the extra exams;
+--   2. npx prisma migrate resolve --rolled-back 20261114100000_exam_unique_active
+--   3. re-run the deploy.
 -- Find them manually with:
 --   SELECT "classId", year, lower(name), date, array_agg(id) FROM "SundaySchoolExam"
 --   WHERE "archivedAt" IS NULL GROUP BY 1,2,3,4 HAVING count(*) > 1;
@@ -18,7 +22,7 @@ BEGIN
     GROUP BY 1, 2, 3, 4 HAVING count(*) > 1
   ) d;
   IF dupes IS NOT NULL THEN
-    RAISE EXCEPTION 'Cannot add SundaySchoolExam_active_unique: duplicate live exams exist (%). Archive or rename the extras first.', dupes;
+    RAISE EXCEPTION 'Cannot add SundaySchoolExam_active_unique: duplicate live exams exist (%). Archive or rename the extras, run `npx prisma migrate resolve --rolled-back 20261114100000_exam_unique_active`, then redeploy.', dupes;
   END IF;
 END $$;
 
