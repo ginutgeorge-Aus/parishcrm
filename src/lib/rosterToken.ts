@@ -78,6 +78,8 @@ export function verifyRosterToken(
   if (p !== PURPOSE) return null
   if (typeof assignmentId !== "string" || assignmentId.length === 0) return null
   if (c !== "confirm" && c !== "decline") return null
-  if (typeof e !== "number" || !Number.isFinite(e) || nowMs >= e) return null
+  // Fail closed: a non-finite nowMs must never let an expired token through.
+  if (typeof e !== "number" || !Number.isFinite(e)) return null
+  if (!Number.isFinite(nowMs) || !(nowMs < e)) return null
   return { assignmentId, action: c, expiresAt: e }
 }

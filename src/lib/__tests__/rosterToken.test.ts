@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { createHmac } from "node:crypto"
 import { issueRosterToken, verifyRosterToken } from "@/lib/rosterToken"
 
@@ -23,6 +24,13 @@ describe("rosterToken", () => {
     expect(verifyRosterToken(t, SECRET, NOW + TTL - 1)).not.toBeNull()
     expect(verifyRosterToken(t, SECRET, NOW + TTL)).toBeNull()
     expect(verifyRosterToken(t, SECRET, NOW + TTL + 1)).toBeNull()
+  })
+
+  it("fails closed when nowMs is NaN or Infinity", () => {
+    const t = issueRosterToken("asg_1", "confirm", SECRET, NOW, TTL)
+    expect(verifyRosterToken(t, SECRET, NaN)).toBeNull()
+    expect(verifyRosterToken(t, SECRET, Infinity)).toBeNull()
+    expect(verifyRosterToken(t, SECRET, -Infinity)).toBeNull()
   })
 
   it("rejects a tampered payload (action flipped, signature kept)", () => {
