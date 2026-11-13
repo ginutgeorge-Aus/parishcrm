@@ -143,3 +143,31 @@ test("delivery switch error is shown", async () => {
   fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
   expect((await screen.findAllByText("Below paid")).length).toBeGreaterThan(0)
 })
+
+test("a thrown quantity update shows an inline error and reverts the value", async () => {
+  mUpdate.mockRejectedValue(new Error("network"))
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  const input = screen.getAllByLabelText("Quantity for Anna")[0] as HTMLInputElement
+  await user.clear(input)
+  await user.type(input, "9")
+  fireEvent.blur(input)
+  expect((await screen.findAllByText("Could not update the quantity. Please try again.")).length).toBeGreaterThan(0)
+  await waitFor(() => expect(input.value).toBe("2"))
+})
+
+test("a thrown delivery switch shows an inline error", async () => {
+  ;(updateEntryDelivery as jest.Mock).mockRejectedValue(new Error("network"))
+  render(<EntryTable rows={one} canManage payments={{}} hasDelivery />)
+  fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
+  expect((await screen.findAllByText("Could not change pickup/delivery. Please try again.")).length).toBeGreaterThan(0)
+})
+
+test("a thrown delete shows an inline error", async () => {
+  jest.spyOn(window, "confirm").mockReturnValue(true)
+  mDelete.mockRejectedValue(new Error("network"))
+  const user = userEvent.setup()
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  await user.click(screen.getAllByRole("button", { name: "Delete Anna" })[0])
+  expect((await screen.findAllByText("Could not delete the entry. Please try again.")).length).toBeGreaterThan(0)
+})

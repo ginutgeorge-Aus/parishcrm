@@ -159,9 +159,10 @@ export async function resetEventRegistrations(eventId: number): Promise<ActionRe
   // Also refuse while a card checkout is in flight — the delete below
   // cascades CheckoutSession rows, so resetting while a customer is on Stripe
   // Checkout would strand the paid webhook with no staging row. Mirrors
-  // deleteEvent's OPEN-checkout guard.
+  // deleteEvent's OPEN-checkout guard. Fundraiser staging rows are kept by the
+  // delete, so an open fundraiser card payment does not block the reset.
   const openCheckouts = await prisma.checkoutSession.count({
-    where: { eventId, status: "OPEN" },
+    where: { eventId, status: "OPEN", fundraiserEntryId: null },
   })
   if (openCheckouts > 0) {
     return { error: "A payment is in progress — wait for it to finish before resetting." }

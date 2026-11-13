@@ -63,12 +63,18 @@ export function PaymentsPanel({
     }
   }
 
-  /** Submit the record-payment form and show any server error. */
+  /** Submit the record-payment form and show any server error (or a generic one if the call throws). */
   function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     start(async () => {
-      const res = await recordPayment(entryId, { amount, method, paidAt, note, submissionKey: key })
+      let res: Awaited<ReturnType<typeof recordPayment>>
+      try {
+        res = await recordPayment(entryId, { amount, method, paidAt, note, submissionKey: key })
+      } catch {
+        setError("Could not record the payment. Please try again.")
+        return
+      }
       if (res?.error) setError(res.error)
       else {
         setKey(randomUuid())
@@ -78,11 +84,17 @@ export function PaymentsPanel({
     })
   }
 
-  /** Delete one payment and show any server error. */
+  /** Delete one payment and show any server error (or a generic one if the call throws). */
   function remove(id: number) {
     setError(null)
     start(async () => {
-      const res = await deletePayment(id)
+      let res: Awaited<ReturnType<typeof deletePayment>>
+      try {
+        res = await deletePayment(id)
+      } catch {
+        setError("Could not delete the payment. Please try again.")
+        return
+      }
       if (res?.error) setError(res.error)
     })
   }

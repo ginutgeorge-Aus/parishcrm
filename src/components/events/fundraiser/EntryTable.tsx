@@ -49,33 +49,52 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
     setQty(String(row.quantity))
   }
 
-  /** Save a changed quantity. */
+  /** Save a changed quantity; on a server error or a thrown call, show it and reset the draft. */
   function saveQty() {
     if (qty === String(row.quantity)) return
     setError(null)
     start(async () => {
-      const res = await updateEntryQuantity(row.id, qty)
+      let res: Awaited<ReturnType<typeof updateEntryQuantity>>
+      try {
+        res = await updateEntryQuantity(row.id, qty)
+      } catch {
+        setError("Could not update the quantity. Please try again.")
+        setQty(String(row.quantity))
+        return
+      }
       if (res?.error) { setError(res.error); setQty(String(row.quantity)) }
     })
   }
 
-  /** Switch the entry between pickup and delivery. */
+  /** Switch the entry between pickup and delivery; show any server error (or a generic one if the call throws). */
   function saveDelivery(value: string) {
     const next = value === "delivery"
     if (next === row.delivery) return
     setError(null)
     start(async () => {
-      const res = await updateEntryDelivery(row.id, next)
+      let res: Awaited<ReturnType<typeof updateEntryDelivery>>
+      try {
+        res = await updateEntryDelivery(row.id, next)
+      } catch {
+        setError("Could not change pickup/delivery. Please try again.")
+        return
+      }
       if (res?.error) setError(res.error)
     })
   }
 
-  /** Delete the entry after confirmation. */
+  /** Delete the entry after confirmation; show any server error (or a generic one if the call throws). */
   function remove() {
     if (!window.confirm(`Delete ${row.name}'s entry?`)) return
     setError(null)
     start(async () => {
-      const res = await deleteEntry(row.id)
+      let res: Awaited<ReturnType<typeof deleteEntry>>
+      try {
+        res = await deleteEntry(row.id)
+      } catch {
+        setError("Could not delete the entry. Please try again.")
+        return
+      }
       if (res?.error) setError(res.error)
     })
   }

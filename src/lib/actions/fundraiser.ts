@@ -10,13 +10,15 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { canManageFundraiser } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { assertNotDemo } from "@/lib/demoMode"
-import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
+import { isP2002, isP2034, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { serializableWrite } from "@/lib/serializableWrite"
-import type { Prisma } from "@/lib/generated/prisma/client"
+// Value import (isolation-level enum) from the generated client, not @/lib/prisma:
+// tests mock @/lib/prisma as `{ prisma }` and would lose the enum.
+import { Prisma } from "@/lib/generated/prisma/client"
 import { sendFundraiserReminderEmail } from "@/lib/email"
 import { getChurchName } from "@/lib/emailTemplateStore"
 import { getInvoiceSettings } from "@/lib/invoiceSettings"
@@ -44,7 +46,11 @@ const OWED_TOO_LARGE = { error: "Total owed is too large (max $999,999.99 per en
  * Create or update the fundraiser of one event (one per event). Changing a
  * price only affects entries created afterwards: entries snapshot the price at
  * creation. `unitPrice` is the pickup price; `deliveryPrice` (optional) enables
- * a delivery option and cannot be cleared while delivery entries exist.
+ * a delivery option and cannot be cleared while delivery entries exist. The
+ * delivery-entry check and the upsert run in one Serializable transaction, and
+ * `addEntry` reads the prices Serializable too, so a delivery entry added
+ * concurrently makes Postgres abort one side (retried) instead of leaving a
+ * delivery entry on a fundraiser with no delivery price.
  *
  * @param eventId - Event id.
  * @param input - Fundraiser settings; `unitPrice` is a 2-dp decimal string > 0,
@@ -98,19 +104,22 @@ export async function saveFundraiser(
   if (!event) return { error: "Event not found" }
 
   // Changing refPrefix does not alter bankRef values already issued to entries.
-  if (deliveryPrice === null) {
-    const existing = await prisma.fundraiser.findUnique({ where: { eventId }, select: { id: true } })
-    if (existing && (await prisma.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } })) > 0) {
-      return { error: "Delivery entries exist" }
-    }
-  }
   const data = { name, unitLabel, unitPrice, deliveryPrice, refPrefix }
-  const saved = await prisma.fundraiser.upsert({
-    where: { eventId },
-    create: { eventId, ...data },
-    update: data,
-    select: { id: true },
-  })
+  const saved = await serializableWrite<{ error: string } | { id: number }>(async (tx) => {
+    if (deliveryPrice === null) {
+      const existing = await tx.fundraiser.findUnique({ where: { eventId }, select: { id: true } })
+      if (existing && (await tx.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } })) > 0) {
+        return { error: "Delivery entries exist" }
+      }
+    }
+    return tx.fundraiser.upsert({
+      where: { eventId },
+      create: { eventId, ...data },
+      update: data,
+      select: { id: true },
+    })
+  }, BUSY)
+  if ("error" in saved) return saved
   await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, deliveryPrice, unitLabel })
   revalidatePath(`/events/${eventId}/fundraiser`)
   revalidatePath("/events")
@@ -169,7 +178,10 @@ async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise
  * Add a family (member) or an outside buyer to a fundraiser. Exactly one of
  * `familyId` / `outsideName` must be given. The pickup or delivery price (per
  * `delivery`) is snapshotted from the fundraiser; outside email/phone are encrypted at rest. Each entry gets a
- * CSPRNG public token and a unique bank reference.
+ * CSPRNG public token and a unique bank reference. The prices are read inside
+ * the Serializable insert transaction, so a concurrent `saveFundraiser` (price
+ * edit, delivery price cleared) cannot slip between the read and the insert:
+ * Postgres aborts one side (P2034) and this side retries.
  *
  * @param fundraiserId - Fundraiser id.
  * @param input - Entry fields; `quantity` is a 1-4 digit positive integer string.
@@ -203,15 +215,7 @@ export async function addEntry(
     outsidePhone = phone ? encrypt(phone) : null
   }
 
-  const fundraiser = await prisma.fundraiser.findUnique({
-    where: { id: fundraiserId },
-    select: { id: true, eventId: true, unitPrice: true, deliveryPrice: true, refPrefix: true },
-  })
-  if (!fundraiser) return { error: "Fundraiser not found" }
   const delivery = input.delivery === true
-  if (delivery && fundraiser.deliveryPrice === null) return { error: NO_DELIVERY_PRICE }
-  const chosenPrice = delivery && fundraiser.deliveryPrice !== null ? fundraiser.deliveryPrice : fundraiser.unitPrice
-  if (quantity * toCents(chosenPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
   const familyId = hasFamily ? (input.familyId as number) : null
   if (familyId !== null) {
     const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
@@ -229,10 +233,18 @@ export async function addEntry(
 
   for (let attempt = 1; attempt <= MAX_ADD_ATTEMPTS; attempt++) {
     try {
-      const created = await prisma.$transaction(async (tx) => {
-        if (await isDupFamily(tx)) return null
+      const created = await prisma.$transaction(async (tx): Promise<{ error: string } | { id: number; eventId: number }> => {
+        const fundraiser = await tx.fundraiser.findUnique({
+          where: { id: fundraiserId },
+          select: { id: true, eventId: true, unitPrice: true, deliveryPrice: true, refPrefix: true },
+        })
+        if (!fundraiser) return { error: "Fundraiser not found" }
+        if (delivery && fundraiser.deliveryPrice === null) return { error: NO_DELIVERY_PRICE }
+        const chosenPrice = delivery && fundraiser.deliveryPrice !== null ? fundraiser.deliveryPrice : fundraiser.unitPrice
+        if (quantity * toCents(chosenPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
+        if (await isDupFamily(tx)) return DUP
         const bankRef = await generateUniqueBankRef(tx, fundraiser.refPrefix)
-        return tx.fundraiserEntry.create({
+        const row = await tx.fundraiserEntry.create({
           data: {
             fundraiserId,
             familyId,
@@ -247,8 +259,9 @@ export async function addEntry(
           },
           select: { id: true },
         })
-      })
-      if (!created) return DUP
+        return { id: row.id, eventId: fundraiser.eventId }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      if ("error" in created) return created
       await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", created.id, {
         fundraiserId,
         familyId,
@@ -256,10 +269,12 @@ export async function addEntry(
         quantity,
         delivery,
       })
-      revalidateFundraiser(fundraiser.eventId)
+      revalidateFundraiser(created.eventId)
       return undefined
     } catch (e) {
       if (e instanceof NoFreeBankRefError) return BUSY
+      // Serialization conflict (e.g. a concurrent price edit): re-read and retry.
+      if (isP2034(e)) continue
       if (!isP2002(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
       // Otherwise the collision was bankRef/publicToken: retry with fresh values.
@@ -636,7 +651,8 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
         remaining: money(c.remainingCents),
         payUrl: online ? `${origin}/pay/fundraiser/${c.publicToken}` : null,
         cardFee: fee ? money(feeCents) : null,
-        bankDetails: invoice.paymentDetails,
+        // Empty payment details: omit the bank-transfer section (card link only).
+        bankDetails: invoice.paymentDetails.trim() ? invoice.paymentDetails : null,
         bankRef: c.bankRef,
       })
       sent++

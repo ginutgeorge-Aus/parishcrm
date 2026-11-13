@@ -209,6 +209,36 @@ describe("addEntry pickup/delivery", () => {
   })
 })
 
+describe("addEntry concurrency", () => {
+  it("reads the fundraiser prices inside a Serializable transaction", async () => {
+    expect(await addEntry(3, { familyId: 2, quantity: "1" })).toBeUndefined()
+    expect(prismaMock.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" })
+    expect(prismaMock.fundraiser.findUnique.mock.invocationCallOrder[0])
+      .toBeGreaterThan(prismaMock.$transaction.mock.invocationCallOrder[0])
+  })
+
+  it("retries a serialization conflict and snapshots the re-read price", async () => {
+    prismaMock.fundraiser.findUnique
+      .mockResolvedValueOnce({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: "15.00", refPrefix: "PK" })
+      .mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: "18.00", refPrefix: "PK" })
+    prismaMock.fundraiserEntry.create
+      .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+      .mockResolvedValue({ id: 11 })
+    expect(await addEntry(3, { familyId: 2, quantity: "1", delivery: true })).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(2)
+    expect(prismaMock.fundraiserEntry.create.mock.calls[1][0].data).toMatchObject({ unitPrice: "18.00", delivery: true })
+  })
+
+  it("rejects a delivery entry when the retry sees the delivery price cleared", async () => {
+    prismaMock.fundraiser.findUnique
+      .mockResolvedValueOnce({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: "15.00", refPrefix: "PK" })
+      .mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: null, refPrefix: "PK" })
+    prismaMock.fundraiserEntry.create.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+    expect(await addEntry(3, { familyId: 2, quantity: "1", delivery: true })).toEqual({ error: "This fundraiser has no delivery price" })
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("updateEntryDelivery", () => {
   const entryRow = (over: Record<string, unknown> = {}) => ({
     id: 11, quantity: 4, unitPrice: "10.00", delivery: false,

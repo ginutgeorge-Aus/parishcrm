@@ -16,6 +16,7 @@ const prismaMock = {
   event: { findUnique: jest.fn() },
   fundraiser: { upsert: jest.fn(), findUnique: jest.fn() },
   fundraiserEntry: { count: jest.fn() },
+  $transaction: jest.fn(),
 }
 jest.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_t, k) => (prismaMock as Record<string | symbol, unknown>)[k] }),
@@ -28,6 +29,7 @@ beforeEach(() => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "ADMIN" } })
   prismaMock.event.findUnique.mockResolvedValue({ id: 7 })
   prismaMock.fundraiser.upsert.mockResolvedValue({ id: 3 })
+  prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
 })
 
 describe("saveFundraiser", () => {
@@ -90,6 +92,30 @@ describe("saveFundraiser", () => {
     prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
     prismaMock.fundraiserEntry.count.mockResolvedValue(0)
     expect(await saveFundraiser(7, input)).toBeUndefined()
+  })
+
+  it("checks delivery entries and upserts in one Serializable transaction", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    prismaMock.fundraiserEntry.count.mockResolvedValue(0)
+    expect(await saveFundraiser(7, input)).toBeUndefined()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
+    expect(prismaMock.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" })
+    const txStart = prismaMock.$transaction.mock.invocationCallOrder[0]
+    expect(prismaMock.fundraiserEntry.count.mock.invocationCallOrder[0]).toBeGreaterThan(txStart)
+    expect(prismaMock.fundraiser.upsert.mock.invocationCallOrder[0]).toBeGreaterThan(txStart)
+  })
+
+  it("retries a serialization conflict and re-checks delivery entries against committed state", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    // First attempt: no delivery entries yet, but a concurrent addEntry wins (P2034).
+    prismaMock.fundraiserEntry.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    prismaMock.$transaction.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+      await fn(prismaMock)
+      throw Object.assign(new Error("conflict"), { code: "P2034" })
+    })
+    expect(await saveFundraiser(7, input)).toEqual({ error: "Delivery entries exist" })
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    expect(logAudit).not.toHaveBeenCalled()
   })
 
   it("upserts on eventId and audits", async () => {
