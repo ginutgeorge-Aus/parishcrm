@@ -152,5 +152,9 @@ mobile.
 ## Rollback
 
 Revert the PR and run a down migration that drops the new tables (`Fundraiser`,
-`FundraiserEntry`, `FundraiserPayment`, `FundraiserReminderSend`) and also the column added to the
-existing `CheckoutSession` table: `fundraiserEntryId`, with its foreign key and index.
+`FundraiserEntry`, `FundraiserPayment`, `FundraiserReminderSend`), the `FundraiserPaymentMethod`
+enum, and also the column added to the existing `CheckoutSession` table: `fundraiserEntryId`, with
+its foreign key and index. Prisma has no down migrations, so also delete each reverted migration's
+row from `_prisma_migrations` (`DELETE FROM "_prisma_migrations" WHERE migration_name = '<name>';`),
+or a later redeploy skips it and the schema stays missing. The same applies to the follow-up
+`20261114000000_fundraiser_family_name_snapshot` migration (its file holds the exact down SQL).

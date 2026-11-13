@@ -10,7 +10,7 @@ import { canEdit, isAdmin } from "@/lib/roleGuard"
 import { toCents } from "@/lib/formatting"
 import { encryptFamilyFields } from "@/lib/familyFields"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
-import { MONEY_DECIMAL_RE, isP2003, parseOptimisticUpdatedAt } from "@/lib/validation"
+import { MONEY_DECIMAL_RE, isP2003, isP2034, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
 import {
   countReassignSteps, planFundraiserReassign, reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx,
@@ -176,6 +176,7 @@ export async function updateFamily(
 
 /** Friendly error when a Restrict foreign key (P2003) blocks a family delete. */
 const LINKED_RECORDS_ERROR = "Cannot delete — other records still reference this family. Archive it instead."
+const WRITE_CONFLICT_ERROR = "Another change to this family was saved at the same time. Nothing was changed — please try again."
 
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
@@ -184,7 +185,8 @@ const LINKED_RECORDS_ERROR = "Cannot delete — other records still reference th
  * in the same transaction as the delete. Its fundraiser entries are kept for
  * the fundraiser ledger: unlinked from the family with the family's name
  * copied onto them (`unlinkFundraiserEntriesTx`). Any remaining Restrict FK
- * failure (P2003) maps to a friendly error.
+ * failure (P2003) maps to a friendly error, and a P2034 write conflict to a
+ * retryable one.
  * @param id Family.id
  */
 export async function deleteFamily(id: number): Promise<ActionResult> {
@@ -278,6 +280,9 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
     // A failed (guarded) audit write rolled the delete back: say so, rather
     // than let it look like a linked-records error.
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteFamily")
+    // A write conflict / deadlock with a concurrent edit rolled the delete back:
+    // nothing changed, so the admin can simply retry.
+    if (isP2034(e)) return { error: WRITE_CONFLICT_ERROR }
     // Backstop: any Restrict FK still referencing the family fails the
     // delete — answer friendly, not a 500.
     if (isP2003(e)) return { error: LINKED_RECORDS_ERROR }
@@ -433,8 +438,9 @@ export async function previewMerge(
  * Merge `sourceId` into `targetId` (ADMIN only): move people, giving,
  * membership applications, self-update history and fundraiser entries
  * (moved, folded into the target's entry, or unlinked with the source name:
- * see `reassignFundraiserEntriesTx`), then delete the source. A P2003 on the
- * delete maps to a friendly error.
+ * see `reassignFundraiserEntriesTx`), then delete the source. The source name
+ * kept on unlinked entries is read under the family row lock. A P2003 on the
+ * delete maps to a friendly error; a P2034 write conflict to a retryable one.
  * @param sourceId family to merge away
  * @param targetId surviving family
  * @returns success, an error, or person-name conflicts
@@ -453,6 +459,7 @@ export async function mergeFamilies(
 
   const actor = actorId(session)
   let fundraiser: FundraiserReassignResult = { moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] }
+  let sourceName = preview.source.name
   try {
     await prisma.$transaction(async (tx) => {
       // re-check archival inside the tx. The no-op UPDATE row-locks both
@@ -479,13 +486,19 @@ export async function mergeFamilies(
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       // FundraiserEntry.familyId is onDelete: Restrict: re-home the source's
       // entries under the family row locks taken above, so the delete succeeds.
-      fundraiser = await reassignFundraiserEntriesTx(tx, sourceId, targetId, preview.source.name, actor)
+      // Read the name under the row lock taken above, so a rename after the
+      // preview is what lands on unlinked entries (as deleteFamily does).
+      const source = await tx.family.findUniqueOrThrow({ where: { id: sourceId }, select: { name: true } })
+      sourceName = source.name
+      fundraiser = await reassignFundraiserEntriesTx(tx, sourceId, targetId, sourceName, actor)
       await tx.family.delete({ where: { id: sourceId } })
     })
   } catch (e: unknown) {
     if (e instanceof ArchivedDuringMerge) return { error: ARCHIVED_MERGE_ERROR }
     // A failed (guarded) audit write rolled the merge back; never report it as a P2003.
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "mergeFamilies")
+    // A write conflict / deadlock rolled the merge back; safe to retry.
+    if (isP2034(e)) return { error: WRITE_CONFLICT_ERROR }
     if (isP2003(e)) return { error: MERGE_LINKED_ERROR }
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
       return { conflicts: ["Merge failed: a duplicate person name was added concurrently. Please re-run preview."] }
@@ -505,7 +518,7 @@ export async function mergeFamilies(
     "FAMILY_MERGED",
     "Family",
     targetId,
-    { sourceId, sourceName: preview.source.name, fundraiserEntries: counts }
+    { sourceId, sourceName, fundraiserEntries: counts }
   )
 
   revalidatePath("/families")

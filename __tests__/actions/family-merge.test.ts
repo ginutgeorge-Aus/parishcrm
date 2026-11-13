@@ -139,7 +139,7 @@ describe("mergeFamilies", () => {
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
-        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
+        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })
     )
     mockPersonUpdateMany.mockResolvedValue({ count: 1 })
@@ -171,7 +171,7 @@ describe("mergeFamilies", () => {
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
-        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
+        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })
     )
     mockPersonUpdateMany.mockResolvedValue({ count: 1 })
@@ -203,7 +203,7 @@ describe("mergeFamilies", () => {
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
-        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: mockFamilyDelete },
+        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })
     )
     mockPersonUpdateMany.mockResolvedValue({ count: 1 })

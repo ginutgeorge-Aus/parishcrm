@@ -34,12 +34,16 @@ function FamilySearch({
   useEffect(() => () => clearTimeout(timer.current), [])
 
   /**
-   * Update the query and schedule a debounced server search. Each change bumps
-   * a sequence number; a response for an older query is dropped.
+   * Update the query, clear the previous results, and schedule a debounced
+   * server search. Each change bumps a sequence number; a response for an
+   * older query is dropped.
    * @param value - New search text.
    */
   function onQueryChange(value: string) {
     setQuery(value)
+    // Drop the old list at once: its buttons must not stay clickable for a
+    // query that no longer matches what is typed.
+    setResults(null)
     clearTimeout(timer.current)
     const seq = ++latest.current
     const q = value.trim()
@@ -73,7 +77,9 @@ function FamilySearch({
     return (
       <div className="flex items-center gap-2">
         <Input id="fe-family" value={selected.name} readOnly className="min-h-11 min-w-0 flex-1 font-medium sm:min-h-9" />
-        <Button type="button" size="sm" variant="outline" className="min-h-11 shrink-0 sm:min-h-0" onClick={() => onSelect(null)}>
+        <Button type="button" size="sm" variant="outline" className="min-h-11 shrink-0 sm:min-h-0" onClick={() => onSelect(null)}
+          // The picked result button unmounts; keep keyboard focus in the dialog.
+          autoFocus>
           Change
         </Button>
       </div>

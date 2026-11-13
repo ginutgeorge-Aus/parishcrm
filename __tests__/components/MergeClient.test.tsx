@@ -121,7 +121,7 @@ describe("MergeClient", () => {
       await waitFor(() => expect(screen.getByText(/confirm merge/i)).toBeInTheDocument())
       expect(screen.getByText(/3 people will be reassigned/i)).toBeInTheDocument()
       expect(screen.getByText(/7 transactions will be reassigned/i)).toBeInTheDocument()
-      expect(screen.queryByText(/fundraiser entries will be moved/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/fundraiser entries will be reassigned/i)).not.toBeInTheDocument()
     })
 
     it("shows the fundraiser entry count when the source has entries", async () => {
@@ -130,7 +130,7 @@ describe("MergeClient", () => {
       selectSource("1")
       selectTarget("2")
       fireEvent.click(screen.getByRole("button", { name: /preview merge/i }))
-      await waitFor(() => expect(screen.getByText(/2 fundraiser entries will be moved/i)).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText(/2 fundraiser entries will be reassigned/i)).toBeInTheDocument())
       expect(screen.queryByText(/can't be combined/i)).not.toBeInTheDocument()
     })
 

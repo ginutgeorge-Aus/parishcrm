@@ -7,6 +7,9 @@ import { toCents, type Money } from "@/lib/formatting"
  */
 export const MAX_OWED_CENTS = 99_999_999
 
+/** Largest quantity one entry may hold (the add/edit actions accept 1 to 9999). */
+export const MAX_ENTRY_QUANTITY = 9999
+
 /** Shortest family-search query for the add-entry picker; shorter returns no results. */
 export const FAMILY_SEARCH_MIN = 2
 /** Most families one add-entry search returns (the picker shows a "refine" hint at the cap). */
