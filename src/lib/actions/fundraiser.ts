@@ -37,20 +37,23 @@ const MAX_PREFIX = 12
  * Decimal(10,2) column limit, so a typo can never 500 on write or on checkout.
  */
 const MAX_OWED_CENTS = 99_999_999
+const NO_DELIVERY_PRICE = "This fundraiser has no delivery price"
 const OWED_TOO_LARGE = { error: "Total owed is too large (max $999,999.99 per entry)" }
 
 /**
- * Create or update the fundraiser of one event (one per event). Changing the
- * unit price only affects entries created afterwards: entries snapshot the
- * price at creation.
+ * Create or update the fundraiser of one event (one per event). Changing a
+ * price only affects entries created afterwards: entries snapshot the price at
+ * creation. `unitPrice` is the pickup price; `deliveryPrice` (optional) enables
+ * a delivery option and cannot be cleared while delivery entries exist.
  *
  * @param eventId - Event id.
- * @param input - Fundraiser settings; `unitPrice` is a 2-dp decimal string > 0.
+ * @param input - Fundraiser settings; `unitPrice` is a 2-dp decimal string > 0,
+ *   `deliveryPrice` the same or ''/undefined for no delivery option.
  * @returns `{ error }` on failure, `undefined` on success.
  */
 export async function saveFundraiser(
   eventId: number,
-  input: { name: string; unitLabel: string; unitPrice: string; refPrefix?: string },
+  input: { name: string; unitLabel: string; unitPrice: string; deliveryPrice?: string; refPrefix?: string },
 ): Promise<ActionResult> {
   const demo = assertNotDemo()
   if (demo) return demo
@@ -75,20 +78,40 @@ export async function saveFundraiser(
   if (!(toCents(unitPrice) > 0)) {
     return { error: "Unit price must be a positive amount with at most 2 decimals" }
   }
+  const deliveryRaw = (input.deliveryPrice ?? "").trim()
+  let deliveryPrice: string | null = null
+  if (deliveryRaw) {
+    if (!MONEY_DECIMAL_RE.test(deliveryRaw)) {
+      return { error: "Delivery price must be a positive amount with at most 2 decimals" }
+    }
+    if (deliveryRaw.length > 12 || toCents(deliveryRaw) > MAX_OWED_CENTS) {
+      return { error: "Delivery price is too large (max $999,999.99)" }
+    }
+    if (!(toCents(deliveryRaw) > 0)) {
+      return { error: "Delivery price must be a positive amount with at most 2 decimals" }
+    }
+    deliveryPrice = deliveryRaw
+  }
   const refPrefix = (input.refPrefix ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, MAX_PREFIX) || null
 
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } })
   if (!event) return { error: "Event not found" }
 
   // Changing refPrefix does not alter bankRef values already issued to entries.
-  const data = { name, unitLabel, unitPrice, refPrefix }
+  if (deliveryPrice === null) {
+    const existing = await prisma.fundraiser.findUnique({ where: { eventId }, select: { id: true } })
+    if (existing && (await prisma.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } })) > 0) {
+      return { error: "Delivery entries exist" }
+    }
+  }
+  const data = { name, unitLabel, unitPrice, deliveryPrice, refPrefix }
   const saved = await prisma.fundraiser.upsert({
     where: { eventId },
     create: { eventId, ...data },
     update: data,
     select: { id: true },
   })
-  await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, unitLabel })
+  await logAudit(actorId(session), "FUNDRAISER_SAVE", "Fundraiser", saved.id, { eventId, unitPrice, deliveryPrice, unitLabel })
   revalidatePath(`/events/${eventId}/fundraiser`)
   revalidatePath("/events")
   return undefined
@@ -144,8 +167,8 @@ async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise
 
 /**
  * Add a family (member) or an outside buyer to a fundraiser. Exactly one of
- * `familyId` / `outsideName` must be given. The unit price is snapshotted from
- * the fundraiser; outside email/phone are encrypted at rest. Each entry gets a
+ * `familyId` / `outsideName` must be given. The pickup or delivery price (per
+ * `delivery`) is snapshotted from the fundraiser; outside email/phone are encrypted at rest. Each entry gets a
  * CSPRNG public token and a unique bank reference.
  *
  * @param fundraiserId - Fundraiser id.
@@ -154,7 +177,7 @@ async function lockEntry(tx: Prisma.TransactionClient, entryId: number): Promise
  */
 export async function addEntry(
   fundraiserId: number,
-  input: { familyId?: number; outsideName?: string; outsideEmail?: string; outsidePhone?: string; quantity: string },
+  input: { familyId?: number; outsideName?: string; outsideEmail?: string; outsidePhone?: string; quantity: string; delivery?: boolean },
 ): Promise<ActionResult> {
   const g = await guardManage()
   if ("error" in g) return g
@@ -182,10 +205,13 @@ export async function addEntry(
 
   const fundraiser = await prisma.fundraiser.findUnique({
     where: { id: fundraiserId },
-    select: { id: true, eventId: true, unitPrice: true, refPrefix: true },
+    select: { id: true, eventId: true, unitPrice: true, deliveryPrice: true, refPrefix: true },
   })
   if (!fundraiser) return { error: "Fundraiser not found" }
-  if (quantity * toCents(fundraiser.unitPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
+  const delivery = input.delivery === true
+  if (delivery && fundraiser.deliveryPrice === null) return { error: NO_DELIVERY_PRICE }
+  const chosenPrice = delivery && fundraiser.deliveryPrice !== null ? fundraiser.deliveryPrice : fundraiser.unitPrice
+  if (quantity * toCents(chosenPrice) > MAX_OWED_CENTS) return OWED_TOO_LARGE
   const familyId = hasFamily ? (input.familyId as number) : null
   if (familyId !== null) {
     const fam = await prisma.family.findUnique({ where: { id: familyId }, select: { id: true, archivedAt: true } })
@@ -214,7 +240,8 @@ export async function addEntry(
             outsideEmail,
             outsidePhone,
             quantity,
-            unitPrice: fundraiser.unitPrice,
+            unitPrice: chosenPrice,
+            delivery,
             publicToken: mintEntryToken(),
             bankRef,
           },
@@ -227,6 +254,7 @@ export async function addEntry(
         familyId,
         outside: familyId === null,
         quantity,
+        delivery,
       })
       revalidateFundraiser(fundraiser.eventId)
       return undefined
@@ -285,6 +313,56 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
   if ("error" in res) return res
   if (res.from !== next) await expireOpenFundraiserCheckouts(entryId)
   await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_QUANTITY", "FundraiserEntry", entryId, { from: res.from, to: next })
+  revalidateFundraiser(res.eventId)
+  return undefined
+}
+
+/**
+ * Switch an entry between pickup and delivery. Re-snapshots the entry's unit
+ * price from the fundraiser's CURRENT price for the new choice. Rejected when
+ * the new total would be below what is already paid, above the owed ceiling, or
+ * when switching to delivery on a fundraiser with no delivery price. Same
+ * Serializable + row-lock discipline as `updateEntryQuantity`; open card
+ * checkouts staged for the old amount are expired after commit when the price
+ * changed. No-op success when the choice is unchanged.
+ *
+ * @param entryId - Entry id.
+ * @param delivery - true for delivery, false for pickup.
+ * @returns `{ error }` on failure, `undefined` on success.
+ */
+export async function updateEntryDelivery(entryId: number, delivery: boolean): Promise<ActionResult> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(entryId)) return { error: "Invalid entry" }
+  if (typeof delivery !== "boolean") return { error: "Invalid delivery choice" }
+
+  type Changed = { from: boolean; priceChanged: boolean; eventId: number }
+  const res = await serializableWrite<{ error: string } | Changed>(async (tx) => {
+    if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
+    const entry = await tx.fundraiserEntry.findUnique({
+      where: { id: entryId },
+      select: {
+        id: true, quantity: true, unitPrice: true, delivery: true,
+        fundraiser: { select: { eventId: true, unitPrice: true, deliveryPrice: true } },
+        payments: { select: { amount: true } },
+      },
+    })
+    if (!entry) return { error: "Entry not found" }
+    const eventId = entry.fundraiser.eventId
+    if (entry.delivery === delivery) return { from: entry.delivery, priceChanged: false, eventId }
+    if (delivery && entry.fundraiser.deliveryPrice === null) return { error: NO_DELIVERY_PRICE }
+    const price = delivery && entry.fundraiser.deliveryPrice !== null ? entry.fundraiser.deliveryPrice : entry.fundraiser.unitPrice
+    const { paidCents } = entryTotals(entry, entry.payments)
+    const newOwed = entryTotals({ quantity: entry.quantity, unitPrice: price }, []).owedCents
+    if (!(newOwed >= paidCents)) return { error: "New total is below the amount already paid" }
+    if (newOwed > MAX_OWED_CENTS) return OWED_TOO_LARGE
+    await tx.fundraiserEntry.update({ where: { id: entryId }, data: { delivery, unitPrice: price } })
+    return { from: entry.delivery, priceChanged: toCents(price) !== toCents(entry.unitPrice), eventId }
+  }, BUSY)
+  if ("error" in res) return res
+  if (res.from === delivery) return undefined
+  if (res.priceChanged) await expireOpenFundraiserCheckouts(entryId)
+  await logAudit(actorId(g.session), "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", entryId, { from: res.from, to: delivery })
   revalidateFundraiser(res.eventId)
   return undefined
 }

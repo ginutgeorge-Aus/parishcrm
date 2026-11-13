@@ -26,14 +26,24 @@ The Events feature must be switched on. The tab is hidden otherwise.
 2. In the settings form, enter:
    - **Name** (for example "Feast packets"), up to 120 characters.
    - **Unit label** (for example "packet"), up to 40 characters.
-   - **Unit price**, a positive amount with at most 2 decimals.
+   - **Pickup price**, a positive amount with at most 2 decimals.
+   - **Delivery price** (optional), same rules. Leave it empty if there is no delivery option.
    - **Bank reference prefix** (optional): letters and numbers only. It is upper-cased and
      used to build each row's bank-transfer reference, such as `FEAST0001`. Leave it blank for
      the default `FR`.
 3. Save. There is one fundraiser per event.
 
-Changing the unit price later only affects rows added afterwards. Each row keeps the price it
+Changing a price later only affects rows added afterwards. Each row keeps the price it
 had when it was added.
+
+### Pickup and delivery
+
+When a delivery price is set, each row is either **Pickup** or **Delivery**. Pick one when adding
+a row, and change it later from the row's Pickup/Delivery menu. Switching reprices the row at the
+fundraiser's current price for the new choice, and is refused if the new total would be below what
+the row has already paid. Any open card payment for the old amount is cancelled. You cannot clear
+the delivery price while any row is a delivery. The buyer's payment page shows "(pickup)" or
+"(delivery)" next to the price. Without a delivery price none of this appears.
 
 ## Adding rows
 

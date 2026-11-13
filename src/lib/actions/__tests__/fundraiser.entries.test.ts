@@ -14,7 +14,7 @@ jest.mock("@/lib/fundraiserCheckout", () => ({
   expireOpenFundraiserCheckouts: jest.fn(async () => 0),
 }))
 
-import { addEntry, updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
+import { addEntry, updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
 import { auth } from "@/auth"
@@ -42,7 +42,7 @@ beforeEach(() => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "ADMIN" } })
   prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
   prismaMock.$queryRaw.mockResolvedValue([{ id: 11 }])
-  prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", refPrefix: "PK" })
+  prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: null, refPrefix: "PK" })
   prismaMock.family.findUnique.mockResolvedValue({ id: 2 })
   prismaMock.fundraiserEntry.findMany.mockResolvedValue([])
   // Pre-check (family dup) and bankRef probe both default to "free".
@@ -181,6 +181,80 @@ describe("generateUniqueBankRef", () => {
 
   it("default prefix starts at 1", async () => {
     expect(await generateUniqueBankRef(prismaMock as never, null)).toBe("FR0001")
+  })
+})
+
+describe("addEntry pickup/delivery", () => {
+  it("pickup snapshots the pickup price", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: "15.00", refPrefix: "PK" })
+    expect(await addEntry(3, { familyId: 2, quantity: "2", delivery: false })).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.create.mock.calls[0][0].data).toMatchObject({ unitPrice: "12.50", delivery: false })
+  })
+
+  it("delivery snapshots the delivery price and audits it", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "12.50", deliveryPrice: "15.00", refPrefix: "PK" })
+    expect(await addEntry(3, { familyId: 2, quantity: "2", delivery: true })).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.create.mock.calls[0][0].data).toMatchObject({ unitPrice: "15.00", delivery: true })
+    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_ADD", "FundraiserEntry", 11, expect.objectContaining({ delivery: true }))
+  })
+
+  it("rejects delivery when the fundraiser has no delivery price", async () => {
+    expect(await addEntry(3, { familyId: 2, quantity: "2", delivery: true })).toEqual({ error: "This fundraiser has no delivery price" })
+    expect(prismaMock.fundraiserEntry.create).not.toHaveBeenCalled()
+  })
+
+  it("owed cap uses the delivery price", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3, eventId: 7, unitPrice: "1.00", deliveryPrice: "500.00", refPrefix: "PK" })
+    expect(await addEntry(3, { familyId: 2, quantity: "2001", delivery: true })).toEqual({ error: "Total owed is too large (max $999,999.99 per entry)" })
+  })
+})
+
+describe("updateEntryDelivery", () => {
+  const entryRow = (over: Record<string, unknown> = {}) => ({
+    id: 11, quantity: 4, unitPrice: "10.00", delivery: false,
+    fundraiser: { eventId: 7, unitPrice: "10.00", deliveryPrice: "12.00" }, payments: [{ amount: "25.00" }], ...over,
+  })
+  beforeEach(() => prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow()))
+
+  it("reprices to the delivery price, expires checkouts, audits", async () => {
+    expect(await updateEntryDelivery(11, true)).toBeUndefined()
+    expect(prismaMock.$queryRaw).toHaveBeenCalled()
+    expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { delivery: true, unitPrice: "12.00" } })
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
+    expect(logAudit).toHaveBeenCalledWith(5, "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", 11, { from: false, to: true })
+    expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
+  })
+
+  it("reprices back to the current pickup price", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow({ delivery: true, unitPrice: "12.00", fundraiser: { eventId: 7, unitPrice: "11.00", deliveryPrice: "12.00" } }))
+    expect(await updateEntryDelivery(11, false)).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { delivery: false, unitPrice: "11.00" } })
+  })
+
+  it("rejects a total below what is already paid", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow({ delivery: true, unitPrice: "12.00", payments: [{ amount: "45.00" }] }))
+    expect(await updateEntryDelivery(11, false)).toEqual({ error: "New total is below the amount already paid" })
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+  })
+
+  it("rejects delivery when there is no delivery price", async () => {
+    prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow({ fundraiser: { eventId: 7, unitPrice: "10.00", deliveryPrice: null } }))
+    expect(await updateEntryDelivery(11, true)).toEqual({ error: "This fundraiser has no delivery price" })
+  })
+
+  it("is a no-op success when unchanged", async () => {
+    expect(await updateEntryDelivery(11, false)).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("rejects a missing entry and a VIEWER", async () => {
+    prismaMock.$queryRaw.mockResolvedValue([])
+    expect(await updateEntryDelivery(11, true)).toEqual({ error: "Entry not found" })
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "VIEWER" } })
+    expect(await updateEntryDelivery(11, true)).toEqual({ error: "Unauthorized" })
   })
 })
 

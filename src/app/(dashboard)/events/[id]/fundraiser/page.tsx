@@ -113,10 +113,10 @@ export default async function FundraiserPage(props: Readonly<Props>) {
                         lastSentAt={lastSent}
                       />
                     )}
-                    <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
+                    <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} hasDelivery={view.fundraiser.deliveryPrice !== null} />
                   </div>
                 </div>
-                <EntryTable rows={view.rows} canManage payments={payments} />
+                <EntryTable rows={view.rows} canManage payments={payments} hasDelivery={view.fundraiser.deliveryPrice !== null} />
               </section>
             </>
           )}

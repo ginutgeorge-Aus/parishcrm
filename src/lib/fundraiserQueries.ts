@@ -15,12 +15,14 @@ export type FundraiserRow = EntryTotals & {
   quantity: number
   /** Unit price snapshotted on the entry at creation (2-dp string). */
   unitPrice: string
+  /** True when the entry is a delivery (priced at the delivery price). */
+  delivery: boolean
   bankRef: string
 }
 
 /** Fundraiser settings, per-entry rows and rolled-up totals for one event. */
 export type FundraiserView = {
-  fundraiser: { id: number; eventId: number; name: string; unitLabel: string; unitPrice: string; refPrefix: string | null }
+  fundraiser: { id: number; eventId: number; name: string; unitLabel: string; unitPrice: string; deliveryPrice: string | null; refPrefix: string | null }
   rows: FundraiserRow[]
   totals: { expectedCents: number; collectedCents: number; outstandingCents: number }
 }
@@ -40,11 +42,11 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
   const f = await prisma.fundraiser.findUnique({
     where: { eventId },
     select: {
-      id: true, eventId: true, name: true, unitLabel: true, unitPrice: true, refPrefix: true,
+      id: true, eventId: true, name: true, unitLabel: true, unitPrice: true, deliveryPrice: true, refPrefix: true,
       entries: {
         orderBy: { id: "asc" },
         select: {
-          id: true, familyId: true, outsideName: true, quantity: true, unitPrice: true, bankRef: true,
+          id: true, familyId: true, outsideName: true, quantity: true, unitPrice: true, delivery: true, bankRef: true,
           family: { select: { name: true } },
           payments: { select: { amount: true } },
         },
@@ -62,13 +64,14 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
         name: e.family?.name ?? e.outsideName ?? "Unknown",
         quantity: e.quantity,
         unitPrice: e.unitPrice.toString(),
+        delivery: e.delivery,
         bankRef: e.bankRef,
       }))
     : []
   return {
     fundraiser: {
       id: f.id, eventId: f.eventId, name: f.name, unitLabel: f.unitLabel,
-      unitPrice: f.unitPrice.toString(), refPrefix: f.refPrefix,
+      unitPrice: f.unitPrice.toString(), deliveryPrice: f.deliveryPrice?.toString() ?? null, refPrefix: f.refPrefix,
     },
     rows,
     totals: fundraiserTotals(computed.map((c) => c.t)),
