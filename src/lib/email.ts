@@ -207,6 +207,7 @@ export function appendEmailFooter(html: string, text: string, footer: string): {
 async function sendMailWithRetry(
   transporter: MailTransport,
   baseOptions: MailOptions,
+  opts: { alertOwner?: boolean } = {},
 ): Promise<void> {
   let options = baseOptions
   try {
@@ -226,17 +227,23 @@ async function sendMailWithRetry(
     // error — surface to the owner (best-effort), then rethrow so the caller
     // still sees the failure. Ambiguous errors get the "unknown delivery" wording so
     // nobody assumes the mail was lost and blindly resends a possible duplicate.
-    await alertOwnerEmailFailure(options.subject, err, isAmbiguousDeliveryError(err))
+    if (opts.alertOwner !== false) await alertOwnerEmailFailure(options.subject, err, isAmbiguousDeliveryError(err))
     throw err
   }
 }
 
+/**
+ * Send one transactional email through the retry chokepoint.
+ * @param attachments optional attachments
+ * @param opts `alertOwner: false` skips the owner failure alert, for bulk sends that report failures per recipient themselves
+ */
 export async function sendEmail(
   to: string,
   subject: string,
   html: string,
   text: string,
-  attachments?: EmailAttachment[]
+  attachments?: EmailAttachment[],
+  opts?: { alertOwner?: boolean }
 ): Promise<void> {
   const { transporter, user } = makeTransporter()
   const churchName = await getChurchName()
@@ -247,7 +254,7 @@ export async function sendEmail(
     html,
     text,
     ...(attachments?.length ? { attachments } : {}),
-  })
+  }, opts)
 }
 
 /**

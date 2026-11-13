@@ -28,7 +28,7 @@ const SWEEP_MESSAGE_LIMIT = 50
 /** Outcome tally of a delivery pass. `inFlight` counts recipients another pass holds. */
 export type DeliverCounts = { sent: number; failed: number; unknown: number; inFlight: number }
 
-/** Consecutive clean failures after which a pass stops: every failed send also alerts the owner, so a dead SMTP must not alert once per recipient. */
+/** Consecutive clean failures after which a pass stops (SMTP is down), leaving the rest queued for the next sweep. */
 export const MAX_CONSECUTIVE_FAILURES = 3
 
 type Status = "SENT" | "FAILED" | "UNKNOWN"
@@ -111,29 +111,31 @@ function textToHtml(text: string): string {
 
 type MessageCtx = { groupId: number; subject: string; body: string; groupName: string; churchName: string }
 
+/** Recipients claimed and sent at once within a pass (bounded so a big group does not open a flood of SMTP connections). */
+export const SEND_CONCURRENCY = 3
+
+/** The person fields `sendClaimed` needs, batch-loaded once per pass. */
+type MailablePerson = {
+  id: number
+  firstName: string
+  email: string | null
+  emailConsent: boolean
+  archivedAt: Date | null
+  groupMemberships: { id: number }[]
+}
+
 /**
  * Send to one already-claimed recipient and durably resolve it. A person who
  * left the group's mailing set since queueing (removed from the group, group archived, person archived, opted out, address gone)
- * is closed as a terminal FAILED without sending.
+ * is closed as a terminal FAILED without sending. Sends bypass the owner alert
+ * (`alertOwner: false`): one dead SMTP must not mail the owner once per recipient;
+ * failures surface in the history page and the sweep's error log instead.
+ * @param recipientId GroupMessageRecipient id
+ * @param person the recipient's person row (batch-loaded), or undefined when it no longer exists
+ * @param ctx message-level context
  * @returns the outcome, or "SKIPPED" when the person is no longer mailable
  */
-async function sendClaimed(recipientId: number, personId: number, ctx: MessageCtx): Promise<Status | "SKIPPED"> {
-  let person
-  try {
-    person = await prisma.person.findUnique({
-      where: { id: personId },
-      select: {
-        firstName: true, email: true, emailConsent: true, archivedAt: true,
-        // Still a member of a live group? Membership can change between queueing and sending.
-        groupMemberships: { where: { groupId: ctx.groupId, group: { archivedAt: null } }, select: { id: true } },
-      },
-    })
-  } catch {
-    // Nothing was sent yet: release the claim as retryable FAILED so it is not left PENDING and later mislabelled UNKNOWN.
-    await resolveGroupRecipient(recipientId, "FAILED").catch(() => {})
-    logger.error(`[groupMessage] recipient ${recipientId} lookup failed before send — left retryable`)
-    return "FAILED"
-  }
+async function sendClaimed(recipientId: number, person: MailablePerson | undefined, ctx: MessageCtx): Promise<Status | "SKIPPED"> {
   let to: string | null = null
   try {
     to = person?.email ? decrypt(person.email).trim() : null
@@ -147,7 +149,7 @@ async function sendClaimed(recipientId: number, personId: number, ctx: MessageCt
   }
   const text = renderGroupMessageText(person.firstName, ctx.body, ctx.groupName, ctx.churchName)
   try {
-    await sendEmail(to, ctx.subject, textToHtml(text), text)
+    await sendEmail(to, ctx.subject, textToHtml(text), text, undefined, { alertOwner: false })
   } catch (err) {
     const status: Status = isAmbiguousDeliveryError(err) ? "UNKNOWN" : "FAILED"
     await resolveGroupRecipient(recipientId, status)
@@ -169,9 +171,8 @@ async function sendClaimed(recipientId: number, personId: number, ctx: MessageCt
  * (an abandoned PENDING claim is closed as UNKNOWN, not resent). Safe to run concurrently (the claim is the atomic decision).
  * Never logs an address.
  * @param messageId GroupMessage id
- * Stops after MAX_CONSECUTIVE_FAILURES clean failures in a row (SMTP down),
- * leaving the rest queued for the next sweep, so the owner is alerted at most
- * that many times per pass instead of once per recipient.
+ * Recipients are sent SEND_CONCURRENCY at a time. Stops after MAX_CONSECUTIVE_FAILURES
+ * clean failures in a row (SMTP down), leaving the rest queued for the next sweep.
  * @returns outcome counts (`aborted` when it stopped early)
  */
 export async function deliverGroupMessage(messageId: number): Promise<DeliverCounts & { aborted?: boolean }> {
@@ -190,33 +191,70 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
     select: { id: true, personId: true, status: true, claimedAt: true },
     orderBy: { id: "asc" },
   })
+  // One query for every recipient's person (not one per recipient). Runs before any claim, so a failure leaves rows untouched for the next sweep.
+  const people = await prisma.person.findMany({
+    where: { id: { in: open.map((r) => r.personId) } },
+    select: {
+      id: true, firstName: true, email: true, emailConsent: true, archivedAt: true,
+      // Still a member of a live group? Membership can change between queueing and sending.
+      groupMemberships: { where: { groupId: ctx.groupId, group: { archivedAt: null } }, select: { id: true } },
+    },
+  })
+  const byId = new Map(people.map((p) => [p.id, p]))
   const staleBefore = new Date(Date.now() - GROUP_MESSAGE_LEASE_MS)
-  for (const r of open) {
-    if (!(await claimGroupRecipient(r.id))) {
-      // A stale PENDING claim was just closed as UNKNOWN by the claim; only a live claim elsewhere is in flight.
-      if (r.status === "PENDING" && r.claimedAt && r.claimedAt < staleBefore) counts.unknown++
-      else counts.inFlight++
-      continue
+  for (let i = 0; i < open.length; i += SEND_CONCURRENCY) {
+    const chunk = open.slice(i, i + SEND_CONCURRENCY)
+    const outcomes = await Promise.all(chunk.map(async (r) => {
+      if (!(await claimGroupRecipient(r.id))) {
+        // A stale PENDING claim was just closed as UNKNOWN by the claim; only a live claim elsewhere is in flight.
+        return r.status === "PENDING" && r.claimedAt && r.claimedAt < staleBefore ? "STALE" as const : "INFLIGHT" as const
+      }
+      return sendClaimed(r.id, byId.get(r.personId), ctx)
+    }))
+    for (const outcome of outcomes) {
+      if (outcome === "STALE") { counts.unknown++; continue }
+      if (outcome === "INFLIGHT") { counts.inFlight++; continue }
+      if (outcome === "SENT") counts.sent++
+      else if (outcome === "UNKNOWN") counts.unknown++
+      else counts.failed++
+      // Only a real send failure counts toward the streak (a skipped, no-longer-mailable person is not an SMTP problem).
+      streak = outcome === "FAILED" ? streak + 1 : outcome === "SKIPPED" ? streak : 0
     }
-    const outcome = await sendClaimed(r.id, r.personId, ctx)
-    if (outcome === "SENT") counts.sent++
-    else if (outcome === "UNKNOWN") counts.unknown++
-    else counts.failed++
-    // Only a real send failure counts toward the streak (a skipped, no-longer-mailable person is not an SMTP problem).
-    streak = outcome === "FAILED" ? streak + 1 : outcome === "SKIPPED" ? streak : 0
     if (streak >= MAX_CONSECUTIVE_FAILURES) { counts.aborted = true; break }
   }
   return counts
 }
 
 /**
+ * Close recipients of messages older than the retry window that never reached a
+ * terminal state (still queued, or a claim that outlived its lease). The sweep no
+ * longer retries them, so without this they would read "Queued" forever. Closed as
+ * UNKNOWN (never resent: delivery cannot be confirmed).
+ * @param now current instant
+ * @returns number of recipients closed
+ */
+export async function closeStaleRecipients(now: Date): Promise<number> {
+  const r = await prisma.groupMessageRecipient.updateMany({
+    where: {
+      status: "PENDING",
+      OR: [{ claimedAt: null }, { claimedAt: { lt: new Date(now.getTime() - GROUP_MESSAGE_LEASE_MS) } }],
+      message: { createdAt: { lt: new Date(now.getTime() - RETRY_WINDOW_MS) } },
+    },
+    data: { status: "UNKNOWN" },
+  })
+  return r.count
+}
+
+/**
  * Scheduler job: retry recent messages that still have queued or failed
- * recipients (a missed immediate drain, an SMTP blip, a crash mid-send).
+ * recipients (a missed immediate drain, an SMTP blip, a crash mid-send), and
+ * close out PENDING recipients of messages past the retry window.
  * @param now current instant
  * @returns summed counts (numbers only, so the scheduler log never carries PII)
  */
-export async function runGroupMessageSweep(now: Date): Promise<DeliverCounts & { messages: number }> {
-  const total: DeliverCounts & { messages: number } = { sent: 0, failed: 0, unknown: 0, inFlight: 0, messages: 0 }
+export async function runGroupMessageSweep(now: Date): Promise<DeliverCounts & { messages: number; closed: number }> {
+  const total: DeliverCounts & { messages: number; closed: number } = { sent: 0, failed: 0, unknown: 0, inFlight: 0, messages: 0, closed: 0 }
+  total.closed = await closeStaleRecipients(now)
   const messages = await prisma.groupMessage.findMany({
     where: {
       createdAt: { gte: new Date(now.getTime() - RETRY_WINDOW_MS) },
