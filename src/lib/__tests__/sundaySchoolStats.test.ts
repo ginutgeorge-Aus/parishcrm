@@ -52,9 +52,11 @@ describe("summariseAttendance null marks", () => {
 
 describe("beforeEnrolment", () => {
   const enrolled = new Date("2026-03-08T22:00:00Z")
-  it("is true only for dates before the enrolment's UTC day", () => {
+  it("is true only for dates before the enrolment's Sydney day", () => {
+    // 22:00Z on 8 Mar is 09:00 on 9 Mar in Sydney (AEDT)
     expect(beforeEnrolment(new Date("2026-03-01T00:00:00Z"), enrolled)).toBe(true)
-    expect(beforeEnrolment(new Date("2026-03-08T00:00:00Z"), enrolled)).toBe(false)
+    expect(beforeEnrolment(new Date("2026-03-08T00:00:00Z"), enrolled)).toBe(true)
+    expect(beforeEnrolment(new Date("2026-03-09T00:00:00Z"), enrolled)).toBe(false)
     expect(beforeEnrolment(new Date("2026-03-15T00:00:00Z"), enrolled)).toBe(false)
   })
 })

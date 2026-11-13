@@ -12,6 +12,7 @@
 
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
+import { sydneyParts } from "@/lib/dates"
 
 /** Attendance counts plus the attended rate (whole percent, null = nothing marked). */
 export type AttendanceSummary = {
@@ -92,13 +93,13 @@ export function ratePercent(part: number, whole: number): number | null {
 
 /**
  * True when a roll or exam dated `date` (a `@db.Date`, UTC midnight) falls
- * before the day the child was enrolled, so it predates them in the class.
+ * before the (church-timezone) day the child was enrolled, so it predates them in the class.
  * @param date the roll or exam date
  * @param enrolledAt the enrolment's `enrolledAt` timestamp
  */
 export function beforeEnrolment(date: Date, enrolledAt: Date): boolean {
-  const day = Date.UTC(enrolledAt.getUTCFullYear(), enrolledAt.getUTCMonth(), enrolledAt.getUTCDate())
-  return date.getTime() < day
+  const { year, month, day } = sydneyParts(enrolledAt)
+  return date.getTime() < Date.UTC(year, month - 1, day)
 }
 
 /**

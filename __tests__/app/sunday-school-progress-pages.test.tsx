@@ -164,7 +164,7 @@ describe("/sunday-school/[id]/progress/[personId] enrolment bound", () => {
   it("hides unmarked rolls and unscored exams from before enrolment, keeps marked ones", async () => {
     as("ADMIN")
     ;(prisma.sundaySchoolEnrolment.findFirst as jest.Mock).mockResolvedValue({
-      enrolledAt: new Date("2026-03-08T22:00:00Z"),
+      enrolledAt: new Date("2026-03-07T22:00:00Z"), // 8 Mar 09:00 Sydney
       person: { firstName: "Ann", lastName: "Adams" },
       class: { name: "Kindy", year: 2026 },
     })
