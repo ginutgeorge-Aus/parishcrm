@@ -26,7 +26,7 @@ const mFind = prisma.fundraiserEntry.findUnique as jest.Mock
 
 const entry = (paid: string, online = true, deliveryPrice: string | null = null, delivery = false) => ({
   quantity: 4,
-  unitPrice: "10.00",
+  unitPrice: delivery ? "12.00" : "10.00",
   delivery,
   bankRef: "FR0001",
   payments: [{ amount: paid }],
@@ -110,5 +110,7 @@ it("labels pickup and delivery when the fundraiser has a delivery price", async 
   mFind.mockResolvedValue(entry("0.00", true, "12.00", false))
   expect(await renderPage()).toContain("(pickup)")
   mFind.mockResolvedValue(entry("0.00", true, "12.00", true))
-  expect(await renderPage()).toContain("(delivery)")
+  const text = await renderPage()
+  expect(text).toContain("(delivery)")
+  expect(text).toContain("$48.00")
 })

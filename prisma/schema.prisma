@@ -1569,7 +1569,7 @@ model FundraiserEntry {
   outsideEmail       String? // encrypt(email) — PII
   outsidePhone       String? // encrypt(phone) — PII
   quantity           Int
-  unitPrice          Decimal                  @db.Decimal(10, 2) // snapshot of the chosen (pickup or delivery) price at entry time
+  unitPrice          Decimal                  @db.Decimal(10, 2) // snapshot of the chosen (pickup or delivery) price; re-snapshotted when staff switch the delivery choice
   delivery           Boolean                  @default(false)
   publicToken        String                   @unique
   bankRef            String                   @unique

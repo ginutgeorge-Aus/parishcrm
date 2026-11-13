@@ -105,7 +105,7 @@ export async function saveFundraiser(
       const existing = await tx.fundraiser.findUnique({ where: { eventId }, select: { id: true } })
       const deliveryCount = existing ? await tx.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } }) : 0
       if (deliveryCount > 0) {
-        return { error: `${deliveryCount} delivery ${deliveryCount === 1 ? "entry exists" : "entries exist"}. Switch them to pickup or delete them before clearing the delivery price.` }
+        return { error: `${deliveryCount} delivery ${deliveryCount === 1 ? "entry exists" : "entries exist"}. Switch them to pickup or delete them (entries with payments need their payments deleted first) before clearing the delivery price.` }
       }
     }
     const saved = await tx.fundraiser.upsert({
