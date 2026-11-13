@@ -21,6 +21,46 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.15.0-event-fundraiser",
+    version: "v1.15.0",
+    area: "Events",
+    title: "Event fundraiser accepts a card payment",
+    steps:
+      "Open an event → enable the fundraiser → open the public page → donate with a Stripe test card → confirm the total updates and the donation appears in the event.",
+  },
+  {
+    id: "v1.15.0-groups-email",
+    version: "v1.15.0",
+    area: "Groups",
+    title: "Group leader can email group members",
+    steps:
+      "Open Groups → pick a group → compose an email → send → confirm it shows in the group's history.",
+  },
+  {
+    id: "v1.15.0-giving-statements",
+    version: "v1.15.0",
+    area: "Giving",
+    title: "Annual giving statement per family",
+    steps:
+      "Open Giving → choose a family and year → generate the statement → confirm totals match the family's donations.",
+  },
+  {
+    id: "v1.15.0-service-attendance",
+    version: "v1.15.0",
+    area: "Attendance",
+    title: "Service headcount attendance and trends",
+    steps:
+      "Open Attendance → record a service headcount → confirm it saves and appears in the trends view.",
+  },
+  {
+    id: "v1.15.0-sunday-school-exam-marks",
+    version: "v1.15.0",
+    area: "Sunday school",
+    title: "Exam marks entry with teacher role",
+    steps:
+      "Sign in as a teacher → open Sunday school → enter exam marks for a student → confirm they save and the headmaster can see them.",
+  },
+  {
     id: "v1.14.2-release-smoke",
     version: "v1.14.2",
     area: "General",
