@@ -188,7 +188,7 @@ export async function startFundraiserCheckout(
     select: {
       id: true, publicToken: true, quantity: true, unitPrice: true,
       payments: { select: { amount: true } },
-      fundraiser: { select: { event: { select: { id: true, slug: true, title: true, passCardFee: true, onlinePaymentEnabled: true } } } },
+      fundraiser: { select: { event: { select: { id: true, title: true, passCardFee: true, onlinePaymentEnabled: true } } } },
     },
   })
   if (!entry) return { ok: false, status: 404, error: "Not found" }
@@ -251,10 +251,11 @@ function trustedReturnOrigin(trustedBase: string | undefined, headerOrigin: stri
 // A ticket price the configured currency can't charge (fractional amount in a
 // zero-decimal currency like JPY) is an event-config error — surface a handled
 // message instead of an uncaught 500.
-async function withCurrencyGuard(create: () => Promise<{ url: string }>) {
+async function withCurrencyGuard(create: () => Promise<{ url: string } | { ok: false; status: 404; error: string }>) {
   try {
-    const { url } = await create()
-    return { ok: true as const, url }
+    const res = await create()
+    if ("ok" in res) return res
+    return { ok: true as const, url: res.url }
   } catch (e) {
     if (e instanceof CurrencyPrecisionError) {
       return { ok: false as const, status: 400, error: `This event's price can't be charged in ${e.currency} — please contact the organiser` }

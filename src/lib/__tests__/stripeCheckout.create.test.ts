@@ -13,7 +13,7 @@ jest.mock("@/lib/prisma", () => ({ prisma: { checkoutSession: { create: jest.fn(
 // ENCRYPTION_KEY) — the assertion below needs genuine ciphertext, not a
 // mock that merely prefixes the plaintext.
 
-import { createEventCheckoutSession } from "@/lib/stripeCheckout"
+import { requireEventSlug, createEventCheckoutSession } from "@/lib/stripeCheckout"
 import type { EventWithTickets, PricedRegistration } from "@/lib/eventRegistrationPricing"
 
 function makeEventWithTickets(overrides: Record<string, unknown> = {}): EventWithTickets {
@@ -60,7 +60,7 @@ it("creates a stripe session with AUD cents line items and stages an encrypted p
   }
   const res = await createEventCheckoutSession(event, priced, "https://app.test")
 
-  expect(res.url).toBe("https://stripe/pay/cs_test_1")
+  expect((res as { url: string }).url).toBe("https://stripe/pay/cs_test_1")
   const arg = create.mock.calls[0][0]
   expect(arg.mode).toBe("payment")
   expect(arg.line_items[0].price_data.currency).toBe("aud")
@@ -132,4 +132,17 @@ it("tags the session and PaymentIntent with eventId/eventSlug metadata", async (
   const arg = create.mock.calls[0][0]
   expect(arg.metadata).toEqual({ eventSlug: "camp", eventId: "7" })
   expect(arg.payment_intent_data.metadata).toEqual({ eventSlug: "camp", eventId: "7" })
+})
+
+it("returns a 404 result and never calls Stripe when the event has no slug", async () => {
+  const event = makeEventWithTickets({ id: 7, slug: null, title: "Fundraiser" })
+  const priced = { items: [], totalAmount: 20 } as unknown as PricedRegistration
+  const res = await createEventCheckoutSession(event, priced, "https://app.test")
+  expect(res).toEqual({ ok: false, status: 404, error: "Event not found" })
+  expect(create).not.toHaveBeenCalled()
+})
+
+it("requireEventSlug returns the slug, or a 404 result when null", () => {
+  expect(requireEventSlug({ slug: "camp" })).toEqual({ slug: "camp" })
+  expect(requireEventSlug({ slug: null })).toEqual({ ok: false, status: 404, error: "Event not found" })
 })

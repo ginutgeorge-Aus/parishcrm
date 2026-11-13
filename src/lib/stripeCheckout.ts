@@ -110,25 +110,37 @@ async function buildLineItemsAndSurcharge(
   return { line_items, surchargeCents }
 }
 
+/** Failure result when an event has no public slug (staff-only), so no card checkout. */
+export type CheckoutNotAvailable = { ok: false; status: 404; error: string }
+
 /**
- * Return the event's public slug or throw. Card checkout only exists for
- * published events, and publishing requires a slug, so null here is a bug or a
- * race, never a user path: fail loudly rather than build a `/e/null` return URL.
+ * Return the event's public slug, or a 404-style result when it has none.
+ * Card checkout return URLs live under /e/<slug>; a staff-only (slug-less)
+ * event has no such page, so it must not reach Stripe with a `/e/null` URL.
+ * Reachable only via a race or a stale link (publishing requires a slug).
  * @param event any object carrying the event slug
- * @returns the non-null slug
- * @throws Error when the event has no slug
+ * @returns `{ slug }` or a `{ ok: false, status: 404 }` result
  */
-function requireEventSlug(event: { id: number; slug: string | null }): string {
-  if (!event.slug) throw new Error(`Event ${event.id} has no slug; cannot start card checkout`)
-  return event.slug
+export function requireEventSlug(event: { slug: string | null }): { slug: string } | CheckoutNotAvailable {
+  if (!event.slug) return { ok: false, status: 404, error: "Event not found" }
+  return { slug: event.slug }
 }
 
+/**
+ * Create the Stripe Checkout session for a new card registration.
+ * @param event the published event with ticket types
+ * @param priced server-priced registration
+ * @param origin trusted return-URL origin
+ * @returns the checkout URL, or a 404 result when the event has no slug
+ */
 export async function createEventCheckoutSession(
   event: EventWithTickets,
   priced: PricedRegistration,
   origin: string,
-): Promise<{ url: string }> {
-  const slug = requireEventSlug(event)
+): Promise<{ url: string } | CheckoutNotAvailable> {
+  const slugResult = requireEventSlug(event)
+  if ("ok" in slugResult) return slugResult
+  const { slug } = slugResult
   const stripe = getStripe()
 
   // Prices are recomputed server-side by validateAndPriceRegistration — never
@@ -183,6 +195,13 @@ export class RegistrationNotPayableError extends Error {}
 // Reuse a prior open session only if the payer still has time to finish it.
 const REUSE_MIN_REMAINING_MS = 5 * 60 * 1000
 
+/**
+ * Create (or reuse) the Stripe Checkout session for an existing PENDING registration.
+ * @param event event with slug + ticket types
+ * @param registration the pending registration
+ * @param origin trusted return-URL origin
+ * @returns the checkout URL, or a 404 result when the event has no slug
+ */
 export async function createExistingRegistrationCheckoutSession(
   event: { id: number; slug: string | null; title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
   registration: {
@@ -192,8 +211,10 @@ export async function createExistingRegistrationCheckoutSession(
     items: { ticketTypeId: number; quantity: number; unitPrice: MoneyValue }[]
   },
   origin: string,
-): Promise<{ url: string }> {
-  const slug = requireEventSlug(event)
+): Promise<{ url: string } | CheckoutNotAvailable> {
+  const slugResult = requireEventSlug(event)
+  if ("ok" in slugResult) return slugResult
+  const { slug } = slugResult
   const stripe = getStripe()
   const netCents = toCents(registration.totalAmount)
   const { line_items, surchargeCents } = await buildLineItemsAndSurcharge(event, registration.items, netCents)

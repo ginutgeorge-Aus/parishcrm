@@ -260,14 +260,17 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             <Label htmlFor="bannerFile">
               Banner image <span className="text-xs text-muted-foreground font-normal">(optional upload — wide ~1200×400, JPEG/PNG/WebP, max 2 MB)</span>
             </Label>
-            {defaultValues.hasBanner && defaultValues.slug && (
+            {defaultValues.hasBanner && (
               <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/events/${defaultValues.slug}/image/banner${cacheBust}`}
-                  alt="Current banner"
-                  className="h-16 w-28 object-cover rounded border border-border"
-                />
+                {/* Preview needs the slug-keyed image route; Remove stays available without it. */}
+                {defaultValues.slug && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/events/${defaultValues.slug}/image/banner${cacheBust}`}
+                    alt="Current banner"
+                    className="h-16 w-28 object-cover rounded border border-border"
+                  />
+                )}
                 <label htmlFor="banner.remove" className="text-sm text-muted-foreground flex items-center gap-1.5">
                   <Checkbox id="banner.remove" name="banner.remove" value="true" />
                   Remove
@@ -282,14 +285,17 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
             <Label htmlFor="posterFile">
               Poster image <span className="text-xs text-muted-foreground font-normal">(optional upload — portrait ~1080×1350, JPEG/PNG/WebP, max 2 MB)</span>
             </Label>
-            {defaultValues.hasPoster && defaultValues.slug && (
+            {defaultValues.hasPoster && (
               <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/events/${defaultValues.slug}/image/poster${cacheBust}`}
-                  alt="Current poster"
-                  className="h-24 w-16 object-cover rounded border border-border"
-                />
+                {/* Preview needs the slug-keyed image route; Remove stays available without it. */}
+                {defaultValues.slug && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/events/${defaultValues.slug}/image/poster${cacheBust}`}
+                    alt="Current poster"
+                    className="h-24 w-16 object-cover rounded border border-border"
+                  />
+                )}
                 <label htmlFor="poster.remove" className="text-sm text-muted-foreground flex items-center gap-1.5">
                   <Checkbox id="poster.remove" name="poster.remove" value="true" />
                   Remove

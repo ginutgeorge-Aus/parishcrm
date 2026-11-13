@@ -155,3 +155,11 @@ describe("lastRemindedAtByRegistration", () => {
     expect(res).toEqual({ 7: sentAt.toISOString() })
   })
 })
+
+test("errors without sending when the event has no slug (staff-only event)", async () => {
+  mEvent.mockResolvedValue({ id: 10, title: "Retreat", slug: null })
+  mRegs.mockResolvedValue([pendingRow(1)])
+  const res = await sendPaymentReminders(10, [{ registrationId: 1 }], "Body")
+  expect(res).toEqual({ error: "Set a slug on this event before sending reminders" })
+  expect(mSend).not.toHaveBeenCalled()
+})

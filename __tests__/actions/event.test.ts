@@ -1,6 +1,6 @@
 /** @jest-environment node */
 jest.mock("@/lib/featureFlags")
-import { createEvent, updateEvent, deleteEvent, publishEvent, resyncEventsToWebsite } from "@/lib/actions/event"
+import { createEvent, updateEvent, deleteEvent, publishEvent, setRegistrationClosed, resyncEventsToWebsite } from "@/lib/actions/event"
 import { StaleEventError } from "@/lib/actions/eventForm"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -713,10 +713,10 @@ describe("publishEvent", () => {
   it("updates isPublished, syncs to the website, and revalidates", async () => {
     mockSession("PASTOR")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
-    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, true)
-    expect(prisma.event.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, slug: { not: null } },
       data: { isPublished: true },
     })
     expect(syncEventToWebsite).toHaveBeenCalledWith(1)
@@ -727,7 +727,7 @@ describe("publishEvent", () => {
   it("revalidates the public event page so a stale publish/unpublish state doesn't survive the cache", async () => {
     mockSession("PASTOR")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: "summer-fair" })
-    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
     expect(revalidatePath).toHaveBeenCalledWith("/e/summer-fair")
   })
@@ -786,7 +786,7 @@ describe("event audit logging", () => {
   it("audit-logs EVENT_PUBLISHED with publish state", async () => {
     adminSession()
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x" })
-    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, true)
     expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
   })
@@ -794,7 +794,7 @@ describe("event audit logging", () => {
   it("audit-logs EVENT_PUBLISHED with published=false on unpublish", async () => {
     adminSession()
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3 })
-    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(3, false)
     expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: false })
   })
@@ -1398,7 +1398,7 @@ describe("optional event slug", () => {
   it("unpublishing a slugless event skips the public-page revalidate", async () => {
     mockSession("PASTOR")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
-    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
     expect(revalidatePath).not.toHaveBeenCalledWith("/e/null")
   })
@@ -1407,8 +1407,41 @@ describe("optional event slug", () => {
     mockSession("PASTOR")
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: true })
     const result = await updateEvent(1, undefined, baseFd(""))
-    expect(result).toEqual({ error: "Set a slug to publish" })
+    expect(result).toEqual({ error: "Slug can't be removed while the event is published. Unpublish first." })
     expect(prisma.event.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("updateEvent guards the slug-clear write on isPublished:false", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: false })
+    ;(prisma.ticketType.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await updateEvent(1, undefined, baseFd(""))
+    expect((prisma.event.updateMany as jest.Mock).mock.calls[0][0].where).toEqual({ id: 1, isPublished: false })
+  })
+
+  it("updateEvent reports the slug message (not stale-edit) when published concurrently", async () => {
+    mockSession("PASTOR")
+    // pre-check sees unpublished; guarded write matches 0; re-read inside txn sees published
+    ;(prisma.event.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ id: 1, isPublished: false })
+      .mockResolvedValueOnce({ isPublished: true })
+    ;(prisma.ticketType.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const result = await updateEvent(1, undefined, baseFd(""))
+    expect(result?.error).toMatch(/can't be removed while the event is published/i)
+    expect(syncEventToWebsite).not.toHaveBeenCalled()
+  })
+
+  it("updateEvent keeps the stale-edit message when 0 rows match and the event is still unpublished", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock)
+      .mockResolvedValueOnce({ id: 1, isPublished: false })
+      .mockResolvedValueOnce({ isPublished: false })
+    ;(prisma.ticketType.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
+    const result = await updateEvent(1, undefined, baseFd(""))
+    expect(result?.error).toMatch(/changed by someone else/i)
   })
 
   it("updateEvent stores null for a blank slug on an unpublished event", async () => {
