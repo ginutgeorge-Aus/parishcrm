@@ -20,6 +20,7 @@ import { getXferAccountId } from "@/lib/xferAccount"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import type { ActionResult } from "./types"
 import { revalidatePettyCashPaths, RECONCILED_DELETE_ERROR, assertSessionOpenTx, SessionClosedError } from "./pettyCashEntry"
+import { makeReplayDone } from "./pettyCashWriteErrors"
 import { featureGuard } from "@/lib/featureFlags"
 import { utcDayRange, utcYmd } from "@/lib/dates"
 
@@ -235,11 +236,7 @@ export async function createTransfer(
     notes: parsed.data.notes,
     importedTransactionId: parsed.data.importedTransactionId,
   }
-  /** Revalidate and land on the session page — the replayed transfer already committed. */
-  const replayDone = () => {
-    revalidatePettyCashPaths(sessionId)
-    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
-  }
+  const replayDone = makeReplayDone(sessionId)
   try {
     await prisma.$transaction(async (tx) => {
       // A Serializable retry re-runs this callback: don't carry the flag over from an aborted attempt.

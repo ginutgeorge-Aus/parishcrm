@@ -2,7 +2,8 @@
 // stays free of DB/prisma imports for its pure-builder tests.
 import { AUDIT_FAILED_ERROR, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
 import { isP2002 } from "@/lib/validation"
-import { SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, type SubmissionTokenLookup } from "./pettyCashEntry"
+import { redirect } from "next/navigation"
+import { SessionClosedError, SUBMISSION_TOKEN_REUSED_ERROR, revalidatePettyCashPaths, type SubmissionTokenLookup } from "./pettyCashEntry"
 
 /** Shown when a create's in-transaction audit write fails; the entry was rolled back. */
 export const PETTY_CASH_AUDIT_FAILED_ERROR = AUDIT_FAILED_ERROR
@@ -46,6 +47,35 @@ export async function replayOrError<E>(
     if (found?.state === "reused") return reusedError
   }
   return error
+}
+
+/**
+ * Builds the `replayDone` callback shared by the create/transfer actions: revalidate
+ * the petty-cash paths and land on the session page (the replayed entry, and its audit
+ * row, already committed).
+ * @param sessionId petty cash session to land on
+ */
+export function makeReplayDone(sessionId: number): () => Promise<never> {
+  return async () => {
+    revalidatePettyCashPaths(sessionId)
+    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
+  }
+}
+
+/**
+ * Builds the `orReplay` wrapper shared by the receipt/expense creates: returns `error`,
+ * unless a concurrent twin committed this very entry meanwhile (then `replayDone`
+ * redirects) or the token now belongs to a different entry (then the reuse error).
+ * @param token submission token, if the form sent one
+ * @param lookup token-state lookup on the base client
+ * @param replayDone lands on the session page (see `makeReplayDone`)
+ */
+export function makeOrReplay(
+  token: string | undefined,
+  lookup: () => Promise<SubmissionTokenLookup>,
+  replayDone: () => Promise<never>,
+) {
+  return <E,>(error: E) => replayOrError(token, lookup, replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
 }
 
 /**
