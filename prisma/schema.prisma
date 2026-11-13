@@ -1447,6 +1447,9 @@ model SundaySchoolExam {
   class      SundaySchoolClass        @relation(fields: [classId, year], references: [id, year], onDelete: Cascade)
   results    SundaySchoolExamResult[]
 
+  // Also unique among live exams via the raw-SQL partial index
+  // "SundaySchoolExam_active_unique" ON (classId, year, lower(name), date) WHERE archivedAt IS NULL
+  // (migration 20261114100000_exam_unique_active; Prisma can't model it). Actions map its P2002 to the duplicate error.
   @@index([classId, archivedAt])
 }
 
