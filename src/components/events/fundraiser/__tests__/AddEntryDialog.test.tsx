@@ -190,4 +190,20 @@ describe("AddEntryDialog thrown action", () => {
     fireEvent.submit(theForm())
     expect(await screen.findByText("Could not add the entry. Please try again.")).toBeInTheDocument()
   })
+
+  it("hides the Pickup/Delivery select without a delivery price", () => {
+    openDialog()
+    expect(screen.queryByLabelText("Pickup or delivery")).toBeNull()
+  })
+
+  it("shows the select with a delivery price and sends delivery", async () => {
+    ;(addEntry as jest.Mock).mockResolvedValue(undefined)
+    render(<AddEntryDialog fundraiserId={3} hasDelivery />)
+    fireEvent.click(screen.getByRole("button", { name: "Add entry" }))
+    expect((screen.getByLabelText("Pickup or delivery") as HTMLSelectElement).value).toBe("pickup")
+    await pickFamily("Sam", "Sample Family")
+    fireEvent.change(screen.getByLabelText("Pickup or delivery"), { target: { value: "delivery" } })
+    fireEvent.submit(theForm())
+    await waitFor(() => expect(addEntry).toHaveBeenCalledWith(3, { familyId: 8, quantity: "1", delivery: true }))
+  })
 })

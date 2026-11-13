@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
+import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD, toCents } from "@/lib/formatting"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PaymentsPanel } from "./PaymentsPanel"
@@ -32,12 +32,13 @@ function StatusBadge({ status }: Readonly<{ status: FundraiserRow["status"] }>) 
 }
 
 /**
- * Inline quantity editor + delete + payments controls for one entry (managers only).
- * Server errors are shown via FormFeedback.
+ * Inline quantity editor + pickup/delivery switch + delete + payments controls
+ * for one entry (managers only). Server errors are shown via FormFeedback.
  * @param props.row - The entry row.
+ * @param props.hasDelivery - Fundraiser has a delivery price: show the switch.
  * @param props.payments - The entry's payments.
  */
-function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: FundraiserPaymentItem[] }>) {
+function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRow; payments: FundraiserPaymentItem[]; hasDelivery: boolean }>) {
   const [qty, setQty] = useState(String(row.quantity))
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
@@ -64,6 +65,24 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
     })
   }
 
+  /**
+   * Switch the entry between pickup and delivery.
+   * @param value - Selected option, "pickup" or "delivery".
+   */
+  function saveDelivery(value: string) {
+    const next = value === "delivery"
+    if (next === row.delivery) return
+    setError(null)
+    start(async () => {
+      try {
+        const res = await updateEntryDelivery(row.id, next)
+        if (res?.error) setError(res.error)
+      } catch {
+        setError("Could not save pickup/delivery. Please try again.")
+      }
+    })
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input
@@ -75,6 +94,18 @@ function RowActions({ row, payments }: Readonly<{ row: FundraiserRow; payments: 
         onChange={(e) => setQty(e.target.value)}
         onBlur={saveQty}
       />
+      {hasDelivery && (
+        <select
+          aria-label={`Pickup or delivery for ${row.name}`}
+          className="h-8 rounded-md border bg-background px-2 text-sm"
+          value={row.delivery ? "delivery" : "pickup"}
+          disabled={pending}
+          onChange={(ev) => saveDelivery(ev.target.value)}
+        >
+          <option value="pickup">Pickup</option>
+          <option value="delivery">Delivery</option>
+        </select>
+      )}
       <PaymentsPanel entryId={row.id} name={row.name} remainingCents={row.remainingCents} payments={payments} />
       <DeleteConfirmButton
         // Not `disabled={pending}`: that swaps the trigger for an inert button and
@@ -102,10 +133,11 @@ function money(cents: number): string {
  * @param props.rows - Entry rows from `getFundraiserView`.
  * @param props.canManage - Show quantity/payment/delete controls.
  * @param props.payments - Payments keyed by entry id.
+ * @param props.hasDelivery - Fundraiser has a delivery price: show Pickup/Delivery per row.
  */
 export function EntryTable({
-  rows, canManage, payments,
-}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, FundraiserPaymentItem[]> }>) {
+  rows, canManage, payments, hasDelivery = false,
+}: Readonly<{ rows: FundraiserRow[]; canManage: boolean; payments: Record<number, FundraiserPaymentItem[]>; hasDelivery?: boolean }>) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No entries yet.</p>
   return (
     <>
@@ -121,11 +153,12 @@ export function EntryTable({
             </div>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 tabular">
               <dt className="text-muted-foreground">Qty x price</dt><dd>{r.quantity} x {money(toCents(r.unitPrice))}</dd>
+              {hasDelivery && (<><dt className="text-muted-foreground">Type</dt><dd>{r.delivery ? "Delivery" : "Pickup"}</dd></>)}
               <dt className="text-muted-foreground">Owed</dt><dd>{money(r.owedCents)}</dd>
               <dt className="text-muted-foreground">Paid</dt><dd>{money(r.paidCents)}</dd>
               <dt className="text-muted-foreground">Remaining</dt><dd>{money(r.remainingCents)}</dd>
             </dl>
-            {canManage && <div className="mt-3"><RowActions row={r} payments={payments[r.id] ?? []} /></div>}
+            {canManage && <div className="mt-3"><RowActions row={r} payments={payments[r.id] ?? []} hasDelivery={hasDelivery} /></div>}
           </div>
         ))}
       </div>
@@ -136,6 +169,7 @@ export function EntryTable({
               <TableHead>Name</TableHead>
               <TableHead>Bank ref</TableHead>
               <TableHead>Qty</TableHead>
+              {hasDelivery && <TableHead>Type</TableHead>}
               <TableHead>Price</TableHead>
               <TableHead>Owed</TableHead>
               <TableHead>Paid</TableHead>
@@ -150,12 +184,13 @@ export function EntryTable({
                 <TableCell className="font-medium">{r.name}</TableCell>
                 <TableCell className="tabular">{r.bankRef}</TableCell>
                 <TableCell className="tabular">{r.quantity}</TableCell>
+                {hasDelivery && <TableCell>{r.delivery ? "Delivery" : "Pickup"}</TableCell>}
                 <TableCell className="tabular">{money(toCents(r.unitPrice))}</TableCell>
                 <TableCell className="tabular">{money(r.owedCents)}</TableCell>
                 <TableCell className="tabular">{money(r.paidCents)}</TableCell>
                 <TableCell className="tabular">{money(r.remainingCents)}</TableCell>
                 <TableCell><StatusBadge status={r.status} /></TableCell>
-                {canManage && <TableCell><RowActions row={r} payments={payments[r.id] ?? []} /></TableCell>}
+                {canManage && <TableCell><RowActions row={r} payments={payments[r.id] ?? []} hasDelivery={hasDelivery} /></TableCell>}
               </TableRow>
             ))}
           </TableBody>

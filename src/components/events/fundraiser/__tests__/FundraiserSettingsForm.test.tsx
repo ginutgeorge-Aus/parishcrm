@@ -7,12 +7,21 @@ jest.mock("@/lib/actions/fundraiser", () => ({ saveFundraiser: jest.fn() }))
 beforeEach(() => jest.clearAllMocks())
 
 describe("FundraiserSettingsForm", () => {
+  it("sends the delivery price when entered and prefills it", async () => {
+    ;(saveFundraiser as jest.Mock).mockResolvedValue(undefined)
+    render(<FundraiserSettingsForm eventId={5} initial={{ name: "Raffle", unitLabel: "ticket", unitPrice: "10.00", deliveryPrice: "12.00", refPrefix: null }} />)
+    expect((screen.getByLabelText("Delivery price") as HTMLInputElement).value).toBe("12.00")
+    fireEvent.change(screen.getByLabelText("Delivery price"), { target: { value: "15.00" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }))
+    await waitFor(() => expect(saveFundraiser).toHaveBeenCalledWith(5, expect.objectContaining({ unitPrice: "10.00", deliveryPrice: "15.00" })))
+  })
+
   it("creates a fundraiser from empty fields", async () => {
     ;(saveFundraiser as jest.Mock).mockResolvedValue({ success: "ok" })
     render(<FundraiserSettingsForm eventId={5} />)
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sample Raffle" } })
     fireEvent.change(screen.getByLabelText("Unit label"), { target: { value: "ticket" } })
-    fireEvent.change(screen.getByLabelText("Unit price"), { target: { value: "10.00" } })
+    fireEvent.change(screen.getByLabelText("Pickup price"), { target: { value: "10.00" } })
     fireEvent.change(screen.getByLabelText("Bank ref prefix"), { target: { value: "RAF" } })
     fireEvent.click(screen.getByRole("button", { name: "Create fundraiser" }))
     await waitFor(() => expect(saveFundraiser).toHaveBeenCalledWith(5, {

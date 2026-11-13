@@ -1,12 +1,13 @@
 /** @jest-environment jsdom */
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
+import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/actions/fundraiser"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import type { FundraiserRow } from "@/lib/fundraiserQueries"
 
 jest.mock("@/lib/actions/fundraiser", () => ({
   updateEntryQuantity: jest.fn(),
+  updateEntryDelivery: jest.fn(),
   deleteEntry: jest.fn(),
   recordPayment: jest.fn(),
   deletePayment: jest.fn(),
@@ -15,7 +16,7 @@ jest.mock("@/lib/actions/fundraiser", () => ({
 const mUpdate = updateEntryQuantity as jest.Mock
 const mDelete = deleteEntry as jest.Mock
 
-const base = { familyId: null, quantity: 2, unitPrice: "10.00", bankRef: "REF1" }
+const base = { familyId: null, quantity: 2, unitPrice: "10.00", delivery: false, bankRef: "REF1" }
 const rows: FundraiserRow[] = [
   { ...base, id: 1, name: "Anna", owedCents: 2000, paidCents: 0, remainingCents: 2000, status: "UNPAID" },
   { ...base, id: 2, name: "Ben", owedCents: 2000, paidCents: 500, remainingCents: 1500, status: "PART" },
@@ -132,4 +133,26 @@ test("quantity input resyncs when the row quantity changes", () => {
   const { rerender } = render(<EntryTable rows={one} canManage payments={{}} />)
   rerender(<EntryTable rows={[{ ...one[0], quantity: 7 }]} canManage payments={{}} />)
   expect((screen.getAllByLabelText("Quantity for Anna")[0] as HTMLInputElement).value).toBe("7")
+})
+
+test("hides Pickup/Delivery when the fundraiser has no delivery price", () => {
+  render(<EntryTable rows={one} canManage payments={{}} />)
+  expect(screen.queryByText("Pickup")).toBeNull()
+  expect(screen.queryByLabelText("Pickup or delivery for Anna")).toBeNull()
+})
+
+test("shows the type per row and switches it via updateEntryDelivery", async () => {
+  ;(updateEntryDelivery as jest.Mock).mockResolvedValue(undefined)
+  const two: FundraiserRow[] = [one[0], { ...rows[1], delivery: true }]
+  render(<EntryTable rows={two} canManage payments={{}} hasDelivery />)
+  expect(screen.getAllByText("Delivery").length).toBeGreaterThan(0)
+  fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
+  await waitFor(() => expect(updateEntryDelivery).toHaveBeenCalledWith(1, true))
+})
+
+test("delivery switch error is shown", async () => {
+  ;(updateEntryDelivery as jest.Mock).mockResolvedValue({ error: "Below paid" })
+  render(<EntryTable rows={one} canManage payments={{}} hasDelivery />)
+  fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
+  expect((await screen.findAllByText("Below paid")).length).toBeGreaterThan(0)
 })

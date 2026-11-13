@@ -17,6 +17,7 @@ const prismaMock = {
   event: { findUnique: jest.fn() },
   fundraiser: { upsert: jest.fn(), findUnique: jest.fn() },
   $transaction: jest.fn(),
+  fundraiserEntry: { count: jest.fn() },
 }
 jest.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, { get: (_t, k) => (prismaMock as Record<string | symbol, unknown>)[k] }),
@@ -72,6 +73,32 @@ describe("saveFundraiser", () => {
     ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
     expect(await saveFundraiser(7, input)).toEqual({ error: AUDIT_FAILED_ERROR })
     expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it("stores a delivery price; empty or missing means null", async () => {
+    expect(await saveFundraiser(7, { ...input, deliveryPrice: "15.00" })).toBeUndefined()
+    expect(prismaMock.fundraiser.upsert.mock.calls[0][0].create).toMatchObject({ unitPrice: "12.50", deliveryPrice: "15.00" })
+    expect(await saveFundraiser(7, { ...input, deliveryPrice: " " })).toBeUndefined()
+    expect(prismaMock.fundraiser.upsert.mock.calls[1][0].create.deliveryPrice).toBeNull()
+  })
+
+  it.each(["0", "0.00", "abc", "1.234", "1000000.00", "-5"])("rejects delivery price %s", async (bad) => {
+    expect((await saveFundraiser(7, { ...input, deliveryPrice: bad }))?.error).toMatch(/Delivery price/)
+    expect(prismaMock.fundraiser.upsert).not.toHaveBeenCalled()
+  })
+
+  it("blocks clearing the delivery price while delivery entries exist", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    prismaMock.fundraiserEntry.count.mockResolvedValue(2)
+    expect(await saveFundraiser(7, input)).toEqual({ error: "Delivery entries exist" })
+    expect(prismaMock.fundraiserEntry.count).toHaveBeenCalledWith({ where: { fundraiserId: 3, delivery: true } })
+    expect(prismaMock.fundraiser.upsert).not.toHaveBeenCalled()
+  })
+
+  it("allows clearing the delivery price when no delivery entries exist", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    prismaMock.fundraiserEntry.count.mockResolvedValue(0)
+    expect(await saveFundraiser(7, input)).toBeUndefined()
   })
 
   it("upserts on eventId and audits", async () => {
