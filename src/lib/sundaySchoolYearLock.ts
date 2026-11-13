@@ -9,6 +9,9 @@ import { prisma } from "@/lib/prisma"
 /** Shown when a mutation targets a year closed by rollover. */
 export const YEAR_LOCKED = "This school year is locked — it can no longer be changed"
 
+/** Shown when a mutation targets a class that is missing or archived. */
+export const CLASS_GONE = "Class not found"
+
 /** Outcome of lockLiveClass(): ok, class missing/archived, or its year is locked. */
 export type ClassLockState = "ok" | "gone" | "locked"
 
@@ -58,6 +61,57 @@ export async function lockLiveClass(
   if (rows.length === 0) return "gone"
   await holdYear(tx, rows[0].year, "shared")
   return (await isYearLockedTx(tx, rows[0].year)) ? "locked" : "ok"
+}
+
+/**
+ * User-facing message for a non-"ok" lockLiveClass() state.
+ * @param state "gone" (class missing/archived) or "locked" (year closed)
+ */
+export function lockStateError(state: Exclude<ClassLockState, "ok">): string {
+  return state === "locked" ? YEAR_LOCKED : CLASS_GONE
+}
+
+/**
+ * Run `fn` in a transaction holding FOR SHARE (or FOR UPDATE, see `mode`) on
+ * the live class row, so a concurrent archive waits until `fn` commits, and
+ * `fn` is skipped if the class was archived, or its year locked by a rollover,
+ * after the caller's guard (see lockLiveClass). Returns `{ live: false, error }`
+ * when skipped. The 90s timeout outlasts a queue behind a rollover's writes
+ * (itself up to 60s).
+ * @param classId the class to lock
+ * @param fn the write, run inside the locked transaction
+ * @param mode "update" when `fn` updates the class row itself
+ */
+export async function withLiveClass<T>(
+  classId: number,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  mode: "share" | "update" = "share",
+): Promise<{ live: false; error: string } | { live: true; value: T }> {
+  return prisma.$transaction(async (tx) => {
+    const state = await lockLiveClass(tx, classId, mode)
+    if (state !== "ok") return { live: false as const, error: lockStateError(state) }
+    return { live: true as const, value: await fn(tx) }
+  }, { timeout: 90_000 })
+}
+
+/**
+ * Live children enrolled in the class (optionally just `personIds`), with
+ * FOR SHARE on both the enrolment and Person rows: a concurrent move, unenrol
+ * or archive waits for the caller's write, or the write sees it already committed.
+ * @param tx the caller's transaction
+ * @param classId the class
+ * @param personIds restrict to these children; omitted = whole class
+ */
+export async function lockEnrolled(tx: Prisma.TransactionClient, classId: number, personIds?: number[]): Promise<number[]> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = personIds
+    ? await tx.$queryRaw<{ personId: number }[]>`
+        SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
+        WHERE e."classId" = ${classId} AND e."personId" = ANY(${personIds}) AND p."archivedAt" IS NULL FOR SHARE`
+    : await tx.$queryRaw<{ personId: number }[]>`
+        SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
+        WHERE e."classId" = ${classId} AND p."archivedAt" IS NULL FOR SHARE`
+  return rows.map((r) => r.personId)
 }
 
 /**

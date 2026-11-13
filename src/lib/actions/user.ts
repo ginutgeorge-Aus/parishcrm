@@ -18,21 +18,10 @@ import { PASSWORD_REGEX, PASSWORD_MSG } from "@/lib/passwordPolicy"
 import type { ActionResult } from "./types"
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { assertNotDemo } from "@/lib/demoMode"
+import { ROLE_LABELS } from "@/lib/roleLabels"
 import { userEmailField, isEmailTaken, normalizeEmail } from "@/lib/userLookup"
 
 const ROLE_VALUES = Object.values(UserRole) as [UserRole, ...UserRole[]]
-
-const ROLE_LABEL: Record<string, string> = {
-  ADMIN: "Administrator",
-  PASTOR: "Pastor",
-  VIEWER: "Viewer",
-  AUDITOR: "Auditor",
-  OFFICE_ADMIN: "Office Admin",
-  EVENT_ORGANISER: "Event Organiser",
-  HEADMASTER: "Headmaster",
-  TEACHER: "Teacher",
-}
-
 
 // Thrown inside the last-admin-guard transactions below (updateUser/deleteUser)
 // to surface a clean ActionResult error instead of an unhandled throw.
@@ -142,7 +131,7 @@ async function issueWelcomeInvite(
   }
 
   try {
-    await sendWelcomeEmail(user.email, { name: user.name, role: ROLE_LABEL[user.role] ?? user.role, setPasswordUrl, helpUrl })
+    await sendWelcomeEmail(user.email, { name: user.name, role: ROLE_LABELS[user.role] ?? user.role, setPasswordUrl, helpUrl })
     return true
   } catch (e) {
     logger.error("issueWelcomeInvite: welcome email send failed", { error: e instanceof Error ? e.message : String(e) })

@@ -46,12 +46,21 @@ year, are refused.
 
 ### Exams
 
-Open a class and press **Exams** (`/sunday-school/[id]/exams`). *New exam* takes a name ("Term 2
+Open a class and press **Exams** (`/sunday-school/[id]/exams`). *Add an exam* takes a name ("Term 2
 Bible"), a date and **total marks**. A class can have any number of exams in its year; use a
-separate exam for each subject. Open an exam to enter a **score** for each enrolled child, from 0 up
-to the total marks. A child with no score is simply "not marked". There is no pass or fail and no
-ranking. Scores stay with the class and year the exam belongs to, so moving a child later does not
-change past results. Exams in a locked year are read-only, and every change is in the audit log.
+separate exam for each subject. Press **Edit** beside an exam to change its name, date or total
+marks, or **Archive** to remove it from the list (its scores are kept). Headmasters, editors
+(ADMIN, PASTOR, OFFICE_ADMIN) and teachers assigned to the class see Edit and Archive; read-only
+roles such as VIEWER do not.
+
+An exam cannot repeat another's name and date, and the total cannot go below a score already
+entered.
+
+Open an exam to enter a **score** for each enrolled child, from 0 up to the total marks. A child
+with no score is simply "not marked". There is no pass or fail and no ranking.
+
+Scores stay with the class and year the exam belongs to, so moving a child later does not change
+past results. Exams in a locked year are read-only, and every change is in the audit log.
 
 ### Who sees what
 

@@ -15,29 +15,19 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { UserRole, type AttendanceStatus } from "@/lib/generated/prisma/enums"
-import { canManageSundaySchool, isEventOrganiser, isTeacher } from "@/lib/roleGuard"
+import { canManageSundaySchool, canMarkSomeSundaySchool } from "@/lib/roleGuard"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
-import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
+import { CLASS_GONE, lockEnrolled, withLiveClass } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
 import { isValidPgId } from "@/lib/validation"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
 const ENTITY = "SundaySchoolClass"
-const CLASS_GONE = "Class not found"
 const NOT_IN_CLASS = "Child is not in this class"
 const KEEP_HISTORY = "This child has left the class, so their mark can be changed but not cleared"
 
 type RollGuard = { error: string } | { actor: number; ymd: string }
-
-/**
- * Coarse, DB-free pre-check: could this role mark ANY class? The per-class
- * assignment is checked by canMarkRoll.
- * @param role the caller's role
- */
-function canMarkSomeRoll(role: UserRole | undefined): boolean {
-  return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
-}
 
 /**
  * Shared guard for the two roll actions: demo block, feature check, signed in, valid id,
@@ -48,7 +38,7 @@ async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!session?.user || !canMarkSomeRoll(session.user.role)) return { error: "Unauthorized" }
+  if (!session?.user || !canMarkSomeSundaySchool(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
   if (!isValidPgId(classId)) return { error: "Invalid class" }
@@ -61,42 +51,6 @@ async function rollGuard(classId: number, ymd: string): Promise<RollGuard> {
   const parsed = parseRollDate(ymd, cls.year, sydneyTodayYMD())
   if (!parsed.ok) return { error: parsed.error }
   return { actor, ymd: parsed.ymd }
-}
-
-/**
- * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
- * concurrent archive waits until the marks commit, and `fn` is skipped if the
- * class was archived, or its year locked by a rollover, after the guard (see
- * lockLiveClass). Returns `{ live: false, error }` when skipped.
- */
-async function withLiveClass<T>(
-  classId: number,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>,
-): Promise<{ live: false; error: string } | { live: true; value: T }> {
-  return prisma.$transaction(async (tx) => {
-    const state = await lockLiveClass(tx, classId)
-    if (state === "gone") return { live: false as const, error: CLASS_GONE }
-    if (state === "locked") return { live: false as const, error: YEAR_LOCKED }
-    return { live: true as const, value: await fn(tx) }
-    // May queue behind a rollover's enrolment writes (itself up to 60s).
-  }, { timeout: 90_000 })
-}
-
-/**
- * Live children enrolled in the class (optionally just `personIds`), with
- * FOR SHARE on both the enrolment and Person rows: a concurrent move, unenrol
- * or archive waits for the marks, or the marks see it already committed.
- */
-async function lockEnrolled(tx: Prisma.TransactionClient, classId: number, personIds?: number[]): Promise<number[]> {
-  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-  const rows = personIds
-    ? await tx.$queryRaw<{ personId: number }[]>`
-        SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
-        WHERE e."classId" = ${classId} AND e."personId" = ANY(${personIds}) AND p."archivedAt" IS NULL FOR SHARE`
-    : await tx.$queryRaw<{ personId: number }[]>`
-        SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
-        WHERE e."classId" = ${classId} AND p."archivedAt" IS NULL FOR SHARE`
-  return rows.map((r) => r.personId)
 }
 
 /**

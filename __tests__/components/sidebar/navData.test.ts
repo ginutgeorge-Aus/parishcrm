@@ -16,6 +16,7 @@ const allTrueFlags = {
   isEditor: true,
   canUsers: true,
   canViewPeople: true,
+  canBrowseSundaySchool: true,
   pendingUpdates: 0,
   verifyPending: 0,
   membershipPending: 0,
@@ -84,9 +85,9 @@ it("shows the Clearances link only to editors (canManageClearances = canEdit)", 
   expect(visible({ ...allTrueFlags, isEditor: false })).not.toContain("Clearances")
 })
 
-it("shows Sunday School in Community only to roles that can view people", () => {
-  const find = (canViewPeople: boolean) =>
-    flattenNavItems(groupItems({ ...allTrueFlags, canViewPeople }, "Community"))
+it("shows Sunday School in Community only to roles that can browse it", () => {
+  const find = (canBrowseSundaySchool: boolean) =>
+    flattenNavItems(groupItems({ ...allTrueFlags, canBrowseSundaySchool }, "Community"))
       .find((i) => i.href === "/sunday-school")
   expect(find(true)).toMatchObject({ label: "Sunday School", show: true })
   expect(find(false)?.show).toBe(false)
@@ -152,7 +153,9 @@ describe("navFlagsFor / featureOn / attentionItems (#366)", () => {
     expect(navFlagsFor("OFFICE_ADMIN")).toMatchObject({
       isEditor: true, isAccounting: false, isAccountingViewer: true, isAdmin: false, pendingUpdates: 0,
     })
-    expect(navFlagsFor(undefined)).toMatchObject({ isEditor: false, canViewPeople: false })
+    expect(navFlagsFor(undefined)).toMatchObject({ isEditor: false, canViewPeople: false, canBrowseSundaySchool: false })
+    expect(navFlagsFor("TEACHER").canBrowseSundaySchool).toBe(false)
+    expect(navFlagsFor("VIEWER").canBrowseSundaySchool).toBe(true)
   })
 
   it("treats omitted features as all on", () => {

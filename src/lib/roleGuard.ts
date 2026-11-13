@@ -166,12 +166,13 @@ export function canManageSundaySchool(role: UserRole | undefined): boolean {
 }
 
 /**
- * See Sunday school screens: managers plus VIEWER (read-only) and TEACHER
- * (assigned classes only, checked per class via sundaySchoolAccess.ts).
+ * Coarse, DB-free pre-check: could this role mark a roll or exam for ANY class?
+ * Managers, TEACHER and EVENT_ORGANISER; the per-class assignment is checked by
+ * canMarkRoll / canMarkExam (sundaySchoolAccess.ts).
  * @param role the caller's role
  */
-export function canViewSundaySchool(role: UserRole | undefined): boolean {
-  return canManageSundaySchool(role) || role === UserRole.VIEWER || isTeacher(role)
+export function canMarkSomeSundaySchool(role: UserRole | undefined): boolean {
+  return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
 }
 
 /**

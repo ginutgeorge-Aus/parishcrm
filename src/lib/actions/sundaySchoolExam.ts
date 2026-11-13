@@ -12,11 +12,9 @@ import { actorId } from "@/lib/actor"
 import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
-import type { Prisma } from "@/lib/generated/prisma/client"
-import type { UserRole } from "@/lib/generated/prisma/enums"
-import { canManageSundaySchool, isEventOrganiser, isTeacher } from "@/lib/roleGuard"
+import { canManageSundaySchool, canMarkSomeSundaySchool } from "@/lib/roleGuard"
 import { canMarkExam } from "@/lib/sundaySchoolAccess"
-import { lockLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
+import { CLASS_GONE, lockEnrolled, withLiveClass } from "@/lib/sundaySchoolYearLock"
 import { ExamFormSchema, isDateInYear, parseScore } from "@/lib/sundaySchoolExam"
 import { ymdToDbDate } from "@/lib/sundaySchoolRollView"
 import { isValidPgId } from "@/lib/validation"
@@ -24,7 +22,6 @@ import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
 const ENTITY = "SundaySchoolExam"
-const CLASS_GONE = "Class not found"
 const EXAM_GONE = "Exam not found"
 const NOT_IN_CLASS = "Child is not in this class"
 const DUPLICATE_EXAM = "This class already has an exam with that name on that date"
@@ -36,15 +33,6 @@ type ExamTargetGuard = { error: string } | { actor: number; classId: number; yea
 /** Thrown inside setExamScore's transaction when the locked total rejects the score. */
 class ScoreRejected extends Error {}
 
-/**
- * Coarse role pre-check: could this role mark exams for ANY class? Per-class
- * assignment is checked by canMarkExam.
- * @param role the caller's role
- */
-function canMarkSomeExam(role: UserRole | undefined): boolean {
-  return canManageSundaySchool(role) || isTeacher(role) || isEventOrganiser(role)
-}
-
 type Preamble = { error: string } | { session: Session & { user: NonNullable<Session["user"]> } }
 
 /**
@@ -55,7 +43,7 @@ async function examPreamble(): Promise<Preamble> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  if (!session?.user || !canMarkSomeExam(session.user.role)) return { error: "Unauthorized" }
+  if (!session?.user || !canMarkSomeSundaySchool(session.user.role)) return { error: "Unauthorized" }
   const off = await featureGuard("sundaySchool")
   if (off) return off
   return { session: { ...session, user: session.user } }
@@ -106,24 +94,6 @@ async function examGuard(examId: number): Promise<ExamTargetGuard> {
   const g = await classChecks(pre.session, exam.classId)
   if ("error" in g) return g
   return { ...g, totalMarks: exam.totalMarks.toString() }
-}
-
-/**
- * Run `fn` in a transaction holding FOR SHARE (or FOR UPDATE, `mode`) on the
- * live class row, so an archive waits and a locked year (rollover) is refused.
- * Returns `{ live: false, error }` when skipped.
- */
-async function withLiveClass<T>(
-  classId: number,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>,
-  mode: "share" | "update" = "share",
-): Promise<{ live: false; error: string } | { live: true; value: T }> {
-  return prisma.$transaction(async (tx) => {
-    const state = await lockLiveClass(tx, classId, mode)
-    if (state === "gone") return { live: false as const, error: CLASS_GONE }
-    if (state === "locked") return { live: false as const, error: YEAR_LOCKED }
-    return { live: true as const, value: await fn(tx) }
-  }, { timeout: 90_000 })
 }
 
 /** Parse the exam form against the class year; returns data or the first message. */
@@ -186,11 +156,18 @@ export async function updateExam(id: number, _prev: ActionResult, formData: Form
     if (live.length === 0) return "gone" as const
     const over = await tx.sundaySchoolExamResult.count({ where: { examId: id, score: { gt: form.data.totalMarks } } })
     if (over > 0) return "over" as const
+    const dup = await tx.sundaySchoolExam.count({
+      where: { id: { not: id }, classId: g.classId, year: g.year, name: { equals: form.data.name, mode: "insensitive" }, date: form.data.date, archivedAt: null },
+    })
+    if (dup > 0) return "dup" as const
     const { count } = await tx.sundaySchoolExam.updateMany({ where: { id, archivedAt: null }, data: form.data })
     return count === 0 ? ("gone" as const) : ("ok" as const)
-  })
+  }, // "update" lock mode: FOR UPDATE on the class serialises concurrent edits
+  // and creates, so two of them can't both pass the duplicate check.
+  "update")
   if (!r.live) return { error: r.error }
   if (r.value === "over") return { error: "Total marks is below a score already entered" }
+  if (r.value === "dup") return { error: DUPLICATE_EXAM }
   if (r.value === "gone") return { error: EXAM_GONE }
   await logAudit(g.actor, "SS_EXAM_UPDATED", ENTITY, id, { classId: g.classId, name: form.data.name, totalMarks: form.data.totalMarks })
   revalidateExams(g.classId)
@@ -244,10 +221,7 @@ export async function setExamScore(examId: number, personId: number, raw: string
         return { previous }
       }
       // FOR SHARE on enrolment + Person: a concurrent move/unenrol/archive waits.
-      // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-      const enrolled = await tx.$queryRaw<{ personId: number }[]>`
-        SELECT e."personId" FROM "SundaySchoolEnrolment" e JOIN "Person" p ON p.id = e."personId"
-        WHERE e."classId" = ${g.classId} AND e."personId" = ${personId} AND p."archivedAt" IS NULL FOR SHARE`
+      const enrolled = await lockEnrolled(tx, g.classId, [personId])
       if (enrolled.length === 0) throw new Error(NOT_IN_CLASS)
       const fresh = parseScore(score.value, exam[0].totalMarks)
       if (!fresh.ok) throw new ScoreRejected(fresh.error)

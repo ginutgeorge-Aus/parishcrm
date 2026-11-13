@@ -24,9 +24,8 @@ export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; i
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly,
+    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool,
   } = flags
-  const canViewSundaySchool = flags.canViewSundaySchool ?? canViewPeople
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
 
@@ -50,7 +49,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
       items: [
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople && on("celebrations") },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople && on("celebrations") },
-        { href: "/sunday-school", label: "Sunday School", icon: School, show: canViewSundaySchool && on("sundaySchool") },
+        { href: "/sunday-school", label: "Sunday School", icon: School, show: canBrowseSundaySchool && on("sundaySchool") },
         // Groups (#303): same audience as canViewGroups (= canViewPeople).
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
