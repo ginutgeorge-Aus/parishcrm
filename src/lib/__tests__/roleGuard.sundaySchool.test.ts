@@ -5,7 +5,7 @@ import {
   canManageSundaySchool,
   canViewAccounting,
   canViewPeople,
-  canViewSundaySchool,
+  canMarkSomeSundaySchool,
   isHeadmaster,
   isTeacher,
 } from "../roleGuard"
@@ -31,10 +31,10 @@ describe("canManageSundaySchool", () => {
   it("denies a role-less session", () => expect(canManageSundaySchool(undefined)).toBe(false))
 })
 
-describe("canViewSundaySchool", () => {
-  it.each([...MANAGERS, ...VIEW_ONLY])("allows %s", (role) => expect(canViewSundaySchool(role)).toBe(true))
-  it.each(BLOCKED)("denies %s", (role) => expect(canViewSundaySchool(role)).toBe(false))
-  it("denies a role-less session", () => expect(canViewSundaySchool(undefined)).toBe(false))
+describe("canMarkSomeSundaySchool", () => {
+  it.each([...MANAGERS, UserRole.TEACHER, UserRole.EVENT_ORGANISER])("allows %s", (role) => expect(canMarkSomeSundaySchool(role)).toBe(true))
+  it.each([UserRole.VIEWER, UserRole.AUDITOR])("denies %s", (role) => expect(canMarkSomeSundaySchool(role)).toBe(false))
+  it("denies a role-less session", () => expect(canMarkSomeSundaySchool(undefined)).toBe(false))
 })
 
 describe("canBrowseSundaySchool", () => {

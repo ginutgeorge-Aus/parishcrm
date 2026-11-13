@@ -17,7 +17,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { canManageSundaySchool, isAdmin } from "@/lib/roleGuard"
 import { isP2002, isP2034, isValidPgId, MIN_YEAR, MAX_YEAR } from "@/lib/validation"
 import { ClassFormSchema, currentSchoolYear, planRollover } from "@/lib/sundaySchool"
-import { holdYear, isYearLockedTx, lockLiveClass, YEAR_LOCKED, type ClassLockState } from "@/lib/sundaySchoolYearLock"
+import { holdYear, isYearLockedTx, lockLiveClass, lockStateError, withLiveClass, YEAR_LOCKED } from "@/lib/sundaySchoolYearLock"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -118,8 +118,8 @@ export async function updateClass(id: number, _prev: ActionResult, formData: For
   try {
     // Under the class + year-lock check: a class archived or locked since
     // editableClass() is left untouched.
-    const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data }), "update")
-    if (state !== "ok") return { error: stateError(state) }
+    const r = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: form.data }), "update")
+    if (!r.live) return { error: r.error }
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_CLASS }
     throw e
@@ -135,38 +135,11 @@ export async function archiveClass(id: number): Promise<ActionResult> {
   const g = await editableClass(id)
   if ("error" in g) return { error: g.error }
   // Archived by someone else, or year locked, since editableClass(): no row changed, no audit.
-  const state = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } }), "update")
-  if (state !== "ok") return { error: stateError(state) }
+  const r = await withLiveClass(id, (tx) => tx.sundaySchoolClass.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } }), "update")
+  if (!r.live) return { error: r.error }
   await logAudit(actorId(g.session), "SS_CLASS_ARCHIVED", ENTITY, id)
   revalidatePath("/sunday-school")
   revalidatePath(`/sunday-school/${id}`)
-}
-
-/** User-facing message for a non-"ok" lock state. */
-function stateError(state: Exclude<ClassLockState, "ok">): string {
-  return state === "locked" ? YEAR_LOCKED : "Class not found"
-}
-
-/**
- * Run `fn` in a transaction holding FOR SHARE on the live class row, so a
- * concurrent archive (an UPDATE needing the row lock) waits until `fn` commits,
- * and `fn` is skipped if the class was archived — or its year locked by a
- * rollover — after the caller's check (see lockLiveClass). Returns "ok" when
- * `fn` ran, else "gone" / "locked".
- */
-async function withLiveClass(
-  classId: number,
-  fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
-  mode: "share" | "update" = "share",
-): Promise<ClassLockState> {
-  return prisma.$transaction(async (tx) => {
-    const state = await lockLiveClass(tx, classId, mode)
-    if (state !== "ok") return state
-    await fn(tx)
-    return "ok" as const
-    // The teacher/enrolment write may queue behind a rollover's table lock
-    // (itself up to 60s), so outlast it like createClass does.
-  }, { timeout: 90_000 })
 }
 
 /**
@@ -184,7 +157,7 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
   if (!person) return { error: NOT_TEACHER }
 
   try {
-    const state = await withLiveClass(classId, async (tx) => {
+    const r = await withLiveClass(classId, async (tx) => {
       // Re-check the tag under FOR SHARE: an untag (UPDATE on Person) waits for
       // this insert, or the insert is refused if the untag committed first.
       // nosemgrep: crm-no-raw-sql — row/table lock; Prisma has no locking API
@@ -194,7 +167,7 @@ export async function addTeacher(classId: number, personId: number): Promise<Act
       if (ok.length === 0) throw new Error(NOT_TEACHER)
       await tx.sundaySchoolTeacher.create({ data: { classId, personId } })
     })
-    if (state !== "ok") return { error: stateError(state) }
+    if (!r.live) return { error: r.error }
   } catch (e) {
     if (e instanceof Error && e.message === NOT_TEACHER) return { error: NOT_TEACHER }
     // Already assigned (unique classId_personId) — idempotent.
@@ -210,8 +183,8 @@ export async function removeTeacher(classId: number, personId: number): Promise<
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  const state = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } }))
-  if (state !== "ok") return { error: stateError(state) }
+  const r = await withLiveClass(classId, (tx) => tx.sundaySchoolTeacher.deleteMany({ where: { classId, personId } }))
+  if (!r.live) return { error: r.error }
   await logAudit(actorId(g.session), "SS_TEACHER_REMOVED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")
@@ -264,7 +237,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       return "ok" as const
       // Up to MAX_BATCH sequential upserts — Prisma's 5s default is too tight.
     }, { timeout: 30_000 })
-    if (state !== "ok") return { error: stateError(state) }
+    if (state !== "ok") return { error: lockStateError(state) }
   } catch (e) {
     if (e instanceof Error && e.message === PERSON_GONE) return { error: PERSON_GONE }
     // Two editors enrolling the same child at once: both upserts take the insert path.
@@ -284,8 +257,8 @@ export async function unenrolChild(classId: number, personId: number): Promise<A
   const g = await editableClass(classId)
   if ("error" in g) return { error: g.error }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
-  const state = await withLiveClass(classId, (tx) => tx.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } }))
-  if (state !== "ok") return { error: stateError(state) }
+  const r = await withLiveClass(classId, (tx) => tx.sundaySchoolEnrolment.deleteMany({ where: { classId, personId } }))
+  if (!r.live) return { error: r.error }
   await logAudit(actorId(g.session), "SS_UNENROLLED", ENTITY, classId, { personId })
   revalidatePath(`/sunday-school/${classId}`)
   revalidatePath("/sunday-school")

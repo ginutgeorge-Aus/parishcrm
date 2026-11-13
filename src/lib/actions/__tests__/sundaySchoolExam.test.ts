@@ -197,6 +197,15 @@ describe("createExam / updateExam / archiveExam", () => {
     expect(await updateExam(9, undefined, form({ totalMarks: "10" }))).toEqual({ error: "Total marks is below a score already entered" })
     expect(p.sundaySchoolExam.updateMany).not.toHaveBeenCalled()
   })
+  it("update rejects a duplicate name+date on another exam (excludes itself)", async () => {
+    p.sundaySchoolExam.count.mockResolvedValue(1)
+    expect(await updateExam(9, undefined, form())).toEqual({ error: "This class already has an exam with that name on that date" })
+    expect(p.sundaySchoolExam.count).toHaveBeenCalledWith({
+      where: { id: { not: 9 }, classId: 4, year: 2026, name: { equals: "Term 1", mode: "insensitive" }, date: new Date("2026-03-01T00:00:00.000Z"), archivedAt: null },
+    })
+    expect(p.sundaySchoolExam.updateMany).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("update and archive succeed and audit; locked year refused", async () => {
     expect(await updateExam(9, undefined, form())).toBeUndefined()
     expect(await archiveExam(9)).toBeUndefined()

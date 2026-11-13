@@ -1,7 +1,7 @@
 import type { FeatureKey } from "@/lib/features"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 import {
-  canAccessAccounting, canEdit, canManageUsers, canViewAccounting, canViewPeople, canViewSundaySchool, isAdmin, isHeadmaster,
+  canAccessAccounting, canBrowseSundaySchool, canEdit, canManageUsers, canViewAccounting, canViewPeople, isAdmin, isHeadmaster,
 } from "@/lib/roleGuard"
 
 // Role/feature gates shared by the sidebar, the top-bar bell and the quick-add
@@ -14,8 +14,8 @@ export type NavFlags = {
   isEditor: boolean
   canUsers: boolean
   canViewPeople: boolean
-  /** Sunday School link; omitted = follows canViewPeople. */
-  canViewSundaySchool?: boolean
+  /** Staff Sunday School link (canBrowseSundaySchool). */
+  canBrowseSundaySchool: boolean
   /** HEADMASTER: confined to Sunday School, so hide links middleware would bounce. */
   sundaySchoolOnly?: boolean
   /** Venue Usage nav link (AppSetting `venueUsage.enabled`). */
@@ -49,7 +49,7 @@ export function navFlagsFor(
     isEditor: canEdit(role),
     canUsers: canManageUsers(role),
     canViewPeople: canViewPeople(role),
-    canViewSundaySchool: canViewSundaySchool(role),
+    canBrowseSundaySchool: canBrowseSundaySchool(role),
     sundaySchoolOnly: isHeadmaster(role),
     venueUsage,
     pendingUpdates: counts.pendingUpdates ?? 0,
