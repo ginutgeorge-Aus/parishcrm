@@ -29,7 +29,7 @@ export function auditFailed(e: AuditWriteError, label: string): { error: string 
  * (the guard error is still the truthful answer); `finish` is outside the try because
  * `redirect()` throws.
  */
-export async function replayOrError<E>(
+async function replayOrError<E>(
   token: string | undefined,
   lookup: () => Promise<SubmissionTokenLookup>,
   finish: () => Promise<never>,
