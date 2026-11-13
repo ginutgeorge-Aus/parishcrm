@@ -17,7 +17,7 @@ function normalisePrefix(v: string): string {
 }
 
 /**
- * Create/edit form for an event's fundraiser settings. Changing the unit price
+ * Create/edit form for an event's fundraiser settings. Changing a price
  * only affects entries created afterwards (entries snapshot the price).
  *
  * @param props.eventId - Event id.
@@ -25,10 +25,11 @@ function normalisePrefix(v: string): string {
  */
 export function FundraiserSettingsForm({
   eventId, initial,
-}: Readonly<{ eventId: number; initial?: { name: string; unitLabel: string; unitPrice: string; refPrefix: string | null } }>) {
+}: Readonly<{ eventId: number; initial?: { name: string; unitLabel: string; unitPrice: string; deliveryPrice?: string | null; refPrefix: string | null } }>) {
   const [name, setName] = useState(initial?.name ?? "")
   const [unitLabel, setUnitLabel] = useState(initial?.unitLabel ?? "")
   const [unitPrice, setUnitPrice] = useState(initial?.unitPrice ?? "")
+  const [deliveryPrice, setDeliveryPrice] = useState(initial?.deliveryPrice ?? "")
   const [refPrefix, setRefPrefix] = useState(initial?.refPrefix ?? "")
   const [state, setState] = useState<{ error?: string; success?: string } | null>(null)
   const [pending, start] = useTransition()
@@ -38,7 +39,7 @@ export function FundraiserSettingsForm({
     e.preventDefault()
     setState(null)
     start(async () => {
-      const res = await saveFundraiser(eventId, { name, unitLabel, unitPrice, refPrefix })
+      const res = await saveFundraiser(eventId, { name, unitLabel, unitPrice, ...(deliveryPrice.trim() && { deliveryPrice }), refPrefix })
       if (!res?.error) setRefPrefix(normalisePrefix(refPrefix))
       setState(res?.error ? { error: res.error } : { success: "Saved" })
     })
@@ -55,8 +56,13 @@ export function FundraiserSettingsForm({
         <Input id="fs-label" value={unitLabel} onChange={(e) => setUnitLabel(e.target.value)} maxLength={40} placeholder="e.g. ticket" required />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="fs-price">Unit price</Label>
+        <Label htmlFor="fs-price">Pickup price</Label>
         <Input id="fs-price" inputMode="decimal" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} required />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="fs-delivery">Delivery price</Label>
+        <Input id="fs-delivery" inputMode="decimal" value={deliveryPrice} onChange={(e) => setDeliveryPrice(e.target.value)} aria-describedby="fs-delivery-help" />
+        <p id="fs-delivery-help" className="text-xs text-muted-foreground">Leave empty if there is no delivery option.</p>
       </div>
       <div className="space-y-1">
         <Label htmlFor="fs-prefix">Bank ref prefix</Label>
