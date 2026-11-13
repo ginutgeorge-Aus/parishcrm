@@ -48,6 +48,7 @@ describe("loadStatementSummaries", () => {
     ])
     const out = await loadStatementSummaries(2025)
     expect(out).toEqual(new Map([[1, { giftCount: 2, totalCents: 1010 }], [2, { giftCount: 1, totalCents: 0 }]]))
+    expect((prisma.transaction.groupBy as jest.Mock).mock.calls[0][0]).toMatchObject({ by: ["familyId"], _sum: { amount: true }, _count: { _all: true } })
     expect((prisma.transaction.groupBy as jest.Mock).mock.calls[0][0].where).toMatchObject({ isGiving: true, type: "INCOME", familyId: { not: null } })
   })
 })
@@ -57,7 +58,7 @@ describe("loadStatementFamilies", () => {
     findFam.mockResolvedValue([{ id: 9, name: "Old", archivedAt: new Date(), people: [{ email: "a@x.com", emailConsent: true, role: "HEAD" }] }])
     const out = await loadStatementFamilies([9], true)
     expect(findFam.mock.calls[0][0].where).toEqual({ id: { in: [9] } })
-    expect(findFam.mock.calls[0][0].select.people.orderBy).toEqual([{ role: "asc" }, { firstName: "asc" }])
+    expect(findFam.mock.calls[0][0].select.people.orderBy).toEqual([{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }])
     expect(out.get(9)).toEqual({ id: 9, name: "Old", archived: true, canEmail: false, emails: ["a@x.com"] })
   })
 
@@ -89,7 +90,7 @@ describe("loadStatementFamilies", () => {
     expect(out.get(1)?.canEmail).toBe(true)
   })
 
-  it("skips decrypting addresses when withEmails is false but still reports canEmail", async () => {
+  it("omits addresses when withEmails is false but still reports canEmail", async () => {
     findFam.mockResolvedValue([
       { id: 1, name: "Smith", people: [{ email: "a@x.com", emailConsent: true, role: "HEAD" }] },
       { id: 2, name: "Jones", people: [{ email: "b@x.com", emailConsent: false, role: "HEAD" }] },

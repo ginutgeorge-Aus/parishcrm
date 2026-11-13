@@ -74,7 +74,7 @@ describe("GET giving statement pdf", () => {
   })
 
   it("404 when the family has no statement", async () => {
-    mockFamilies.mockResolvedValueOnce(new Map())
+    mockLoad.mockResolvedValueOnce(new Map())
     expect((await call()).status).toBe(404)
   })
 

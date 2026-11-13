@@ -64,12 +64,14 @@ async function acquireClaim(key: string, force: boolean): Promise<ClaimOutcome> 
 }
 
 /**
- * Record the outcome on a claim we own.
+ * Record the outcome on a claim we own (compare-and-swap on our PENDING value, so a stalled
+ * worker cannot overwrite a claim a later forced resend has taken over).
  * @param key claim row key
+ * @param pending the PENDING value we wrote when acquiring
  * @param state SENT or UNKNOWN
  */
-async function settleClaim(key: string, state: "SENT" | "UNKNOWN"): Promise<void> {
-  await prisma.appSetting.update({ where: { key }, data: { value: `${state}:${Date.now()}` } })
+async function settleClaim(key: string, pending: string, state: "SENT" | "UNKNOWN"): Promise<void> {
+  await prisma.appSetting.updateMany({ where: { key, value: pending }, data: { value: `${state}:${Date.now()}` } })
 }
 
 /**
@@ -80,7 +82,7 @@ async function settleClaim(key: string, state: "SENT" | "UNKNOWN"): Promise<void
  * @param claim the acquired claim
  */
 async function releaseClaim(key: string, claim: { pending: string; previous: string | null }): Promise<void> {
-  if (claim.previous === null) await prisma.appSetting.deleteMany({ where: { key } })
+  if (claim.previous === null) await prisma.appSetting.deleteMany({ where: { key, value: claim.pending } })
   else await prisma.appSetting.updateMany({ where: { key, value: claim.pending }, data: { value: claim.previous } })
 }
 
@@ -247,7 +249,7 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
     const unknown = isResendAmbiguous(e)
     if (unknown) {
       // The provider may have accepted the mail: keep the claim so a plain retry can't double-send.
-      await bestEffort("claim settle", id, () => settleClaim(claimKey, "UNKNOWN"))
+      await bestEffort("claim settle", id, () => settleClaim(claimKey, claim.pending, "UNKNOWN"))
     } else {
       // Definite failure: release a fresh claim, or restore the one a resend took over.
       await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
@@ -257,7 +259,7 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   }
   // Delivered: a bookkeeping failure must not abort the batch or report the family as failed.
   // A claim left PENDING here goes stale and blocks a plain re-run in the meantime.
-  await bestEffort("claim settle", id, () => settleClaim(claimKey, "SENT"))
+  await bestEffort("claim settle", id, () => settleClaim(claimKey, claim.pending, "SENT"))
   // Audit metadata holds ids and totals only — never the address.
   await bestEffort("audit", id, () => logAudit(uid, STATEMENT_SENT, "Family", id, { fyStartYear: fy, totalCents: statement.totalCents }))
   return { status: "sent" }
@@ -305,7 +307,6 @@ export async function sendGivingStatements(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not load giving." }
   }
-  const families = await loadStatementFamilies(ids)
 
   let sent = 0
   let failed = 0
@@ -314,8 +315,10 @@ export async function sendGivingStatements(
   const errors: { familyId: number; error: string }[] = []
   for (const id of ids) {
     // Sequential on purpose: each send claims a row first and the mail provider is rate limited.
+    // Reload the family right before its send so a consent revoke or archive made mid-batch is honoured.
+    const family = (await loadStatementFamilies([id])).get(id)
     const r = await sendOne({ // NOSONAR
-      id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family: families.get(id),
+      id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family,
     })
     if (r.status === "sent") sent++
     else if (r.status === "skipped") {

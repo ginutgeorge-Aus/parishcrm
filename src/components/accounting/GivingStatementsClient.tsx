@@ -14,10 +14,16 @@ type Props = {
   canManage: boolean
 }
 
-/** Status badge for a family's latest send attempt. */
-function StatusBadge({ status }: Readonly<{ status: StatementListRow["lastStatus"] }>) {
-  if (!status) return <span className="text-xs text-muted-foreground">Not sent</span>
-  return <Badge variant={status === "SENT" ? "default" : "destructive"}>{status}</Badge>
+/**
+ * Status badge for a family's latest send attempt, with the send-claim state when a send is
+ * in progress (PENDING) or delivery is unconfirmed (UNKNOWN), so staff know which need a check.
+ */
+function StatusBadge({ status, claim }: Readonly<{ status: StatementListRow["lastStatus"]; claim: StatementListRow["claim"] }>) {
+  let note: React.ReactNode = null
+  if (claim === "PENDING") note = <span className="ml-2 text-xs text-muted-foreground">send in progress</span>
+  else if (claim === "UNKNOWN") note = <span className="ml-2 text-xs text-muted-foreground">delivery unconfirmed, check before resending</span>
+  if (!status) return <span><span className="text-xs text-muted-foreground">Not sent</span>{note}</span>
+  return <span><Badge variant={status === "SENT" ? "default" : "destructive"}>{status}</Badge>{note}</span>
 }
 
 /**
@@ -65,6 +71,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         let skipped = 0
         let inProgress = 0
         let fatal: string | null = null
+        let done = 0 // ids already processed by completed chunks
         const errs: { familyId: number; text: string }[] = []
         for (let i = 0; i < ids.length; i += 200) {
           const res = await sendGivingStatements(year, ids.slice(i, i + 200), !resend)
@@ -72,15 +79,17 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
             fatal = res.error
             break
           }
+          done = i + 200
           sent += res.sent
           failed += res.failed
           skipped += res.skipped
           inProgress += res.inProgress
           errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${nameById.get(e.familyId) ?? "Family #" + e.familyId}: ${e.error}` })))
         }
-        if (!fatal) setSelected(new Set())
+        // On an early stop keep only the unprocessed families, so a forced resend can't re-send finished chunks.
+        setSelected(fatal ? new Set(ids.slice(done)) : new Set())
         setErrors(errs)
-        const skippedNote = skipped ? `, skipped ${skipped} already sent` : ""
+        const skippedNote = skipped ? `, skipped ${skipped} (already sent or claimed)` : ""
         const progressNote = inProgress
           ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
           : ""
@@ -149,7 +158,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
                 </td>
                 <td className="px-4 py-2 text-muted-foreground">{r.giftCount}</td>
                 <td className="px-4 py-2 font-medium whitespace-nowrap">{fmtAUD(r.total)}</td>
-                <td className="px-4 py-2"><StatusBadge status={r.lastStatus} /></td>
+                <td className="px-4 py-2"><StatusBadge status={r.lastStatus} claim={r.claim} /></td>
                 <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">{when(r.lastAt)}</td>
                 <td className="px-4 py-2">
                   <Button asChild variant="outline" size="sm">
@@ -187,7 +196,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
               <span className="shrink-0 tabular font-medium whitespace-nowrap">{fmtAUD(r.total)}</span>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
-              <StatusBadge status={r.lastStatus} />
+              <StatusBadge status={r.lastStatus} claim={r.claim} />
               <span className="text-xs text-muted-foreground">{when(r.lastAt)}</span>
             </div>
             <div className="mt-2 border-t pt-2">

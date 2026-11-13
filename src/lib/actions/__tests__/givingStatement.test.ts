@@ -206,7 +206,7 @@ describe("sendGivingStatements", () => {
         [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
       ])
     )
-    mockClaimUpdate.mockRejectedValueOnce(new Error("db blip"))
+    mockClaimSwap.mockRejectedValueOnce(new Error("db blip"))
     mockLogAudit.mockRejectedValueOnce(new Error("db blip"))
     const res = await sendGivingStatements(2025, [1, 2])
     expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [] })
@@ -219,7 +219,7 @@ describe("sendGivingStatements", () => {
     const res = await sendGivingStatements(2025, [1])
     expect(res).toEqual(expect.objectContaining({ failed: 1, sent: 0 }))
     expect(mockSend).not.toHaveBeenCalled()
-    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
+    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) } })
   })
 
   it("survives a DB failure while recording a failed delivery", async () => {
@@ -231,13 +231,13 @@ describe("sendGivingStatements", () => {
 
   it("marks the claim SENT after delivery and releases it on a definite failure", async () => {
     await sendGivingStatements(2025, [1])
-    expect(mockClaimUpdate).toHaveBeenCalledWith({
-      where: { key: "giving-statement-claim:2025:1" },
+    expect(mockClaimSwap).toHaveBeenCalledWith({
+      where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) },
       data: { value: expect.stringMatching(/^SENT:\d+$/) },
     })
     mockSend.mockRejectedValueOnce(new Error("x"))
     await sendGivingStatements(2025, [1])
-    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1" } })
+    expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) } })
   })
 
   it("keeps the claim as UNKNOWN when delivery is ambiguous", async () => {
@@ -246,7 +246,7 @@ describe("sendGivingStatements", () => {
     const res = await sendGivingStatements(2025, [1])
     expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })
     expect(mockClaimDelete).not.toHaveBeenCalled()
-    expect(mockClaimUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
+    expect(mockClaimSwap).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025, outcome: "unknown" })
   })
 

@@ -65,7 +65,7 @@ describe("GivingStatementsClient", () => {
     render(<GivingStatementsClient year={2025} rows={rows} canManage />)
     await user.click(screen.getByRole("button", { name: /select all unsent/i }))
     await user.click(screen.getByRole("button", { name: /email selected/i }))
-    await waitFor(() => expect(screen.getByText(/Sent 1, failed 1, skipped 1 already sent, skipped 2 with a send in progress or delivery unknown/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Sent 1, failed 1, skipped 1 \(already sent or claimed\), skipped 2 with a send in progress or delivery unknown/)).toBeInTheDocument())
     expect(send).toHaveBeenCalledWith(2025, [1, 4], true)
     expect(screen.getByText("Green: Email delivery failed")).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (0)" })).toBeInTheDocument())

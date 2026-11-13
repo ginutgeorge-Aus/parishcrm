@@ -103,7 +103,7 @@ export async function loadStatementFamilies(ids: number[], withEmails = true): P
       name: true,
       archivedAt: true,
       // Same deterministic order as getGivingSummary: role asc (HEAD first), then first name.
-      people: { where: { archivedAt: null }, orderBy: [{ role: "asc" }, { firstName: "asc" }], select: { email: true, emailConsent: true, role: true } },
+      people: { where: { archivedAt: null }, orderBy: [{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }], select: { email: true, emailConsent: true, role: true } },
     },
   })
   return new Map(
