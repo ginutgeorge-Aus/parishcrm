@@ -82,7 +82,7 @@ one go, for testing an event before it goes live.
 
 ### Data model (`prisma/schema.prisma`)
 
-- `Event` — one row per event; `slug` is unique and is the public URL key. `customQuestions`,
+- `Event` — one row per event; `slug` is nullable and unique when set; it is the public URL key when present (staff-only events have none). `customQuestions`,
   `organizers` (public-facing organiser contact list) and `familyPricingTiers` are stored as
   JSON columns.
 - `TicketType` — belongs to an `Event`; `price` is a `Decimal(10,2)`, `capacity` optional.

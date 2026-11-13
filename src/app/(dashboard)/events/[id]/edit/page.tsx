@@ -88,7 +88,7 @@ export default async function EditEventPage(props: Readonly<Props>) {
           )}
         </div>
         <div className="flex gap-2">
-          <PublishToggle eventId={event.id} isPublished={event.isPublished} />
+          {(event.slug || event.isPublished) && <PublishToggle eventId={event.id} isPublished={event.isPublished} />}
           <CloseRegistrationToggle eventId={event.id} registrationClosed={event.registrationClosed} />
           {isAdmin(session.user.role) && (
             <DeleteEventButton action={deleteAction} size="lg" />

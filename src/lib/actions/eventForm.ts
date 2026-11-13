@@ -12,7 +12,9 @@ import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
 const EventBase = z.object({
   title: z.string().min(1, "Title required").max(200),
   // Optional: blank/whitespace -> null (staff-only event, no public page).
-  slug: z.string().optional().transform((v) => v?.trim() || null).pipe(
+  // Only an all-whitespace value becomes null; any other value is validated as typed,
+  // so "page " fails the format check instead of being silently trimmed.
+  slug: z.string().optional().transform((v) => (v && v.trim() !== "" ? v : null)).pipe(
     z.string().max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only").nullable(),
   ),
   description: z.string().max(2000).optional(),

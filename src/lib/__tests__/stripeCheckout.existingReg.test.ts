@@ -137,4 +137,9 @@ it("returns a 404 result for a slug-less event without touching the DB or Stripe
     "https://app.test",
   )
   expect(res).toEqual({ ok: false, status: 404, error: "Event not found" })
+  expect(prisma.registration.updateMany).not.toHaveBeenCalled()
+  expect(prisma.checkoutSession.create).not.toHaveBeenCalled()
+  expect(sessionsCreate).not.toHaveBeenCalled()
+  expect(sessionsRetrieve).not.toHaveBeenCalled()
+  expect(getStripe().checkout.sessions.expire).not.toHaveBeenCalled()
 })

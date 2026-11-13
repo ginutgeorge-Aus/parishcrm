@@ -1400,7 +1400,15 @@ describe("optional event slug", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
     ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     await publishEvent(1, false)
-    expect(revalidatePath).not.toHaveBeenCalledWith("/e/null")
+    expect(prisma.event.updateMany).toHaveBeenCalledWith({ where: { id: 1 }, data: { isPublished: false } })
+    expect(revalidatePath).not.toHaveBeenCalledWith(expect.stringMatching(/^\/e\//))
+  })
+
+  it("createEvent rejects a slug with surrounding whitespace instead of trimming it", async () => {
+    mockSession("PASTOR")
+    const result = await createEvent(undefined, baseFd("page "))
+    expect(result?.error).toMatch(/lowercase/i)
+    expect(prisma.event.create).not.toHaveBeenCalled()
   })
 
   it("updateEvent rejects a blank slug on a published event", async () => {
