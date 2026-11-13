@@ -254,13 +254,50 @@ describe("sendGivingStatements", () => {
       expect(mockSend).toHaveBeenCalledTimes(1)
     })
 
+    it("does not start a send that could overrun the budget with its timeout", async () => {
+      mockFamilies.mockResolvedValue(
+        new Map([
+          [1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }],
+          [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
+        ])
+      )
+      const now = jest.spyOn(Date, "now")
+      let t = 1_000_000
+      now.mockImplementation(() => t)
+      // 26s elapsed + 20s per-send timeout would end past the 45s budget, so family 2 is deferred.
+      mockSend.mockImplementationOnce(async () => {
+        t += 26_000
+      })
+      const res = await sendGivingStatements(2025, [1, 2])
+      now.mockRestore()
+      expect(res).toEqual(expect.objectContaining({ sent: 1, remaining: [2] }))
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
+    it("times out a hung family reload and names the family", async () => {
+      jest.useFakeTimers()
+      mockFamilies.mockImplementationOnce(() => new Promise(() => undefined))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      const res = await p
+      expect(res).toEqual(expect.objectContaining({ inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
     it("reports a send that exceeds the per-send timeout as in progress and moves on", async () => {
       jest.useFakeTimers()
       mockSend.mockImplementationOnce(() => new Promise(() => undefined))
       const p = sendGivingStatements(2025, [1])
       await jest.advanceTimersByTimeAsync(21_000)
-      expect(await p).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1 }))
+      expect(await p).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
     })
+  })
+
+  it("reports a family whose reload throws and keeps the batch going", async () => {
+    mockFamilies.mockRejectedValueOnce(new Error("db down"))
+    const res = await sendGivingStatements(2025, [2, 1])
+    expect(res).toEqual(expect.objectContaining({ sent: 1, failed: 1, errors: [{ familyId: 2, error: "Could not prepare the send; try again" }] }))
+    expect(mockSend).toHaveBeenCalledTimes(1)
   })
 
   it("releases the claim when building or rendering fails before the send", async () => {
@@ -353,9 +390,11 @@ describe("sendGivingStatements", () => {
     })
   })
 
-  it("rethrows unexpected claim errors", async () => {
+  it("reports an unexpected claim error for that family without sending", async () => {
     mockClaimCreate.mockRejectedValueOnce(new Error("db down"))
-    await expect(sendGivingStatements(2025, [1])).rejects.toThrow("db down")
+    const res = await sendGivingStatements(2025, [1])
+    expect(res).toEqual(expect.objectContaining({ sent: 0, failed: 1, errors: [{ familyId: 1, error: "Could not prepare the send; try again" }] }))
+    expect(mockSend).not.toHaveBeenCalled()
   })
 
   it("returns a clear error when giving cannot be loaded safely", async () => {

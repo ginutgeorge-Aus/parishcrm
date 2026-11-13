@@ -109,8 +109,21 @@ describe("GivingStatementsClient", () => {
     render(<GivingStatementsClient year={2025} rows={many} canManage />)
     await user.click(screen.getByRole("button", { name: /select all unsent/i }))
     await user.click(screen.getByRole("button", { name: /email selected/i }))
-    await waitFor(() => expect(screen.getByText(/Sent 200, failed 0\. Send log write failed for Fam0.*Stopped early: Something went wrong/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Sent 200, failed 0\. The send log could not record the outcome for Fam0\..*Stopped early: Something went wrong; .*check the send log before ticking Resend/)).toBeInTheDocument())
     await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (1)" })).toBeInTheDocument())
+  })
+
+  it("caps the audit-failed names listed in the banner", async () => {
+    const many: StatementListRow[] = Array.from({ length: 12 }, (_, n) => row({ familyId: 1000 + n, familyName: `Fam${n}` }))
+    send.mockResolvedValueOnce({
+      sent: 12, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: many.map((r) => r.familyId), remaining: [],
+    })
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={many} canManage />)
+    await user.click(screen.getByRole("button", { name: /select all unsent/i }))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    const banner = await screen.findByText(/outcome for Fam0, .*Fam9 and 2 more\./)
+    expect(banner.textContent).not.toMatch(/Fam1[01]/)
   })
 
   it("re-sends ids the server left as remaining until all are processed", async () => {

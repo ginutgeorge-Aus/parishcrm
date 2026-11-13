@@ -29,10 +29,12 @@ const LOG_CAP = 5000
 const CLAIM_PREFIX = "giving-statement-claim:"
 // A PENDING claim older than this is treated as a crashed run and may be taken over by a forced resend.
 const CLAIM_STALE_MS = 15 * 60 * 1000
-// A bulk run stops starting new sends after this long, so one server action stays inside typical proxy timeouts (~60s).
-const TIME_BUDGET_MS = 40_000
-// One family's render + email may not take longer than this; it is then reported as delivery unknown.
+// Wall-clock cap for one bulk run, so a server action stays inside typical proxy timeouts (~60s). A send
+// starts only when it can finish (reload + render + email, capped by SEND_TIMEOUT_MS) inside this budget.
+const TIME_BUDGET_MS = 45_000
+// One family's reload + render + email may not take longer than this; it is then reported as delivery unknown.
 const SEND_TIMEOUT_MS = 20_000
+const TIMEOUT_ERROR = "Timed out; delivery status unknown, check before resending"
 
 type ClaimOutcome =
   | { status: "acquired"; pending: string; previous: string | null }
@@ -378,20 +380,35 @@ export async function sendGivingStatements(
   const remaining: number[] = []
   const startedAt = Date.now()
   for (const id of ids) {
-    if (Date.now() - startedAt >= TIME_BUDGET_MS) {
+    // Only start a send that can finish inside the budget, so the whole run is bounded (the first id always starts).
+    if (Date.now() - startedAt + SEND_TIMEOUT_MS > TIME_BUDGET_MS) {
       remaining.push(id)
       continue
     }
     // Sequential on purpose: each send claims a row first and the mail provider is rate limited.
     // Reload the family right before its send so a consent revoke or archive made mid-batch is honoured.
-    const family = (await loadStatementFamilies([id])).get(id)
-    const timed = await withTimeout( // NOSONAR
-      sendOne({ id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family }),
-      SEND_TIMEOUT_MS
-    )
+    // The reload is inside the deadline too, so a hung query cannot stall the run.
+    let timed: SendOneResult | "timeout"
+    try {
+      timed = await withTimeout( // NOSONAR
+        (async () => {
+          const family = (await loadStatementFamilies([id])).get(id)
+          return sendOne({ id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family })
+        })(),
+        SEND_TIMEOUT_MS
+      )
+    } catch {
+      // The reload or a claim query threw before any email went out: report this family, keep the batch going.
+      logger.error("sendGivingStatements send setup failed", { familyId: id })
+      failed++
+      errors.push({ familyId: id, error: "Could not prepare the send; try again" })
+      continue
+    }
     if (timed === "timeout") {
+      // The claim (if taken) stays PENDING, so neither a plain nor a forced re-run can send again until it goes stale.
       logger.error("sendGivingStatements send timed out", { familyId: id })
       inProgress++
+      errors.push({ familyId: id, error: TIMEOUT_ERROR })
       continue
     }
     const r = timed

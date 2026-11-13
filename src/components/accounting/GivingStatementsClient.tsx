@@ -80,8 +80,9 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         try {
           res = await sendGivingStatements(year, chunk, !resend)
         } catch {
-          // Keep the totals of completed chunks; this chunk's outcome is unknown, so it stays selected.
-          fatal = "Something went wrong, try again"
+          // Keep the totals of completed chunks. This chunk's outcome is unknown (some may have been emailed),
+          // so it stays selected and the user is told to check the send log before forcing a resend.
+          fatal = "Something went wrong; some of the remaining families may have been sent, check the send log before ticking Resend"
           break
         }
         if ("error" in res) {
@@ -108,8 +109,11 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
       const progressNote = inProgress
         ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
         : ""
+      // Names are capped so a large outage doesn't flood the banner; the outcome of each family is reported above.
+      const auditNames = auditFailedIds.slice(0, 10).map(label).join(", ")
+      const auditMore = auditFailedIds.length > 10 ? ` and ${auditFailedIds.length - 10} more` : ""
       const auditNote = auditFailedIds.length
-        ? ` Send log write failed for ${auditFailedIds.map(label).join(", ")}: check them before resending.`
+        ? ` The send log could not record the outcome for ${auditNames}${auditMore}.`
         : ""
       const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.${auditNote}`
       setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
