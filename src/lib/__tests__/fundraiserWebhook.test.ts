@@ -90,6 +90,19 @@ it("records one ONLINE payment for the base amount with the PI as ref and a syst
   expect(notifyStripeAlert).not.toHaveBeenCalled()
 })
 
+it("staged entry folded by a family merge after the staging read → records on the surviving entry", async () => {
+  // The caller's staging snapshot still names entry 7; the merge has since
+  // repointed the row to entry 12 and deleted entry 7.
+  prisma.checkoutSession.findUnique.mockResolvedValueOnce({ fundraiserEntryId: 12 })
+  prisma.$queryRaw.mockImplementation((_s: TemplateStringsArray, id: number) => Promise.resolve(id === 12 ? [{ id: 12 }] : []))
+  expect(await completeFundraiserPayment(session(), staging())).toEqual({ status: 200 })
+  expect(prisma.checkoutSession.findUnique).toHaveBeenCalledWith({ where: { id: 11 }, select: { fundraiserEntryId: true } })
+  expect(prisma.fundraiserPayment.create.mock.calls[0][0].data).toMatchObject({ entryId: 12, amount: "30.00", method: "ONLINE" })
+  expect(rowStatus).toBe("COMPLETED")
+  expect(logAudit).toHaveBeenCalledWith(null, "FUNDRAISER_PAYMENT_ONLINE", "FundraiserPayment", 99, expect.objectContaining({ entryId: 12 }))
+  expect(notifyStripeAlert).not.toHaveBeenCalled()
+})
+
 it("webhook delivered twice with the same payment intent → exactly one payment", async () => {
   await completeFundraiserPayment(session(), staging())
   // Redelivery: the row now reads COMPLETED.
@@ -301,6 +314,9 @@ describe("refund/dispute of a fundraiser card payment", () => {
     expect(body).toContain("no FundraiserPayment row with stripePaymentRef = pi_f was found")
     // A miss is not proof: never tell ops no correction is needed.
     expect(body).not.toMatch(/no (ledger )?correction is needed/i)
-    expect(body).toContain("Check the fundraiser ledger for entry 7 by hand")
+    expect(body).toContain("Check the fundraiser ledger for entry 7 for a manually recorded")
+    // Point ops at the audited in-app delete, never a hand edit of the database.
+    expect(body).toContain("delete it in the app")
+    expect(body).not.toMatch(/in the database/i)
   })
 })

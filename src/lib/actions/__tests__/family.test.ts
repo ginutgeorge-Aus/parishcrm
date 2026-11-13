@@ -89,9 +89,12 @@ const familyDeleteTx = jest.fn()
 // deleteFamily's eligibility counts likewise exist only on the tx client.
 const personCountTx = jest.fn()
 const txCountTx = jest.fn()
+// mergeFamilies re-reads the source name under the row lock.
+const familyNameTx = jest.fn()
 beforeEach(() => {
   jest.clearAllMocks()
   familyDeleteTx.mockResolvedValue({})
+  familyNameTx.mockResolvedValue({ name: "Old" })
   ;(unlinkFundraiserEntriesTx as jest.Mock).mockResolvedValue(0)
   ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] })
   ;(prisma.fundraiserEntry.findMany as jest.Mock).mockResolvedValue([])
@@ -118,6 +121,7 @@ beforeEach(() => {
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+          findUniqueOrThrow: familyNameTx,
           delete: familyDeleteTx,
         },
         personClearance: prisma.personClearance,
@@ -365,6 +369,15 @@ describe("deleteFamily", () => {
     expect(familyDeleteTx).not.toHaveBeenCalled()
   })
 
+  it("maps a P2034 write conflict to a retryable error, not a 500", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 3, archivedAt: new Date("2020-01-01T00:00:00.000Z") })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValue(0)
+    familyDeleteTx.mockRejectedValue({ code: "P2034" })
+    expect(await deleteFamily(3)).toEqual({ error: expect.stringContaining("try again") })
+  })
+
   it("maps a P2003 FK failure on the delete to a friendly linked-records error, not a 500", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
@@ -572,6 +585,25 @@ describe("previewMerge / mergeFamilies", () => {
     expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })
 
+  it("mergeFamilies keeps the source name read under the row lock, not the preview's (renamed meanwhile)", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    familyNameTx.mockResolvedValue({ name: "Renamed" })
+    await mergeFamilies(1, 2)
+    expect(familyNameTx).toHaveBeenCalledWith({ where: { id: 1 }, select: { name: true } })
+    expect(reassignFundraiserEntriesTx).toHaveBeenCalledWith(expect.anything(), 1, 2, "Renamed", 1)
+    expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_MERGED", "Family", 2, expect.objectContaining({ sourceName: "Renamed" }))
+  })
+
+  it("mergeFamilies maps a P2034 write conflict to a retryable error, not a 500", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(prisma.$transaction as jest.Mock).mockRejectedValueOnce({ code: "P2034" })
+    const r = await mergeFamilies(1, 2)
+    expect(r).toEqual({ error: expect.stringContaining("try again") })
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+  })
+
   it("mergeFamilies maps a P2003 FK failure to a friendly error", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     stubPreview()
@@ -670,7 +702,7 @@ describe("previewMerge / mergeFamilies", () => {
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: inviteUpdate },
         familyUpdateSubmission: { updateMany: submissionUpdate },
-        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), delete: familyDelete },
+        family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: familyNameTx, delete: familyDelete },
       })
     )
     const r = await mergeFamilies(1, 2)

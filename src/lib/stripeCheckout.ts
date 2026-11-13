@@ -839,8 +839,9 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
         "fundraiser card payment refunded or disputed",
         head +
           `The checkout is marked completed, but no FundraiserPayment row with stripePaymentRef = ${pi} was found. ` +
-          `Check the fundraiser ledger for entry ${entryRef} by hand: a payment for this charge may exist under a different reference. ` +
-          `Correct it in the database if it does, and check in Stripe that the money was returned to the payer.`,
+          `Check the fundraiser ledger for entry ${entryRef} for a manually recorded (cash/bank) payment for this charge. ` +
+          `If one exists, delete it in the app from the event's fundraiser page (deleting a manual payment is audited). ` +
+          `Check in Stripe that the money was returned to the payer.`,
       )
     } else {
       const state = staging?.status ?? "no staging row"

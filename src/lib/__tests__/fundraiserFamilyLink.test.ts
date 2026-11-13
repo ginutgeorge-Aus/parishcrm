@@ -91,11 +91,29 @@ describe("reassignFundraiserEntriesTx", () => {
 
   it("does not fold when the combined total would exceed the per-entry cap", async () => {
     const { tx, client } = makeTx([
-      { id: 10, fundraiserId: 5, familyId: 1, quantity: 9000, unitPrice: "100.00" },
-      { id: 20, fundraiserId: 5, familyId: 2, quantity: 9000, unitPrice: "100.00" },
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 600, unitPrice: "1000.00" },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 400, unitPrice: "1000.00" },
     ])
     expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1, foldedEntryIds: [] })
     expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
+  })
+
+  it("does not fold when the summed quantity would exceed 9999, even under the amount cap", async () => {
+    const { tx, client } = makeTx([
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 6000, unitPrice: "1.00" },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 4000, unitPrice: "1.00" },
+    ])
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1, foldedEntryIds: [] })
+    expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
+    expect(tx.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { familyId: null, familyNameSnapshot: "Old" } })
+  })
+
+  it("folds at exactly 9999 combined quantity", () => {
+    const steps = planFundraiserReassign([
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 5000, unitPrice: "1.00" },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 4999, unitPrice: "1.00" },
+    ], 1, 2)
+    expect(steps.map((s) => s.kind)).toEqual(["fold"])
   })
 
   it("handles several fundraisers in one merge independently", async () => {

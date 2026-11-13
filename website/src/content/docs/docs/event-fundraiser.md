@@ -92,18 +92,22 @@ You can send again at any time. Every attempt is logged with its status.
 ## Merged or deleted families
 
 - **Merging two families** moves the merged-away family's fundraiser rows to the family that is
-  kept. If that family already has a row in the same fundraiser at the same price, the two rows
-  are combined: quantities are added and the payments move across, and any open card checkout is
-  cancelled so it cannot be paid at the old amount. The merged-away row's pay link and bank
-  reference stop working, so use the kept row's (send a new reminder). The old bank reference is
-  kept in the audit log, so a late transfer that quotes it can still be traced. If the prices
-  differ, the row is kept as a separate row under the merged-away family's name, no longer linked
-  to a family. The merge preview warns about these rows, and the result screen lists them.
+  kept. If that family already has a row in the same fundraiser at the same price, and the
+  combined row stays within the per-entry limits ($999,999.99 owed, quantity 9999), the two rows
+  are combined: quantities are added and the payments move across. The app then tries to cancel
+  any open card checkout so it cannot be paid at the old amount; this is best-effort, so if Stripe
+  fails to expire one, that old checkout may stay payable until it times out. The merged-away
+  row's pay link and bank reference stop working, so use the kept row's (send a new reminder). The
+  old bank reference is kept in the audit log, so a late transfer that quotes it can still be
+  traced. If the prices differ, or the combined row would exceed either limit, the row is kept as
+  a separate row under the merged-away family's name, no longer linked to a family. The merge
+  preview warns about these rows, and the result screen lists them.
 - **Permanently deleting a family** (allowed only after the retention period) keeps its
   fundraiser rows and payments. The rows show the family's name but are no longer linked to a
   family, so they get no member reminders. Keeping the name is deliberate: the fundraiser ledger
-  is a financial record of who paid. Only the name is kept; no address, email, phone or member
-  details.
+  is a financial record of who paid. On the rows, only the name is kept; no address, email, phone
+  or member details. The reminder log for those rows also stays: each past reminder keeps the
+  address it was sent to (stored encrypted), as a record of what was sent.
 
 ## Related
 

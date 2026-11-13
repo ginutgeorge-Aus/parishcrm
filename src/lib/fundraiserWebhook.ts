@@ -77,7 +77,8 @@ async function claimUnfulfilled(stagingId: number): Promise<boolean> {
  * commit against a stale balance (silent overpay). A conflict now aborts one
  * side with P2034; on this side the caller returns 500 so Stripe redelivers.
  * @param stagingId CheckoutSession id
- * @param entryId FundraiserEntry id
+ * @param entryId FundraiserEntry id the caller read from the staging row; superseded
+ *   by the row's current entry id when a family merge folded it meanwhile
  * @param amount base amount (charge minus card fee) as staged
  * The audit row is written by the caller after commit, on purpose: the money is
  * already captured by Stripe, so an audit failure must never roll back (and
@@ -93,8 +94,16 @@ async function claimAndRecord(
   paymentRef: string | null,
 ): Promise<Outcome> {
   return prisma.$transaction(async (tx) => {
+    // A family merge may have folded the staged entry into another one after
+    // the caller read the staging row (it repoints the row, then deletes the
+    // old entry). Re-read the row's current entry inside this transaction so a
+    // fold that committed first is followed, not reported as a missing entry.
+    // A merge still in flight blocks the lock below and then aborts this
+    // Serializable tx with P2034, so Stripe's retry re-reads the new entry.
+    const current = await tx.checkoutSession.findUnique({ where: { id: stagingId }, select: { fundraiserEntryId: true } })
+    const liveEntryId = current?.fundraiserEntryId ?? entryId
     // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-    const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${entryId} FOR UPDATE` // nosemgrep: crm-no-raw-sql
+    const locked = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "FundraiserEntry" WHERE id = ${liveEntryId} FOR UPDATE` // nosemgrep: crm-no-raw-sql
     const claim = await tx.checkoutSession.updateMany({
       where: { id: stagingId, status: CLAIMABLE },
       data: locked.length === 0
@@ -104,14 +113,14 @@ async function claimAndRecord(
     if (claim.count === 0) return { kind: "lost" as const }
     if (locked.length === 0) return { kind: "missing" as const }
     const entry = await tx.fundraiserEntry.findUnique({
-      where: { id: entryId },
+      where: { id: liveEntryId },
       select: { quantity: true, unitPrice: true, payments: { select: { amount: true } } },
     })
     if (!entry) return { kind: "missing" as const }
     const { remainingCents } = entryTotals(entry, entry.payments)
     const created = await tx.fundraiserPayment.create({
       data: {
-        entryId,
+        entryId: liveEntryId,
         amount,
         method: "ONLINE",
         paidAt: new Date(),
@@ -121,7 +130,7 @@ async function claimAndRecord(
       select: { id: true },
     })
     const overpaidCents = Math.max(0, toCents(amount) - remainingCents)
-    return { kind: "recorded" as const, paymentId: created.id, entryId, overpaidCents }
+    return { kind: "recorded" as const, paymentId: created.id, entryId: liveEntryId, overpaidCents }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 

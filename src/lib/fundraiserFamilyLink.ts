@@ -1,7 +1,7 @@
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { logAuditGuardedTx } from "@/lib/auditGuard"
 import { toCents, type Money } from "@/lib/formatting"
-import { MAX_OWED_CENTS } from "@/lib/fundraiserMath"
+import { MAX_ENTRY_QUANTITY, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
 
 /**
  * FundraiserEntry.familyId is onDelete: Restrict, so a family with fundraiser
@@ -30,8 +30,9 @@ export type ReassignStep =
  * merge itself). Per source entry:
  * - target has no entry in that fundraiser: move it (familyId = target);
  * - target has one at the same unit price, and the combined total stays within
- *   the per-entry cap: fold it in (quantities summed);
- * - otherwise (different price snapshot, or the sum would exceed the cap): keep
+ *   the per-entry cap and the summed quantity within `MAX_ENTRY_QUANTITY` (so
+ *   the quantity stays editable): fold it in (quantities summed);
+ * - otherwise (different price snapshot, or the sum would exceed either cap): keep
  *   it as its own row, unlinked, under the source family's name.
  *   (fundraiserId, familyId) is unique, so it cannot be a second linked row.
  * @param rows entries of both families
@@ -47,7 +48,7 @@ export function planFundraiserReassign(rows: ReassignRow[], sourceId: number, ta
     if (!dst) return { kind: "move", src }
     const priceCents = toCents(src.unitPrice)
     const quantity = dst.quantity + src.quantity
-    if (priceCents === toCents(dst.unitPrice) && quantity * priceCents <= MAX_OWED_CENTS) {
+    if (priceCents === toCents(dst.unitPrice) && quantity <= MAX_ENTRY_QUANTITY && quantity * priceCents <= MAX_OWED_CENTS) {
       return { kind: "fold", src, dst, quantity }
     }
     return { kind: "unlink", src }

@@ -108,23 +108,26 @@ describe("AddEntryDialog", () => {
     expect(addEntry).not.toHaveBeenCalled()
   })
 
-  it("a pending search cannot repopulate results after a pick", async () => {
+  it("clears the old results as soon as the query changes, so a stale family cannot be picked", async () => {
     let resolveSlow: (v: unknown) => void = () => {}
     search
       .mockResolvedValueOnce({ families })
       .mockImplementationOnce(() => new Promise((r) => { resolveSlow = r }))
     openDialog()
-    await pickFamily("Sam", "Sample Family")
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
-    // Type again (search in flight), then pick from the still-shown old list.
-    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "Exa" } })
+    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "Ex" } })
+    expect(await screen.findByRole("button", { name: "Example Family" })).toBeInTheDocument()
+    // New query: the old list is gone before the debounced search even runs.
+    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "Exz" } })
+    expect(screen.queryByRole("button", { name: "Example Family" })).toBeNull()
     await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
-    fireEvent.click(screen.getByRole("button", { name: "Example Family" }))
-    await act(async () => { resolveSlow({ families: [{ id: 9, name: "Late Family" }] }) })
-    expect(screen.getByLabelText("Family")).toHaveValue("Example Family")
-    // Re-opening the search must not show the late response either.
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
-    expect(screen.queryByRole("button", { name: "Late Family" })).toBeNull()
+    await act(async () => { resolveSlow({ families: [{ id: 9, name: "Exz Family" }] }) })
+    expect(await screen.findByRole("button", { name: "Exz Family" })).toBeInTheDocument()
+  })
+
+  it("keeps keyboard focus in the dialog after a pick (focus moves to Change)", async () => {
+    openDialog()
+    await pickFamily("Sam", "Sample Family")
+    expect(screen.getByRole("button", { name: "Change" })).toHaveFocus()
   })
 
   it("lets the user change the picked family", async () => {
