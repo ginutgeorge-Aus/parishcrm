@@ -31,6 +31,9 @@ CREATE INDEX "GroupMessage_groupId_createdAt_idx" ON "GroupMessage"("groupId", "
 CREATE INDEX "GroupMessageRecipient_status_idx" ON "GroupMessageRecipient"("status");
 
 -- CreateIndex
+CREATE INDEX "GroupMessageRecipient_personId_idx" ON "GroupMessageRecipient"("personId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "GroupMessageRecipient_messageId_personId_key" ON "GroupMessageRecipient"("messageId", "personId");
 
 -- AddForeignKey

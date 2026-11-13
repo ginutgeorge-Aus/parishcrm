@@ -1699,4 +1699,5 @@ model GroupMessageRecipient {
 
   @@unique([messageId, personId])
   @@index([status])
+  @@index([personId])
 }

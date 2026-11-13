@@ -81,7 +81,10 @@ export const GROUP_MESSAGE_WINDOW_MS = 5 * 60 * 1000
 export const GroupMessageSchema = z.object({
   subject: z.string().trim().min(1, "Subject is required").max(MAX_MESSAGE_SUBJECT, `Subject must be ${MAX_MESSAGE_SUBJECT} characters or fewer`)
     .refine((v) => !/[\r\n]/.test(v), "Subject must be a single line"),
-  body: z.string().trim().min(1, "Message is required").max(MAX_MESSAGE_BODY, `Message must be ${MAX_MESSAGE_BODY} characters or fewer`),
+  // Browsers submit line breaks as CRLF; normalise first so the limit matches the textarea's maxLength count.
+  body: z.string().transform((v) => v.replace(/\r\n?/g, "\n")).pipe(
+    z.string().trim().min(1, "Message is required").max(MAX_MESSAGE_BODY, `Message must be ${MAX_MESSAGE_BODY} characters or fewer`),
+  ),
 })
 
 export const GROUP_CSV_HEADERS = ["Surname", "Given name", "Family", "Role", "Title", "Joined", "Email", "Mobile"]

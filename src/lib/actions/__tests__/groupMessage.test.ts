@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => {
     groupMessage: { create: jest.fn() },
     groupMessageRecipient: { createMany: jest.fn() },
     groupLeaderAccess: { findUnique: jest.fn() },
+    rateLimit: { deleteMany: jest.fn() },
     $transaction: jest.fn(),
   }
   m.$transaction.mockImplementation((fn: (tx: typeof m) => unknown) => fn(m))
@@ -37,6 +38,7 @@ const p = prisma as unknown as {
   groupMessage: { create: jest.Mock }
   groupMessageRecipient: { createMany: jest.Mock }
   groupLeaderAccess: { findUnique: jest.Mock }
+  rateLimit: { deleteMany: jest.Mock }
   $transaction: jest.Mock
 }
 const form = (o: Record<string, string>) => {
@@ -56,6 +58,7 @@ beforeEach(() => {
   ;(selectRecipients as jest.Mock).mockResolvedValue({ recipients: [{ personId: 1, name: "A" }, { personId: 2, name: "B" }], skipped: [{ personId: 3, name: "C", reason: "NO_CONSENT" }] })
   ;(dbRateLimit as jest.Mock).mockResolvedValue(true)
   ;(deliverGroupMessage as jest.Mock).mockResolvedValue({})
+  p.rateLimit.deleteMany.mockResolvedValue({ count: 1 })
 })
 
 describe("sendGroupMessage", () => {
@@ -79,6 +82,19 @@ describe("sendGroupMessage", () => {
     expect(await run()).toEqual({ error: expect.stringContaining("5 minutes") })
     expect(dbRateLimit).toHaveBeenCalledWith("group-message:4", 1, 5 * 60 * 1000)
     expect(p.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("releases the rate-limit slot when the queue transaction fails, and rethrows", async () => {
+    p.$transaction.mockRejectedValueOnce(new Error("db down"))
+    await expect(run()).rejects.toThrow("db down")
+    expect(p.rateLimit.deleteMany).toHaveBeenCalledWith({ where: { key: "group-message:4" } })
+    expect(deliverGroupMessage).not.toHaveBeenCalled()
+  })
+
+  it("normalises CRLF line breaks before the length check", async () => {
+    const body = "a\r\n".repeat(5000) // 10000 chars as submitted by a browser, 5000 after normalising
+    await expect(run(4, form({ subject: "Hello", body }))).rejects.toThrow("REDIRECT:")
+    expect(p.groupMessage.create.mock.calls[0][0].data.body).not.toContain("\r")
   })
 
   it("refuses when every member is opted out / has no address, without using the rate-limit slot", async () => {

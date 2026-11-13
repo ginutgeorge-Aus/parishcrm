@@ -4,6 +4,7 @@ import { loadGroupMessageHistory, STATUS_LABELS } from "@/lib/groupMessageHistor
 import { sendGroupMessage } from "@/lib/actions/groupMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { formatSydneyDateTime } from "@/lib/dates"
 import { GroupMessageForm } from "@/components/groups/GroupMessageForm"
 
 /**
@@ -42,13 +43,21 @@ export async function GroupComposeView({ groupId, historyHref }: Readonly<{ grou
 }
 
 /**
- * History view shared by the dashboard and organiser pages: each message with a
- * status tally and a per-recipient status list (names only, never addresses).
+ * History view shared by the dashboard and organiser pages: one page of messages,
+ * each with a status tally and the recipients that are not yet delivered (names
+ * only, never addresses). Older messages are reached through the "Older messages" link.
  * @param groupId group id (caller has already checked access)
  * @param composeHref link to the compose page
+ * @param historyHref link to this history page (base for the older-messages cursor link)
+ * @param before cursor from the `before` query param (message id), if any
  */
-export async function GroupHistoryView({ groupId, composeHref }: Readonly<{ groupId: number; composeHref: string }>) {
-  const messages = await loadGroupMessageHistory(groupId)
+export async function GroupHistoryView({
+  groupId,
+  composeHref,
+  historyHref,
+  before,
+}: Readonly<{ groupId: number; composeHref: string; historyHref?: string; before?: number }>) {
+  const { messages, nextBefore } = await loadGroupMessageHistory(groupId, before)
   return (
     <div className="space-y-4">
       <Button asChild className="w-full sm:w-auto"><Link href={composeHref}>New message</Link></Button>
@@ -58,21 +67,29 @@ export async function GroupHistoryView({ groupId, composeHref }: Readonly<{ grou
           <summary className="cursor-pointer space-y-1">
             <span className="font-medium text-foreground">{m.subject}</span>
             <span className="block text-xs text-muted-foreground">
-              {m.createdAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })} · {m.sentBy} ·{" "}
+              {formatSydneyDateTime(m.createdAt)} · {m.sentBy} ·{" "}
               {Object.entries(m.counts).map(([k, n]) => `${n} ${(STATUS_LABELS[k] ?? k).toLowerCase()}`).join(", ") || "no recipients"}
             </span>
           </summary>
           <p className="mt-3 whitespace-pre-line text-sm">{m.body}</p>
-          <ul className="mt-3 space-y-1 text-sm">
-            {m.recipients.map((r) => (
-              <li key={r.personId} className="flex items-center justify-between gap-2 border-t pt-1">
-                <span>{r.name}</span>
-                <Badge variant={r.status === "SENT" ? "secondary" : "outline"}>{STATUS_LABELS[r.status] ?? r.status}</Badge>
-              </li>
-            ))}
-          </ul>
+          {m.recipients.length > 0 && (
+            <>
+              <p className="mt-3 text-xs text-muted-foreground">Not yet delivered:</p>
+              <ul className="mt-1 space-y-1 text-sm">
+                {m.recipients.map((r) => (
+                  <li key={r.personId} className="flex items-center justify-between gap-2 border-t pt-1">
+                    <span>{r.name}</span>
+                    <Badge variant="outline">{STATUS_LABELS[r.status] ?? r.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </details>
       ))}
+      {nextBefore !== null && historyHref && (
+        <Button asChild variant="outline" className="w-full sm:w-auto"><Link href={`${historyHref}?before=${nextBefore}`}>Older messages</Link></Button>
+      )}
     </div>
   )
 }

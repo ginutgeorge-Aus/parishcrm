@@ -27,7 +27,7 @@ const statuses = () => p.groupMessageRecipient.update.mock.calls.map((c) => c[0]
 
 beforeEach(() => {
   jest.clearAllMocks()
-  p.groupMessage.findUnique.mockResolvedValue({ subject: "Hi", body: "Rehearsal at 7", group: { name: "Choir" } })
+  p.groupMessage.findUnique.mockResolvedValue({ groupId: 3, subject: "Hi", body: "Rehearsal at 7", group: { name: "Choir" } })
   p.groupMessageRecipient.findMany.mockResolvedValue([{ id: 11, personId: 1 }])
   p.groupMessageRecipient.updateMany.mockResolvedValue({ count: 1 })
   p.groupMessageRecipient.update.mockResolvedValue({})
@@ -45,15 +45,14 @@ describe("renderGroupMessageText", () => {
 describe("claimGroupRecipient", () => {
   afterEach(() => jest.useRealTimers())
 
-  it("claims only queued/stale-PENDING/retryable-FAILED rows with attempts left", async () => {
+  it("claims only queued PENDING or retryable FAILED rows; a stale claim is never reclaimed", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-11-13T00:00:00Z"))
     expect(await claimGroupRecipient(5)).toBe(true)
     const arg = p.groupMessageRecipient.updateMany.mock.calls[1][0]
-    expect(arg.where.attempts).toEqual({ lt: MAX_DELIVERY_ATTEMPTS })
-    expect(arg.where.OR).toEqual([
-      { status: "FAILED" },
-      { status: "PENDING", OR: [{ claimedAt: null }, { claimedAt: { lt: new Date("2026-11-12T23:50:00Z") } }] },
-    ])
+    expect(arg.where).toEqual({
+      id: 5,
+      OR: [{ status: "FAILED", attempts: { lt: MAX_DELIVERY_ATTEMPTS } }, { status: "PENDING", claimedAt: null }],
+    })
     expect(arg.data.attempts).toEqual({ increment: 1 })
   })
 
@@ -67,11 +66,11 @@ describe("claimGroupRecipient", () => {
     expect(data.claimedAt).not.toEqual(passStart)
   })
 
-  it("closes a stale PENDING row that has used all attempts as terminal UNKNOWN", async () => {
+  it("closes any stale PENDING row (any attempts) as terminal UNKNOWN instead of resending it", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-11-13T00:00:00Z"))
     await claimGroupRecipient(5)
     expect(p.groupMessageRecipient.updateMany.mock.calls[0][0]).toEqual({
-      where: { id: 5, status: "PENDING", attempts: { gte: MAX_DELIVERY_ATTEMPTS }, claimedAt: { lt: new Date("2026-11-12T23:50:00Z") } },
+      where: { id: 5, status: "PENDING", claimedAt: { lt: new Date("2026-11-12T23:50:00Z") } },
       data: { status: "UNKNOWN" },
     })
   })
@@ -127,11 +126,22 @@ describe("deliverGroupMessage", () => {
     expect(p.groupMessageRecipient.update.mock.calls[0][0].data).toEqual({ status: "FAILED", attempts: MAX_DELIVERY_ATTEMPTS })
   })
 
-  it("only selects PENDING/FAILED recipients with attempts left (SENT/UNKNOWN never reclaimed)", async () => {
+  it("selects queued, retryable FAILED and stale PENDING (for closing) recipients; SENT/UNKNOWN never", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-11-13T00:00:00Z"))
     await deliverGroupMessage(1)
+    jest.useRealTimers()
     expect(p.groupMessageRecipient.findMany.mock.calls[0][0].where).toEqual({
-      messageId: 1, status: { in: ["PENDING", "FAILED"] }, attempts: { lt: MAX_DELIVERY_ATTEMPTS },
+      messageId: 1,
+      OR: [
+        { status: "FAILED", attempts: { lt: MAX_DELIVERY_ATTEMPTS } },
+        { status: "PENDING", OR: [{ claimedAt: null }, { claimedAt: { lt: new Date("2026-11-12T23:50:00Z") } }] },
+      ],
     })
+  })
+
+  it("checks membership of the message's own live group at send time", async () => {
+    await deliverGroupMessage(1)
+    expect(p.person.findUnique.mock.calls[0][0].select.groupMemberships.where).toEqual({ groupId: 3, group: { archivedAt: null } })
   })
 
   it("aborts the pass after 3 consecutive clean failures so the owner is not alerted per recipient", async () => {

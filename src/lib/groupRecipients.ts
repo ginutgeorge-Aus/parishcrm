@@ -1,7 +1,6 @@
 import "server-only"
 import { prisma } from "@/lib/prisma"
 import { decrypt } from "@/lib/crypto"
-import { MAX_GROUP_MEMBERS } from "@/lib/groups"
 
 /** Why a member will not get the group's email. */
 export type SkipReason = "NO_EMAIL" | "NO_CONSENT" | "BAD_EMAIL"
@@ -40,6 +39,7 @@ function isUsableEmail(stored: string): boolean {
  * an opted-out member is reported as opted out even when they have no address.
  * Never returns or logs an address: the sender decrypts again at delivery time
  * (`Person.email` is encrypted with a random IV, so it cannot be queried).
+ * Uncapped on purpose: the display cap `MAX_GROUP_MEMBERS` must never silently drop a recipient.
  * @param groupId group id (caller has already checked access)
  * @returns recipients and skipped members, each sorted by surname then given name
  */
@@ -48,7 +48,6 @@ export async function selectRecipients(groupId: number): Promise<{ recipients: R
     where: { groupId, person: { archivedAt: null } },
     select: { person: { select: { id: true, firstName: true, lastName: true, email: true, emailConsent: true } } },
     orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }, { personId: "asc" }],
-    take: MAX_GROUP_MEMBERS,
   })
   const recipients: RecipientRow[] = []
   const skipped: SkippedRow[] = []

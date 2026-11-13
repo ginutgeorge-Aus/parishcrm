@@ -12,12 +12,14 @@ import { escapeHtml } from "@/lib/venueUsage"
  * atomic `updateMany` on that row instead of an insert:
  *  - clean pre-delivery failure -> FAILED (retryable, up to MAX_DELIVERY_ATTEMPTS);
  *  - ambiguous post-submission error, or a delivery whose SENT write failed
- *    -> UNKNOWN (terminal, never reclaimed).
+ *    -> UNKNOWN (terminal, never reclaimed);
+ *  - a PENDING claim that outlives its lease (crash mid-send, or a terminal write
+ *    that failed) is closed as UNKNOWN, never re-sent: the mail may have gone out.
  */
 
 /** Tries per recipient (the first send counts as one). */
 export const MAX_DELIVERY_ATTEMPTS = 3
-/** A PENDING claim older than this is treated as abandoned (crash mid-send) and may be reclaimed. */
+/** A PENDING claim older than this is treated as abandoned (crash mid-send) and closed as UNKNOWN (never re-sent). */
 export const GROUP_MESSAGE_LEASE_MS = 10 * 60 * 1000
 /** The sweep only retries messages queued within this window. */
 export const RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -32,13 +34,29 @@ export const MAX_CONSECUTIVE_FAILURES = 3
 type Status = "SENT" | "FAILED" | "UNKNOWN"
 
 /**
+ * Prisma filter for recipients a pass must look at: queued rows, retryable FAILED
+ * rows with attempts left, and PENDING rows whose lease went stale (so they can be
+ * closed as UNKNOWN even when every attempt is used).
+ * @param now current instant
+ */
+function openRecipientWhere(now: Date) {
+  const staleBefore = new Date(now.getTime() - GROUP_MESSAGE_LEASE_MS)
+  return {
+    OR: [
+      { status: "FAILED", attempts: { lt: MAX_DELIVERY_ATTEMPTS } },
+      { status: "PENDING", OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
+    ],
+  }
+}
+
+/**
  * Atomically take the right to send to one recipient. Wins only for a queued
- * (never-claimed) PENDING row, a PENDING row whose lease went stale, or a FAILED
- * row with attempts left. SENT / UNKNOWN rows and a fresh in-flight claim never match.
- * A stale PENDING row that has used all its attempts (a crash mid-send on the
- * last try) is closed as UNKNOWN: the mail may have gone out, so it is terminal
- * and never resent. `claimedAt` is the real claim time (not the pass start), so
- * a long pass never makes its own live claims look stale to a concurrent drain.
+ * (never-claimed) PENDING row or a FAILED row with attempts left. SENT / UNKNOWN
+ * rows and a fresh in-flight claim never match. A PENDING row whose lease went
+ * stale already had a send attempt that may have reached the mail server (crash
+ * mid-send, or its terminal write failed), so it is closed as UNKNOWN and never
+ * resent. `claimedAt` is the real claim time (not the pass start), so a long pass
+ * never makes its own live claims look stale to a concurrent drain.
  * @param id GroupMessageRecipient id
  * @returns true if this caller won the claim and must send
  */
@@ -46,16 +64,15 @@ export async function claimGroupRecipient(id: number): Promise<boolean> {
   const at = new Date()
   const staleBefore = new Date(at.getTime() - GROUP_MESSAGE_LEASE_MS)
   await prisma.groupMessageRecipient.updateMany({
-    where: { id, status: "PENDING", attempts: { gte: MAX_DELIVERY_ATTEMPTS }, claimedAt: { lt: staleBefore } },
+    where: { id, status: "PENDING", claimedAt: { lt: staleBefore } },
     data: { status: "UNKNOWN" },
   })
   const r = await prisma.groupMessageRecipient.updateMany({
     where: {
       id,
-      attempts: { lt: MAX_DELIVERY_ATTEMPTS },
       OR: [
-        { status: "FAILED" },
-        { status: "PENDING", OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
+        { status: "FAILED", attempts: { lt: MAX_DELIVERY_ATTEMPTS } },
+        { status: "PENDING", claimedAt: null },
       ],
     },
     data: { status: "PENDING", claimedAt: at, attempts: { increment: 1 } },
@@ -131,6 +148,7 @@ async function sendClaimed(recipientId: number, personId: number, ctx: MessageCt
   try {
     await resolveGroupRecipient(recipientId, "SENT")
   } catch {
+    // If this write fails too the row stays PENDING; its lease expires and the next claim closes it as UNKNOWN (never resent).
     await resolveGroupRecipient(recipientId, "UNKNOWN").catch(() => {})
     logger.error(`[groupMessage] recipient ${recipientId} delivered but could not record SENT — marked UNKNOWN to prevent resend`)
     return "UNKNOWN"
@@ -139,8 +157,8 @@ async function sendClaimed(recipientId: number, personId: number, ctx: MessageCt
 }
 
 /**
- * Deliver every sendable recipient of one message: queued, retryable FAILED, or
- * abandoned PENDING. Safe to run concurrently (the claim is the atomic decision).
+ * Deliver every sendable recipient of one message: queued or retryable FAILED
+ * (an abandoned PENDING claim is closed as UNKNOWN, not resent). Safe to run concurrently (the claim is the atomic decision).
  * Never logs an address.
  * @param messageId GroupMessage id
  * Stops after MAX_CONSECUTIVE_FAILURES clean failures in a row (SMTP down),
@@ -160,7 +178,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   const ctx: MessageCtx = { groupId: msg.groupId, subject: msg.subject, body: msg.body, groupName: msg.group.name, churchName }
 
   const open = await prisma.groupMessageRecipient.findMany({
-    where: { messageId, status: { in: ["PENDING", "FAILED"] }, attempts: { lt: MAX_DELIVERY_ATTEMPTS } },
+    where: { messageId, ...openRecipientWhere(new Date()) },
     select: { id: true, personId: true },
     orderBy: { id: "asc" },
   })
@@ -188,7 +206,7 @@ export async function runGroupMessageSweep(now: Date): Promise<DeliverCounts & {
   const messages = await prisma.groupMessage.findMany({
     where: {
       createdAt: { gte: new Date(now.getTime() - RETRY_WINDOW_MS) },
-      recipients: { some: { status: { in: ["PENDING", "FAILED"] }, attempts: { lt: MAX_DELIVERY_ATTEMPTS } } },
+      recipients: { some: openRecipientWhere(now) },
     },
     select: { id: true },
     orderBy: { id: "asc" },

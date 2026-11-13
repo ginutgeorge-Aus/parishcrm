@@ -21,11 +21,13 @@ const SCOPES = {
  * @param params route params promise holding the group id
  * @param view "compose" for the email form, "history" for sent messages
  * @param scope "dashboard" or "organiser" route family
+ * @param searchParams history only: query params promise; `before` is the older-messages cursor (a message id)
  */
 export async function renderGroupMessagePage(
   params: Promise<{ id: string }>,
   view: "compose" | "history",
   scope: keyof typeof SCOPES,
+  searchParams?: Promise<{ before?: string }>,
 ) {
   const session = await auth()
   if (!session?.user) redirect("/login")
@@ -36,6 +38,8 @@ export async function renderGroupMessagePage(
     if (deniedRedirectsHome) redirect("/")
     notFound()
   }
+
+  const before = view === "history" ? parseRouteId((await searchParams)?.before ?? "") : null
 
   const group = await prisma.group.findFirst({ where: { id, archivedAt: null }, select: { id: true, name: true } })
   if (!group) notFound()
@@ -53,7 +57,7 @@ export async function renderGroupMessagePage(
       {view === "compose" ? (
         <GroupComposeView groupId={group.id} historyHref={`${base}/${group.id}/messages`} />
       ) : (
-        <GroupHistoryView groupId={group.id} composeHref={`${base}/${group.id}/message`} />
+        <GroupHistoryView groupId={group.id} composeHref={`${base}/${group.id}/message`} historyHref={`${base}/${group.id}/messages`} before={before ?? undefined} />
       )}
     </div>
   )

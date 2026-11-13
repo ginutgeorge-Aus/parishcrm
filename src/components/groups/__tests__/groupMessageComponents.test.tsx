@@ -61,14 +61,14 @@ describe("GroupComposeView", () => {
 
 describe("GroupHistoryView", () => {
   it("shows the empty state", async () => {
-    ;(loadGroupMessageHistory as jest.Mock).mockResolvedValue([])
+    ;(loadGroupMessageHistory as jest.Mock).mockResolvedValue({ messages: [], nextBefore: null })
     render(await GroupHistoryView({ groupId: 4, composeHref: "/groups/4/message" }))
     expect(screen.getByText("No messages sent yet.")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "New message" })).toHaveAttribute("href", "/groups/4/message")
   })
 
   it("renders messages with tallies, labels and unknown-status fallbacks", async () => {
-    ;(loadGroupMessageHistory as jest.Mock).mockResolvedValue([
+    ;(loadGroupMessageHistory as jest.Mock).mockResolvedValue({ nextBefore: 2, messages: [
       {
         id: 1, subject: "Hi all", body: "Line", createdAt: new Date("2026-11-13T00:00:00Z"), sentBy: "Pat",
         counts: { SENT: 1, WEIRD: 1 },
@@ -78,8 +78,10 @@ describe("GroupHistoryView", () => {
         ],
       },
       { id: 2, subject: "Empty", body: "x", createdAt: new Date("2026-11-12T00:00:00Z"), sentBy: "Pat", counts: {}, recipients: [] },
-    ])
-    render(await GroupHistoryView({ groupId: 4, composeHref: "/c" }))
+    ] })
+    render(await GroupHistoryView({ groupId: 4, composeHref: "/c", historyHref: "/h", before: 9 }))
+    expect(loadGroupMessageHistory).toHaveBeenCalledWith(4, 9)
+    expect(screen.getByRole("link", { name: "Older messages" })).toHaveAttribute("href", "/h?before=2")
     expect(screen.getByText("Hi all")).toBeInTheDocument()
     expect(screen.getByText(/1 sent, 1 weird/)).toBeInTheDocument()
     expect(screen.getByText(/no recipients/)).toBeInTheDocument()

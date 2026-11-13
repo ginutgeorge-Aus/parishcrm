@@ -1,4 +1,6 @@
 /** @jest-environment node */
+import { renderToStaticMarkup } from "react-dom/server"
+
 jest.mock("next/navigation", () => ({
   redirect: jest.fn((to: string) => { throw new Error(`NEXT_REDIRECT ${to}`) }),
   notFound: jest.fn(() => { throw new Error("NEXT_NOT_FOUND") }),
@@ -8,14 +10,15 @@ jest.mock("@/lib/prisma", () => ({
   prisma: { group: { findFirst: jest.fn() }, groupLeaderAccess: { findUnique: jest.fn() } },
 }))
 jest.mock("@/components/groups/GroupMessageViews", () => ({
-  GroupComposeView: () => <div>compose</div>,
-  GroupHistoryView: () => <div>history</div>,
+  GroupComposeView: jest.fn(() => <div>compose</div>),
+  GroupHistoryView: jest.fn(() => <div>history</div>),
 }))
 
 import MyGroupMessagePage from "@/app/(organiser)/my-groups/[id]/message/page"
 import MyGroupMessagesPage from "@/app/(organiser)/my-groups/[id]/messages/page"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { GroupComposeView, GroupHistoryView } from "@/components/groups/GroupMessageViews"
 
 const p = prisma as unknown as { group: { findFirst: jest.Mock }; groupLeaderAccess: { findUnique: jest.Mock } }
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
@@ -27,9 +30,9 @@ beforeEach(() => {
 })
 
 describe.each([
-  ["compose", MyGroupMessagePage],
-  ["history", MyGroupMessagesPage],
-])("organiser group message %s page", (_n, Page) => {
+  ["compose", MyGroupMessagePage, GroupComposeView, { groupId: 4, historyHref: "/my-groups/4/messages" }],
+  ["history", MyGroupMessagesPage, GroupHistoryView, { groupId: 4, composeHref: "/my-groups/4/message" }],
+])("organiser group message %s page", (_n, Page, View, props) => {
   it("404s an organiser of another group (IDOR) before reading the group", async () => {
     p.groupLeaderAccess.findUnique.mockResolvedValue(null)
     await expect(Page(params("4"))).rejects.toThrow("NEXT_NOT_FOUND")
@@ -50,6 +53,7 @@ describe.each([
 
   it("renders for a linked organiser", async () => {
     p.groupLeaderAccess.findUnique.mockResolvedValue({ id: 1 })
-    await expect(Page(params("4"))).resolves.toBeTruthy()
+    renderToStaticMarkup(await Page(params("4")))
+    expect(View).toHaveBeenCalledWith(expect.objectContaining(props), undefined)
   })
 })

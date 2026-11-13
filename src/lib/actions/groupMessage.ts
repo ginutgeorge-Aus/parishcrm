@@ -60,17 +60,24 @@ export async function sendGroupMessage(groupId: number, _prev: ActionResult, for
     return { error: "A message was already sent to this group in the last 5 minutes. Please wait and try again." }
   }
 
-  const messageId = await prisma.$transaction(async (tx) => {
-    const msg = await tx.groupMessage.create({
-      data: { groupId, sentById: userId, subject: parsed.data.subject, body: parsed.data.body },
-      select: { id: true },
+  let messageId: number
+  try {
+    messageId = await prisma.$transaction(async (tx) => {
+      const msg = await tx.groupMessage.create({
+        data: { groupId, sentById: userId, subject: parsed.data.subject, body: parsed.data.body },
+        select: { id: true },
+      })
+      await tx.groupMessageRecipient.createMany({ data: recipients.map((r) => ({ messageId: msg.id, personId: r.personId })) })
+      await logAuditTx(tx, userId, "GROUP_MESSAGE_SENT", "Group", groupId, {
+        messageId: msg.id, recipients: recipients.length, skipped: skipped.length,
+      })
+      return msg.id
     })
-    await tx.groupMessageRecipient.createMany({ data: recipients.map((r) => ({ messageId: msg.id, personId: r.personId })) })
-    await logAuditTx(tx, userId, "GROUP_MESSAGE_SENT", "Group", groupId, {
-      messageId: msg.id, recipients: recipients.length, skipped: skipped.length,
-    })
-    return msg.id
-  })
+  } catch (err) {
+    // Nothing was queued: give the group its send slot back so a transient DB error does not block it for 5 minutes.
+    await prisma.rateLimit.deleteMany({ where: { key: `group-message:${groupId}` } }).catch(() => {})
+    throw err
+  }
 
   // Best-effort immediate drain, after the response. A failure leaves the rows
   // PENDING/FAILED for the scheduler sweep; it never undoes the committed message.
