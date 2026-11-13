@@ -63,4 +63,18 @@ describe("PaymentsPanel", () => {
     await waitFor(() => expect(deletePayment).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole("alert")).toHaveTextContent("Locked")
   })
+
+  it("shows an inline error when recording a payment throws", async () => {
+    ;(recordPayment as jest.Mock).mockRejectedValue(new Error("network"))
+    openPanel()
+    fireEvent.click(screen.getByRole("button", { name: "Record payment" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not record the payment. Please try again.")
+  })
+
+  it("shows an inline error when deleting a payment throws", async () => {
+    ;(deletePayment as jest.Mock).mockRejectedValue(new Error("network"))
+    openPanel()
+    fireEvent.click(screen.getByRole("button", { name: /Delete payment/ }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete the payment. Please try again.")
+  })
 })

@@ -236,6 +236,15 @@ test("offline-only reminder with no bank details configured is refused, nothing 
   expect(prismaMock.fundraiserReminderSend.create).not.toHaveBeenCalled()
 })
 
+test("online-only reminder with no bank details configured sends bankDetails null", async () => {
+  const { getInvoiceSettings } = await import("@/lib/invoiceSettings")
+  ;(getInvoiceSettings as jest.Mock).mockResolvedValueOnce({ gstRegistered: false, paymentDetails: "  \n " })
+  setEntries([entry(1)])
+  const res = await sendFundraiserReminders(3)
+  expect(res).toMatchObject({ sent: 1 })
+  expect(mSend.mock.calls[0][1]).toMatchObject({ payUrl: "https://app.example.org/pay/fundraiser/tok-1", bankDetails: null })
+})
+
 test("a claim lost to a concurrent run (P2034, retried) is skipped, not double-sent", async () => {
   setEntries([entry(1)])
   // First attempt aborts on the SSI conflict; the retry sees the winner's PENDING row.
