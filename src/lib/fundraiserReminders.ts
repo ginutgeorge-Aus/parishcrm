@@ -97,26 +97,57 @@ export async function loadReminderCandidates(fundraiserId: number) {
 }
 
 /**
+ * An entry reminded (or being reminded) within this window is skipped, so a
+ * double-click or two staff sending at once never emails anyone twice.
+ */
+export const REMINDER_DEDUPE_MS = 10 * 60 * 1000
+/** Most reminders one run will email; the rest are deferred to a later run. */
+export const REMINDER_MAX_PER_RUN = 200
+
+/** Counts for the confirm dialog. */
+export type ReminderPlan = {
+  sendable: number
+  skippedPaid: number
+  skippedNoEmail: number
+  skippedRecent: number
+  /** Eligible entries beyond `REMINDER_MAX_PER_RUN`, left for a later run. */
+  deferred: number
+  lastSentAt: Date | null
+}
+
+/**
  * Count what a "send reminders" run would do, for the confirm dialog. Chaseable
  * means `remainingCents > 0` (not status), so a 0-owed entry is never chased.
+ * Mirrors the send: entries reminded within `REMINDER_DEDUPE_MS` are skipped and
+ * at most `REMINDER_MAX_PER_RUN` are sendable (the rest are `deferred`).
  * @param fundraiserId - Fundraiser id.
  * @returns counts plus the time of the last successful reminder (null if none).
  */
-export async function planReminders(
-  fundraiserId: number,
-): Promise<{ sendable: number; skippedPaid: number; skippedNoEmail: number; lastSentAt: Date | null }> {
-  const loaded = await loadReminderCandidates(fundraiserId)
-  let sendable = 0
+export async function planReminders(fundraiserId: number): Promise<ReminderPlan> {
+  const since = new Date(Date.now() - REMINDER_DEDUPE_MS)
+  const [loaded, recentRows, agg] = await Promise.all([
+    loadReminderCandidates(fundraiserId),
+    prisma.fundraiserReminderSend.findMany({
+      where: { status: { in: ["PENDING", "SUCCESS"] }, sentAt: { gte: since }, entry: { fundraiserId } },
+      select: { entryId: true },
+      distinct: ["entryId"],
+    }),
+    prisma.fundraiserReminderSend.aggregate({
+      where: { status: "SUCCESS", entry: { fundraiserId } },
+      _max: { sentAt: true },
+    }),
+  ])
+  const recent = new Set(recentRows.map((r) => r.entryId))
+  let eligible = 0
   let skippedPaid = 0
   let skippedNoEmail = 0
+  let skippedRecent = 0
   for (const c of loaded?.candidates ?? []) {
     if (c.remainingCents === 0) skippedPaid++
     else if (!c.recipient) skippedNoEmail++
-    else sendable++
+    else if (recent.has(c.entryId)) skippedRecent++
+    else eligible++
   }
-  const agg = await prisma.fundraiserReminderSend.aggregate({
-    where: { status: "SUCCESS", entry: { fundraiserId } },
-    _max: { sentAt: true },
-  })
-  return { sendable, skippedPaid, skippedNoEmail, lastSentAt: agg._max.sentAt ?? null }
+  const sendable = Math.min(eligible, REMINDER_MAX_PER_RUN)
+  return { sendable, skippedPaid, skippedNoEmail, skippedRecent, deferred: eligible - sendable, lastSentAt: agg._max.sentAt ?? null }
 }
