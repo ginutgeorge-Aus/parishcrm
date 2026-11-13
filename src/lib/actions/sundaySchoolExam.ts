@@ -17,7 +17,7 @@ import { canMarkExam } from "@/lib/sundaySchoolAccess"
 import { CLASS_GONE, lockEnrolled, withLiveClass } from "@/lib/sundaySchoolYearLock"
 import { ExamFormSchema, isDateInYear, parseScore } from "@/lib/sundaySchoolExam"
 import { ymdToDbDate } from "@/lib/sundaySchoolRollView"
-import { isValidPgId } from "@/lib/validation"
+import { isP2002, isValidPgId } from "@/lib/validation"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -114,6 +114,20 @@ function revalidateExams(classId: number): void {
   revalidatePath(`/my-classes/${classId}/exams`)
 }
 
+/**
+ * Run a write and turn a unique-index violation (P2002) into "dup". The partial
+ * unique index on live exams is the backstop for writers that skip the class lock.
+ * @param write the pending write
+ */
+async function orDup<T>(write: Promise<T>): Promise<T | "dup"> {
+  try {
+    return await write
+  } catch (e) {
+    if (isP2002(e)) return "dup"
+    throw e
+  }
+}
+
 /** Create an exam (name, date in the class year, total marks) for a class. canMarkExam-gated. */
 export async function createExam(classId: number, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const g = await examClassGuard(classId)
@@ -123,13 +137,14 @@ export async function createExam(classId: number, _prev: ActionResult, formData:
 
   // FOR UPDATE on the class serialises concurrent creates, so two double-submits
   // can't both pass the duplicate check.
-  const r = await withLiveClass(g.classId, async (tx) => {
+  const r = await orDup(withLiveClass(g.classId, async (tx) => {
     const dup = await tx.sundaySchoolExam.count({
       where: { classId: g.classId, year: g.year, name: { equals: form.data.name, mode: "insensitive" }, date: form.data.date, archivedAt: null },
     })
     if (dup > 0) return null
     return tx.sundaySchoolExam.create({ data: { classId: g.classId, year: g.year, ...form.data }, select: { id: true } })
-  }, "update")
+  }, "update"))
+  if (r === "dup") return { error: DUPLICATE_EXAM }
   if (!r.live) return { error: r.error }
   if (r.value === null) return { error: DUPLICATE_EXAM }
   await logAudit(g.actor, "SS_EXAM_CREATED", ENTITY, r.value.id, { classId: g.classId, name: form.data.name, totalMarks: form.data.totalMarks })
@@ -146,7 +161,7 @@ export async function updateExam(id: number, _prev: ActionResult, formData: Form
   const form = parseExamForm(formData, g.year)
   if ("error" in form) return { error: form.error }
 
-  const r = await withLiveClass(g.classId, async (tx) => {
+  const r = await orDup(withLiveClass(g.classId, async (tx) => {
     // FOR UPDATE on the exam: a concurrent setExamScore (FOR SHARE) either
     // commits first (and its score is counted below) or waits and re-reads the
     // new total.
@@ -164,7 +179,8 @@ export async function updateExam(id: number, _prev: ActionResult, formData: Form
     return count === 0 ? ("gone" as const) : ("ok" as const)
   }, // "update" lock mode: FOR UPDATE on the class serialises concurrent edits
   // and creates, so two of them can't both pass the duplicate check.
-  "update")
+  "update"))
+  if (r === "dup") return { error: DUPLICATE_EXAM }
   if (!r.live) return { error: r.error }
   if (r.value === "over") return { error: "Total marks is below a score already entered" }
   if (r.value === "dup") return { error: DUPLICATE_EXAM }
