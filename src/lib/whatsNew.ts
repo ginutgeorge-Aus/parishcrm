@@ -20,6 +20,16 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.15.0",
+    date: "2026-11-13",
+    highlights: [
+      "Events: run a fundraiser on an event, with card payments and automatic reminders.",
+      "Groups & ministries: leaders can manage their group and email its members.",
+      "Giving: print an annual giving statement for each family.",
+      "Also new: Sunday school exam marks with headmaster/teacher roles, service attendance headcounts, and a suburb filter on Families.",
+    ],
+  },
+  {
     version: "v1.14.2",
     date: "2026-11-11",
     highlights: [
