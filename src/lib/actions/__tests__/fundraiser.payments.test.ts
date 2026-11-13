@@ -96,7 +96,8 @@ describe("recordPayment", () => {
 
   it("rejects a submissionKey already used on another entry", async () => {
     rows.push({ entryId: 99, stripePaymentRef: "manual:k-1", amount: "5.00" })
-    expect((await recordPayment(11, input))?.error).toBeTruthy()
+    expect(await recordPayment(11, input)).toEqual({ error: "Invalid submission" })
+    expect(prismaMock.fundraiserPayment.create).not.toHaveBeenCalled()
   })
 
   it.each(["abc", "0", "0.00", "-5", "1.234", "", "1e3"])("rejects amount %p", async (amount) => {

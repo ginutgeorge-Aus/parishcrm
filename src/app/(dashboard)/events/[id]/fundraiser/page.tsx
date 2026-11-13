@@ -32,12 +32,8 @@ export default async function FundraiserPage(props: Readonly<Props>) {
 
   const view = await getFundraiserView(eventId, role)
 
-  // Payments come with the view (one query); reminder counts load lazily in the dialog.
-  const families =
-    view && canManage
-      ? await prisma.family.findMany({ where: { archivedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : []
-
+  // Payments come with the view (one query); reminder counts load lazily in the
+  // dialog, and the add-entry dialog searches families on demand.
   const money = (c: number) => fmtAUD(centsToNumber(c))
 
   return (
@@ -80,7 +76,7 @@ export default async function FundraiserPage(props: Readonly<Props>) {
                   <h2 className="text-sm font-semibold text-foreground">Entries</h2>
                   <div className="flex gap-2">
                     <SendRemindersDialog fundraiserId={view.fundraiser.id} />
-                    <AddEntryDialog fundraiserId={view.fundraiser.id} families={families} />
+                    <AddEntryDialog fundraiserId={view.fundraiser.id} />
                   </div>
                 </div>
                 <EntryTable rows={view.rows} canManage payments={view.payments} />

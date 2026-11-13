@@ -39,8 +39,9 @@ had when it was added.
 
 Click **Add** and choose one of:
 
-- **Member family** - pick a family from the list and enter the quantity. A family can appear
-  only once per fundraiser.
+- **Member family** - type at least two letters of the family name, pick the family from the
+  matches, and enter the quantity. Families already on this fundraiser are not offered. A family
+  can appear only once per fundraiser.
 - **Outside buyer** - enter a name and a quantity, and optionally an email and phone. Outside
   contact details are encrypted at rest. Without an email the buyer cannot be sent reminders.
 
@@ -76,8 +77,8 @@ must correct the fundraiser payment directly in the database.
 
 ## Sending reminders
 
-Click **Send reminders**. The confirm dialog shows how many emails will go out, how many rows are
-skipped, and when reminders were last sent.
+Click **Send reminders**. The confirm dialog shows how many emails will go out, how many rows that
+still owe money are skipped because they have no usable email, and when reminders were last sent.
 
 - Rows that owe nothing are skipped.
 - Member rows go to the first family member with an email address and email consent, preferring
@@ -87,6 +88,17 @@ skipped, and when reminders were last sent.
   card pay link when card payment is available.
 
 You can send again at any time. Every attempt is logged with its status.
+
+## Merged or deleted families
+
+- **Merging two families** moves the merged-away family's fundraiser rows to the family that is
+  kept. If that family already has a row in the same fundraiser at the same price, the two rows
+  are combined: quantities are added and the payments move across. The merged-away row's pay link
+  and bank reference stop working, so use the kept row's. If the prices differ, the row is kept
+  as a separate row under the merged-away family's name, no longer linked to a family.
+- **Permanently deleting a family** (allowed only after the retention period) keeps its
+  fundraiser rows and payments. The rows show the family's name but are no longer linked to a
+  family, so they get no member reminders.
 
 ## Related
 

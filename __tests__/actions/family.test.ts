@@ -55,6 +55,10 @@ jest.mock("@/lib/crypto", () => ({
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("@/lib/fundraiserFamilyLink", () => ({
+  reassignFundraiserEntriesTx: jest.fn().mockResolvedValue({ moved: 0, folded: 0, unlinked: 0 }),
+  unlinkFundraiserEntriesTx: jest.fn().mockResolvedValue(0),
+}))
 jest.mock("next/navigation", () => ({ redirect: jest.fn() }))
 
 import { auth } from "@/auth"

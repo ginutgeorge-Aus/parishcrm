@@ -14,7 +14,7 @@ jest.mock("@/lib/fundraiserCheckout", () => ({
   expireOpenFundraiserCheckouts: jest.fn(async () => 0),
 }))
 
-import { addEntry, updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
+import { addEntry, updateEntryQuantity, deleteEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
 import { auth } from "@/auth"
@@ -25,7 +25,7 @@ import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 const prismaMock = {
   fundraiser: { findUnique: jest.fn() },
-  family: { findUnique: jest.fn() },
+  family: { findUnique: jest.fn(), findMany: jest.fn() },
   fundraiserEntry: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
   fundraiserPayment: { count: jest.fn() },
   checkoutSession: { count: jest.fn() },
@@ -287,5 +287,33 @@ describe("deleteEntry", () => {
   it("blocks AUDITOR", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "AUDITOR" } })
     expect(await deleteEntry(11)).toEqual({ error: "Unauthorized" })
+  })
+})
+
+describe("searchFundraiserFamilies", () => {
+  it("searches live families by name, excludes ones already on the fundraiser, caps at 20", async () => {
+    prismaMock.family.findMany.mockResolvedValue([{ id: 2, name: "Example Family" }])
+    expect(await searchFundraiserFamilies(3, "  exam ")).toEqual({ families: [{ id: 2, name: "Example Family" }] })
+    expect(prismaMock.family.findMany).toHaveBeenCalledWith({
+      where: { archivedAt: null, name: { contains: "exam", mode: "insensitive" }, fundraiserEntries: { none: { fundraiserId: 3 } } },
+      select: { id: true, name: true },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      take: 20,
+    })
+  })
+
+  it("returns no results for a query under 2 characters, without a DB call", async () => {
+    expect(await searchFundraiserFamilies(3, " e ")).toEqual({ families: [] })
+    expect(prismaMock.family.findMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a role that cannot manage fundraisers", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "VIEWER" } })
+    expect(await searchFundraiserFamilies(3, "exam")).toEqual({ error: "Unauthorized" })
+    expect(prismaMock.family.findMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects an invalid fundraiser id", async () => {
+    expect(await searchFundraiserFamilies(0, "exam")).toEqual({ error: "Invalid fundraiser" })
   })
 })

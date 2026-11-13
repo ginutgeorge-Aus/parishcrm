@@ -1551,23 +1551,27 @@ model Fundraiser {
 
 /// A family's (or outside buyer's) quantity under a fundraiser, with part payments.
 model FundraiserEntry {
-  id               Int                      @id @default(autoincrement())
-  fundraiserId     Int
-  fundraiser       Fundraiser               @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
-  // Restrict: a family with fundraiser history cannot be hard-deleted.
-  familyId         Int?
-  family           Family?                  @relation(fields: [familyId], references: [id], onDelete: Restrict)
-  outsideName      String?
-  outsideEmail     String? // encrypt(email) — PII
-  outsidePhone     String? // encrypt(phone) — PII
-  quantity         Int
-  unitPrice        Decimal                  @db.Decimal(10, 2) // snapshot of Fundraiser.unitPrice at entry time
-  publicToken      String                   @unique
-  bankRef          String                   @unique
-  createdAt        DateTime                 @default(now())
-  payments         FundraiserPayment[]
-  reminderSends    FundraiserReminderSend[]
-  checkoutSessions CheckoutSession[]
+  id                 Int                      @id @default(autoincrement())
+  fundraiserId       Int
+  fundraiser         Fundraiser               @relation(fields: [fundraiserId], references: [id], onDelete: Cascade)
+  // Restrict stays as a DB backstop: deleteFamily / mergeFamilies first move or
+  // unlink entries in the same transaction (src/lib/fundraiserFamilyLink.ts).
+  familyId           Int?
+  family             Family?                  @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  // Family name copied when the link is dropped (retention delete, or a merge
+  // that cannot fold the entry). Null while familyId is set.
+  familyNameSnapshot String?
+  outsideName        String?
+  outsideEmail       String? // encrypt(email) — PII
+  outsidePhone       String? // encrypt(phone) — PII
+  quantity           Int
+  unitPrice          Decimal                  @db.Decimal(10, 2) // snapshot of Fundraiser.unitPrice at entry time
+  publicToken        String                   @unique
+  bankRef            String                   @unique
+  createdAt          DateTime                 @default(now())
+  payments           FundraiserPayment[]
+  reminderSends      FundraiserReminderSend[]
+  checkoutSessions   CheckoutSession[]
 
   @@unique([fundraiserId, familyId])
   // fundraiserId lookups use the unique index's leading column; family delete/merge count by familyId.

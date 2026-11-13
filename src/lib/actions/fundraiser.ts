@@ -14,7 +14,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
-import { entryTotals } from "@/lib/fundraiserMath"
+import { entryTotals, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -33,12 +33,6 @@ import type { ActionResult } from "./types"
 const MAX_NAME = 120
 const MAX_LABEL = 40
 const MAX_PREFIX = 12
-/**
- * Ceiling on what one entry may owe (quantity x unit price), in cents: AUD
- * 999,999.99. Below Stripe's per-charge maximum for AUD and far below the
- * Decimal(10,2) column limit, so a typo can never 500 on write or on checkout.
- */
-const MAX_OWED_CENTS = 99_999_999
 const OWED_TOO_LARGE = { error: "Total owed is too large (max $999,999.99 per entry)" }
 
 /**
@@ -277,6 +271,42 @@ export async function addEntry(
     }
   }
   return BUSY
+}
+
+/** Shortest query `searchFundraiserFamilies` runs; shorter returns no results. */
+const MIN_FAMILY_SEARCH = 2
+/** Most families one search returns (the add-entry picker shows a "refine" hint at the cap). */
+const FAMILY_SEARCH_LIMIT = 20
+
+/**
+ * Search live families by name for the add-entry picker, instead of sending
+ * every family to the page. Families already on this fundraiser are left out
+ * (addEntry would refuse them). Ids and names only.
+ *
+ * @param fundraiserId - Fundraiser id.
+ * @param query - Name fragment; under 2 characters returns no results.
+ * @returns up to 20 matches, ordered by name, or `{ error }`.
+ */
+export async function searchFundraiserFamilies(
+  fundraiserId: number,
+  query: string,
+): Promise<{ error: string } | { families: { id: number; name: string }[] }> {
+  const g = await guardManage()
+  if ("error" in g) return g
+  if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
+  const q = typeof query === "string" ? query.trim().slice(0, MAX_NAME) : ""
+  if (q.length < MIN_FAMILY_SEARCH) return { families: [] }
+  const families = await prisma.family.findMany({
+    where: {
+      archivedAt: null,
+      name: { contains: q, mode: "insensitive" },
+      fundraiserEntries: { none: { fundraiserId } },
+    },
+    select: { id: true, name: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: FAMILY_SEARCH_LIMIT,
+  })
+  return { families }
 }
 
 /**

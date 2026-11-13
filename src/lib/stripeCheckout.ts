@@ -819,15 +819,27 @@ async function checkoutInFlight(pi: string): Promise<boolean> {
     if (staging?.status === "OPEN") return true
     const entryRef = staging?.fundraiserEntryId ?? data[0].metadata?.fundraiserEntryId ?? "unknown"
     const head = `PI ${pi} (session ${data[0].id}, fundraiser entry ${entryRef}): a refund or dispute was received for a fundraiser card payment. `
-    // Only a COMPLETED staging row means the webhook recorded a FundraiserPayment;
-    // any other state (UNFULFILLED, EXPIRED, no row) never counted as paid.
-    if (staging?.status === "COMPLETED") {
+    // Only a COMPLETED staging row can have a recorded FundraiserPayment; any
+    // other state (UNFULFILLED, EXPIRED, no row) never counted as paid. Even
+    // when COMPLETED, look the row up before giving row-specific instructions.
+    const recorded = staging?.status === "COMPLETED"
+      ? await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: pi }, select: { id: true, entryId: true } })
+      : null
+    if (recorded) {
       console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; fundraiser ledger not adjusted, database correction needed`)
       await notifyStripeAlert(
         "fundraiser card payment refunded or disputed",
         head +
           `The payment stays counted as paid in the app, and online payments cannot be removed in-app. ` +
-          `Ops must correct the ledger directly in the database: the FundraiserPayment row with stripePaymentRef = ${pi} on that entry.`,
+          `Ops must correct the ledger directly in the database: FundraiserPayment ${recorded.id} (stripePaymentRef = ${pi}) on entry ${recorded.entryId}.`,
+      )
+    } else if (staging?.status === "COMPLETED") {
+      console.error(`Stripe webhook: refund/dispute on fundraiser card payment PI ${pi}; checkout COMPLETED but no payment row found`)
+      await notifyStripeAlert(
+        "fundraiser card payment refunded or disputed",
+        head +
+          `The checkout is marked completed, but no FundraiserPayment row with stripePaymentRef = ${pi} exists, so the app shows nothing paid for this charge. ` +
+          `No ledger correction is needed unless a payment was recorded by hand for it. Check in Stripe that the money was returned to the payer.`,
       )
     } else {
       const state = staging?.status ?? "no staging row"

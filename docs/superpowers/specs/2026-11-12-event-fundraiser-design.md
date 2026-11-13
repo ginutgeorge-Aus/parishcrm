@@ -65,7 +65,7 @@ payment, no "what they took" line, and no collected-versus-outstanding total.
 - Part payments are supported (typically two payments).
 - A reminder email with online and bank payment options is wanted.
 
-## Design (builder's calls, not yet PO-approved)
+## Design (builder's calls)
 
 Calls made during the conversation; approved by the PO.
 
@@ -101,8 +101,8 @@ Calls made during the conversation; approved by the PO.
 
 - **Card payment is optional.** The pay link and card button show only when Stripe is configured
   and the event has online payment on. A fundraiser works with no Stripe at all (bank/cash only).
-- **Member email is never copied.** The reminder reads it by decrypting the `Family` field at
-  send time. Only outside-person email/phone are stored on the entry (encrypted).
+- **Member email is never copied.** The reminder reads the family members' `Person.email`,
+  decrypted at send time. Only outside-person email/phone are stored on the entry (encrypted).
 - **Overpayment:** staff entry that exceeds the remaining balance is rejected. A card payment that
   lands after the balance dropped (cash recorded while the checkout was open) is recorded in
   full, because the money was received, and the row shows an "Overpaid" flag for staff to refund.
@@ -111,8 +111,15 @@ Calls made during the conversation; approved by the PO.
 - **Editing:** quantity is editable. It cannot go below what is already paid (rejected). Price is
   snapshotted per entry and not editable after the first payment.
 - **Deleting:** an entry with payments cannot be deleted (void it by setting quantity to the paid
-  amount, or delete the payments first). A payment can be deleted by staff, written to the audit
-  log. Deleting the event cascades, as it does for registrations.
+  amount, or delete the payments first). Staff can delete a manual (cash or bank) payment, written
+  to the audit log. Card (ONLINE) payments cannot be deleted in-app: refund them in Stripe, then
+  ops corrects the ledger. An event with fundraiser entries cannot be deleted, so entries and
+  payment history are never lost with the event.
+- **Family merge and deletion (#650):** merging families moves the source family's entries to
+  the target. If the target already has an entry in the same fundraiser at the same unit price,
+  the two are combined (quantities summed, payments moved). Otherwise the entry stays as its own
+  row, unlinked, showing the source family's name. Permanently deleting a family (only after the
+  retention period) keeps its entries and payments, unlinked, with the family's name kept on them.
 - **Reminders:** staff can resend any time. Each send is logged; the confirm dialog shows the last
   send date. No automatic scheduled reminders in version 1.
 - **Duplicates:** one member family at most once per fundraiser (unique on fundraiser + family).
@@ -144,5 +151,6 @@ mobile.
 
 ## Rollback
 
-Additive migration only (new tables). Revert the PR and drop the tables with a down migration.
-No existing tables or flows are altered.
+Revert the PR and run a down migration that drops the new tables (`Fundraiser`,
+`FundraiserEntry`, `FundraiserPayment`, `FundraiserReminderSend`) and also the column added to the
+existing `CheckoutSession` table: `fundraiserEntryId`, with its foreign key and index.

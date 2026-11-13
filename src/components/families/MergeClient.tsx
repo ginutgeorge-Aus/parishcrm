@@ -60,6 +60,9 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
         <ul className="text-sm space-y-1 text-muted-foreground">
           <li>{preview.peopleCount} people will be reassigned</li>
           <li>{preview.transactionCount} transactions will be reassigned</li>
+          {preview.fundraiserEntryCount > 0 && (
+            <li>{preview.fundraiserEntryCount} fundraiser entries will be moved (combined with the target&apos;s entry for the same fundraiser where possible)</li>
+          )}
           <li><strong>{preview.source.name}</strong> will be permanently deleted</li>
         </ul>
         {preview.conflicts.length > 0 && (

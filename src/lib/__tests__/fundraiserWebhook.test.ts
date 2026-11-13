@@ -12,7 +12,7 @@ jest.mock("@/lib/prisma", () => {
   const p = {
     checkoutSession: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
     fundraiserEntry: { findUnique: jest.fn() },
-    fundraiserPayment: { create: jest.fn() },
+    fundraiserPayment: { create: jest.fn(), findUnique: jest.fn() },
     event: { findUnique: jest.fn() },
     registration: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     $queryRaw: jest.fn(),
@@ -57,6 +57,17 @@ beforeEach(() => {
   prisma.$queryRaw.mockResolvedValue([{ id: 7 }])
   prisma.fundraiserEntry.findUnique.mockResolvedValue({ quantity: 4, unitPrice: "10.00", payments: [{ amount: "10.00" }] })
   prisma.fundraiserPayment.create.mockResolvedValue({ id: 99 })
+  prisma.fundraiserPayment.findUnique.mockResolvedValue(null)
+})
+
+// Tests silence console.error / console.warn with spies; restore them so a
+// silenced console never leaks into later tests (clearAllMocks keeps the
+// mockImplementation).
+afterEach(() => {
+  for (const m of ["error", "warn"] as const) {
+    const f = console[m] as unknown
+    if (jest.isMockFunction(f)) f.mockRestore()
+  }
 })
 
 it("an audit write failure never blocks the captured payment: recorded, 200, ops alerted", async () => {
@@ -242,15 +253,17 @@ describe("refund/dispute of a fundraiser card payment", () => {
     prisma.registration.findFirst.mockResolvedValue(null)
     getStripe().checkout.sessions.list.mockResolvedValue({ data: [{ id: "cs_f", metadata: { fundraiserEntryId: "7" } }] })
     prisma.checkoutSession.findUnique.mockResolvedValue({ status: "COMPLETED", publicToken: null, fundraiserEntryId: 7 })
+    prisma.fundraiserPayment.findUnique.mockResolvedValue({ id: 99, entryId: 7 })
     jest.spyOn(console, "error").mockImplementation(() => {})
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    expect(prisma.fundraiserPayment.findUnique).toHaveBeenCalledWith({ where: { stripePaymentRef: "pi_f" }, select: { id: true, entryId: true } })
     expect(notifyStripeAlert).toHaveBeenCalledWith(expect.stringMatching(/fundraiser/), expect.any(String))
     // No in-app adjustment exists: the alert must say so and point ops at the DB row.
     const body = notifyStripeAlert.mock.calls[0][1] as string
     expect(body).toContain("stays counted as paid")
     expect(body).toContain("directly in the database")
     expect(body).toContain("fundraiser entry 7")
-    expect(body).toContain("stripePaymentRef = pi_f")
+    expect(body).toContain("FundraiserPayment 99 (stripePaymentRef = pi_f) on entry 7")
     expect(body).not.toMatch(/adjust the fundraiser manually/)
     expect(prisma.registration.update).not.toHaveBeenCalled()
   })
@@ -269,5 +282,22 @@ describe("refund/dispute of a fundraiser card payment", () => {
     expect(body).not.toContain("stays counted as paid")
     expect(body).toContain("no FundraiserPayment row was recorded")
     expect(body).toContain("UNFULFILLED")
+    // Not COMPLETED: no payment lookup is needed.
+    expect(prisma.fundraiserPayment.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("a COMPLETED checkout with no payment row does not point ops at a row that does not exist", async () => {
+    getStripe().webhooks.constructEvent.mockReturnValue({
+      type: "charge.refunded",
+      data: { object: { id: "ch_1", payment_intent: "pi_f", amount: 3000, amount_refunded: 3000 } },
+    })
+    prisma.registration.findFirst.mockResolvedValue(null)
+    getStripe().checkout.sessions.list.mockResolvedValue({ data: [{ id: "cs_f", metadata: { fundraiserEntryId: "7" } }] })
+    prisma.checkoutSession.findUnique.mockResolvedValue({ status: "COMPLETED", publicToken: null, fundraiserEntryId: 7 })
+    jest.spyOn(console, "error").mockImplementation(() => {})
+    expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
+    const body = notifyStripeAlert.mock.calls[0][1] as string
+    expect(body).not.toContain("stays counted as paid")
+    expect(body).toContain("no FundraiserPayment row with stripePaymentRef = pi_f exists")
   })
 })

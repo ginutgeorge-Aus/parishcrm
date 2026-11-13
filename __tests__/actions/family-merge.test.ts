@@ -17,6 +17,9 @@ jest.mock("@/lib/prisma", () => ({
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
+jest.mock("@/lib/fundraiserFamilyLink", () => ({
+  reassignFundraiserEntriesTx: jest.fn().mockResolvedValue({ moved: 0, folded: 0, unlinked: 0 }),
+}))
 
 const mockAuth = auth as jest.Mock
 const mockFamilyFindUnique = prisma.family.findUnique as jest.Mock

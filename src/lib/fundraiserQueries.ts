@@ -58,7 +58,7 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
       entries: {
         orderBy: { id: "asc" },
         select: {
-          id: true, familyId: true, outsideName: true, quantity: true, unitPrice: true, bankRef: true,
+          id: true, familyId: true, familyNameSnapshot: true, outsideName: true, quantity: true, unitPrice: true, bankRef: true,
           family: { select: { name: true } },
           payments: {
             orderBy: [{ paidAt: "desc" }, { id: "desc" }],
@@ -92,7 +92,7 @@ export async function getFundraiserView(eventId: number, role: UserRole | undefi
         ...t,
         id: e.id,
         familyId: e.familyId,
-        name: e.family?.name ?? e.outsideName ?? "Unknown",
+        name: e.family?.name ?? e.familyNameSnapshot ?? e.outsideName ?? "Unknown",
         quantity: e.quantity,
         unitPrice: e.unitPrice.toString(),
         bankRef: e.bankRef,

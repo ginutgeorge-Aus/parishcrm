@@ -68,7 +68,7 @@ export async function loadReminderCandidates(fundraiserId: number) {
       entries: {
         orderBy: { id: "asc" },
         select: {
-          id: true, familyId: true, outsideName: true, outsideEmail: true, quantity: true, unitPrice: true,
+          id: true, familyId: true, familyNameSnapshot: true, outsideName: true, outsideEmail: true, quantity: true, unitPrice: true,
           bankRef: true, publicToken: true,
           family: { select: { name: true, people: { where: { archivedAt: null }, select: { email: true, emailConsent: true, role: true } } } },
           payments: { select: { amount: true } },
@@ -82,7 +82,7 @@ export async function loadReminderCandidates(fundraiserId: number) {
     const t = entryTotals(e, e.payments)
     candidates.push({
       entryId: e.id,
-      name: e.family?.name ?? e.outsideName ?? "Supporter",
+      name: e.family?.name ?? e.familyNameSnapshot ?? e.outsideName ?? "Supporter",
       quantity: e.quantity,
       unitPrice: e.unitPrice.toString(),
       bankRef: e.bankRef,
