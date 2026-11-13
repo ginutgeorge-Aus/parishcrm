@@ -245,6 +245,7 @@ export async function addEntry(
     outsidePhone = phone ? encrypt(phone) : null
   }
 
+  if (input.delivery !== undefined && typeof input.delivery !== "boolean") return { error: "Invalid delivery choice" }
   const delivery = input.delivery === true
   const familyId = hasFamily ? (input.familyId as number) : null
 

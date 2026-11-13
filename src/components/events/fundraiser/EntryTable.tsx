@@ -99,7 +99,8 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
           aria-label={`Pickup or delivery for ${row.name}`}
           className="h-8 rounded-md border bg-background px-2 text-sm"
           value={row.delivery ? "delivery" : "pickup"}
-          disabled={pending}
+          disabled={pending || row.paidCents > 0}
+          title={row.paidCents > 0 ? "Delivery cannot change once a payment is recorded" : undefined}
           onChange={(ev) => saveDelivery(ev.target.value)}
         >
           <option value="pickup">Pickup</option>
