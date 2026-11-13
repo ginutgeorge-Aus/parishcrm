@@ -50,7 +50,7 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
     setQty(String(row.quantity))
   }
 
-  /** Save a changed quantity. */
+  /** Save a changed quantity; on a server error or a thrown call, show it and reset the draft. */
   function saveQty() {
     if (qty === String(row.quantity)) return
     setError(null)
@@ -78,7 +78,7 @@ function RowActions({ row, payments, hasDelivery }: Readonly<{ row: FundraiserRo
         const res = await updateEntryDelivery(row.id, next)
         if (res?.error) setError(res.error)
       } catch {
-        setError("Could not save pickup/delivery. Please try again.")
+        setError("Could not change pickup/delivery. Please try again.")
       }
     })
   }

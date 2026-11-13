@@ -34,6 +34,13 @@ export class FundraiserNotPayableError extends Error {}
 export class FundraiserAmountOutOfRangeError extends Error {}
 
 /**
+ * A prior open session for the entry could not be checked in Stripe (timeout,
+ * 5xx). Opening a new session then could leave two payable sessions for one
+ * balance, so the payer is asked to retry instead.
+ */
+export class FundraiserCheckoutBusyError extends Error {}
+
+/**
  * Format integer cents as a 2-dp decimal string for a `Decimal(10,2)` column,
  * without float maths.
  * @param cents non-negative integer cents
@@ -84,9 +91,9 @@ function isResourceMissing(e: unknown): boolean {
 }
 
 /**
- * Retrieve one prior session, treating a failure as a dead session so one bad
- * row cannot block every checkout for the entry. `gone` marks a session Stripe
- * says does not exist (safe to mark its staging row EXPIRED).
+ * Retrieve one prior session without throwing. `gone` marks a session Stripe
+ * says does not exist (safe to mark its staging row EXPIRED); `session: null`
+ * with `gone: false` is a transient failure, so the session's state is unknown.
  * @param stripe Stripe client
  * @param id Checkout Session id
  * @returns the session, or null with `gone` set for resource_missing
@@ -95,7 +102,7 @@ async function retrievePrior(stripe: Stripe, id: string): Promise<LivePrior> {
   try {
     return { session: await stripe.checkout.sessions.retrieve(id), gone: false }
   } catch (e) {
-    console.warn("Fundraiser checkout: could not retrieve prior session %s; treating it as dead: %s", String(id), e instanceof Error ? e.message : String(e))
+    console.warn("Fundraiser checkout: could not retrieve prior session %s: %s", String(id), e instanceof Error ? e.message : String(e))
     return { session: null, gone: isResourceMissing(e) }
   }
 }
@@ -220,7 +227,10 @@ async function expireOrRecheck(stripe: Stripe, id: string): Promise<"dead" | "co
  * (harmless if it was paid meanwhile) or expired (and an expire that Stripe
  * refuses is re-checked live: dead → marked EXPIRED, paid → not payable), and
  * a prior staged after the prefetch is retrieved inside the lock. A prior
- * session that cannot be retrieved is treated as dead (not reused, not blocking). Prior rows whose session is dead (expired here,
+ * session Stripe says is missing is treated as dead; one that cannot be
+ * retrieved for a transient reason (timeout, 5xx), in the prefetch and again
+ * under the lock, may still be open or paid, so no new session is opened
+ * (FundraiserCheckoutBusyError). Prior rows whose session is dead (expired here,
  * already expired, or missing in Stripe) are marked EXPIRED in the same
  * transaction, so `deleteEntry` is not blocked by them until the sweep.
  * @param entry entry id, public token and the caller's remaining (cents)
@@ -232,6 +242,7 @@ async function expireOrRecheck(stripe: Stripe, id: string): Promise<"dead" | "co
  * would leave two payable sessions for one balance, so that case throws.
  * @throws FundraiserNotPayableError when nothing remains or a payment is settling
  * @throws FundraiserAmountOutOfRangeError when the charge is outside Stripe's limits
+ * @throws FundraiserCheckoutBusyError when a prior open session could not be checked
  */
 export async function createFundraiserCheckoutSession(
   entry: { id: number; publicToken: string; remainingCents: number },
@@ -273,8 +284,15 @@ export async function createFundraiserCheckoutSession(
           select: { stripeSessionId: true, totalAmount: true, surchargeCents: true },
         })
         const live = await Promise.all(
-          priors.map((p) => prefetched.get(p.stripeSessionId) ?? retrievePrior(stripe, p.stripeSessionId)),
+          priors.map((p) => {
+            const pre = prefetched.get(p.stripeSessionId)
+            // A transient prefetch failure is re-checked under the lock.
+            return pre && (pre.session !== null || pre.gone) ? pre : retrievePrior(stripe, p.stripeSessionId)
+          }),
         )
+        // Unknown state (transient Stripe failure): it may be open or already
+        // paid. Opening another session could charge the balance twice.
+        if (live.some((l) => l.session === null && !l.gone)) throw new FundraiserCheckoutBusyError()
         // Paid, webhook not processed yet: the balance is about to drop. A new
         // session now could charge the same balance twice.
         const paid = live.some((l) => l.session?.status === "complete")

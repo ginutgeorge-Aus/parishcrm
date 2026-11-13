@@ -206,8 +206,9 @@ export async function startFundraiserCheckout(
 
   // Loaded lazily: fundraiserCheckout pulls cardFeeSettings (next/cache), which
   // the ticket-checkout action tests' jsdom env can't load.
-  const { createFundraiserCheckoutSession, FundraiserNotPayableError, FundraiserAmountOutOfRangeError } =
-    await import("@/lib/fundraiserCheckout")
+  const {
+    createFundraiserCheckoutSession, FundraiserNotPayableError, FundraiserAmountOutOfRangeError, FundraiserCheckoutBusyError,
+  } = await import("@/lib/fundraiserCheckout")
   try {
     return await withCurrencyGuard(() =>
       createFundraiserCheckoutSession({ id: entry.id, publicToken: entry.publicToken, remainingCents }, event, origin),
@@ -218,6 +219,9 @@ export async function startFundraiserCheckout(
     }
     if (e instanceof FundraiserAmountOutOfRangeError) {
       return { ok: false, status: 400, error: "This amount can't be paid by card — please contact the organiser" }
+    }
+    if (e instanceof FundraiserCheckoutBusyError) {
+      return { ok: false, status: 503, error: "Payment is busy, try again in a moment" }
     }
     throw e
   }

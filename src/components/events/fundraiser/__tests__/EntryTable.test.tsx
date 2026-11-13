@@ -156,3 +156,10 @@ test("delivery switch error is shown", async () => {
   fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
   expect((await screen.findAllByText("Below paid")).length).toBeGreaterThan(0)
 })
+
+test("a thrown delivery switch shows an inline error", async () => {
+  ;(updateEntryDelivery as jest.Mock).mockRejectedValue(new Error("network"))
+  render(<EntryTable rows={one} canManage payments={{}} hasDelivery />)
+  fireEvent.change(screen.getAllByLabelText("Pickup or delivery for Anna")[0], { target: { value: "delivery" } })
+  expect((await screen.findAllByText("Could not change pickup/delivery. Please try again.")).length).toBeGreaterThan(0)
+})

@@ -101,6 +101,31 @@ describe("saveFundraiser", () => {
     expect(await saveFundraiser(7, input)).toBeUndefined()
   })
 
+  it("checks delivery entries and upserts in one Serializable transaction", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    prismaMock.fundraiserEntry.count.mockResolvedValue(0)
+    expect(await saveFundraiser(7, input)).toBeUndefined()
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
+    expect(prismaMock.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" })
+    const txStart = prismaMock.$transaction.mock.invocationCallOrder[0]
+    expect(prismaMock.fundraiserEntry.count.mock.invocationCallOrder[0]).toBeGreaterThan(txStart)
+    expect(prismaMock.fundraiser.upsert.mock.invocationCallOrder[0]).toBeGreaterThan(txStart)
+  })
+
+  it("retries a serialization conflict and re-checks delivery entries against committed state", async () => {
+    prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
+    // First attempt: no delivery entries yet, but a concurrent addEntry wins (P2034).
+    prismaMock.fundraiserEntry.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    prismaMock.$transaction.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+      await fn(prismaMock)
+      throw Object.assign(new Error("conflict"), { code: "P2034" })
+    })
+    expect(await saveFundraiser(7, input)).toEqual({ error: "Delivery entries exist" })
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    // The rolled-back first attempt's audit write is discarded with it; the retry writes none.
+    expect(logAuditTx).toHaveBeenCalledTimes(1)
+  })
+
   it("upserts on eventId and audits", async () => {
     expect(await saveFundraiser(7, input)).toBeUndefined()
     const arg = prismaMock.fundraiser.upsert.mock.calls[0][0]
