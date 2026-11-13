@@ -337,3 +337,13 @@ test("stops starting new chunks once the time budget is spent", async () => {
     jest.useRealTimers()
   }
 })
+
+test("recently reminded entries do not burn cap slots", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const recent = 10
+  setEntries(Array.from({ length: REMINDER_MAX_PER_RUN + recent }, (_, i) => entry(i + 1)))
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValue(Array.from({ length: recent }, (_, i) => ({ entryId: i + 1 })))
+  const res = await sendFundraiserReminders(3)
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValue([])
+  expect(res).toEqual({ sent: REMINDER_MAX_PER_RUN, failed: 0, skippedNoEmail: 0, skippedRecent: recent, deferred: 0 })
+})

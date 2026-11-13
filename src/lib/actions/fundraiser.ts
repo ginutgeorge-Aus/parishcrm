@@ -605,6 +605,7 @@ async function claimReminder(entryId: number, sentTo: string, sentById: number):
  * Entries are processed in chunks of `REMINDER_CONCURRENCY` in parallel. A run
  * emails at most `REMINDER_MAX_PER_RUN` entries and starts no new chunk after
  * `REMINDER_TIME_BUDGET_MS`; the rest are returned as `deferred` for another run.
+ * Recently reminded entries are filtered out before the cap is applied.
  * One failure never aborts the rest. Audited once with counts. Raw mail errors are never logged or stored (they embed the address).
  *
  * @param fundraiserId - Fundraiser id.
@@ -709,11 +710,24 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
     }
   }
 
+  // Pre-filter recently reminded entries (same query as planReminders) so they
+  // do not burn cap slots; claimReminder stays the atomic race guard.
+  const recentRows = await prisma.fundraiserReminderSend.findMany({
+    where: {
+      status: { in: ["PENDING", "SUCCESS"] },
+      sentAt: { gte: new Date(Date.now() - REMINDER_DEDUPE_MS) },
+      entry: { fundraiserId },
+    },
+    select: { entryId: true },
+    distinct: ["entryId"],
+  })
+  const recentIds = new Set(recentRows.map((r) => r.entryId))
   const due: Due[] = []
   for (const c of candidates) {
     if (c.remainingCents === 0) continue
-    if (c.recipient) due.push({ ...c, recipient: c.recipient })
-    else skippedNoEmail++
+    if (!c.recipient) skippedNoEmail++
+    else if (recentIds.has(c.entryId)) skippedRecent++
+    else due.push({ ...c, recipient: c.recipient })
   }
   // Bounded concurrency: a few hundred entries finish within the request
   // timeout without opening hundreds of SMTP connections / DB transactions.
