@@ -47,6 +47,18 @@ describe("ExamPanel edit", () => {
     expect(await screen.findByText(/already has an exam/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument()
   })
+  it("keeps typed field values after a refused save", async () => {
+    const { updateExam } = jest.requireMock("@/lib/actions/sundaySchoolExam")
+    ;(updateExam as jest.Mock).mockResolvedValue({ error: "Total marks is below a score already entered" })
+    panel()
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    fireEvent.change(screen.getAllByLabelText("Name")[0], { target: { value: "Renamed" } })
+    fireEvent.change(screen.getAllByLabelText("Total marks")[0], { target: { value: "10" } })
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })) })
+    expect(await screen.findByText(/below a score/)).toBeInTheDocument()
+    expect((screen.getAllByLabelText("Name")[0] as HTMLInputElement).value).toBe("Renamed")
+    expect((screen.getAllByLabelText("Total marks")[0] as HTMLInputElement).value).toBe("10")
+  })
 })
 
 describe("ExamPanel create feedback", () => {

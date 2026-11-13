@@ -131,7 +131,7 @@ async function issueWelcomeInvite(
   }
 
   try {
-    await sendWelcomeEmail(user.email, { name: user.name, role: ROLE_LABELS[user.role], setPasswordUrl, helpUrl })
+    await sendWelcomeEmail(user.email, { name: user.name, role: ROLE_LABELS[user.role] ?? user.role, setPasswordUrl, helpUrl })
     return true
   } catch (e) {
     logger.error("issueWelcomeInvite: welcome email send failed", { error: e instanceof Error ? e.message : String(e) })

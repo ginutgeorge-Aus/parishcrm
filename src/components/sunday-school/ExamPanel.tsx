@@ -22,10 +22,14 @@ function formatYmd(ymd: string): string {
 /**
  * Inline edit form for one exam (name, date, total marks), saved by updateExam.
  * Closes itself on success; a refused save (duplicate, score above new total,
- * locked year) shows the message and stays open.
+ * locked year) shows the message and stays open. Inputs are controlled so the
+ * typed values survive React 19's post-action form reset after a refused save.
  */
 function ExamEditForm({ exam, year, onDone }: Readonly<{ exam: ExamListItem; year: number; onDone: () => void }>) {
   const router = useRouter()
+  const [name, setName] = useState(exam.name)
+  const [date, setDate] = useState(exam.date)
+  const [totalMarks, setTotalMarks] = useState(exam.totalMarks)
   // updateExam resolves to undefined on success.
   const save = async (_p: ActionResult | { success: string }, f: FormData): Promise<ActionResult | { success: string }> => {
     const r = await updateExam(exam.id, undefined, f)
@@ -46,16 +50,16 @@ function ExamEditForm({ exam, year, onDone }: Readonly<{ exam: ExamListItem; yea
       <FormFeedback state={state} />
       <div className="space-y-1">
         <Label htmlFor={`exam-name-${exam.id}`}>Name</Label>
-        <Input id={`exam-name-${exam.id}`} name="name" defaultValue={exam.name} maxLength={80} required />
+        <Input id={`exam-name-${exam.id}`} name="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />
       </div>
       <div className="flex flex-wrap gap-3">
         <div className="space-y-1">
           <Label htmlFor={`exam-date-${exam.id}`}>Date</Label>
-          <Input id={`exam-date-${exam.id}`} name="date" type="date" defaultValue={exam.date} min={`${year}-01-01`} max={`${year}-12-31`} required />
+          <Input id={`exam-date-${exam.id}`} name="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} min={`${year}-01-01`} max={`${year}-12-31`} required />
         </div>
         <div className="space-y-1">
           <Label htmlFor={`exam-total-${exam.id}`}>Total marks</Label>
-          <Input id={`exam-total-${exam.id}`} name="totalMarks" inputMode="decimal" defaultValue={exam.totalMarks} className="w-28" required />
+          <Input id={`exam-total-${exam.id}`} name="totalMarks" inputMode="decimal" value={totalMarks} onChange={(e) => setTotalMarks(e.target.value)} className="w-28" required />
         </div>
       </div>
       <div className="flex gap-2">

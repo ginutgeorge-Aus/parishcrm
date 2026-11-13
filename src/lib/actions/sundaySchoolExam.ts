@@ -162,9 +162,9 @@ export async function updateExam(id: number, _prev: ActionResult, formData: Form
     if (dup > 0) return "dup" as const
     const { count } = await tx.sundaySchoolExam.updateMany({ where: { id, archivedAt: null }, data: form.data })
     return count === 0 ? ("gone" as const) : ("ok" as const)
-    // FOR UPDATE on the class serialises concurrent edits and creates, so two
-    // of them can't both pass the duplicate check.
-  }, "update")
+  }, // "update" lock mode: FOR UPDATE on the class serialises concurrent edits
+  // and creates, so two of them can't both pass the duplicate check.
+  "update")
   if (!r.live) return { error: r.error }
   if (r.value === "over") return { error: "Total marks is below a score already entered" }
   if (r.value === "dup") return { error: DUPLICATE_EXAM }
