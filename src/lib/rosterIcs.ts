@@ -23,11 +23,16 @@ export interface RosterIcsOptions {
   calendarName?: string
   /** DTSTAMP value; injectable for deterministic tests. Defaults to now. */
   now?: Date
-  /** UID domain suffix. Defaults to "roster.invalid" style host. */
+  /**
+   * UID domain suffix. Must be a plain hostname ([A-Za-z0-9.-]); anything
+   * else (e.g. containing CR/LF) is ignored. Defaults to "roster.parishcrm".
+   */
   uidDomain?: string
 }
 
 const MAX_OCTETS = 75
+const DEFAULT_UID_DOMAIN = "roster.parishcrm"
+const HOSTNAME_RE = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/
 
 /**
  * Escape a TEXT value per RFC 5545 §3.3.11 (backslash, semicolon, comma,
@@ -81,13 +86,15 @@ export function buildRosterIcs(
   opts: RosterIcsOptions = {},
 ): string {
   const stamp = icsDateUTC(opts.now ?? new Date())
-  const domain = opts.uidDomain ?? "roster.parishcrm"
+  const domain =
+    opts.uidDomain && HOSTNAME_RE.test(opts.uidDomain)
+      ? opts.uidDomain
+      : DEFAULT_UID_DOMAIN
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     `PRODID:-//${PRODUCT_NAME}//Roster//EN`,
     "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
   ]
   if (opts.calendarName) {
     lines.push(`X-WR-CALNAME:${escapeIcsText(opts.calendarName)}`)

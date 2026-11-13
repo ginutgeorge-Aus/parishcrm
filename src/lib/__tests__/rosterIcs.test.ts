@@ -18,6 +18,14 @@ describe("escapeIcsText", () => {
   })
 })
 
+describe("escapeIcsText bare CR", () => {
+  it("escapes a lone \\r so it cannot inject a property", () => {
+    const out = escapeIcsText("line one\rORGANIZER:mailto:evil@example.com")
+    expect(out).not.toMatch(/[\r\n]/)
+    expect(out).toBe(String.raw`line one\nORGANIZER:mailto:evil@example.com`)
+  })
+})
+
 describe("foldIcsLine", () => {
   it("leaves short lines alone", () => {
     expect(foldIcsLine("SUMMARY:hi")).toBe("SUMMARY:hi")
@@ -85,5 +93,20 @@ describe("buildRosterIcs", () => {
     }
     expect(unfold(ics)).toContain("DESCRIPTION:" + escapeIcsText(description))
     expect(ics).toContain("LOCATION:Hall\r\n")
+  })
+
+  it("rejects CR/LF injection via uidDomain and falls back to default", () => {
+    const ics = buildRosterIcs([a], {
+      now,
+      uidDomain: "example.org\r\nSUMMARY:Injected",
+    })
+    expect(ics).not.toContain("SUMMARY:Injected")
+    expect(ics).toContain("UID:asg-1@roster.parishcrm\r\n")
+  })
+
+  it("accepts a valid uidDomain and omits METHOD", () => {
+    const ics = buildRosterIcs([a], { now, uidDomain: "example.org" })
+    expect(ics).toContain("UID:asg-1@example.org\r\n")
+    expect(ics).not.toContain("METHOD:")
   })
 })
