@@ -25,7 +25,7 @@ import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { expireOpenFundraiserCheckouts, surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
-import { loadReminderCandidates, planReminders, REMINDER_DEDUPE_MS, REMINDER_MAX_PER_RUN } from "@/lib/fundraiserReminders"
+import { loadRecentlyRemindedIds, loadReminderCandidates, partitionReminders, planReminders, REMINDER_DEDUPE_MS, REMINDER_MAX_PER_RUN } from "@/lib/fundraiserReminders"
 import { formatSydneyDate } from "@/lib/dates"
 import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
@@ -278,7 +278,7 @@ export async function addEntry(
       if (e instanceof NoFreeBankRefError) return BUSY
       if (!isP2002(e) && !isP2034(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
-      // Otherwise the collision was bankRef/publicToken (or a serialization
+      // Otherwise the collision was bankRef/publicToken (or a P2034 deadlock
       // abort): back off with jitter, then retry with fresh values.
       if (await isDupFamily(prisma)) return DUP
       if (attempt < MAX_ADD_ATTEMPTS) await addBackoff(attempt)
@@ -617,6 +617,8 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
   const sentById = Number.parseInt(g.session.user.id ?? "", 10)
   if (Number.isNaN(sentById)) return { error: "Unauthorized" }
+  // The time budget covers the whole request, including the candidate load.
+  const startedAt = Date.now()
 
   const loaded = await loadReminderCandidates(fundraiserId)
   if (!loaded) return { error: "Fundraiser not found" }
@@ -627,10 +629,11 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   let origin: string | null = null
   try { origin = new URL(base).origin } catch { origin = null }
   const online = stripeConfigured() && fundraiser.event.onlinePaymentEnabled && origin !== null
-  const [churchName, invoice, fee] = await Promise.all([
+  const [churchName, invoice, fee, recentIds] = await Promise.all([
     getChurchName(),
     getInvoiceSettings(),
     fundraiser.event.passCardFee && online ? getCardFeeConfig() : Promise.resolve(null),
+    loadRecentlyRemindedIds(fundraiserId),
   ])
   // Without a pay link the bank details are the only way to pay: never send a
   // reminder that tells the recipient to pay but not how.
@@ -710,39 +713,33 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
     }
   }
 
-  // Pre-filter recently reminded entries (same query as planReminders) so they
-  // do not burn cap slots; claimReminder stays the atomic race guard.
-  const recentRows = await prisma.fundraiserReminderSend.findMany({
-    where: {
-      status: { in: ["PENDING", "SUCCESS"] },
-      sentAt: { gte: new Date(Date.now() - REMINDER_DEDUPE_MS) },
-      entry: { fundraiserId },
-    },
-    select: { entryId: true },
-    distinct: ["entryId"],
-  })
-  const recentIds = new Set(recentRows.map((r) => r.entryId))
-  const due: Due[] = []
-  for (const c of candidates) {
-    if (c.remainingCents === 0) continue
-    if (!c.recipient) skippedNoEmail++
-    else if (recentIds.has(c.entryId)) skippedRecent++
-    else due.push({ ...c, recipient: c.recipient })
-  }
+  // Pre-filter recently reminded entries (shared with planReminders) so they do
+  // not burn cap slots; claimReminder stays the atomic race guard.
+  const split = partitionReminders(candidates, recentIds)
+  const due: Due[] = split.due
+  skippedNoEmail = split.skippedNoEmail
+  skippedRecent = split.skippedRecent
   // Bounded concurrency: a few hundred entries finish within the request
   // timeout without opening hundreds of SMTP connections / DB transactions.
-  const startedAt = Date.now()
+  const overBudget = () => Date.now() - startedAt > REMINDER_TIME_BUDGET_MS
   const batch = due.slice(0, REMINDER_MAX_PER_RUN)
   deferred = due.length - batch.length
   for (let i = 0; i < batch.length; i += REMINDER_CONCURRENCY) {
-    if (Date.now() - startedAt > REMINDER_TIME_BUDGET_MS) {
+    if (overBudget()) {
       deferred += batch.length - i
       break
     }
     await Promise.all(batch.slice(i, i + REMINDER_CONCURRENCY).map((c) => remindOne(c)))
   }
-  // Contended claims: retry one at a time (no parallel claims left to conflict with).
-  for (const c of busy) await remindOne(c, true)
+  // Contended claims: retry one at a time (no parallel claims left to conflict
+  // with). Same time budget: a claim never written is safe to defer.
+  for (let i = 0; i < busy.length; i++) {
+    if (overBudget()) {
+      deferred += busy.length - i
+      break
+    }
+    await remindOne(busy[i], true)
+  }
 
   await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail, skippedRecent, deferred })
   revalidateFundraiser(fundraiser.eventId)

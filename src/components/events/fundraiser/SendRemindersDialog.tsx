@@ -114,7 +114,7 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred
       )}
       {deferred > 0 && (
         <p className="text-muted-foreground">
-          Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will need a second run.
+          Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will be left for later runs.
         </p>
       )}
       <p className="text-muted-foreground">

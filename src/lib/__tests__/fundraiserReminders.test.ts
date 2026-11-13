@@ -347,3 +347,21 @@ test("recently reminded entries do not burn cap slots", async () => {
   prismaMock.fundraiserReminderSend.findMany.mockResolvedValue([])
   expect(res).toEqual({ sent: REMINDER_MAX_PER_RUN, failed: 0, skippedNoEmail: 0, skippedRecent: recent, deferred: 0 })
 })
+
+test("the sequential retry of contended claims also stops once the time budget is spent", async () => {
+  setEntries([entry(1)])
+  const p2034 = () => Object.assign(new Error("conflict"), { code: "P2034" })
+  jest.useFakeTimers({ now: new Date("2026-11-12T01:00:00Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+  try {
+    // The parallel pass's last conflicting attempt runs past the 45s budget.
+    prismaMock.$transaction
+      .mockRejectedValueOnce(p2034())
+      .mockRejectedValueOnce(p2034())
+      .mockImplementationOnce(async () => { jest.setSystemTime(Date.now() + 60_000); throw p2034() })
+    const res = await sendFundraiserReminders(3)
+    expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 1 })
+    expect(mSend).not.toHaveBeenCalled()
+  } finally {
+    jest.useRealTimers()
+  }
+})

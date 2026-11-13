@@ -124,30 +124,60 @@ export type ReminderPlan = {
  * @returns counts plus the time of the last successful reminder (null if none).
  */
 export async function planReminders(fundraiserId: number): Promise<ReminderPlan> {
-  const since = new Date(Date.now() - REMINDER_DEDUPE_MS)
-  const [loaded, recentRows, agg] = await Promise.all([
+  const [loaded, recent, agg] = await Promise.all([
     loadReminderCandidates(fundraiserId),
-    prisma.fundraiserReminderSend.findMany({
-      where: { status: { in: ["PENDING", "SUCCESS"] }, sentAt: { gte: since }, entry: { fundraiserId } },
-      select: { entryId: true },
-      distinct: ["entryId"],
-    }),
+    loadRecentlyRemindedIds(fundraiserId),
     prisma.fundraiserReminderSend.aggregate({
       where: { status: "SUCCESS", entry: { fundraiserId } },
       _max: { sentAt: true },
     }),
   ])
-  const recent = new Set(recentRows.map((r) => r.entryId))
-  let eligible = 0
+  const { due, skippedPaid, skippedNoEmail, skippedRecent } = partitionReminders(loaded?.candidates ?? [], recent)
+  const sendable = Math.min(due.length, REMINDER_MAX_PER_RUN)
+  return { sendable, skippedPaid, skippedNoEmail, skippedRecent, deferred: due.length - sendable, lastSentAt: agg._max.sentAt ?? null }
+}
+
+/**
+ * Entry ids of a fundraiser reminded (or being reminded) within
+ * `REMINDER_DEDUPE_MS`. Shared by the plan and the send so both skip the same
+ * entries; the send's per-entry claim stays the atomic race guard.
+ * @param fundraiserId - Fundraiser id.
+ * @returns the set of recently reminded entry ids.
+ */
+export async function loadRecentlyRemindedIds(fundraiserId: number): Promise<Set<number>> {
+  const rows = await prisma.fundraiserReminderSend.findMany({
+    where: {
+      status: { in: ["PENDING", "SUCCESS"] },
+      sentAt: { gte: new Date(Date.now() - REMINDER_DEDUPE_MS) },
+      entry: { fundraiserId },
+    },
+    select: { entryId: true },
+    distinct: ["entryId"],
+  })
+  return new Set(rows.map((r) => r.entryId))
+}
+
+/**
+ * Split candidates into those to email and the skip counts. Shared by the plan
+ * and the send so the confirm dialog matches what a run does. Order: nothing
+ * owed, then no usable email, then recently reminded.
+ * @param candidates - Candidates from `loadReminderCandidates`, in send order.
+ * @param recent - Ids from `loadRecentlyRemindedIds`.
+ * @returns the due candidates (recipient narrowed to string) plus skip counts.
+ */
+export function partitionReminders<C extends { entryId: number; remainingCents: number; recipient: string | null }>(
+  candidates: readonly C[],
+  recent: ReadonlySet<number>,
+): { due: (C & { recipient: string })[]; skippedPaid: number; skippedNoEmail: number; skippedRecent: number } {
+  const due: (C & { recipient: string })[] = []
   let skippedPaid = 0
   let skippedNoEmail = 0
   let skippedRecent = 0
-  for (const c of loaded?.candidates ?? []) {
+  for (const c of candidates) {
     if (c.remainingCents === 0) skippedPaid++
     else if (!c.recipient) skippedNoEmail++
     else if (recent.has(c.entryId)) skippedRecent++
-    else eligible++
+    else due.push({ ...c, recipient: c.recipient })
   }
-  const sendable = Math.min(eligible, REMINDER_MAX_PER_RUN)
-  return { sendable, skippedPaid, skippedNoEmail, skippedRecent, deferred: eligible - sendable, lastSentAt: agg._max.sentAt ?? null }
+  return { due, skippedPaid, skippedNoEmail, skippedRecent }
 }
