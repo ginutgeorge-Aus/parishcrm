@@ -27,7 +27,7 @@ import { stripeConfigured } from "@/lib/stripe"
 
 const prismaMock: Record<string, unknown> & {
   fundraiser: { findUnique: jest.Mock }
-  fundraiserReminderSend: { create: jest.Mock; update: jest.Mock; count: jest.Mock; aggregate: jest.Mock; findMany: jest.Mock }
+  fundraiserReminderSend: { create: jest.Mock; update: jest.Mock; count: jest.Mock; aggregate: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock }
   $transaction: jest.Mock
 } = {
   fundraiser: { findUnique: jest.fn() },
@@ -37,6 +37,7 @@ const prismaMock: Record<string, unknown> & {
     count: jest.fn(async () => 0),
     aggregate: jest.fn(async () => ({ _max: { sentAt: null } })),
     findMany: jest.fn(async () => []),
+    groupBy: jest.fn(async () => []),
   },
   $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prismaMock)),
 }
@@ -313,6 +314,8 @@ test("planReminders excludes entries reminded within the dedupe window", async (
   expect(plan).toMatchObject({ sendable: 1, skippedRecent: 1, deferred: 0 })
   const where = prismaMock.fundraiserReminderSend.findMany.mock.calls[0][0].where
   expect(where).toMatchObject({ status: { in: ["PENDING", "SUCCESS"] }, entry: { fundraiserId: 3 } })
+  expect(where.sentAt.gte.getTime()).toBeGreaterThan(Date.now() - 10 * 60 * 1000 - 1000)
+  expect(where.sentAt.gte.getTime()).toBeLessThanOrEqual(Date.now() - 10 * 60 * 1000 + 1000)
 })
 
 test("a run emails at most REMINDER_MAX_PER_RUN and defers the rest; plan agrees", async () => {
@@ -323,6 +326,20 @@ test("a run emails at most REMINDER_MAX_PER_RUN and defers the rest; plan agrees
   const res = await sendFundraiserReminders(3)
   expect(res).toEqual({ sent: REMINDER_MAX_PER_RUN, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 3 })
   expect(mSend).toHaveBeenCalledTimes(REMINDER_MAX_PER_RUN)
+})
+
+test("a capped run sends never-reminded entries before already-reminded ones", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const n = REMINDER_MAX_PER_RUN + 1
+  setEntries(Array.from({ length: n }, (_, i) => entry(i + 1)))
+  // Entries 1..REMINDER_MAX_PER_RUN were reminded earlier; the unreminded last one goes first, so the final reminded one is deferred.
+  prismaMock.fundraiserReminderSend.groupBy.mockResolvedValueOnce(
+    Array.from({ length: REMINDER_MAX_PER_RUN }, (_, i) => ({ entryId: i + 1, _max: { sentAt: new Date("2026-11-01T00:00:00Z") } })),
+  )
+  await sendFundraiserReminders(3)
+  const firstClaim = prismaMock.fundraiserReminderSend.create.mock.calls.map((c) => (c[0] as { data: { entryId: number } }).data.entryId)
+  expect(firstClaim).toContain(n)
+  expect(firstClaim).not.toContain(REMINDER_MAX_PER_RUN)
 })
 
 test("stops starting new chunks once the time budget is spent", async () => {

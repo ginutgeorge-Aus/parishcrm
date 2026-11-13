@@ -181,3 +181,21 @@ export function partitionReminders<C extends { entryId: number; remainingCents: 
   }
   return { due, skippedPaid, skippedNoEmail, skippedRecent }
 }
+
+/**
+ * Order due candidates never-reminded first, then least recently reminded, so a
+ * capped run (`REMINDER_MAX_PER_RUN`) reaches entries a previous run deferred
+ * instead of re-emailing the same first N. Stable: ties keep entry-id order.
+ * @param fundraiserId - Fundraiser id.
+ * @param due - Due candidates from `partitionReminders`.
+ * @returns a new array in send order.
+ */
+export async function orderLeastRecentlyReminded<C extends { entryId: number }>(fundraiserId: number, due: readonly C[]): Promise<C[]> {
+  const rows = await prisma.fundraiserReminderSend.groupBy({
+    by: ["entryId"],
+    where: { status: "SUCCESS", entry: { fundraiserId } },
+    _max: { sentAt: true },
+  })
+  const last = new Map(rows.map((r) => [r.entryId, r._max.sentAt?.getTime() ?? 0]))
+  return due.map((c, i) => ({ c, i })).sort((a, b) => (last.get(a.c.entryId) ?? 0) - (last.get(b.c.entryId) ?? 0) || a.i - b.i).map((x) => x.c)
+}

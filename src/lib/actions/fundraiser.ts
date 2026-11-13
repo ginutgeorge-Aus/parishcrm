@@ -26,7 +26,7 @@ import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { expireOpenFundraiserCheckouts, surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
-import { loadRecentlyRemindedIds, loadReminderCandidates, partitionReminders, planReminders, REMINDER_DEDUPE_MS, REMINDER_MAX_PER_RUN } from "@/lib/fundraiserReminders"
+import { loadRecentlyRemindedIds, loadReminderCandidates, orderLeastRecentlyReminded, partitionReminders, planReminders, REMINDER_DEDUPE_MS, REMINDER_MAX_PER_RUN } from "@/lib/fundraiserReminders"
 import { formatSydneyDate } from "@/lib/dates"
 import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
@@ -718,7 +718,8 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   // Pre-filter recently reminded entries (shared with planReminders) so they do
   // not burn cap slots; claimReminder stays the atomic race guard.
   const split = partitionReminders(candidates, recentIds)
-  const due: Due[] = split.due
+  // Only a capped run needs ordering: rotate so deferred entries go first next time.
+  const due: Due[] = split.due.length > REMINDER_MAX_PER_RUN ? await orderLeastRecentlyReminded(fundraiserId, split.due) : split.due
   skippedNoEmail = split.skippedNoEmail
   skippedRecent = split.skippedRecent
   // Bounded concurrency: a few hundred entries finish within the request
