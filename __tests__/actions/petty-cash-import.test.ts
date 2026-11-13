@@ -150,6 +150,15 @@ describe("commitImport", () => {
     // Mirror rows link back to the generated ids and carry the session title.
     const receiptMirror = fakeTx.transaction.createMany.mock.calls[0][0].data[0]
     expect(receiptMirror).toMatchObject({ type: "INCOME", bankRef: "PC_R_1", pettyCashReceiptId: 1, reference: "07-SEP-2025" })
+    // Success path writes the audit row on the transaction client.
+    expect(logAuditTx).toHaveBeenCalledWith(
+      fakeTx,
+      expect.anything(),
+      "PETTY_CASH_IMPORTED",
+      "PettyCashSession",
+      undefined,
+      expect.objectContaining({ receipts: 1, expenses: 1 }),
+    )
   })
 
   it("rejects the import when a session is closed by a concurrent transaction just before the batched insert", async () => {

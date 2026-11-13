@@ -25,6 +25,7 @@ jest.mock("@/lib/prisma", () => ({
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { logAuditTx } from "@/lib/audit"
 const mockAuth = auth as jest.Mock
 const mock$tx = prisma.$transaction as jest.Mock
 
@@ -91,6 +92,16 @@ test("reconciles the period when the book balance matches to the cent", async ()
   const r = await saveStatementBalance(ANZ_CHURCH_ID, "2026-07-31", "130.00")
   expect(r).toEqual({ success: "Balanced — 3 transactions reconciled." })
   expect(tx.transaction.updateMany).toHaveBeenCalled()
+  // Both audit rows are written on the transaction client, not the global prisma.
+  expect(logAuditTx).toHaveBeenCalledWith(tx, 1, "RECON_STATEMENT_SAVED", "ReconciliationStatement", 10, expect.any(Object))
+  expect(logAuditTx).toHaveBeenCalledWith(
+    tx,
+    1,
+    "RECON_AUTO_RECONCILED",
+    "ReconciliationStatement",
+    undefined,
+    expect.objectContaining({ count: 3, closingBalance: "130.00" }),
+  )
 })
 
 // --- locked-period range guard ---
