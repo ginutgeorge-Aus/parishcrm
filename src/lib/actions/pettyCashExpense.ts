@@ -20,7 +20,7 @@ import { serializableWrite } from "@/lib/serializableWrite"
 import { validateFund } from "./fund"
 import { getCashAccount } from "@/lib/paymentAccounts"
 import { createExpenseEntry, revalidatePettyCashPaths, PETTY_CASH_BUSY, PETTY_CASH_GONE, assertSessionOpenTx, assertMirrorNotReconciledTx, SessionClosedError, RECONCILED_EDIT_ERROR, RECONCILED_DELETE_ERROR, SUBMISSION_TOKEN_REUSED_ERROR, parseSubmissionToken, type SubmissionTokenLookup } from "./pettyCashEntry"
-import { replayOrError, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashWriteErrors"
+import { makeReplayDone, makeOrReplay, resolveCreateWriteError, AuditWriteError, auditFailed } from "./pettyCashWriteErrors"
 import type { ActionResult } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -165,13 +165,9 @@ export async function createExpense(
     payee: parsed.data.payee, description: parsed.data.description,
     receiptRef: parsed.data.receiptRef, fundId: parsed.data.fundId,
   }
-  /** Lands on the session page — the replayed entry (and its audit row) already committed. */
-  const replayDone = async (): Promise<never> => {
-    revalidatePettyCashPaths(sessionId)
-    return redirect(`/accounting/petty-cash/sessions/${sessionId}`)
-  }
+  const replayDone = makeReplayDone(sessionId)
   /** Returns `error`, unless a concurrent twin committed this very expense meanwhile — then redirects. */
-  const orReplay = <E,>(error: E) => replayOrError(token, () => expenseTokenState(prisma, token!, sub), replayDone, error, { error: SUBMISSION_TOKEN_REUSED_ERROR } as E)
+  const orReplay = makeOrReplay(token, () => expenseTokenState(prisma, token!, sub), replayDone)
   // Replay check runs first — before the session-closed / period-lock guards and
   // the duplicate and negative-float warnings: a lost-response retry after the
   // session closed or the period locked must still land on the session page, and
