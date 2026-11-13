@@ -2,6 +2,17 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
+/**
+ * Write an audit row, swallowing (but logging) DB errors so a failed audit write never breaks the request.
+ * @param userId acting user, or null for system actions
+ * @param action audit action code
+ * @param resourceType resource the action applies to
+ * @param resourceId id of that resource
+ * @param metadata extra JSON (ids/flags only, never PII)
+ * @param ip client IP, when known
+ * @returns true when the row was written, false when the write failed (callers that must not
+ * report an unlogged action as logged can check it; most callers ignore it)
+ */
 export async function logAudit(
   userId: number | null,
   action: string,
@@ -9,7 +20,7 @@ export async function logAudit(
   resourceId?: number,
   metadata?: Record<string, unknown>,
   ip?: string
-): Promise<void> {
+): Promise<boolean> {
   try {
     await prisma.auditLog.create({
       data: {
@@ -21,6 +32,7 @@ export async function logAudit(
         ip,
       },
     })
+    return true
   } catch (error) {
     // A failed audit write must never break the primary request — but it must be
     // observable. The audit log is the app's sole non-repudiation trail, so a
@@ -32,6 +44,7 @@ export async function logAudit(
       resourceId,
       error: error instanceof Error ? error.message : String(error),
     })
+    return false
   }
 }
 

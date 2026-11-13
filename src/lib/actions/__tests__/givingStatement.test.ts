@@ -155,7 +155,7 @@ describe("sendGivingStatements", () => {
 
   it("sends, logs per recipient without the address, and reports a no-email family", async () => {
     const res = await sendGivingStatements(2025, [1, 2])
-    expect(res).toEqual({ sent: 1, failed: 1, skipped: 0, inProgress: 0, errors: [expect.objectContaining({ familyId: 2 })] })
+    expect(res).toEqual({ sent: 1, failed: 1, skipped: 0, inProgress: 0, errors: [expect.objectContaining({ familyId: 2 })], auditFailed: [], remaining: [] })
     expect(mockSend).toHaveBeenCalledTimes(1)
     expect(mockSend.mock.calls[0][0]).toBe("s@x.com")
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_SENT", "Family", 1, { fyStartYear: 2025, totalCents: 1000 })
@@ -165,21 +165,21 @@ describe("sendGivingStatements", () => {
   it("records a failed delivery and continues", async () => {
     mockSend.mockRejectedValueOnce(new Error("smtp to s@x.com"))
     const res = await sendGivingStatements(2025, [1])
-    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Email delivery failed" }] })
+    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Email delivery failed" }], auditFailed: [], remaining: [] })
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025 })
   })
 
   it("skips an already SENT claim as 'skipped' (already sent)", async () => {
     mockClaimCreate.mockRejectedValueOnce({ code: "P2002" })
     mockClaimFind.mockResolvedValue({ key: "k", value: "SENT:1" })
-    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 1, inProgress: 0, errors: [] })
+    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 1, inProgress: 0, errors: [], auditFailed: [], remaining: [] })
     expect(mockSend).not.toHaveBeenCalled()
   })
 
   it.each(["PENDING:1", "UNKNOWN:1"])("skips a %s claim as in progress / unknown, not 'already sent'", async (value) => {
     mockClaimCreate.mockRejectedValueOnce({ code: "P2002" })
     mockClaimFind.mockResolvedValue({ key: "k", value })
-    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 0, inProgress: 1, errors: [] })
+    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 0, inProgress: 1, errors: [], auditFailed: [], remaining: [] })
   })
 
   it("reports a missing family, an archived family and a family with no giving", async () => {
@@ -207,8 +207,60 @@ describe("sendGivingStatements", () => {
     mockClaimSwap.mockRejectedValueOnce(new Error("db blip"))
     mockLogAudit.mockRejectedValueOnce(new Error("db blip"))
     const res = await sendGivingStatements(2025, [1, 2])
-    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [] })
+    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [1], remaining: [] })
     expect(mockSend).toHaveBeenCalledTimes(2)
+  })
+
+  it("names families whose audit write was swallowed (logAudit resolves false) instead of reporting them as logged", async () => {
+    mockLogAudit.mockResolvedValueOnce(false)
+    const res = await sendGivingStatements(2025, [1])
+    expect(res).toEqual(expect.objectContaining({ sent: 1, auditFailed: [1] }))
+  })
+
+  it("audits refusals (no consent/email, no giving, archived, missing) with a reason code", async () => {
+    mockFamilies.mockResolvedValue(
+      new Map([
+        [1, { id: 1, name: "A", archived: false, canEmail: false, emails: [] }],
+        [2, { id: 2, name: "B", archived: true, canEmail: false, emails: ["b@x.com"] }],
+        [3, { id: 3, name: "C", archived: false, canEmail: true, emails: ["c@x.com"] }],
+      ])
+    )
+    mockLoad.mockResolvedValue(new Map([...statements()]))
+    await sendGivingStatements(2025, [1, 2, 3, 4])
+    const reasons = mockLogAudit.mock.calls.map((c) => [c[3], c[4].reason])
+    expect(reasons).toEqual([[1, "no_email_or_consent"], [2, "archived"], [3, "no_giving"], [4, "family_not_found"]])
+    expect(JSON.stringify(mockLogAudit.mock.calls)).not.toContain("@x.com")
+  })
+
+  describe("time bounds", () => {
+    afterEach(() => jest.useRealTimers())
+
+    it("stops starting sends after the time budget and returns the rest as remaining", async () => {
+      mockFamilies.mockResolvedValue(
+        new Map([
+          [1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }],
+          [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
+        ])
+      )
+      const now = jest.spyOn(Date, "now")
+      let t = 1_000_000
+      now.mockImplementation(() => t)
+      mockSend.mockImplementationOnce(async () => {
+        t += 41_000
+      })
+      const res = await sendGivingStatements(2025, [1, 2])
+      now.mockRestore()
+      expect(res).toEqual(expect.objectContaining({ sent: 1, remaining: [2] }))
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
+    it("reports a send that exceeds the per-send timeout as in progress and moves on", async () => {
+      jest.useFakeTimers()
+      mockSend.mockImplementationOnce(() => new Promise(() => undefined))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      expect(await p).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1 }))
+    })
   })
 
   it("releases the claim when building or rendering fails before the send", async () => {
@@ -242,7 +294,7 @@ describe("sendGivingStatements", () => {
     ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValueOnce(true)
     mockSend.mockRejectedValueOnce(new Error("timeout"))
     const res = await sendGivingStatements(2025, [1])
-    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })
+    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }], auditFailed: [], remaining: [] })
     expect(mockClaimDelete).not.toHaveBeenCalled()
     expect(mockClaimSwap).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025, outcome: "unknown" })

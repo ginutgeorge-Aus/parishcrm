@@ -129,5 +129,8 @@ export function parseStatementYear(raw: string | number | null | undefined): num
 
 /** Audit action for a delivered statement (the per-recipient send log). */
 export const STATEMENT_SENT = "GIVING_STATEMENT_SENT"
-/** Audit action for a failed statement delivery. */
+/**
+ * Audit action for a statement that was not delivered: a failed or ambiguous delivery, or a refusal
+ * before sending (no email/consent, no giving, archived, family missing; `metadata.reason` says which).
+ */
 export const STATEMENT_FAILED = "GIVING_STATEMENT_FAILED"

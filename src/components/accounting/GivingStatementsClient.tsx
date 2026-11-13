@@ -58,46 +58,61 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
     setSelected((prev) => (pendingIds.every((i) => prev.has(i)) ? new Set() : new Set(pendingIds)))
   }
 
-  /** Send to the selected families in chunks of 200 and summarise the outcome. */
+  /** Send to the selected families in chunks of 200 (re-queueing ids the server left over its time budget), keep partial totals on a failure and summarise the outcome. */
   function handleSend() {
     setMessage(null)
     setErrors([])
     const nameById = new Map(rows.map((r) => [r.familyId, r.familyName]))
     startTransition(async () => {
-      try {
-        const ids = Array.from(selected)
-        let sent = 0
-        let failed = 0
-        let skipped = 0
-        let inProgress = 0
-        let fatal: string | null = null
-        let done = 0 // ids already processed by completed chunks
-        const errs: { familyId: number; text: string }[] = []
-        for (let i = 0; i < ids.length; i += 200) {
-          const res = await sendGivingStatements(year, ids.slice(i, i + 200), !resend)
-          if ("error" in res) {
-            fatal = res.error
-            break
-          }
-          done = i + 200
-          sent += res.sent
-          failed += res.failed
-          skipped += res.skipped
-          inProgress += res.inProgress
-          errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${nameById.get(e.familyId) ?? "Family #" + e.familyId}: ${e.error}` })))
+      let sent = 0
+      let failed = 0
+      let skipped = 0
+      let inProgress = 0
+      let fatal: string | null = null
+      // Ids not yet confirmed processed. A chunk's unattempted tail comes back as `remaining` (server time budget).
+      let queue = Array.from(selected)
+      const auditFailedIds: number[] = []
+      const errs: { familyId: number; text: string }[] = []
+      const label = (id: number) => nameById.get(id) ?? "Family #" + id
+      while (queue.length > 0) {
+        const chunk = queue.slice(0, 200)
+        let res
+        try {
+          res = await sendGivingStatements(year, chunk, !resend)
+        } catch {
+          // Keep the totals of completed chunks; this chunk's outcome is unknown, so it stays selected.
+          fatal = "Something went wrong, try again"
+          break
         }
-        // On an early stop keep only the unprocessed families, so a forced resend can't re-send finished chunks.
-        setSelected(fatal ? new Set(ids.slice(done)) : new Set())
-        setErrors(errs)
-        const skippedNote = skipped ? `, skipped ${skipped} (already sent or claimed)` : ""
-        const progressNote = inProgress
-          ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
-          : ""
-        const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.`
-        setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
-      } catch {
-        setMessage("Something went wrong, try again")
+        if ("error" in res) {
+          fatal = res.error
+          break
+        }
+        const left = new Set(res.remaining)
+        queue = [...chunk.filter((id) => left.has(id)), ...queue.slice(200)]
+        sent += res.sent
+        failed += res.failed
+        skipped += res.skipped
+        inProgress += res.inProgress
+        auditFailedIds.push(...res.auditFailed)
+        errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${label(e.familyId)}: ${e.error}` })))
+        if (left.size === chunk.length) {
+          fatal = "Server made no progress (time budget)"
+          break
+        }
       }
+      // Keep only unprocessed families selected, so a forced resend can't re-send finished chunks.
+      setSelected(new Set(queue))
+      setErrors(errs)
+      const skippedNote = skipped ? `, skipped ${skipped} (already sent or claimed)` : ""
+      const progressNote = inProgress
+        ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
+        : ""
+      const auditNote = auditFailedIds.length
+        ? ` Send log write failed for ${auditFailedIds.map(label).join(", ")}: check them before resending.`
+        : ""
+      const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.${auditNote}`
+      setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
     })
   }
 
