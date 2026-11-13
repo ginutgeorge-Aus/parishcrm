@@ -40,8 +40,8 @@ had when it was added.
 
 When a delivery price is set, each row is either **Pickup** or **Delivery**. Pick one when adding
 a row, and change it later from the row's Pickup/Delivery menu. Switching reprices the row at the
-fundraiser's current price for the new choice, and is refused if the new total would be below what
-the row has already paid. Any open card payment for the old amount is cancelled. You cannot clear
+fundraiser's current price for the new choice, and is refused once the row has any recorded
+payment (delete the payments first). Any open card payment for the old amount is cancelled. You cannot clear
 the delivery price while any row is a delivery. The buyer's payment page shows "(pickup)" or
 "(delivery)" next to the price. Without a delivery price none of this appears.
 

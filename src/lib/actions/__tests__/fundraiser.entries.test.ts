@@ -264,7 +264,7 @@ describe("addEntry concurrency", () => {
 describe("updateEntryDelivery", () => {
   const entryRow = (over: Record<string, unknown> = {}) => ({
     id: 11, quantity: 4, unitPrice: "10.00", delivery: false,
-    fundraiser: { eventId: 7, unitPrice: "10.00", deliveryPrice: "12.00" }, payments: [{ amount: "25.00" }], ...over,
+    fundraiser: { eventId: 7, unitPrice: "10.00", deliveryPrice: "12.00" }, payments: [], ...over,
   })
   beforeEach(() => prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow()))
 
@@ -273,7 +273,9 @@ describe("updateEntryDelivery", () => {
     expect(prismaMock.$queryRaw).toHaveBeenCalled()
     expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { delivery: true, unitPrice: "12.00" } })
     expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(11)
-    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", 11, { from: false, to: true })
+    expect(logAuditTx).toHaveBeenCalledWith(prismaMock, 5, "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", 11, {
+      from: false, to: true, priceFrom: "10.00", priceTo: "12.00",
+    })
     expect(revalidatePath).toHaveBeenCalledWith("/events/7/fundraiser")
   })
 
@@ -283,9 +285,9 @@ describe("updateEntryDelivery", () => {
     expect(prismaMock.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { delivery: false, unitPrice: "11.00" } })
   })
 
-  it("rejects a total below what is already paid", async () => {
+  it("refuses to change delivery once the entry has payments", async () => {
     prismaMock.fundraiserEntry.findUnique.mockResolvedValue(entryRow({ delivery: true, unitPrice: "12.00", payments: [{ amount: "45.00" }] }))
-    expect(await updateEntryDelivery(11, false)).toEqual({ error: "New total is below the amount already paid" })
+    expect(await updateEntryDelivery(11, false)).toEqual({ error: "Cannot change delivery on an entry that has payments. Delete the payments first." })
     expect(prismaMock.fundraiserEntry.update).not.toHaveBeenCalled()
     expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })

@@ -90,7 +90,7 @@ describe("saveFundraiser", () => {
   it("blocks clearing the delivery price while delivery entries exist", async () => {
     prismaMock.fundraiser.findUnique.mockResolvedValue({ id: 3 })
     prismaMock.fundraiserEntry.count.mockResolvedValue(2)
-    expect(await saveFundraiser(7, input)).toEqual({ error: "Delivery entries exist" })
+    expect(await saveFundraiser(7, input)).toEqual({ error: "2 delivery entries exist. Switch them to pickup or delete them before clearing the delivery price." })
     expect(prismaMock.fundraiserEntry.count).toHaveBeenCalledWith({ where: { fundraiserId: 3, delivery: true } })
     expect(prismaMock.fundraiser.upsert).not.toHaveBeenCalled()
   })
@@ -120,7 +120,7 @@ describe("saveFundraiser", () => {
       await fn(prismaMock)
       throw Object.assign(new Error("conflict"), { code: "P2034" })
     })
-    expect(await saveFundraiser(7, input)).toEqual({ error: "Delivery entries exist" })
+    expect(await saveFundraiser(7, input)).toEqual({ error: expect.stringMatching(/^\d+ delivery entr(y exists|ies exist)\. Switch them to pickup or delete them before clearing the delivery price\.$/) })
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
     // The rolled-back first attempt's audit write is discarded with it; the retry writes none.
     expect(logAuditTx).toHaveBeenCalledTimes(1)

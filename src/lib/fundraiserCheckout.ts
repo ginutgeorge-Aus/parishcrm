@@ -91,19 +91,36 @@ function isResourceMissing(e: unknown): boolean {
 }
 
 /**
- * Retrieve one prior session without throwing. `gone` marks a session Stripe
- * says does not exist (safe to mark its staging row EXPIRED); `session: null`
- * with `gone: false` is a transient failure, so the session's state is unknown.
+ * Whether a Stripe error is a permanent client error that retrying cannot fix
+ * (auth, permission, invalid request: e.g. a rotated key or a session id from
+ * another account). Such a prior session can never be paid by us. Network
+ * failures (no HTTP status), 5xx, 408, 409 and 429 are transient.
+ * @param e thrown value
+ * @returns true for a permanent 4xx
+ */
+function isPermanentClientError(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false
+  const { statusCode, type } = e as { statusCode?: unknown; type?: unknown }
+  if (type === "StripeAuthenticationError" || type === "StripePermissionError" || type === "StripeInvalidRequestError") return true
+  return typeof statusCode === "number" && statusCode >= 400 && statusCode < 500 && ![408, 409, 429].includes(statusCode)
+}
+
+/**
+ * Retrieve one prior session without throwing. `gone` marks a session that can
+ * never be paid (Stripe says it does not exist, or a permanent 4xx such as a
+ * rotated key): safe to mark its staging row EXPIRED and not block checkout.
+ * `session: null` with `gone: false` is a transient failure (network, 5xx,
+ * 429), so the session's state is unknown.
  * @param stripe Stripe client
  * @param id Checkout Session id
- * @returns the session, or null with `gone` set for resource_missing
+ * @returns the session, or null with `gone` set for resource_missing / permanent 4xx
  */
 async function retrievePrior(stripe: Stripe, id: string): Promise<LivePrior> {
   try {
     return { session: await stripe.checkout.sessions.retrieve(id), gone: false }
   } catch (e) {
     console.warn("Fundraiser checkout: could not retrieve prior session %s: %s", String(id), e instanceof Error ? e.message : String(e))
-    return { session: null, gone: isResourceMissing(e) }
+    return { session: null, gone: isResourceMissing(e) || isPermanentClientError(e) }
   }
 }
 

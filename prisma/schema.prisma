@@ -1538,17 +1538,17 @@ enum FundraiserPaymentMethod {
 
 /// One fundraiser per event (v1): a unit-priced sale (e.g. packets) tracked per family.
 model Fundraiser {
-  id        Int               @id @default(autoincrement())
-  eventId   Int
-  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  name      String
-  unitLabel String            @default("packet")
-  unitPrice Decimal           @db.Decimal(10, 2) // the PICKUP price
+  id            Int               @id @default(autoincrement())
+  eventId       Int
+  event         Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name          String
+  unitLabel     String            @default("packet")
+  unitPrice     Decimal           @db.Decimal(10, 2) // the PICKUP price
   // null = no delivery option
-  deliveryPrice Decimal?      @db.Decimal(10, 2)
-  refPrefix String?
-  createdAt DateTime          @default(now())
-  entries   FundraiserEntry[]
+  deliveryPrice Decimal?          @db.Decimal(10, 2)
+  refPrefix     String?
+  createdAt     DateTime          @default(now())
+  entries       FundraiserEntry[]
 
   @@unique([eventId])
 }

@@ -103,8 +103,9 @@ export async function saveFundraiser(
   const saveErr = await serializableWrite<{ error: string } | undefined>(async (tx) => {
     if (deliveryPrice === null) {
       const existing = await tx.fundraiser.findUnique({ where: { eventId }, select: { id: true } })
-      if (existing && (await tx.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } })) > 0) {
-        return { error: "Delivery entries exist" }
+      const deliveryCount = existing ? await tx.fundraiserEntry.count({ where: { fundraiserId: existing.id, delivery: true } }) : 0
+      if (deliveryCount > 0) {
+        return { error: `${deliveryCount} delivery ${deliveryCount === 1 ? "entry exists" : "entries exist"}. Switch them to pickup or delete them before clearing the delivery price.` }
       }
     }
     const saved = await tx.fundraiser.upsert({
@@ -395,7 +396,8 @@ export async function updateEntryQuantity(entryId: number, quantity: string): Pr
 /**
  * Switch an entry between pickup and delivery. Re-snapshots the entry's unit
  * price from the fundraiser's CURRENT price for the new choice. Rejected when
- * the new total would be below what is already paid, above the owed ceiling, or
+ * the entry already has recorded payments (the price would silently change what
+ * they were paid against), when the new total is above the owed ceiling, or
  * when switching to delivery on a fundraiser with no delivery price. Same
  * Serializable + row-lock discipline as `updateEntryQuantity`; open card
  * checkouts staged for the old amount are expired after commit when the price
@@ -428,12 +430,15 @@ export async function updateEntryDelivery(entryId: number, delivery: boolean): P
     if (entry.delivery === delivery) return { from: entry.delivery, priceChanged: false, eventId }
     if (delivery && entry.fundraiser.deliveryPrice === null) return { error: NO_DELIVERY_PRICE }
     const price = delivery && entry.fundraiser.deliveryPrice !== null ? entry.fundraiser.deliveryPrice : entry.fundraiser.unitPrice
-    const { paidCents } = entryTotals(entry, entry.payments)
+    if (entry.payments.length > 0) {
+      return { error: "Cannot change delivery on an entry that has payments. Delete the payments first." }
+    }
     const newOwed = entryTotals({ quantity: entry.quantity, unitPrice: price }, []).owedCents
-    if (!(newOwed >= paidCents)) return { error: "New total is below the amount already paid" }
     if (newOwed > MAX_OWED_CENTS) return OWED_TOO_LARGE
     await tx.fundraiserEntry.update({ where: { id: entryId }, data: { delivery, unitPrice: price } })
-    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", entryId, { from: entry.delivery, to: delivery })
+    await logAuditGuardedTx(tx, actorId(g.session), "FUNDRAISER_ENTRY_DELIVERY", "FundraiserEntry", entryId, {
+      from: entry.delivery, to: delivery, priceFrom: String(entry.unitPrice), priceTo: String(price),
+    })
     return { from: entry.delivery, priceChanged: toCents(price) !== toCents(entry.unitPrice), eventId }
   }, BUSY).catch(auditFailedOrThrow)
   if ("error" in res) return res

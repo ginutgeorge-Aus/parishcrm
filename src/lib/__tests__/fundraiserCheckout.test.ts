@@ -199,6 +199,25 @@ it("a prior session Stripe reports missing does not block checkout; its row is m
   )
 })
 
+it("a permanent 4xx on a prior session (e.g. rotated key) does not block checkout", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_denied", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockRejectedValue(Object.assign(new Error("Invalid API Key"), { type: "StripeAuthenticationError", statusCode: 401 }))
+  sessionsCreate.mockResolvedValue({ id: "cs_new", url: "https://stripe.test/new" })
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).resolves.toEqual({ url: "https://stripe.test/new" })
+  expect(prisma.checkoutSession.updateMany).toHaveBeenCalledWith(
+    expect.objectContaining({ where: { stripeSessionId: { in: ["cs_denied"] }, status: "OPEN" } }),
+  )
+})
+
+it("a 429 on a prior session is transient: busy error", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_rl", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockRejectedValue(Object.assign(new Error("rate limit"), { type: "StripeRateLimitError", statusCode: 429 }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
 it("a transient retrieve failure opens no new session: retryable busy error, nothing expired", async () => {
   jest.spyOn(console, "warn").mockImplementation(() => {})
   prisma.checkoutSession.findMany.mockResolvedValue([
