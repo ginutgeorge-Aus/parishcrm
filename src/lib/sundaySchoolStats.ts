@@ -34,7 +34,7 @@ export type ExamSummary = {
 }
 
 /** One child's progress in a class. */
-export type StudentStats = {
+type StudentStats = {
   personId: number
   name: string
   attendance: AttendanceSummary
