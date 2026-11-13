@@ -225,7 +225,14 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   for (let i = 0; i < open.length; i += SEND_CONCURRENCY) {
     const chunk = open.slice(i, i + SEND_CONCURRENCY)
     // One query per chunk (not per recipient), fresh so a mid-pass opt-out is honoured. Runs before this chunk's claims.
-    const byId = await loadMailable(chunk.map((r) => r.personId), ctx.groupId)
+    let byId: Awaited<ReturnType<typeof loadMailable>>
+    try {
+      byId = await loadMailable(chunk.map((r) => r.personId), ctx.groupId)
+    } catch (err) {
+      // Stop here, but still raise the pass-level owner alert for earlier chunks' failures below.
+      thrown ??= { reason: err }
+      break
+    }
     const settled = await Promise.allSettled(chunk.map(async (r) => {
       if (!(await claimGroupRecipient(r.id))) {
         // A stale PENDING claim was just closed as UNKNOWN by the claim; only a live claim elsewhere is in flight.
@@ -251,7 +258,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   if (firstSendError !== undefined) {
     // One alert per pass, never per recipient. Counts only, never an address.
     const summary = `Group email "${ctx.subject}" (${ctx.groupName}): ${counts.failed} failed, ${counts.unknown} unknown${counts.aborted ? ", pass stopped early" : ""}`
-    await alertOwnerEmailFailure(summary, firstSendError, counts.failed === 0)
+    await alertOwnerEmailFailure(summary, firstSendError, counts.unknown > 0)
   }
   if (thrown) throw thrown.reason
   return counts

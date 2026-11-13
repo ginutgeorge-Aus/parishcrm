@@ -197,6 +197,25 @@ describe("deliverGroupMessage", () => {
     expect(ambiguous).toBe(false)
   })
 
+  it("flags the owner alert ambiguous when any send is UNKNOWN, even beside a clean failure", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2].map((i) => ({ id: i, personId: i })))
+    ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValueOnce(true).mockReturnValue(false)
+    send.mockRejectedValue(new Error("x"))
+    const c = await deliverGroupMessage(1)
+    expect(c).toMatchObject({ unknown: 1, failed: 1 })
+    expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
+  })
+
+  it("a person-lookup error in a later chunk still raises the pass alert, then rethrows", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
+    send.mockRejectedValueOnce(new Error("connect refused")).mockResolvedValue(undefined)
+    p.person.findMany.mockImplementationOnce(async (a: { where: { id: { in: number[] } } }) =>
+      a.where.id.in.map((id) => ({ id, firstName: "Ann", email: "enc:a@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }] })))
+    p.person.findMany.mockRejectedValueOnce(new Error("lookup down"))
+    await expect(deliverGroupMessage(1)).rejects.toThrow("lookup down")
+    expect(alertOwnerEmailFailure).toHaveBeenCalledTimes(1)
+  })
+
   it("a DB error in one send lets its chunk siblings settle before the pass rethrows", async () => {
     p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
     p.groupMessageRecipient.updateMany.mockImplementation(async (a: { where: { id: number } }) => {

@@ -38,7 +38,7 @@ describe("GroupMessageForm", () => {
     const btn = screen.getByRole("button", { name: "Send email" })
     expect(btn).toHaveAttribute("aria-disabled", "true")
     expect(btn).not.toBeDisabled()
-    expect(btn).toHaveAccessibleDescription(/every member is opted out or has no address/)
+    expect(btn).toHaveAccessibleDescription(/every member is opted out or has no usable email address/)
     await userEvent.type(screen.getByLabelText("Subject"), "Hello")
     await userEvent.type(screen.getByLabelText("Message"), "Body")
     await userEvent.click(btn)

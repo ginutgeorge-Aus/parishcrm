@@ -52,7 +52,7 @@ curl -fsS -X POST \
 | `POST /api/cron/send-clearance-digest` | Sends the monthly clearance-compliance digest to ADMIN and PASTOR users. An explicit call, so it does not need `CLEARANCE_DIGEST`. It respects the once-per-month guard: if this month's digest already went out it returns `{"status":"already-sent","month":"YYYY-MM"}` (HTTP 200) and sends nothing, so daily or retrying schedulers are safe. Add `?force=1` to send again deliberately. | Monthly (1st) |
 | `POST /api/cron/error-issues` | Optional — groups recent server errors by fingerprint and files one GitHub issue per new error group (deduplicated against already-open issues); also purges old error/analytics rows. Only useful if `GITHUB_TOKEN` / `GITHUB_REPO` are set. | Weekly |
 
-All five require `CRON_SECRET` to be set — with it unset, each endpoint
+All six require `CRON_SECRET` to be set — with it unset, each endpoint
 returns `503` and logs a loud warning rather than silently doing nothing, so
 a misconfigured deployment is easy to notice. Set `CRON_SECRET` to a random
 value (`openssl rand -base64 32`) and use the identical value in both the app
@@ -93,7 +93,7 @@ environment and your scheduler's `Authorization: Bearer` header.
 | `IN_APP_CRON` | `true`/`false` forces the in-app scheduler on/off. Unset = on in production only. |
 | `ERROR_DIGEST` | `true` enables the weekly error digest (also needs `GITHUB_TOKEN`/`GITHUB_REPO`). |
 | `CLEARANCE_DIGEST` | `true` enables the monthly clearance-compliance digest in the in-app scheduler. The manual endpoint ignores it. |
-| `CRON_SECRET` | Required for all five endpoints to do anything. Unset = every call returns `503`. |
+| `CRON_SECRET` | Required for all six endpoints to do anything. Unset = every call returns `503`. |
 | `GITHUB_TOKEN`, `GITHUB_REPO` | Required for `error-issues` to file anything — otherwise it's a harmless no-op call. |
 
 See [Environment Variables](/parishcrm/docs/environment-variables/) for the full reference.

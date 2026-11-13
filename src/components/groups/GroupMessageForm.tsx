@@ -37,7 +37,7 @@ export function GroupMessageForm({
       </div>
       {!canSend && (
         <p id="send-blocked" className="text-sm text-muted-foreground">
-          No member can receive this email: every member is opted out or has no address.
+          No member can receive this email: the group has no active members, or every member is opted out or has no usable email address.
         </p>
       )}
       {/* aria-disabled (not disabled) keeps the button focusable so screen-reader users hear why it is off; the click is blocked below. */}
