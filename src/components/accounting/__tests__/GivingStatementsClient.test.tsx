@@ -113,6 +113,17 @@ describe("GivingStatementsClient", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (1)" })).toBeInTheDocument())
   })
 
+  it("drops a thrown chunk from the selection on a forced resend so a retry cannot re-send it", async () => {
+    send.mockRejectedValueOnce(new Error("boom"))
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={rows} canManage />)
+    await user.click(screen.getAllByLabelText("Select Smith")[0])
+    await user.click(screen.getByLabelText(/resend to families already sent/i))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    await waitFor(() => expect(screen.getByText(/check the send log before ticking Resend/)).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: /Email selected \(1\)/ })).not.toBeInTheDocument()
+  })
+
   it("caps the audit-failed names listed in the banner", async () => {
     const many: StatementListRow[] = Array.from({ length: 12 }, (_, n) => row({ familyId: 1000 + n, familyName: `Fam${n}` }))
     send.mockResolvedValueOnce({

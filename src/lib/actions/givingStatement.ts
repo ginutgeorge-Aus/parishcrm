@@ -19,6 +19,7 @@ import {
   type FamilyStatement,
   STATEMENT_SENT,
   STATEMENT_FAILED,
+  STATEMENT_SKIPPED,
 } from "@/lib/givingStatement"
 import { loadStatements, loadStatementSummaries, loadStatementFamilies, type StatementFamily } from "@/lib/givingStatementData"
 
@@ -273,9 +274,9 @@ type SendOneResult =
  */
 async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   const { id, fy, uid, church, statement, family } = a
-  /** Refused before any send: audit it with a reason code (no address, no PII) and report it. */
+  /** Refused before any send: audit it as SKIPPED with a reason code (no address, no PII) and report it. */
   const refuse = async (reason: string, error: string): Promise<SendOneResult> => {
-    const logged = await bestEffort("audit", id, () => logAudit(uid, STATEMENT_FAILED, "Family", id, { fyStartYear: fy, reason }))
+    const logged = await bestEffort("audit", id, () => logAudit(uid, STATEMENT_SKIPPED, "Family", id, { fyStartYear: fy, reason }))
     return { status: "failed", error, auditFailed: !logged }
   }
   if (!family) return refuse("family_not_found", "Family not found.")
@@ -338,7 +339,7 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
  * `skipped` counts families already sent; `inProgress` those whose claim is PENDING or UNKNOWN (check, then resend)
  * or whose send exceeded the per-send timeout (delivery unknown; the claim stays PENDING).
  * The run stops starting sends after a time budget; unattempted ids come back in `remaining` for a follow-up call.
- * Every refusal (no consent/email, no giving, archived, missing) and delivery failure is audited; families whose
+ * Every refusal (no consent/email, no giving, archived, missing) is audited as SKIPPED (reason code) and every delivery failure as FAILED; families whose
  * audit write failed are listed in `auditFailed` (a send is never reported as logged when its row was not written).
  * A forced resend that fails definitively restores the previous claim rather than deleting it.
  * @param skipAlreadySent skip families already claimed/sent for this FY; false forces a resend
@@ -359,6 +360,8 @@ export async function sendGivingStatements(
   if (ids.length > MAX_BATCH) return { error: `Max ${MAX_BATCH} per batch` }
   if (!ids.every((i) => isValidPgId(i))) return { error: "Invalid family." }
   const uid = actorId(session)
+  // Started before the setup queries so they count toward the time budget.
+  const startedAt = Date.now()
 
   const churchRes = await getChurchSettingsForReceipt()
   if ("error" in churchRes) return { error: churchRes.error }
@@ -378,7 +381,6 @@ export async function sendGivingStatements(
   const errors: { familyId: number; error: string }[] = []
   const auditFailed: number[] = []
   const remaining: number[] = []
-  const startedAt = Date.now()
   for (const id of ids) {
     // Only start a send that can finish inside the budget, so the whole run is bounded (the first id always starts).
     if (Date.now() - startedAt + SEND_TIMEOUT_MS > TIME_BUDGET_MS) {
@@ -389,10 +391,13 @@ export async function sendGivingStatements(
     // Reload the family right before its send so a consent revoke or archive made mid-batch is honoured.
     // The reload is inside the deadline too, so a hung query cannot stall the run.
     let timed: SendOneResult | "timeout"
+    // Set once the deadline passes: a reload that finishes late must not start a send nobody is waiting for.
+    let expired = false
     try {
       timed = await withTimeout( // NOSONAR
         (async () => {
           const family = (await loadStatementFamilies([id])).get(id)
+          if (expired) return { status: "skipped", reason: "in_progress" } as const
           return sendOne({ id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family })
         })(),
         SEND_TIMEOUT_MS
@@ -405,6 +410,7 @@ export async function sendGivingStatements(
       continue
     }
     if (timed === "timeout") {
+      expired = true
       // The claim (if taken) stays PENDING, so neither a plain nor a forced re-run can send again until it goes stale.
       logger.error("sendGivingStatements send timed out", { familyId: id })
       inProgress++
@@ -431,9 +437,24 @@ export type StatementLogRow = {
   id: number
   familyId: number
   familyName: string
-  status: "SENT" | "FAILED"
+  /** SKIPPED = refused before sending (see `reason`); it never counts as a family's last send status. */
+  status: "SENT" | "FAILED" | "SKIPPED"
+  /** Reason code for a SKIPPED row (family_not_found, no_giving, archived, no_email_or_consent). */
+  reason?: string
   at: Date
   sentBy: string
+}
+
+/**
+ * Pull the reason code off a SKIPPED audit row.
+ * @param action audit action
+ * @param metadata audit metadata JSON
+ * @returns `{ reason }` for a SKIPPED row with a string reason, else `{}`
+ */
+function skipReason(action: string, metadata: unknown): { reason?: string } {
+  if (action !== STATEMENT_SKIPPED || typeof metadata !== "object" || metadata === null) return {}
+  const reason = (metadata as { reason?: unknown }).reason
+  return typeof reason === "string" ? { reason } : {}
 }
 
 /**
@@ -449,10 +470,10 @@ export async function listStatementSendLog(year: number): Promise<StatementLogRo
   if (fy === null) return { error: "Invalid financial year." }
 
   const rows = await prisma.auditLog.findMany({
-    where: { action: { in: [STATEMENT_SENT, STATEMENT_FAILED] }, metadata: { path: ["fyStartYear"], equals: fy } },
+    where: { action: { in: [STATEMENT_SENT, STATEMENT_FAILED, STATEMENT_SKIPPED] }, metadata: { path: ["fyStartYear"], equals: fy } },
     orderBy: { createdAt: "desc" },
     take: LOG_CAP,
-    select: { id: true, action: true, resourceId: true, createdAt: true, user: { select: { name: true } } },
+    select: { id: true, action: true, resourceId: true, metadata: true, createdAt: true, user: { select: { name: true } } },
   })
   const familyIds = Array.from(new Set(rows.flatMap((r) => (r.resourceId == null ? [] : [r.resourceId]))))
   const families = await prisma.family.findMany({ where: { id: { in: familyIds } }, select: { id: true, name: true } })
@@ -464,7 +485,8 @@ export async function listStatementSendLog(year: number): Promise<StatementLogRo
           id: r.id,
           familyId: r.resourceId,
           familyName: names.get(r.resourceId) ?? `Family #${r.resourceId}`,
-          status: r.action === STATEMENT_SENT ? ("SENT" as const) : ("FAILED" as const),
+          status: r.action === STATEMENT_SENT ? ("SENT" as const) : r.action === STATEMENT_SKIPPED ? ("SKIPPED" as const) : ("FAILED" as const),
+          ...skipReason(r.action, r.metadata),
           at: r.createdAt,
           sentBy: r.user?.name ?? "System",
         }]

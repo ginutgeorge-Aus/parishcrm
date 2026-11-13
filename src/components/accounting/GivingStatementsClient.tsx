@@ -81,8 +81,10 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
           res = await sendGivingStatements(year, chunk, !resend)
         } catch {
           // Keep the totals of completed chunks. This chunk's outcome is unknown (some may have been emailed),
-          // so it stays selected and the user is told to check the send log before forcing a resend.
+          // so the user is told to check the send log first. On a forced resend the chunk is dropped from the
+          // selection, otherwise the retry would re-send families that already went out.
           fatal = "Something went wrong; some of the remaining families may have been sent, check the send log before ticking Resend"
+          if (resend) queue = queue.slice(200)
           break
         }
         if ("error" in res) {

@@ -61,7 +61,8 @@ export default async function GivingStatementsPage(props: Readonly<Props>) {
               <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                 <span className="font-medium">{l.familyName}</span>
                 <span className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <Badge variant={l.status === "SENT" ? "default" : "destructive"}>{l.status}</Badge>
+                  <Badge variant={l.status === "SENT" ? "default" : l.status === "SKIPPED" ? "secondary" : "destructive"}>{l.status}</Badge>
+                  {l.reason && <span>{l.reason.replaceAll("_", " ")}</span>}
                   <span>{l.sentBy}</span>
                   <span>{l.at.toLocaleString(APP_LOCALE, { timeZone: APP_TIMEZONE })}</span>
                 </span>

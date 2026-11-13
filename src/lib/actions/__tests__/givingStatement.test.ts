@@ -217,7 +217,7 @@ describe("sendGivingStatements", () => {
     expect(res).toEqual(expect.objectContaining({ sent: 1, auditFailed: [1] }))
   })
 
-  it("audits refusals (no consent/email, no giving, archived, missing) with a reason code", async () => {
+  it("audits refusals (no consent/email, no giving, archived, missing) as SKIPPED with a reason code", async () => {
     mockFamilies.mockResolvedValue(
       new Map([
         [1, { id: 1, name: "A", archived: false, canEmail: false, emails: [] }],
@@ -227,6 +227,7 @@ describe("sendGivingStatements", () => {
     )
     mockLoad.mockResolvedValue(new Map([...statements()]))
     await sendGivingStatements(2025, [1, 2, 3, 4])
+    expect(mockLogAudit.mock.calls.every((c) => c[1] === "GIVING_STATEMENT_SKIPPED")).toBe(true)
     const reasons = mockLogAudit.mock.calls.map((c) => [c[3], c[4].reason])
     expect(reasons).toEqual([[1, "no_email_or_consent"], [2, "archived"], [3, "no_giving"], [4, "family_not_found"]])
     expect(JSON.stringify(mockLogAudit.mock.calls)).not.toContain("@x.com")
@@ -284,7 +285,19 @@ describe("sendGivingStatements", () => {
       expect(mockSend).not.toHaveBeenCalled()
     })
 
-    it("reports a send that exceeds the per-send timeout as in progress and moves on", async () => {
+    it("does not start a send when a hung reload finishes after the deadline", async () => {
+      jest.useFakeTimers()
+      let release: (m: Map<number, unknown>) => void = () => undefined
+      mockFamilies.mockImplementationOnce(() => new Promise((r) => { release = r }))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      await p
+      release(new Map([[1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }]]))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("reports a send that exceeds the per-send timeout as in progress", async () => {
       jest.useFakeTimers()
       mockSend.mockImplementationOnce(() => new Promise(() => undefined))
       const p = sendGivingStatements(2025, [1])
@@ -418,6 +431,16 @@ describe("feature guard", () => {
 })
 
 describe("listStatementSendLog", () => {
+  it("maps a SKIPPED row with its reason code", async () => {
+    findLog.mockResolvedValue([
+      { id: 6, action: "GIVING_STATEMENT_SKIPPED", resourceId: 1, metadata: { fyStartYear: 2025, reason: "no_giving" }, createdAt: new Date("2026-07-02"), user: null },
+    ])
+    ;(prisma.family.findMany as jest.Mock).mockResolvedValue([{ id: 1, name: "Smith" }])
+    expect(await listStatementSendLog(2025)).toEqual([
+      { id: 6, familyId: 1, familyName: "Smith", status: "SKIPPED", reason: "no_giving", at: new Date("2026-07-02"), sentBy: "System" },
+    ])
+  })
+
   it("maps audit rows to log rows", async () => {
     findLog.mockResolvedValue([
       { id: 5, action: "GIVING_STATEMENT_FAILED", resourceId: 1, createdAt: new Date("2026-07-01"), user: { name: "Pat" } },
