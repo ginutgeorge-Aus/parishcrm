@@ -197,6 +197,20 @@ describe("createExam / updateExam / archiveExam", () => {
     expect(await updateExam(9, undefined, form({ totalMarks: "10" }))).toEqual({ error: "Total marks is below a score already entered" })
     expect(p.sundaySchoolExam.updateMany).not.toHaveBeenCalled()
   })
+  it("create maps a unique-index violation (P2002) to the duplicate error", async () => {
+    p.sundaySchoolExam.create.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }))
+    expect(await createExam(4, undefined, form())).toEqual({ error: "This class already has an exam with that name on that date" })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("update maps a unique-index violation (P2002) to the duplicate error", async () => {
+    p.sundaySchoolExam.updateMany.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }))
+    expect(await updateExam(9, undefined, form())).toEqual({ error: "This class already has an exam with that name on that date" })
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+  it("create rethrows non-unique errors", async () => {
+    p.sundaySchoolExam.create.mockRejectedValue(new Error("boom"))
+    await expect(createExam(4, undefined, form())).rejects.toThrow("boom")
+  })
   it("update rejects a duplicate name+date on another exam (excludes itself)", async () => {
     p.sundaySchoolExam.count.mockResolvedValue(1)
     expect(await updateExam(9, undefined, form())).toEqual({ error: "This class already has an exam with that name on that date" })
