@@ -136,6 +136,7 @@ const EXEMPT_API_ROUTES: Record<string, string> = {
   "src/app/api/branding/[slot]/route.ts": "core: public church logo/branding images",
   "src/app/api/health/route.ts": "core: uptime/health probe",
   "src/app/api/cron/error-issues/route.ts": "core: error digest, not feature-owned",
+  "src/app/api/cron/send-group-messages/route.ts": "core: group email retry (#657), groups has no feature flag",
   "src/app/api/cron/sweep-checkouts/route.ts": "in-flight payments must settle while events is off",
   "src/app/api/stripe/webhook/route.ts": "in-flight payments must settle while events is off",
   "src/app/api/import/families/route.ts": "core: family CSV import (admin only)",
