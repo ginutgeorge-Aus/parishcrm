@@ -352,6 +352,8 @@ const CORE_ACTIONS = new Set([
   "venueCalendar.ts",
   // Groups & ministries (#303): core, no feature flag; role + group-link gated (group.test.ts).
   "group.ts",
+  // Group email (#657): core, no feature flag; role + group-link gated (groupMessage.test.ts).
+  "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
 ])

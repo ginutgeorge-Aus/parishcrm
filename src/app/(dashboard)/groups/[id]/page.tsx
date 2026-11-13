@@ -73,8 +73,18 @@ export default async function GroupPage(props: Readonly<{ params: Promise<{ id: 
               </>
             )}
             {editor && (
+              <>
+                <Button variant="outline" asChild>
+                  <Link href={`/groups/${group.id}/message`}>Email group</Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link href={`/groups/${group.id}/edit`}>Edit</Link>
+                </Button>
+              </>
+            )}
+            {manager && !group.archivedAt && (
               <Button variant="outline" asChild>
-                <Link href={`/groups/${group.id}/edit`}>Edit</Link>
+                <Link href={`/groups/${group.id}/messages`}>Sent messages</Link>
               </Button>
             )}
           </div>

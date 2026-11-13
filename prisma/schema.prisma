@@ -91,6 +91,7 @@ model Person {
   sundaySchoolAttendance  SundaySchoolAttendance[]
   sundaySchoolExamResults SundaySchoolExamResult[]
   groupMemberships        GroupMember[]
+  groupMessageRecipients  GroupMessageRecipient[]
   invoices                Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
@@ -172,6 +173,7 @@ model User {
   clearancesVerified           PersonClearance[]        @relation("ClearanceVerifiedBy")
   invoicesCreated              Invoice[]                @relation("InvoiceCreatedBy")
   invoicesSent                 Invoice[]                @relation("InvoiceSentBy")
+  groupMessagesSent            GroupMessage[]
 }
 
 model TrustedDevice {
@@ -1632,6 +1634,7 @@ model Group {
   updatedAt    DateTime            @updatedAt
   members      GroupMember[]
   leaderAccess GroupLeaderAccess[]
+  messages     GroupMessage[]
 
   @@index([category])
 }
@@ -1663,4 +1666,42 @@ model GroupLeaderAccess {
 
   @@unique([groupId, userId])
   @@index([userId])
+}
+
+/// One email a leader sent to a group (#303). Plain-text body; recipients are rows in GroupMessageRecipient.
+model GroupMessage {
+  id         Int                     @id @default(autoincrement())
+  groupId    Int
+  /// Null once the sending login is deleted: the history stays.
+  sentById   Int?
+  subject    String
+  body       String
+  createdAt  DateTime                @default(now())
+  group      Group                   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sentBy     User?                   @relation(fields: [sentById], references: [id], onDelete: SetNull)
+  recipients GroupMessageRecipient[]
+
+  @@index([groupId, createdAt])
+}
+
+/// Delivery ledger for a group email, one row per person. Same state machine as CelebrationSend:
+/// "PENDING" (queued or in flight) | "SENT" | "FAILED" (clean pre-delivery failure, retryable up to
+/// MAX_DELIVERY_ATTEMPTS) | "UNKNOWN" (terminal: mail may be out, never reclaimed). No address is stored;
+/// it is decrypted from Person.email at send time.
+model GroupMessageRecipient {
+  id        Int          @id @default(autoincrement())
+  messageId Int
+  personId  Int
+  status    String       @default("PENDING")
+  attempts  Int          @default(0)
+  /// Lease clock for an in-flight claim: a PENDING row with a fresh claimedAt is being sent right now.
+  claimedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  message   GroupMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  person    Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, personId])
+  @@index([status])
+  @@index([personId])
 }

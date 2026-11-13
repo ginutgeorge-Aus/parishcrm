@@ -12,7 +12,7 @@ export { schedulerEnabled, type Env } from "@/lib/schedulerFlag"
  * period; the clearance digest's and venue invoice's budgets are per Sydney day) until one attempt fully succeeds. This in-memory state only avoids wasted work — the
  * jobs' own DB markers are what prevent duplicate sends after a restart.
  */
-export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest" | "clearanceDigest" | "venueInvoice"
+export type JobName = "reminders" | "checkouts" | "celebrations" | "errorDigest" | "clearanceDigest" | "venueInvoice" | "groupMessages"
 type JobState = {
   lastStart: number | null
   lastSuccessKey: string | null // Sydney day / week of the last full success (period jobs only)
@@ -21,7 +21,7 @@ type JobState = {
 }
 export type SchedulerState = Record<JobName, JobState>
 
-const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest", "clearanceDigest", "venueInvoice"]
+const JOB_NAMES: readonly JobName[] = ["reminders", "checkouts", "celebrations", "errorDigest", "clearanceDigest", "venueInvoice", "groupMessages"]
 
 const EVERY_MS = 30 * 60_000
 const CELEBRATIONS_FROM_HOUR = 7
@@ -32,7 +32,7 @@ const MAX_ATTEMPTS_PER_PERIOD = 3
 
 export function initialState(): SchedulerState {
   const fresh = (): JobState => ({ lastStart: null, lastSuccessKey: null, attempts: { key: null, count: 0 }, running: false })
-  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh(), clearanceDigest: fresh(), venueInvoice: fresh() }
+  return { reminders: fresh(), checkouts: fresh(), celebrations: fresh(), errorDigest: fresh(), clearanceDigest: fresh(), venueInvoice: fresh(), groupMessages: fresh() }
 }
 
 /**

@@ -27,6 +27,8 @@ export const DEFAULT_JOBS: Jobs = {
   // Not gated by a FEATURES flag: runVenueInvoiceJob checks venueUsage.enabled itself and returns the
   // feature-off skip so the month stays open.
   venueInvoice: async (now) => (await import("@/lib/venueInvoiceJob")).runVenueInvoiceJob(now),
+  // Interval job: retries group emails left queued/failed (SMTP blip, missed immediate drain).
+  groupMessages: async (now) => (await import("@/lib/groupMessageDeliver")).runGroupMessageSweep(now),
 }
 
 /** True for a gated job's feature-off result — not a success, so the period stays open. */
