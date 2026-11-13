@@ -45,7 +45,7 @@ type EventForSync = {
   location: string | null
   imageUrl: string | null
   isPublished: boolean
-  slug: string
+  slug: string | null
   ticketTypes: { id: number }[]
   images?: { kind: string }[]
   updatedAt: Date
@@ -93,7 +93,7 @@ export function buildEventPayload(event: EventForSync): WebsiteEventPayload {
   if (event.ticketTypes.length > 0 && !base) {
     logger.warn("[website-sync] AUTH_URL/NEXTAUTH_URL unset — registerUrl will be null", { eventId: event.id })
   }
-  const registerUrl = event.ticketTypes.length > 0 && base ? `${base}/e/${event.slug}` : null
+  const registerUrl = event.slug && event.ticketTypes.length > 0 && base ? `${base}/e/${event.slug}` : null
   return {
     crmId: event.id,
     title: event.title,
@@ -112,7 +112,7 @@ export function buildEventPayload(event: EventForSync): WebsiteEventPayload {
     // route (Task 2) when one exists and a base URL is resolvable.
     imageUrl:
       event.imageUrl ||
-      (base && event.images?.some((i) => i.kind === "BANNER")
+      (base && event.slug && event.images?.some((i) => i.kind === "BANNER")
         ? `${base}/api/events/${event.slug}/image/banner`
         : null),
     revision: event.updatedAt.toISOString(),

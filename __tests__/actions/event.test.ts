@@ -785,7 +785,7 @@ describe("event audit logging", () => {
 
   it("audit-logs EVENT_PUBLISHED with publish state", async () => {
     adminSession()
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3 })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 3, slug: "x" })
     ;(prisma.event.update as jest.Mock).mockResolvedValue({})
     await publishEvent(3, true)
     expect(mockLogAudit).toHaveBeenCalledWith(9, "EVENT_PUBLISHED", "Event", 3, { published: true })
@@ -1360,5 +1360,64 @@ describe("createEvent — family waiver fields", () => {
     const arg = (prisma.event.create as jest.Mock).mock.calls[0][0]
     expect(arg.data.familyWaiverEnabled).toBe(false)
     expect(arg.data.familyWaiverThreshold).toBe(4)
+  })
+})
+
+describe("optional event slug", () => {
+  const baseFd = (slug?: string) => {
+    const fd = new FormData()
+    fd.set("title", "Pothichoru")
+    fd.set("date", "2026-08-15T18:00")
+    if (slug !== undefined) fd.set("slug", slug)
+    return fd
+  }
+
+  it("createEvent stores null for a blank slug", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.create as jest.Mock).mockResolvedValue({ id: 5 })
+    await createEvent(undefined, baseFd("   "))
+    const data = (prisma.event.create as jest.Mock).mock.calls[0][0].data
+    expect(data.slug).toBeNull()
+  })
+
+  it("createEvent still rejects a malformed slug", async () => {
+    mockSession("PASTOR")
+    const result = await createEvent(undefined, baseFd("Bad Slug"))
+    expect(result?.error).toMatch(/lowercase/i)
+    expect(prisma.event.create).not.toHaveBeenCalled()
+  })
+
+  it("publishEvent rejects an event with no slug", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
+    const result = await publishEvent(1, true)
+    expect(result).toEqual({ error: "Set a slug before publishing" })
+    expect(prisma.event.update).not.toHaveBeenCalled()
+  })
+
+  it("unpublishing a slugless event skips the public-page revalidate", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
+    ;(prisma.event.update as jest.Mock).mockResolvedValue({})
+    await publishEvent(1, false)
+    expect(revalidatePath).not.toHaveBeenCalledWith("/e/null")
+  })
+
+  it("updateEvent rejects a blank slug on a published event", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: true })
+    const result = await updateEvent(1, undefined, baseFd(""))
+    expect(result).toEqual({ error: "Set a slug to publish" })
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("updateEvent stores null for a blank slug on an unpublished event", async () => {
+    mockSession("PASTOR")
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, isPublished: false })
+    ;(prisma.ticketType.findMany as jest.Mock).mockResolvedValue([])
+    ;(prisma.event.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+    await updateEvent(1, undefined, baseFd(""))
+    const data = (prisma.event.updateMany as jest.Mock).mock.calls[0][0].data
+    expect(data.slug).toBeNull()
   })
 })

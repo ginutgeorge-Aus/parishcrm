@@ -418,6 +418,8 @@ export async function sendPaymentReminders(
   // Validate the base URL once, up front — a misconfigured base must fail loudly
   // before we email anyone. The per-recipient success URL is built in the loop.
   const base = process.env.AUTH_URL || process.env.NEXTAUTH_URL || ""
+  // Staff-only events (no slug) have no public page to link reminders to.
+  if (!event.slug) return { error: "Set a slug on this event before sending reminders" }
   try {
     new URL(`/e/${event.slug}`, base)
   } catch {

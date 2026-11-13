@@ -11,7 +11,10 @@ import { DEMO_ERROR, isDemoMode } from "@/lib/demoMode"
 
 const EventBase = z.object({
   title: z.string().min(1, "Title required").max(200),
-  slug: z.string().min(1, "Slug required").max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only"),
+  // Optional: blank/whitespace -> null (staff-only event, no public page).
+  slug: z.string().optional().transform((v) => v?.trim() || null).pipe(
+    z.string().max(200, "Slug is too long").regex(/^[a-z0-9-]+$/, "Slug: lowercase letters, numbers, hyphens only").nullable(),
+  ),
   description: z.string().max(2000).optional(),
   kind: z.enum(["one_off", "recurring"]).default("one_off"),
   category: z.enum(CATEGORIES).catch("worship"),

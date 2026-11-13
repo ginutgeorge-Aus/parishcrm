@@ -96,8 +96,10 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
   if (!exists) return { error: "Event not found" }
+  // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
+  if (exists.isPublished && !parsed.slug) return { error: "Set a slug to publish" }
 
   // Optimistic concurrency: the edit form submits the row's last-seen
   // updatedAt. Guard the write on it so two editors saving the same event
@@ -338,7 +340,7 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   await logAudit(actorId(session), "EVENT_DELETED", "Event", id)
   await syncEventDeletion(id)
   revalidatePath("/events")
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   redirect("/events")
 }
 
@@ -356,11 +358,14 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true } })
   if (!exists) return { error: "Event not found" }
 
+  // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
+  if (publish && !exists.slug) return { error: "Set a slug before publishing" }
+
   await prisma.event.update({ where: { id }, data: { isPublished: publish } })
   await logAudit(actorId(session), "EVENT_PUBLISHED", "Event", id, { published: publish })
   await syncEventToWebsite(id)
   revalidatePath(`/events/${id}/edit`)
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   revalidatePath("/events")
 }
 
@@ -383,7 +388,7 @@ export async function setRegistrationClosed(id: number, closed: boolean): Promis
   await prisma.event.update({ where: { id }, data: { registrationClosed: closed } })
   await logAudit(actorId(session), "EVENT_REGISTRATION_CLOSED", "Event", id, { closed })
   revalidatePath(`/events/${id}/edit`)
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   revalidatePath("/events")
 }
 

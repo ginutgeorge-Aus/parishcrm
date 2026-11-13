@@ -19,7 +19,7 @@ type Props = {
   /** Stored event kind — decides which schedule fields show; never submitted. */
   kind: "one_off" | "recurring"
   defaultValues: {
-    slug: string
+    slug: string | null
     title: string
     description: string
     category: string
@@ -130,7 +130,7 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
             <Label htmlFor="bannerFile">
               Banner image <span className="text-xs font-normal text-muted-foreground">(optional upload — wide ~1200×400, JPEG/PNG/WebP, max 2 MB)</span>
             </Label>
-            {defaultValues.hasBanner && (
+            {defaultValues.hasBanner && defaultValues.slug && (
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -151,7 +151,7 @@ export function ManagedEventForm({ action, kind, defaultValues }: Readonly<Props
             <Label htmlFor="posterFile">
               Poster image <span className="text-xs font-normal text-muted-foreground">(optional upload — portrait ~1080×1350, JPEG/PNG/WebP, max 2 MB)</span>
             </Label>
-            {defaultValues.hasPoster && (
+            {defaultValues.hasPoster && defaultValues.slug && (
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img

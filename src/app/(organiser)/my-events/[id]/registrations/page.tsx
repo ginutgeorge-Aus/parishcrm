@@ -107,7 +107,7 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
           <Button asChild variant="outline" size="sm">
             <Link href={`/my-events/${eventId}/check-in`}>Check-in</Link>
           </Button>
-          <ExportButtons eventId={eventId} slug={event.slug} />
+          {event.slug && <ExportButtons eventId={eventId} slug={event.slug} />}
           <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />
         </div>
       </div>

@@ -138,7 +138,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
               <Button asChild variant="outline" size="sm">
                 <Link href={`/events/${eventId}/waitlist`}>Waitlist</Link>
               </Button>
-              <ExportButtons eventId={eventId} slug={event.slug} />
+              {event.slug && <ExportButtons eventId={eventId} slug={event.slug} />}
               <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />
               {!event.isPublished && isAdmin(session.user.role) && (
                 <DeleteEventButton
@@ -163,7 +163,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
         </div>
       </div>
 
-      {canEdit(session.user.role) && (
+      {canEdit(session.user.role) && event.slug && (
         <VolunteerViewToggle eventId={eventId} slug={event.slug} initialToken={event.volunteerToken} />
       )}
 

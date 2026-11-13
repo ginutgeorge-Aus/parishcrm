@@ -110,11 +110,25 @@ async function buildLineItemsAndSurcharge(
   return { line_items, surchargeCents }
 }
 
+/**
+ * Return the event's public slug or throw. Card checkout only exists for
+ * published events, and publishing requires a slug, so null here is a bug or a
+ * race, never a user path: fail loudly rather than build a `/e/null` return URL.
+ * @param event any object carrying the event slug
+ * @returns the non-null slug
+ * @throws Error when the event has no slug
+ */
+function requireEventSlug(event: { id: number; slug: string | null }): string {
+  if (!event.slug) throw new Error(`Event ${event.id} has no slug; cannot start card checkout`)
+  return event.slug
+}
+
 export async function createEventCheckoutSession(
   event: EventWithTickets,
   priced: PricedRegistration,
   origin: string,
 ): Promise<{ url: string }> {
+  const slug = requireEventSlug(event)
   const stripe = getStripe()
 
   // Prices are recomputed server-side by validateAndPriceRegistration — never
@@ -130,13 +144,13 @@ export async function createEventCheckoutSession(
     mode: "payment",
     line_items,
     expires_at: Math.floor(expiresAt.getTime() / 1000),
-    success_url: `${origin}/e/${event.slug}/success?token={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/e/${event.slug}?canceled=1`,
+    success_url: `${origin}/e/${slug}/success?token={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/e/${slug}?canceled=1`,
     // Tag both the session and the PaymentIntent so charge.* webhook events and
     // Stripe→CRM reconciliation/support lookups can resolve the event.
-    metadata: { eventSlug: event.slug, eventId: String(event.id) },
+    metadata: { eventSlug: slug, eventId: String(event.id) },
     payment_intent_data: {
-      metadata: { eventSlug: event.slug, eventId: String(event.id) },
+      metadata: { eventSlug: slug, eventId: String(event.id) },
     },
   })
   if (!session.url) throw new Error("Stripe returned no checkout URL")
@@ -170,7 +184,7 @@ export class RegistrationNotPayableError extends Error {}
 const REUSE_MIN_REMAINING_MS = 5 * 60 * 1000
 
 export async function createExistingRegistrationCheckoutSession(
-  event: { id: number; slug: string; title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
+  event: { id: number; slug: string | null; title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
   registration: {
     id: number
     publicToken: string
@@ -179,6 +193,7 @@ export async function createExistingRegistrationCheckoutSession(
   },
   origin: string,
 ): Promise<{ url: string }> {
+  const slug = requireEventSlug(event)
   const stripe = getStripe()
   const netCents = toCents(registration.totalAmount)
   const { line_items, surchargeCents } = await buildLineItemsAndSurcharge(event, registration.items, netCents)
@@ -231,12 +246,12 @@ export async function createExistingRegistrationCheckoutSession(
         mode: "payment",
         line_items,
         expires_at: Math.floor(expiresAt.getTime() / 1000),
-        success_url: `${origin}/e/${event.slug}/success?token={CHECKOUT_SESSION_ID}`,
+        success_url: `${origin}/e/${slug}/success?token={CHECKOUT_SESSION_ID}`,
         // Cancel returns to THIS registration's pending success page (bank details +
         // pay-now button), not the blank registration form.
-        cancel_url: `${origin}/e/${event.slug}/success?ref=${registration.publicToken}`,
-        metadata: { eventSlug: event.slug, eventId: String(event.id) },
-        payment_intent_data: { metadata: { eventSlug: event.slug, eventId: String(event.id) } },
+        cancel_url: `${origin}/e/${slug}/success?ref=${registration.publicToken}`,
+        metadata: { eventSlug: slug, eventId: String(event.id) },
+        payment_intent_data: { metadata: { eventSlug: slug, eventId: String(event.id) } },
       })
       createdSessionId = session.id
       if (!session.url) throw new Error("Stripe returned no checkout URL")

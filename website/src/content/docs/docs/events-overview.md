@@ -20,7 +20,7 @@ From the sidebar, staff with edit access go to **Events** (`/events`) and click 
 The form (`/events/new`, and `/events/[id]/edit` for editing) covers:
 
 - **Basics** — title, slug (used in the public URL `/e/<slug>`, lowercase letters/numbers/hyphens
-  only), description, category (worship, youth, fellowship, education, parish, special —
+  only; optional, leave blank for staff-only events with no public page, but required to publish), description, category (worship, youth, fellowship, education, parish, special —
   used as a tag if synced to a public website), location.
 - **Kind** — a **one-off** event has a single date/time (and optional end date); a **recurring**
   event instead has a recurrence pattern (e.g. every Sunday, 2nd/3rd/4th Sunday) plus a display

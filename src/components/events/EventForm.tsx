@@ -31,7 +31,7 @@ type Props = {
   action: (_prev: ActionResult, formData: FormData) => Promise<ActionResult>
   defaultValues?: {
     title?: string
-    slug?: string
+    slug?: string | null
     description?: string
     kind?: string
     category?: string
@@ -125,16 +125,18 @@ export function EventForm({ action, defaultValues = {} }: Readonly<Props>) {
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="slug">
-              Slug * <span className="text-xs text-muted-foreground font-normal">(used in public URL: /e/[slug])</span>
+              Slug <span className="text-xs text-muted-foreground font-normal">(optional; used in public URL: /e/[slug])</span>
             </Label>
             <Input
               id="slug"
               name="slug"
-              defaultValue={defaultValues.slug}
-              required
+              defaultValue={defaultValues.slug ?? ""}
               pattern="[a-z0-9\-]+"
               className="font-mono"
             />
+            <p className="text-xs text-muted-foreground">
+              Leave blank for staff-only events with no public page. Required to publish.
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="description">Description</Label>
