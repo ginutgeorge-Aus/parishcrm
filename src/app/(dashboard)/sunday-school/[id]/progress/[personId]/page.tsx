@@ -4,7 +4,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canBrowseSundaySchool } from "@/lib/roleGuard"
 import { ATTENDANCE_LABELS } from "@/lib/sundaySchoolRollView"
-import { formatPercent, scoreBasisPoints, summariseAttendance, summariseExams } from "@/lib/sundaySchoolStats"
+import { formatLongDate } from "@/lib/formatting"
+import { beforeEnrolment, formatPercent, summariseAttendance, summariseExams } from "@/lib/sundaySchoolStats"
 import { parseRouteId } from "@/lib/validation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ProgressStats } from "@/components/sunday-school/ProgressStats"
@@ -12,8 +13,11 @@ import { ProgressStats } from "@/components/sunday-school/ProgressStats"
 type Props = { params: Promise<{ id: string; personId: string }> }
 
 /**
- * One child's progress in one class: every roll (marked or not) and every live
- * exam with their score. The child must be enrolled in this class (else 404),
+ * One child's progress in one class: every roll and every live exam with their
+ * score. Unmarked rolls and unscored exams dated before the child's enrolment
+ * day are left out (they predate the child); any mark or score is always shown
+ * and counted, matching the class and grade figures. The child must be
+ * enrolled in this class (else 404),
  * so the route can't be used to read any person's name. Names only, no
  * contact data or /people links. canBrowseSundaySchool to view.
  */
@@ -28,14 +32,18 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
 
   const enrolment = await prisma.sundaySchoolEnrolment.findFirst({
     where: { classId, personId, person: { archivedAt: null } },
-    select: { person: { select: { firstName: true, lastName: true } }, class: { select: { name: true, year: true } } },
+    select: {
+      enrolledAt: true,
+      person: { select: { firstName: true, lastName: true } },
+      class: { select: { name: true, year: true } },
+    },
   })
   if (!enrolment) notFound()
   const [sessions, exams] = await Promise.all([
     prisma.sundaySchoolSession.findMany({
       where: { classId },
       orderBy: { date: "desc" },
-      select: { date: true, attendance: { where: { personId }, select: { status: true } } },
+      select: { id: true, date: true, attendance: { where: { personId }, select: { status: true } } },
     }),
     prisma.sundaySchoolExam.findMany({
       where: { classId, archivedAt: null },
@@ -44,14 +52,19 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
     }),
   ])
 
-  const rolls = sessions.map((s) => ({ ymd: s.date.toISOString().slice(0, 10), date: s.date, status: s.attendance[0]?.status ?? null }))
-  const marks = exams.map((e) => {
-    const total = e.totalMarks.toString()
-    const score = e.results[0]?.score.toString() ?? null
-    const bp = score === null ? null : scoreBasisPoints(score, total)
-    return { id: e.id, name: e.name, date: e.date, total, score, percent: bp === null ? null : Math.round(bp / 100) }
-  })
-  const attendance = summariseAttendance(rolls.flatMap((r) => (r.status ? [r.status] : [])))
+  const { enrolledAt } = enrolment
+  const rolls = sessions
+    .map((s) => ({ id: s.id, date: s.date, status: s.attendance[0]?.status ?? null }))
+    .filter((r) => r.status !== null || !beforeEnrolment(r.date, enrolledAt))
+  const marks = exams
+    .map((e) => {
+      const total = e.totalMarks.toString()
+      const score = e.results[0]?.score.toString() ?? null
+      const percent = score === null ? null : summariseExams([{ score, totalMarks: total }]).averagePercent
+      return { id: e.id, name: e.name, date: e.date, total, score, percent }
+    })
+    .filter((m) => m.score !== null || !beforeEnrolment(m.date, enrolledAt))
+  const attendance = summariseAttendance(rolls.map((r) => r.status))
   const examSummary = summariseExams(marks.flatMap((m) => (m.score === null ? [] : [{ score: m.score, totalMarks: m.total }])))
   const name = `${enrolment.person.firstName} ${enrolment.person.lastName}`
 
@@ -84,7 +97,7 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
                   <li key={m.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-sm">
                     <span>
                       <span className="font-medium text-foreground">{m.name}</span>
-                      <span className="block text-xs text-muted-foreground">{formatDate(m.date)}</span>
+                      <span className="block text-xs text-muted-foreground">{formatLongDate(m.date)}</span>
                     </span>
                     <span className="tabular-nums text-right">
                       {m.score === null ? (
@@ -111,8 +124,8 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
             ) : (
               <ul className="divide-y divide-border">
                 {rolls.map((r) => (
-                  <li key={r.ymd} className="flex justify-between gap-2 py-2 text-sm">
-                    <span className="text-foreground">{formatDate(r.date)}</span>
+                  <li key={r.id} className="flex justify-between gap-2 py-2 text-sm">
+                    <span className="text-foreground">{formatLongDate(r.date)}</span>
                     <span className={r.status === null ? "text-muted-foreground" : "text-foreground"}>
                       {r.status === null ? "Not marked" : ATTENDANCE_LABELS[r.status]}
                     </span>
@@ -125,9 +138,4 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
       </div>
     </div>
   )
-}
-
-/** "Sun 4 Oct 2026" for a `@db.Date` (UTC midnight), so read in UTC. */
-function formatDate(d: Date): string {
-  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
 }

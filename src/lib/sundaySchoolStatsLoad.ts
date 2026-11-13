@@ -9,7 +9,7 @@ export type LoadedClassStats = { year: number; archived: boolean; stats: ClassSt
  * Load attendance + exam stats for the matching classes. Counts enrolled,
  * non-archived children and non-archived exams only; children are ordered by
  * last then first name. Callers gate access (canBrowseSundaySchool) first.
- * @param where which classes, e.g. `{ year, archivedAt: null }` or `{ id }`
+ * @param where which classes, e.g. `{ year }` or `{ id }` (archived classes included unless filtered)
  */
 export async function loadClassStats(where: Prisma.SundaySchoolClassWhereInput): Promise<LoadedClassStats[]> {
   const rows = await prisma.sundaySchoolClass.findMany({

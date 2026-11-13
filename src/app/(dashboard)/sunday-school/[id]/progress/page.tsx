@@ -2,7 +2,7 @@ import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { canBrowseSundaySchool } from "@/lib/roleGuard"
-import { formatPercent } from "@/lib/sundaySchoolStats"
+import { formatPercent, skippedNote } from "@/lib/sundaySchoolStats"
 import { loadClassStats } from "@/lib/sundaySchoolStatsLoad"
 import { parseRouteId } from "@/lib/validation"
 import { Badge } from "@/components/ui/badge"
@@ -75,6 +75,7 @@ export default async function ClassProgressPage(props: Readonly<{ params: Promis
                     <td className="py-2 text-right tabular-nums">
                       {formatPercent(s.exams.averagePercent)}
                       <span className="block text-xs text-muted-foreground">{s.exams.results} {s.exams.results === 1 ? "result" : "results"}</span>
+                      {s.exams.skipped > 0 && <span className="block text-xs text-warning">{skippedNote(s.exams)}</span>}
                     </td>
                   </tr>
                 ))}

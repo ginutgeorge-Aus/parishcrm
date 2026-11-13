@@ -4,7 +4,8 @@
 //
 // Definitions:
 // - Attendance rate = (present + late) / marked rolls, whole percent. An
-//   unmarked child on a roll is not counted either way.
+//   unmarked child on a roll is not counted either way. 100% only when nothing
+//   is absent and 0% only when nothing is attended (199/200 shows 99%).
 // - Exam average = mean of each result's score/total percent, every result
 //   weighted equally. Scores are Decimal(10,2) strings; the ratio runs on
 //   integer hundredths (BigInt), so no float parsing of the stored values.
@@ -25,6 +26,8 @@ export type AttendanceSummary = {
 /** Exam results count, their summed percent in basis points, and the rounded average percent. */
 export type ExamSummary = {
   results: number
+  /** Results not counted because the score or total is not a valid decimal, or the total is 0. */
+  skipped: number
   /** Sum of each result's percent x100 (basis points); kept so summaries can be merged exactly. */
   totalBp: number
   averagePercent: number | null
@@ -74,19 +77,35 @@ export type GradeStats = {
 }
 
 /**
- * Whole-percent rate, or null when the denominator is 0.
+ * Whole-percent rate, or null when the denominator is 0. Rounded, but never
+ * rounded up to 100 or down to 0 unless it is exact: 199/200 = 99, 1/300 = 1.
  * @param part numerator count
  * @param whole denominator count
  */
-function ratePercent(part: number, whole: number): number | null {
-  return whole === 0 ? null : Math.round((part * 100) / whole)
+export function ratePercent(part: number, whole: number): number | null {
+  if (whole === 0) return null
+  const p = Math.round((part * 100) / whole)
+  if (p === 100 && part < whole) return 99
+  if (p === 0 && part > 0) return 1
+  return p
 }
 
 /**
- * Summarise a list of attendance marks.
- * @param statuses one entry per marked roll row
+ * True when a roll or exam dated `date` (a `@db.Date`, UTC midnight) falls
+ * before the day the child was enrolled, so it predates them in the class.
+ * @param date the roll or exam date
+ * @param enrolledAt the enrolment's `enrolledAt` timestamp
  */
-export function summariseAttendance(statuses: readonly AttendanceStatus[]): AttendanceSummary {
+export function beforeEnrolment(date: Date, enrolledAt: Date): boolean {
+  const day = Date.UTC(enrolledAt.getUTCFullYear(), enrolledAt.getUTCMonth(), enrolledAt.getUTCDate())
+  return date.getTime() < day
+}
+
+/**
+ * Summarise a list of attendance marks; null (not marked) entries are ignored.
+ * @param statuses one entry per roll row, null when the child was not marked
+ */
+export function summariseAttendance(statuses: readonly (AttendanceStatus | null)[]): AttendanceSummary {
   let present = 0, late = 0, absent = 0
   for (const s of statuses) {
     if (s === "PRESENT") present++
@@ -150,24 +169,29 @@ export function scoreBasisPoints(score: string, totalMarks: string): number | nu
  * Build an ExamSummary from summed basis points.
  * @param results number of results counted
  * @param totalBp their summed basis points
+ * @param skipped number of results not counted (invalid score or total)
  */
-function examSummary(results: number, totalBp: number): ExamSummary {
-  return { results, totalBp, averagePercent: results === 0 ? null : Math.round(totalBp / results / 100) }
+function examSummary(results: number, totalBp: number, skipped: number): ExamSummary {
+  return { results, skipped, totalBp, averagePercent: results === 0 ? null : Math.round(totalBp / results / 100) }
 }
 
 /**
- * Summarise exam results; invalid rows (bad decimal, zero total) are skipped.
+ * Summarise exam results. Invalid rows (bad decimal, zero total) are not
+ * averaged but are counted in `skipped`, so the page can say so.
  * @param results one score/total pair per result
  */
 export function summariseExams(results: readonly { score: string; totalMarks: string }[]): ExamSummary {
-  let n = 0, bp = 0
+  let n = 0, bp = 0, skipped = 0
   for (const r of results) {
     const v = scoreBasisPoints(r.score, r.totalMarks)
-    if (v === null) continue
+    if (v === null) {
+      skipped++
+      continue
+    }
     n++
     bp += v
   }
-  return examSummary(n, bp)
+  return examSummary(n, bp, skipped)
 }
 
 /**
@@ -175,12 +199,22 @@ export function summariseExams(results: readonly { score: string; totalMarks: st
  * @param parts summaries to add up
  */
 export function mergeExams(parts: readonly ExamSummary[]): ExamSummary {
-  let n = 0, bp = 0
+  let n = 0, bp = 0, skipped = 0
   for (const p of parts) {
     n += p.results
     bp += p.totalBp
+    skipped += p.skipped
   }
-  return examSummary(n, bp)
+  return examSummary(n, bp, skipped)
+}
+
+/**
+ * "N results not counted" note for an ExamSummary, or null when none were skipped.
+ * @param exams the summary
+ */
+export function skippedNote(exams: ExamSummary): string | null {
+  if (exams.skipped === 0) return null
+  return `${exams.skipped} ${exams.skipped === 1 ? "result" : "results"} not counted`
 }
 
 /**

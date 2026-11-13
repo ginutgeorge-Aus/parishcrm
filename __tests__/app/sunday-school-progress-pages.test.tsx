@@ -43,12 +43,13 @@ beforeEach(() => {
     { year: 2026, archived: false, stats: year3 },
   ])
   ;(prisma.sundaySchoolEnrolment.findFirst as jest.Mock).mockResolvedValue({
+    enrolledAt: new Date("2026-02-01T09:30:00Z"),
     person: { firstName: "Ann", lastName: "Adams" },
     class: { name: "Kindy", year: 2026 },
   })
   ;(prisma.sundaySchoolSession.findMany as jest.Mock).mockResolvedValue([
-    { date: new Date("2026-03-08T00:00:00Z"), attendance: [{ status: "PRESENT" }] },
-    { date: new Date("2026-03-01T00:00:00Z"), attendance: [] },
+    { id: 31, date: new Date("2026-03-08T00:00:00Z"), attendance: [{ status: "PRESENT" }] },
+    { id: 30, date: new Date("2026-03-01T00:00:00Z"), attendance: [] },
   ])
   ;(prisma.sundaySchoolExam.findMany as jest.Mock).mockResolvedValue([
     { id: 9, name: "Term 1 Bible", date: new Date("2026-03-15T00:00:00Z"), totalMarks: dec("10"), results: [{ score: dec("8") }] },
@@ -66,10 +67,11 @@ describe("/sunday-school/progress", () => {
     as("TEACHER")
     await expect(html(Overview(props()))).rejects.toThrow("REDIRECT /")
   })
-  it("loads the year's live classes and shows grade + class rows", async () => {
+  it("loads all the year's classes, archived too, and shows grade + class rows", async () => {
     as("HEADMASTER")
     const out = await html(Overview(props("2026")))
-    expect(loadClassStats).toHaveBeenCalledWith({ year: 2026, archivedAt: null })
+    expect(loadClassStats).toHaveBeenCalledWith({ year: 2026 })
+    expect(out).not.toContain("Archived")
     expect(out).toContain("Level 0")
     expect(out).toContain("Level 3")
     expect(out).toContain('href="/sunday-school/4/progress"')
@@ -77,6 +79,24 @@ describe("/sunday-school/progress", () => {
     expect(out).toContain("67%")
     expect(out).toContain("80%")
     expect(out).toContain("—")
+  })
+  it("badges an archived class and still counts it in its grade", async () => {
+    as("VIEWER")
+    ;(loadClassStats as jest.Mock).mockResolvedValue([{ year: 2026, archived: true, stats: kindy }])
+    const out = await html(Overview(props("2026")))
+    expect(out).toContain("Archived")
+    expect(out).toContain("1 class · 2 children")
+    expect(out).not.toContain("No classes")
+  })
+  it("notes exam results that were not counted", async () => {
+    as("VIEWER")
+    const bad = classStats({
+      id: 6, name: "Year 1", level: 1, location: "",
+      students: [{ personId: 1, name: "Ann Adams" }], attendance: [],
+      exams: [{ totalMarks: "0", results: [{ personId: 1, score: "5" }] }],
+    })
+    ;(loadClassStats as jest.Mock).mockResolvedValue([{ year: 2026, archived: false, stats: bad }])
+    expect(await html(Overview(props("2026")))).toContain("1 result not counted")
   })
   it("shows an empty state", async () => {
     as("VIEWER")
@@ -133,7 +153,35 @@ describe("/sunday-school/[id]/progress/[personId]", () => {
     expect(out).toContain("Not marked")
     expect(out).toContain("8 / 10")
     expect(out).toContain("80%")
+    expect(out).toContain("8 March 2026")
     // headmaster: no /people link
     expect(out).not.toContain('href="/people/')
+  })
+})
+
+describe("/sunday-school/[id]/progress/[personId] enrolment bound", () => {
+  const props = { params: Promise.resolve({ id: "4", personId: "1" }) }
+  it("hides unmarked rolls and unscored exams from before enrolment, keeps marked ones", async () => {
+    as("ADMIN")
+    ;(prisma.sundaySchoolEnrolment.findFirst as jest.Mock).mockResolvedValue({
+      enrolledAt: new Date("2026-03-08T22:00:00Z"),
+      person: { firstName: "Ann", lastName: "Adams" },
+      class: { name: "Kindy", year: 2026 },
+    })
+    ;(prisma.sundaySchoolSession.findMany as jest.Mock).mockResolvedValue([
+      { id: 32, date: new Date("2026-03-08T00:00:00Z"), attendance: [] },
+      { id: 31, date: new Date("2026-03-01T00:00:00Z"), attendance: [] },
+      { id: 30, date: new Date("2026-02-22T00:00:00Z"), attendance: [{ status: "ABSENT" }] },
+    ])
+    ;(prisma.sundaySchoolExam.findMany as jest.Mock).mockResolvedValue([
+      { id: 10, name: "Late exam", date: new Date("2026-03-15T00:00:00Z"), totalMarks: dec("20"), results: [] },
+      { id: 9, name: "Early exam", date: new Date("2026-02-15T00:00:00Z"), totalMarks: dec("10"), results: [] },
+    ])
+    const out = await html(StudentProgress(props))
+    expect(out).toContain("8 March 2026") // enrolment day counts
+    expect(out).not.toContain("1 March 2026")
+    expect(out).toContain("22 February 2026") // marked: always shown
+    expect(out).toContain("Late exam")
+    expect(out).not.toContain("Early exam")
   })
 })

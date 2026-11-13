@@ -6,6 +6,7 @@ import { parseSchoolYear } from "@/lib/sundaySchool"
 import { gradeStats } from "@/lib/sundaySchoolStats"
 import { loadClassStats } from "@/lib/sundaySchoolStatsLoad"
 import { MIN_YEAR, MAX_YEAR } from "@/lib/validation"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { ProgressStats } from "@/components/sunday-school/ProgressStats"
 
@@ -14,15 +15,16 @@ type Props = { searchParams: Promise<{ year?: string }> }
 /**
  * Sunday School progress for one school year: attendance rate and exam
  * average per grade (class level) and per class, each class linking to its
- * per-child view. canBrowseSundaySchool to view; read-only.
+ * per-child view. Archived classes are included (badged) so grade totals match
+ * the class pages. canBrowseSundaySchool to view; read-only.
  */
 export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
   const session = await auth()
   if (!session?.user) redirect("/login")
   if (!canBrowseSundaySchool(session.user.role)) redirect("/")
   const year = parseSchoolYear((await props.searchParams).year)
-  const classes = (await loadClassStats({ year, archivedAt: null })).map((c) => c.stats)
-  const grades = gradeStats(classes)
+  const rows = await loadClassStats({ year })
+  const grades = gradeStats(rows.map((r) => r.stats))
 
   return (
     <div className="space-y-6">
@@ -52,7 +54,7 @@ export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
         </p>
       </div>
 
-      {classes.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No classes for {year}.</p>
       ) : (
         <>
@@ -76,11 +78,14 @@ export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
           <section className="space-y-2">
             <h3 className="text-lg font-semibold text-foreground">By class</h3>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {classes.map((c) => (
+              {rows.map(({ stats: c, archived }) => (
                 <Link key={c.id} href={`/sunday-school/${c.id}/progress`} className="block rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
                   <Card className="h-full transition-colors hover:bg-muted/50">
                     <CardContent className="space-y-1">
-                      <p className="font-medium text-foreground">{c.name}</p>
+                      <p className="flex items-center gap-2 font-medium text-foreground">
+                        {c.name}
+                        {archived && <Badge variant="secondary">Archived</Badge>}
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         {[`Level ${c.level}`, c.location].filter(Boolean).join(" · ")} · {c.enrolled} {c.enrolled === 1 ? "child" : "children"}
                       </p>

@@ -68,17 +68,21 @@ Progress pages show attendance and exam marks together, read-only:
 
 - **By grade and class** — press the year's progress link (for example **2026 progress**) on the Sunday School page
   (`/sunday-school/progress`). Each level (grade) and each class shows its attendance rate and
-  exam average for that school year. Use the year arrows to look back.
+  exam average for that school year. Archived classes are included, marked **Archived**, so each
+  grade's figure matches its classes. Use the year arrows to look back.
 - **One class** — press **Progress** on a class (`/sunday-school/[id]/progress`). The class
   totals, then one row per enrolled child, in name order.
 - **One child** — press a child's name there. Every roll (present, late, absent or not marked)
-  and every exam with their score out of the total.
+  and every exam with their score out of the total. Rolls and exams from before the child was
+  enrolled are left out unless the child has a mark or score on them.
 
 **Attendance** is present or late, out of the rolls where the child was marked; a roll where they
 were not marked counts neither way. **Exams** is the average of each score as a percent of that
 exam's total, every result counting the same. Only children still enrolled (and not archived) and
 live exams count, so the class figure is always the total of the rows shown. A dash means there
-is nothing marked yet. Children are listed by name, never ranked.
+is nothing marked yet. A rate shows 100% only when nobody was absent, and 0% only when nobody
+attended. An exam result with a broken score or a zero total isn't averaged; the page says how
+many results were not counted. Children are listed by name, never ranked.
 
 ADMIN, PASTOR, OFFICE_ADMIN, Headmaster and VIEWER can open progress pages. Teacher logins
 cannot yet.

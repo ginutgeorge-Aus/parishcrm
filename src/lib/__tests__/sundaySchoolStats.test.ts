@@ -5,6 +5,9 @@ import {
   summariseExams,
   mergeExams,
   formatPercent,
+  ratePercent,
+  beforeEnrolment,
+  skippedNote,
   classStats,
   gradeStats,
   type ClassStatsInput,
@@ -22,6 +25,48 @@ describe("summariseAttendance", () => {
   it("rounds the rate to a whole percent", () => {
     expect(summariseAttendance(["PRESENT", "ABSENT", "ABSENT"]).rate).toBe(33)
     expect(summariseAttendance(["PRESENT", "PRESENT", "ABSENT"]).rate).toBe(67)
+  })
+})
+
+describe("ratePercent", () => {
+  it("never rounds up to 100 while anyone was absent (199/200)", () => {
+    expect(ratePercent(199, 200)).toBe(99)
+    expect(ratePercent(200, 200)).toBe(100)
+  })
+  it("never rounds down to 0 while anyone attended (1/300)", () => {
+    expect(ratePercent(1, 300)).toBe(1)
+    expect(ratePercent(0, 300)).toBe(0)
+  })
+  it("is null with a zero denominator", () => {
+    expect(ratePercent(0, 0)).toBeNull()
+  })
+})
+
+describe("summariseAttendance null marks", () => {
+  it("ignores not-marked (null) entries", () => {
+    expect(summariseAttendance(["PRESENT", null, "ABSENT"])).toEqual({
+      present: 1, late: 0, absent: 1, marked: 2, attended: 1, rate: 50,
+    })
+  })
+})
+
+describe("beforeEnrolment", () => {
+  const enrolled = new Date("2026-03-08T22:00:00Z")
+  it("is true only for dates before the enrolment's UTC day", () => {
+    expect(beforeEnrolment(new Date("2026-03-01T00:00:00Z"), enrolled)).toBe(true)
+    expect(beforeEnrolment(new Date("2026-03-08T00:00:00Z"), enrolled)).toBe(false)
+    expect(beforeEnrolment(new Date("2026-03-15T00:00:00Z"), enrolled)).toBe(false)
+  })
+})
+
+describe("skippedNote", () => {
+  it("is null with none skipped, else pluralised", () => {
+    expect(skippedNote(summariseExams([{ score: "1", totalMarks: "2" }]))).toBeNull()
+    expect(skippedNote(summariseExams([{ score: "1", totalMarks: "0" }]))).toBe("1 result not counted")
+    expect(skippedNote(mergeExams([
+      summariseExams([{ score: "1", totalMarks: "0" }]),
+      summariseExams([{ score: "x", totalMarks: "5" }]),
+    ]))).toBe("2 results not counted")
   })
 })
 
@@ -54,15 +99,16 @@ describe("scoreBasisPoints", () => {
 describe("summariseExams / mergeExams", () => {
   it("averages each result's percent equally", () => {
     const s = summariseExams([{ score: "10", totalMarks: "20" }, { score: "20", totalMarks: "20" }])
-    expect(s).toEqual({ results: 2, totalBp: 15000, averagePercent: 75 })
+    expect(s).toEqual({ results: 2, skipped: 0, totalBp: 15000, averagePercent: 75 })
   })
   it("skips invalid results and reports null with none", () => {
-    expect(summariseExams([{ score: "x", totalMarks: "20" }])).toEqual({ results: 0, totalBp: 0, averagePercent: null })
+    expect(summariseExams([{ score: "x", totalMarks: "20" }, { score: "5", totalMarks: "0" }]))
+      .toEqual({ results: 0, skipped: 2, totalBp: 0, averagePercent: null })
   })
   it("merges by weighting every result equally", () => {
     const a = summariseExams([{ score: "10", totalMarks: "10" }])
     const b = summariseExams([{ score: "0", totalMarks: "10" }, { score: "5", totalMarks: "10" }])
-    expect(mergeExams([a, b])).toEqual({ results: 3, totalBp: 15000, averagePercent: 50 })
+    expect(mergeExams([a, b])).toEqual({ results: 3, skipped: 0, totalBp: 15000, averagePercent: 50 })
   })
 })
 
