@@ -164,3 +164,76 @@ test("commitImport re-checks the session's lock status right before the batched 
   expect(mockExpenseCreateMany).not.toHaveBeenCalled()
   expect(mockTxCreateMany).not.toHaveBeenCalled()
 })
+
+// --- Transaction-capable fake: writes are staged and only "persist" when the
+// $transaction callback resolves, so a throw at the audit write must leave
+// nothing behind (session, receipt, expense or mirror rows).
+const MIXED_CSV =
+  "date,type,account,payee_or_donor,amount,notes\n" +
+  "01/07/2026,receipt,Sunday Offertory,,122.00,\n" +
+  "01/07/2026,expense,Office Supplies,Test Vendor,10.00,Test description\n"
+
+/** Wires $transaction + write mocks to a staged store; returns the committed rows. */
+function installTransactionalStore() {
+  const empty = () => ({ sessions: [] as unknown[], receipts: [] as unknown[], expenses: [] as unknown[], mirrors: [] as unknown[] })
+  const committed = empty()
+  mockAccountFind.mockResolvedValue([
+    { id: 1, name: "Office Supplies", type: "EXPENSE", isActive: true },
+    { id: 2, name: "Sunday Offertory", type: "INCOME", isActive: true },
+  ])
+  mockSessionFindMany.mockResolvedValue([])
+  mockTransaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
+    const staged = empty()
+    ;(prisma.pettyCashSession.upsert as jest.Mock).mockImplementation(async ({ create }: { create: object }) => {
+      const s = { id: 100, status: "OPEN", ...create }
+      staged.sessions.push(s)
+      return s
+    })
+    mockReceiptCreateMany.mockImplementation(async ({ data }: { data: object[] }) => {
+      const rows = data.map((d, i) => ({ id: i + 1, ...d }))
+      staged.receipts.push(...rows)
+      return rows
+    })
+    mockExpenseCreateMany.mockImplementation(async ({ data }: { data: object[] }) => {
+      const rows = data.map((d, i) => ({ id: i + 1, ...d }))
+      staged.expenses.push(...rows)
+      return rows
+    })
+    mockTxCreateMany.mockImplementation(async ({ data }: { data: object[] }) => {
+      staged.mirrors.push(...data)
+      return { count: data.length }
+    })
+    const out = await fn(prisma)
+    // Reached only when the callback did not throw — i.e. COMMIT.
+    committed.sessions.push(...staged.sessions)
+    committed.receipts.push(...staged.receipts)
+    committed.expenses.push(...staged.expenses)
+    committed.mirrors.push(...staged.mirrors)
+    return out
+  })
+  return committed
+}
+
+test("commitImport (mixed receipt + expense) persists session, both entries and both mirrors on success", async () => {
+  const committed = installTransactionalStore()
+  const res = await commitImport(fd({ custodianId: "1", csv: MIXED_CSV }))
+  expect(res).toHaveProperty("success")
+  expect(committed.sessions).toHaveLength(1)
+  expect(committed.receipts).toHaveLength(1)
+  expect(committed.expenses).toHaveLength(1)
+  expect(committed.mirrors).toHaveLength(2)
+})
+
+test("commitImport (mixed receipt + expense) persists nothing when the audit write fails", async () => {
+  const committed = installTransactionalStore()
+  ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+  const res = await commitImport(fd({ custodianId: "1", csv: MIXED_CSV }))
+  spy.mockRestore()
+  expect(res).toEqual({ error: AUDIT_FAILED_ERROR })
+  // The inserts ran inside the transaction...
+  expect(mockReceiptCreateMany).toHaveBeenCalledTimes(1)
+  expect(mockExpenseCreateMany).toHaveBeenCalledTimes(1)
+  // ...but none of it committed.
+  expect(committed).toEqual({ sessions: [], receipts: [], expenses: [], mirrors: [] })
+})

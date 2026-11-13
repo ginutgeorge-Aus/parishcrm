@@ -75,15 +75,17 @@ describe("/groups", () => {
     await expect(GroupsPage(sp())).rejects.toThrow("NEXT_REDIRECT /")
   })
 
-  it("redirects AUDITOR home without querying", async () => {
-    as("AUDITOR")
+  it.each(["AUDITOR", "EVENT_ORGANISER"])("redirects %s home without querying", async (role) => {
+    as(role)
     await expect(GroupsPage(sp())).rejects.toThrow("NEXT_REDIRECT /")
     expect(p.group.findMany).not.toHaveBeenCalled()
   })
 
-  it("ignores an invalid category filter", async () => {
-    await GroupsPage(sp({ category: "bogus" }))
-    expect(p.group.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { archivedAt: null } }))
+  it("ignores an invalid category filter and keeps All active", async () => {
+    const html = renderToStaticMarkup(await GroupsPage(sp({ category: "bogus" })))
+    expect(p.group.findMany.mock.calls[0][0].where).toStrictEqual({ archivedAt: null })
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toMatch(/<a[^>]*aria-current="page"[^>]*>All<\/a>/)
   })
 
   it("lists groups with counts, singular/plural, and a New button for managers", async () => {
