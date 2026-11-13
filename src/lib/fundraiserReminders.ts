@@ -193,7 +193,7 @@ export function partitionReminders<C extends { entryId: number; remainingCents: 
 export async function orderLeastRecentlyReminded<C extends { entryId: number }>(fundraiserId: number, due: readonly C[]): Promise<C[]> {
   const rows = await prisma.fundraiserReminderSend.groupBy({
     by: ["entryId"],
-    where: { status: "SUCCESS", entry: { fundraiserId } },
+    where: { status: "SUCCESS", entryId: { in: due.map((c) => c.entryId) }, entry: { fundraiserId } },
     _max: { sentAt: true },
   })
   const last = new Map(rows.map((r) => [r.entryId, r._max.sentAt?.getTime() ?? 0]))
