@@ -1,5 +1,6 @@
 "use server"
 
+import { randomInt } from "node:crypto"
 import { auth } from "@/auth"
 import type { Session } from "next-auth"
 import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/enums"
@@ -107,7 +108,8 @@ const ADD_BACKOFF_BASE_MS = 25
  * @param attempt - The attempt that just failed (1-based).
  */
 function addBackoff(attempt: number): Promise<void> {
-  const ms = Math.random() * ADD_BACKOFF_BASE_MS * 2 ** (attempt - 1)
+  // crypto.randomInt, not Math.random: jitter only, but keeps Sonar S2245 (weak PRNG) quiet without a suppression.
+  const ms = randomInt(0, ADD_BACKOFF_BASE_MS * 2 ** (attempt - 1) + 1)
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 const BUSY = { error: "Busy, please try again" }
