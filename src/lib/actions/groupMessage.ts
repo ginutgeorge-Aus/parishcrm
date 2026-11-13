@@ -85,7 +85,7 @@ export async function sendGroupMessage(groupId: number, _prev: ActionResult, for
     try {
       await deliverGroupMessage(messageId)
     } catch (err) {
-      logger.error(`[groupMessage] immediate drain failed for message ${messageId}: ${err instanceof Error ? err.message : "error"}`)
+      logger.error(`[groupMessage] immediate drain failed for message ${messageId}: ${err instanceof Error ? err.name : "error"}`)
     }
   })
 

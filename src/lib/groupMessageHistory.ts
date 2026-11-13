@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma"
 
 /** Messages per history page (newest first). */
 const HISTORY_PAGE_SIZE = 20
-/** Most recipient rows listed across one page. Delivered (SENT) recipients are only tallied, never listed. */
-const HISTORY_DETAIL_LIMIT = 1000
+/** Most recipient rows listed per message. Delivered (SENT) recipients are only tallied, never listed. */
+const HISTORY_DETAIL_LIMIT = 200
 
 /** One recipient's delivery state in the history view. Names only, never an address. */
 type HistoryRecipient = { personId: number; name: string; status: string }
@@ -17,6 +17,8 @@ export type HistoryMessage = {
   createdAt: Date
   sentBy: string
   recipients: HistoryRecipient[]
+  /** Not-SENT recipients beyond the per-message list cap (0 when the list is complete). */
+  moreRecipients: number
   counts: Record<string, number>
 }
 
@@ -42,24 +44,29 @@ export async function loadGroupMessageHistory(
   const page = hasMore ? rows.slice(0, HISTORY_PAGE_SIZE) : rows
   if (page.length === 0) return { messages: [], nextBefore: null }
   const ids = page.map((m) => m.id)
-  const [grouped, detail] = await Promise.all([
+  // Detail is capped per message (one query each) so a big newer message cannot starve older ones.
+  const [grouped, detailPerMessage] = await Promise.all([
     prisma.groupMessageRecipient.groupBy({ by: ["messageId", "status"], where: { messageId: { in: ids } }, _count: { _all: true } }),
-    prisma.groupMessageRecipient.findMany({
-      where: { messageId: { in: ids }, status: { not: "SENT" } },
-      orderBy: [{ messageId: "desc" }, { person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
+    Promise.all(ids.map((id) => prisma.groupMessageRecipient.findMany({
+      where: { messageId: id, status: { not: "SENT" } },
+      orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
       take: HISTORY_DETAIL_LIMIT,
       select: { messageId: true, status: true, person: { select: { id: true, firstName: true, lastName: true } } },
-    }),
+    }))),
   ])
+  const detail = detailPerMessage.flat()
   const messages = page.map((m) => {
     const counts: Record<string, number> = {}
     for (const g of grouped) if (g.messageId === m.id) counts[g.status] = g._count._all
+    const recipients = detail
+      .filter((r) => r.messageId === m.id)
+      .map((r) => ({ personId: r.person.id, name: `${r.person.firstName} ${r.person.lastName}`, status: r.status }))
+    const notSent = Object.entries(counts).reduce((n, [k, c]) => (k === "SENT" ? n : n + c), 0)
     return {
       id: m.id, subject: m.subject, body: m.body, createdAt: m.createdAt,
       sentBy: m.sentBy?.name ?? "Removed user",
-      recipients: detail
-        .filter((r) => r.messageId === m.id)
-        .map((r) => ({ personId: r.person.id, name: `${r.person.firstName} ${r.person.lastName}`, status: r.status })),
+      recipients,
+      moreRecipients: Math.max(0, notSent - recipients.length),
       counts,
     }
   })

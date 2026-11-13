@@ -46,10 +46,16 @@ describe("loadGroupMessageHistory", () => {
       { messageId: 1, status: "SENT", _count: { _all: 2 } },
       { messageId: 1, status: "FAILED", _count: { _all: 1 } },
     ])
-    detailFindMany.mockResolvedValue([{ messageId: 1, status: "FAILED", person: { id: 3, firstName: "Cy", lastName: "Ode" } }])
+    detailFindMany.mockResolvedValueOnce([{ messageId: 1, status: "FAILED", person: { id: 3, firstName: "Cy", lastName: "Ode" } }]).mockResolvedValueOnce([])
     const { messages: [a, b], nextBefore } = await loadGroupMessageHistory(4)
     expect(nextBefore).toBeNull()
-    expect(detailFindMany.mock.calls[0][0].where).toEqual({ messageId: { in: [1, 2] }, status: { not: "SENT" } })
+    // one capped detail query per message, so a big message cannot starve the others
+    expect(detailFindMany.mock.calls.map((c) => c[0].where)).toEqual([
+      { messageId: 1, status: { not: "SENT" } },
+      { messageId: 2, status: { not: "SENT" } },
+    ])
+    expect(detailFindMany.mock.calls[0][0].take).toBe(200)
+    expect(a.moreRecipients).toBe(0)
     expect(a.sentBy).toBe("Removed user")
     expect(a.counts).toEqual({ SENT: 2, FAILED: 1 })
     expect(a.recipients).toEqual([{ personId: 3, name: "Cy Ode", status: "FAILED" }])

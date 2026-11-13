@@ -114,12 +114,22 @@ describe("sendGroupMessage", () => {
     expect(p.$transaction).not.toHaveBeenCalled()
   })
 
-  it("unauthenticated and VIEWER are refused", async () => {
+  it("unauthenticated is refused", async () => {
     as(undefined)
     expect(await run()).toEqual({ error: "Unauthorized" })
-    as(UserRole.VIEWER)
+    expect(p.$transaction).not.toHaveBeenCalled()
+  })
+
+  it.each([UserRole.VIEWER, UserRole.AUDITOR])("%s is refused", async (role) => {
+    as(role)
     expect(await run()).toEqual({ error: "Unauthorized" })
     expect(p.$transaction).not.toHaveBeenCalled()
+  })
+
+  it.each([UserRole.ADMIN, UserRole.PASTOR, UserRole.OFFICE_ADMIN])("%s may send", async (role) => {
+    as(role)
+    await expect(run()).rejects.toThrow("REDIRECT:/groups/4/messages")
+    expect(p.$transaction).toHaveBeenCalledTimes(1)
   })
 
   it("linked EVENT_ORGANISER may send and is sent to the portal history", async () => {

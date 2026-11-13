@@ -118,14 +118,22 @@ type MessageCtx = { groupId: number; subject: string; body: string; groupName: s
  * @returns the outcome, or "SKIPPED" when the person is no longer mailable
  */
 async function sendClaimed(recipientId: number, personId: number, ctx: MessageCtx): Promise<Status | "SKIPPED"> {
-  const person = await prisma.person.findUnique({
-    where: { id: personId },
-    select: {
-      firstName: true, email: true, emailConsent: true, archivedAt: true,
-      // Still a member of a live group? Membership can change between queueing and sending.
-      groupMemberships: { where: { groupId: ctx.groupId, group: { archivedAt: null } }, select: { id: true } },
-    },
-  })
+  let person
+  try {
+    person = await prisma.person.findUnique({
+      where: { id: personId },
+      select: {
+        firstName: true, email: true, emailConsent: true, archivedAt: true,
+        // Still a member of a live group? Membership can change between queueing and sending.
+        groupMemberships: { where: { groupId: ctx.groupId, group: { archivedAt: null } }, select: { id: true } },
+      },
+    })
+  } catch {
+    // Nothing was sent yet: release the claim as retryable FAILED so it is not left PENDING and later mislabelled UNKNOWN.
+    await resolveGroupRecipient(recipientId, "FAILED").catch(() => {})
+    logger.error(`[groupMessage] recipient ${recipientId} lookup failed before send — left retryable`)
+    return "FAILED"
+  }
   let to: string | null = null
   try {
     to = person?.email ? decrypt(person.email).trim() : null
@@ -179,11 +187,17 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
 
   const open = await prisma.groupMessageRecipient.findMany({
     where: { messageId, ...openRecipientWhere(new Date()) },
-    select: { id: true, personId: true },
+    select: { id: true, personId: true, status: true, claimedAt: true },
     orderBy: { id: "asc" },
   })
+  const staleBefore = new Date(Date.now() - GROUP_MESSAGE_LEASE_MS)
   for (const r of open) {
-    if (!(await claimGroupRecipient(r.id))) { counts.inFlight++; continue }
+    if (!(await claimGroupRecipient(r.id))) {
+      // A stale PENDING claim was just closed as UNKNOWN by the claim; only a live claim elsewhere is in flight.
+      if (r.status === "PENDING" && r.claimedAt && r.claimedAt < staleBefore) counts.unknown++
+      else counts.inFlight++
+      continue
+    }
     const outcome = await sendClaimed(r.id, r.personId, ctx)
     if (outcome === "SENT") counts.sent++
     else if (outcome === "UNKNOWN") counts.unknown++

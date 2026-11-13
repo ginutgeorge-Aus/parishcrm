@@ -71,10 +71,10 @@ export async function GroupHistoryView({
               {Object.entries(m.counts).map(([k, n]) => `${n} ${(STATUS_LABELS[k] ?? k).toLowerCase()}`).join(", ") || "no recipients"}
             </span>
           </summary>
-          <p className="mt-3 whitespace-pre-line text-sm">{m.body}</p>
+          <p className="mt-3 whitespace-pre-wrap text-sm">{m.body}</p>
           {m.recipients.length > 0 && (
             <>
-              <p className="mt-3 text-xs text-muted-foreground">Not yet delivered:</p>
+              <p className="mt-3 text-xs text-muted-foreground">Not confirmed as delivered:</p>
               <ul className="mt-1 space-y-1 text-sm">
                 {m.recipients.map((r) => (
                   <li key={r.personId} className="flex items-center justify-between gap-2 border-t pt-1">
@@ -83,6 +83,7 @@ export async function GroupHistoryView({
                   </li>
                 ))}
               </ul>
+              {m.moreRecipients > 0 && <p className="mt-1 text-xs text-muted-foreground">and {m.moreRecipients} more not shown</p>}
             </>
           )}
         </details>
