@@ -12,6 +12,35 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.15.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.2...v1.15.0) (2026-11-13)
+
+
+### Added
+
+* **attendance:** service headcount attendance and trends ([#643](https://github.com/ginutgeorge-Aus/parishcrm/issues/643)) ([a2c701f](https://github.com/ginutgeorge-Aus/parishcrm/commit/a2c701fd8461ef3032373d3fec7012265839f96f))
+* **events:** event fundraiser with card payments and reminders ([#640](https://github.com/ginutgeorge-Aus/parishcrm/issues/640)) ([3e95a3e](https://github.com/ginutgeorge-Aus/parishcrm/commit/3e95a3e68aa461f5f16f16fad54b6147f67dcb89))
+* **families:** suburb filter via HMAC blind index ([#653](https://github.com/ginutgeorge-Aus/parishcrm/issues/653)) ([1d5425f](https://github.com/ginutgeorge-Aus/parishcrm/commit/1d5425fc4e1d6d8f9983cbd8312ed45802377418))
+* **giving:** annual giving statements per family ([#654](https://github.com/ginutgeorge-Aus/parishcrm/issues/654)) ([d4fb747](https://github.com/ginutgeorge-Aus/parishcrm/commit/d4fb74722953b1139791eb9c71a400118dce728a))
+* **groups:** group email compose, delivery and history ([#657](https://github.com/ginutgeorge-Aus/parishcrm/issues/657)) ([11aeb36](https://github.com/ginutgeorge-Aus/parishcrm/commit/11aeb36579f49e3aac1047fb30832adfcd3577a9))
+* **groups:** groups & ministries with leader access ([#634](https://github.com/ginutgeorge-Aus/parishcrm/issues/634)) ([f9ee795](https://github.com/ginutgeorge-Aus/parishcrm/commit/f9ee7955ab64a97ad4562c0a6054617dcbb762fb))
+* **roster:** iCalendar generator ([#627](https://github.com/ginutgeorge-Aus/parishcrm/issues/627)) ([#661](https://github.com/ginutgeorge-Aus/parishcrm/issues/661)) ([5a35545](https://github.com/ginutgeorge-Aus/parishcrm/commit/5a35545955279beb2611cc60e2e5b2ea011e97d6))
+* **roster:** signed confirm-link token lib ([#625](https://github.com/ginutgeorge-Aus/parishcrm/issues/625)) ([#662](https://github.com/ginutgeorge-Aus/parishcrm/issues/662)) ([d5c42d0](https://github.com/ginutgeorge-Aus/parishcrm/commit/d5c42d005601985e5f5726b4cbeda1444000826e))
+* **stripe:** alert admins on repeated webhook verification failures ([#590](https://github.com/ginutgeorge-Aus/parishcrm/issues/590)) ([#591](https://github.com/ginutgeorge-Aus/parishcrm/issues/591)) ([2a3609a](https://github.com/ginutgeorge-Aus/parishcrm/commit/2a3609ab6f4ec5f4005922f96d91e03dc52dc88b))
+* **sunday-school:** exam marks + headmaster/teacher roles ([#646](https://github.com/ginutgeorge-Aus/parishcrm/issues/646)) ([6069a38](https://github.com/ginutgeorge-Aus/parishcrm/commit/6069a38fc19a08f55e8acd3235ca9aca05f78daf))
+
+
+### Fixed
+
+* **events:** fundraiser [#665](https://github.com/ginutgeorge-Aus/parishcrm/issues/665) review findings ([#667](https://github.com/ginutgeorge-Aus/parishcrm/issues/667)) ([b6ced0e](https://github.com/ginutgeorge-Aus/parishcrm/commit/b6ced0eeddfb61572eccfb9ce5d3762e46f8912c))
+* **events:** make attendee name obvious and required per ticket ([#633](https://github.com/ginutgeorge-Aus/parishcrm/issues/633)) ([4cb19df](https://github.com/ginutgeorge-Aus/parishcrm/commit/4cb19df88ecc44cec8a6062faf1a9aafca1834bb))
+* **roster:** fail closed on non-finite nowMs in token verify ([#666](https://github.com/ginutgeorge-Aus/parishcrm/issues/666)) ([2aba134](https://github.com/ginutgeorge-Aus/parishcrm/commit/2aba134d6902625204595862defc65a629ad7b5b))
+
+
+### Changed
+
+* **audit:** move petty cash + reconciliation audit writes into transactions ([#585](https://github.com/ginutgeorge-Aus/parishcrm/issues/585)) ([0008b75](https://github.com/ginutgeorge-Aus/parishcrm/commit/0008b75286965a8177b08599befbc0efacaa14a2))
+* **events:** typed StaleEventError for stale-edit detection ([#577](https://github.com/ginutgeorge-Aus/parishcrm/issues/577)) ([239e600](https://github.com/ginutgeorge-Aus/parishcrm/commit/239e600290a2a7c794b4321d8a6afc90d94ac28d))
+
 ## [1.14.2](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.1...v1.14.2) (2026-11-11)
 
 
