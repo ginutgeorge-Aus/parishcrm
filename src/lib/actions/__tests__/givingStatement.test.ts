@@ -2,14 +2,12 @@ jest.mock("@/lib/featureFlags")
 import { listGivingStatements, sendGivingStatements, listStatementSendLog } from "@/lib/actions/givingStatement"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
 import { sendGivingStatementEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import { loadStatements, loadStatementSummaries, loadStatementFamilies } from "@/lib/givingStatementData"
 import { buildStatements } from "@/lib/givingStatement"
 import { featureGuard } from "@/lib/featureFlags"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/email", () => ({ sendGivingStatementEmail: jest.fn(), isAmbiguousDeliveryError: jest.fn(() => false) }))
 jest.mock("@/lib/pdf/GivingStatementPdf", () => ({ renderGivingStatementPdf: jest.fn(async () => Buffer.from("%PDF-")) }))
@@ -21,7 +19,7 @@ jest.mock("@/lib/churchSettings", () => ({
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    auditLog: { findMany: jest.fn(), groupBy: jest.fn() },
+    auditLog: { findMany: jest.fn(), groupBy: jest.fn(), create: jest.fn() },
     family: { findMany: jest.fn() },
     appSetting: { findMany: jest.fn(), create: jest.fn(), deleteMany: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   },
@@ -34,7 +32,9 @@ const groupLog = prisma.auditLog.groupBy as jest.Mock
 const findClaims = prisma.appSetting.findMany as jest.Mock
 const mockFamilies = loadStatementFamilies as jest.Mock
 const mockSend = sendGivingStatementEmail as jest.Mock
-const mockLogAudit = logAudit as jest.Mock
+const mockCreateAudit = prisma.auditLog.create as jest.Mock
+/** Expected audit row as written by the action. */
+const row = (action: string, id: number, metadata: object) => ({ data: { userId: 1, action, resourceType: "Family", resourceId: id, metadata } })
 const findLog = prisma.auditLog.findMany as jest.Mock
 const mockClaimCreate = prisma.appSetting.create as jest.Mock
 const mockClaimDelete = prisma.appSetting.deleteMany as jest.Mock
@@ -74,7 +74,7 @@ beforeEach(() => {
   mockClaimUpdate.mockReset()
   mockClaimCreate.mockReset()
   mockSend.mockReset()
-  mockLogAudit.mockReset()
+  mockCreateAudit.mockReset()
   mockGuard.mockResolvedValue(null)
 })
 
@@ -158,15 +158,15 @@ describe("sendGivingStatements", () => {
     expect(res).toEqual({ sent: 1, failed: 1, skipped: 0, inProgress: 0, errors: [expect.objectContaining({ familyId: 2 })] })
     expect(mockSend).toHaveBeenCalledTimes(1)
     expect(mockSend.mock.calls[0][0]).toBe("s@x.com")
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_SENT", "Family", 1, { fyStartYear: 2025, totalCents: 1000 })
-    expect(JSON.stringify(mockLogAudit.mock.calls)).not.toContain("s@x.com")
+    expect(mockCreateAudit).toHaveBeenCalledWith(row("GIVING_STATEMENT_SENT", 1, { fyStartYear: 2025, totalCents: 1000 }))
+    expect(JSON.stringify(mockCreateAudit.mock.calls)).not.toContain("s@x.com")
   })
 
   it("records a failed delivery and continues", async () => {
     mockSend.mockRejectedValueOnce(new Error("smtp to s@x.com"))
     const res = await sendGivingStatements(2025, [1])
     expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Email delivery failed" }] })
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025 })
+    expect(mockCreateAudit).toHaveBeenCalledWith(row("GIVING_STATEMENT_FAILED", 1, { fyStartYear: 2025 }))
   })
 
   it("skips an already SENT claim as 'skipped' (already sent)", async () => {
@@ -205,10 +205,40 @@ describe("sendGivingStatements", () => {
       ])
     )
     mockClaimSwap.mockRejectedValueOnce(new Error("db blip"))
-    mockLogAudit.mockRejectedValueOnce(new Error("db blip"))
+    mockCreateAudit.mockRejectedValueOnce(new Error("db blip"))
     const res = await sendGivingStatements(2025, [1, 2])
-    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [] })
+    // The email outcome stands, but the lost audit row is surfaced rather than reported as logged.
+    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: 1 })
     expect(mockSend).toHaveBeenCalledTimes(2)
+  })
+
+  it("audits pre-send rejections with a reason code, never the address", async () => {
+    mockFamilies.mockResolvedValue(new Map([[1, { id: 1, name: "S", archived: false, canEmail: false, emails: [] }]]))
+    await sendGivingStatements(2025, [1])
+    expect(mockCreateAudit).toHaveBeenCalledWith(row("GIVING_STATEMENT_SKIPPED", 1, { fyStartYear: 2025, reason: "no_consented_email" }))
+    mockCreateAudit.mockClear()
+    mockFamilies.mockResolvedValue(new Map([[1, { id: 1, name: "S", archived: false, canEmail: true, emails: ["s@x.com"] }]]))
+    mockLoad.mockResolvedValue(new Map())
+    await sendGivingStatements(2025, [1])
+    expect(mockCreateAudit).toHaveBeenCalledWith(row("GIVING_STATEMENT_SKIPPED", 1, { fyStartYear: 2025, reason: "no_giving" }))
+  })
+
+  it("stops starting new sends once the time budget is spent and returns the rest", async () => {
+    mockFamilies.mockResolvedValue(
+      new Map([
+        [1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }],
+        [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
+      ])
+    )
+    const spy = jest.spyOn(Date, "now")
+    spy.mockReturnValueOnce(0).mockReturnValue(10 * 60 * 1000)
+    try {
+      const res = await sendGivingStatements(2025, [1, 2])
+      expect(res).toEqual(expect.objectContaining({ sent: 1, remaining: [2] }))
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it("releases the claim when building or rendering fails before the send", async () => {
@@ -223,7 +253,7 @@ describe("sendGivingStatements", () => {
   it("survives a DB failure while recording a failed delivery", async () => {
     mockSend.mockRejectedValueOnce(new Error("smtp"))
     mockClaimDelete.mockRejectedValueOnce(new Error("db blip"))
-    mockLogAudit.mockRejectedValueOnce(new Error("db blip"))
+    mockCreateAudit.mockRejectedValueOnce(new Error("db blip"))
     expect(await sendGivingStatements(2025, [1])).toEqual(expect.objectContaining({ failed: 1 }))
   })
 
@@ -245,7 +275,7 @@ describe("sendGivingStatements", () => {
     expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })
     expect(mockClaimDelete).not.toHaveBeenCalled()
     expect(mockClaimSwap).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
-    expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025, outcome: "unknown" })
+    expect(mockCreateAudit).toHaveBeenCalledWith(row("GIVING_STATEMENT_FAILED", 1, { fyStartYear: 2025, outcome: "unknown" }))
   })
 
   describe("forced resend", () => {

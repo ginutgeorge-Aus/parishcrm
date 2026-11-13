@@ -5,7 +5,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { logger } from "@/lib/logger"
-import { logAudit } from "@/lib/audit"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { featureGuard } from "@/lib/featureFlags"
 import { getChurchSettingsForReceipt } from "@/lib/churchSettings"
@@ -19,11 +19,15 @@ import {
   type FamilyStatement,
   STATEMENT_SENT,
   STATEMENT_FAILED,
+  STATEMENT_SKIPPED,
 } from "@/lib/givingStatement"
 import { loadStatements, loadStatementSummaries, loadStatementFamilies, type StatementFamily } from "@/lib/givingStatementData"
 
 const LIST_PATH = "/accounting/giving-statements"
 const MAX_BATCH = 200
+// Stop starting new sends after this long so one request stays under proxy/platform timeouts;
+// unattempted ids come back in `remaining` for the caller to resubmit.
+const SEND_BUDGET_MS = 25_000
 // Cap on send-log rows read per FY (one row per attempt, so this is generous).
 const LOG_CAP = 5000
 const CLAIM_PREFIX = "giving-statement-claim:"
@@ -116,7 +120,17 @@ export type StatementListRow = {
 }
 
 export type StatementSendResult =
-  | { sent: number; failed: number; skipped: number; inProgress: number; errors: { familyId: number; error: string }[] }
+  | {
+      sent: number
+      failed: number
+      skipped: number
+      inProgress: number
+      errors: { familyId: number; error: string }[]
+      /** Present only when > 0: attempts whose audit row could not be written (the email outcome stands). */
+      auditFailed?: number
+      /** Present only when the time budget ran out: ids not attempted yet; the caller resubmits them. */
+      remaining?: number[]
+    }
   | { error: string }
 
 /**
@@ -220,7 +234,35 @@ type SendOneArgs = {
   family: StatementFamily | undefined
 }
 
-type SendOneResult = { status: "sent" } | { status: "skipped"; reason: "sent" | "in_progress" } | { status: "failed"; error: string }
+type SendOneResult = (
+  | { status: "sent" }
+  | { status: "skipped"; reason: "sent" | "in_progress" }
+  | { status: "failed"; error: string }
+) & {
+  /** True when the audit row for this attempt could not be written. */
+  auditFailed?: boolean
+}
+
+/**
+ * Write one audit row and report whether it landed. `logAudit` swallows DB errors, so it cannot
+ * tell the caller; this uses the throwing `logAuditTx` and returns false on failure (logged, ids only).
+ * @param uid acting user id
+ * @param action audit action
+ * @param familyId family id
+ * @param metadata ids/totals only, never an address
+ * @returns true when the row was written
+ */
+async function writeAudit(uid: number | null, action: string, familyId: number, metadata: Record<string, unknown>): Promise<boolean> {
+  try {
+    await prisma.auditLog.create({
+      data: { userId: uid, action, resourceType: "Family", resourceId: familyId, metadata: metadata as Prisma.InputJsonValue },
+    })
+    return true
+  } catch (e) {
+    logger.error("sendGivingStatements audit failed", { familyId, action, error: e instanceof Error ? e.message : String(e) })
+    return false
+  }
+}
 
 /**
  * Claim, render, email and log one family's statement. Never logs the address.
@@ -228,11 +270,17 @@ type SendOneResult = { status: "sent" } | { status: "skipped"; reason: "sent" | 
  */
 async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   const { id, fy, uid, church, statement, family } = a
-  if (!family) return { status: "failed", error: "Family not found." }
-  if (!statement) return { status: "failed", error: "No giving recorded for this family in the financial year." }
-  if (family.archived) return { status: "failed", error: "Family is archived; statements are not emailed." }
+  // Pre-send rejections are audited too (reason code only) under SKIPPED, so the send log shows why a
+  // family got nothing without overwriting its real SENT/FAILED status.
+  const reject = async (reason: string, error: string): Promise<SendOneResult> => {
+    const ok = await writeAudit(uid, STATEMENT_SKIPPED, id, { fyStartYear: fy, reason })
+    return { status: "failed", error, ...(ok ? {} : { auditFailed: true }) }
+  }
+  if (!family) return reject("not_found", "Family not found.")
+  if (!statement) return reject("no_giving", "No giving recorded for this family in the financial year.")
+  if (family.archived) return reject("archived", "Family is archived; statements are not emailed.")
   const to = family.emails[0]
-  if (!to) return { status: "failed", error: "No email address on file (or no member has consented to email)." }
+  if (!to) return reject("no_consented_email", "No email address on file (or no member has consented to email).")
   // Claim before sending so concurrent runs can't both email the family. A
   // resend takes over an old claim atomically; it never steals a live one.
   const claimKey = `${CLAIM_PREFIX}${fy}:${id}`
@@ -263,15 +311,19 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
       // Definite failure: release a fresh claim, or restore the one a resend took over.
       await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
     }
-    await bestEffort("audit", id, () => logAudit(uid, STATEMENT_FAILED, "Family", id, { fyStartYear: fy, ...(unknown ? { outcome: "unknown" } : {}) }))
-    return { status: "failed", error: unknown ? "Delivery status unknown; check before resending" : "Email delivery failed" }
+    const ok = await writeAudit(uid, STATEMENT_FAILED, id, { fyStartYear: fy, ...(unknown ? { outcome: "unknown" } : {}) })
+    return {
+      status: "failed",
+      error: unknown ? "Delivery status unknown; check before resending" : "Email delivery failed",
+      ...(ok ? {} : { auditFailed: true }),
+    }
   }
   // Delivered: a bookkeeping failure must not abort the batch or report the family as failed.
   // A claim left PENDING here goes stale and blocks a plain re-run in the meantime.
   await bestEffort("claim settle", id, () => settleClaim(claimKey, claim.pending, "SENT"))
   // Audit metadata holds ids and totals only — never the address.
-  await bestEffort("audit", id, () => logAudit(uid, STATEMENT_SENT, "Family", id, { fyStartYear: fy, totalCents: statement.totalCents }))
-  return { status: "sent" }
+  const ok = await writeAudit(uid, STATEMENT_SENT, id, { fyStartYear: fy, totalCents: statement.totalCents })
+  return { status: "sent", ...(ok ? {} : { auditFailed: true }) }
 }
 
 /**
@@ -321,14 +373,21 @@ export async function sendGivingStatements(
   let failed = 0
   let skipped = 0
   let inProgress = 0
+  let auditFailed = 0
   const errors: { familyId: number; error: string }[] = []
+  const startedAt = Date.now()
+  let attempted = 0
   for (const id of ids) {
+    // Always attempt at least one family so every call makes progress.
+    if (attempted > 0 && Date.now() - startedAt > SEND_BUDGET_MS) break
+    attempted++
     // Sequential on purpose: each send claims a row first and the mail provider is rate limited.
     // Reload the family right before its send so a consent revoke or archive made mid-batch is honoured.
     const family = (await loadStatementFamilies([id])).get(id)
     const r = await sendOne({ // NOSONAR
       id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family,
     })
+    if (r.auditFailed) auditFailed++
     if (r.status === "sent") sent++
     else if (r.status === "skipped") {
       if (r.reason === "sent") skipped++
@@ -340,14 +399,34 @@ export async function sendGivingStatements(
     }
   }
   revalidatePath(LIST_PATH)
-  return { sent, failed, skipped, inProgress, errors }
+  const remaining = ids.slice(attempted)
+  return {
+    sent, failed, skipped, inProgress, errors,
+    ...(auditFailed ? { auditFailed } : {}),
+    ...(remaining.length ? { remaining } : {}),
+  }
+}
+
+/**
+ * Pull the reason code off a SKIPPED audit row.
+ * @param action audit action
+ * @param metadata audit metadata JSON
+ * @returns `{ reason }` for a SKIPPED row with a string reason, else `{}`
+ */
+function skipReason(action: string, metadata: unknown): { reason?: string } {
+  if (action !== STATEMENT_SKIPPED || typeof metadata !== "object" || metadata === null) return {}
+  const reason = (metadata as { reason?: unknown }).reason
+  return typeof reason === "string" ? { reason } : {}
 }
 
 export type StatementLogRow = {
   id: number
   familyId: number
   familyName: string
-  status: "SENT" | "FAILED"
+  /** SKIPPED = rejected before sending (see `reason`). */
+  status: "SENT" | "FAILED" | "SKIPPED"
+  /** Reason code for a SKIPPED row (no_giving, archived, no_consented_email, not_found). */
+  reason?: string
   at: Date
   sentBy: string
 }
@@ -365,10 +444,10 @@ export async function listStatementSendLog(year: number): Promise<StatementLogRo
   if (fy === null) return { error: "Invalid financial year." }
 
   const rows = await prisma.auditLog.findMany({
-    where: { action: { in: [STATEMENT_SENT, STATEMENT_FAILED] }, metadata: { path: ["fyStartYear"], equals: fy } },
+    where: { action: { in: [STATEMENT_SENT, STATEMENT_FAILED, STATEMENT_SKIPPED] }, metadata: { path: ["fyStartYear"], equals: fy } },
     orderBy: { createdAt: "desc" },
     take: LOG_CAP,
-    select: { id: true, action: true, resourceId: true, createdAt: true, user: { select: { name: true } } },
+    select: { id: true, action: true, resourceId: true, metadata: true, createdAt: true, user: { select: { name: true } } },
   })
   const familyIds = Array.from(new Set(rows.flatMap((r) => (r.resourceId == null ? [] : [r.resourceId]))))
   const families = await prisma.family.findMany({ where: { id: { in: familyIds } }, select: { id: true, name: true } })
@@ -380,7 +459,8 @@ export async function listStatementSendLog(year: number): Promise<StatementLogRo
           id: r.id,
           familyId: r.resourceId,
           familyName: names.get(r.resourceId) ?? `Family #${r.resourceId}`,
-          status: r.action === STATEMENT_SENT ? ("SENT" as const) : ("FAILED" as const),
+          status: r.action === STATEMENT_SENT ? ("SENT" as const) : r.action === STATEMENT_SKIPPED ? ("SKIPPED" as const) : ("FAILED" as const),
+          ...skipReason(r.action, r.metadata),
           at: r.createdAt,
           sentBy: r.user?.name ?? "System",
         }]

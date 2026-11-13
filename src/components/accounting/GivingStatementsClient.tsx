@@ -71,29 +71,32 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
         let skipped = 0
         let inProgress = 0
         let fatal: string | null = null
-        let done = 0 // ids already processed by completed chunks
+        let auditFailed = 0
+        let pending = ids // ids not yet attempted; the server hands back any it ran out of time for
         const errs: { familyId: number; text: string }[] = []
-        for (let i = 0; i < ids.length; i += 200) {
-          const res = await sendGivingStatements(year, ids.slice(i, i + 200), !resend)
+        while (pending.length > 0) {
+          const res = await sendGivingStatements(year, pending.slice(0, 200), !resend)
           if ("error" in res) {
             fatal = res.error
             break
           }
-          done = i + 200
+          pending = [...(res.remaining ?? []), ...pending.slice(200)]
           sent += res.sent
           failed += res.failed
           skipped += res.skipped
           inProgress += res.inProgress
+          auditFailed += res.auditFailed ?? 0
           errs.push(...res.errors.map((e) => ({ familyId: e.familyId, text: `${nameById.get(e.familyId) ?? "Family #" + e.familyId}: ${e.error}` })))
         }
         // On an early stop keep only the unprocessed families, so a forced resend can't re-send finished chunks.
-        setSelected(fatal ? new Set(ids.slice(done)) : new Set())
+        setSelected(fatal ? new Set(pending) : new Set())
         setErrors(errs)
         const skippedNote = skipped ? `, skipped ${skipped} (already sent or claimed)` : ""
         const progressNote = inProgress
           ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
           : ""
-        const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.`
+        const auditNote = auditFailed ? ` ${auditFailed} attempt(s) could not be written to the send log; check before resending.` : ""
+        const counts = `Sent ${sent}, failed ${failed}${skippedNote}${progressNote}.${auditNote}`
         setMessage(fatal ? `${counts} Stopped early: ${fatal}` : counts)
       } catch {
         setMessage("Something went wrong, try again")

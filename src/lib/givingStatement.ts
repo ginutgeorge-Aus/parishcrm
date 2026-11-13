@@ -131,3 +131,8 @@ export function parseStatementYear(raw: string | number | null | undefined): num
 export const STATEMENT_SENT = "GIVING_STATEMENT_SENT"
 /** Audit action for a failed statement delivery. */
 export const STATEMENT_FAILED = "GIVING_STATEMENT_FAILED"
+/**
+ * Audit action for a family rejected before any send (no giving, archived, no consented email, not found).
+ * Kept apart from FAILED so it never overwrites a family's real SENT/FAILED status.
+ */
+export const STATEMENT_SKIPPED = "GIVING_STATEMENT_SKIPPED"
