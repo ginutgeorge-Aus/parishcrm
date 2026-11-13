@@ -107,6 +107,7 @@ describe("MergeClient", () => {
       peopleCount: 3,
       transactionCount: 7,
       fundraiserEntryCount: 0,
+      fundraiserEntriesKeptSeparate: 0,
       conflicts: [],
     }
 
@@ -130,6 +131,16 @@ describe("MergeClient", () => {
       selectTarget("2")
       fireEvent.click(screen.getByRole("button", { name: /preview merge/i }))
       await waitFor(() => expect(screen.getByText(/2 fundraiser entries will be moved/i)).toBeInTheDocument())
+      expect(screen.queryByText(/can't be combined/i)).not.toBeInTheDocument()
+    })
+
+    it("warns in the preview when some fundraiser entries will stay separate", async () => {
+      mockPreview.mockResolvedValue({ ...successPreview, fundraiserEntryCount: 2, fundraiserEntriesKeptSeparate: 1 })
+      render(<MergeClient families={families} />)
+      selectSource("1")
+      selectTarget("2")
+      fireEvent.click(screen.getByRole("button", { name: /preview merge/i }))
+      expect(await screen.findByText(/1 of them can't be combined/i)).toBeInTheDocument()
     })
 
     it("shows conflict names and disables Confirm button when conflicts present", async () => {
@@ -192,6 +203,23 @@ describe("MergeClient", () => {
     it("navigates to /families on successful merge", async () => {
       await reachConfirmScreen()
       mockMerge.mockResolvedValue(null)
+      fireEvent.click(screen.getByRole("button", { name: /confirm merge/i }))
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/families"))
+    })
+
+    it("shows the kept-separate fundraiser rows after the merge instead of navigating away", async () => {
+      await reachConfirmScreen()
+      mockMerge.mockResolvedValue({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 2 } })
+      fireEvent.click(screen.getByRole("button", { name: /confirm merge/i }))
+      expect(await screen.findByText(/2 fundraiser entries were kept as separate rows/i)).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole("button", { name: /back to families/i }))
+      expect(mockPush).toHaveBeenCalledWith("/families")
+    })
+
+    it("navigates straight away when every fundraiser entry was moved or combined", async () => {
+      await reachConfirmScreen()
+      mockMerge.mockResolvedValue({ success: true, fundraiser: { moved: 1, folded: 1, unlinked: 0 } })
       fireEvent.click(screen.getByRole("button", { name: /confirm merge/i }))
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/families"))
     })

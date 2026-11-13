@@ -1,9 +1,13 @@
 /** @jest-environment node */
-import { reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx } from "@/lib/fundraiserFamilyLink"
-import { logAuditManyTx } from "@/lib/audit"
+import {
+  countReassignSteps, planFundraiserReassign, reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx,
+} from "@/lib/fundraiserFamilyLink"
+import { logAuditTx } from "@/lib/audit"
+import { AuditWriteError } from "@/lib/auditGuard"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
-jest.mock("@/lib/audit", () => ({ logAuditManyTx: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 
 type Row = { id: number; fundraiserId: number; familyId: number | null; quantity: number; unitPrice: string }
 
@@ -16,7 +20,7 @@ function makeTx(rows: Row[]) {
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue(rows.map((r) => ({ id: r.id }))),
     fundraiserEntry: {
-      findMany: jest.fn().mockResolvedValue(rows.map((r) => ({ ...r, unitPrice: { toString: () => r.unitPrice } }))),
+      findMany: jest.fn().mockResolvedValue(rows.map((r) => ({ ...r, bankRef: `REF${r.id}`, unitPrice: { toString: () => r.unitPrice } }))),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: rows.length }),
       delete: jest.fn().mockResolvedValue({}),
@@ -33,9 +37,9 @@ beforeEach(() => jest.clearAllMocks())
 describe("reassignFundraiserEntriesTx", () => {
   it("does nothing when neither family has entries", async () => {
     const { tx, client } = makeTx([])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 0 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] })
     expect(tx.fundraiserEntry.findMany).not.toHaveBeenCalled()
-    expect(logAuditManyTx).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("locks every entry of both families in id order before reading them", async () => {
@@ -49,12 +53,10 @@ describe("reassignFundraiserEntriesTx", () => {
 
   it("moves an entry when the target has none in that fundraiser", async () => {
     const { tx, client } = makeTx([{ id: 10, fundraiserId: 5, familyId: 1, quantity: 2, unitPrice: "10.00" }])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 1, folded: 0, unlinked: 0 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 1, folded: 0, unlinked: 0, foldedEntryIds: [] })
     expect(tx.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { familyId: 2 } })
     expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
-    expect(logAuditManyTx).toHaveBeenCalledWith(client, [
-      expect.objectContaining({ userId: 9, action: "FUNDRAISER_ENTRY_REASSIGN", resourceId: 10, metadata: expect.objectContaining({ mode: "moved" }) }),
-    ])
+    expect(logAuditTx).toHaveBeenCalledWith(client, 9, "FUNDRAISER_ENTRY_REASSIGN", "FundraiserEntry", 10, expect.objectContaining({ mode: "moved" }))
   })
 
   it("folds into the target's entry at the same price: sums quantity, moves children, deletes the source entry", async () => {
@@ -62,7 +64,7 @@ describe("reassignFundraiserEntriesTx", () => {
       { id: 10, fundraiserId: 5, familyId: 1, quantity: 2, unitPrice: "10.00" },
       { id: 20, fundraiserId: 5, familyId: 2, quantity: 3, unitPrice: "10" },
     ])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 1, unlinked: 0 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 1, unlinked: 0, foldedEntryIds: [20] })
     expect(tx.fundraiserPayment.updateMany).toHaveBeenCalledWith({ where: { entryId: 10 }, data: { entryId: 20 } })
     expect(tx.fundraiserReminderSend.updateMany).toHaveBeenCalledWith({ where: { entryId: 10 }, data: { entryId: 20 } })
     expect(tx.checkoutSession.updateMany).toHaveBeenCalledWith({ where: { fundraiserEntryId: 10 }, data: { fundraiserEntryId: 20 } })
@@ -71,9 +73,9 @@ describe("reassignFundraiserEntriesTx", () => {
     // Children move before the source entry is deleted (payments cascade on delete).
     expect(tx.fundraiserPayment.updateMany.mock.invocationCallOrder[0])
       .toBeLessThan(tx.fundraiserEntry.delete.mock.invocationCallOrder[0])
-    expect(logAuditManyTx).toHaveBeenCalledWith(client, [
-      expect.objectContaining({ resourceId: 20, metadata: expect.objectContaining({ mode: "folded", fromEntryId: 10, quantity: 5 }) }),
-    ])
+    // The old bank ref is kept in the audit row so a late transfer quoting it can be traced.
+    expect(logAuditTx).toHaveBeenCalledWith(client, 9, "FUNDRAISER_ENTRY_REASSIGN", "FundraiserEntry", 20,
+      expect.objectContaining({ mode: "folded", fromEntryId: 10, fromBankRef: "REF10", quantity: 5 }))
   })
 
   it("keeps the entry as its own unlinked row with the source name when the prices differ", async () => {
@@ -81,7 +83,7 @@ describe("reassignFundraiserEntriesTx", () => {
       { id: 10, fundraiserId: 5, familyId: 1, quantity: 2, unitPrice: "10.00" },
       { id: 20, fundraiserId: 5, familyId: 2, quantity: 3, unitPrice: "12.00" },
     ])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1, foldedEntryIds: [] })
     expect(tx.fundraiserEntry.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { familyId: null, familyNameSnapshot: "Old" } })
     expect(tx.fundraiserPayment.updateMany).not.toHaveBeenCalled()
     expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
@@ -92,7 +94,7 @@ describe("reassignFundraiserEntriesTx", () => {
       { id: 10, fundraiserId: 5, familyId: 1, quantity: 9000, unitPrice: "100.00" },
       { id: 20, fundraiserId: 5, familyId: 2, quantity: 9000, unitPrice: "100.00" },
     ])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1, foldedEntryIds: [] })
     expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
   })
 
@@ -104,7 +106,28 @@ describe("reassignFundraiserEntriesTx", () => {
       { id: 20, fundraiserId: 6, familyId: 2, quantity: 1, unitPrice: "5.00" },
       { id: 21, fundraiserId: 7, familyId: 2, quantity: 1, unitPrice: "6.00" },
     ])
-    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 1, folded: 1, unlinked: 1 })
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 1, folded: 1, unlinked: 1, foldedEntryIds: [20] })
+  })
+
+  it("a failed audit write throws AuditWriteError (not a raw Prisma error), so the merge rolls back", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("fk"), { code: "P2003" }))
+    const { client } = makeTx([{ id: 10, fundraiserId: 5, familyId: 1, quantity: 2, unitPrice: "10.00" }])
+    await expect(reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).rejects.toBeInstanceOf(AuditWriteError)
+  })
+})
+
+describe("planFundraiserReassign", () => {
+  it("is what the preview counts: move / fold / unlink per source entry", () => {
+    const rows = [
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 1, unitPrice: "5.00" },
+      { id: 11, fundraiserId: 6, familyId: 1, quantity: 1, unitPrice: "5.00" },
+      { id: 12, fundraiserId: 7, familyId: 1, quantity: 1, unitPrice: "5.00" },
+      { id: 20, fundraiserId: 6, familyId: 2, quantity: 1, unitPrice: "5" },
+      { id: 21, fundraiserId: 7, familyId: 2, quantity: 1, unitPrice: "6.00" },
+    ]
+    const steps = planFundraiserReassign(rows, 1, 2)
+    expect(steps.map((s) => [s.src.id, s.kind])).toEqual([[10, "move"], [11, "fold"], [12, "unlink"]])
+    expect(countReassignSteps(steps)).toEqual({ moved: 1, folded: 1, unlinked: 1 })
   })
 })
 
@@ -113,7 +136,7 @@ describe("unlinkFundraiserEntriesTx", () => {
     const { tx, client } = makeTx([])
     expect(await unlinkFundraiserEntriesTx(client, 3, "Smith", 9)).toBe(0)
     expect(tx.fundraiserEntry.updateMany).not.toHaveBeenCalled()
-    expect(logAuditManyTx).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 
   it("nulls the link, keeps the family name, and audits each entry", async () => {
@@ -127,10 +150,10 @@ describe("unlinkFundraiserEntriesTx", () => {
       where: { id: { in: [10, 11] } },
       data: { familyId: null, familyNameSnapshot: "Smith" },
     })
-    const audits = (logAuditManyTx as jest.Mock).mock.calls[0][1]
-    expect(audits.map((a: { resourceId: number }) => a.resourceId)).toEqual([10, 11])
-    expect(audits[0].metadata).toEqual({ mode: "unlinked", fromFamilyId: 3, reason: "family-deleted" })
+    const calls = (logAuditTx as jest.Mock).mock.calls
+    expect(calls.map((c) => c[4])).toEqual([10, 11])
+    expect(calls[0][5]).toEqual({ mode: "unlinked", fromFamilyId: 3, reason: "family-deleted" })
     // Audit metadata carries ids/flags only, never the family name (PII).
-    expect(JSON.stringify(audits)).not.toContain("Smith")
+    expect(JSON.stringify(calls)).not.toContain("Smith")
   })
 })

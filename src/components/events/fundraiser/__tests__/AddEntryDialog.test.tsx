@@ -55,7 +55,8 @@ describe("AddEntryDialog", () => {
     openDialog()
     await pickFamily("Sam", "Sample Family")
     expect(search).toHaveBeenCalledWith(3, "Sam")
-    expect(screen.getByText("Sample Family")).toBeInTheDocument()
+    // The label still points at a real control once a family is picked.
+    expect(screen.getByLabelText("Family")).toHaveValue("Sample Family")
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "4" } })
     fireEvent.submit(theForm())
     await waitFor(() => expect(addEntry).toHaveBeenCalledWith(3, { familyId: 8, quantity: "4" }))
@@ -95,6 +96,35 @@ describe("AddEntryDialog", () => {
     openDialog()
     fireEvent.change(screen.getByLabelText("Family"), { target: { value: "Sam" } })
     expect(await screen.findByText("Search failed. Please try again.")).toBeInTheDocument()
+  })
+
+  it("Enter in the search box does not submit the form", () => {
+    openDialog()
+    const input = screen.getByLabelText("Family")
+    fireEvent.change(input, { target: { value: "Sam" } })
+    const ev = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })
+    input.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(addEntry).not.toHaveBeenCalled()
+  })
+
+  it("a pending search cannot repopulate results after a pick", async () => {
+    let resolveSlow: (v: unknown) => void = () => {}
+    search
+      .mockResolvedValueOnce({ families })
+      .mockImplementationOnce(() => new Promise((r) => { resolveSlow = r }))
+    openDialog()
+    await pickFamily("Sam", "Sample Family")
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    // Type again (search in flight), then pick from the still-shown old list.
+    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "Exa" } })
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole("button", { name: "Example Family" }))
+    await act(async () => { resolveSlow({ families: [{ id: 9, name: "Late Family" }] }) })
+    expect(screen.getByLabelText("Family")).toHaveValue("Example Family")
+    // Re-opening the search must not show the late response either.
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    expect(screen.queryByRole("button", { name: "Late Family" })).toBeNull()
   })
 
   it("lets the user change the picked family", async () => {

@@ -14,6 +14,8 @@ import { revalidatePath } from "next/cache"
 import { isFeatureOn } from "@/lib/featureFlags"
 import { logAudit } from "@/lib/audit"
 import { reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx } from "@/lib/fundraiserFamilyLink"
+import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
+import { AuditWriteError, AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 // Locks in the guards family.ts fixed by hand with no regression net: the
 // canEdit/isAdmin role gates, the unique-constraint messaging (memberNo vs
@@ -32,9 +34,12 @@ jest.mock("@/lib/audit", () => ({
 }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/fundraiserFamilyLink", () => ({
+  ...jest.requireActual("@/lib/fundraiserFamilyLink"),
   reassignFundraiserEntriesTx: jest.fn(),
   unlinkFundraiserEntriesTx: jest.fn(),
 }))
+jest.mock("@/lib/fundraiserCheckout", () => ({ expireOpenFundraiserCheckouts: jest.fn().mockResolvedValue(0) }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(() => {
     throw new Error("NEXT_REDIRECT")
@@ -64,7 +69,7 @@ jest.mock("@/lib/prisma", () => ({
     membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     familyUpdateSubmission: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
-    fundraiserEntry: { count: jest.fn() },
+    fundraiserEntry: { findMany: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn().mockResolvedValue([]),
   },
@@ -88,8 +93,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   familyDeleteTx.mockResolvedValue({})
   ;(unlinkFundraiserEntriesTx as jest.Mock).mockResolvedValue(0)
-  ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 0, unlinked: 0 })
-  ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(0)
+  ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] })
+  ;(prisma.fundraiserEntry.findMany as jest.Mock).mockResolvedValue([])
   for (const m of [prisma.family.delete, prisma.person.count, prisma.transaction.count]) {
     ;(m as jest.Mock).mockImplementation(() => {
       throw new Error("called outside the transaction")
@@ -350,6 +355,16 @@ describe("deleteFamily", () => {
     expect(unlinkFundraiserEntriesTx).not.toHaveBeenCalled()
   })
 
+  it("reports a failed fundraiser-unlink audit write as an audit failure, not a linked-records error", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({ id: 3, archivedAt: new Date("2020-01-01T00:00:00.000Z") })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValue(0)
+    ;(unlinkFundraiserEntriesTx as jest.Mock).mockRejectedValue(new AuditWriteError(new Error("audit down")))
+    expect(await deleteFamily(3)).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(familyDeleteTx).not.toHaveBeenCalled()
+  })
+
   it("maps a P2003 FK failure on the delete to a friendly linked-records error, not a 500", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
@@ -501,27 +516,60 @@ describe("previewMerge / mergeFamilies", () => {
     expect(r.conflicts.some((c) => c.includes("pending self-update"))).toBe(true)
   })
 
-  it("previewMerge counts the source family's fundraiser entries instead of refusing", async () => {
+  it("previewMerge counts the source's fundraiser entries and the ones that will stay separate", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     stubPreview()
-    ;(prisma.fundraiserEntry.count as jest.Mock).mockResolvedValue(2)
+    ;(prisma.fundraiserEntry.findMany as jest.Mock).mockResolvedValue([
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 1, unitPrice: "5.00" }, // moves
+      { id: 11, fundraiserId: 6, familyId: 1, quantity: 1, unitPrice: "5.00" }, // price differs: separate
+      { id: 20, fundraiserId: 6, familyId: 2, quantity: 1, unitPrice: "6.00" },
+    ])
     const r = await previewMerge(1, 2)
-    expect(r).toMatchObject({ fundraiserEntryCount: 2, conflicts: [] })
-    expect(prisma.fundraiserEntry.count).toHaveBeenCalledWith({ where: { familyId: 1 } })
+    expect(r).toMatchObject({ fundraiserEntryCount: 2, fundraiserEntriesKeptSeparate: 1, conflicts: [] })
+    expect(prisma.fundraiserEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { familyId: { in: [1, 2] } } }))
   })
 
-  it("mergeFamilies re-homes the source's fundraiser entries before deleting it, and audits the counts", async () => {
+  it("mergeFamilies re-homes the source's fundraiser entries before deleting it, and returns + audits the counts", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     stubPreview()
-    ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 1, folded: 1, unlinked: 0 })
+    ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 1, folded: 1, unlinked: 1, foldedEntryIds: [20] })
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ success: true })
+    expect(r).toEqual({ success: true, fundraiser: { moved: 1, folded: 1, unlinked: 1 } })
     expect(reassignFundraiserEntriesTx).toHaveBeenCalledWith(expect.anything(), 1, 2, "Old", 1)
     expect((reassignFundraiserEntriesTx as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan(familyDeleteTx.mock.invocationCallOrder[0])
     expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_MERGED", "Family", 2, {
-      sourceId: 1, sourceName: "Old", fundraiserEntries: { moved: 1, folded: 1, unlinked: 0 },
+      sourceId: 1, sourceName: "Old", fundraiserEntries: { moved: 1, folded: 1, unlinked: 1 },
     })
+  })
+
+  it("mergeFamilies expires open card checkouts on every folded-into entry, after commit", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 2, unlinked: 0, foldedEntryIds: [20, 21] })
+    await mergeFamilies(1, 2)
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledTimes(2)
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(20)
+    expect(expireOpenFundraiserCheckouts).toHaveBeenCalledWith(21)
+    expect((expireOpenFundraiserCheckouts as jest.Mock).mock.invocationCallOrder[0])
+      .toBeGreaterThan(familyDeleteTx.mock.invocationCallOrder[0])
+  })
+
+  it("mergeFamilies does not expire checkouts when nothing was folded", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    await mergeFamilies(1, 2)
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
+  })
+
+  it("mergeFamilies reports a failed audit write as an audit failure, not a linked-records P2003", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    ;(reassignFundraiserEntriesTx as jest.Mock).mockRejectedValue(new AuditWriteError(Object.assign(new Error("fk"), { code: "P2003" })))
+    const r = await mergeFamilies(1, 2)
+    expect(r).toEqual({ error: AUDIT_FAILED_ERROR })
+    expect(familyDeleteTx).not.toHaveBeenCalled()
+    expect(expireOpenFundraiserCheckouts).not.toHaveBeenCalled()
   })
 
   it("mergeFamilies maps a P2003 FK failure to a friendly error", async () => {
@@ -553,7 +601,7 @@ describe("previewMerge / mergeFamilies", () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     stubPreview()
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ success: true })
+    expect(r).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
   })
 
@@ -626,7 +674,7 @@ describe("previewMerge / mergeFamilies", () => {
       })
     )
     const r = await mergeFamilies(1, 2)
-    expect(r).toEqual({ success: true })
+    expect(r).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
     expect(inviteUpdate).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     expect(submissionUpdate).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     expect(familyDelete).toHaveBeenCalledWith({ where: { id: 1 } })

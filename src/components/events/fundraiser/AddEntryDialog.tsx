@@ -7,12 +7,10 @@ import { Label } from "@/components/ui/label"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { addEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
+import { FAMILY_SEARCH_LIMIT as SEARCH_LIMIT, FAMILY_SEARCH_MIN as MIN_SEARCH } from "@/lib/fundraiserMath"
 
 type FamilyOption = { id: number; name: string }
 
-/** Matches the server cap: a full page of results means there may be more. */
-const SEARCH_LIMIT = 20
-const MIN_SEARCH = 2
 const SEARCH_DEBOUNCE_MS = 250
 
 /**
@@ -59,11 +57,23 @@ function FamilySearch({
     }, SEARCH_DEBOUNCE_MS)
   }
 
+  /**
+   * Pick a family: cancel any pending search and drop in-flight responses, so
+   * a late result list cannot reappear over the choice.
+   * @param f - Chosen family.
+   */
+  function pick(f: FamilyOption) {
+    clearTimeout(timer.current)
+    latest.current++
+    onSelect(f)
+  }
+
   if (selected) {
+    // A read-only input keeps the "Family" label pointing at a real control.
     return (
-      <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border px-3 py-1 text-sm sm:min-h-9">
-        <span className="min-w-0 truncate font-medium text-foreground">{selected.name}</span>
-        <Button type="button" size="sm" variant="ghost" className="min-h-11 shrink-0 sm:min-h-0" onClick={() => onSelect(null)}>
+      <div className="flex items-center gap-2">
+        <Input id="fe-family" value={selected.name} readOnly className="min-h-11 min-w-0 flex-1 font-medium sm:min-h-9" />
+        <Button type="button" size="sm" variant="outline" className="min-h-11 shrink-0 sm:min-h-0" onClick={() => onSelect(null)}>
           Change
         </Button>
       </div>
@@ -76,6 +86,8 @@ function FamilySearch({
         id="fe-family"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
+        // Enter in the search box must not submit the add-entry form.
+        onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault() }}
         placeholder="Type at least 2 letters of the name"
         autoComplete="off"
         maxLength={120}
@@ -93,7 +105,7 @@ function FamilySearch({
                   <button
                     type="button"
                     className="flex min-h-11 w-full items-center px-3 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none sm:min-h-9"
-                    onClick={() => onSelect(f)}
+                    onClick={() => pick(f)}
                   >
                     <span className="min-w-0 truncate">{f.name}</span>
                   </button>

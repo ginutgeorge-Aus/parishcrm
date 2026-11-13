@@ -298,6 +298,9 @@ describe("refund/dispute of a fundraiser card payment", () => {
     expect(await handleStripeWebhook("{}", "sig")).toEqual({ status: 200 })
     const body = notifyStripeAlert.mock.calls[0][1] as string
     expect(body).not.toContain("stays counted as paid")
-    expect(body).toContain("no FundraiserPayment row with stripePaymentRef = pi_f exists")
+    expect(body).toContain("no FundraiserPayment row with stripePaymentRef = pi_f was found")
+    // A miss is not proof: never tell ops no correction is needed.
+    expect(body).not.toMatch(/no (ledger )?correction is needed/i)
+    expect(body).toContain("Check the fundraiser ledger for entry 7 by hand")
   })
 })

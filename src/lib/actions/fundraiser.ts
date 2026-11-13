@@ -14,7 +14,7 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { isP2002, isRealCalendarDate, isValidEmail, isValidPgId, MONEY_DECIMAL_RE } from "@/lib/validation"
 import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
-import { entryTotals, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
+import { entryTotals, FAMILY_SEARCH_LIMIT, FAMILY_SEARCH_MIN, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { serializableWrite } from "@/lib/serializableWrite"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -273,11 +273,6 @@ export async function addEntry(
   return BUSY
 }
 
-/** Shortest query `searchFundraiserFamilies` runs; shorter returns no results. */
-const MIN_FAMILY_SEARCH = 2
-/** Most families one search returns (the add-entry picker shows a "refine" hint at the cap). */
-const FAMILY_SEARCH_LIMIT = 20
-
 /**
  * Search live families by name for the add-entry picker, instead of sending
  * every family to the page. Families already on this fundraiser are left out
@@ -295,7 +290,7 @@ export async function searchFundraiserFamilies(
   if ("error" in g) return g
   if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
   const q = typeof query === "string" ? query.trim().slice(0, MAX_NAME) : ""
-  if (q.length < MIN_FAMILY_SEARCH) return { families: [] }
+  if (q.length < FAMILY_SEARCH_MIN) return { families: [] }
   const families = await prisma.family.findMany({
     where: {
       archivedAt: null,

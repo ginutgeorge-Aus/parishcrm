@@ -12,7 +12,12 @@ import { encryptFamilyFields } from "@/lib/familyFields"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, isP2003, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
-import { reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx, type FundraiserReassignResult } from "@/lib/fundraiserFamilyLink"
+import {
+  countReassignSteps, planFundraiserReassign, reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx,
+  type FundraiserReassignCounts, type FundraiserReassignResult,
+} from "@/lib/fundraiserFamilyLink"
+import { AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
+import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { isFeatureOn } from "@/lib/featureFlags"
 
 // Upper bound on monthly subscription dues — sanity cap, not a business rule.
@@ -270,6 +275,9 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       return null
     })
   } catch (e: unknown) {
+    // A failed (guarded) audit write rolled the delete back: say so, rather
+    // than let it look like a linked-records error.
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteFamily")
     // Backstop: any Restrict FK still referencing the family fails the
     // delete — answer friendly, not a 500.
     if (isP2003(e)) return { error: LINKED_RECORDS_ERROR }
@@ -331,8 +339,10 @@ export type MergePreview = {
   target: { id: number; name: string; memberNo: string | null }
   peopleCount: number
   transactionCount: number
-  /** Source fundraiser entries; the merge moves or folds them into the target (see reassignFundraiserEntriesTx). */
+  /** Source fundraiser entries; the merge moves or folds them into the target (see planFundraiserReassign). */
   fundraiserEntryCount: number
+  /** Of those, entries that cannot join the target's entry (different price or over the cap): kept as separate, unlinked rows. */
+  fundraiserEntriesKeptSeparate: number
   conflicts: string[]
 }
 
@@ -385,8 +395,13 @@ async function _previewMergeCore(
     // FamilyUpdateSubmission rows. Block the merge while a self-update awaits
     // review so it isn't silently lost — admin must approve/reject first.
     prisma.familyUpdateSubmission.count({ where: { familyId: sourceId, status: "PENDING" } }),
-    prisma.fundraiserEntry.count({ where: { familyId: sourceId } }),
+    // Both families' entries, to plan the fundraiser move (planFundraiserReassign).
+    prisma.fundraiserEntry.findMany({
+      where: { familyId: { in: [sourceId, targetId] } },
+      select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true },
+    }),
   ])
+  const fundraiserPlan = countReassignSteps(planFundraiserReassign(fundraiserEntries, sourceId, targetId))
 
   const targetNames = new Set(targetPeople.map((p) => `${p.firstName} ${p.lastName}`))
   const conflicts = sourcePeople
@@ -398,7 +413,11 @@ async function _previewMergeCore(
     )
   }
 
-  return { source, target, peopleCount: sourcePeople.length, transactionCount, fundraiserEntryCount: fundraiserEntries, conflicts }
+  return { source, target, peopleCount: sourcePeople.length, transactionCount,
+    fundraiserEntryCount: fundraiserPlan.moved + fundraiserPlan.folded + fundraiserPlan.unlinked,
+    fundraiserEntriesKeptSeparate: fundraiserPlan.unlinked,
+    conflicts,
+  }
 }
 
 export async function previewMerge(
@@ -423,7 +442,7 @@ export async function previewMerge(
 export async function mergeFamilies(
   sourceId: number,
   targetId: number
-): Promise<{ success?: true; error?: string; conflicts?: string[] }> {
+): Promise<{ success?: true; error?: string; conflicts?: string[]; fundraiser?: FundraiserReassignCounts }> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (sourceId === targetId) return { error: "Source and target must be different families." }
@@ -433,7 +452,7 @@ export async function mergeFamilies(
   if (preview.conflicts.length > 0) return { conflicts: preview.conflicts }
 
   const actor = actorId(session)
-  let fundraiser: FundraiserReassignResult = { moved: 0, folded: 0, unlinked: 0 }
+  let fundraiser: FundraiserReassignResult = { moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] }
   try {
     await prisma.$transaction(async (tx) => {
       // re-check archival inside the tx. The no-op UPDATE row-locks both
@@ -465,6 +484,8 @@ export async function mergeFamilies(
     })
   } catch (e: unknown) {
     if (e instanceof ArchivedDuringMerge) return { error: ARCHIVED_MERGE_ERROR }
+    // A failed (guarded) audit write rolled the merge back; never report it as a P2003.
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "mergeFamilies")
     if (isP2003(e)) return { error: MERGE_LINKED_ERROR }
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
       return { conflicts: ["Merge failed: a duplicate person name was added concurrently. Please re-run preview."] }
@@ -472,12 +493,19 @@ export async function mergeFamilies(
     throw e
   }
 
+  // A fold changed the target entry's amount: expire its open card checkouts
+  // (incl. ones moved from the source entry) so a session priced for the old
+  // amount cannot still be paid. Best-effort, after commit, like
+  // updateEntryQuantity; never throws.
+  for (const entryId of fundraiser.foldedEntryIds) await expireOpenFundraiserCheckouts(entryId)
+  const counts: FundraiserReassignCounts = { moved: fundraiser.moved, folded: fundraiser.folded, unlinked: fundraiser.unlinked }
+
   await logAudit(
     actor,
     "FAMILY_MERGED",
     "Family",
     targetId,
-    { sourceId, sourceName: preview.source.name, fundraiserEntries: fundraiser }
+    { sourceId, sourceName: preview.source.name, fundraiserEntries: counts }
   )
 
   revalidatePath("/families")
@@ -487,5 +515,5 @@ export async function mergeFamilies(
   // a since-deleted route is a no-op cache clear).
   revalidatePath(`/families/${targetId}`)
   revalidatePath(`/families/${sourceId}`)
-  return { success: true }
+  return { success: true, fundraiser: counts }
 }

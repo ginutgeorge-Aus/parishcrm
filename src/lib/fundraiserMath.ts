@@ -7,6 +7,11 @@ import { toCents, type Money } from "@/lib/formatting"
  */
 export const MAX_OWED_CENTS = 99_999_999
 
+/** Shortest family-search query for the add-entry picker; shorter returns no results. */
+export const FAMILY_SEARCH_MIN = 2
+/** Most families one add-entry search returns (the picker shows a "refine" hint at the cap). */
+export const FAMILY_SEARCH_LIMIT = 20
+
 /** Payment state of one fundraiser entry. */
 type FundraiserStatus = "UNPAID" | "PART" | "PAID" | "OVERPAID"
 

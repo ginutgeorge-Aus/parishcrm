@@ -21,6 +21,9 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
   const [preview, setPreview] = useState<MergePreview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Set after a merge that kept some fundraiser entries as separate rows, so
+  // the admin sees that before leaving the page.
+  const [keptSeparate, setKeptSeparate] = useState<number | null>(null)
   const router = useRouter()
 
   function handlePreview() {
@@ -35,6 +38,10 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
     })
   }
 
+  /**
+   * Run the merge. On success go back to the families list, unless some
+   * fundraiser entries were kept as separate rows: then show that first.
+   */
   function handleConfirm() {
     if (!preview) return
     startTransition(async () => {
@@ -44,8 +51,24 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
         setError(`Conflicts: ${result.conflicts.join(", ")}. Resolve manually first.`)
         return
       }
+      const unlinked = result?.fundraiser?.unlinked ?? 0
+      if (unlinked > 0) { setKeptSeparate(unlinked); return }
       router.push("/families")
     })
+  }
+
+  if (keptSeparate !== null) {
+    return (
+      <div className="space-y-4 max-w-lg" role="status">
+        <h3 className="font-semibold text-foreground">Merge complete</h3>
+        <p className="text-sm text-muted-foreground">
+          {keptSeparate} fundraiser {keptSeparate === 1 ? "entry was" : "entries were"} kept as {keptSeparate === 1 ? "a separate row" : "separate rows"} under
+          the merged family&apos;s name, because the price differed from the surviving family&apos;s entry. Review {keptSeparate === 1 ? "it" : "them"} on
+          the event&apos;s fundraiser page.
+        </p>
+        <Button onClick={() => router.push("/families")}>Back to families</Button>
+      </div>
+    )
   }
 
   if (preview) {
@@ -62,6 +85,9 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
           <li>{preview.transactionCount} transactions will be reassigned</li>
           {preview.fundraiserEntryCount > 0 && (
             <li>{preview.fundraiserEntryCount} fundraiser entries will be moved (combined with the target&apos;s entry for the same fundraiser where possible)</li>
+          )}
+          {preview.fundraiserEntriesKeptSeparate > 0 && (
+            <li>{preview.fundraiserEntriesKeptSeparate} of them can&apos;t be combined (different price) and will stay as separate rows under <strong>{preview.source.name}</strong>&apos;s name</li>
           )}
           <li><strong>{preview.source.name}</strong> will be permanently deleted</li>
         </ul>

@@ -11,15 +11,17 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { count: jest.fn(), updateMany: jest.fn() },
     familyUpdateSubmission: { count: jest.fn() },
     membershipApplication: { updateMany: jest.fn() },
-    fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
+    fundraiserEntry: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   },
 }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/fundraiserFamilyLink", () => ({
-  reassignFundraiserEntriesTx: jest.fn().mockResolvedValue({ moved: 0, folded: 0, unlinked: 0 }),
+  ...jest.requireActual("@/lib/fundraiserFamilyLink"),
+  reassignFundraiserEntriesTx: jest.fn().mockResolvedValue({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] }),
 }))
+jest.mock("@/lib/fundraiserCheckout", () => ({ expireOpenFundraiserCheckouts: jest.fn() }))
 
 const mockAuth = auth as jest.Mock
 const mockFamilyFindUnique = prisma.family.findUnique as jest.Mock
@@ -144,7 +146,7 @@ describe("mergeFamilies", () => {
     mockTransactionUpdateMany.mockResolvedValue({ count: 2 })
     mockMembershipUpdateMany.mockResolvedValue({ count: 0 })
     mockFamilyDelete.mockResolvedValue({})
-    expect(await mergeFamilies(1, 2)).toEqual({ success: true })
+    expect(await mergeFamilies(1, 2)).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
     expect(mockPersonUpdateMany).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     expect(mockTransactionUpdateMany).toHaveBeenCalledWith({ where: { familyId: 1 }, data: { familyId: 2 } })
     // invite + submission history reparented to the target, not cascade-deleted.
@@ -176,7 +178,7 @@ describe("mergeFamilies", () => {
     mockTransactionUpdateMany.mockResolvedValue({ count: 0 })
     mockMembershipUpdateMany.mockResolvedValue({ count: 2 })
     mockFamilyDelete.mockResolvedValue({})
-    expect(await mergeFamilies(1, 2)).toEqual({ success: true })
+    expect(await mergeFamilies(1, 2)).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
     expect(mockMembershipUpdateMany).toHaveBeenCalledWith({
       where: { linkedFamilyId: 1 },
       data: { linkedFamilyId: 2 },
@@ -208,7 +210,7 @@ describe("mergeFamilies", () => {
     mockTransactionUpdateMany.mockResolvedValue({ count: 0 })
     mockMembershipUpdateMany.mockResolvedValue({ count: 0 })
     mockFamilyDelete.mockResolvedValue({})
-    expect(await mergeFamilies(1, 2)).toEqual({ success: true })
+    expect(await mergeFamilies(1, 2)).toEqual({ success: true, fundraiser: { moved: 0, folded: 0, unlinked: 0 } })
     expect(revalidatePath).toHaveBeenCalledWith("/families/2")
     expect(revalidatePath).toHaveBeenCalledWith("/families/1")
   })
