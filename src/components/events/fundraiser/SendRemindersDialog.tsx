@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -23,16 +23,24 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
   const [plan, setPlan] = useState<Plan | null>(null)
   const [loading, startLoad] = useTransition()
   const [pending, start] = useTransition()
+  const latestLoad = useRef(0)
 
-  /** Load the preview counts shown in the dialog. */
+  /**
+   * Load the preview counts shown in the dialog. Only the latest load may set
+   * state: a slow response from an earlier open is ignored, so it cannot
+   * overwrite newer counts.
+   */
   function loadPlan() {
     setPlan(null)
+    const seq = ++latestLoad.current
     startLoad(async () => {
       try {
         const res = await getReminderPlan(fundraiserId)
+        if (seq !== latestLoad.current) return
         if ("error" in res) setError(res.error)
         else setPlan(res)
       } catch {
+        if (seq !== latestLoad.current) return
         setError("Could not load reminder details. Please try again.")
       }
     })

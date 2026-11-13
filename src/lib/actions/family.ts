@@ -12,6 +12,12 @@ import { encryptFamilyFields } from "@/lib/familyFields"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { MONEY_DECIMAL_RE, isP2003, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { retentionFloor } from "@/lib/retention"
+import {
+  countReassignSteps, planFundraiserReassign, reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx,
+  type FundraiserReassignCounts, type FundraiserReassignResult,
+} from "@/lib/fundraiserFamilyLink"
+import { AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
+import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { isFeatureOn } from "@/lib/featureFlags"
 
 // Upper bound on monthly subscription dues — sanity cap, not a business rule.
@@ -168,28 +174,17 @@ export async function updateFamily(
   redirect(`/families/${id}`)
 }
 
-/** Friendly error when FundraiserEntry.familyId (onDelete: Restrict) blocks a family delete/merge. */
-const FUNDRAISER_FAMILY_ERROR = "Remove or move this family's fundraiser entries first. Entries with card payments cannot be removed in-app."
+/** Friendly error when a Restrict foreign key (P2003) blocks a family delete. */
 const LINKED_RECORDS_ERROR = "Cannot delete — other records still reference this family. Archive it instead."
-
-/**
- * Friendly message for a family delete that failed on a Restrict foreign key
- * (P2003). Prisma's P2003 does not reliably name the constraint across driver
- * adapters, so re-check the one known Restrict child (fundraiser entries).
- * @param familyId - Family whose delete failed.
- * @returns the fundraiser message when the family has entries, else a generic one
- */
-async function restrictFkError(familyId: number): Promise<string> {
-  const entries = await prisma.fundraiserEntry.count({ where: { familyId } })
-  return entries > 0 ? FUNDRAISER_FAMILY_ERROR : LINKED_RECORDS_ERROR
-}
 
 /**
  * Permanently delete a family (ADMIN only), allowed only for a family archived
  * past the retention floor with no linked transactions or active members.
  * Member clearances cascade with it and are each audited as CLEARANCE_REMOVED,
- * in the same transaction as the delete. Blocked while the family has
- * fundraiser entries (Restrict FK); a P2003 is mapped to the same error.
+ * in the same transaction as the delete. Its fundraiser entries are kept for
+ * the fundraiser ledger: unlinked from the family with the family's name
+ * copied onto them (`unlinkFundraiserEntriesTx`). Any remaining Restrict FK
+ * failure (P2003) maps to a friendly error.
  * @param id Family.id
  */
 export async function deleteFamily(id: number): Promise<ActionResult> {
@@ -210,8 +205,8 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       // (its FK takes KEY SHARE on the family row), or a new clearance
       // (upsertClearance takes FOR SHARE on the person row).
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
-      const locked = await tx.$queryRaw<{ archivedAt: Date | null }[]>`
-        SELECT "archivedAt" FROM "Family" WHERE id = ${id} FOR UPDATE`
+      const locked = await tx.$queryRaw<{ archivedAt: Date | null; name: string }[]>`
+        SELECT "archivedAt", name FROM "Family" WHERE id = ${id} FOR UPDATE`
       if (locked.length === 0) return { error: "Not found" }
       // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
       await tx.$queryRaw`SELECT id FROM "Person" WHERE "familyId" = ${id} ORDER BY id FOR UPDATE` // nosemgrep: crm-no-raw-sql
@@ -260,11 +255,11 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
         where: { person: { familyId: id } },
         select: { id: true, type: true, personId: true },
       })
-      // FundraiserEntry.familyId is onDelete: Restrict — the delete below would
-      // throw P2003 (an unhandled 500). Check first for a friendly error.
-      if ((await tx.fundraiserEntry.count({ where: { familyId: id } })) > 0) {
-        return { error: FUNDRAISER_FAMILY_ERROR }
-      }
+      // FundraiserEntry.familyId is onDelete: Restrict. Keep the entries (and
+      // their payments) for the fundraiser ledger: unlink them, keeping the
+      // family's name. addEntry share-locks the family row, so none can be
+      // added between this and the delete.
+      await unlinkFundraiserEntriesTx(tx, id, locked[0].name, actor)
       await tx.family.delete({ where: { id } })
       await logAuditTx(tx, actor, "FAMILY_DELETED", "Family", id)
       await logAuditManyTx(
@@ -280,10 +275,12 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       return null
     })
   } catch (e: unknown) {
-    // Backstop: a fundraiser entry added after the count above (or any other
-    // Restrict FK) still fails the delete — answer friendly, not a 500. Only
-    // blame fundraiser entries when the family actually has some now.
-    if (isP2003(e)) return { error: await restrictFkError(id) }
+    // A failed (guarded) audit write rolled the delete back: say so, rather
+    // than let it look like a linked-records error.
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteFamily")
+    // Backstop: any Restrict FK still referencing the family fails the
+    // delete — answer friendly, not a 500.
+    if (isP2003(e)) return { error: LINKED_RECORDS_ERROR }
     throw e
   }
   if (blocked) return blocked
@@ -342,21 +339,25 @@ export type MergePreview = {
   target: { id: number; name: string; memberNo: string | null }
   peopleCount: number
   transactionCount: number
+  /** Source fundraiser entries; the merge moves or folds them into the target (see planFundraiserReassign). */
+  fundraiserEntryCount: number
+  /** Of those, entries that cannot join the target's entry (different price or over the cap): kept as separate, unlinked rows. */
+  fundraiserEntriesKeptSeparate: number
   conflicts: string[]
 }
 
 const ARCHIVED_MERGE_ERROR = "Archived families can't be merged — unarchive first."
 
-class ArchivedDuringMerge extends Error {}
+/** Friendly error when a Restrict foreign key (P2003) still blocks deleting the merged source. */
+const MERGE_LINKED_ERROR = "Merge failed — other records still reference the source family. Please re-run preview."
 
-/** Thrown inside the merge tx when the source family gained fundraiser entries after preview. */
-class FundraiserEntriesDuringMerge extends Error {}
+class ArchivedDuringMerge extends Error {}
 
 /**
  * Validate a merge of `sourceId` into `targetId` and summarise it: archived or
- * missing families, and a source with fundraiser entries (Restrict FK on
- * delete), return an error; person-name clashes and pending self-update
- * submissions are returned as conflicts.
+ * missing families return an error; person-name clashes and pending
+ * self-update submissions are returned as conflicts. The source's fundraiser
+ * entries are counted for the summary (the merge re-homes them).
  * @param sourceId family to merge away (deleted)
  * @param targetId surviving family
  * @returns the preview, or an error
@@ -394,11 +395,13 @@ async function _previewMergeCore(
     // FamilyUpdateSubmission rows. Block the merge while a self-update awaits
     // review so it isn't silently lost — admin must approve/reject first.
     prisma.familyUpdateSubmission.count({ where: { familyId: sourceId, status: "PENDING" } }),
-    // FundraiserEntry.familyId is onDelete: Restrict — deleting the source
-    // would fail with P2003. Block up front with a friendly error.
-    prisma.fundraiserEntry.count({ where: { familyId: sourceId } }),
+    // Both families' entries, to plan the fundraiser move (planFundraiserReassign).
+    prisma.fundraiserEntry.findMany({
+      where: { familyId: { in: [sourceId, targetId] } },
+      select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true },
+    }),
   ])
-  if (fundraiserEntries > 0) return { error: FUNDRAISER_FAMILY_ERROR }
+  const fundraiserPlan = countReassignSteps(planFundraiserReassign(fundraiserEntries, sourceId, targetId))
 
   const targetNames = new Set(targetPeople.map((p) => `${p.firstName} ${p.lastName}`))
   const conflicts = sourcePeople
@@ -410,7 +413,11 @@ async function _previewMergeCore(
     )
   }
 
-  return { source, target, peopleCount: sourcePeople.length, transactionCount, conflicts }
+  return { source, target, peopleCount: sourcePeople.length, transactionCount,
+    fundraiserEntryCount: fundraiserPlan.moved + fundraiserPlan.folded + fundraiserPlan.unlinked,
+    fundraiserEntriesKeptSeparate: fundraiserPlan.unlinked,
+    conflicts,
+  }
 }
 
 export async function previewMerge(
@@ -424,9 +431,10 @@ export async function previewMerge(
 
 /**
  * Merge `sourceId` into `targetId` (ADMIN only): move people, giving,
- * membership applications and self-update history, then delete the source.
- * Blocked while the source has fundraiser entries (Restrict FK); a P2003 is
- * mapped to the same friendly error.
+ * membership applications, self-update history and fundraiser entries
+ * (moved, folded into the target's entry, or unlinked with the source name:
+ * see `reassignFundraiserEntriesTx`), then delete the source. A P2003 on the
+ * delete maps to a friendly error.
  * @param sourceId family to merge away
  * @param targetId surviving family
  * @returns success, an error, or person-name conflicts
@@ -434,7 +442,7 @@ export async function previewMerge(
 export async function mergeFamilies(
   sourceId: number,
   targetId: number
-): Promise<{ success?: true; error?: string; conflicts?: string[] }> {
+): Promise<{ success?: true; error?: string; conflicts?: string[]; fundraiser?: FundraiserReassignCounts }> {
   const session = await auth()
   if (!isAdmin(session?.user?.role)) return { error: "Unauthorized" }
   if (sourceId === targetId) return { error: "Source and target must be different families." }
@@ -443,6 +451,8 @@ export async function mergeFamilies(
   if ("error" in preview) return { error: preview.error }
   if (preview.conflicts.length > 0) return { conflicts: preview.conflicts }
 
+  const actor = actorId(session)
+  let fundraiser: FundraiserReassignResult = { moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] }
   try {
     await prisma.$transaction(async (tx) => {
       // re-check archival inside the tx. The no-op UPDATE row-locks both
@@ -467,28 +477,35 @@ export async function mergeFamilies(
       // history is moved here.
       await tx.familyUpdateInvite.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
-      // Re-check under the family row lock: an entry added after preview
-      // would make the delete below fail on the Restrict FK.
-      if ((await tx.fundraiserEntry.count({ where: { familyId: sourceId } })) > 0) {
-        throw new FundraiserEntriesDuringMerge()
-      }
+      // FundraiserEntry.familyId is onDelete: Restrict: re-home the source's
+      // entries under the family row locks taken above, so the delete succeeds.
+      fundraiser = await reassignFundraiserEntriesTx(tx, sourceId, targetId, preview.source.name, actor)
       await tx.family.delete({ where: { id: sourceId } })
     })
   } catch (e: unknown) {
     if (e instanceof ArchivedDuringMerge) return { error: ARCHIVED_MERGE_ERROR }
-    if (e instanceof FundraiserEntriesDuringMerge || isP2003(e)) return { error: FUNDRAISER_FAMILY_ERROR }
+    // A failed (guarded) audit write rolled the merge back; never report it as a P2003.
+    if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "mergeFamilies")
+    if (isP2003(e)) return { error: MERGE_LINKED_ERROR }
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
       return { conflicts: ["Merge failed: a duplicate person name was added concurrently. Please re-run preview."] }
     }
     throw e
   }
 
+  // A fold changed the target entry's amount: expire its open card checkouts
+  // (incl. ones moved from the source entry) so a session priced for the old
+  // amount cannot still be paid. Best-effort, after commit, like
+  // updateEntryQuantity; never throws.
+  for (const entryId of fundraiser.foldedEntryIds) await expireOpenFundraiserCheckouts(entryId)
+  const counts: FundraiserReassignCounts = { moved: fundraiser.moved, folded: fundraiser.folded, unlinked: fundraiser.unlinked }
+
   await logAudit(
-    actorId(session),
+    actor,
     "FAMILY_MERGED",
     "Family",
     targetId,
-    { sourceId, sourceName: preview.source.name }
+    { sourceId, sourceName: preview.source.name, fundraiserEntries: counts }
   )
 
   revalidatePath("/families")
@@ -498,5 +515,5 @@ export async function mergeFamilies(
   // a since-deleted route is a no-op cache clear).
   revalidatePath(`/families/${targetId}`)
   revalidatePath(`/families/${sourceId}`)
-  return { success: true }
+  return { success: true, fundraiser: counts }
 }

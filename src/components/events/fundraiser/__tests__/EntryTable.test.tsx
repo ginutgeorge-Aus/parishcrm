@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, waitFor, fireEvent } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { updateEntryQuantity, deleteEntry } from "@/lib/actions/fundraiser"
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
@@ -23,10 +23,13 @@ const rows: FundraiserRow[] = [
   { ...base, id: 4, name: "Dan", owedCents: 2000, paidCents: 3000, remainingCents: 0, status: "OVERPAID" },
 ]
 
-test("renders status labels from props", () => {
+test("renders each row's status badge from props, scoped to that row", () => {
   render(<EntryTable rows={rows} canManage={false} payments={{}} />)
-  for (const label of ["Unpaid", "Part paid", "Paid", "Overpaid"]) {
-    expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+  // Scope to each row: a bare "Paid" match would also hit the Paid column header.
+  const expected: Record<string, string> = { Anna: "Unpaid", Ben: "Part paid", Cara: "Paid", Dan: "Overpaid" }
+  for (const [name, label] of Object.entries(expected)) {
+    const tableRow = screen.getByRole("cell", { name }).closest("tr") as HTMLElement
+    expect(within(tableRow).getByText(label, { exact: true })).toBeInTheDocument()
   }
 })
 

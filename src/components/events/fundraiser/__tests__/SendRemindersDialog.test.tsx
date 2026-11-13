@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { SendRemindersDialog } from "@/components/events/fundraiser/SendRemindersDialog"
 import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundraiser"
 
@@ -82,6 +82,22 @@ describe("SendRemindersDialog lazy plan", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
     expect(await screen.findByText("This will email 2 people who still owe money.")).toBeInTheDocument()
     expect(getReminderPlan).toHaveBeenCalledWith(4)
+  })
+
+  it("ignores a slow plan response from an earlier open (no stale overwrite)", async () => {
+    let resolveFirst: (v: unknown) => void = () => {}
+    ;(getReminderPlan as jest.Mock)
+      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r }))
+      .mockResolvedValueOnce({ sendable: 2, skippedNoEmail: 0, lastSentAt: null })
+    render(<SendRemindersDialog fundraiserId={4} />)
+    fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull())
+    fireEvent.click(screen.getByRole("button", { name: "Send reminders" }))
+    expect(await screen.findByText("This will email 2 people who still owe money.")).toBeInTheDocument()
+    await act(async () => { resolveFirst({ sendable: 9, skippedNoEmail: 0, lastSentAt: null }) })
+    expect(screen.queryByText(/This will email 9 people/)).toBeNull()
+    expect(screen.getByText("This will email 2 people who still owe money.")).toBeInTheDocument()
   })
 
   it("shows the plan error and keeps send disabled", async () => {

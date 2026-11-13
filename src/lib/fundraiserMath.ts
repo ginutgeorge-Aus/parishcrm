@@ -1,5 +1,17 @@
 import { toCents, type Money } from "@/lib/formatting"
 
+/**
+ * Ceiling on what one entry may owe (quantity x unit price), in cents: AUD
+ * 999,999.99. Below Stripe's per-charge maximum for AUD and far below the
+ * Decimal(10,2) column limit, so a typo can never 500 on write or on checkout.
+ */
+export const MAX_OWED_CENTS = 99_999_999
+
+/** Shortest family-search query for the add-entry picker; shorter returns no results. */
+export const FAMILY_SEARCH_MIN = 2
+/** Most families one add-entry search returns (the picker shows a "refine" hint at the cap). */
+export const FAMILY_SEARCH_LIMIT = 20
+
 /** Payment state of one fundraiser entry. */
 type FundraiserStatus = "UNPAID" | "PART" | "PAID" | "OVERPAID"
 

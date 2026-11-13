@@ -124,6 +124,9 @@ describe("getFundraiserView", () => {
     expect(v!.payments).toEqual({ 1: [{ id: 41, amountCents: 500, method: "CASH", paidAt: "2026-11-01", note: null }] })
     const s = JSON.stringify(v)
     expect(s).not.toContain("SECRET")
+    // The pay-link token is a bearer secret: neither its value nor its key may leak.
+    expect(s).not.toContain("tok-secret")
+    expect(s).not.toContain("publicToken")
     expect(s).not.toContain("outsideEmail")
     expect(s).not.toContain("outsidePhone")
   })
