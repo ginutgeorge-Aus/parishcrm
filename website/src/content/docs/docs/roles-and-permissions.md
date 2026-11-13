@@ -77,6 +77,7 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No | Yes | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only | Yes | Assigned classes only |
 | Sunday School exams: create, enter marks (`/sunday-school/[id]/exams`) | Yes | Yes | Yes | No | View only | No | Yes | Assigned classes: enter marks only |
+| Sunday School attendance & exam progress (`/sunday-school/progress`, `/sunday-school/[id]/progress`) | Yes | Yes | Yes | No | Yes (read-only) | No | Yes | No |
 | Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No | No | No |
 | Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) | No | No |
 | Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No | No | No |
