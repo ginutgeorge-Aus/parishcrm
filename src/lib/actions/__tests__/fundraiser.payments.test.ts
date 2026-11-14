@@ -16,7 +16,7 @@ import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
-type Row = { entryId: number; stripePaymentRef: string | null; amount: string }
+type Row = { entryId: number; stripePaymentRef: string | null; amount: string; method?: string; paidAt?: Date; note?: string | null }
 
 const prismaMock = {
   fundraiserEntry: { findUnique: jest.fn() },
@@ -51,7 +51,7 @@ beforeEach(() => {
     if (rows.some((r) => r.stripePaymentRef === a.data.stripePaymentRef)) {
       throw Object.assign(new Error("unique"), { code: "P2002" })
     }
-    rows.push({ entryId: a.data.entryId, stripePaymentRef: a.data.stripePaymentRef, amount: String(a.data.amount) })
+    rows.push({ entryId: a.data.entryId, stripePaymentRef: a.data.stripePaymentRef, amount: String(a.data.amount), method: a.data.method, paidAt: a.data.paidAt, note: a.data.note })
     return { id: rows.length }
   })
 })
@@ -88,14 +88,32 @@ describe("recordPayment", () => {
 
   it("concurrent repeat losing on the unique constraint (P2002) is idempotent success", async () => {
     // Pre-check misses (the other request had not committed yet), create then collides.
-    rows.push({ entryId: 11, stripePaymentRef: "manual:k-1", amount: "5.00" })
+    rows.push({ entryId: 11, stripePaymentRef: "manual:k-1", amount: "5.00", method: "CASH", paidAt: new Date("2026-11-01T00:00:00.000Z") })
     prismaMock.fundraiserPayment.findUnique.mockResolvedValueOnce(null)
-    expect(await recordPayment(11, input)).toBeUndefined()
+    expect(await recordPayment(11, { ...input, amount: "5.00" })).toBeUndefined()
     expect(rows).toHaveLength(1)
   })
 
+  it.each([
+    ["amount", { amount: "10.00" }],
+    ["method", { method: "BANK" as const }],
+    ["date", { paidAt: "2026-11-02" }],
+    ["note", { note: "edited" }],
+  ])("same submissionKey with a different %s is an error, not a silent repeat", async (_n, change) => {
+    expect(await recordPayment(11, input)).toBeUndefined()
+    const res = await recordPayment(11, { ...input, ...change })
+    expect(res?.error).toMatch(/already recorded/)
+    expect(rows).toHaveLength(1)
+  })
+
+  it("P2002 twin with different details is an error", async () => {
+    rows.push({ entryId: 11, stripePaymentRef: "manual:k-1", amount: "5.00", method: "CASH", paidAt: new Date("2026-11-01T00:00:00.000Z") })
+    prismaMock.fundraiserPayment.findUnique.mockResolvedValueOnce(null)
+    expect((await recordPayment(11, { ...input, amount: "6.00" }))?.error).toMatch(/already recorded/)
+  })
+
   it("rejects a submissionKey already used on another entry", async () => {
-    rows.push({ entryId: 99, stripePaymentRef: "manual:k-1", amount: "5.00" })
+    rows.push({ entryId: 99, stripePaymentRef: "manual:k-1", amount: "5.00", method: "CASH", paidAt: new Date() })
     expect(await recordPayment(11, input)).toEqual({ error: "Invalid submission" })
     expect(prismaMock.fundraiserPayment.create).not.toHaveBeenCalled()
   })

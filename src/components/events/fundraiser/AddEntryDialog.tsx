@@ -214,7 +214,7 @@ export function AddEntryDialog({
               <Label htmlFor="fe-delivery">Pickup or delivery</Label>
               <select
                 id="fe-delivery"
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                className="h-11 md:h-8 any-pointer-coarse:h-11 w-full rounded-lg border border-input bg-background px-2.5 text-base md:text-sm"
                 value={delivery ? "delivery" : "pickup"}
                 onChange={(e) => setDelivery(e.target.value === "delivery")}
               >
