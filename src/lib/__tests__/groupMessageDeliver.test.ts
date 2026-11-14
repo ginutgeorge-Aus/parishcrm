@@ -14,7 +14,7 @@ jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(), isAmbiguousDeliveryError
 import { prisma } from "@/lib/prisma"
 import { sendEmail, isAmbiguousDeliveryError } from "@/lib/email"
 import {
-  claimGroupRecipient, deliverGroupMessage, renderGroupMessageText, runGroupMessageSweep, MAX_DELIVERY_ATTEMPTS,
+  claimGroupRecipient, deliverGroupMessage, renderGroupMessageText, runGroupMessageSweep, MAX_DELIVERY_ATTEMPTS, RETRY_WINDOW_MS,
 } from "@/lib/groupMessageDeliver"
 
 const p = prisma as unknown as {
@@ -170,5 +170,15 @@ describe("runGroupMessageSweep", () => {
     p.groupMessage.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }])
     const r = await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
     expect(r).toEqual({ sent: 2, failed: 0, unknown: 0, inFlight: 0, messages: 2 })
+  })
+
+  it("closes PENDING rows of messages older than the retry window as UNKNOWN", async () => {
+    p.groupMessage.findMany.mockResolvedValue([])
+    const now = new Date("2026-11-13T00:00:00Z")
+    await runGroupMessageSweep(now)
+    expect(p.groupMessageRecipient.updateMany.mock.calls[0][0]).toEqual({
+      where: { status: "PENDING", message: { createdAt: { lt: new Date(now.getTime() - RETRY_WINDOW_MS) } } },
+      data: { status: "UNKNOWN" },
+    })
   })
 })

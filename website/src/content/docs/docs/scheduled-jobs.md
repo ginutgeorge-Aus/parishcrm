@@ -49,9 +49,10 @@ curl -fsS -X POST \
 | `POST /api/cron/sweep-checkouts` | Expires abandoned card-payment checkout sessions and scrubs their (already-encrypted) staged PII payload. | Hourly |
 | `POST /api/cron/send-celebrations` | Sends birthday and wedding-anniversary emails, if enabled in Settings. | Daily |
 | `POST /api/cron/send-clearance-digest` | Sends the monthly clearance-compliance digest to ADMIN and PASTOR users. An explicit call, so it does not need `CLEARANCE_DIGEST`. It respects the once-per-month guard: if this month's digest already went out it returns `{"status":"already-sent","month":"YYYY-MM"}` (HTTP 200) and sends nothing, so daily or retrying schedulers are safe. Add `?force=1` to send again deliberately. | Monthly (1st) |
+| `POST /api/cron/send-group-messages` | Retries group emails left queued or failed (an SMTP blip, a missed immediate send). Only needed with `IN_APP_CRON=false`; the in-app scheduler runs the same sweep. Also closes queued rows older than 7 days as unknown. | Every 5 minutes |
 | `POST /api/cron/error-issues` | Optional — groups recent server errors by fingerprint and files one GitHub issue per new error group (deduplicated against already-open issues); also purges old error/analytics rows. Only useful if `GITHUB_TOKEN` / `GITHUB_REPO` are set. | Weekly |
 
-All five require `CRON_SECRET` to be set — with it unset, each endpoint
+All six require `CRON_SECRET` to be set — with it unset, each endpoint
 returns `503` and logs a loud warning rather than silently doing nothing, so
 a misconfigured deployment is easy to notice. Set `CRON_SECRET` to a random
 value (`openssl rand -base64 32`) and use the identical value in both the app
