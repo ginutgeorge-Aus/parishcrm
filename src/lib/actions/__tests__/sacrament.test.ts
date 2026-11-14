@@ -170,10 +170,10 @@ describe("createSacramentRecord", () => {
     expect(p.$transaction).toHaveBeenCalledTimes(3)
   })
 
-  it("maps a person deleted mid-create (P2003) to not found", async () => {
+  it("maps a person or spouse deleted mid-create (P2003) to not found", async () => {
     as("ADMIN")
     p.$transaction.mockRejectedValue({ code: "P2003" })
-    expect(await createSacramentRecord(undefined, form(BAPTISM))).toEqual({ error: "Person not found." })
+    expect(await createSacramentRecord(undefined, form(BAPTISM))).toEqual({ error: "Person or spouse not found." })
   })
 
   it("rolls back and reports when the audit write fails", async () => {
@@ -249,6 +249,7 @@ describe("deleteSacramentRecord", () => {
       registerNo: "BAP-2026-003",
       type: "BAPTISM",
       personId: 5,
+      spouseId: null,
     })
   })
 

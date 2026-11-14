@@ -11,7 +11,7 @@ import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
-import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
+import { parseOptimisticUpdatedAt, isP2003, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
 
 const PersonSchema = z.object({
@@ -256,6 +256,8 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   // with the read.
   const linkedMsg = (n: number) =>
     `Cannot delete — ${n} linked giving/receipt record(s) reference this person. Archive the family instead.`
+  const CONCURRENT_LINK_ERROR =
+    "Cannot delete — a linked record was just added for this person. Archive the family instead."
   const lockedSsMsg = (n: number) =>
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0
@@ -306,10 +308,11 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
   } catch (e) {
-    // P2034 = lost to a concurrent giving/receipt write referencing this
-    // person. Surface the same "archive instead" message — the safe outcome, a
-    // referencing row now exists (count unknown from the aborted read).
-    if (isP2034(e)) return { error: linkedMsg(1) }
+    // P2034 = lost to a concurrent write referencing this person; P2003 = a
+    // concurrent SacramentRecord insert hit the Restrict FK. Either way a
+    // referencing row now exists (kind and count unknown from the aborted
+    // read), so surface a neutral "archive instead" message.
+    if (isP2034(e) || isP2003(e)) return { error: CONCURRENT_LINK_ERROR }
     throw e
   }
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }

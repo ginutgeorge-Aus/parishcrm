@@ -166,8 +166,9 @@ export async function createSacramentRecord(
       return out
     } catch (e) {
       if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createSacramentRecord")
-      // Person or spouse deleted between the check and the insert.
-      if (isP2003(e)) return { error: "Person not found." }
+      // Person or spouse deleted between the check and the insert; the FK error
+      // does not say which, so name both.
+      if (isP2003(e)) return { error: "Person or spouse not found." }
       if ((isP2002(e) || isP2034(e)) && attempt < MAX_ATTEMPTS) continue
       if (isP2002(e) || isP2034(e)) return { error: BUSY_ERROR }
       logger.error("createSacramentRecord failed", { name: e instanceof Error ? e.name : typeof e })
@@ -243,7 +244,8 @@ export async function updateSacramentRecord(
 
 /**
  * Delete a register entry (ADMIN | PASTOR). Its number is not reused: the counter
- * only moves forward. The audit row keeps the register number and rite.
+ * only moves forward. The audit row keeps the register number, rite, person and
+ * CRM spouse ids (no decrypted fields).
  * @param id SacramentRecord.id
  */
 export async function deleteSacramentRecord(id: number): Promise<ActionResultWithSuccess> {
@@ -265,6 +267,7 @@ export async function deleteSacramentRecord(id: number): Promise<ActionResultWit
         registerNo: existing.registerNo,
         type: existing.type,
         personId: existing.personId,
+        spouseId: existing.spouseId,
       })
       return true
     })
