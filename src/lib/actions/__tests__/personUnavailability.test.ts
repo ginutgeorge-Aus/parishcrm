@@ -4,11 +4,11 @@ import { UserRole } from "@/lib/generated/prisma/enums"
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => {
   const m = {
-    person: { findUnique: jest.fn() },
     groupLeaderAccess: { findFirst: jest.fn() },
     personUnavailability: { create: jest.fn(), count: jest.fn(), findUnique: jest.fn(), deleteMany: jest.fn() },
     rosterAssignment: { findMany: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   }
   m.$transaction.mockImplementation((fn: (tx: typeof m) => unknown) => fn(m))
   return { prisma: m }
@@ -25,7 +25,7 @@ import { addPersonUnavailability, removePersonUnavailability } from "@/lib/actio
 
 type M = Record<string, jest.Mock>
 const p = prisma as unknown as {
-  person: M; groupLeaderAccess: M; personUnavailability: M; rosterAssignment: M; $transaction: jest.Mock
+  groupLeaderAccess: M; personUnavailability: M; rosterAssignment: M; $transaction: jest.Mock; $queryRaw: jest.Mock
 }
 const as = (role: UserRole | undefined) => (auth as jest.Mock).mockResolvedValue(role ? { user: { id: "9", role } } : null)
 const form = (o: Record<string, string>) => {
@@ -39,7 +39,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   as(UserRole.OFFICE_ADMIN)
   ;(assertNotDemo as jest.Mock).mockReturnValue(null)
-  p.person.findUnique.mockResolvedValue({ id: 7 })
+  p.$queryRaw.mockResolvedValue([{ id: 7 }])
   p.groupLeaderAccess.findFirst.mockResolvedValue(null)
   p.personUnavailability.count.mockResolvedValue(0)
   p.personUnavailability.create.mockResolvedValue({ id: 31 })
@@ -93,11 +93,20 @@ describe("addPersonUnavailability", () => {
 
   it("rejects an invalid or unknown person and a full list", async () => {
     await expect(add({ from: "2026-12-06" }, 0)).resolves.toEqual({ error: "Invalid person" })
-    p.person.findUnique.mockResolvedValue(null)
+    p.$queryRaw.mockResolvedValue([])
     await expect(add({ from: "2026-12-06" })).resolves.toEqual({ error: "Person not found" })
-    p.person.findUnique.mockResolvedValue({ id: 7 })
+    expect(p.personUnavailability.create).not.toHaveBeenCalled()
+  })
+
+  it("caps only current ranges, counted and created under the person lock in one transaction", async () => {
     p.personUnavailability.count.mockResolvedValue(100)
     await expect(add({ from: "2026-12-06" })).resolves.toEqual({ error: expect.stringContaining("At most 100") })
+    expect(p.personUnavailability.create).not.toHaveBeenCalled()
+    expect(p.personUnavailability.count).toHaveBeenCalledWith({ where: { personId: 7, endDate: { gte: expect.any(Date) } } })
+    p.personUnavailability.count.mockResolvedValue(99)
+    await expect(add({ from: "2026-12-06" })).resolves.toEqual({ success: "Unavailable dates saved" })
+    expect(p.$transaction).toHaveBeenCalledTimes(2)
+    expect(p.$queryRaw).toHaveBeenCalledTimes(2)
   })
 
   it("saves but warns when the person is already rostered in the range", async () => {
@@ -126,6 +135,14 @@ describe("removePersonUnavailability", () => {
       where: expect.objectContaining({ group: expect.objectContaining({ members: { some: { personId: 7 } } }) }),
     }))
     expect(p.personUnavailability.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a VIEWER before any row lookup, so existing ids cannot be probed", async () => {
+    as(UserRole.VIEWER)
+    await expect(removePersonUnavailability(31)).resolves.toEqual({ error: "Unauthorized" })
+    await expect(removePersonUnavailability(999999)).resolves.toEqual({ error: "Unauthorized" })
+    await expect(removePersonUnavailability(-1)).resolves.toEqual({ error: "Unauthorized" })
+    expect(p.personUnavailability.findUnique).not.toHaveBeenCalled()
   })
 
   it("handles bad id, missing row and a concurrent delete", async () => {

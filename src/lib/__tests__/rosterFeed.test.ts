@@ -1,5 +1,5 @@
 import {
-  ROSTER_FEED_TOKEN_RE, hashRosterFeedToken, mintRosterFeedToken, rosterFeedTokenMatches, rosterFeedUrl,
+  ROSTER_FEED_TOKEN_RE, hashRosterFeedToken, mintRosterFeedToken, rosterFeedUrl,
 } from "@/lib/rosterFeed"
 import { isPublicPath } from "@/lib/csp"
 
@@ -18,21 +18,13 @@ describe("roster feed token", () => {
     expect(hashRosterFeedToken(t)).not.toContain(t)
   })
 
-  it("matches only the right token", () => {
-    const t = mintRosterFeedToken()
-    const h = hashRosterFeedToken(t)
-    expect(rosterFeedTokenMatches(t, h)).toBe(true)
-    expect(rosterFeedTokenMatches(mintRosterFeedToken(), h)).toBe(false)
-    expect(rosterFeedTokenMatches("short", h)).toBe(false)
-    expect(rosterFeedTokenMatches(t, "")).toBe(false)
-    expect(rosterFeedTokenMatches(t, "abc")).toBe(false)
-  })
-
   it("builds the feed URL from AUTH_URL", () => {
     const prev = process.env.AUTH_URL
     process.env.AUTH_URL = "https://app.example.com"
     expect(rosterFeedUrl("tok")).toBe("https://app.example.com/api/roster/feed/tok")
     process.env.AUTH_URL = "not a url"
+    expect(rosterFeedUrl("tok")).toBeNull()
+    delete process.env.AUTH_URL
     expect(rosterFeedUrl("tok")).toBeNull()
     if (prev === undefined) delete process.env.AUTH_URL
     else process.env.AUTH_URL = prev

@@ -58,6 +58,15 @@ describe("rotateRosterFeedToken", () => {
     expect(a).not.toEqual(b)
   })
 
+  it("refuses before rotating when AUTH_URL is unset or invalid (no localhost link)", async () => {
+    delete process.env.AUTH_URL
+    await expect(rotateRosterFeedToken(7)).resolves.toEqual({ error: "AUTH_URL is not set to a valid URL" })
+    process.env.AUTH_URL = "not a url"
+    await expect(rotateRosterFeedToken(7)).resolves.toEqual({ error: "AUTH_URL is not set to a valid URL" })
+    expect(upsert).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
+  })
+
   it("maps a missing person (FK error) to a message", async () => {
     upsert.mockRejectedValue({ code: "P2003" })
     await expect(rotateRosterFeedToken(7)).resolves.toEqual({ error: "Person not found" })

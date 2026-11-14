@@ -13,9 +13,10 @@ import type { Session } from "next-auth"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
-import { utcYmd } from "@/lib/dates"
+import { sydneyToday, utcYmd } from "@/lib/dates"
 import { assertNotDemo } from "@/lib/demoMode"
 import { prisma } from "@/lib/prisma"
+import type { Prisma } from "@/lib/generated/prisma/client"
 import { canEditOrOrganise } from "@/lib/roleGuard"
 import { canEditPersonUnavailability } from "@/lib/rosterAccess"
 import { UnavailabilitySchema, isUnavailableOn } from "@/lib/roster"
@@ -31,16 +32,29 @@ const MAX_WARNED = 5
 
 type Guard = { error: string } | { session: Session | null }
 
-/** Demo block, coarse role check, then the per-person check. */
-async function editorFor(personId: number): Promise<Guard> {
+/** Demo block and coarse role check (DB-free): runs before any lookup so a VIEWER learns nothing about which ids exist. */
+async function roleSession(): Promise<Guard> {
   const demo = assertNotDemo()
   if (demo) return demo
   const session = await auth()
-  const role = session?.user?.role
-  if (!canEditOrOrganise(role)) return { error: UNAUTHORIZED }
-  if (!isValidPgId(personId)) return { error: "Invalid person" }
-  if (!(await canEditPersonUnavailability(actorId(session), personId, role))) return { error: UNAUTHORIZED }
+  if (!canEditOrOrganise(session?.user?.role)) return { error: UNAUTHORIZED }
   return { session }
+}
+
+/** Coarse role check, valid id, then the per-person check. */
+async function editorFor(personId: number): Promise<Guard> {
+  const g = await roleSession()
+  if ("error" in g) return g
+  if (!isValidPgId(personId)) return { error: "Invalid person" }
+  if (!(await canEditPersonUnavailability(actorId(g.session), personId, g.session?.user?.role))) return { error: UNAUTHORIZED }
+  return g
+}
+
+/** Row lock on the person so concurrent adds for one person count and insert one at a time. */
+async function lockPerson(tx: Prisma.TransactionClient, personId: number): Promise<boolean> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "Person" WHERE id = ${personId} FOR UPDATE`
+  return rows.length > 0
 }
 
 /**
@@ -65,20 +79,23 @@ export async function addPersonUnavailability(
   const startDate = new Date(`${from}T00:00:00.000Z`)
   const endDate = new Date(`${to}T00:00:00.000Z`)
 
-  const person = await prisma.person.findUnique({ where: { id: personId }, select: { id: true } })
-  if (!person) return { error: PERSON_GONE }
-  if ((await prisma.personUnavailability.count({ where: { personId } })) >= MAX_ROWS_PER_PERSON) {
-    return { error: `At most ${MAX_ROWS_PER_PERSON} unavailable ranges per person; remove old ones first` }
-  }
   const clashes = await prisma.rosterAssignment.findMany({
     where: { personId, status: { not: "DECLINED" }, slot: { service: { date: { gte: startDate, lte: endDate } } } },
     select: { slot: { select: { service: { select: { title: true, date: true } } } } },
     orderBy: { slot: { service: { date: "asc" } } },
   })
-  await prisma.$transaction(async (tx) => {
+  // Count (only ranges still current, so old ones never block new ones) and create under one lock.
+  const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { ok: true }> => {
+    if (!(await lockPerson(tx, personId))) return { error: PERSON_GONE }
+    const current = await tx.personUnavailability.count({ where: { personId, endDate: { gte: sydneyToday() } } })
+    if (current >= MAX_ROWS_PER_PERSON) {
+      return { error: `At most ${MAX_ROWS_PER_PERSON} current unavailable ranges per person; remove some first` }
+    }
     const row = await tx.personUnavailability.create({ data: { personId, startDate, endDate }, select: { id: true } })
     await logAuditTx(tx, actorId(g.session), "ROSTER_UNAVAILABLE_ADDED", "PersonUnavailability", row.id, { personId, from, to })
+    return { ok: true }
   })
+  if ("error" in result) return result
   revalidatePath(`/people/${personId}`)
   revalidatePath("/roster")
 
@@ -98,8 +115,8 @@ export async function addPersonUnavailability(
  * @param id the PersonUnavailability id
  */
 export async function removePersonUnavailability(id: number): Promise<ActionResultWithSuccess> {
-  const demo = assertNotDemo()
-  if (demo) return demo
+  const role = await roleSession()
+  if ("error" in role) return role
   if (!isValidPgId(id)) return { error: "Invalid entry" }
   const row = await prisma.personUnavailability.findUnique({ where: { id }, select: { personId: true, startDate: true, endDate: true } })
   if (!row) return { error: "Entry not found" }

@@ -37,27 +37,32 @@ describe("GET /api/roster/feed/[token]", () => {
     expect(p.rosterAssignment.findMany).not.toHaveBeenCalled()
   })
 
-  it("404s when the stored hash does not match the token", async () => {
-    p.rosterFeedToken.findUnique.mockResolvedValue({ tokenHash: hashRosterFeedToken("other"), person })
-    expect((await GET(req(), ctx(mintRosterFeedToken()))).status).toBe(404)
-  })
-
   it("404s an archived person", async () => {
     const t = mintRosterFeedToken()
-    p.rosterFeedToken.findUnique.mockResolvedValue({ tokenHash: hashRosterFeedToken(t), person: { ...person, archivedAt: new Date() } })
+    p.rosterFeedToken.findUnique.mockResolvedValue({ person: { ...person, archivedAt: new Date() } })
     expect((await GET(req(), ctx(t))).status).toBe(404)
   })
 
-  it("429s when rate limited", async () => {
+  it("429s failed lookups once the failure limit is hit", async () => {
+    p.rosterFeedToken.findUnique.mockResolvedValue(null)
     ;(rateLimit as jest.Mock).mockReturnValue(false)
     const res = await GET(req(), ctx(mintRosterFeedToken()))
     expect(res.status).toBe(429)
-    expect(p.rosterFeedToken.findUnique).not.toHaveBeenCalled()
+    expect(res.headers.get("Retry-After")).toBe("60")
+    expect((rateLimit as jest.Mock).mock.calls[0][0]).toMatch(/^rosterFeedFail:/)
+  })
+
+  it("never rate limits a valid subscriber, even when the limiter would refuse", async () => {
+    const t = mintRosterFeedToken()
+    ;(rateLimit as jest.Mock).mockReturnValue(false)
+    p.rosterFeedToken.findUnique.mockResolvedValue({ person })
+    expect((await GET(req(), ctx(t))).status).toBe(200)
+    expect(rateLimit).not.toHaveBeenCalled()
   })
 
   it("serves the person's calendar for a good token, with or without .ics", async () => {
     const t = mintRosterFeedToken()
-    p.rosterFeedToken.findUnique.mockResolvedValue({ tokenHash: hashRosterFeedToken(t), person })
+    p.rosterFeedToken.findUnique.mockResolvedValue({ person })
     p.rosterAssignment.findMany.mockResolvedValue([{
       id: 11,
       status: "CONFIRMED",
@@ -77,6 +82,7 @@ describe("GET /api/roster/feed/[token]", () => {
       expect(body).toContain("UID:11@")
       expect(body).not.toContain(t)
     }
+    expect(p.rosterFeedToken.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { tokenHash: hashRosterFeedToken(t) } }))
     expect(p.rosterAssignment.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ personId: 7, status: { not: "DECLINED" } }),
     }))

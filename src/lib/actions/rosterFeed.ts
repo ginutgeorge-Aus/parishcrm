@@ -26,6 +26,8 @@ export async function rotateRosterFeedToken(personId: number): Promise<{ error: 
   const session = await auth()
   if (!canManageRoster(session?.user?.role)) return { error: "Unauthorized" }
   if (!isValidPgId(personId)) return { error: "Invalid person" }
+  // Build the URL first: with no valid AUTH_URL there is nothing to hand back,
+  // so refuse before rotating (rotating would kill the old link for nothing).
   const token = mintRosterFeedToken()
   const url = rosterFeedUrl(token)
   if (!url) return { error: "AUTH_URL is not set to a valid URL" }
