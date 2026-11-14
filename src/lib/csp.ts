@@ -65,6 +65,11 @@ const PUBLIC_VENUE_CALENDAR = /^\/venue\/[A-Za-z0-9_-]+$/
 // emails). The opaque entry token is the only gate; bare "/pay" and deeper
 // paths stay gated. Pay is a server action (no API route).
 const PUBLIC_FUNDRAISER_PAY = /^\/pay\/fundraiser\/[A-Za-z0-9_-]+$/
+// Personal roster calendar feed: /api/roster/feed/[token] (optional .ics suffix).
+// Calendar apps poll it with no session cookie; the secret token is the only
+// gate (hashed lookup + constant-time compare in the route). Other /api/roster
+// paths stay behind the middleware gate.
+const PUBLIC_ROSTER_FEED = /^\/api\/roster\/feed\/[A-Za-z0-9_-]+(?:\.ics)?$/
 
 // Static security headers applied to every dynamic response by middleware
 // (AUDIT-054). next.config `headers()` does not reach App-Router Route
@@ -108,7 +113,8 @@ export function isPublicPath(pathname: string): boolean {
     PUBLIC_EVENT_API.test(path) ||
     PUBLIC_FAMILY_UPDATE.test(path) ||
     PUBLIC_VENUE_CALENDAR.test(path) ||
-    PUBLIC_FUNDRAISER_PAY.test(path)
+    PUBLIC_FUNDRAISER_PAY.test(path) ||
+    PUBLIC_ROSTER_FEED.test(path)
   )
 }
 

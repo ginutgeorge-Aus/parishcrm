@@ -201,3 +201,23 @@ export function serviceTimes(dateYMD: string, startTime: string, endTime: string
 export function isSundayYMD(dateYMD: string): boolean {
   return new Date(`${dateYMD}T00:00:00.000Z`).getUTCDay() === 0
 }
+
+// ─── Unavailability (#624) ────────────────────────────────────────────────
+
+/** Longest single unavailability range, in days: a defensive cap (a longer absence is two entries). */
+const MAX_UNAVAILABLE_DAYS = 366
+
+/** Whole days from `a` to `b` (`YYYY-MM-DD`), UTC-anchored. */
+function daysBetweenYMD(a: string, b: string): number {
+  return Math.round((new Date(`${b}T00:00:00.000Z`).getTime() - new Date(`${a}T00:00:00.000Z`).getTime()) / 86_400_000)
+}
+
+export const UnavailabilitySchema = z.object({
+  from: ymd,
+  to: ymd,
+}).superRefine((v, ctx) => {
+  if (v.to < v.from) ctx.addIssue({ code: "custom", path: ["to"], message: "End date must be on or after the start date" })
+  else if (daysBetweenYMD(v.from, v.to) >= MAX_UNAVAILABLE_DAYS) {
+    ctx.addIssue({ code: "custom", path: ["to"], message: `A range can be at most ${MAX_UNAVAILABLE_DAYS} days` })
+  }
+})

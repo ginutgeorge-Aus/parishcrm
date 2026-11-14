@@ -169,6 +169,19 @@ describe("UrlRedactingSpanProcessor", () => {
   })
 })
 
+describe("redactUrlAttributes — roster feed token", () => {
+  it.each([
+    ["url.path", "/api/roster/feed/abc123", "/api/roster/feed/[token]"],
+    ["url.path", "/api/roster/feed/abc123.ics", "/api/roster/feed/[token]"],
+    ["url.full", "https://crm.example.com/api/roster/feed/abc123", "https://crm.example.com/api/roster/feed/[token]"],
+    ["http.target", "/api/roster/feed/abc123", "/api/roster/feed/[token]"],
+  ])("redacts the /api/roster/feed/<token> segment in %s", (key, value, expected) => {
+    const attrs: Record<string, unknown> = { [key]: value }
+    redactUrlAttributes(attrs)
+    expect(attrs[key]).toBe(expected)
+  })
+})
+
 describe("redactUrlAttributes — venue calendar token", () => {
   it.each([
     ["url.path", "/venue/abc123", "/venue/[token]"],
