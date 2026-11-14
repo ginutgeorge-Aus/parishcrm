@@ -59,19 +59,24 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-semibold text-foreground">Sunday School</h2>
-        <nav aria-label="School year" className="flex items-center gap-3 text-sm">
-          {year > MIN_YEAR && (
-            <Link href={`/sunday-school?year=${year - 1}`} className="text-muted-foreground underline hover:text-foreground min-h-11 inline-flex items-center sm:min-h-0">
-              ← {year - 1}
-            </Link>
-          )}
-          <span className="font-medium text-foreground" aria-current="page">{year}</span>
-          {year < MAX_YEAR && (
-            <Link href={`/sunday-school?year=${year + 1}`} className="text-muted-foreground underline hover:text-foreground min-h-11 inline-flex items-center sm:min-h-0">
-              {year + 1} →
-            </Link>
-          )}
-        </nav>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Link href={`/sunday-school/progress?year=${year}`} className="text-sm text-muted-foreground underline hover:text-foreground min-h-11 inline-flex items-center sm:min-h-0">
+            {year} progress
+          </Link>
+          <nav aria-label="School year" className="flex items-center gap-3 text-sm">
+            {year > MIN_YEAR && (
+              <Link href={`/sunday-school?year=${year - 1}`} className="text-muted-foreground underline hover:text-foreground min-h-11 inline-flex items-center sm:min-h-0">
+                ← {year - 1}
+              </Link>
+            )}
+            <span className="font-medium text-foreground" aria-current="page">{year}</span>
+            {year < MAX_YEAR && (
+              <Link href={`/sunday-school?year=${year + 1}`} className="text-muted-foreground underline hover:text-foreground min-h-11 inline-flex items-center sm:min-h-0">
+                {year + 1} →
+              </Link>
+            )}
+          </nav>
+        </div>
       </div>
 
       {rolled && <FormFeedback state={{ success: rolled }} />}

@@ -18,9 +18,9 @@ export type FundraiserReminderData = {
   payUrl: string | null
   /** Card fee shown beside the pay link when the church passes it on; else null. */
   cardFee: string | null
-  /** Church bank/payment instructions (free text, may be multi-line). */
-  bankDetails: string
-  /** Reference the payer must quote on a bank transfer. */
+  /** Church bank/payment instructions (free text, may be multi-line); null or blank omits the bank-transfer section. */
+  bankDetails: string | null
+  /** Reference the payer must quote on a bank transfer (shown only with bank details). */
   bankRef: string
 }
 
@@ -30,10 +30,12 @@ const body = { fontSize: "14px", color: "#334155" } as const
 
 /**
  * Reminder email for an unpaid or part-paid fundraiser entry: what is owed,
- * how to pay online (when enabled) and by bank transfer with the entry's reference.
+ * how to pay online (when enabled) and by bank transfer with the entry's reference
+ * (only when bank details are set).
  * @param props - Reminder data.
  */
 export function FundraiserReminderEmail(props: Readonly<FundraiserReminderData>) {
+  const bankDetails = props.bankDetails?.trim() ?? ""
   return (
     <EmailLayout previewText={`Payment reminder: ${props.eventTitle}`} churchName={props.churchName}>
       <Heading as="h2" style={{ fontSize: "20px", color: "#0f172a" }}>
@@ -65,15 +67,17 @@ export function FundraiserReminderEmail(props: Readonly<FundraiserReminderData>)
           )}
         </Section>
       )}
-      <Section style={{ marginTop: "16px" }}>
-        <Text style={body}>Or pay by bank transfer:</Text>
-        {props.bankDetails.split(/\n+/).filter(Boolean).map((line, i) => (
-          <Text key={i} style={{ fontSize: "14px", color: "#334155", margin: "0" }}>{line}</Text>
-        ))}
-        <Text style={{ ...body, marginTop: "8px" }}>
-          Please use this reference: <strong>{props.bankRef}</strong>
-        </Text>
-      </Section>
+      {bankDetails && (
+        <Section style={{ marginTop: "16px" }}>
+          <Text style={body}>Or pay by bank transfer:</Text>
+          {bankDetails.split(/\n+/).filter(Boolean).map((line, i) => (
+            <Text key={i} style={{ fontSize: "14px", color: "#334155", margin: "0" }}>{line}</Text>
+          ))}
+          <Text style={{ ...body, marginTop: "8px" }}>
+            Please use this reference: <strong>{props.bankRef}</strong>
+          </Text>
+        </Section>
+      )}
     </EmailLayout>
   )
 }

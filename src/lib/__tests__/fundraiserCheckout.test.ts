@@ -22,6 +22,7 @@ import {
   fundraiserSurchargeCents,
   FundraiserNotPayableError,
   FundraiserAmountOutOfRangeError,
+  FundraiserCheckoutBusyError,
 } from "@/lib/fundraiserCheckout"
 import { grossUpTotal } from "@/lib/cardFee"
 const { getStripe } = require("@/lib/stripe")
@@ -198,13 +199,47 @@ it("a prior session Stripe reports missing does not block checkout; its row is m
   )
 })
 
-it("a transient retrieve failure is treated as dead: checkout proceeds, row left OPEN for the sweep", async () => {
+it("an auth failure on a prior session (e.g. rotated key) is unknown state: busy error, nothing expired", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_denied", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockRejectedValue(Object.assign(new Error("Invalid API Key"), { type: "StripeAuthenticationError", statusCode: 401 }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+  expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+})
+
+it("a 429 on a prior session is transient: busy error", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_rl", totalAmount: "30.00", surchargeCents: 0 }])
+  sessionsRetrieve.mockRejectedValue(Object.assign(new Error("rate limit"), { type: "StripeRateLimitError", statusCode: 429 }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+})
+
+it("a transient retrieve failure opens no new session: retryable busy error, nothing expired", async () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {})
+  prisma.checkoutSession.findMany.mockResolvedValue([
+    { stripeSessionId: "cs_flaky", totalAmount: "30.00", surchargeCents: 0 },
+    { stripeSessionId: "cs_old", totalAmount: "40.00", surchargeCents: 0 },
+  ])
+  sessionsRetrieve.mockImplementation(async (id: string) => {
+    if (id === "cs_flaky") throw Object.assign(new Error("timeout"), { statusCode: 503 })
+    return { id, status: "open", url: "https://stripe.test/old", expires_at: future() }
+  })
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test"))
+    .rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsCreate).not.toHaveBeenCalled()
+  expect(sessionsExpire).not.toHaveBeenCalled()
+  expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+})
+
+it("a transient prefetch failure is busy (retryable) with no second Stripe call under the lock", async () => {
   jest.spyOn(console, "warn").mockImplementation(() => {})
   prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_flaky", totalAmount: "30.00", surchargeCents: 0 }])
-  sessionsRetrieve.mockRejectedValue(new Error("network"))
-  const res = await createFundraiserCheckoutSession(entry, event, "https://app.test")
-  expect(res).toEqual({ url: "https://stripe.test/pay" })
-  expect(prisma.checkoutSession.updateMany).not.toHaveBeenCalled()
+  sessionsRetrieve.mockRejectedValue(Object.assign(new Error("timeout"), { statusCode: 503 }))
+  await expect(createFundraiserCheckoutSession(entry, event, "https://app.test")).rejects.toBeInstanceOf(FundraiserCheckoutBusyError)
+  expect(sessionsRetrieve).toHaveBeenCalledTimes(1)
+  expect(sessionsCreate).not.toHaveBeenCalled()
 })
 
 it("refuses while a paid session is still awaiting its webhook", async () => {
@@ -372,6 +407,15 @@ describe("startFundraiserCheckout", () => {
     const tiny = { ...owing, payments: [{ amount: "39.70" }] }
     prisma.fundraiserEntry.findUnique.mockResolvedValue(tiny)
     expect(await startFundraiserCheckout("tok-7")).toMatchObject({ ok: false, status: 400 })
+    expect(sessionsCreate).not.toHaveBeenCalled()
+  })
+
+  it("a prior session Stripe could not be checked → 503 retry message, no new session", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    prisma.fundraiserEntry.findUnique.mockResolvedValue(owing)
+    prisma.checkoutSession.findMany.mockResolvedValue([{ stripeSessionId: "cs_flaky", totalAmount: "30.00", surchargeCents: 0 }])
+    sessionsRetrieve.mockRejectedValue(new Error("network"))
+    expect(await startFundraiserCheckout("tok-7")).toEqual({ ok: false, status: 503, error: "Payment is busy, try again in a moment" })
     expect(sessionsCreate).not.toHaveBeenCalled()
   })
 })

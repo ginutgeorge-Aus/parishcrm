@@ -403,7 +403,7 @@ async function _previewMergeCore(
     // Both families' entries, to plan the fundraiser move (planFundraiserReassign).
     prisma.fundraiserEntry.findMany({
       where: { familyId: { in: [sourceId, targetId] } },
-      select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true },
+      select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true, delivery: true },
     }),
   ])
   const fundraiserPlan = countReassignSteps(planFundraiserReassign(fundraiserEntries, sourceId, targetId))

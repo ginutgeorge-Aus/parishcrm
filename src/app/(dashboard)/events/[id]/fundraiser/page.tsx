@@ -76,10 +76,10 @@ export default async function FundraiserPage(props: Readonly<Props>) {
                   <h2 className="text-sm font-semibold text-foreground">Entries</h2>
                   <div className="flex gap-2">
                     <SendRemindersDialog fundraiserId={view.fundraiser.id} />
-                    <AddEntryDialog fundraiserId={view.fundraiser.id} />
+                    <AddEntryDialog fundraiserId={view.fundraiser.id} hasDelivery={view.fundraiser.deliveryPrice !== null} />
                   </div>
                 </div>
-                <EntryTable rows={view.rows} canManage payments={view.payments} />
+                <EntryTable rows={view.rows} canManage payments={view.payments} hasDelivery={view.fundraiser.deliveryPrice !== null} />
               </section>
             </>
           )}
