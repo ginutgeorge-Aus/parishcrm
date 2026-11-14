@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TeachersPanel } from "@/components/sunday-school/TeachersPanel"
 import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
 import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
+import { ExportPanel } from "@/components/sunday-school/ExportPanel"
 import { rollCounts } from "@/lib/sundaySchoolRollView"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 
@@ -200,6 +201,8 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
           )}
         </CardContent>
       </Card>
+
+      <ExportPanel classId={cls.id} year={cls.year} />
 
       {markerViewer && (
         <Card>

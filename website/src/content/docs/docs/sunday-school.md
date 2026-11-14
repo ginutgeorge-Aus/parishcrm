@@ -89,6 +89,19 @@ many results were not counted. Children are listed by name, never ranked.
 ADMIN, PASTOR, OFFICE_ADMIN, Headmaster and VIEWER can open progress pages. Teacher logins
 cannot yet.
 
+### Reports and export
+
+The class page has a "Reports and export" card. Pick a report, a date range (it starts as the class's
+school year; the most you can export at once is 2 years) and CSV or PDF:
+
+- **Class attendance summary**: one row per child with present, late, absent, unmarked and attendance rate.
+- **Student attendance history**: one row per child per roll date.
+- **Exam results**: children by exams, score / total in each cell, plus each child's average. Archived exams are left out.
+
+The numbers use the same rules as the progress pages (rolls before a child joined are left out, unmarked
+is not absent). Everyone who can open progress pages can export; each export is written to the audit log.
+CSV cells that start with `=`, `+`, `-` or `@` are prefixed with `'` so spreadsheets never run them as formulas.
+
 ### Who sees what
 
 | Role | Sunday School access |
