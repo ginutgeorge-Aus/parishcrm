@@ -135,6 +135,13 @@ If your platform appends its own internal hop to `x-forwarded-for`, set `CLIENT_
 throttling and audit IPs see the real client. This is security-sensitive: see the
 [full explanation](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/environment.md#client_ip_header).
 
+## Scale and limits
+
+ParishCRM is sized for one parish (typically 500–2,000 members) and needs no tuning at that size.
+Some lists cap the rows they load, for example 500 people per view and 10,000 rows per CSV export.
+List pages show a notice when they hit a cap. The full table is in
+[self-hosting: scale and limits](https://github.com/ginutgeorge-Aus/parishcrm/blob/main/docs/self-hosting.md#scale-and-limits).
+
 ## Local development (not for production)
 
 For running the app from source for development/testing:
