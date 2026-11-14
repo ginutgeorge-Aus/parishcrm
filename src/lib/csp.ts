@@ -37,6 +37,9 @@ const PUBLIC_TREES = [
   // Public membership registration form: /membershipform + /membershipform/success.
   // Submit is a server action guarded by Turnstile + rate-limit (no API route).
   "/membershipform",
+  // Public prayer request form (#702). Submit is a server action guarded by a
+  // honeypot + per-IP rate limit. Exact match: "/prayer-requests" (staff list) stays gated.
+  "/prayer-request",
 ]
 // Public event pages: /e/[slug], /e/[slug]/success, /e/[slug]/crew/[token]
 // (the token-gated volunteer view). Bare "/e" stays gated, and — unlike

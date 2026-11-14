@@ -363,6 +363,9 @@ const CORE_ACTIONS = new Set([
   // scope) in followUp.test.ts / prayerRequest.test.ts.
   "followUp.ts",
   "prayerRequest.ts",
+  // Public prayer request form (#702): core, no feature flag; honeypot + rate limit
+  // (publicPrayerRequest.test.ts).
+  "publicPrayerRequest.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

@@ -20,7 +20,7 @@ import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { PrayerRequestSource, PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { PASTORAL_PATH } from "@/lib/pastoralAccess"
+import { PRAYER_REQUESTS_PATH } from "@/lib/pastoralAccess"
 import { prisma } from "@/lib/prisma"
 import { canManagePrayerRequests, canViewSharedPrayerRequests } from "@/lib/roleGuard"
 import { isValidEmail, isValidPgId } from "@/lib/validation"
@@ -195,7 +195,7 @@ export async function createPrayerRequest(input: PrayerRequestInput): Promise<{ 
     })
     return created.id
   })
-  revalidatePath(PASTORAL_PATH)
+  revalidatePath(PRAYER_REQUESTS_PATH)
   return { id }
 }
 
@@ -280,7 +280,7 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
     return true
   })
   if (!updated) return { error: "This request changed. Refresh and try again." }
-  revalidatePath(PASTORAL_PATH)
+  revalidatePath(PRAYER_REQUESTS_PATH)
   if (consentVoided) {
     return { success: "Saved. The wording changed, so it is private again: tick OK to share once the requester agrees." }
   }
@@ -309,7 +309,7 @@ export async function setPrayerRequestStatus(id: number, status: PrayerRequestSt
     return true
   })
   if (!updated) return { error: "This request changed. Refresh and try again." }
-  revalidatePath(PASTORAL_PATH)
+  revalidatePath(PRAYER_REQUESTS_PATH)
   return { success: "Status updated" }
 }
 
@@ -357,7 +357,8 @@ export async function getPrayerRequest(id: number): Promise<{ error: string } | 
 }
 
 /**
- * Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
+ * Not used by any page yet (no bulletin list ships; the consent flag is only
+ * recorded). Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
  * 500. Editors (ADMIN | PASTOR | OFFICE_ADMIN). Returns the request text and
  * date only — the requester's name and contact never leave the private views.
  */

@@ -7,7 +7,7 @@
 // call for a task the caller can't see matches no row and answers "Not found"
 // (IDOR guard, no existence leak). title/notes are encrypted at rest; audit
 // rows are written in the same transaction and carry ids/flags only.
-// Notifications are in-app only (countMyDueFollowUps); no email in v1.
+// In-app due count for the sidebar badge (countMyDueFollowUps); no email in v1.
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -20,7 +20,7 @@ import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  PASTORAL_PATH,
+  FOLLOW_UPS_PATH,
   followUpVisibilityWhere,
   liveFollowUpTarget,
   type PastoralViewer,
@@ -170,7 +170,7 @@ async function checkAssignee(assigneeId: number | null): Promise<string | null> 
  * @param target the task's person or family
  */
 function revalidateTask(target: { personId: number | null; familyId: number | null }): void {
-  revalidatePath(PASTORAL_PATH)
+  revalidatePath(FOLLOW_UPS_PATH)
   if (target.personId) revalidatePath(`/people/${target.personId}`)
   if (target.familyId) revalidatePath(`/families/${target.familyId}`)
 }
@@ -350,13 +350,15 @@ export type FollowUpListFilter = {
   familyId?: number
   /** Only tasks assigned to the caller (managers' "my tasks" view). */
   mine?: boolean
+  /** Only tasks assigned to this login; `null` = only unassigned tasks. Applied before the row cap. */
+  assigneeId?: number | null
 }
 
 /**
  * Tasks visible to the caller (managers: all; assignees: their own), on live
  * people/families, ordered by due date (undated last) then newest. Capped at
  * 500 rows.
- * @param filter optional status / target / mine filters
+ * @param filter optional status / target / mine / assignee filters
  */
 export async function listFollowUpTasks(
   filter: FollowUpListFilter = {},
@@ -368,11 +370,13 @@ export async function listFollowUpTasks(
   if (filter.statuses && filter.statuses.length > 0 && statuses.length === 0) return { tasks: [] }
   if (filter.personId !== undefined && !isValidPgId(filter.personId)) return { tasks: [] }
   if (filter.familyId !== undefined && !isValidPgId(filter.familyId)) return { tasks: [] }
+  if (typeof filter.assigneeId === "number" && !isValidPgId(filter.assigneeId)) return { tasks: [] }
   const where: Prisma.FollowUpTaskWhereInput = {
     ...liveFollowUpTarget(),
     ...(statuses.length > 0 ? { status: { in: statuses } } : {}),
     ...(filter.personId !== undefined ? { personId: filter.personId } : {}),
     ...(filter.familyId !== undefined ? { familyId: filter.familyId } : {}),
+    ...(filter.assigneeId !== undefined ? { assigneeId: filter.assigneeId } : {}),
     ...(filter.mine ? { assigneeId: ctx.viewer.id } : {}),
     // Last, so the visibility scope always wins over a caller-supplied filter.
     ...ctx.scope,

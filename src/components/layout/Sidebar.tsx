@@ -24,6 +24,7 @@ export function Sidebar({
   pendingUpdates = 0,
   verifyPending = 0,
   membershipPending = 0,
+  dueFollowUps = 0,
   features,
   venueUsage = false,
 }: Readonly<{
@@ -31,6 +32,8 @@ export function Sidebar({
   pendingUpdates?: number
   verifyPending?: number
   membershipPending?: number
+  /** Own follow-ups due today or earlier; badge on the Follow-ups link. */
+  dueFollowUps?: number
   /** Enabled features (array: Sets don't cross the server→client boundary); omitted = all on. */
   features?: FeatureKey[]
   /** Venue Usage enabled (AppSetting); shows the nav link for editors. */
@@ -43,8 +46,8 @@ export function Sidebar({
   const featureSet = useMemo(() => (features ? new Set(features) : undefined), [features])
 
   const groups: NavGroup[] = useMemo(
-    () => buildNavGroups(navFlagsFor(role, { pendingUpdates, verifyPending, membershipPending }, featureSet, venueUsage)),
-    [role, pendingUpdates, verifyPending, membershipPending, featureSet, venueUsage]
+    () => buildNavGroups(navFlagsFor(role, { pendingUpdates, verifyPending, membershipPending, dueFollowUps }, featureSet, venueUsage)),
+    [role, pendingUpdates, verifyPending, membershipPending, dueFollowUps, featureSet, venueUsage]
   )
 
   // Highlight only the single most-specific matching item, so a parent path

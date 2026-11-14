@@ -31,6 +31,7 @@ export function TopBar({
   role: serverRole,
   pendingUpdates = 0,
   membershipPending = 0,
+  dueFollowUps = 0,
   features,
 }: Readonly<{
   churchName: string
@@ -38,6 +39,8 @@ export function TopBar({
   role?: UserRole
   pendingUpdates?: number
   membershipPending?: number
+  /** Own follow-ups due today or earlier; a bell entry. */
+  dueFollowUps?: number
   /** Enabled features (array: Sets don't cross the server→client boundary); omitted = all on. */
   features?: FeatureKey[]
 }>) {
@@ -50,8 +53,8 @@ export function TopBar({
 
   // Bell entries are the sidebar's badged links, so role and feature gates match.
   const notices = useMemo(
-    () => attentionItems(buildNavGroups(navFlagsFor(role, { pendingUpdates, membershipPending }, featureSet))),
-    [role, pendingUpdates, membershipPending, featureSet]
+    () => attentionItems(buildNavGroups(navFlagsFor(role, { pendingUpdates, membershipPending, dueFollowUps }, featureSet))),
+    [role, pendingUpdates, membershipPending, dueFollowUps, featureSet]
   )
   const pending = notices.reduce((sum, n) => sum + (n.badge ?? 0), 0)
   const bellTip = useMenuTooltip()

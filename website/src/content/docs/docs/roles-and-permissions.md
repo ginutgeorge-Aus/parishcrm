@@ -81,6 +81,9 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | Groups: create, edit, archive, link leader logins (`/groups`) | Yes | Yes | Yes | No | View only | No | No | No |
 | Groups: add/remove members, role and title | Yes | Yes | Yes | No | No | Linked groups only (`/my-groups`) | No | No |
 | Groups: print / CSV export of members (includes email and mobile) | Yes | No | No | No | No | No | No | No |
+| Follow-up tasks: see all, add, edit, delete (`/follow-ups`) | Yes | Yes | No | No | No | No | No | No |
+| Follow-up tasks: see and update own assigned tasks | Yes | Yes | Yes | No | No | No | No | No |
+| Prayer requests: list, add, answer, archive (`/prayer-requests`) | Yes | Yes | No | No | No | No | No | No |
 | Pastoral notes (view) | Yes | Yes | No | No | No | No | No | No |
 | Safeguarding clearances — upload, verify, view document and number | Yes | Yes | Yes | No | No | No | No | No |
 | Clearance compliance page, WWCC batch verify, CSV export (`/people/clearances`) | Yes | Yes | Yes | No | No | No | No | No |

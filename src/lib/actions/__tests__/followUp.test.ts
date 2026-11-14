@@ -324,6 +324,24 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
     })
   })
 
+  it("assignee and unassigned filters go into the where, before the row cap", async () => {
+    await listFollowUpTasks({ assigneeId: 12 })
+    expect(p.followUpTask.findMany.mock.calls[0][0]).toMatchObject({ where: { ...LIVE, assigneeId: 12 }, take: 500 })
+    await listFollowUpTasks({ assigneeId: null })
+    expect(p.followUpTask.findMany.mock.calls[1][0].where).toEqual({ ...LIVE, assigneeId: null })
+  })
+
+  it("an assignee's scope beats an assigneeId filter for someone else", async () => {
+    as(UserRole.OFFICE_ADMIN, "9")
+    await listFollowUpTasks({ assigneeId: 12 })
+    expect(p.followUpTask.findMany.mock.calls[0][0].where).toEqual({ ...LIVE, assigneeId: 9 })
+  })
+
+  it("an invalid assigneeId matches nothing", async () => {
+    expect(await listFollowUpTasks({ assigneeId: -4 })).toEqual({ tasks: [] })
+    expect(p.followUpTask.findMany).not.toHaveBeenCalled()
+  })
+
   it("an all-invalid status filter matches nothing instead of everything", async () => {
     expect(await listFollowUpTasks({ statuses: ["NOPE" as FollowUpStatus] })).toEqual({ tasks: [] })
     expect(p.followUpTask.findMany).not.toHaveBeenCalled()
