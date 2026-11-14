@@ -224,6 +224,29 @@ If your platform appends its own internal hop to `x-forwarded-for`, set `CLIENT_
 throttling and audit IPs see the real client. This is security-sensitive: see
 [`docs/environment.md`](environment.md#client_ip_header) for the full explanation.
 
+## Scale and limits
+
+ParishCRM is built for one parish: typically 500–2,000 members, a few thousand transactions a year.
+That size needs no tuning. Contact fields are encrypted, so lists decrypt rows in the app, and some
+screens cap how many rows they load to keep memory bounded. List pages show a notice when they hit
+a cap; narrow the search or filter to see the rest. CSV exports stop at their cap, so filter the
+export (for example by date range) if you ever get close to it.
+
+| Area | Cap |
+|------|-----|
+| People list, family list (incl. suburb filter) | 500 rows per view |
+| Person pickers (receipts, petty cash, settings, import) | 2,000 active members |
+| Birthday / anniversary widgets | 5,000 people scanned |
+| Transaction search | 5,000 most recent transactions scanned; 50 per page |
+| Event registrations page | 2,000 registrations per event |
+| CSV exports (people, event registrations, general ledger) | 10,000 rows |
+| Bank statement import | 1,000 rows per file |
+| Family/person CSV import | 5,000 rows per file |
+| Group member list (display only; group emails reach every member) | 5,000 members |
+
+These caps sit well above a single parish. Expect slower list pages from around 5,000 people,
+because each page decrypts its rows. Measured timings for larger data sets are not published yet.
+
 ## Upgrading
 
 1. Back up the database.
