@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { SacramentType } from "@/lib/generated/prisma/enums"
 import { isRealCalendarDate } from "@/lib/validation"
+import type { Prisma } from "@/lib/generated/prisma/client"
 
 // Sacramental register (#304, decisions in #605): pure helpers shared by the
 // actions (src/lib/actions/sacrament.ts) and, later, the pages and certificate.
@@ -139,6 +140,33 @@ export function checkSacramentRules(
     return "A spouse can only be recorded for a marriage."
   }
   return null
+}
+
+/** Most people a register person search returns. */
+export const PERSON_SEARCH_CAP = 20
+
+/** Most words of a person search used; extra words are ignored. */
+const MAX_SEARCH_WORDS = 5
+
+/**
+ * Prisma filter for a name search over current (not archived) people: every
+ * word must match the first OR the last name (case-insensitive substring), so
+ * "alex sam" finds Alex Sample and not every Alex or every Sample. A blank
+ * query returns null (callers show no results rather than everyone).
+ * @param q raw search text
+ */
+export function personNameWhere(q: string): Prisma.PersonWhereInput | null {
+  const words = q.trim().split(/\s+/).filter(Boolean).slice(0, MAX_SEARCH_WORDS)
+  if (words.length === 0) return null
+  return {
+    archivedAt: null,
+    AND: words.map((w) => ({
+      OR: [
+        { firstName: { contains: w, mode: "insensitive" as const } },
+        { lastName: { contains: w, mode: "insensitive" as const } },
+      ],
+    })),
+  }
 }
 
 /** Display name per rite, for the register, the person page and certificates. */

@@ -6,13 +6,13 @@ import { canEditSacraments } from "@/lib/roleGuard"
 import { createSacramentRecord } from "@/lib/actions/sacrament"
 import { parseRouteId } from "@/lib/validation"
 import { SacramentType } from "@/lib/generated/prisma/enums"
+import { PERSON_SEARCH_CAP, personNameWhere } from "@/lib/sacraments"
 import { SacramentForm } from "@/components/sacraments/SacramentForm"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-/** Most people a search shows. */
-const SEARCH_CAP = 20
+const SEARCH_CAP = PERSON_SEARCH_CAP
 
 type Props = { searchParams: Promise<{ personId?: string; q?: string; type?: string }> }
 
@@ -32,18 +32,11 @@ export default async function NewSacramentPage(props: Readonly<Props>) {
       })
     : null
   const q = sp.q?.trim().slice(0, 80) ?? ""
+  const where = person ? null : personNameWhere(q)
   const matches =
-    !person && q
+    where
       ? await prisma.person.findMany({
-          where: {
-            archivedAt: null,
-            OR: q
-              .split(/\s+/)
-              .flatMap((w) => [
-                { firstName: { contains: w, mode: "insensitive" as const } },
-                { lastName: { contains: w, mode: "insensitive" as const } },
-              ]),
-          },
+          where,
           orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
           take: SEARCH_CAP,
           select: { id: true, firstName: true, lastName: true, family: { select: { name: true } } },

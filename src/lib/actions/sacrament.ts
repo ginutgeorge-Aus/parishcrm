@@ -16,8 +16,10 @@ import type { SacramentType } from "@/lib/generated/prisma/enums"
 import {
   SacramentCreateSchema,
   SacramentFieldsSchema,
+  PERSON_SEARCH_CAP,
   checkSacramentRules,
   formatRegisterNo,
+  personNameWhere,
   ymdToUtcDate,
   type SacramentFields,
 } from "@/lib/sacraments"
@@ -279,6 +281,30 @@ export async function deleteSacramentRecord(id: number): Promise<ActionResultWit
   }
   revalidateSacramentPaths([existing.personId, existing.spouseId])
   return { success: `${existing.registerNo} deleted.` }
+}
+
+/** One person found by the register's spouse picker. */
+export type SacramentPersonHit = { id: number; name: string; familyName: string }
+
+/**
+ * Search current people by name for the spouse picker (ADMIN | PASTOR, the roles
+ * that can write an entry). Every word must match the first or last name; at
+ * most PERSON_SEARCH_CAP results. Returns an empty list for other roles or a
+ * blank query. Only id and display names are returned.
+ * @param q search text
+ */
+export async function searchSacramentPeople(q: string): Promise<SacramentPersonHit[]> {
+  const session = await auth()
+  if (!canEditSacraments(session?.user?.role)) return []
+  const where = personNameWhere(typeof q === "string" ? q.slice(0, 80) : "")
+  if (!where) return []
+  const rows = await prisma.person.findMany({
+    where,
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    take: PERSON_SEARCH_CAP,
+    select: { id: true, firstName: true, lastName: true, family: { select: { name: true } } },
+  })
+  return rows.map((r) => ({ id: r.id, name: `${r.firstName} ${r.lastName}`, familyName: r.family.name }))
 }
 
 /**

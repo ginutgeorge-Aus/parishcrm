@@ -44,6 +44,27 @@ describe("renderSacramentCertificatePdf", () => {
     expect(texts).toContain("Godparents: Jane Roe")
   })
 
+  it("keeps worst-case input on one page", async () => {
+    const long = (n: number, word: string) => Array.from({ length: n }, () => word).join(" ")
+    const worst: CertificateSource = {
+      type: "MARRIAGE",
+      registerNo: "MAR-2026-1000",
+      date: "2026-03-01",
+      place: long(40, "Placename"),
+      ministerName: long(30, "Minister"),
+      person: { firstName: "W".repeat(100), lastName: long(15, "Surnamelong") },
+      spouse: null,
+      spouseName: long(25, "Spousename"),
+      godparents: long(60, "Godparent"),
+    }
+    const church = { name: long(20, "Church"), address: long(50, "Address") }
+    const buf = await renderSacramentCertificatePdf(worst, church)
+    expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-")
+    expect(buf.toString("latin1").match(/\/Type \/Page\b/g)).toHaveLength(1)
+    // The same input at normal size is not shrunk: the short certificate still lays out.
+    await renderSacramentCertificatePdf(BAPTISM, CHURCH)
+  })
+
   it("prints both spouses on a marriage certificate and stays on one page", async () => {
     const buf = await renderSacramentCertificatePdf(
       { ...BAPTISM, type: "MARRIAGE", registerNo: "MAR-2026-002", godparents: null, spouseName: "Out Side" },

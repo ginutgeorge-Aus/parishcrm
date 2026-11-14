@@ -52,7 +52,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople && on("celebrations") },
         { href: "/sunday-school", label: "Sunday School", icon: School, show: canBrowseSundaySchool && on("sundaySchool") },
         // Sacramental register (#304): core, no feature flag; ADMIN | PASTOR | OFFICE_ADMIN.
-        { href: "/sacraments", label: "Sacraments", icon: BookCheck, show: !!canViewSacraments },
+        { href: "/sacraments", label: "Sacraments", icon: BookCheck, show: canViewSacraments },
         // Groups (#303): same audience as canViewGroups (= canViewPeople).
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,

@@ -18,7 +18,7 @@ export type NavFlags = {
   /** Staff Sunday School link (canBrowseSundaySchool). */
   canBrowseSundaySchool: boolean
   /** Sacramental register link (canViewSacraments: ADMIN | PASTOR | OFFICE_ADMIN). */
-  canViewSacraments?: boolean
+  canViewSacraments: boolean
   /** HEADMASTER: confined to Sunday School, so hide links middleware would bounce. */
   sundaySchoolOnly?: boolean
   /** Venue Usage nav link (AppSetting `venueUsage.enabled`). */

@@ -4,6 +4,7 @@ import {
   updateSacramentRecord,
   deleteSacramentRecord,
   getSacramentRecord,
+  searchSacramentPeople,
 } from "@/lib/actions/sacrament"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
@@ -25,7 +26,7 @@ jest.mock("@/lib/crypto", () => ({
 }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    person: { findUnique: jest.fn() },
+    person: { findUnique: jest.fn(), findMany: jest.fn() },
     sacramentCounter: { upsert: jest.fn() },
     sacramentRecord: {
       create: jest.fn(),
@@ -38,7 +39,7 @@ jest.mock("@/lib/prisma", () => ({
 }))
 
 const p = prisma as unknown as {
-  person: { findUnique: jest.Mock }
+  person: { findUnique: jest.Mock; findMany: jest.Mock }
   sacramentCounter: { upsert: jest.Mock }
   sacramentRecord: { create: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock; deleteMany: jest.Mock }
   $transaction: jest.Mock
@@ -315,5 +316,32 @@ describe("getSacramentRecord", () => {
     as("OFFICE_ADMIN")
     p.sacramentRecord.findUnique.mockResolvedValue(null)
     expect(await getSacramentRecord(7)).toBeNull()
+  })
+})
+
+describe("searchSacramentPeople", () => {
+  it.each(["ADMIN", "PASTOR"])("%s gets id and display names, ANDing the words", async (role) => {
+    as(role)
+    p.person.findMany.mockResolvedValue([{ id: 4, firstName: "Alex", lastName: "Sample", family: { name: "Sample Family" } }])
+    expect(await searchSacramentPeople("alex sam")).toEqual([{ id: 4, name: "Alex Sample", familyName: "Sample Family" }])
+    const arg = p.person.findMany.mock.calls[0][0]
+    expect(arg.where.archivedAt).toBeNull()
+    expect(arg.where.AND).toHaveLength(2)
+    expect(arg.take).toBe(20)
+  })
+
+  it.each(["OFFICE_ADMIN", "VIEWER", "AUDITOR", "EVENT_ORGANISER", "HEADMASTER", "TEACHER", null])(
+    "returns nothing for %s without querying",
+    async (role) => {
+      as(role)
+      expect(await searchSacramentPeople("alex")).toEqual([])
+      expect(p.person.findMany).not.toHaveBeenCalled()
+    },
+  )
+
+  it("returns nothing for a blank query", async () => {
+    as("ADMIN")
+    expect(await searchSacramentPeople("   ")).toEqual([])
+    expect(p.person.findMany).not.toHaveBeenCalled()
   })
 })

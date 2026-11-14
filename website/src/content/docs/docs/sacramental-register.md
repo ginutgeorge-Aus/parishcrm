@@ -37,7 +37,7 @@ Open **Sacraments** in the sidebar. The list shows register number, rite, person
 
 1. Choose **Add entry**, then search for the person by first or last name. From a person's page you can instead use **Add** on their **Sacraments** card, which skips the search.
 2. Choose the sacrament, enter the date and place, and optionally the minister, godparents (or sponsors and witnesses) and notes.
-3. For a marriage, enter the spouse's name. A marriage needs exactly one spouse.
+3. For a marriage, search for the spouse among your members and pick them, or, if they are not in the CRM, type their name. A marriage needs exactly one spouse, either picked or typed. A picked spouse is linked, so the marriage also shows on their page.
 4. Select **Add to register**. The new entry opens with its number.
 
 Rules the form enforces:
@@ -50,7 +50,7 @@ The search lists current (not archived) people. A register entry is permanent: i
 
 ## Edit or delete (ADMIN, PASTOR)
 
-**Edit** changes the date, place, minister, spouse, godparents and notes. The rite, the person and the register number are fixed. The date can change only within the year the entry was numbered. If two people edit at once, the second save is refused with a message to refresh.
+**Edit** changes the date, place, minister, spouse (use **Change** to pick someone else), godparents and notes. The rite, the person and the register number are fixed. The date can change only within the year the entry was numbered. If two people edit at once, the second save is refused with a message to refresh.
 
 To correct a wrong rite or person, delete the entry and enter it again. Deleting asks for confirmation and retires the number.
 
@@ -62,7 +62,9 @@ A person's page shows a **Sacraments** card listing their entries oldest first, 
 
 ## Print a certificate
 
-On an entry's detail page, choose **Certificate (PDF)**. The PDF opens in a new tab for printing or saving. It is A4 landscape with your church letterhead (the image from **App Settings → Branding**, or the church name and address when none is uploaded), the person's name, the rite, the date and place, the minister and godparents when recorded, and the register number. A marriage certificate names both spouses. Notes are never printed.
+On an entry's detail page, choose **Certificate (PDF)**. The PDF opens in a new tab for printing or saving. It is A4 landscape with your church letterhead (the image from **App Settings → Branding**, or the church name and address when none is uploaded), the person's name, the rite, the date and place, the minister and godparents when recorded, and the register number. A marriage certificate names both spouses. Notes are never printed. Very long names, places or godparent lists are printed in smaller type so the certificate always fits on one page.
+
+The certificate uses a standard Latin PDF font. Letters outside the Latin alphabet, such as Malayalam or Tamil script, do not print correctly, so write such names in Latin letters for the register entry you plan to print.
 
 Each certificate download is recorded in the audit log.
 
