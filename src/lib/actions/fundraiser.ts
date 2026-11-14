@@ -131,6 +131,18 @@ const SUBMISSION_KEY_RE = /^[A-Za-z0-9_-]{1,100}$/
 /** Whole-transaction attempts for addEntry when a bankRef/publicToken collides. */
 const MAX_ADD_ATTEMPTS = 5
 const BUSY = { error: "Busy, please try again" }
+
+/**
+ * Jittered exponential delay before retrying a Serializable transaction that
+ * lost an SSI conflict (P2034). Spreads out concurrent adds so they do not
+ * all collide again on the next attempt.
+ *
+ * @param attempt - 1-based attempt that just failed.
+ * @returns Delay in milliseconds (0 up to 25ms * 2^(attempt-1), capped at 200ms).
+ */
+function serializationBackoffMs(attempt: number): number {
+  return Math.floor(Math.random() * Math.min(200, 25 * 2 ** (attempt - 1)))
+}
 const AUDIT_FAILED = { error: AUDIT_FAILED_ERROR }
 
 /**
@@ -305,7 +317,10 @@ export async function addEntry(
       if (e instanceof AuditWriteError) return AUDIT_FAILED
       if (e instanceof NoFreeBankRefError) return BUSY
       // Serialization conflict (e.g. a concurrent price edit): re-read and retry.
-      if (isP2034(e)) continue
+      if (isP2034(e)) {
+        await new Promise((resolve) => setTimeout(resolve, serializationBackoffMs(attempt)))
+        continue
+      }
       if (!isP2002(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
       // Otherwise the collision was bankRef/publicToken: retry with fresh values.
@@ -530,12 +545,12 @@ export async function recordPayment(
    * a thrown first call that committed) = error, never a silent no-op.
    */
   const repeatOf = (
-    existing: { entryId: number; amount: unknown; method: string; paidAt: Date; note: string | null } | null,
+    existing: { entryId: number; amount: Prisma.Decimal; method: string; paidAt: Date; note: string | null } | null,
   ): ActionResult | null => {
     if (!existing) return null
     if (existing.entryId !== entryId) return { error: "Invalid submission" }
     const same =
-      toCents(String(existing.amount)) === amountCents &&
+      toCents(existing.amount.toFixed(2)) === amountCents &&
       existing.method === method &&
       (existing.note ?? "") === note &&
       existing.paidAt.toISOString().slice(0, 10) === paidAtStr

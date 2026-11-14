@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +13,9 @@ import { sydneyTodayYMD } from "@/lib/dates"
 import { randomUuid } from "@/lib/randomUuid"
 // Type-only (erased at build), so the server-only query module never reaches the client bundle.
 import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
+
+/** Server error for a reused submission key with different details (see `recordPayment`). */
+const ALREADY_RECORDED_ERROR = "This payment was already recorded with different details. Reload to see it."
 
 /**
  * Format integer cents as a plain 2-dp decimal string for an input default.
@@ -42,6 +46,7 @@ export function PaymentsPanel({
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  const router = useRouter()
 
   /** Reset the form and mint a new submission key when the dialog opens. */
   function onOpenChange(next: boolean) {
@@ -68,8 +73,11 @@ export function PaymentsPanel({
         setError("Could not record the payment. Please try again.")
         return
       }
-      if (res?.error) setError(res.error)
-      else {
+      if (res?.error) {
+        setError(res.error)
+        // The key stays (rotating it would double-record); reload so the already-committed row shows.
+        if (res.error === ALREADY_RECORDED_ERROR) router.refresh()
+      } else {
         setKey(randomUuid())
         setAmount("")
         setNote("")
