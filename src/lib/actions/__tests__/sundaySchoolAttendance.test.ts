@@ -7,7 +7,8 @@ jest.mock("@/lib/prisma", () => {
   const m = {
     sundaySchoolClass: { findFirst: jest.fn() },
     sundaySchoolSession: { findUnique: jest.fn(), createMany: jest.fn(), findUniqueOrThrow: jest.fn() },
-    sundaySchoolAttendance: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
+    sundaySchoolEnrolment: { findFirst: jest.fn() },
+    sundaySchoolAttendance: { findFirst: jest.fn(), findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
     sundaySchoolRollMarker: { createMany: jest.fn(), deleteMany: jest.fn() },
     user: { findFirst: jest.fn() },
     $transaction: jest.fn(),
@@ -28,13 +29,15 @@ import { logAudit } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
 import { revalidatePath } from "next/cache"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
-import { setAttendance, markUnmarkedPresent, addRollMarker, removeRollMarker } from "@/lib/actions/sundaySchoolAttendance"
+import { signBadge } from "@/lib/sundaySchoolBadge"
+import { setAttendance, markUnmarkedPresent, addRollMarker, removeRollMarker, scanBadge } from "@/lib/actions/sundaySchoolAttendance"
 
 const as = (role: UserRole) => (auth as jest.Mock).mockResolvedValue({ user: { id: "1", role } })
 const p = prisma as unknown as {
   sundaySchoolClass: { findFirst: jest.Mock }
   sundaySchoolSession: { findUnique: jest.Mock; createMany: jest.Mock; findUniqueOrThrow: jest.Mock }
-  sundaySchoolAttendance: { findUnique: jest.Mock; upsert: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock }
+  sundaySchoolEnrolment: { findFirst: jest.Mock }
+  sundaySchoolAttendance: { findFirst: jest.Mock; findUnique: jest.Mock; upsert: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock }
   sundaySchoolRollMarker: { createMany: jest.Mock; deleteMany: jest.Mock }
   user: { findFirst: jest.Mock }
   $queryRaw: jest.Mock
@@ -263,5 +266,50 @@ describe("roll markers", () => {
     expect(await removeRollMarker(4, 9)).toBeUndefined()
     expect(p.sundaySchoolRollMarker.deleteMany).toHaveBeenCalledWith({ where: { classId: 4, userId: 9 } })
     expect(logAudit).toHaveBeenCalledWith(1, "SS_ROLL_MARKER_REMOVED", "SundaySchoolClass", 4, { targetUserId: 9 })
+  })
+})
+
+describe("scanBadge", () => {
+  const badge = () => signBadge(3)
+  beforeEach(() => {
+    p.sundaySchoolEnrolment.findFirst.mockResolvedValue({ person: { firstName: "Ann", lastName: "Lee" } })
+    p.sundaySchoolAttendance.findFirst.mockResolvedValue(null)
+  })
+  it("refuses an unauthorised role and a non-marker", async () => {
+    as(UserRole.VIEWER)
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ error: "Unauthorized" })
+    as(UserRole.TEACHER)
+    ;(canMarkRoll as jest.Mock).mockResolvedValue(false)
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ error: "Unauthorized" })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
+  })
+  it("rejects a forged or foreign payload without touching the DB", async () => {
+    expect(await scanBadge(4, "2026-10-11", "ss1.3.AAAAAAAAAAAAAAAAAAAAAA")).toEqual({ error: "Invalid badge" })
+    expect(await scanBadge(4, "2026-10-11", "REG-123")).toEqual({ error: "Invalid badge" })
+    expect(p.sundaySchoolEnrolment.findFirst).not.toHaveBeenCalled()
+  })
+  it("refuses a child not enrolled in this class", async () => {
+    p.sundaySchoolEnrolment.findFirst.mockResolvedValue(null)
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ error: "Not in this class" })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
+  })
+  it("refuses a locked year", async () => {
+    locks([3], true, true, true)
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ error: "This school year is locked — it can no longer be changed" })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
+  })
+  it("marks an unmarked child present", async () => {
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ name: "Ann Lee", outcome: "marked", status: "PRESENT" })
+    expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: { sessionId: 55, personId: 3, status: "PRESENT", markedById: 1 } }))
+  })
+  it("promotes Absent to Present like a manual re-mark", async () => {
+    p.sundaySchoolAttendance.findFirst.mockResolvedValue({ status: "ABSENT" })
+    expect(await scanBadge(4, "2026-10-11", badge())).toMatchObject({ outcome: "marked" })
+    expect(p.sundaySchoolAttendance.upsert).toHaveBeenCalled()
+  })
+  it.each(["PRESENT", "LATE"])("leaves an existing %s mark alone", async (status) => {
+    p.sundaySchoolAttendance.findFirst.mockResolvedValue({ status })
+    expect(await scanBadge(4, "2026-10-11", badge())).toEqual({ name: "Ann Lee", outcome: "already", status })
+    expect(p.sundaySchoolAttendance.upsert).not.toHaveBeenCalled()
   })
 })

@@ -21,6 +21,10 @@ jest.mock("@/components/sunday-school/RollList", () => ({
     <div data-testid="roll" data-readonly={String(p.readOnly)} data-date={p.date} data-base={p.dateHrefBase} />,
 }))
 
+jest.mock("@/components/sunday-school/BadgeScanner", () => ({
+  BadgeScanner: () => <div data-testid="scanner" />,
+}))
+
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canMarkRoll } from "@/lib/sundaySchoolAccess"
@@ -53,7 +57,9 @@ describe("/sunday-school/[id]/roll", () => {
   it("lets a HEADMASTER mark", async () => {
     as("HEADMASTER")
     ;(canMarkRoll as jest.Mock).mockResolvedValue(true)
-    expect(await staff()).toContain('data-readonly="false"')
+    const html = await staff()
+    expect(html).toContain('data-readonly="false"')
+    expect(html).toContain('data-testid="scanner"')
   })
   it("is read-only for a VIEWER", async () => {
     as("VIEWER")

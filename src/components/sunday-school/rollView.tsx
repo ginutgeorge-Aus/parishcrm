@@ -6,6 +6,7 @@ import { loadRoll } from "@/lib/sundaySchoolRoll"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
 import { parseRollDate } from "@/lib/sundaySchoolRollView"
 import { Badge } from "@/components/ui/badge"
+import { BadgeScanner } from "@/components/sunday-school/BadgeScanner"
 import { RollList } from "@/components/sunday-school/RollList"
 
 /**
@@ -40,6 +41,9 @@ export async function renderRollView({
         {roll?.cls.archived && <Badge variant="secondary">Archived</Badge>}
         {locked && <Badge variant="secondary">Locked</Badge>}
       </h1>
+      {parsed.ok && roll && canMark && !roll.cls.archived && !locked && (
+        <div className="mb-3"><BadgeScanner classId={classId} date={parsed.ymd} /></div>
+      )}
       {parsed.ok && roll ? (
         <RollList
           classId={classId}

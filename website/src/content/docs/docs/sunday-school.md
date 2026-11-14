@@ -89,6 +89,23 @@ many results were not counted. Children are listed by name, never ranked.
 ADMIN, PASTOR, OFFICE_ADMIN, Headmaster and VIEWER can open progress pages. Teacher logins
 cannot yet.
 
+### Badges and QR check-in
+
+On a class page, **Print badges** opens an A4 sheet of cut-out cards (eight per page), one for each
+enrolled child, with their name, class, year, church name and a QR code. Only people who can set up
+classes (ADMIN, PASTOR, OFFICE_ADMIN, Headmaster) can print them.
+
+On the roll page, **Scan badges** opens the camera. Point it at a badge and the child is marked
+present; the screen shows their name and "marked present". The camera stays open so you can scan a
+queue of children. A child already marked Present or Late is left as is ("already marked"), and one
+marked Absent becomes Present, the same as tapping Present by hand. A badge from another class, a
+child who has left the class, or a code that did not come from this app shows an error and marks
+nothing. Scanning follows the same rules as marking by hand: assigned teachers and roll markers can
+scan for their own classes, and a locked year cannot be changed.
+
+The QR holds only a number and a signature made with a key derived from your server's encryption
+key, so it carries no name or contact detail and cannot be forged. It needs no new setting.
+
 ### Who sees what
 
 | Role | Sunday School access |

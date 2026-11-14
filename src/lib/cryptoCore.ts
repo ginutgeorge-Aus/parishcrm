@@ -218,6 +218,20 @@ function blindIndexKey(label: string): Buffer {
   return Buffer.from(hkdfSync("sha256", v1, Buffer.alloc(0), `${label}-blind-index-v1`, 32))
 }
 
+/**
+ * Derive a purpose-bound 32-byte HMAC key from the v1 encryption key (HKDF,
+ * info = `<label>-domain-key-v1`). Distinct from every blind-index key and from
+ * the encryption key itself, and stable across key rotation like the blind
+ * indexes. Use for signing tokens that must verify with no new env var.
+ * @param label domain-separation label, unique per use (e.g. "ss-badge")
+ */
+export function deriveDomainKey(label: string): Buffer {
+  const { keys } = loadKeyring()
+  const v1 = keys.get("v1")
+  if (!v1) throw new Error(`${label} domain key requires the v1 encryption key`)
+  return Buffer.from(hkdfSync("sha256", v1, Buffer.alloc(0), `${label}-domain-key-v1`, 32))
+}
+
 export function hmacEmail(email: string): string {
   return createHmac("sha256", blindIndexKey("email")).update(email.trim().toLowerCase()).digest("hex")
 }

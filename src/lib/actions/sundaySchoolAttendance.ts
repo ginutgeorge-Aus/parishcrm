@@ -20,6 +20,7 @@ import { canMarkRoll } from "@/lib/sundaySchoolAccess"
 import { CLASS_GONE, lockEnrolled, withLiveClass } from "@/lib/sundaySchoolYearLock"
 import { parseAttendanceStatus, parseRollDate, ymdToDbDate } from "@/lib/sundaySchoolRollView"
 import { isValidPgId } from "@/lib/validation"
+import { verifyBadge } from "@/lib/sundaySchoolBadge"
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
@@ -154,7 +155,42 @@ export async function markUnmarkedPresent(classId: number, ymd: string): Promise
   return { success: `Marked ${r.value} present` }
 }
 
-type EditorGuard = { error: string } | { session: Session | null }
+export type ScanResult = { error: string } | { name: string; outcome: "marked" | "already"; status: AttendanceStatus }
+
+/**
+ * Badge-scan check-in: verify the signed QR payload, require the child to be
+ * enrolled in THIS class now, and mark them Present for the date via
+ * setAttendance (same guard, year lock and audit as a manual mark). A child
+ * already Present or Late is left as is ("already"): a scan never downgrades
+ * Late or rewrites a mark. Absent or unmarked becomes Present, as a manual
+ * re-mark would. canMarkRoll-gated.
+ * @param classId the class being scanned into
+ * @param ymd the roll date (YYYY-MM-DD)
+ * @param payload raw decoded QR text
+ */
+export async function scanBadge(classId: number, ymd: string, payload: string): Promise<ScanResult> {
+  const g = await rollGuard(classId, ymd)
+  if ("error" in g) return { error: g.error }
+  if (typeof payload !== "string" || payload.length > 200) return { error: "Invalid badge" }
+  const personId = verifyBadge(payload)
+  if (personId === null) return { error: "Invalid badge" }
+  const enrolment = await prisma.sundaySchoolEnrolment.findFirst({
+    where: { classId, personId, person: { archivedAt: null } },
+    select: { person: { select: { firstName: true, lastName: true } } },
+  })
+  if (!enrolment) return { error: "Not in this class" }
+  const name = `${enrolment.person.firstName} ${enrolment.person.lastName}`.trim()
+  const existing = await prisma.sundaySchoolAttendance.findFirst({
+    where: { personId, session: { classId, date: ymdToDbDate(g.ymd) } },
+    select: { status: true },
+  })
+  if (existing && existing.status !== "ABSENT") return { name, outcome: "already", status: existing.status }
+  const r = await setAttendance(classId, g.ymd, personId, "PRESENT")
+  if (r) return { error: r.error }
+  return { name, outcome: "marked", status: "PRESENT" }
+}
+
+type EditorGuard ={ error: string } | { session: Session | null }
 
 /**
  * Demo block, feature check, manager role (canManageSundaySchool), valid ids,
