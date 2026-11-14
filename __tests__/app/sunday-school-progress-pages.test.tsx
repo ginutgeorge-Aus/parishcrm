@@ -70,7 +70,7 @@ describe("/sunday-school/progress", () => {
   it("loads all the year's classes, archived too, and shows grade + class rows", async () => {
     as("HEADMASTER")
     const out = await html(Overview(props("2026")))
-    expect(loadClassStats).toHaveBeenCalledWith({ year: 2026 })
+    expect(loadClassStats).toHaveBeenCalledWith({ year: 2026 }, { students: false })
     expect(out).not.toContain("Archived")
     expect(out).toContain("Level 0")
     expect(out).toContain("Level 3")
@@ -85,7 +85,7 @@ describe("/sunday-school/progress", () => {
     ;(loadClassStats as jest.Mock).mockResolvedValue([{ year: 2026, archived: true, stats: kindy }])
     const out = await html(Overview(props("2026")))
     expect(out).toContain("Archived")
-    expect(out).toContain("1 class · 2 children")
+    expect(out).toContain("1 class · 2 students")
     expect(out).not.toContain("No classes")
   })
   it("notes exam results that were not counted", async () => {
@@ -146,8 +146,12 @@ describe("/sunday-school/[id]/progress/[personId]", () => {
     const out = await html(StudentProgress(props()))
     expect((prisma.sundaySchoolEnrolment.findFirst as jest.Mock).mock.calls[0][0].where)
       .toEqual({ classId: 4, personId: 1, person: { archivedAt: null } })
-    expect((prisma.sundaySchoolSession.findMany as jest.Mock).mock.calls[0][0].select.attendance.where).toEqual({ personId: 1 })
-    expect((prisma.sundaySchoolExam.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ classId: 4, archivedAt: null })
+    const sessionArg = (prisma.sundaySchoolSession.findMany as jest.Mock).mock.calls[0][0]
+    expect(sessionArg.where).toEqual({ classId: 4 })
+    expect(sessionArg.select.attendance.where).toEqual({ personId: 1 })
+    const examArg = (prisma.sundaySchoolExam.findMany as jest.Mock).mock.calls[0][0]
+    expect(examArg.where).toEqual({ classId: 4, archivedAt: null })
+    expect(examArg.select.results.where).toEqual({ personId: 1 })
     expect(out).toContain("Ann Adams")
     expect(out).toContain("Present")
     expect(out).toContain("Not marked")
@@ -183,5 +187,24 @@ describe("/sunday-school/[id]/progress/[personId] enrolment bound", () => {
     expect(out).toContain("22 February 2026") // marked: always shown
     expect(out).toContain("Late exam")
     expect(out).not.toContain("Early exam")
+  })
+  it("says rolls and exams predate enrolment instead of 'none yet' when all are hidden", async () => {
+    as("ADMIN")
+    ;(prisma.sundaySchoolEnrolment.findFirst as jest.Mock).mockResolvedValue({
+      enrolledAt: new Date("2026-03-07T22:00:00Z"),
+      person: { firstName: "Ann", lastName: "Adams" },
+      class: { name: "Kindy", year: 2026 },
+    })
+    ;(prisma.sundaySchoolSession.findMany as jest.Mock).mockResolvedValue([
+      { id: 31, date: new Date("2026-03-01T00:00:00Z"), attendance: [] },
+    ])
+    ;(prisma.sundaySchoolExam.findMany as jest.Mock).mockResolvedValue([
+      { id: 9, name: "Early exam", date: new Date("2026-02-15T00:00:00Z"), totalMarks: dec("10"), results: [] },
+    ])
+    const out = await html(StudentProgress(props))
+    expect(out).toContain("No rolls since Ann Adams joined this class.")
+    expect(out).toContain("No exams since Ann Adams joined this class.")
+    expect(out).not.toContain("No rolls taken yet.")
+    expect(out).not.toContain("No exams yet.")
   })
 })

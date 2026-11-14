@@ -122,7 +122,10 @@ passwords are public in this repo (it refuses to run unless
 Note for local dev: the case-insensitive unique index `User_email_lower_key` is
 raw SQL, so it only exists after `prisma migrate deploy`. A database built with
 `npm run db:push` lacks it, so case-variant duplicate emails can exist there and
-login lookups may pick either row.
+login lookups may pick either row. The same goes for the partial unique index
+`SundaySchoolExam_active_unique` (one live exam per class, name and date): a
+`db:push` database has no DB backstop for it, so only the action's own check
+blocks duplicate live exams there.
 
 ## 4. Run
 

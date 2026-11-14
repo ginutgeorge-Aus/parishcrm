@@ -90,7 +90,9 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
           <CardHeader><CardTitle>Exams</CardTitle></CardHeader>
           <CardContent>
             {marks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No exams yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {exams.length === 0 ? "No exams yet." : `No exams since ${name} joined this class.`}
+              </p>
             ) : (
               <ul className="divide-y divide-border">
                 {marks.map((m) => (
@@ -120,7 +122,9 @@ export default async function StudentProgressPage(props: Readonly<Props>) {
           <CardHeader><CardTitle>Rolls</CardTitle></CardHeader>
           <CardContent>
             {rolls.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No rolls taken yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {sessions.length === 0 ? "No rolls taken yet." : `No rolls since ${name} joined this class.`}
+              </p>
             ) : (
               <ul className="divide-y divide-border">
                 {rolls.map((r) => (
