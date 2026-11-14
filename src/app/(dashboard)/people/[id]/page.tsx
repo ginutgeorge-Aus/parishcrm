@@ -3,7 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople, canManageClearances, canViewClearanceStatus } from "@/lib/roleGuard"
+import { canEdit, isAdmin, canSeePastoralNotes, canAccessAccounting, canViewPeople, canManageClearances, canViewClearanceStatus, canViewSacraments, canEditSacraments } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
 import { sumCents, centsToNumber, fmtAUD } from "@/lib/formatting"
@@ -31,7 +31,8 @@ import { getEnabledFeatures } from "@/lib/featureFlags"
 import { PersonClearances } from "@/components/people/PersonClearances"
 import { buildClearanceCard, clearanceSelectFor, type ClearanceCardData } from "@/lib/clearanceView"
 import { DEFAULT_WWCC_VERIFY_URL, getWwccVerifyUrl } from "@/lib/clearanceSettings"
-import { sydneyToday } from "@/lib/dates"
+import { sydneyToday, utcYmd } from "@/lib/dates"
+import { PersonSacramentsCard } from "@/components/sacraments/PersonSacramentsCard"
 
 function field(label: string, value: string | null | undefined) {
   return (
@@ -314,7 +315,8 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
   const canManage = canManageClearances(role)
   // Independent reads run together: clearances, the verify-portal URL (managers
   // only), and giving history (accounting roles only).
-  const [clearanceRows, wwccVerifyUrl, givingTransactions] = await Promise.all([
+  const userCanSeeSacraments = canViewSacraments(role)
+  const [clearanceRows, wwccVerifyUrl, givingTransactions, sacramentRows] = await Promise.all([
     canViewClearanceStatus(role) && features.has("clearances")
       ? prisma.personClearance.findMany({
           where: { personId: person.id },
@@ -333,6 +335,15 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
           // before that ceiling is realistic.
           take: 2000,
           select: { id: true, date: true, description: true, amount: true },
+        })
+      : Promise.resolve([]),
+    // Register entries as the recipient or the CRM spouse. Free-text PII
+    // columns are not selected: the card shows rite, date, place and number.
+    userCanSeeSacraments
+      ? prisma.sacramentRecord.findMany({
+          where: { OR: [{ personId: person.id }, { spouseId: person.id }] },
+          orderBy: [{ date: "asc" }, { id: "asc" }],
+          select: { id: true, type: true, registerNo: true, date: true, place: true },
         })
       : Promise.resolve([]),
   ])
@@ -399,6 +410,14 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
         clearanceCard={clearanceCard}
         sundaySchool={features.has("sundaySchool") ? sundaySchoolOf(person.sundaySchoolEnrolments) : null}
       />
+
+      {userCanSeeSacraments && (
+        <PersonSacramentsCard
+          personId={person.id}
+          canEdit={canEditSacraments(role)}
+          records={sacramentRows.map((s) => ({ ...s, date: utcYmd(s.date) }))}
+        />
+      )}
 
       <PersonGroupsCard
         groups={(person.groupMemberships ?? []).map((m) => ({ ...m.group, role: m.role, title: m.title }))}

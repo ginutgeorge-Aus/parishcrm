@@ -42,6 +42,8 @@ value.
 
 **Clearance records.** WWCC / Safe Ministry changes are audited as `CLEARANCE_ADDED`, `CLEARANCE_UPDATED`, `CLEARANCE_VERIFIED`, `CLEARANCE_UNVERIFIED` and `CLEARANCE_REMOVED` against the person. Every time a clearance document is opened, `CLEARANCE_VIEWED` is recorded with the client IP. The audit entries carry the clearance type and id only — never the WWC number, note or file contents. The document route answers `404` to anyone who may not manage clearances (including read-only VIEWER accounts), and is rate-limited.
 
+**Sacramental register.** Adds, edits and deletes are audited as `SACRAMENT_RECORD_CREATED`, `SACRAMENT_RECORD_UPDATED` and `SACRAMENT_RECORD_DELETED`, and each certificate PDF as `SACRAMENT_CERTIFICATE_PRINTED`, against the register entry. The entries carry the register number, rite and person ids only, never the encrypted spouse name, godparents or notes. See [Sacramental Register](/parishcrm/docs/sacramental-register/).
+
 **What's deliberately *not* logged.** Metadata is scoped to avoid duplicating the very PII
 the log exists to hold accountable access to — for example, a person-record update logs
 which family the person belongs to, not the person's new phone number or notes content.

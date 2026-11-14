@@ -75,6 +75,8 @@ See [User-Management](/parishcrm/docs/user-management/) for details.
 | View people & families | Yes | Yes | Yes | No | Yes | No | No | No |
 | Edit people & families / events | Yes | Yes | Yes | No | No | Own assigned events: details only (not pricing, publishing or registration settings) | No | No |
 | Sunday School classes, teachers, enrolment, rollover (`/sunday-school`) | Yes | Yes | Yes | No | View only | No | Yes | No |
+| Sacramental register: view, print certificates (`/sacraments`) | Yes | Yes | Yes | No | No | No | No | No |
+| Sacramental register: add, edit, delete | Yes | Yes | No | No | No | No | No | No |
 | Take a Sunday School roll | Yes | Yes | Yes | No | View only | Assigned classes only | Yes | Assigned classes only |
 | Sunday School exams: create, enter marks (`/sunday-school/[id]/exams`) | Yes | Yes | Yes | No | View only | No | Yes | Assigned classes: enter marks only |
 | Sunday School attendance & exam progress (`/sunday-school/progress`, `/sunday-school/[id]/progress`) | Yes | Yes | Yes | No | Yes (read-only) | No | Yes | No |
