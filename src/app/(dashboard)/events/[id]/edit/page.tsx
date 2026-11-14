@@ -71,20 +71,24 @@ export default async function EditEventPage(props: Readonly<Props>) {
       <div className="flex justify-between items-start mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{event.title}</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Public link:{" "}
-            <a
-              href={`/e/${event.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              /e/{event.slug}
-            </a>
-          </p>
+          {event.slug ? (
+            <p className="text-muted-foreground text-sm mt-1">
+              Public link:{" "}
+              <a
+                href={`/e/${event.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                /e/{event.slug}
+              </a>
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-sm mt-1">Staff-only event (no public page). Set a slug to publish.</p>
+          )}
         </div>
         <div className="flex gap-2">
-          <PublishToggle eventId={event.id} isPublished={event.isPublished} />
+          {(event.slug || event.isPublished) && <PublishToggle eventId={event.id} isPublished={event.isPublished} />}
           <CloseRegistrationToggle eventId={event.id} registrationClosed={event.registrationClosed} />
           {isAdmin(session.user.role) && (
             <DeleteEventButton action={deleteAction} size="lg" />

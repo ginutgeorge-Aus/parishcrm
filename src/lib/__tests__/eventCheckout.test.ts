@@ -175,4 +175,12 @@ describe("startEventCheckout — happy path", () => {
     expect(result).toEqual({ ok: true, url: "https://checkout.stripe.com/session/abc" })
     expect(createCheckoutMock).toHaveBeenCalledWith(event, priced, "https://example.com")
   })
+
+  it("passes a 404 not-available result from the builder through unchanged", async () => {
+    fetchEventMock.mockResolvedValue(makeEvent())
+    validateMock.mockResolvedValue({ ok: true, priced: { totalAmount: 20, items: [], capacityChecks: [] } })
+    createCheckoutMock.mockResolvedValue({ ok: false, status: 404, error: "Event not found" })
+    const result = await startEventCheckout("fete", rawBody)
+    expect(result).toEqual({ ok: false, status: 404, error: "Event not found" })
+  })
 })

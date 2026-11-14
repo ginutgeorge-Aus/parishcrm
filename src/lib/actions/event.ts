@@ -25,6 +25,13 @@ import {
 import type { ActionResult, ActionResultWithSuccess } from "./types"
 import { featureGuard } from "@/lib/featureFlags"
 
+/** Error shown when a save would leave a published event without a slug. */
+const SLUG_REQUIRED_WHILE_PUBLISHED = "Slug can't be removed while the event is published. Unpublish first."
+/** Internal marker thrown inside the update txn when the slug/published guard rejects the write. */
+const PUBLISHED_SLUG_GUARD = "PUBLISHED_SLUG_GUARD"
+/** Name of the DB CHECK constraint backing the published-requires-slug invariant. */
+const PUBLISHED_SLUG_CONSTRAINT = "Event_published_requires_slug"
+
 /** Create an event. Editors only. */
 export async function createEvent(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const session = await auth()
@@ -96,8 +103,10 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
 
   // Existence check: a non-existent id would otherwise surface a raw
   // Prisma P2025 as an unhandled 500.
-  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true } })
+  const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, isPublished: true } })
   if (!exists) return { error: "Event not found" }
+  // A published event is reachable at /e/<slug>; clearing the slug would 404 it.
+  if (exists.isPublished && !parsed.slug) return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
 
   // Optimistic concurrency: the edit form submits the row's last-seen
   // updatedAt. Guard the write on it so two editors saving the same event
@@ -181,7 +190,13 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
         })
       }
       const updateResult = await tx.event.updateMany({
-        where: seenAt ? { id, updatedAt: seenAt } : { id },
+        // Clearing the slug only matches while unpublished, so a concurrent publish
+        // between the pre-check and this write cannot leave a published event slug-less.
+        where: {
+          id,
+          ...(seenAt ? { updatedAt: seenAt } : {}),
+          ...(parsed.slug ? {} : { isPublished: false }),
+        },
         data: {
           ...eventData(parsed, tiers),
           // Empty array (not undefined) so removing every custom question
@@ -195,7 +210,15 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
           organizers: organizers.length > 0 ? organizers : [],
         },
       })
-      if (updateResult.count === 0) throw new StaleEventError()
+      if (updateResult.count === 0) {
+        // Disambiguate: slug-clear rejected because the event is now published,
+        // versus a plain stale-edit mismatch.
+        if (!parsed.slug) {
+          const now = await tx.event.findUnique({ where: { id }, select: { isPublished: true } })
+          if (now?.isPublished) throw new Error(PUBLISHED_SLUG_GUARD)
+        }
+        throw new StaleEventError()
+      }
 
       await applyImageOp(tx, id, EventImageKind.BANNER, banner)
       await applyImageOp(tx, id, EventImageKind.POSTER, poster)
@@ -207,6 +230,9 @@ export async function updateEvent(id: number, _prev: ActionResult, formData: For
       return {
         error: "This event was changed by someone else since you opened it. Reload the page and reapply your edit.",
       }
+    }
+    if (msg === PUBLISHED_SLUG_GUARD || msg.includes(PUBLISHED_SLUG_CONSTRAINT)) {
+      return { error: SLUG_REQUIRED_WHILE_PUBLISHED }
     }
     if (msg.includes("Unique constraint")) return { error: "Slug already in use" }
     // TICKET_TYPE_IN_USE = pre-checked; Foreign key = race backstop (FK Restrict).
@@ -338,7 +364,7 @@ export async function deleteEvent(id: number): Promise<ActionResult> {
   await logAudit(actorId(session), "EVENT_DELETED", "Event", id)
   await syncEventDeletion(id)
   revalidatePath("/events")
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   redirect("/events")
 }
 
@@ -356,11 +382,27 @@ export async function publishEvent(id: number, publish: boolean): Promise<Action
   const exists = await prisma.event.findUnique({ where: { id }, select: { id: true, slug: true } })
   if (!exists) return { error: "Event not found" }
 
-  await prisma.event.update({ where: { id }, data: { isPublished: publish } })
+  // Publishing exposes /e/<slug>; a staff-only event (no slug) has no such page.
+  if (publish && !exists.slug) return { error: "Set a slug before publishing" }
+
+  // Condition lives in the where clause so a concurrent slug-clear can't slip
+  // between the read above and the write (DB CHECK is the final backstop).
+  let count: number
+  try {
+    ;({ count } = await prisma.event.updateMany({
+      where: publish ? { id, slug: { not: null } } : { id },
+      data: { isPublished: publish },
+    }))
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes(PUBLISHED_SLUG_CONSTRAINT)) return { error: "Set a slug before publishing" }
+    throw e
+  }
+  if (count === 0) return { error: publish ? "Set a slug before publishing" : "Event not found" }
   await logAudit(actorId(session), "EVENT_PUBLISHED", "Event", id, { published: publish })
   await syncEventToWebsite(id)
   revalidatePath(`/events/${id}/edit`)
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   revalidatePath("/events")
 }
 
@@ -383,7 +425,7 @@ export async function setRegistrationClosed(id: number, closed: boolean): Promis
   await prisma.event.update({ where: { id }, data: { registrationClosed: closed } })
   await logAudit(actorId(session), "EVENT_REGISTRATION_CLOSED", "Event", id, { closed })
   revalidatePath(`/events/${id}/edit`)
-  revalidatePath(`/e/${exists.slug}`)
+  if (exists.slug) revalidatePath(`/e/${exists.slug}`)
   revalidatePath("/events")
 }
 

@@ -110,11 +110,37 @@ async function buildLineItemsAndSurcharge(
   return { line_items, surchargeCents }
 }
 
+/** Failure result when an event has no public slug (staff-only), so no card checkout. */
+export type CheckoutNotAvailable = { ok: false; status: 404; error: string }
+
+/**
+ * Return the event's public slug, or a 404-style result when it has none.
+ * Card checkout return URLs live under /e/<slug>; a staff-only (slug-less)
+ * event has no such page, so it must not reach Stripe with a `/e/null` URL.
+ * Reachable only via a race or a stale link (publishing requires a slug).
+ * @param event any object carrying the event slug
+ * @returns `{ slug }` or a `{ ok: false, status: 404 }` result
+ */
+export function requireEventSlug(event: { slug: string | null }): { slug: string } | CheckoutNotAvailable {
+  if (!event.slug) return { ok: false, status: 404, error: "Event not found" }
+  return { slug: event.slug }
+}
+
+/**
+ * Create the Stripe Checkout session for a new card registration.
+ * @param event the published event with ticket types
+ * @param priced server-priced registration
+ * @param origin trusted return-URL origin
+ * @returns the checkout URL, or a 404 result when the event has no slug
+ */
 export async function createEventCheckoutSession(
   event: EventWithTickets,
   priced: PricedRegistration,
   origin: string,
-): Promise<{ url: string }> {
+): Promise<{ url: string } | CheckoutNotAvailable> {
+  const slugResult = requireEventSlug(event)
+  if ("ok" in slugResult) return slugResult
+  const { slug } = slugResult
   const stripe = getStripe()
 
   // Prices are recomputed server-side by validateAndPriceRegistration — never
@@ -130,13 +156,13 @@ export async function createEventCheckoutSession(
     mode: "payment",
     line_items,
     expires_at: Math.floor(expiresAt.getTime() / 1000),
-    success_url: `${origin}/e/${event.slug}/success?token={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/e/${event.slug}?canceled=1`,
+    success_url: `${origin}/e/${slug}/success?token={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/e/${slug}?canceled=1`,
     // Tag both the session and the PaymentIntent so charge.* webhook events and
     // Stripe→CRM reconciliation/support lookups can resolve the event.
-    metadata: { eventSlug: event.slug, eventId: String(event.id) },
+    metadata: { eventSlug: slug, eventId: String(event.id) },
     payment_intent_data: {
-      metadata: { eventSlug: event.slug, eventId: String(event.id) },
+      metadata: { eventSlug: slug, eventId: String(event.id) },
     },
   })
   if (!session.url) throw new Error("Stripe returned no checkout URL")
@@ -169,8 +195,15 @@ export class RegistrationNotPayableError extends Error {}
 // Reuse a prior open session only if the payer still has time to finish it.
 const REUSE_MIN_REMAINING_MS = 5 * 60 * 1000
 
+/**
+ * Create (or reuse) the Stripe Checkout session for an existing PENDING registration.
+ * @param event event with slug + ticket types
+ * @param registration the pending registration
+ * @param origin trusted return-URL origin
+ * @returns the checkout URL, or a 404 result when the event has no slug
+ */
 export async function createExistingRegistrationCheckoutSession(
-  event: { id: number; slug: string; title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
+  event: { id: number; slug: string | null; title: string; passCardFee: boolean; ticketTypes: { id: number; name: string }[] },
   registration: {
     id: number
     publicToken: string
@@ -178,7 +211,10 @@ export async function createExistingRegistrationCheckoutSession(
     items: { ticketTypeId: number; quantity: number; unitPrice: MoneyValue }[]
   },
   origin: string,
-): Promise<{ url: string }> {
+): Promise<{ url: string } | CheckoutNotAvailable> {
+  const slugResult = requireEventSlug(event)
+  if ("ok" in slugResult) return slugResult
+  const { slug } = slugResult
   const stripe = getStripe()
   const netCents = toCents(registration.totalAmount)
   const { line_items, surchargeCents } = await buildLineItemsAndSurcharge(event, registration.items, netCents)
@@ -231,12 +267,12 @@ export async function createExistingRegistrationCheckoutSession(
         mode: "payment",
         line_items,
         expires_at: Math.floor(expiresAt.getTime() / 1000),
-        success_url: `${origin}/e/${event.slug}/success?token={CHECKOUT_SESSION_ID}`,
+        success_url: `${origin}/e/${slug}/success?token={CHECKOUT_SESSION_ID}`,
         // Cancel returns to THIS registration's pending success page (bank details +
         // pay-now button), not the blank registration form.
-        cancel_url: `${origin}/e/${event.slug}/success?ref=${registration.publicToken}`,
-        metadata: { eventSlug: event.slug, eventId: String(event.id) },
-        payment_intent_data: { metadata: { eventSlug: event.slug, eventId: String(event.id) } },
+        cancel_url: `${origin}/e/${slug}/success?ref=${registration.publicToken}`,
+        metadata: { eventSlug: slug, eventId: String(event.id) },
+        payment_intent_data: { metadata: { eventSlug: slug, eventId: String(event.id) } },
       })
       createdSessionId = session.id
       if (!session.url) throw new Error("Stripe returned no checkout URL")

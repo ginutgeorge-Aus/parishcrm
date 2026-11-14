@@ -473,3 +473,15 @@ describe("isWebsiteSyncConfigured", () => {
     expect(isWebsiteSyncConfigured()).toBe(expected)
   })
 })
+
+describe("buildEventPayload — null slug (staff-only event)", () => {
+  const OLD = process.env.AUTH_URL
+  afterEach(() => { process.env.AUTH_URL = OLD })
+
+  it("has null registerUrl and no banner imageUrl even with tickets and an uploaded banner", () => {
+    process.env.AUTH_URL = "https://crm.example.org"
+    const p = buildEventPayload({ ...baseEvent, slug: null, imageUrl: null, images: [{ kind: "BANNER" }] })
+    expect(p.registerUrl).toBeNull()
+    expect(p.imageUrl).toBeNull()
+  })
+})

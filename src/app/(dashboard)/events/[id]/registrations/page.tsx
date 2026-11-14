@@ -139,7 +139,8 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
                 <Link href={`/events/${eventId}/waitlist`}>Waitlist</Link>
               </Button>
               <ExportButtons eventId={eventId} slug={event.slug} />
-              <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />
+              {/* Reminder emails link to the public /e/<slug> pay page, so staff-only events skip them. */}
+              {event.slug && <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />}
               {!event.isPublished && isAdmin(session.user.role) && (
                 <DeleteEventButton
                   action={resetAction}
@@ -163,7 +164,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
         </div>
       </div>
 
-      {canEdit(session.user.role) && (
+      {canEdit(session.user.role) && event.slug && (
         <VolunteerViewToggle eventId={eventId} slug={event.slug} initialToken={event.volunteerToken} />
       )}
 

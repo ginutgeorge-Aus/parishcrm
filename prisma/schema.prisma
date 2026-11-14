@@ -592,7 +592,7 @@ model Event {
   recursLabel           String? // recurring only: display label e.g. "2nd Sun"
   startTime             String? // recurring only: display time e.g. "5:00 PM"
   location              String?
-  slug                  String            @unique
+  slug                  String?           @unique // null = staff-only event, no public /e/ page; required to publish
   // Volunteer view: null = disabled. When set, a CSPRNG token that
   // opens the read-only public status page /e/[slug]/crew/[token]. Regenerating
   // mints a new value so a leaked link 404s. @unique so findUnique can resolve it.
