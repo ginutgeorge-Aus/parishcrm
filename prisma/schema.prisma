@@ -95,6 +95,7 @@ model Person {
   invoices                Invoice[]
   rosterAssignments       RosterAssignment[]
   unavailability          PersonUnavailability[]
+  rosterFeedToken         RosterFeedToken?
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -1825,4 +1826,14 @@ model PersonUnavailability {
   person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, endDate])
+}
+
+/// A person's calendar-feed secret (#628). Only the SHA-256 hash is stored, so a database read cannot
+/// reveal a working link. Rotating replaces the row's hash (the old link stops working at once).
+model RosterFeedToken {
+  id        Int      @id @default(autoincrement())
+  personId  Int      @unique
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
 }

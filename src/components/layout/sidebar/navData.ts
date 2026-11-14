@@ -4,7 +4,7 @@ import {
   CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, Warehouse, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText,
+  CalendarCheck, Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 import { featureOn, type NavFlags } from "@/components/layout/navGates"
@@ -54,6 +54,8 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
         // everyone with canViewAttendance (editors + VIEWER) the trends. AUDITOR/EVENT_ORGANISER neither.
+        // Volunteer roster (#623): staff only (canManageRoster = canEdit = isEditor).
+        { href: "/roster", label: "Roster", icon: CalendarCheck, show: isEditor },
         { href: "/attendance", label: "Attendance", icon: ClipboardList, show: isEditor },
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
