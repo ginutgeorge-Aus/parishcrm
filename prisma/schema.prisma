@@ -86,6 +86,8 @@ model Person {
   dgrReceipts             DgrReceipt[]
   celebrationSends        CelebrationSend[]
   clearances              PersonClearance[]
+  sacramentRecords        SacramentRecord[]        @relation("SacramentPerson")
+  sacramentSpouseRecords  SacramentRecord[]        @relation("SacramentSpouse")
   sundaySchoolTeaching    SundaySchoolTeacher[]
   sundaySchoolEnrolments  SundaySchoolEnrolment[]
   sundaySchoolAttendance  SundaySchoolAttendance[]
@@ -1710,4 +1712,56 @@ model GroupMessageRecipient {
   @@unique([messageId, personId])
   @@index([status])
   @@index([personId])
+}
+
+// Sacramental register (#304, decisions in #605). One row per rite received by a
+// CRM person. Register numbers are per sacrament per year (`BAP-2026-014`),
+// allocated from SacramentCounter inside the create transaction, so a deleted
+// entry's number is never reused. `year` is the rite date's calendar year and is
+// fixed once numbered. People outside the CRM (spouse from another parish,
+// godparents, minister) are free-text; a CRM spouse is linked by id. Person and
+// spouse FKs are Restrict: a register entry is a permanent church record, so
+// deletePerson blocks and steers to archive. Actions: src/lib/actions/sacrament.ts.
+enum SacramentType {
+  BAPTISM
+  CONFIRMATION
+  MARRIAGE
+  FIRST_COMMUNION
+}
+
+model SacramentRecord {
+  id           Int           @id @default(autoincrement())
+  type         SacramentType
+  year         Int
+  seq          Int
+  registerNo   String        @unique
+  personId     Int
+  person       Person        @relation("SacramentPerson", fields: [personId], references: [id], onDelete: Restrict)
+  date         DateTime      @db.Date
+  place        String
+  ministerName String?
+  // Marriage only: a CRM spouse (spouseId) or a free-text name (spouseName).
+  spouseId     Int?
+  spouse       Person?       @relation("SacramentSpouse", fields: [spouseId], references: [id], onDelete: Restrict)
+  spouseName   String? // encrypted at rest
+  godparents   String? // encrypted at rest (free-text sponsor names)
+  notes        String? // encrypted at rest
+  createdById  Int?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([type, year, seq])
+  @@index([personId])
+  @@index([spouseId])
+  @@index([type, date])
+}
+
+// Last register sequence issued per sacrament per year. Incremented atomically
+// (upsert + increment) in the same transaction as the SacramentRecord insert.
+model SacramentCounter {
+  type    SacramentType
+  year    Int
+  lastSeq Int           @default(0)
+
+  @@id([type, year])
 }

@@ -359,6 +359,9 @@ const CORE_ACTIONS = new Set([
   "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
+  // Sacramental register (#304/#605): core, no feature flag; role gated
+  // (canEditSacraments / canViewSacraments, sacrament.test.ts).
+  "sacrament.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
