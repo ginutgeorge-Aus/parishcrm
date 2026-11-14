@@ -139,7 +139,14 @@ export function isAmbiguousDeliveryError(err: unknown): boolean {
 // Uses a single raw send — no withRetry, no recursion into sendEmail — and swallows
 // its own errors: the caller already handles the original failure, and alerting
 // must never throw or loop (if SMTP is globally down this send fails too, harmlessly).
-async function alertOwnerEmailFailure(failedSubject: string, cause: unknown, ambiguous = false): Promise<void> {
+/**
+ * Best-effort owner alert for a failed send (see above). Exported for bulk senders
+ * that skip the per-send alert and raise one summary alert per pass instead.
+ * @param failedSubject subject (or summary) of what failed
+ * @param cause the send error
+ * @param ambiguous true when delivery is unknown rather than failed
+ */
+export async function alertOwnerEmailFailure(failedSubject: string, cause: unknown, ambiguous = false): Promise<void> {
   try {
     // Dynamic import so email.ts's module graph never pulls in Prisma at load —
     // only the (rare) failure path touches the DB.
@@ -207,6 +214,7 @@ export function appendEmailFooter(html: string, text: string, footer: string): {
 async function sendMailWithRetry(
   transporter: MailTransport,
   baseOptions: MailOptions,
+  opts: { alertOwner?: boolean } = {},
 ): Promise<void> {
   let options = baseOptions
   try {
@@ -226,17 +234,27 @@ async function sendMailWithRetry(
     // error — surface to the owner (best-effort), then rethrow so the caller
     // still sees the failure. Ambiguous errors get the "unknown delivery" wording so
     // nobody assumes the mail was lost and blindly resends a possible duplicate.
-    await alertOwnerEmailFailure(options.subject, err, isAmbiguousDeliveryError(err))
+    if (opts.alertOwner !== false) await alertOwnerEmailFailure(options.subject, err, isAmbiguousDeliveryError(err))
     throw err
   }
 }
 
+/**
+ * Send one transactional email through the retry chokepoint.
+ * @param to recipient address
+ * @param subject subject line
+ * @param html HTML body
+ * @param text plain-text body
+ * @param attachments optional attachments
+ * @param opts `alertOwner: false` skips the owner failure alert, for bulk sends that report failures per recipient themselves
+ */
 export async function sendEmail(
   to: string,
   subject: string,
   html: string,
   text: string,
-  attachments?: EmailAttachment[]
+  attachments?: EmailAttachment[],
+  opts?: { alertOwner?: boolean }
 ): Promise<void> {
   const { transporter, user } = makeTransporter()
   const churchName = await getChurchName()
@@ -247,7 +265,7 @@ export async function sendEmail(
     html,
     text,
     ...(attachments?.length ? { attachments } : {}),
-  })
+  }, opts)
 }
 
 /**

@@ -16,6 +16,7 @@ const PUBLIC_PATHS = new Set([
   "/api/health",
   "/api/cron/send-reminders", // cron-only; gated by CRON_SECRET bearer, not a session
   "/api/cron/sweep-checkouts", // cron-only; gated by CRON_SECRET bearer, not a session
+  "/api/cron/send-group-messages", // cron-only; gated by CRON_SECRET bearer, not a session
   "/api/cron/send-celebrations", // cron-only; gated by CRON_SECRET bearer, not a session
   "/api/cron/error-issues", // cron-only; gated by CRON_SECRET bearer, not a session
   "/api/cron/send-clearance-digest", // cron-only; gated by CRON_SECRET bearer, not a session

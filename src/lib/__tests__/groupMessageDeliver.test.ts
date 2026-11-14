@@ -3,26 +3,31 @@ jest.mock("@/lib/prisma", () => ({
   prisma: {
     groupMessage: { findUnique: jest.fn(), findMany: jest.fn() },
     groupMessageRecipient: { updateMany: jest.fn(), update: jest.fn(), findMany: jest.fn() },
-    person: { findUnique: jest.fn() },
+    person: { findMany: jest.fn() },
   },
 }))
 jest.mock("@/lib/crypto", () => ({ decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() } }))
 jest.mock("@/lib/churchSettings", () => ({ getChurchSettings: jest.fn(async () => ({ name: "Test Church" })) }))
-jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(), isAmbiguousDeliveryError: jest.fn(() => false) }))
+jest.mock("@/lib/email", () => ({ sendEmail: jest.fn(), isAmbiguousDeliveryError: jest.fn(() => false), alertOwnerEmailFailure: jest.fn() }))
 
 import { prisma } from "@/lib/prisma"
-import { sendEmail, isAmbiguousDeliveryError } from "@/lib/email"
+import { sendEmail, isAmbiguousDeliveryError, alertOwnerEmailFailure } from "@/lib/email"
 import {
-  claimGroupRecipient, deliverGroupMessage, renderGroupMessageText, runGroupMessageSweep, MAX_DELIVERY_ATTEMPTS,
+  claimGroupRecipient, deliverGroupMessage, renderGroupMessageText, runGroupMessageSweep, MAX_DELIVERY_ATTEMPTS, SEND_CONCURRENCY,
+  GROUP_MESSAGE_LEASE_MS, RETRY_WINDOW_MS,
 } from "@/lib/groupMessageDeliver"
 
 const p = prisma as unknown as {
   groupMessage: { findUnique: jest.Mock; findMany: jest.Mock }
   groupMessageRecipient: { updateMany: jest.Mock; update: jest.Mock; findMany: jest.Mock }
-  person: { findUnique: jest.Mock }
+  person: { findMany: jest.Mock }
 }
 const send = sendEmail as jest.Mock
+/** Every queried person id resolves to a mailable person, with `patch` applied. */
+const setPerson = (patch: object) =>
+  p.person.findMany.mockImplementation(async (a: { where: { id: { in: number[] } } }) =>
+    a.where.id.in.map((id) => ({ id, firstName: "Ann", email: "enc:ann@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }], ...patch })))
 const statuses = () => p.groupMessageRecipient.update.mock.calls.map((c) => c[0].data.status)
 
 beforeEach(() => {
@@ -31,7 +36,7 @@ beforeEach(() => {
   p.groupMessageRecipient.findMany.mockResolvedValue([{ id: 11, personId: 1 }])
   p.groupMessageRecipient.updateMany.mockResolvedValue({ count: 1 })
   p.groupMessageRecipient.update.mockResolvedValue({})
-  p.person.findUnique.mockResolvedValue({ firstName: "Ann", email: "enc:ann@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }] })
+  setPerson({})
   send.mockResolvedValue(undefined)
   ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValue(false)
 })
@@ -85,7 +90,7 @@ describe("deliverGroupMessage", () => {
   it("SENT: delivers with plain text + html and records SENT", async () => {
     const c = await deliverGroupMessage(1)
     expect(c).toEqual({ sent: 1, failed: 0, unknown: 0, inFlight: 0 })
-    expect(send).toHaveBeenCalledWith("ann@example.com", "Hi", expect.stringContaining("Rehearsal at 7"), expect.stringContaining("Test Church"))
+    expect(send).toHaveBeenCalledWith("ann@example.com", "Hi", expect.stringContaining("Rehearsal at 7"), expect.stringContaining("Test Church"), undefined, { alertOwner: false })
     expect(statuses()).toEqual(["SENT"])
   })
 
@@ -120,7 +125,7 @@ describe("deliverGroupMessage", () => {
     ["address removed", { email: null }],
     ["removed from the group or the group archived", { groupMemberships: [] }],
   ])("terminal FAILED without sending when the person is %s", async (_n, patch) => {
-    p.person.findUnique.mockResolvedValue({ firstName: "Ann", email: "enc:ann@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }], ...patch })
+    setPerson(patch)
     expect(await deliverGroupMessage(1)).toMatchObject({ failed: 1, sent: 0 })
     expect(send).not.toHaveBeenCalled()
     expect(p.groupMessageRecipient.update.mock.calls[0][0].data).toEqual({ status: "FAILED", attempts: MAX_DELIVERY_ATTEMPTS })
@@ -141,7 +146,7 @@ describe("deliverGroupMessage", () => {
 
   it("checks membership of the message's own live group at send time", async () => {
     await deliverGroupMessage(1)
-    expect(p.person.findUnique.mock.calls[0][0].select.groupMemberships.where).toEqual({ groupId: 3, group: { archivedAt: null } })
+    expect(p.person.findMany.mock.calls[0][0].select.groupMemberships.where).toEqual({ groupId: 3, group: { archivedAt: null } })
   })
 
   it("aborts the pass after 3 consecutive clean failures so the owner is not alerted per recipient", async () => {
@@ -159,6 +164,87 @@ describe("deliverGroupMessage", () => {
     expect(send).toHaveBeenCalledTimes(5)
   })
 
+  it("loads persons in one query per chunk (fresh each chunk) and sends without the per-send owner alert", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
+    await deliverGroupMessage(1)
+    expect(p.person.findMany).toHaveBeenCalledTimes(2)
+    expect(p.person.findMany.mock.calls[0][0].where).toEqual({ id: { in: [1, 2, 3] } })
+    expect(p.person.findMany.mock.calls[1][0].where).toEqual({ id: { in: [4] } })
+    expect(send).toHaveBeenCalledTimes(4)
+    for (const c of send.mock.calls) expect(c[5]).toEqual({ alertOwner: false })
+    expect(alertOwnerEmailFailure).not.toHaveBeenCalled()
+  })
+
+  it("honours an opt-out that lands mid-pass (later chunk re-reads the person)", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
+    setPerson({ emailConsent: false }) // person 4 opts out while the first chunk is sending
+    p.person.findMany.mockImplementationOnce(async (a: { where: { id: { in: number[] } } }) =>
+      a.where.id.in.map((id) => ({ id, firstName: "Ann", email: "enc:a@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }] })))
+    const c = await deliverGroupMessage(1)
+    expect(send).toHaveBeenCalledTimes(3)
+    expect(c).toMatchObject({ sent: 3, failed: 1 })
+  })
+
+  it("raises one owner alert per pass, not per recipient", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4, 5].map((i) => ({ id: i, personId: i })))
+    send.mockRejectedValue(new Error("connect refused"))
+    await deliverGroupMessage(1)
+    expect(alertOwnerEmailFailure).toHaveBeenCalledTimes(1)
+    const [summary, cause, ambiguous] = (alertOwnerEmailFailure as jest.Mock).mock.calls[0]
+    expect(summary).toContain("3 failed")
+    expect(summary).not.toContain("@")
+    expect((cause as Error).message).toBe("connect refused")
+    expect(ambiguous).toBe(false)
+  })
+
+  it("flags the owner alert ambiguous when any send is UNKNOWN, even beside a clean failure", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2].map((i) => ({ id: i, personId: i })))
+    ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValueOnce(true).mockReturnValue(false)
+    send.mockRejectedValue(new Error("x"))
+    const c = await deliverGroupMessage(1)
+    expect(c).toMatchObject({ unknown: 1, failed: 1 })
+    expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
+  })
+
+  it("a person-lookup error in a later chunk still raises the pass alert, then rethrows", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
+    send.mockRejectedValueOnce(new Error("connect refused")).mockResolvedValue(undefined)
+    p.person.findMany.mockImplementationOnce(async (a: { where: { id: { in: number[] } } }) =>
+      a.where.id.in.map((id) => ({ id, firstName: "Ann", email: "enc:a@example.com", emailConsent: true, archivedAt: null, groupMemberships: [{ id: 1 }] })))
+    p.person.findMany.mockRejectedValueOnce(new Error("lookup down"))
+    await expect(deliverGroupMessage(1)).rejects.toThrow("lookup down")
+    expect(alertOwnerEmailFailure).toHaveBeenCalledTimes(1)
+  })
+
+  it("a DB error in one send lets its chunk siblings settle before the pass rethrows", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
+    p.groupMessageRecipient.updateMany.mockImplementation(async (a: { where: { id: number } }) => {
+      if (a.where.id === 1) throw new Error("db down")
+      return { count: 1 }
+    })
+    let settled = 0
+    send.mockImplementation(async () => { await new Promise((r) => setTimeout(r, 5)); settled++ })
+    await expect(deliverGroupMessage(1)).rejects.toThrow("db down")
+    expect(settled).toBe(2) // siblings 2 and 3 finished before the rethrow
+    expect(statuses()).toEqual(["SENT", "SENT"])
+    expect(send).toHaveBeenCalledTimes(2) // the next chunk never starts
+  })
+
+  it("never has more than SEND_CONCURRENCY sends in flight", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4, 5, 6, 7].map((i) => ({ id: i, personId: i })))
+    let live = 0
+    let peak = 0
+    send.mockImplementation(async () => {
+      peak = Math.max(peak, ++live)
+      await new Promise((r) => setTimeout(r, 5))
+      live--
+    })
+    const c = await deliverGroupMessage(1)
+    expect(c.sent).toBe(7)
+    expect(peak).toBeLessThanOrEqual(SEND_CONCURRENCY)
+    expect(peak).toBeGreaterThan(1)
+  })
+
   it("no-ops for a missing message", async () => {
     p.groupMessage.findUnique.mockResolvedValue(null)
     expect(await deliverGroupMessage(9)).toEqual({ sent: 0, failed: 0, unknown: 0, inFlight: 0 })
@@ -169,6 +255,21 @@ describe("runGroupMessageSweep", () => {
   it("drains each recent message with open recipients and sums the counts", async () => {
     p.groupMessage.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }])
     const r = await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
-    expect(r).toEqual({ sent: 2, failed: 0, unknown: 0, inFlight: 0, messages: 2 })
+    expect(r).toEqual({ sent: 2, failed: 0, unknown: 0, inFlight: 0, messages: 2, closed: 2 })
+  })
+
+  it("past the retry window: never-claimed rows close as FAILED, stale claims as UNKNOWN", async () => {
+    p.groupMessage.findMany.mockResolvedValue([])
+    const now = new Date("2026-11-13T00:00:00Z")
+    const message = { createdAt: { lt: new Date(now.getTime() - RETRY_WINDOW_MS) } }
+    await runGroupMessageSweep(now)
+    expect(p.groupMessageRecipient.updateMany).toHaveBeenCalledWith({
+      where: { status: "PENDING", claimedAt: null, message },
+      data: { status: "FAILED", attempts: MAX_DELIVERY_ATTEMPTS },
+    })
+    expect(p.groupMessageRecipient.updateMany).toHaveBeenCalledWith({
+      where: { status: "PENDING", claimedAt: { lt: new Date(now.getTime() - GROUP_MESSAGE_LEASE_MS) }, message },
+      data: { status: "UNKNOWN" },
+    })
   })
 })
