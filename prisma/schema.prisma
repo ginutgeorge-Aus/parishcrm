@@ -39,9 +39,9 @@ model Family {
 }
 
 model Person {
-  id                      Int                      @id @default(autoincrement())
+  id                      Int                            @id @default(autoincrement())
   familyId                Int
-  family                  Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  family                  Family                         @relation(fields: [familyId], references: [id], onDelete: Cascade)
   firstName               String
   lastName                String
   middleName              String?
@@ -49,8 +49,8 @@ model Person {
   suffix                  String?
   gender                  Gender?
   dateOfBirth             String?
-  role                    FamilyRole               @default(OTHER)
-  classification          Classification           @default(MEMBER)
+  role                    FamilyRole                     @default(OTHER)
+  classification          Classification                 @default(MEMBER)
   email                   String?
   // Deterministic blind index of email (HMAC, see crypto-core.hmacEmail) so the
   // person-export matches registrations by an indexed lookup instead of a
@@ -73,13 +73,13 @@ model Person {
   pastoralNotes           String?
   emergencyContactName    String?
   emergencyContactPhone   String?
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  emailConsent            Boolean                  @default(true)
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  emailConsent            Boolean                        @default(true)
   consentUpdatedAt        DateTime?
   archivedAt              DateTime?
   bankingName             String?
-  ministryRoles           MinistryRole[]           @default([])
+  ministryRoles           MinistryRole[]                 @default([])
   transactions            Transaction[]
   pettyCashSessions       PettyCashSession[]
   pettyCashReceipts       PettyCashReceipt[]
@@ -92,6 +92,7 @@ model Person {
   sundaySchoolExamResults SundaySchoolExamResult[]
   groupMemberships        GroupMember[]
   groupMessageRecipients  GroupMessageRecipient[]
+  ssMessageRecipients     SundaySchoolMessageRecipient[]
   invoices                Invoice[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
@@ -174,6 +175,7 @@ model User {
   invoicesCreated              Invoice[]                @relation("InvoiceCreatedBy")
   invoicesSent                 Invoice[]                @relation("InvoiceSentBy")
   groupMessagesSent            GroupMessage[]
+  ssMessagesSent               SundaySchoolMessage[]
 }
 
 model TrustedDevice {
@@ -1338,6 +1340,7 @@ model SundaySchoolClass {
   sessions    SundaySchoolSession[]
   rollMarkers SundaySchoolRollMarker[]
   exams       SundaySchoolExam[]
+  messages    SundaySchoolMessage[]
 
   @@unique([year, name, location])
   // Target of SundaySchoolEnrolment's (classId, year) FK, so an enrolment's year
@@ -1415,6 +1418,43 @@ model SundaySchoolAttendance {
   @@unique([sessionId, personId])
   @@index([personId])
   @@index([markedById])
+}
+
+/// A manual email from a teacher/staff to the parents (HEAD/SPOUSE) of a class's children (OSS-14).
+model SundaySchoolMessage {
+  id         Int                            @id @default(autoincrement())
+  classId    Int
+  /// Null once the sending login is deleted: the history stays.
+  sentById   Int?
+  subject    String
+  body       String
+  createdAt  DateTime                       @default(now())
+  class      SundaySchoolClass              @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sentBy     User?                          @relation(fields: [sentById], references: [id], onDelete: SetNull)
+  recipients SundaySchoolMessageRecipient[]
+
+  @@index([classId, createdAt])
+}
+
+/// Delivery ledger for a Sunday School parent email, one row per parent (deduped across siblings).
+/// Same state machine as GroupMessageRecipient: "PENDING" | "SENT" | "FAILED" (retryable) | "UNKNOWN" (terminal).
+/// No address is stored; it is decrypted from Person.email at send time.
+model SundaySchoolMessageRecipient {
+  id        Int                 @id @default(autoincrement())
+  messageId Int
+  personId  Int
+  status    String              @default("PENDING")
+  attempts  Int                 @default(0)
+  /// Lease clock for an in-flight claim.
+  claimedAt DateTime?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  message   SundaySchoolMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  person    Person              @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, personId])
+  @@index([status])
+  @@index([personId])
 }
 
 // A login account (EVENT_ORGANISER) allowed to take this class's roll. Twin of

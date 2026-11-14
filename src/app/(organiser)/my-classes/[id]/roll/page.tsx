@@ -25,5 +25,6 @@ export default async function OrganiserRollPage(props: Readonly<Props>) {
     hrefBase: `/my-classes/${id}/roll`,
     backHref: "/my-classes",
     backLabel: "My classes",
+    messageHref: `/my-classes/${id}/message`,
   })
 }

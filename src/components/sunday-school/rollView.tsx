@@ -14,10 +14,12 @@ import { RollList } from "@/components/sunday-school/RollList"
  * `canMark`; this validates `?date=`, loads the roll and renders it.
  * `underTopBar` is true on the staff page, which sits under the sticky top bar. A past
  * year's class with no date opens on its last day instead of erroring.
+ * `messageHref` (the class's parent-email page) adds an "Email parents of absent
+ * students" link when this login may mark and the roll has absentees.
  */
 export async function renderRollView({
-  classId, rawDate, canMark, hrefBase, backHref, backLabel, underTopBar = false,
-}: Readonly<{ classId: number; rawDate: string | undefined; canMark: boolean; hrefBase: string; backHref: string; backLabel: string; underTopBar?: boolean }>) {
+  classId, rawDate, canMark, hrefBase, backHref, backLabel, underTopBar = false, messageHref,
+}: Readonly<{ classId: number; rawDate: string | undefined; canMark: boolean; hrefBase: string; backHref: string; backLabel: string; underTopBar?: boolean; messageHref?: string }>) {
   const cls = await prisma.sundaySchoolClass.findUnique({ where: { id: classId }, select: { year: true, name: true } })
   if (!cls) notFound()
   // A rolled-over year's roll is read-only (setAttendance refuses it too).
@@ -29,6 +31,7 @@ export async function renderRollView({
   }
   const roll = parsed.ok ? await loadRoll(classId, parsed.ymd) : null
   if (parsed.ok && !roll) notFound()
+  const canEmailAbsent = !!messageHref && canMark && !locked && !!roll && !roll.cls.archived && roll.rows.some((r) => r.status === "ABSENT")
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -40,6 +43,11 @@ export async function renderRollView({
         {roll?.cls.archived && <Badge variant="secondary">Archived</Badge>}
         {locked && <Badge variant="secondary">Locked</Badge>}
       </h1>
+      {canEmailAbsent && parsed.ok && (
+        <Link href={`${messageHref}?absent=${parsed.ymd}`} className="mb-3 inline-block text-sm text-primary hover:underline">
+          Email parents of absent students
+        </Link>
+      )}
       {parsed.ok && roll ? (
         <RollList
           classId={classId}

@@ -10,6 +10,7 @@ jest.mock("@/lib/prisma", () => ({
     sundaySchoolRollMarker: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolSession: { findMany: jest.fn().mockResolvedValue([]) },
     sundaySchoolYearLock: { findMany: jest.fn().mockResolvedValue([]) },
+    sundaySchoolMessage: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 jest.mock("next/navigation", () => ({
@@ -193,6 +194,16 @@ describe("/sunday-school/[id]", () => {
     expect(html).toMatch(/Sun,? 4 Oct 2026/)
     expect(html).toContain("1 present · 1 late · 1 absent")
     expect(html).toContain("Vol One:true,Ex Vol:false")
+  })
+
+  it("shows an editor the Email parents link and the sent parent-email history (OSS-14)", async () => {
+    as("ADMIN")
+    ;(prisma.sundaySchoolClass.findUnique as jest.Mock).mockResolvedValue(cls())
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([])
+    const html = await renderClass()
+    expect(html).toContain('href="/sunday-school/1/message"')
+    expect(html).toContain("Parent emails")
+    expect(html).toContain("No parent emails sent yet.")
   })
 
   it("loads candidates for an editor, flagging children and current class", async () => {

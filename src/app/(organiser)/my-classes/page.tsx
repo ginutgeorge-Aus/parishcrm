@@ -44,6 +44,12 @@ export default async function MyClassesPage() {
               >
                 Exams
               </Link>
+              <Link
+                href={`/my-classes/${c.id}/message`}
+                className="flex items-center rounded-lg border bg-card px-4 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent"
+              >
+                Email parents
+              </Link>
             </li>
           ))}
         </ul>

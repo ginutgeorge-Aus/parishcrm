@@ -15,6 +15,8 @@ import { EnrolPanel } from "@/components/sunday-school/EnrolPanel"
 import { RollMarkersPanel } from "@/components/sunday-school/RollMarkersPanel"
 import { rollCounts } from "@/lib/sundaySchoolRollView"
 import { lockedYears } from "@/lib/sundaySchoolYearLock"
+import { ParentMessageHistory } from "@/components/sunday-school/parentMessageView"
+import { loadSsMessageHistory } from "@/lib/sundaySchoolMessageHistory"
 
 const CANDIDATE_CAP = 2000
 const byName = [{ lastName: "asc" as const }, { firstName: "asc" as const }]
@@ -108,6 +110,9 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
       select: { date: true, attendance: { select: { status: true } } },
     }),
   ])
+  // Parent-email history (OSS-14): staff who can send see it; VIEWER does not.
+  const showMessages = canManageSundaySchool(session.user.role)
+  const parentMessages = showMessages ? await loadSsMessageHistory(id) : []
   const enrolCandidates = [...childCandidates, ...otherCandidates]
     .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName))
 
@@ -147,6 +152,11 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
             <Button variant="outline" asChild>
               <Link href={`/sunday-school/${cls.id}/progress`}>Progress</Link>
             </Button>
+            {editor && (
+              <Button variant="outline" asChild>
+                <Link href={`/sunday-school/${cls.id}/message`}>Email parents</Link>
+              </Button>
+            )}
             {editor && (
               <Button variant="outline" asChild>
                 <Link href={`/sunday-school/${cls.id}/edit`}>Edit</Link>
@@ -200,6 +210,15 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
           )}
         </CardContent>
       </Card>
+
+      {showMessages && (
+        <Card>
+          <CardHeader><CardTitle>Parent emails</CardTitle></CardHeader>
+          <CardContent>
+            <ParentMessageHistory messages={parentMessages} />
+          </CardContent>
+        </Card>
+      )}
 
       {markerViewer && (
         <Card>

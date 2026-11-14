@@ -13,6 +13,7 @@ function jobs(overrides: Partial<Jobs> = {}): Jobs {
     clearanceDigest: jest.fn(async () => ({})),
     venueInvoice: jest.fn(async () => ({})),
     groupMessages: jest.fn(async () => ({})),
+    ssMessages: jest.fn(async () => ({})),
     ...overrides,
   }
 }
@@ -208,6 +209,7 @@ describe("DEFAULT_JOBS feature gating", () => {
       runClearanceDigest: jest.fn(),
       sweepExpiredCheckouts: jest.fn(async () => ({ expired: 0 })),
       runGroupMessageSweep: jest.fn(async () => ({ sent: 0 })),
+      runSsMessageSweep: jest.fn(async () => ({ sent: 0 })),
     }
     jest.doMock("@/lib/featureFlags", () => ({
       // Echo the key so each job's test can assert it is wired to the right feature.
@@ -218,6 +220,7 @@ describe("DEFAULT_JOBS feature gating", () => {
     jest.doMock("@/lib/clearanceDigest", () => ({ runClearanceDigest: sweeps.runClearanceDigest }))
     jest.doMock("@/lib/checkoutSweep", () => ({ sweepExpiredCheckouts: sweeps.sweepExpiredCheckouts }))
     jest.doMock("@/lib/groupMessageDeliver", () => ({ runGroupMessageSweep: sweeps.runGroupMessageSweep }))
+    jest.doMock("@/lib/sundaySchoolMessageDeliver", () => ({ runSsMessageSweep: sweeps.runSsMessageSweep }))
     const { DEFAULT_JOBS } = await import("@/lib/schedulerRunner")
     return { DEFAULT_JOBS, sweeps }
   }
@@ -244,5 +247,11 @@ describe("DEFAULT_JOBS feature gating", () => {
     const { DEFAULT_JOBS, sweeps } = await loadOff()
     await DEFAULT_JOBS.groupMessages(NOW)
     expect(sweeps.runGroupMessageSweep).toHaveBeenCalledWith(NOW)
+  })
+
+  it("ssMessages runs the Sunday School delivery sweep (not gated)", async () => {
+    const { DEFAULT_JOBS, sweeps } = await loadOff()
+    await DEFAULT_JOBS.ssMessages(NOW)
+    expect(sweeps.runSsMessageSweep).toHaveBeenCalledWith(NOW)
   })
 })

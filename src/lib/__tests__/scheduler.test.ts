@@ -16,6 +16,7 @@ function state(patch: Partial<Record<keyof SchedulerState, Partial<SchedulerStat
   if (!("venueInvoice" in patch)) s.venueInvoice.lastSuccessKey = "2026-07"
   // Interval job: park it (never due) so each test's expectations stay about the job under test.
   if (!("groupMessages" in patch)) s.groupMessages.lastStart = Infinity
+  if (!("ssMessages" in patch)) s.ssMessages.lastStart = Infinity
   for (const [k, v] of Object.entries(patch)) Object.assign(s[k as keyof SchedulerState], v)
   return s
 }
@@ -227,6 +228,15 @@ describe("dueJobs — venue invoice (monthly, Sydney 1st-7th from 09:00)", () =>
     expect(dueJobs(new Date(t), s, {})).toEqual([])
     // Fresh budget at 09:00 the next Sydney day.
     expect(dueJobs(new Date(first(9).getTime() + 24 * 60 * MIN), s, {})).toEqual(["venueInvoice"])
+  })
+})
+
+describe("dueJobs — ssMessages", () => {
+  it("is an interval job: due every 30 minutes, no window", () => {
+    expect(dueJobs(at(3), state({ ssMessages: {} }), {})).toContain("ssMessages")
+    const s = state({ ssMessages: { lastStart: at(3).getTime() } })
+    expect(dueJobs(at(3, 29), s, {})).not.toContain("ssMessages")
+    expect(dueJobs(at(3, 30), s, {})).toContain("ssMessages")
   })
 })
 

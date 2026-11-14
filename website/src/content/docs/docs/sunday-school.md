@@ -89,13 +89,33 @@ many results were not counted. Children are listed by name, never ranked.
 ADMIN, PASTOR, OFFICE_ADMIN, Headmaster and VIEWER can open progress pages. Teacher logins
 cannot yet.
 
+### Emailing parents
+
+Anyone who can take a class's roll can email that class's parents. Press **Email parents** on the
+class (`/sunday-school/[id]/message`, or **Email parents** next to the class on `/my-classes` for a
+Teacher login), tick the children, and write a subject (up to 200 characters) and a plain-text
+message (up to 10,000 characters). On a roll that has absentees, **Email parents of absent
+students** opens the same page with only the children marked absent that day ticked.
+
+Emails are only ever sent by hand. Nothing goes out automatically when a child is marked absent.
+
+- **Who gets it**: the HEAD and SPOUSE of each ticked child's family who have a readable email
+  address and have not opted out of email. A parent of two ticked siblings gets one email.
+- **Skipped children**: a child whose family has no HEAD/SPOUSE, or none that can be emailed, is
+  listed by name with the reason. Addresses are never shown.
+- Each email greets the parent by first name and ends with the class and church name. One send
+  per class every 5 minutes. A class in a locked (rolled-over) year cannot be emailed.
+- Sent emails are listed on the class page and the email page with how many were sent, failed or
+  are still queued. Failed sends retry automatically for a week. Each send is in the audit log
+  (counts only, no addresses).
+
 ### Who sees what
 
 | Role | Sunday School access |
 |---|---|
 | ADMIN, PASTOR, OFFICE_ADMIN | Everything: classes, teachers, enrolment, rolls, exams, rollover |
 | **Headmaster** | All classes: setup, enrolment, rolls, exams, rollover. Nothing outside Sunday School: no People, accounting or pastoral notes. Can reach their own account page and help |
-| **Teacher** | Only classes they are assigned to (`/my-classes`): see the children, take the roll, enter exam marks. Cannot change class setup. Sees child names and class only, no family contact details |
+| **Teacher** | Only classes they are assigned to (`/my-classes`): see the children, take the roll, enter exam marks, email the class's parents. Cannot change class setup. Sees child names and class only, no family contact details |
 | VIEWER | Read-only |
 
 There can be several Headmasters. OFFICE_ADMIN and ADMIN can create Headmaster and Teacher logins

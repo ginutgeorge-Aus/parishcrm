@@ -29,6 +29,9 @@ export const DEFAULT_JOBS: Jobs = {
   venueInvoice: async (now) => (await import("@/lib/venueInvoiceJob")).runVenueInvoiceJob(now),
   // Interval job: retries group emails left queued/failed (SMTP blip, missed immediate drain).
   groupMessages: async (now) => (await import("@/lib/groupMessageDeliver")).runGroupMessageSweep(now),
+  // Interval job: retries Sunday School parent emails left queued/failed (OSS-14). Not gated, like groupMessages:
+  // an already-queued message finishes even if Sunday School is turned off.
+  ssMessages: async (now) => (await import("@/lib/sundaySchoolMessageDeliver")).runSsMessageSweep(now),
 }
 
 /** True for a gated job's feature-off result — not a success, so the period stays open. */
