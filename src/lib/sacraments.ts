@@ -13,23 +13,13 @@ export const SACRAMENT_PREFIX: Record<SacramentType, string> = {
   FIRST_COMMUNION: "FHC",
 }
 
-/** Display name per rite. Confirmation is chrismation in Eastern rites. */
-export const SACRAMENT_LABEL: Record<SacramentType, string> = {
-  BAPTISM: "Baptism",
-  CONFIRMATION: "Confirmation (Chrismation)",
-  MARRIAGE: "Marriage",
-  FIRST_COMMUNION: "First Holy Communion",
-}
-
-export const SACRAMENT_TYPES = Object.values(SacramentType) as SacramentType[]
-
 /** Earliest rite year accepted: old paper registers can be transcribed. */
-export const MIN_SACRAMENT_YEAR = 1800
+const MIN_SACRAMENT_YEAR = 1800
 
-export const MAX_PLACE_LEN = 200
-export const MAX_NAME_LEN = 200
-export const MAX_GODPARENTS_LEN = 500
-export const MAX_NOTES_LEN = 2000
+const MAX_PLACE_LEN = 200
+const MAX_NAME_LEN = 200
+const MAX_GODPARENTS_LEN = 500
+const MAX_NOTES_LEN = 2000
 
 /**
  * Format a register number: `<PREFIX>-<year>-<seq padded to 3>`, e.g. `BAP-2026-014`.
