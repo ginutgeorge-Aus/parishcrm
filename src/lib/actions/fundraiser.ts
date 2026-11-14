@@ -524,9 +524,24 @@ export async function recordPayment(
   const ref = `manual:${input.submissionKey}`
   const method = input.method
 
-  /** Resolve an existing row for this key: same entry = idempotent repeat, else misuse. */
-  const repeatOf = (existing: { entryId: number } | null): ActionResult | null =>
-    existing ? (existing.entryId === entryId ? undefined : { error: "Invalid submission" }) : null
+  /**
+   * Resolve an existing row for this key: same entry and same amount/method/date/note
+   * = idempotent repeat; same key with different values (an edited retry after
+   * a thrown first call that committed) = error, never a silent no-op.
+   */
+  const repeatOf = (
+    existing: { entryId: number; amount: unknown; method: string; paidAt: Date; note: string | null } | null,
+  ): ActionResult | null => {
+    if (!existing) return null
+    if (existing.entryId !== entryId) return { error: "Invalid submission" }
+    const same =
+      toCents(String(existing.amount)) === amountCents &&
+      existing.method === method &&
+      (existing.note ?? "") === note &&
+      existing.paidAt.toISOString().slice(0, 10) === paidAtStr
+    return same ? undefined : { error: "This payment was already recorded with different details. Reload to see it." }
+  }
+  const REPEAT_SELECT = { entryId: true, amount: true, method: true, paidAt: true, note: true } as const
 
   type Recorded = { error: string } | { repeat: true } | { id: number; eventId: number }
   let res: Recorded
@@ -534,7 +549,7 @@ export async function recordPayment(
     res = await serializableWrite<Recorded>(async (tx) => {
       if (!(await lockEntry(tx, entryId))) return { error: "Entry not found" }
       // Key check first: a repeat must not be judged against the balance it already consumed.
-      const prior = repeatOf(await tx.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: { entryId: true } }))
+      const prior = repeatOf(await tx.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: REPEAT_SELECT }))
       if (prior) return prior
       if (prior === undefined) return { repeat: true as const }
       const entry = await tx.fundraiserEntry.findUnique({
@@ -563,7 +578,7 @@ export async function recordPayment(
     if (e instanceof AuditWriteError) return AUDIT_FAILED
     if (!isP2002(e)) throw e
     // A concurrent twin committed the same key between our check and insert.
-    const prior = repeatOf(await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: { entryId: true } }))
+    const prior = repeatOf(await prisma.fundraiserPayment.findUnique({ where: { stripePaymentRef: ref }, select: REPEAT_SELECT }))
     if (prior === null) throw e
     return prior
   }
