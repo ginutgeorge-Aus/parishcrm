@@ -19,7 +19,9 @@ export function PublicPrayerRequestForm() {
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [share, setShare] = useState(false)
-  const [website, setWebsite] = useState("")
+  const [trap, setTrap] = useState("")
+  // When the form opened; the server refuses a submit that follows too quickly.
+  const [openedAt] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -39,7 +41,8 @@ export function PublicPrayerRequestForm() {
           requesterEmail: email || null,
           requesterPhone: phone || null,
           shareConsent: share,
-          website,
+          hp_field: trap,
+          openedAt,
         })
         if (res && "error" in res) setError(res.error)
         else setDone(res && "success" in res ? res.success : "Thank you. Your prayer request has been received.")
@@ -62,9 +65,9 @@ export function PublicPrayerRequestForm() {
       {/* Honeypot: hidden from people and assistive tech; a bot fills it. */}
       <Input
         type="text"
-        name="website"
-        value={website}
-        onChange={(e) => setWebsite(e.target.value)}
+        name="hp_field"
+        value={trap}
+        onChange={(e) => setTrap(e.target.value)}
         tabIndex={-1}
         autoComplete="off"
         className="absolute left-[-9999px]"
@@ -90,7 +93,7 @@ export function PublicPrayerRequestForm() {
       </div>
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} className="mt-0.5 size-4" />
-        <span>OK to share this request with the congregation. Leave unticked to keep it private to our pastors.</span>
+        <span>OK to share this request. We record your choice; the request is only seen by our pastors for now.</span>
       </label>
       <FormFeedback state={{ error }} />
       <Button type="submit" disabled={pending || request.trim() === ""} className="min-h-11 w-full sm:min-h-0 sm:w-auto">

@@ -21,7 +21,8 @@ it("sends the request and shows the thank-you", async () => {
       requesterEmail: null,
       requesterPhone: null,
       shareConsent: true,
-      website: "",
+      hp_field: "",
+      openedAt: expect.any(Number),
     }),
   )
   expect(await screen.findByRole("status")).toHaveTextContent("Thank you")
@@ -39,11 +40,11 @@ it("shows a rate-limit error and keeps the form", async () => {
 it("has a hidden honeypot field that is sent along when filled", async () => {
   ;(submitPublicPrayerRequest as jest.Mock).mockResolvedValue({ success: "Thank you." })
   const { container } = render(<PublicPrayerRequestForm />)
-  const trap = container.querySelector('input[name="website"]') as HTMLInputElement
+  const trap = container.querySelector('input[name="hp_field"]') as HTMLInputElement
   expect(trap).toHaveAttribute("aria-hidden", "true")
   expect(trap).toHaveAttribute("tabindex", "-1")
   fireEvent.change(trap, { target: { value: "http://spam" } })
   fireEvent.change(screen.getByLabelText("Your prayer request"), { target: { value: "x" } })
   fireEvent.click(screen.getByRole("button", { name: "Send prayer request" }))
-  await waitFor(() => expect(submitPublicPrayerRequest).toHaveBeenCalledWith(expect.objectContaining({ website: "http://spam" })))
+  await waitFor(() => expect(submitPublicPrayerRequest).toHaveBeenCalledWith(expect.objectContaining({ hp_field: "http://spam" })))
 })

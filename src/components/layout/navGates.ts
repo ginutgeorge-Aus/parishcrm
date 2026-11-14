@@ -15,7 +15,7 @@ export type NavFlags = {
   canUsers: boolean
   canViewPeople: boolean
   /** Prayer requests link (ADMIN | PASTOR, canManagePrayerRequests). */
-  canPrayerRequests?: boolean
+  canPrayerRequests: boolean
   /** Staff Sunday School link (canBrowseSundaySchool). */
   canBrowseSundaySchool: boolean
   /** HEADMASTER: confined to Sunday School, so hide links middleware would bounce. */
@@ -25,6 +25,8 @@ export type NavFlags = {
   pendingUpdates: number
   verifyPending: number
   membershipPending: number
+  /** The viewer's own follow-ups due today or earlier (badge on the Follow-ups link). */
+  dueFollowUps?: number
   /** Enabled features; omitted = all on. Off features drop their links. */
   features?: ReadonlySet<FeatureKey>
 }
@@ -40,7 +42,7 @@ export function featureOn(features: ReadonlySet<FeatureKey> | undefined, k: Feat
  */
 export function navFlagsFor(
   role: UserRole | undefined,
-  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending">> = {},
+  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending" | "dueFollowUps">> = {},
   features?: ReadonlySet<FeatureKey>,
   venueUsage = false,
 ): NavFlags {
@@ -58,6 +60,7 @@ export function navFlagsFor(
     pendingUpdates: counts.pendingUpdates ?? 0,
     verifyPending: counts.verifyPending ?? 0,
     membershipPending: counts.membershipPending ?? 0,
+    dueFollowUps: counts.dueFollowUps ?? 0,
     features,
   }
 }

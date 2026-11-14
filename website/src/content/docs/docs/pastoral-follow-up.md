@@ -31,7 +31,8 @@ date come last). Overdue open tasks carry an **Overdue** badge.
 
 You add a follow-up from the record it is about. Open a person or a family and use the
 **Follow-ups** card: enter a title, an optional assignee, due date and notes, then press **Add
-follow-up**. The same card lists that record's tasks. Tasks are in-app only; there are no emails.
+follow-up**. The same card lists that record's tasks. Tasks are in-app only; there are no emails. A task assigned to you that is due today or
+earlier adds a count badge to the **Follow-ups** link in the sidebar.
 
 ## Prayer requests
 
@@ -42,21 +43,24 @@ name and contact the requester gave.
 
 - **Mark answered**, **Archive** and **Restore** move a request between the statuses.
 - **Add a prayer request** at the bottom records one you were told in person. Tick **OK to share**
-  only when the requester agreed it may be listed in the bulletin.
+  only when the requester agreed.
 
-Only *active* requests marked **OK to share** are offered for the bulletin, and that list shows the
-request text and date only, never name, email or phone.
+**OK to share** is recorded only: no bulletin list ships yet, so ticking it changes nothing you
+can see beyond the badge. The choice is kept so a future bulletin list can honour it.
 
 ## Public prayer request form
 
 Members do not need a login. They open `/prayer-request` on your site (it is not linked from
 anywhere; share the address yourself, for example on your website or in a notice). The form asks for
 the request, and optionally a name, email and phone, plus an **OK to share** tick. Without the tick
-the request stays private to pastors and admins.
+the request stays private to pastors and admins. The tick is recorded only; nothing is published.
 
 To keep spam out, the form has a hidden field that people never see (anything typed there is
-dropped without an error, so a bot cannot tell) and a limit of 5 submissions per hour from one
-internet address. Over the limit, the form says to try again later. There is no CAPTCHA yet. A
+dropped without an error, so a bot cannot tell), refuses a send that follows the page opening by
+under 3 seconds, and allows 5 submissions per hour from one internet address. Over the limit, the
+form says to try again later. If your server does not pass on a trusted client address (see the
+`CLIENT_IP_HEADER` setting), the form refuses every submission rather than sharing one limit
+between all visitors. There is no CAPTCHA yet. A
 submission appears in **Prayer requests** with the **Public form** badge; there is no email
 notification.
 
@@ -64,6 +68,7 @@ notification.
 
 - The request, title, notes, and requester contact details are encrypted at rest.
 - Audit entries record ids and flags only (never the text or contact), and the public form stores
-  no IP address.
+  no IP address with the request. The rate limit keeps the visitor's address (or its IPv6 prefix)
+  for up to an hour.
 - Tasks and requests are read through server actions that check your role on every call, so a link
   guessed by someone without access shows nothing.

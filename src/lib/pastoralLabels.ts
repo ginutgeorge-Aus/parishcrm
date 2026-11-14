@@ -57,15 +57,3 @@ export function parseAssigneeFilter(raw: string | string[] | undefined): Assigne
   const n = Number(v)
   return Number.isInteger(n) && n > 0 && n <= 2147483647 ? n : "all"
 }
-
-/**
- * Whether a task passes the assignee filter. `mine` is applied by the action
- * itself, so it passes everything here.
- * @param task the task's assignee id
- * @param filter the parsed assignee filter
- */
-export function matchesAssignee(task: { assigneeId: number | null }, filter: AssigneeFilter): boolean {
-  if (filter === "all" || filter === "mine") return true
-  if (filter === "unassigned") return task.assigneeId === null
-  return task.assigneeId === filter
-}

@@ -6,7 +6,6 @@ import { listFollowUpTasks } from "@/lib/actions/followUp"
 import { followUpVisibilityWhere } from "@/lib/pastoralAccess"
 import {
   followUpStatusesFor,
-  matchesAssignee,
   parseAssigneeFilter,
   parseFollowUpStatusFilter,
   type AssigneeFilter,
@@ -33,6 +32,17 @@ function hrefFor(status: FollowUpStatusFilter, assignee: AssigneeFilter): string
   if (assignee !== "all") q.set("assignee", String(assignee))
   const s = q.toString()
   return s ? `/follow-ups?${s}` : "/follow-ups"
+}
+
+/**
+ * The list filter for an assignee choice, so it applies in the query before the
+ * row cap (never as a post-filter on a capped result).
+ * @param assignee the parsed assignee filter
+ */
+function assigneeQuery(assignee: AssigneeFilter): { mine?: boolean; assigneeId?: number | null } {
+  if (assignee === "mine") return { mine: true }
+  if (assignee === "unassigned") return { assigneeId: null }
+  return typeof assignee === "number" ? { assigneeId: assignee } : {}
 }
 
 /** One filter chip (a link, so it works without JS and is bookmarkable). */
@@ -69,11 +79,11 @@ export default async function FollowUpsPage({
   const manage = canManageFollowUps(role)
 
   const [res, assignees] = await Promise.all([
-    listFollowUpTasks({ statuses: followUpStatusesFor(status), mine: assignee === "mine" }),
+    listFollowUpTasks({ statuses: followUpStatusesFor(status), ...assigneeQuery(assignee) }),
     manage ? listAssignableUsers() : Promise.resolve([]),
   ])
   if ("error" in res) redirect("/")
-  const tasks = res.tasks.filter((t) => matchesAssignee(t, assignee))
+  const tasks = res.tasks
 
   return (
     <div className="space-y-4">

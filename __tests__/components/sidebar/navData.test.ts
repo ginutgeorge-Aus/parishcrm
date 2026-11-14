@@ -16,6 +16,7 @@ const allTrueFlags = {
   isEditor: true,
   canUsers: true,
   canViewPeople: true,
+  canPrayerRequests: true,
   canBrowseSundaySchool: true,
   pendingUpdates: 0,
   verifyPending: 0,
@@ -173,5 +174,25 @@ describe("navFlagsFor / featureOn / attentionItems (#366)", () => {
     const features = resolveFeatures({ memberships: false })
     const groups = buildNavGroups(navFlagsFor("ADMIN", { pendingUpdates: 2, membershipPending: 4 }, features))
     expect(attentionItems(groups).map((i) => i.href)).toEqual(["/families/updates"])
+  })
+})
+
+describe("pastoral links", () => {
+  const links = (flags: NavFlags) => flattenNavItems(groupItems(flags, "Community"))
+
+  it("Follow-ups carries the due count as its badge", () => {
+    const items = links({ ...allTrueFlags, dueFollowUps: 3 })
+    expect(items.find((i) => i.href === "/follow-ups")).toMatchObject({ show: true, badge: 3 })
+    expect(pendingTotal(groupItems({ ...allTrueFlags, dueFollowUps: 3 }, "Community"))).toBeGreaterThanOrEqual(3)
+  })
+
+  it("Prayer requests shows only for canPrayerRequests", () => {
+    expect(links(allTrueFlags).find((i) => i.href === "/prayer-requests")?.show).toBe(true)
+    expect(links({ ...allTrueFlags, canPrayerRequests: false }).find((i) => i.href === "/prayer-requests")?.show).toBe(false)
+  })
+
+  it("navFlagsFor sets canPrayerRequests for ADMIN and PASTOR only", () => {
+    expect(navFlagsFor("PASTOR").canPrayerRequests).toBe(true)
+    expect(navFlagsFor("OFFICE_ADMIN").canPrayerRequests).toBe(false)
   })
 })

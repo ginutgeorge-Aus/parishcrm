@@ -24,7 +24,7 @@ export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; i
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool, canPrayerRequests,
+    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool, canPrayerRequests, dueFollowUps,
   } = flags
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
@@ -58,8 +58,8 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         // Pastoral care (#305): follow-ups for editors (assignees see their own; the page
         // scopes it), prayer requests for ADMIN | PASTOR only.
-        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor },
-        { href: "/prayer-requests", label: "Prayer requests", icon: HandHeart, show: !!canPrayerRequests },
+        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps },
+        { href: "/prayer-requests", label: "Prayer requests", icon: HandHeart, show: canPrayerRequests },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor && on("memberships"), badge: membershipPending },

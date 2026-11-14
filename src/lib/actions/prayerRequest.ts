@@ -357,7 +357,8 @@ export async function getPrayerRequest(id: number): Promise<{ error: string } | 
 }
 
 /**
- * Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
+ * Not used by any page yet (no bulletin list ships; the consent flag is only
+ * recorded). Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
  * 500. Editors (ADMIN | PASTOR | OFFICE_ADMIN). Returns the request text and
  * date only — the requester's name and contact never leave the private views.
  */

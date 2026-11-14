@@ -40,7 +40,7 @@ describe("/follow-ups page", () => {
     const { getByTestId, getByRole } = await run()
     expect(getByTestId("list")).toHaveTextContent("tasks:1,2 manage:true")
     expect(getByRole("group", { name: "Assignee" })).toBeInTheDocument()
-    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["OPEN", "IN_PROGRESS"], mine: false })
+    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["OPEN", "IN_PROGRESS"] })
   })
 
   it("OFFICE_ADMIN (assignee) gets the list without manage or assignee filters", async () => {
@@ -62,11 +62,12 @@ describe("/follow-ups page", () => {
     await expect(run()).rejects.toThrow("REDIRECT:/login")
   })
 
-  it("applies the status filter and the assignee filter", async () => {
+  it("passes the status filter and unassigned/assignee filters into the query", async () => {
     as("ADMIN")
-    const { getByTestId } = await run({ status: "done", assignee: "unassigned" })
-    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["DONE", "CANCELLED"], mine: false })
-    expect(getByTestId("list")).toHaveTextContent("tasks:2 ")
+    await run({ status: "done", assignee: "unassigned" })
+    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["DONE", "CANCELLED"], assigneeId: null })
+    await run({ assignee: "5" })
+    expect(listFollowUpTasks).toHaveBeenLastCalledWith({ statuses: ["OPEN", "IN_PROGRESS"], assigneeId: 5 })
   })
 
   it("passes mine to the action", async () => {

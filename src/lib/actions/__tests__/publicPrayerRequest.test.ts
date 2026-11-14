@@ -6,6 +6,7 @@ jest.mock("@/lib/prisma", () => {
   m.$transaction.mockImplementation((fn: (tx: typeof m) => unknown) => fn(m))
   return { prisma: m }
 })
+jest.mock("@/lib/logger", () => ({ logger: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
 jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
@@ -17,6 +18,7 @@ import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 import { rateLimit } from "@/lib/rateLimit"
+import { logger } from "@/lib/logger"
 import { submitPublicPrayerRequest } from "@/lib/actions/publicPrayerRequest"
 
 const create = (prisma as unknown as { prayerRequest: { create: jest.Mock } }).prayerRequest.create
@@ -68,10 +70,36 @@ describe("submitPublicPrayerRequest", () => {
   })
 
   it("silently drops a filled honeypot: success text, nothing stored, no quota spent", async () => {
-    const r = await submitPublicPrayerRequest({ request: "Buy pills", website: "http://spam" })
+    const r = await submitPublicPrayerRequest({ request: "Buy pills", hp_field: "http://spam" })
     expect(r).toEqual({ success: expect.stringContaining("Thank you") })
     expect(create).not.toHaveBeenCalled()
     expect(dbRateLimit).not.toHaveBeenCalled()
+  })
+
+  it("fails closed with a warning when no trusted client IP is present", async () => {
+    const headersMod = jest.requireMock("next/headers") as { headers: () => Promise<Map<string, string>> }
+    const orig = headersMod.headers
+    headersMod.headers = () => Promise.resolve(new Map())
+    try {
+      const r = await submitPublicPrayerRequest({ request: "No ip" })
+      expect(r).toEqual({ error: expect.stringContaining("can't accept") })
+      expect(create).not.toHaveBeenCalled()
+      expect(dbRateLimit).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalled()
+    } finally {
+      headersMod.headers = orig
+    }
+  })
+
+  it("refuses a submit that follows the form opening too quickly, accepts a slow one", async () => {
+    expect(await submitPublicPrayerRequest({ request: "Fast", openedAt: Date.now() })).toEqual({
+      error: expect.stringContaining("very quick"),
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(await submitPublicPrayerRequest({ request: "Slow", openedAt: Date.now() - 10_000 })).toEqual({
+      success: expect.stringContaining("Thank you"),
+    })
+    expect(create).toHaveBeenCalledTimes(1)
   })
 
   it("returns an error once the per-IP quota is used", async () => {

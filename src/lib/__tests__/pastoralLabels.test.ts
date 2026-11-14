@@ -1,6 +1,5 @@
 import {
   followUpStatusesFor,
-  matchesAssignee,
   parseAssigneeFilter,
   parseFollowUpStatusFilter,
 } from "@/lib/pastoralLabels"
@@ -36,17 +35,4 @@ describe("parseAssigneeFilter", () => {
     ["x", "all"],
     [undefined, "all"],
   ])("%s -> %s", (raw, want) => expect(parseAssigneeFilter(raw)).toBe(want))
-})
-
-describe("matchesAssignee", () => {
-  it("all and mine pass everything (mine is applied by the action)", () => {
-    expect(matchesAssignee({ assigneeId: null }, "all")).toBe(true)
-    expect(matchesAssignee({ assigneeId: 4 }, "mine")).toBe(true)
-  })
-  it("unassigned and by-id filter", () => {
-    expect(matchesAssignee({ assigneeId: null }, "unassigned")).toBe(true)
-    expect(matchesAssignee({ assigneeId: 4 }, "unassigned")).toBe(false)
-    expect(matchesAssignee({ assigneeId: 4 }, 4)).toBe(true)
-    expect(matchesAssignee({ assigneeId: 5 }, 4)).toBe(false)
-  })
 })

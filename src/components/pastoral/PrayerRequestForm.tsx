@@ -9,8 +9,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { createPrayerRequest } from "@/lib/actions/prayerRequest"
 
 /**
- * Staff form to record a prayer request. Private unless "OK to share" is
- * ticked, which staff do only with the requester's consent.
+ * Staff form to record a prayer request. "OK to share" records the requester's
+ * consent only; no bulletin list uses it yet.
  */
 export function PrayerRequestForm() {
   const [request, setRequest] = useState("")
@@ -73,7 +73,7 @@ export function PrayerRequestForm() {
       </div>
       <label className="flex min-h-11 items-center gap-2 text-sm sm:col-span-2 sm:min-h-0">
         <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} className="size-4" />
-        OK to share (the requester agreed it may be listed in the bulletin)
+        OK to share (the requester agreed; recorded only, no bulletin list ships yet)
       </label>
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
         <Button type="submit" disabled={pending || request.trim() === ""} className="min-h-11 sm:min-h-0">
