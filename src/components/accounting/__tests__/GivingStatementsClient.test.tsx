@@ -59,7 +59,7 @@ describe("GivingStatementsClient", () => {
   it("sends, summarises, lists per-family errors keyed by family and clears the selection", async () => {
     send.mockResolvedValue({
       sent: 1, failed: 1, skipped: 1, inProgress: 2,
-      errors: [{ familyId: 4, error: "Email delivery failed" }],
+      errors: [{ familyId: 4, error: "Email delivery failed" }], auditFailed: [], remaining: [],
     })
     const user = userEvent.setup()
     render(<GivingStatementsClient year={2025} rows={rows} canManage />)
@@ -72,7 +72,7 @@ describe("GivingStatementsClient", () => {
   })
 
   it("passes skipAlreadySent=false when resend is ticked", async () => {
-    send.mockResolvedValue({ sent: 1, failed: 0, skipped: 0, inProgress: 0, errors: [] })
+    send.mockResolvedValue({ sent: 1, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [], remaining: [] })
     const user = userEvent.setup()
     render(<GivingStatementsClient year={2025} rows={rows} canManage />)
     await user.click(screen.getByLabelText(/resend to families already sent/i))
@@ -98,5 +98,54 @@ describe("GivingStatementsClient", () => {
     await user.click(screen.getAllByLabelText("Select Smith")[0])
     await user.click(screen.getByRole("button", { name: /email selected/i }))
     await waitFor(() => expect(screen.getByText(/Something went wrong/)).toBeInTheDocument())
+  })
+
+  it("keeps totals and unprocessed selection when a later chunk throws, and names audit-failed families", async () => {
+    const many: StatementListRow[] = Array.from({ length: 201 }, (_, n) => row({ familyId: 1000 + n, familyName: `Fam${n}` }))
+    send
+      .mockResolvedValueOnce({ sent: 200, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [1000], remaining: [] })
+      .mockRejectedValueOnce(new Error("boom"))
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={many} canManage />)
+    await user.click(screen.getByRole("button", { name: /select all unsent/i }))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    await waitFor(() => expect(screen.getByText(/Sent 200, failed 0\. The send log could not record the outcome for Fam0\..*Stopped early: Something went wrong; .*check the send log before ticking Resend/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (1)" })).toBeInTheDocument())
+  })
+
+  it("drops a thrown chunk from the selection on a forced resend so a retry cannot re-send it", async () => {
+    send.mockRejectedValueOnce(new Error("boom"))
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={rows} canManage />)
+    await user.click(screen.getAllByLabelText("Select Smith")[0])
+    await user.click(screen.getByLabelText(/resend to families already sent/i))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    await waitFor(() => expect(screen.getByText(/check the send log before ticking Resend/)).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: /Email selected \(1\)/ })).not.toBeInTheDocument()
+  })
+
+  it("caps the audit-failed names listed in the banner", async () => {
+    const many: StatementListRow[] = Array.from({ length: 12 }, (_, n) => row({ familyId: 1000 + n, familyName: `Fam${n}` }))
+    send.mockResolvedValueOnce({
+      sent: 12, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: many.map((r) => r.familyId), remaining: [],
+    })
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={many} canManage />)
+    await user.click(screen.getByRole("button", { name: /select all unsent/i }))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    const banner = await screen.findByText(/outcome for Fam0, .*Fam9 and 2 more\./)
+    expect(banner.textContent).not.toMatch(/Fam1[01]/)
+  })
+
+  it("re-sends ids the server left as remaining until all are processed", async () => {
+    send
+      .mockResolvedValueOnce({ sent: 1, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [], remaining: [4] })
+      .mockResolvedValueOnce({ sent: 1, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [], remaining: [] })
+    const user = userEvent.setup()
+    render(<GivingStatementsClient year={2025} rows={rows} canManage />)
+    await user.click(screen.getByRole("button", { name: /select all unsent/i }))
+    await user.click(screen.getByRole("button", { name: /email selected/i }))
+    await waitFor(() => expect(screen.getByText(/Sent 2, failed 0\./)).toBeInTheDocument())
+    expect(send).toHaveBeenNthCalledWith(2, 2025, [4], true)
   })
 })
