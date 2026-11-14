@@ -11,6 +11,7 @@ jest.mock("@/lib/prisma", () => ({
     person: { findUnique: jest.fn() },
     transaction: { findMany: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
+    sacramentRecord: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 jest.mock("@/lib/clearanceSettings", () => ({
@@ -130,6 +131,47 @@ describe("PersonDetailPage giving total", () => {
     const html = renderToStaticMarkup(element as React.ReactElement)
 
     expect(html).toContain("No giving recorded for this person")
+  })
+
+  describe("Sacraments card (#608)", () => {
+    const mockSacramentFindMany = prisma.sacramentRecord.findMany as jest.Mock
+    const entry = { id: 4, type: "BAPTISM", registerNo: "BAP-2026-001", date: new Date("2026-03-01T00:00:00Z"), place: "St Mark" }
+
+    it.each(["ADMIN", "PASTOR", "OFFICE_ADMIN"])("%s sees the person's entries", async (role) => {
+      mockAuth.mockResolvedValue({ user: { role, id: "5" } })
+      mockPersonFindUnique.mockResolvedValue(makePerson())
+      mockTxFindMany.mockResolvedValue([])
+      mockSacramentFindMany.mockResolvedValue([entry])
+      const html = renderToStaticMarkup((await PersonDetailPage(makeProps())) as React.ReactElement)
+      expect(html).toContain("Sacraments")
+      expect(html).toContain("BAP-2026-001")
+      expect(html).toContain("1 March 2026")
+      // Query covers the person as recipient or CRM spouse, never the encrypted columns.
+      expect(mockSacramentFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { OR: [{ personId: 1 }, { spouseId: 1 }] } }),
+      )
+      expect(JSON.stringify(mockSacramentFindMany.mock.calls[0][0].select)).not.toMatch(/notes|godparents|spouseName/)
+    })
+
+    it("only editors get the Add link", async () => {
+      mockPersonFindUnique.mockResolvedValue(makePerson())
+      mockTxFindMany.mockResolvedValue([])
+      mockSacramentFindMany.mockResolvedValue([])
+      mockAuth.mockResolvedValue({ user: { role: "PASTOR", id: "5" } })
+      expect(renderToStaticMarkup((await PersonDetailPage(makeProps())) as React.ReactElement)).toContain("/sacraments/new?personId=1")
+      mockAuth.mockResolvedValue({ user: { role: "OFFICE_ADMIN", id: "5" } })
+      const html = renderToStaticMarkup((await PersonDetailPage(makeProps())) as React.ReactElement)
+      expect(html).toContain("No sacraments recorded")
+      expect(html).not.toContain("/sacraments/new")
+    })
+
+    it("VIEWER gets no card and no query", async () => {
+      mockAuth.mockResolvedValue({ user: { role: "VIEWER", id: "5" } })
+      mockPersonFindUnique.mockResolvedValue(makePerson())
+      const html = renderToStaticMarkup((await PersonDetailPage(makeProps())) as React.ReactElement)
+      expect(html).not.toContain("Sacraments")
+      expect(mockSacramentFindMany).not.toHaveBeenCalled()
+    })
   })
 
   it("AUDITOR is redirected (cannot view people pages)", async () => {

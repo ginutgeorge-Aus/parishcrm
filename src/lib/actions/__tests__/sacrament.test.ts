@@ -9,9 +9,11 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
+import { logger } from "@/lib/logger"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn().mockResolvedValue(undefined) }))
+jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/dates", () => ({
   sydneyTodayYMD: jest.fn(() => "2026-11-14"),
@@ -188,6 +190,13 @@ describe("createSacramentRecord", () => {
 describe("updateSacramentRecord", () => {
   const EDIT = { date: "2026-04-01", place: "St Mark", ministerName: "Fr A", notes: "edited" }
 
+  it("logs and rethrows an unexpected error", async () => {
+    as("ADMIN")
+    p.$transaction.mockRejectedValue(new Error("boom"))
+    await expect(updateSacramentRecord(7, undefined, form(EDIT))).rejects.toThrow("boom")
+    expect(logger.error).toHaveBeenCalledWith("updateSacramentRecord failed", { name: "Error" })
+  })
+
   it.each(["ADMIN", "PASTOR"])("%s edits and audits without PII in metadata", async (role) => {
     as(role)
     const r = await updateSacramentRecord(7, undefined, form(EDIT))
@@ -241,6 +250,13 @@ describe("updateSacramentRecord", () => {
 })
 
 describe("deleteSacramentRecord", () => {
+  it("logs and rethrows an unexpected error", async () => {
+    as("ADMIN")
+    p.$transaction.mockRejectedValue(new Error("boom"))
+    await expect(deleteSacramentRecord(7)).rejects.toThrow("boom")
+    expect(logger.error).toHaveBeenCalledWith("deleteSacramentRecord failed", { name: "Error" })
+  })
+
   it.each(["ADMIN", "PASTOR"])("%s deletes and audits the register number", async (role) => {
     as(role)
     expect(await deleteSacramentRecord(7)).toEqual({ success: "BAP-2026-003 deleted." })
@@ -291,7 +307,7 @@ describe("getSacramentRecord", () => {
 
   it.each(["VIEWER", "AUDITOR", "EVENT_ORGANISER", "HEADMASTER", "TEACHER", null])("denies %s", async (role) => {
     as(role)
-    expect(await getSacramentRecord(7)).toEqual({ error: "Unauthorized" })
+    expect(await getSacramentRecord(7)).toBeNull()
     expect(p.sacramentRecord.findUnique).not.toHaveBeenCalled()
   })
 

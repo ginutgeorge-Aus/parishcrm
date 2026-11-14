@@ -140,3 +140,104 @@ export function checkSacramentRules(
   }
   return null
 }
+
+/** Display name per rite, for the register, the person page and certificates. */
+export const SACRAMENT_LABEL: Record<SacramentType, string> = {
+  BAPTISM: "Baptism",
+  CONFIRMATION: "Confirmation",
+  MARRIAGE: "Marriage",
+  FIRST_COMMUNION: "First Holy Communion",
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+]
+
+/**
+ * Long date for a certificate: `2026-03-01` -> `1 March 2026`. Pure string
+ * handling (no Date), so the server's time zone cannot shift the day.
+ * @param ymd `YYYY-MM-DD`
+ */
+export function formatLongYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number)
+  return `${d} ${MONTHS[m - 1]} ${y}`
+}
+
+/** Wording of a printed certificate, rite by rite. */
+export type CertificateText = {
+  title: string
+  /** Line above the recipient's name. */
+  lead: string
+  /** Recipient: the person, or "A and B" for a marriage. */
+  names: string
+  /** Sentence under the names: what happened, when, where. */
+  statement: string
+  /** Optional label/value lines (minister, godparents). */
+  details: { label: string; value: string }[]
+  registerNo: string
+}
+
+/** The fields of a register entry that a certificate prints. Notes are never printed. */
+export type CertificateSource = {
+  type: SacramentType
+  registerNo: string
+  date: string
+  place: string
+  ministerName: string | null
+  person: { firstName: string; lastName: string }
+  spouse: { firstName: string; lastName: string } | null
+  spouseName: string | null
+  godparents: string | null
+}
+
+const CERTIFICATE_VERB: Record<Exclude<SacramentType, "MARRIAGE">, string> = {
+  BAPTISM: "was baptised",
+  CONFIRMATION: "was confirmed",
+  FIRST_COMMUNION: "received First Holy Communion",
+}
+
+/**
+ * Wording for one register entry's certificate. A marriage names both spouses
+ * (a CRM spouse by name, else the free-text one); other rites name the person.
+ * @param r the entry, decrypted
+ */
+export function certificateText(r: CertificateSource): CertificateText {
+  const person = `${r.person.firstName} ${r.person.lastName}`
+  const when = formatLongYmd(r.date)
+  const details: CertificateText["details"] = []
+  if (r.type === SacramentType.MARRIAGE) {
+    const spouse = r.spouse ? `${r.spouse.firstName} ${r.spouse.lastName}` : (r.spouseName ?? "")
+    if (r.ministerName) details.push({ label: "Officiating minister", value: r.ministerName })
+    return {
+      title: "Certificate of Marriage",
+      lead: "This is to certify that",
+      names: spouse ? `${person} and ${spouse}` : person,
+      statement: `were united in Holy Matrimony on ${when} at ${r.place}.`,
+      details,
+      registerNo: r.registerNo,
+    }
+  }
+  if (r.ministerName) details.push({ label: "Minister", value: r.ministerName })
+  if (r.godparents) {
+    details.push({ label: r.type === SacramentType.BAPTISM ? "Godparents" : "Sponsors", value: r.godparents })
+  }
+  return {
+    title: `Certificate of ${SACRAMENT_LABEL[r.type]}`,
+    lead: "This is to certify that",
+    names: person,
+    statement: `${CERTIFICATE_VERB[r.type]} on ${when} at ${r.place}.`,
+    details,
+    registerNo: r.registerNo,
+  }
+}
