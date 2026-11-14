@@ -10,12 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { randomUuid } from "@/lib/randomUuid"
 // Type-only (erased at build), so the server-only query module never reaches the client bundle.
 import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
-
-/** Server error for a reused submission key with different details (see `recordPayment`). */
-const ALREADY_RECORDED_ERROR = "This payment was already recorded with different details. Reload to see it."
 
 /**
  * Format integer cents as a plain 2-dp decimal string for an input default.
@@ -78,6 +76,8 @@ export function PaymentsPanel({
         // The key stays (rotating it would double-record); reload so the already-committed row shows.
         if (res.error === ALREADY_RECORDED_ERROR) router.refresh()
       } else {
+        // A retried (idempotent) repeat skips the server revalidate, so reload to show the committed row.
+        router.refresh()
         setKey(randomUuid())
         setAmount("")
         setNote("")

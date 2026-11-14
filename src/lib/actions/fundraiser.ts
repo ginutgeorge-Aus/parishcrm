@@ -1,5 +1,6 @@
 "use server"
 
+import { randomInt } from "node:crypto"
 import { auth } from "@/auth"
 import type { Session } from "next-auth"
 import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/enums"
@@ -16,6 +17,7 @@ import { toCents, centsToNumber, fmtAUD } from "@/lib/formatting"
 import { encrypt } from "@/lib/crypto"
 import { entryTotals, FAMILY_SEARCH_LIMIT, FAMILY_SEARCH_MIN, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
+import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { serializableWrite } from "@/lib/serializableWrite"
 // Value import (isolation-level enum) from the generated client, not @/lib/prisma:
 // tests mock @/lib/prisma as `{ prisma }` and would lose the enum.
@@ -138,10 +140,10 @@ const BUSY = { error: "Busy, please try again" }
  * all collide again on the next attempt.
  *
  * @param attempt - 1-based attempt that just failed.
- * @returns Delay in milliseconds (0 up to 25ms * 2^(attempt-1), capped at 200ms).
+ * @returns Delay in milliseconds (0 up to just under 25ms * 2^(attempt-1), capped at 200ms).
  */
 function serializationBackoffMs(attempt: number): number {
-  return Math.floor(Math.random() * Math.min(200, 25 * 2 ** (attempt - 1)))
+  return randomInt(Math.min(200, 25 * 2 ** (attempt - 1)))
 }
 const AUDIT_FAILED = { error: AUDIT_FAILED_ERROR }
 
@@ -554,7 +556,7 @@ export async function recordPayment(
       existing.method === method &&
       (existing.note ?? "") === note &&
       existing.paidAt.toISOString().slice(0, 10) === paidAtStr
-    return same ? undefined : { error: "This payment was already recorded with different details. Reload to see it." }
+    return same ? undefined : { error: ALREADY_RECORDED_ERROR }
   }
   const REPEAT_SELECT = { entryId: true, amount: true, method: true, paidAt: true, note: true } as const
 
