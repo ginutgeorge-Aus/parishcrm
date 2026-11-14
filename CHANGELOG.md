@@ -12,6 +12,19 @@ short, plain-English, user-facing highlights, on the release PR's branch.
 Also add checkpoints for that version to `TEST_CHECKPOINTS` in
 `src/lib/testCheckpoints.ts` (the `/verify` page); a test fails until you do.
 
+## [1.16.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.15.0...v1.16.0) (2026-11-14)
+
+
+### Added
+
+* **events:** fundraiser pickup and delivery prices ([#675](https://github.com/ginutgeorge-Aus/parishcrm/issues/675)) ([9e4fb24](https://github.com/ginutgeorge-Aus/parishcrm/commit/9e4fb2420e88ad8e6d6cdff817ed9828764bb1b9))
+* **sunday-school:** attendance and exam progress pages (OSS-12) ([#686](https://github.com/ginutgeorge-Aus/parishcrm/issues/686)) ([71a54cd](https://github.com/ginutgeorge-Aus/parishcrm/commit/71a54cd081e28a9b7f287fe18d65a5c781f50528))
+
+
+### Fixed
+
+* **sunday-school:** partial unique index on live exams ([#680](https://github.com/ginutgeorge-Aus/parishcrm/issues/680)) ([06f9bc6](https://github.com/ginutgeorge-Aus/parishcrm/commit/06f9bc6a4fa3d7b7b62b840f5883ba482339e068))
+
 ## [1.15.0](https://github.com/ginutgeorge-Aus/parishcrm/compare/v1.14.2...v1.15.0) (2026-11-13)
 
 
