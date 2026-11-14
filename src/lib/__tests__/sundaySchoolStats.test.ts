@@ -153,6 +153,18 @@ const kindy: ClassStatsInput = {
 }
 
 describe("classStats", () => {
+  it("treats a negative, fractional or NaN attendance count as 0", () => {
+    const s = classStats({
+      ...kindy,
+      attendance: [
+        { personId: 10, status: "PRESENT", count: 3 },
+        { personId: 10, status: "ABSENT", count: -2 },
+        { personId: 10, status: "LATE", count: 1.5 },
+        { personId: 11, status: "ABSENT", count: Number.NaN },
+      ],
+    })
+    expect(s.attendance).toMatchObject({ present: 3, late: 0, absent: 0, marked: 3 })
+  })
   it("builds per-student and class totals over enrolled children only", () => {
     const s = classStats(kindy)
     expect(s.enrolled).toBe(2)

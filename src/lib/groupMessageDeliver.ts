@@ -212,11 +212,17 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
 /**
  * Scheduler job: retry recent messages that still have queued or failed
  * recipients (a missed immediate drain, an SMTP blip, a crash mid-send).
+ * First closes PENDING rows of messages older than the retry window as UNKNOWN.
  * @param now current instant
  * @returns summed counts (numbers only, so the scheduler log never carries PII)
  */
 export async function runGroupMessageSweep(now: Date): Promise<DeliverCounts & { messages: number }> {
   const total: DeliverCounts & { messages: number } = { sent: 0, failed: 0, unknown: 0, inFlight: 0, messages: 0 }
+  // Rows still PENDING past the retry window are never retried: close them as UNKNOWN so history stops showing "Queued".
+  await prisma.groupMessageRecipient.updateMany({
+    where: { status: "PENDING", message: { createdAt: { lt: new Date(now.getTime() - RETRY_WINDOW_MS) } } },
+    data: { status: "UNKNOWN" },
+  })
   const messages = await prisma.groupMessage.findMany({
     where: {
       createdAt: { gte: new Date(now.getTime() - RETRY_WINDOW_MS) },
