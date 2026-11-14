@@ -359,6 +359,10 @@ const CORE_ACTIONS = new Set([
   "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
+  // Pastoral care (#305): core, no feature flag; role gated (ADMIN | PASTOR, assignee
+  // scope) in followUp.test.ts / prayerRequest.test.ts.
+  "followUp.ts",
+  "prayerRequest.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

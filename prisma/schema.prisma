@@ -31,6 +31,7 @@ model Family {
   updateSubmissions      FamilyUpdateSubmission[]
   membershipApplications MembershipApplication[]  @relation("MembershipFamily")
   fundraiserEntries      FundraiserEntry[]
+  followUpTasks          FollowUpTask[]
 
   @@unique([name])
   @@index([archivedAt])
@@ -93,6 +94,8 @@ model Person {
   groupMemberships        GroupMember[]
   groupMessageRecipients  GroupMessageRecipient[]
   invoices                Invoice[]
+  followUpTasks           FollowUpTask[]
+  prayerRequests          PrayerRequest[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -174,6 +177,7 @@ model User {
   invoicesCreated              Invoice[]                @relation("InvoiceCreatedBy")
   invoicesSent                 Invoice[]                @relation("InvoiceSentBy")
   groupMessagesSent            GroupMessage[]
+  followUpTasksAssigned        FollowUpTask[]           @relation("FollowUpAssignee")
 }
 
 model TrustedDevice {
@@ -1709,5 +1713,87 @@ model GroupMessageRecipient {
 
   @@unique([messageId, personId])
   @@index([status])
+  @@index([personId])
+}
+
+// ── Pastoral care (#305): follow-up tasks + prayer requests ──────────────────
+// Design decisions in #611. Visibility for both is enforced in app code
+// (src/lib/pastoralAccess.ts), never by the client.
+
+enum FollowUpStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+/// A pastoral follow-up on exactly one person OR one family (CHECK constraint
+/// "FollowUpTask_one_target" in the migration SQL; Prisma cannot model it).
+/// Visible to ADMIN + PASTOR and to the assigned login only. title and notes
+/// are AES-256-GCM ciphertext (pastoral free text). createdById/completedById
+/// are plain ids (no FK) like PersonClearance.createdById; the audit log
+/// (FOLLOW_UP_*) is the authoritative history.
+model FollowUpTask {
+  id            Int            @id @default(autoincrement())
+  title         String // encrypted at rest
+  notes         String? // encrypted at rest
+  personId      Int?
+  person        Person?        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  familyId      Int?
+  family        Family?        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  /// Null = unassigned (only ADMIN/PASTOR see it). SetNull when the login is deleted.
+  assigneeId    Int?
+  assignee      User?          @relation("FollowUpAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  /// Calendar date at UTC midnight (Sydney wall-clock day).
+  dueDate       DateTime?      @db.Date
+  status        FollowUpStatus @default(OPEN)
+  completedAt   DateTime?
+  completedById Int?
+  createdById   Int?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([assigneeId, status, dueDate])
+  @@index([status, dueDate])
+  @@index([personId])
+  @@index([familyId])
+}
+
+/// Where a prayer request came from. STAFF = entered by a logged-in user;
+/// PUBLIC_FORM = the public intake form (#702, later slice).
+enum PrayerRequestSource {
+  STAFF
+  PUBLIC_FORM
+}
+
+enum PrayerRequestStatus {
+  ACTIVE
+  ANSWERED
+  ARCHIVED
+}
+
+/// A prayer request. Private by default: only ADMIN + PASTOR see it. When the
+/// requester consents, staff tick "OK to share" (shareConsent) and an ACTIVE
+/// request then appears in the bulletin list. request and requester contact
+/// fields are AES-256-GCM ciphertext. personId optionally links a member.
+model PrayerRequest {
+  id               Int                 @id @default(autoincrement())
+  source           PrayerRequestSource @default(STAFF)
+  status           PrayerRequestStatus @default(ACTIVE)
+  request          String // encrypted at rest
+  requesterName    String? // encrypted at rest
+  requesterEmail   String? // encrypted at rest
+  requesterPhone   String? // encrypted at rest
+  personId         Int?
+  person           Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
+  shareConsent     Boolean             @default(false)
+  /// When "OK to share" was last ticked; null while private.
+  shareConsentAt   DateTime?
+  shareConsentById Int?
+  createdById      Int?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([status, shareConsent, createdAt])
   @@index([personId])
 }

@@ -183,3 +183,42 @@ export function canMarkSomeSundaySchool(role: UserRole | undefined): boolean {
 export function canBrowseSundaySchool(role: UserRole | undefined): boolean {
   return canManageSundaySchool(role) || role === UserRole.VIEWER
 }
+
+/**
+ * Create, edit, reassign and delete pastoral follow-up tasks, and see every
+ * task. Same circle as pastoral notes (ADMIN | PASTOR), PO decision #611; an
+ * assignee outside it sees only their own tasks (src/lib/pastoralAccess.ts).
+ * @param role the caller's role
+ */
+export function canManageFollowUps(role: UserRole | undefined): boolean {
+  return canSeePastoralNotes(role)
+}
+
+/**
+ * May hold a follow-up task as its assignee (and so see it and change its
+ * status): editors only (ADMIN | PASTOR | OFFICE_ADMIN). VIEWER is read-only,
+ * so it can't hold a task; AUDITOR, EVENT_ORGANISER and the Sunday school
+ * roles never see member records.
+ * @param role the assignee's role
+ */
+export function canBeFollowUpAssignee(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
+
+/**
+ * Create, edit, archive and read every prayer request, including private ones.
+ * Same circle as pastoral notes (ADMIN | PASTOR), PO decision #611.
+ * @param role the caller's role
+ */
+export function canManagePrayerRequests(role: UserRole | undefined): boolean {
+  return canSeePastoralNotes(role)
+}
+
+/**
+ * Read the bulletin list of prayer requests the requester agreed to share.
+ * Editors (ADMIN | PASTOR | OFFICE_ADMIN), who prepare the bulletin.
+ * @param role the caller's role
+ */
+export function canViewSharedPrayerRequests(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
