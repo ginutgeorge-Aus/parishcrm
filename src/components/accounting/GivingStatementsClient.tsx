@@ -35,6 +35,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<string | null>(null)
   const [errors, setErrors] = useState<{ familyId: number; text: string }[]>([])
+  const [auditFailedAll, setAuditFailedAll] = useState<string[]>([])
   const [resend, setResend] = useState(false)
   const emailable = rows.filter((r) => r.canEmail)
 
@@ -62,6 +63,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
   function handleSend() {
     setMessage(null)
     setErrors([])
+    setAuditFailedAll([])
     const nameById = new Map(rows.map((r) => [r.familyId, r.familyName]))
     startTransition(async () => {
       let sent = 0
@@ -107,6 +109,7 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
       // Keep only unprocessed families selected, so a forced resend can't re-send finished chunks.
       setSelected(new Set(queue))
       setErrors(errs)
+      setAuditFailedAll(auditFailedIds.map(label))
       const skippedNote = skipped ? `, skipped ${skipped} (already sent or claimed)` : ""
       const progressNote = inProgress
         ? `, skipped ${inProgress} with a send in progress or delivery unknown (check, then tick Resend)`
@@ -141,6 +144,14 @@ export function GivingStatementsClient({ year, rows, canManage }: Readonly<Props
           </label>
           {message && <output className="text-sm text-muted-foreground">{message}</output>}
         </div>
+      )}
+      {auditFailedAll.length > 10 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">All {auditFailedAll.length} families whose send log row was not written</summary>
+          <ul className="list-disc pl-5">
+            {auditFailedAll.map((n, i) => <li key={`${n}-${i}`}>{n}</li>)}
+          </ul>
+        </details>
       )}
       {errors.length > 0 && (
         <ul role="alert" className="list-disc pl-5 text-xs text-destructive">

@@ -47,6 +47,11 @@ describe("logAudit", () => {
     })
   })
 
+  it("resolves true when the row is written", async () => {
+    mockCreate.mockResolvedValue({})
+    expect(await logAudit(1, "X", "Family", 2)).toBe(true)
+  })
+
   it("swallows errors silently — never throws, but reports the failed write as false", async () => {
     mockCreate.mockRejectedValue(new Error("DB connection lost"))
     await expect(logAudit(1, "EXPORT_CSV", "Event")).resolves.toBe(false)

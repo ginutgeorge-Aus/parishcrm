@@ -265,7 +265,7 @@ describe("sendGivingStatements", () => {
       const now = jest.spyOn(Date, "now")
       let t = 1_000_000
       now.mockImplementation(() => t)
-      // 26s elapsed + 20s per-send timeout would end past the 45s budget, so family 2 is deferred.
+      // 26s elapsed + 15s per-send timeout would end past the 40s budget, so family 2 is deferred.
       mockSend.mockImplementationOnce(async () => {
         t += 26_000
       })
@@ -279,7 +279,7 @@ describe("sendGivingStatements", () => {
       jest.useFakeTimers()
       mockFamilies.mockImplementationOnce(() => new Promise(() => undefined))
       const p = sendGivingStatements(2025, [1])
-      await jest.advanceTimersByTimeAsync(21_000)
+      await jest.advanceTimersByTimeAsync(16_000)
       const res = await p
       expect(res).toEqual(expect.objectContaining({ inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
       expect(mockSend).not.toHaveBeenCalled()
@@ -290,18 +290,32 @@ describe("sendGivingStatements", () => {
       let release: (m: Map<number, unknown>) => void = () => undefined
       mockFamilies.mockImplementationOnce(() => new Promise((r) => { release = r }))
       const p = sendGivingStatements(2025, [1])
-      await jest.advanceTimersByTimeAsync(21_000)
+      await jest.advanceTimersByTimeAsync(16_000)
       await p
       release(new Map([[1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }]]))
       await jest.advanceTimersByTimeAsync(0)
       expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it("does not email after the deadline passed during PDF render, and frees the claim", async () => {
+      jest.useFakeTimers()
+      const { renderGivingStatementPdf } = jest.requireMock("@/lib/pdf/GivingStatementPdf")
+      let release: (b: Buffer) => void = () => undefined
+      renderGivingStatementPdf.mockImplementationOnce(() => new Promise((r) => { release = r }))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(16_000)
+      expect(await p).toEqual(expect.objectContaining({ inProgress: 1 }))
+      release(Buffer.from("%PDF-"))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockSend).not.toHaveBeenCalled()
+      expect(mockClaimDelete).toHaveBeenCalledWith({ where: { key: "giving-statement-claim:2025:1", value: expect.stringMatching(/^PENDING:/) } })
+    })
+
     it("reports a send that exceeds the per-send timeout as in progress", async () => {
       jest.useFakeTimers()
       mockSend.mockImplementationOnce(() => new Promise(() => undefined))
       const p = sendGivingStatements(2025, [1])
-      await jest.advanceTimersByTimeAsync(21_000)
+      await jest.advanceTimersByTimeAsync(16_000)
       expect(await p).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
     })
   })
