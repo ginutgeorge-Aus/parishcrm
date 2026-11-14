@@ -93,6 +93,8 @@ model Person {
   groupMemberships        GroupMember[]
   groupMessageRecipients  GroupMessageRecipient[]
   invoices                Invoice[]
+  rosterAssignments       RosterAssignment[]
+  unavailability          PersonUnavailability[]
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -1641,6 +1643,7 @@ model Group {
   members      GroupMember[]
   leaderAccess GroupLeaderAccess[]
   messages     GroupMessage[]
+  rosterRoles  RosterRole[]
 
   @@index([category])
 }
@@ -1710,4 +1713,116 @@ model GroupMessageRecipient {
   @@unique([messageId, personId])
   @@index([status])
   @@index([personId])
+}
+
+// ─── Volunteer roster (#306, #620) ─────────────────────────────────────────
+// Services (weekly Sunday + ad-hoc) → slots (one per role per service) →
+// assignments (one person, PENDING/CONFIRMED/DECLINED). A role's pool is the
+// live members of its Group. Rules (conflicts, suggestions) live in
+// src/lib/roster.ts; edit access in src/lib/rosterAccess.ts.
+
+enum RosterServiceKind {
+  SUNDAY
+  ADHOC
+}
+
+enum RosterAssignmentStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+}
+
+/// A role volunteers fill at services (reader, usher, altar server). Eligible people are the live
+/// members of `group`. Archive-only, so past assignments keep their role.
+model RosterRole {
+  id           Int          @id @default(autoincrement())
+  name         String       @unique
+  groupId      Int
+  /// People a new service needs in this role, copied into RosterSlot.needed when slots are created.
+  defaultCount Int          @default(1)
+  archivedAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  group        Group        @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  slots        RosterSlot[]
+
+  @@index([groupId])
+}
+
+/// One service to staff: a weekly Sunday service or a one-off (feast day, special liturgy).
+/// `date` is the Sydney calendar date at UTC midnight (unavailability and reminders match on it);
+/// `startsAt`/`endsAt` are the real UTC instants of the Sydney wall-clock times (.ics feed).
+model RosterService {
+  id        Int               @id @default(autoincrement())
+  kind      RosterServiceKind
+  title     String
+  date      DateTime          @db.Date
+  startsAt  DateTime
+  endsAt    DateTime
+  location  String            @default("")
+  /// = startsAt for a SUNDAY service, null for ADHOC (nulls never collide), so re-running the weekly
+  /// generator never duplicates a Sunday while two one-offs may share a start time.
+  weeklyKey DateTime?         @unique
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  slots     RosterSlot[]
+
+  @@index([date])
+}
+
+/// A role at one service and how many people it needs.
+model RosterSlot {
+  id          Int                @id @default(autoincrement())
+  serviceId   Int
+  roleId      Int
+  needed      Int                @default(1)
+  createdAt   DateTime           @default(now())
+  service     RosterService      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  role        RosterRole         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignments RosterAssignment[]
+
+  @@unique([serviceId, roleId])
+  @@index([roleId])
+  /// Target of RosterAssignment's composite FK, so an assignment's serviceId always matches its slot.
+  @@unique([id, serviceId])
+}
+
+/// One person rostered into a slot. `serviceId` is denormalised from the slot (the composite FK keeps
+/// it in step) so `@@unique([serviceId, personId])` stops double-booking a person at one service,
+/// race-safe. A DECLINED row keeps the person off that service until staff remove it. `status` and
+/// `respondedAt` are set by the signed confirm link (#625/#626); the id is the token's assignmentId
+/// and the .ics UID (#627). Reminder (#629): `reminderClaimedAt` is a recoverable send lease,
+/// `reminderSentAt` is set only after the send succeeds (same pattern as Event.reminderSentAt).
+model RosterAssignment {
+  id                Int                    @id @default(autoincrement())
+  slotId            Int
+  serviceId         Int
+  personId          Int
+  status            RosterAssignmentStatus @default(PENDING)
+  respondedAt       DateTime?
+  reminderClaimedAt DateTime?
+  reminderSentAt    DateTime?
+  /// Plain column (no FK), like ServiceHeadcount.createdById: user deletion must not touch history.
+  assignedById      Int?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  slot              RosterSlot             @relation(fields: [slotId, serviceId], references: [id, serviceId], onDelete: Cascade)
+  person            Person                 @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, personId])
+  @@index([slotId])
+  @@index([personId])
+  @@index([status, reminderSentAt])
+}
+
+/// A date range a person cannot serve: inclusive Sydney calendar dates stored at UTC midnight.
+model PersonUnavailability {
+  id        Int      @id @default(autoincrement())
+  personId  Int
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  createdAt DateTime @default(now())
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, endDate])
 }

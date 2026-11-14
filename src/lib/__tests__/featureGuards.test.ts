@@ -359,6 +359,8 @@ const CORE_ACTIONS = new Set([
   "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
+  // Volunteer roster (#622, part of #306): core, no feature flag; role + group-link gated (roster.test.ts).
+  "roster.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {
