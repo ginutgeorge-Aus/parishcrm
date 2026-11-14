@@ -1,7 +1,7 @@
 import type { FeatureKey } from "@/lib/features"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 import {
-  canAccessAccounting, canBrowseSundaySchool, canEdit, canManageUsers, canViewAccounting, canViewPeople, isAdmin, isHeadmaster,
+  canAccessAccounting, canBrowseSundaySchool, canEdit, canManageUsers, canViewAccounting, canViewPeople, isAdmin, isHeadmaster, canManagePrayerRequests,
 } from "@/lib/roleGuard"
 
 // Role/feature gates shared by the sidebar, the top-bar bell and the quick-add
@@ -14,6 +14,8 @@ export type NavFlags = {
   isEditor: boolean
   canUsers: boolean
   canViewPeople: boolean
+  /** Prayer requests link (ADMIN | PASTOR, canManagePrayerRequests). */
+  canPrayerRequests?: boolean
   /** Staff Sunday School link (canBrowseSundaySchool). */
   canBrowseSundaySchool: boolean
   /** HEADMASTER: confined to Sunday School, so hide links middleware would bounce. */
@@ -49,6 +51,7 @@ export function navFlagsFor(
     isEditor: canEdit(role),
     canUsers: canManageUsers(role),
     canViewPeople: canViewPeople(role),
+    canPrayerRequests: canManagePrayerRequests(role),
     canBrowseSundaySchool: canBrowseSundaySchool(role),
     sundaySchoolOnly: isHeadmaster(role),
     venueUsage,

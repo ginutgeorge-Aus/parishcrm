@@ -20,7 +20,7 @@ import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
-  PASTORAL_PATH,
+  FOLLOW_UPS_PATH,
   followUpVisibilityWhere,
   liveFollowUpTarget,
   type PastoralViewer,
@@ -170,7 +170,7 @@ async function checkAssignee(assigneeId: number | null): Promise<string | null> 
  * @param target the task's person or family
  */
 function revalidateTask(target: { personId: number | null; familyId: number | null }): void {
-  revalidatePath(PASTORAL_PATH)
+  revalidatePath(FOLLOW_UPS_PATH)
   if (target.personId) revalidatePath(`/people/${target.personId}`)
   if (target.familyId) revalidatePath(`/families/${target.familyId}`)
 }

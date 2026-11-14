@@ -5,6 +5,8 @@
 // never decrypted (the /giving subpage decrypts; this page did not).
 
 jest.mock("@/lib/featureFlags")
+// Async server card with its own data reads; covered in components/pastoral tests.
+jest.mock("@/components/pastoral/FollowUpCard", () => ({ FollowUpCard: () => null }))
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/prisma", () => ({
   prisma: {
