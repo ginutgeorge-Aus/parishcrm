@@ -97,6 +97,8 @@ export const FIELDS: Record<string, string[]> = {
   waitlist: ["email"],
   familyUpdateInvite: ["email"],
   checkoutSession: ["payload"],
+  // Sacramental register free-text PII (src/lib/actions/sacrament.ts).
+  sacramentRecord: ["spouseName", "godparents", "notes"],
   // Per-attendee custom answers: encrypt(JSON.stringify(...)) in a Json column,
   // like registration.customAnswers (eventRegistrationPersist.ts, nested create).
   attendee: ["answers"],

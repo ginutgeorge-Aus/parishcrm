@@ -227,8 +227,8 @@ export async function updatePerson(
 }
 
 /**
- * Permanently delete a person (ADMIN only) unless giving/receipt records link
- * to them. Clearances cascade with the person, so each is audited as
+ * Permanently delete a person (ADMIN only) unless giving/receipt or sacramental
+ * register records link to them. Clearances cascade with the person, so each is audited as
  * CLEARANCE_REMOVED (cascade) in the same transaction as the delete.
  * @param id Person.id
  * @param familyId expected family (IDOR guard)
@@ -260,6 +260,7 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0
   let lockedSsCount = 0
+  let sacramentCount = 0
   // PersonClearance cascades on person delete; its ids/types are captured
   // inside the transaction so the removal can be audited (no decrypted values).
   const actor = actorId(session)
@@ -275,6 +276,10 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         ])
         const total = txCount + dgrCount + pettyCashCount
         if (total > 0) return total
+        // SacramentRecord person/spouse FKs are Restrict: a register entry is a
+        // permanent church record, so steer to archive instead of a P2003 500.
+        sacramentCount = await tx.sacramentRecord.count({ where: { OR: [{ personId: id }, { spouseId: id }] } })
+        if (sacramentCount > 0) return 0
         // Cascading away teacher/enrolment/attendance rows would rewrite a
         // locked Sunday School year.
         lockedSsCount = await lockedYearRefs(tx, id)
@@ -309,6 +314,11 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   }
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
   if (lockedSsCount > 0) return { error: lockedSsMsg(lockedSsCount) }
+  if (sacramentCount > 0) {
+    return {
+      error: `Cannot delete — ${sacramentCount} sacramental register record(s) reference this person. Archive the family instead.`,
+    }
+  }
 
   revalidatePath(`/families/${familyId}`)
   redirect(`/families/${familyId}`)

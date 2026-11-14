@@ -249,6 +249,18 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       if (activeMemberCount > 0) {
         return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
       }
+      // SacramentRecord person/spouse FKs are Restrict: a register entry is a
+      // permanent church record, so a member named on one blocks the cascade.
+      // Say so, rather than fall into the generic P2003 backstop below.
+      const memberFilter = { familyId: id }
+      const sacramentCount = await tx.sacramentRecord.count({
+        where: { OR: [{ person: memberFilter }, { spouse: memberFilter }] },
+      })
+      if (sacramentCount > 0) {
+        return {
+          error: `Cannot delete — ${sacramentCount} sacramental register record(s) name a member of this family. Keep it archived instead.`,
+        }
+      }
 
       // Clearances cascade with the members (family -> person -> clearance), so
       // capture them under the member locks and audit each as CLEARANCE_REMOVED

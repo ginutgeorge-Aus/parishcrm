@@ -35,6 +35,7 @@ jest.mock("@/lib/prisma", () => ({
     transaction: { count: jest.fn() },
     dgrReceipt: { count: jest.fn() },
     pettyCashReceipt: { count: jest.fn() },
+    sacramentRecord: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   },
@@ -63,6 +64,7 @@ beforeEach(() => {
   ;(prisma.transaction.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.dgrReceipt.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.pettyCashReceipt.count as jest.Mock).mockResolvedValue(0)
+  ;(prisma.sacramentRecord.count as jest.Mock).mockResolvedValue(0)
   ;(prisma.person.delete as jest.Mock).mockImplementation(() => {
     throw new Error("delete outside the transaction")
   })
@@ -226,6 +228,16 @@ describe("deletePerson", () => {
     ;(prisma.transaction.count as jest.Mock).mockResolvedValue(1)
     const r = await deletePerson(3, 5)
     expect(r).toMatchObject({ error: expect.stringContaining("Cannot delete") })
+    expect(personDeleteTx).not.toHaveBeenCalled()
+  })
+
+  it("blocks deletion when sacramental register records name the person or spouse", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.sacramentRecord.count as jest.Mock).mockResolvedValue(2)
+    const r = await deletePerson(3, 5)
+    expect(r).toEqual({ error: expect.stringContaining("2 sacramental register record(s)") })
+    expect(prisma.sacramentRecord.count).toHaveBeenCalledWith({ where: { OR: [{ personId: 3 }, { spouseId: 3 }] } })
     expect(personDeleteTx).not.toHaveBeenCalled()
   })
 
