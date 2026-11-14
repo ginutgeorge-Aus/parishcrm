@@ -46,7 +46,7 @@ export const ROSTER_CONFLICT_MESSAGES: Record<RosterConflict, string> = {
 }
 
 /** Default number of suggestions returned for a slot. */
-export const DEFAULT_SUGGESTION_LIMIT = 5
+const DEFAULT_SUGGESTION_LIMIT = 5
 
 /**
  * True when `ymd` falls inside any range (both ends inclusive).
@@ -121,11 +121,11 @@ function compareLastServed(a: string | null, b: string | null): number {
 
 // ─── Form schemas ─────────────────────────────────────────────────────────
 
-export const MAX_ROSTER_ROLE_NAME = 80
-export const MAX_ROSTER_TITLE = 120
-export const MAX_ROSTER_LOCATION = 120
+const MAX_ROSTER_ROLE_NAME = 80
+const MAX_ROSTER_TITLE = 120
+const MAX_ROSTER_LOCATION = 120
 /** Upper bound on people per slot: a defensive cap, not a product rule. */
-export const MAX_SLOT_NEEDED = 50
+const MAX_SLOT_NEEDED = 50
 /** Most Sundays one generator run may create (about six months). */
 export const MAX_SUNDAYS_PER_RUN = 26
 export const DEFAULT_SUNDAY_TITLE = "Sunday service"
