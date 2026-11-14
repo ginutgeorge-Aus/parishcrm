@@ -1,7 +1,6 @@
 import {
   summariseAttendance,
   mergeAttendance,
-  scoreBasisPoints,
   summariseExams,
   mergeExams,
   formatPercent,
@@ -83,34 +82,49 @@ describe("mergeAttendance", () => {
   })
 })
 
-describe("scoreBasisPoints", () => {
-  it("returns percent x100, rounded half up", () => {
-    expect(scoreBasisPoints("7.5", "50.00")).toBe(1500)
-    expect(scoreBasisPoints("50", "50")).toBe(10000)
-    expect(scoreBasisPoints("0", "50")).toBe(0)
-    expect(scoreBasisPoints("1", "3")).toBe(3333)
-    expect(scoreBasisPoints("2", "3")).toBe(6667)
+describe("summariseExams single-result percent", () => {
+  const pct = (score: string, totalMarks: string) => summariseExams([{ score, totalMarks }]).averagePercent
+  it("returns the percent, rounded half up", () => {
+    expect(pct("7.5", "50.00")).toBe(15)
+    expect(pct("50", "50")).toBe(100)
+    expect(pct("0", "50")).toBe(0)
+    expect(pct("1", "3")).toBe(33)
+    expect(pct("2", "3")).toBe(67)
+    expect(pct("1", "200")).toBe(1) // 0.5% rounds half up
   })
-  it("returns null for a non-decimal or zero total", () => {
-    expect(scoreBasisPoints("abc", "50")).toBeNull()
-    expect(scoreBasisPoints("5", "0")).toBeNull()
-    expect(scoreBasisPoints("5", "1e3")).toBeNull()
+  it("skips a non-decimal or zero total", () => {
+    for (const [s, tm] of [["abc", "50"], ["5", "0"], ["5", "1e3"]]) {
+      expect(summariseExams([{ score: s, totalMarks: tm }])).toMatchObject({ results: 0, skipped: 1, averagePercent: null })
+    }
   })
 })
 
 describe("summariseExams / mergeExams", () => {
   it("averages each result's percent equally", () => {
     const s = summariseExams([{ score: "10", totalMarks: "20" }, { score: "20", totalMarks: "20" }])
-    expect(s).toEqual({ results: 2, skipped: 0, totalBp: 15000, averagePercent: 75 })
+    expect(s).toMatchObject({ results: 2, skipped: 0, averagePercent: 75 })
   })
   it("skips invalid results and reports null with none", () => {
     expect(summariseExams([{ score: "x", totalMarks: "20" }, { score: "5", totalMarks: "0" }]))
-      .toEqual({ results: 0, skipped: 2, totalBp: 0, averagePercent: null })
+      .toMatchObject({ results: 0, skipped: 2, averagePercent: null })
   })
   it("merges by weighting every result equally", () => {
     const a = summariseExams([{ score: "10", totalMarks: "10" }])
     const b = summariseExams([{ score: "0", totalMarks: "10" }, { score: "5", totalMarks: "10" }])
-    expect(mergeExams([a, b])).toEqual({ results: 3, skipped: 0, totalBp: 15000, averagePercent: 50 })
+    expect(mergeExams([a, b])).toMatchObject({ results: 3, skipped: 0, averagePercent: 50 })
+  })
+  it("merges exactly: merged summaries equal one pass over all rows", () => {
+    const rows = [{ score: "1", totalMarks: "3" }, { score: "2", totalMarks: "3" }, { score: "1", totalMarks: "6" }]
+    const whole = summariseExams(rows)
+    expect(mergeExams(rows.map((r) => summariseExams([r])))).toEqual(whole)
+    expect(whole.ratioSum).toEqual({ num: BigInt(7), den: BigInt(6) }) // 1/3 + 2/3 + 1/6, reduced
+    expect(whole.averagePercent).toBe(39) // 7/18 = 38.89%
+  })
+  it("rounds once over exact ratios, not per result", () => {
+    // 2.99/300 = 0.9967% and 0%: exact mean 0.498% -> 0. Rounding each result to
+    // basis points first (100bp + 0bp = 0.50% mean) would wrongly show 1%.
+    const s = summariseExams([{ score: "2.99", totalMarks: "300" }, { score: "0", totalMarks: "300" }])
+    expect(s.averagePercent).toBe(0)
   })
 })
 

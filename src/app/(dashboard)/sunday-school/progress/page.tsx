@@ -23,7 +23,7 @@ export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
   if (!session?.user) redirect("/login")
   if (!canBrowseSundaySchool(session.user.role)) redirect("/")
   const year = parseSchoolYear((await props.searchParams).year)
-  const rows = await loadClassStats({ year })
+  const rows = await loadClassStats({ year }, { students: false })
   const grades = gradeStats(rows.map((r) => r.stats))
 
   return (
@@ -66,7 +66,7 @@ export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
                   <CardContent className="space-y-1">
                     <p className="font-medium text-foreground">Level {g.level}</p>
                     <p className="text-sm text-muted-foreground">
-                      {g.classCount} {g.classCount === 1 ? "class" : "classes"} · {g.enrolled} {g.enrolled === 1 ? "child" : "children"}
+                      {g.classCount} {g.classCount === 1 ? "class" : "classes"} · {g.enrolled} {g.enrolled === 1 ? "student" : "students"}
                     </p>
                     <ProgressStats attendance={g.attendance} exams={g.exams} />
                   </CardContent>
@@ -87,7 +87,7 @@ export default async function SundaySchoolProgressPage(props: Readonly<Props>) {
                         {archived && <Badge variant="secondary">Archived</Badge>}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {[`Level ${c.level}`, c.location].filter(Boolean).join(" · ")} · {c.enrolled} {c.enrolled === 1 ? "child" : "children"}
+                        {[`Level ${c.level}`, c.location].filter(Boolean).join(" · ")} · {c.enrolled} {c.enrolled === 1 ? "student" : "students"}
                       </p>
                       <ProgressStats attendance={c.attendance} exams={c.exams} />
                     </CardContent>
