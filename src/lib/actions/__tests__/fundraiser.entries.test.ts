@@ -123,6 +123,28 @@ describe("addEntry", () => {
     expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(5)
   })
 
+  it("retries a P2034 serialization abort with backoff and then succeeds", async () => {
+    const timeout = jest.spyOn(global, "setTimeout")
+    prismaMock.fundraiserEntry.create
+      .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+      .mockResolvedValue({ id: 11 })
+    expect(await addEntry(3, { outsideName: "Visitor", quantity: "1" })).toBeUndefined()
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(2)
+    expect(timeout).toHaveBeenCalledTimes(1)
+    timeout.mockRestore()
+  })
+
+  it("two parallel adds that collide once on bankRef both succeed", async () => {
+    // First create of the pair loses the unique index; its retry (after backoff) wins.
+    prismaMock.fundraiserEntry.create.mockRejectedValueOnce(p2002()).mockResolvedValue({ id: 11 })
+    const results = await Promise.all([
+      addEntry(3, { outsideName: "A", quantity: "1" }),
+      addEntry(3, { outsideName: "B", quantity: "1" }),
+    ])
+    expect(results).toEqual([undefined, undefined])
+    expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(3)
+  })
+
   it("returns busy (no throw) when no free bank reference is found", async () => {
     // Every probed ref is taken.
     prismaMock.fundraiserEntry.findUnique.mockResolvedValue({ id: 1 })

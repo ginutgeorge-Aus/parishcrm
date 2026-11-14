@@ -27,7 +27,7 @@ import { stripeConfigured } from "@/lib/stripe"
 
 const prismaMock: Record<string, unknown> & {
   fundraiser: { findUnique: jest.Mock }
-  fundraiserReminderSend: { create: jest.Mock; update: jest.Mock; count: jest.Mock; aggregate: jest.Mock }
+  fundraiserReminderSend: { create: jest.Mock; update: jest.Mock; count: jest.Mock; aggregate: jest.Mock; findMany: jest.Mock; groupBy: jest.Mock }
   $transaction: jest.Mock
 } = {
   fundraiser: { findUnique: jest.fn() },
@@ -36,6 +36,8 @@ const prismaMock: Record<string, unknown> & {
     update: jest.fn(async () => ({})),
     count: jest.fn(async () => 0),
     aggregate: jest.fn(async () => ({ _max: { sentAt: null } })),
+    findMany: jest.fn(async () => []),
+    groupBy: jest.fn(async () => []),
   },
   $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prismaMock)),
 }
@@ -83,7 +85,7 @@ test("skips PAID, OVERPAID and 0-owed; sends to UNPAID and PART", async () => {
     entry(5, { payments: [{ amount: "5.00" }] }),
   ])
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 2, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 2, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
   expect(mSend).toHaveBeenCalledTimes(2)
   expect(mSend.mock.calls[1][1]).toMatchObject({ paid: "$5.00", remaining: "$15.00" })
 })
@@ -95,14 +97,14 @@ test("outside blank email skipped and counted; member without consent skipped", 
     entry(3),
   ])
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 2, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 2, skippedRecent: 0, deferred: 0 })
 })
 
 test("one send rejection does not abort others; FAILED row logged", async () => {
   setEntries([entry(1), entry(2), entry(3)])
   mSend.mockRejectedValueOnce(new Error("smtp b1@example.org"))
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 2, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 2, failed: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
   const rows = prismaMock.fundraiserReminderSend.update.mock.calls.map((c) => (c as unknown as [{ data: E }])[0].data)
   expect(rows.map((r) => r.status)).toEqual(["FAILED", "SUCCESS", "SUCCESS"])
   expect(JSON.stringify(rows)).not.toContain("smtp")
@@ -120,7 +122,7 @@ test("sentTo stored via encrypt; audit once with counts", async () => {
     where: { id: 101 }, data: { status: "SUCCESS", errorMessage: undefined },
   })
   expect(logAudit).toHaveBeenCalledTimes(1)
-  expect(logAudit).toHaveBeenCalledWith(expect.anything(), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", 3, { sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(logAudit).toHaveBeenCalledWith(expect.anything(), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", 3, { sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
 })
 
 test("payUrl and cardFee present when Stripe on, event online and passCardFee", async () => {
@@ -200,7 +202,7 @@ test("planReminders counts and last-sent date", async () => {
   setEntries([entry(1, { payments: [{ amount: "20.00" }] }), entry(2, { outsideEmail: null }), entry(3)])
   const when = new Date("2026-11-01T00:00:00Z")
   prismaMock.fundraiserReminderSend.aggregate.mockResolvedValueOnce({ _max: { sentAt: when } } as never)
-  expect(await planReminders(3)).toEqual({ sendable: 1, skippedPaid: 1, skippedNoEmail: 1, lastSentAt: when })
+  expect(await planReminders(3)).toEqual({ sendable: 1, skippedPaid: 1, skippedNoEmail: 1, skippedRecent: 0, deferred: 0, lastSentAt: when })
 })
 
 test("claims each send Serializable; skips entries reminded within 10 minutes", async () => {
@@ -211,7 +213,7 @@ test("claims each send Serializable; skips entries reminded within 10 minutes", 
   jest.useFakeTimers({ now })
   try {
     const res = await sendFundraiserReminders(3)
-    expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+    expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 1, deferred: 0 })
   } finally {
     jest.useRealTimers()
   }
@@ -249,7 +251,7 @@ test("a claim lost to a concurrent run (P2034, retried) is skipped, not double-s
   prismaMock.$transaction.mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
   prismaMock.fundraiserReminderSend.count.mockResolvedValueOnce(1)
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 1 })
+  expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 1, deferred: 0 })
   expect(mSend).not.toHaveBeenCalled()
 })
 
@@ -262,7 +264,7 @@ test("a claim still contended after its retries is retried sequentially and sent
     .mockRejectedValueOnce(p2034())
     .mockRejectedValueOnce(p2034())
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 1, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
   expect(mSend).toHaveBeenCalledTimes(1)
 })
 
@@ -271,7 +273,7 @@ test("a claim contended on the sequential retry too counts as failed, never as r
   const p2034 = () => Object.assign(new Error("conflict"), { code: "P2034" })
   for (let i = 0; i < 6; i++) prismaMock.$transaction.mockRejectedValueOnce(p2034())
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
   expect(mSend).not.toHaveBeenCalled()
 })
 
@@ -279,7 +281,7 @@ test("a claim that cannot be written is not sent untracked", async () => {
   setEntries([entry(1)])
   prismaMock.$transaction.mockRejectedValueOnce(new Error("db down"))
   const res = await sendFundraiserReminders(3)
-  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0 })
+  expect(res).toEqual({ sent: 0, failed: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0 })
   expect(mSend).not.toHaveBeenCalled()
 })
 
@@ -302,7 +304,7 @@ test("sends in bounded parallel chunks (at most 5 in flight) and still sends eve
 test("getReminderPlan returns counts with a formatted last-sent label; non-managers refused", async () => {
   const { getReminderPlan } = await import("@/lib/actions/fundraiser")
   setEntries([entry(1), entry(2, { payments: [{ amount: "20.00" }] })])
-  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, lastSentAt: null })
+  expect(await getReminderPlan(3)).toEqual({ sendable: 1, skippedNoEmail: 0, skippedRecent: 0, deferred: 0, lastSentAt: null })
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "5", role: "AUDITOR" } })
   expect(await getReminderPlan(3)).toEqual({ error: "Unauthorized" })
 })
@@ -312,4 +314,80 @@ test("card fee config is read once per run, not per entry", async () => {
   setEntries([entry(1), entry(2), entry(3)])
   await sendFundraiserReminders(3)
   expect(getCardFeeConfig).toHaveBeenCalledTimes(1)
+})
+
+test("planReminders excludes entries reminded within the dedupe window", async () => {
+  setEntries([entry(1), entry(2)])
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValueOnce([{ entryId: 1 }])
+  const plan = await planReminders(3)
+  expect(plan).toMatchObject({ sendable: 1, skippedRecent: 1, deferred: 0 })
+  const where = prismaMock.fundraiserReminderSend.findMany.mock.calls[0][0].where
+  expect(where).toMatchObject({ status: { in: ["PENDING", "SUCCESS"] }, entry: { fundraiserId: 3 } })
+  expect(where.sentAt.gte.getTime()).toBeGreaterThan(Date.now() - 10 * 60 * 1000 - 1000)
+  expect(where.sentAt.gte.getTime()).toBeLessThanOrEqual(Date.now() - 10 * 60 * 1000 + 1000)
+})
+
+test("a run emails at most REMINDER_MAX_PER_RUN and defers the rest; plan agrees", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const n = REMINDER_MAX_PER_RUN + 3
+  setEntries(Array.from({ length: n }, (_, i) => entry(i + 1)))
+  expect(await planReminders(3)).toMatchObject({ sendable: REMINDER_MAX_PER_RUN, deferred: 3 })
+  const res = await sendFundraiserReminders(3)
+  expect(res).toEqual({ sent: REMINDER_MAX_PER_RUN, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 3 })
+  expect(mSend).toHaveBeenCalledTimes(REMINDER_MAX_PER_RUN)
+})
+
+test("a capped run sends never-reminded entries before already-reminded ones", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const n = REMINDER_MAX_PER_RUN + 1
+  setEntries(Array.from({ length: n }, (_, i) => entry(i + 1)))
+  // Entries 1..REMINDER_MAX_PER_RUN were reminded earlier; the unreminded last one goes first, so the final reminded one is deferred.
+  prismaMock.fundraiserReminderSend.groupBy.mockResolvedValueOnce(
+    Array.from({ length: REMINDER_MAX_PER_RUN }, (_, i) => ({ entryId: i + 1, _max: { sentAt: new Date("2026-11-01T00:00:00Z") } })),
+  )
+  await sendFundraiserReminders(3)
+  const firstClaim = prismaMock.fundraiserReminderSend.create.mock.calls.map((c) => (c[0] as { data: { entryId: number } }).data.entryId)
+  expect(firstClaim).toContain(n)
+  expect(firstClaim).not.toContain(REMINDER_MAX_PER_RUN)
+})
+
+test("stops starting new chunks once the time budget is spent", async () => {
+  setEntries(Array.from({ length: 12 }, (_, i) => entry(i + 1)))
+  jest.useFakeTimers({ now: new Date("2026-11-12T01:00:00Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+  try {
+    // Each send advances the clock past the 45s budget.
+    mSend.mockImplementation(async () => { jest.setSystemTime(Date.now() + 60_000) })
+    const res = await sendFundraiserReminders(3)
+    expect(res).toMatchObject({ sent: 5, deferred: 7 })
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+test("recently reminded entries do not burn cap slots", async () => {
+  const { REMINDER_MAX_PER_RUN } = await import("@/lib/fundraiserReminders")
+  const recent = 10
+  setEntries(Array.from({ length: REMINDER_MAX_PER_RUN + recent }, (_, i) => entry(i + 1)))
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValue(Array.from({ length: recent }, (_, i) => ({ entryId: i + 1 })))
+  const res = await sendFundraiserReminders(3)
+  prismaMock.fundraiserReminderSend.findMany.mockResolvedValue([])
+  expect(res).toEqual({ sent: REMINDER_MAX_PER_RUN, failed: 0, skippedNoEmail: 0, skippedRecent: recent, deferred: 0 })
+})
+
+test("the sequential retry of contended claims also stops once the time budget is spent", async () => {
+  setEntries([entry(1)])
+  const p2034 = () => Object.assign(new Error("conflict"), { code: "P2034" })
+  jest.useFakeTimers({ now: new Date("2026-11-12T01:00:00Z"), doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] })
+  try {
+    // The parallel pass's last conflicting attempt runs past the 45s budget.
+    prismaMock.$transaction
+      .mockRejectedValueOnce(p2034())
+      .mockRejectedValueOnce(p2034())
+      .mockImplementationOnce(async () => { jest.setSystemTime(Date.now() + 60_000); throw p2034() })
+    const res = await sendFundraiserReminders(3)
+    expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 1 })
+    expect(mSend).not.toHaveBeenCalled()
+  } finally {
+    jest.useRealTimers()
+  }
 })

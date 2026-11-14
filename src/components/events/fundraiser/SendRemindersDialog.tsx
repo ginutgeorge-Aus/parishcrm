@@ -6,7 +6,7 @@ import { FormFeedback } from "@/components/ui/FormFeedback"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { getReminderPlan, sendFundraiserReminders } from "@/lib/actions/fundraiser"
 
-type Plan = { sendable: number; skippedNoEmail: number; lastSentAt: string | null }
+type Plan = { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }
 
 /**
  * Button + plain-language confirm dialog for emailing payment reminders. Counts
@@ -58,7 +58,7 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
         return
       }
       if ("error" in res) { setError(res.error); return }
-      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded in the last 10 minutes)` : ""}.`)
+      setDone(`Sent ${res.sent} reminder${res.sent === 1 ? "" : "s"}${res.failed ? `, ${res.failed} failed` : ""}${res.skippedRecent ? `, ${res.skippedRecent} skipped (reminded in the last 10 minutes)` : ""}${res.deferred ? `. ${res.deferred} more not sent yet: run again to continue` : ""}.`)
     })
   }
 
@@ -94,7 +94,7 @@ export function SendRemindersDialog({ fundraiserId }: Readonly<{ fundraiserId: n
  * Plain-language preview of a reminder run.
  * @param props.plan - Counts and last-sent date label from `getReminderPlan`.
  */
-function PlanSummary({ plan: { sendable, skippedNoEmail, lastSentAt } }: Readonly<{ plan: Plan }>) {
+function PlanSummary({ plan: { sendable, skippedNoEmail, skippedRecent, deferred, lastSentAt } }: Readonly<{ plan: Plan }>) {
   return (
     <>
       <p className="text-foreground">
@@ -105,6 +105,16 @@ function PlanSummary({ plan: { sendable, skippedNoEmail, lastSentAt } }: Readonl
       {skippedNoEmail > 0 && (
         <p className="text-muted-foreground">
           {skippedNoEmail} {skippedNoEmail === 1 ? "person owes" : "people owe"} money but {skippedNoEmail === 1 ? "has" : "have"} no email we can use, so they will be skipped.
+        </p>
+      )}
+      {skippedRecent > 0 && (
+        <p className="text-muted-foreground">
+          {skippedRecent} {skippedRecent === 1 ? "person was" : "people were"} reminded in the last 10 minutes, so will be skipped.
+        </p>
+      )}
+      {deferred > 0 && (
+        <p className="text-muted-foreground">
+          Reminders go out in batches: {deferred} more {deferred === 1 ? "person" : "people"} will be left for later runs.
         </p>
       )}
       <p className="text-muted-foreground">

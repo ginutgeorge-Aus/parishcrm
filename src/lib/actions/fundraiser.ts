@@ -1,5 +1,6 @@
 "use server"
 
+import { randomInt } from "node:crypto"
 import { auth } from "@/auth"
 import type { Session } from "next-auth"
 import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/enums"
@@ -27,7 +28,7 @@ import { getCardFeeConfig } from "@/lib/cardFeeSettings"
 import { expireOpenFundraiserCheckouts, surchargeCentsFor } from "@/lib/fundraiserCheckout"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
 import { stripeConfigured } from "@/lib/stripe"
-import { loadReminderCandidates, planReminders } from "@/lib/fundraiserReminders"
+import { loadRecentlyRemindedIds, loadReminderCandidates, orderLeastRecentlyReminded, partitionReminders, planReminders, REMINDER_DEDUPE_MS, REMINDER_MAX_PER_RUN } from "@/lib/fundraiserReminders"
 import { formatSydneyDate } from "@/lib/dates"
 import { logger } from "@/lib/logger"
 import type { ActionResult } from "./types"
@@ -130,6 +131,19 @@ const MAX_NOTE = 500
 const SUBMISSION_KEY_RE = /^[A-Za-z0-9_-]{1,100}$/
 /** Whole-transaction attempts for addEntry when a bankRef/publicToken collides. */
 const MAX_ADD_ATTEMPTS = 5
+/** Base wait before an addEntry retry; doubles per attempt, with full jitter. */
+const ADD_BACKOFF_BASE_MS = 25
+
+/**
+ * Wait a jittered, exponentially growing delay before retrying a contended add,
+ * so parallel adds that collided on the same bankRef do not retry in lockstep.
+ * @param attempt - The attempt that just failed (1-based).
+ */
+function addBackoff(attempt: number): Promise<void> {
+  // crypto.randomInt, not Math.random: jitter only, but keeps Sonar S2245 (weak PRNG) quiet without a suppression.
+  const ms = randomInt(0, ADD_BACKOFF_BASE_MS * 2 ** (attempt - 1) + 1)
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 const BUSY = { error: "Busy, please try again" }
 const AUDIT_FAILED = { error: AUDIT_FAILED_ERROR }
 
@@ -304,12 +318,12 @@ export async function addEntry(
     } catch (e) {
       if (e instanceof AuditWriteError) return AUDIT_FAILED
       if (e instanceof NoFreeBankRefError) return BUSY
-      // Serialization conflict (e.g. a concurrent price edit): re-read and retry.
-      if (isP2034(e)) continue
-      if (!isP2002(e)) throw e
+      if (!isP2002(e) && !isP2034(e)) throw e
       // A concurrent add of the same family wins the unique index: report it.
-      // Otherwise the collision was bankRef/publicToken: retry with fresh values.
+      // Otherwise the collision was bankRef/publicToken (or a P2034 deadlock
+      // abort): back off with jitter, then retry with fresh values.
       if (await isDupFamily(prisma)) return DUP
+      if (attempt < MAX_ADD_ATTEMPTS) await addBackoff(attempt)
     }
   }
   return BUSY
@@ -628,7 +642,7 @@ export async function deletePayment(paymentId: number): Promise<ActionResult> {
 /** Counts for the send-reminders confirm dialog, or an error. */
 export type ReminderPlanResult =
   | { error: string }
-  | { sendable: number; skippedNoEmail: number; lastSentAt: string | null }
+  | { sendable: number; skippedNoEmail: number; skippedRecent: number; deferred: number; lastSentAt: string | null }
 
 /**
  * Load the send-reminders preview (who would be emailed). Called lazily when
@@ -648,6 +662,8 @@ export async function getReminderPlan(fundraiserId: number): Promise<ReminderPla
   return {
     sendable: plan.sendable,
     skippedNoEmail: plan.skippedNoEmail,
+    skippedRecent: plan.skippedRecent,
+    deferred: plan.deferred,
     lastSentAt: plan.lastSentAt ? formatSydneyDate(plan.lastSentAt) : null,
   }
 }
@@ -655,13 +671,10 @@ export async function getReminderPlan(fundraiserId: number): Promise<ReminderPla
 /** Result of a reminder run: counts, or an error. */
 export type SendRemindersResult =
   | { error: string }
-  | { sent: number; failed: number; skippedNoEmail: number; skippedRecent: number }
+  | { sent: number; failed: number; skippedNoEmail: number; skippedRecent: number; deferred: number }
 
-/**
- * An entry reminded (or being reminded) within this window is skipped, so a
- * double-click or two staff sending at once never emails anyone twice.
- */
-const REMINDER_DEDUPE_MS = 10 * 60 * 1000
+/** No new chunk starts after this long, keeping the run inside the request timeout. */
+const REMINDER_TIME_BUDGET_MS = 45_000
 const CLAIM_BUSY = { error: "busy" }
 /** Reminders sent in parallel per chunk (claim tx + SMTP + status update each). */
 const REMINDER_CONCURRENCY = 5
@@ -701,12 +714,14 @@ async function claimReminder(entryId: number, sentTo: string, sentById: number):
  * reachable, consenting email. Each attempt first claims a PENDING
  * FundraiserReminderSend row (encrypted recipient; see `claimReminder`), skipping
  * entries reminded within `REMINDER_DEDUPE_MS`, then marks it SUCCESS or FAILED.
- * Entries are processed in chunks of `REMINDER_CONCURRENCY` in parallel, so a
- * large fundraiser finishes within the request timeout.
+ * Entries are processed in chunks of `REMINDER_CONCURRENCY` in parallel. A run
+ * emails at most `REMINDER_MAX_PER_RUN` entries and starts no new chunk after
+ * `REMINDER_TIME_BUDGET_MS`; the rest are returned as `deferred` for another run.
+ * Recently reminded entries are filtered out before the cap is applied.
  * One failure never aborts the rest. Audited once with counts. Raw mail errors are never logged or stored (they embed the address).
  *
  * @param fundraiserId - Fundraiser id.
- * @returns `{ error }`, or the sent / failed / skippedNoEmail / skippedRecent counts.
+ * @returns `{ error }`, or the sent / failed / skippedNoEmail / skippedRecent / deferred counts.
  */
 export async function sendFundraiserReminders(fundraiserId: number): Promise<SendRemindersResult> {
   const g = await guardManage()
@@ -714,6 +729,8 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   if (!isValidPgId(fundraiserId)) return { error: "Invalid fundraiser" }
   const sentById = Number.parseInt(g.session.user.id ?? "", 10)
   if (Number.isNaN(sentById)) return { error: "Unauthorized" }
+  // The time budget covers the whole request, including the candidate load.
+  const startedAt = Date.now()
 
   const loaded = await loadReminderCandidates(fundraiserId)
   if (!loaded) return { error: "Fundraiser not found" }
@@ -724,10 +741,11 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   let origin: string | null = null
   try { origin = new URL(base).origin } catch { origin = null }
   const online = stripeConfigured() && fundraiser.event.onlinePaymentEnabled && origin !== null
-  const [churchName, invoice, fee] = await Promise.all([
+  const [churchName, invoice, fee, recentIds] = await Promise.all([
     getChurchName(),
     getInvoiceSettings(),
     fundraiser.event.passCardFee && online ? getCardFeeConfig() : Promise.resolve(null),
+    loadRecentlyRemindedIds(fundraiserId),
   ])
   // Without a pay link the bank details are the only way to pay: never send a
   // reminder that tells the recipient to pay but not how.
@@ -739,6 +757,7 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
   let failed = 0
   let skippedNoEmail = 0
   let skippedRecent = 0
+  let deferred = 0
   const money = (cents: number) => fmtAUD(centsToNumber(cents))
   type Due = (typeof candidates)[number] & { recipient: string }
   const busy: Due[] = []
@@ -807,21 +826,36 @@ export async function sendFundraiserReminders(fundraiserId: number): Promise<Sen
     }
   }
 
-  const due: Due[] = []
-  for (const c of candidates) {
-    if (c.remainingCents === 0) continue
-    if (c.recipient) due.push({ ...c, recipient: c.recipient })
-    else skippedNoEmail++
-  }
+  // Pre-filter recently reminded entries (shared with planReminders) so they do
+  // not burn cap slots; claimReminder stays the atomic race guard.
+  const split = partitionReminders(candidates, recentIds)
+  // Only a capped run needs ordering: rotate so deferred entries go first next time.
+  const due: Due[] = split.due.length > REMINDER_MAX_PER_RUN ? await orderLeastRecentlyReminded(fundraiserId, split.due) : split.due
+  skippedNoEmail = split.skippedNoEmail
+  skippedRecent = split.skippedRecent
   // Bounded concurrency: a few hundred entries finish within the request
   // timeout without opening hundreds of SMTP connections / DB transactions.
-  for (let i = 0; i < due.length; i += REMINDER_CONCURRENCY) {
-    await Promise.all(due.slice(i, i + REMINDER_CONCURRENCY).map((c) => remindOne(c)))
+  const overBudget = () => Date.now() - startedAt > REMINDER_TIME_BUDGET_MS
+  const batch = due.slice(0, REMINDER_MAX_PER_RUN)
+  deferred = due.length - batch.length
+  for (let i = 0; i < batch.length; i += REMINDER_CONCURRENCY) {
+    if (overBudget()) {
+      deferred += batch.length - i
+      break
+    }
+    await Promise.all(batch.slice(i, i + REMINDER_CONCURRENCY).map((c) => remindOne(c)))
   }
-  // Contended claims: retry one at a time (no parallel claims left to conflict with).
-  for (const c of busy) await remindOne(c, true)
+  // Contended claims: retry one at a time (no parallel claims left to conflict
+  // with). Same time budget: a claim never written is safe to defer.
+  for (let i = 0; i < busy.length; i++) {
+    if (overBudget()) {
+      deferred += busy.length - i
+      break
+    }
+    await remindOne(busy[i], true)
+  }
 
-  await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail, skippedRecent })
+  await logAudit(actorId(g.session), "FUNDRAISER_REMINDERS_SENT", "Fundraiser", fundraiserId, { sent, failed, skippedNoEmail, skippedRecent, deferred })
   revalidateFundraiser(fundraiser.eventId)
-  return { sent, failed, skippedNoEmail, skippedRecent }
+  return { sent, failed, skippedNoEmail, skippedRecent, deferred }
 }
