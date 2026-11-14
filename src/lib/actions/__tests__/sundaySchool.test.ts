@@ -7,7 +7,7 @@ jest.mock("@/lib/prisma", () => {
   const m = {
     sundaySchoolClass: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), createManyAndReturn: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn() },
     sundaySchoolTeacher: { create: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
-    sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
+    sundaySchoolEnrolment: { findMany: jest.fn(), upsert: jest.fn(), updateMany: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() },
     sundaySchoolYearLock: { upsert: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
     person: { findFirst: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
@@ -368,6 +368,19 @@ describe("enrolChildren", () => {
       update: { classId: 1 },
     })
     expect(r).toEqual({ success: "Enrolled 2 (1 moved from another class)" })
+  })
+  it("restarts enrolledAt only for children moving in from another class, before the upserts", async () => {
+    as(UserRole.ADMIN)
+    liveClass()
+    ;(prisma.person.findMany as jest.Mock).mockResolvedValue([{ id: 2 }, { id: 3 }])
+    ;(prisma.sundaySchoolEnrolment.findMany as jest.Mock).mockResolvedValue([])
+    await enrolChildren(1, [2, 3])
+    expect(prisma.sundaySchoolEnrolment.updateMany).toHaveBeenCalledWith({
+      where: { personId: { in: [2, 3] }, year: 2026, classId: { not: 1 } },
+      data: { classId: 1, enrolledAt: expect.any(Date) },
+    })
+    const moveOrder = (prisma.sundaySchoolEnrolment.updateMany as jest.Mock).mock.invocationCallOrder[0]
+    expect(moveOrder).toBeLessThan((prisma.sundaySchoolEnrolment.upsert as jest.Mock).mock.invocationCallOrder[0])
   })
   it("refuses when the class is archived before the enrolment transaction", async () => {
     as(UserRole.ADMIN)
