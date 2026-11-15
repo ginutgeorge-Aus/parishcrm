@@ -2,8 +2,8 @@
 
 // Public prayer request form (#702, part of #305). No login: abuse is bounded
 // by a honeypot field, a generous in-memory per-IP throttle (before any DB
-// work) and a per-IP Postgres quota spent only on a valid submission. Turnstile
-// is tracked separately. The request is stored as source PUBLIC_FORM, visible
+// work) and a per-IP Postgres quota spent only on a valid submission, plus a
+// server-signed timing token. Turnstile is tracked separately. The request is stored as source PUBLIC_FORM, visible
 // only to ADMIN | PASTOR; "OK to share" records the requester's consent. The
 // request text and contact details are encrypted at rest; the audit row carries
 // ids/flags only (no IP, no text).
@@ -16,6 +16,7 @@ import { resolveClientIp } from "@/lib/clientIp"
 import { logger } from "@/lib/logger"
 import { encrypt } from "@/lib/crypto"
 import { dbRateLimit } from "@/lib/dbRateLimit"
+import { verifyFormToken } from "@/lib/formToken"
 import { PrayerRequestSource } from "@/lib/generated/prisma/enums"
 import { PRAYER_REQUESTS_PATH } from "@/lib/pastoralAccess"
 import { prisma } from "@/lib/prisma"
@@ -29,8 +30,8 @@ const PHONE_MAX = 30
 const TOO_MANY = "Too many submissions. Please try again later."
 const NO_IP = "We can't accept prayer requests right now. Please contact the parish office."
 const TOO_FAST = "That was very quick. Please check your request and send it again."
-/** A person needs longer than this between opening the form and sending it. */
-const MIN_FILL_MS = 3_000
+/** Missing, forged or expired timing token (form open over 2 hours, or a script). */
+const STALE_FORM = "Your session expired. Please refresh and try again."
 /** Shown for a real submit and for a silently dropped bot, so a bot can't tell them apart. */
 const THANKS = "Thank you. Your prayer request has been received."
 
@@ -65,12 +66,12 @@ export type PublicPrayerRequestInput = {
   /** Honeypot: hidden from people, so any value means a bot. Named non-semantically so autofill ignores it. */
   ppr_hp?: string
   /**
-   * Milliseconds the browser measured between opening the form and sending it;
-   * a too-quick submit is refused. A duration, not a timestamp, so a browser
-   * clock set ahead of the server's can't block a real person. Unsigned, so a
-   * speed bump only. Missing or non-finite counts as too fast.
+   * Server-issued, HMAC-signed timestamp stamped when the page rendered (see
+   * `issueFormToken`). Only the server clock is compared, so a browser clock
+   * can't block a real person or fake a slow fill. A missing, forged, too-quick
+   * or stale (over 2 hours) token is refused.
    */
-  elapsedMs?: number
+  formToken?: string
 }
 
 /**
@@ -78,7 +79,7 @@ export type PublicPrayerRequestInput = {
  * same success text) → trusted-IP check (fail closed) → time-to-submit → in-memory per-IP throttle → validation → per-IP DB
  * quota (5 per hour) → create. Creates a PUBLIC_FORM request, private unless
  * the requester ticked "OK to share".
- * @param input form fields plus the honeypot `ppr_hp` and `elapsedMs`
+ * @param input form fields plus the honeypot `ppr_hp` and the signed `formToken`
  * @returns `{ success }` or `{ error }`
  */
 export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput): Promise<ActionResultWithSuccess> {
@@ -94,9 +95,10 @@ export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput)
     logger.warn("publicPrayerRequest: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For; refusing submission")
     return { error: NO_IP }
   }
-  // A missing or non-finite duration counts as too fast: only a script omits it.
-  const elapsed = input.elapsedMs
-  if (typeof elapsed !== "number" || !Number.isFinite(elapsed) || elapsed < MIN_FILL_MS) return { error: TOO_FAST }
+  // Timing trap on a server-signed timestamp: a bot can't forge or backdate it.
+  const timing = verifyFormToken(input.formToken, Date.now())
+  if (timing === "tooFast") return { error: TOO_FAST }
+  if (timing !== "ok") return { error: STALE_FORM }
   if (!rateLimit(`prayer:pre:${rateKey}`, 30, 60_000)) return { error: TOO_MANY }
 
   const parsed = PublicPrayerSchema.safeParse(input)

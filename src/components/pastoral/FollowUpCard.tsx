@@ -33,6 +33,11 @@ export async function FollowUpCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <FollowUpList tasks={res.tasks} canManage={manage} />
+        {res.truncated && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Showing the first {res.tasks.length} follow-ups.
+          </p>
+        )}
         {manage && <FollowUpForm target={target} assignees={assignees} />}
       </CardContent>
     </Card>

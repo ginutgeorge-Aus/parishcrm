@@ -28,16 +28,17 @@ date come last). Overdue open tasks carry an **Overdue** badge.
 - **Status** chips: *Open* (open and in progress, the default), *Closed* (done and cancelled) and *All*.
 - **Assignee** chips (ADMIN and PASTOR): *Everyone*, *Mine*, *Unassigned*, or one person.
 - Each row has **Start**, **Mark done** or **Reopen**; ADMIN and PASTOR can also **Delete** (with a confirmation).
-- The list shows at most 500 tasks. When it hits that, a note says **Showing the first 500**; use
-  the chips to narrow it.
+- **Due today or earlier** chip: only tasks dated today or before (undated and future tasks are left out).
+- The list shows at most 500 tasks. Only when more than 500 match, a note says **Showing the first 500**;
+  use the chips to narrow it. The Follow-ups card on a person or family page shows a similar note.
 
 You add a follow-up from the record it is about. Open a person or a family and use the
 **Follow-ups** card: enter a title, an optional assignee, due date and notes, then press **Add
 follow-up**. The same card lists that record's tasks. OFFICE_ADMIN users see the card only on a
 record that has a task assigned to them. Tasks are in-app only; there are no emails. A task
 assigned to you that is due today or earlier adds a count badge to the **Follow-ups** link in the
-sidebar and an entry under the top-bar bell. The bell entry opens your own open tasks
-(`/follow-ups?assignee=mine`).
+sidebar and an entry under the top-bar bell. The bell entry opens your own open tasks that
+are due today or earlier, the same ones the count shows (`/follow-ups?assignee=mine&due=1`).
 
 ## Prayer requests
 
@@ -64,9 +65,9 @@ the request, and optionally a name, email and phone, plus an **OK to share** tic
 the request stays private to pastors and admins. The tick is recorded only; nothing is published.
 
 To keep spam out, the form has a hidden field that people never see (anything typed there is
-dropped without an error, so a bot cannot tell), refuses a send that the form reports as under
-3 seconds after the page opened (the form sends that time with each submission; a send without
-it is refused the same way), and allows 5 submissions per hour from one internet address. Over the limit, the
+dropped without an error, so a bot cannot tell), refuses a send under 3 seconds after the page
+loaded (the server stamps and signs the load time into the page, so it cannot be faked; a send with a
+missing, forged or over-2-hours-old stamp is refused and the person is asked to refresh), and allows 5 submissions per hour from one internet address. Over the limit, the
 form says to try again later. If your server does not pass on a trusted client address (see the
 `CLIENT_IP_HEADER` setting), the form refuses every submission rather than sharing one limit
 between all visitors. There is no CAPTCHA yet. A

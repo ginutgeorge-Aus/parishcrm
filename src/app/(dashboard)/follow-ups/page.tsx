@@ -24,11 +24,13 @@ const STATUS_CHOICES: { value: FollowUpStatusFilter; label: string }[] = [
  * Builds a /follow-ups href for a filter pair; defaults are left out.
  * @param status status filter
  * @param assignee assignee filter
+ * @param due whether only tasks due today or earlier are listed
  */
-function hrefFor(status: FollowUpStatusFilter, assignee: AssigneeFilter): string {
+function hrefFor(status: FollowUpStatusFilter, assignee: AssigneeFilter, due: boolean): string {
   const q = new URLSearchParams()
   if (status !== "open") q.set("status", status)
   if (assignee !== "all") q.set("assignee", String(assignee))
+  if (due) q.set("due", "1")
   const s = q.toString()
   return s ? `/follow-ups?${s}` : "/follow-ups"
 }
@@ -63,8 +65,11 @@ export default async function FollowUpsPage({
   // tasks anyway, so ignore a stale ?assignee= instead of filtering to nothing.
   const assignee: AssigneeFilter = manage ? parseAssigneeFilter(sp.assignee) : "all"
 
+  // `?due=1` (the bell link): only tasks due today or earlier, so the list matches the bell count.
+  const due = (Array.isArray(sp.due) ? sp.due[0] : sp.due) === "1"
+
   const [res, assignees] = await Promise.all([
-    listFollowUpTasks({ statuses: followUpStatusesFor(status), ...assigneeQuery(assignee) }),
+    listFollowUpTasks({ statuses: followUpStatusesFor(status), ...assigneeQuery(assignee), ...(due ? { due: true } : {}) }),
     manage ? listAssignableUsers() : Promise.resolve([]),
   ])
   if ("error" in res) redirect("/")
@@ -81,23 +86,24 @@ export default async function FollowUpsPage({
       <div className="space-y-2">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Status">
           {STATUS_CHOICES.map((c) => (
-            <FilterChip key={c.value} href={hrefFor(c.value, assignee)} active={status === c.value}>
+            <FilterChip key={c.value} href={hrefFor(c.value, assignee, due)} active={status === c.value}>
               {c.label}
             </FilterChip>
           ))}
+          <FilterChip href={hrefFor(status, assignee, !due)} active={due}>Due today or earlier</FilterChip>
         </div>
         {manage && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Assignee">
-            <FilterChip href={hrefFor(status, "all")} active={assignee === "all"}>Everyone</FilterChip>
-            <FilterChip href={hrefFor(status, "mine")} active={assignee === "mine"}>Mine</FilterChip>
-            <FilterChip href={hrefFor(status, "unassigned")} active={assignee === "unassigned"}>Unassigned</FilterChip>
+            <FilterChip href={hrefFor(status, "all", due)} active={assignee === "all"}>Everyone</FilterChip>
+            <FilterChip href={hrefFor(status, "mine", due)} active={assignee === "mine"}>Mine</FilterChip>
+            <FilterChip href={hrefFor(status, "unassigned", due)} active={assignee === "unassigned"}>Unassigned</FilterChip>
             {assignees.map((a) => (
-              <FilterChip key={a.id} href={hrefFor(status, a.id)} active={assignee === a.id}>{a.name}</FilterChip>
+              <FilterChip key={a.id} href={hrefFor(status, a.id, due)} active={assignee === a.id}>{a.name}</FilterChip>
             ))}
           </div>
         )}
       </div>
-      {tasks.length >= FOLLOW_UP_LIST_MAX && (
+      {res.truncated && (
         <p role="status" className="text-sm text-muted-foreground">
           Showing the first {FOLLOW_UP_LIST_MAX}. Narrow the filters to see the rest.
         </p>

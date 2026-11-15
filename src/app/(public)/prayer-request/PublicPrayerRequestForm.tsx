@@ -12,17 +12,15 @@ import { submitPublicPrayerRequest } from "@/lib/actions/publicPrayerRequest"
  * Public prayer request form: request text, optional name and contact, and an
  * "OK to share" consent tick. Includes a hidden honeypot field. After a
  * successful send the form is replaced by the thank-you message.
+ * @param formToken server-signed timestamp issued when the page rendered
  */
-export function PublicPrayerRequestForm() {
+export function PublicPrayerRequestForm({ formToken }: Readonly<{ formToken: string }>) {
   const [request, setRequest] = useState("")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [share, setShare] = useState(false)
   const [trap, setTrap] = useState("")
-  // When the form opened (browser clock); the elapsed time is sent so the server
-  // can refuse a submit that follows too quickly without comparing clocks.
-  const [openedAt] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -43,7 +41,7 @@ export function PublicPrayerRequestForm() {
           requesterPhone: phone || null,
           shareConsent: share,
           ppr_hp: trap,
-          elapsedMs: Date.now() - openedAt,
+          formToken,
         })
         if (res && "error" in res) setError(res.error)
         else setDone(res && "success" in res ? res.success : "Thank you. Your prayer request has been received.")

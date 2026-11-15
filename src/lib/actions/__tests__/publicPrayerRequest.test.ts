@@ -14,6 +14,10 @@ jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn().mockResolvedValue
 jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn().mockReturnValue(true) }))
 jest.mock("next/headers", () => ({ headers: () => Promise.resolve(new Map([["x-forwarded-for", "203.0.113.9"]])) }))
 
+jest.mock("@/lib/formToken", () => ({
+  verifyFormToken: jest.fn((t: unknown) => (t === "tooFast" ? "tooFast" : t === "good" ? "ok" : t === undefined ? "missing" : "bad")),
+}))
+
 import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
 import { dbRateLimit } from "@/lib/dbRateLimit"
@@ -22,8 +26,8 @@ import { logger } from "@/lib/logger"
 import { submitPublicPrayerRequest } from "@/lib/actions/publicPrayerRequest"
 
 const create = (prisma as unknown as { prayerRequest: { create: jest.Mock } }).prayerRequest.create
-/** A human-speed fill time, so the speed check passes. */
-const SLOW = { elapsedMs: 10_000 }
+/** A valid signed timing token, so the speed check passes. */
+const SLOW = { formToken: "good" }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -94,12 +98,12 @@ describe("submitPublicPrayerRequest", () => {
     }
   })
 
-  it("refuses a submit that follows the form opening too quickly, accepts a slow one", async () => {
-    expect(await submitPublicPrayerRequest({ request: "Fast", elapsedMs: 500 })).toEqual({
+  it("refuses a submit that follows the page render too quickly, accepts a slow one", async () => {
+    expect(await submitPublicPrayerRequest({ request: "Fast", formToken: "tooFast" })).toEqual({
       error: expect.stringContaining("very quick"),
     })
     expect(create).not.toHaveBeenCalled()
-    expect(await submitPublicPrayerRequest({ request: "Slow", elapsedMs: 10_000 })).toEqual({
+    expect(await submitPublicPrayerRequest({ request: "Slow", ...SLOW })).toEqual({
       success: expect.stringContaining("Thank you"),
     })
     expect(create).toHaveBeenCalledTimes(1)
@@ -107,12 +111,10 @@ describe("submitPublicPrayerRequest", () => {
 
   it.each([
     ["missing", {}],
-    ["NaN", { elapsedMs: Number.NaN }],
-    ["Infinity", { elapsedMs: Number.POSITIVE_INFINITY }],
-    ["a string", { elapsedMs: "9999" as unknown as number }],
-  ])("treats a %s elapsedMs as too fast", async (_label, extra) => {
+    ["forged or expired", { formToken: "forged" }],
+  ])("refuses a %s form token before any throttle or DB work", async (_label, extra) => {
     expect(await submitPublicPrayerRequest({ request: "No timer", ...extra })).toEqual({
-      error: expect.stringContaining("very quick"),
+      error: expect.stringContaining("session expired"),
     })
     expect(create).not.toHaveBeenCalled()
     expect(rateLimit).not.toHaveBeenCalled()
@@ -121,21 +123,6 @@ describe("submitPublicPrayerRequest", () => {
   it.each([null, undefined, "text", 42, []])("rejects a non-object input %p cleanly, no throw", async (input) => {
     await expect(submitPublicPrayerRequest(input as never)).resolves.toEqual({ error: "Enter your prayer request" })
     expect(create).not.toHaveBeenCalled()
-  })
-
-  it("judges speed by the browser-measured duration, so a browser clock ahead of the server can't block a send", async () => {
-    // A browser five minutes ahead: an absolute timestamp would look like it was
-    // opened in the future. The duration is what counts.
-    const realNow = Date.now
-    Date.now = () => realNow() - 5 * 60_000
-    try {
-      expect(await submitPublicPrayerRequest({ request: "Skewed", elapsedMs: 10_000 })).toEqual({
-        success: expect.stringContaining("Thank you"),
-      })
-    } finally {
-      Date.now = realNow
-    }
-    expect(create).toHaveBeenCalledTimes(1)
   })
 
   it("returns an error once the per-IP quota is used", async () => {

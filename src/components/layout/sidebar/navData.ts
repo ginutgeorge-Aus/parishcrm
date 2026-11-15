@@ -66,7 +66,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         // Pastoral care (#305): follow-ups for editors (assignees see their own; the page
         // scopes it), prayer requests for ADMIN | PASTOR only.
-        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps, attentionHref: "/follow-ups?assignee=mine" },
+        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps, attentionHref: "/follow-ups?assignee=mine&due=1" },
         { href: "/prayer-requests", label: "Prayer requests", icon: HandHeart, show: canPrayerRequests },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
