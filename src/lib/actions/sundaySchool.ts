@@ -210,13 +210,7 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
   if (found.length !== ids.length) return { error: PERSON_GONE }
 
   const year = g.cls.year
-  const existing = await prisma.sundaySchoolEnrolment.findMany({
-    where: { personId: { in: ids }, year },
-    select: { personId: true, classId: true, class: { select: { archivedAt: true } } },
-  })
-  // Only a live class counts as a "move"; a row left in an archived class is
-  // simply re-pointed (one enrolment per child per year).
-  const movedFrom = existing.filter((e) => e.classId !== classId && !e.class.archivedAt)
+  let movedFrom: { classId: number }[] = []
   try {
     // FOR SHARE on the class row blocks a concurrent archive (its UPDATE needs
     // the row lock) until the enrolments commit, and fails if it already has.
@@ -229,6 +223,15 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
+      // Read inside the transaction (after the locks) so the audit count and the
+      // revalidated paths reflect what this write actually moved.
+      // Only a live class counts as a "move"; a row left in an archived class is
+      // simply re-pointed (one enrolment per child per year).
+      const existing = await tx.sundaySchoolEnrolment.findMany({
+        where: { personId: { in: ids }, year },
+        select: { personId: true, classId: true, class: { select: { archivedAt: true } } },
+      })
+      movedFrom = existing.filter((e) => e.classId !== classId && !e.class.archivedAt)
       // A move into this class restarts enrolledAt, so the child's progress page
       // doesn't list this class's rolls and exams from before they joined.
       // Re-enrolling a child already here leaves enrolledAt alone.

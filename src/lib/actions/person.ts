@@ -290,6 +290,8 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
           where: { personId: id },
           select: { id: true, type: true },
         })
+        // Follow-up tasks cascade as well; audited below like the clearances.
+        const removedTasks = await tx.followUpTask.findMany({ where: { personId: id }, select: { id: true } })
         await tx.person.delete({ where: { id } })
         // Same transaction: a failed audit write rolls the delete back.
         await logAuditTx(tx, actor, "PERSON_DELETED", "Person", id, { familyId })
@@ -301,6 +303,16 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
             resourceType: "Person",
             resourceId: id,
             metadata: { type: c.type, clearanceId: c.id, cascade: true },
+          })),
+        )
+        await logAuditManyTx(
+          tx,
+          removedTasks.map((t) => ({
+            userId: actor,
+            action: "FOLLOW_UP_DELETED",
+            resourceType: "FollowUpTask",
+            resourceId: t.id,
+            metadata: { cascade: true, personId: id },
           })),
         )
         return 0

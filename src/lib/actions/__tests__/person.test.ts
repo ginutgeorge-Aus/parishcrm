@@ -37,6 +37,7 @@ jest.mock("@/lib/prisma", () => ({
     pettyCashReceipt: { count: jest.fn() },
     sacramentRecord: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
+    followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     $transaction: jest.fn(),
   },
 }))

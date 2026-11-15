@@ -192,7 +192,8 @@ function scoreRatio(score: string, totalMarks: string): Fraction | null {
   const s = hundredths(score)
   const t = hundredths(totalMarks)
   if (s === null || t === null || t === BigInt(0)) return null
-  return addFractions(ZERO, { num: s, den: t })
+  const g = gcd(s, t)
+  return g > BigInt(1) ? { num: s / g, den: t / g } : { num: s, den: t }
 }
 
 /**
@@ -276,7 +277,9 @@ export function classStats(input: ClassStatsInput): ClassStats {
   for (const a of input.attendance) {
     const c = marks.get(a.personId)
     if (!c) continue
-    const n = a.count ?? 1
+    // `count` is a non-negative integer; anything else (negative, fractional, NaN) counts as 0.
+    const raw = a.count ?? 1
+    const n = Number.isInteger(raw) && raw > 0 ? raw : 0
     if (a.status === "PRESENT") c.present += n
     else if (a.status === "LATE") c.late += n
     else if (a.status === "ABSENT") c.absent += n

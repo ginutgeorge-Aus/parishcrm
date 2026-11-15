@@ -105,6 +105,7 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/api/events/[slug]/register/route.ts": "events",
   "src/app/api/events/[slug]/waitlist/route.ts": "events",
   "src/app/api/events/[slug]/export-csv/route.ts": "events",
+  "src/app/api/event-exports/[id]/csv/route.ts": "events",
   "src/app/api/events/[slug]/image/[kind]/route.ts": "events",
   "src/app/api/welcome-letter/preview/route.ts": "welcomeLetter",
   "src/app/api/clearances/export/route.ts": "clearances",
@@ -361,6 +362,10 @@ const CORE_ACTIONS = new Set([
   "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
+  // Pastoral care (#305): core, no feature flag; role gated (ADMIN | PASTOR, assignee
+  // scope) in followUp.test.ts / prayerRequest.test.ts.
+  "followUp.ts",
+  "prayerRequest.ts",
   // Volunteer roster (#622, part of #306): core, no feature flag; role + group-link gated (roster.test.ts).
   "roster.ts",
   // Sacramental register (#304/#605): core, no feature flag; role gated

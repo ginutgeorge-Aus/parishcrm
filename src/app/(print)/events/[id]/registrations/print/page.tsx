@@ -13,6 +13,7 @@ import { headers } from "next/headers"
 import { formatSydneyDate, formatSydneyTime } from "@/lib/dates"
 import { PrintButton } from "@/components/ui/PrintButton"
 import { parseRouteId } from "@/lib/validation"
+import { parseExportQuestions } from "@/lib/eventCsvExport"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -48,25 +49,7 @@ export default async function PrintPage(props: Readonly<Props>) {
   await logAudit(actorId(session), "EXPORT_EVENT_REGISTRATIONS", "Event", eventId, { eventTitle: event.title }, ip)
 
   // Validate customQuestions shape (same guard as CSV export,/AUDIT-068).
-  const rawQuestions = Array.isArray(event.customQuestions) ? event.customQuestions : []
-  const customQuestions = rawQuestions
-    .filter(
-      (q): q is { id: string; label: string } =>
-        !!q &&
-        typeof q === "object" &&
-        typeof (q as { id?: unknown }).id === "string" &&
-        typeof (q as { label?: unknown }).label === "string"
-    )
-    .map((q) => {
-      const t = (q as { type?: unknown }).type
-      const s = (q as { scope?: unknown }).scope
-      return {
-        id: q.id,
-        label: q.label,
-        type: typeof t === "string" ? t : undefined,
-        scope: s === "attendee" || s === "order" ? (s as "attendee" | "order") : ("order" as const),
-      }
-    })
+  const customQuestions = parseExportQuestions(event.customQuestions)
 
   const attendees = event.registrations.flatMap(r =>
     r.items.flatMap(item => {
