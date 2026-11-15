@@ -32,6 +32,11 @@ describe("SendRemindersDialog", () => {
     expect(screen.getByText("Reminders were last sent on 1 Nov 2026.")).toBeInTheDocument()
   })
 
+  it("says 'up to N' when the run is capped, since the time budget may stop it early", async () => {
+    await open({ sendable: 200, deferred: 5 } as never)
+    expect(screen.getByText("This will email up to 200 people who still owe money.")).toBeInTheDocument()
+  })
+
   it("disables send when nobody can be reminded", async () => {
     await open({ sendable: 0 })
     expect(screen.getByText("Nobody can be reminded right now.")).toBeInTheDocument()
