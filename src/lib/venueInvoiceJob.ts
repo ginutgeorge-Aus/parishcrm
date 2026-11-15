@@ -209,7 +209,9 @@ async function work(month: string, claimAt: Date): Promise<VenueJobResult> {
   let mail: { subject: string; html: string; text: string }
   if (request?.status === "SUCCESS") {
     if (!request.autoSent) {
-      await releaseClaim(month, claimAt)
+      // Sent by hand: close the month for the job (reminderSentAt), else every tick of days 1-7 re-claims it.
+      // A failed write only means the next tick retries it, so release the claim then.
+      if (!(await markMonthDone(month, claimAt))) await releaseClaim(month, claimAt)
       return ZERO
     }
     // Sent by an earlier run whose notices all failed: retry the notices only (no send). The notice comes from what

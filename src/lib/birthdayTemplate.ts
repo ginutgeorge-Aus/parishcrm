@@ -1,3 +1,5 @@
+import { escapeHtml } from "@/lib/escapeHtml"
+
 export type BirthdayTemplate = { subject: string; body: string }
 
 export const DEFAULT_BIRTHDAY_TEMPLATE: BirthdayTemplate = {
@@ -13,13 +15,6 @@ export const DEFAULT_BIRTHDAY_TEMPLATE: BirthdayTemplate = {
     "With love and blessings,\n{churchName}",
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
 
 type BirthdayVars = { firstName: string; they: string; them: string; their: string; churchName: string }
 function substitute(tpl: string, vars: BirthdayVars): string {

@@ -111,6 +111,17 @@ export function isP2002(e: unknown): boolean {
   return err.code === "P2002" || err.cause?.kind === "UniqueConstraintViolation"
 }
 
+/**
+ * Whether `e` is a Prisma P2025 ("record to update/delete not found"), e.g. a conditional `update` whose extra
+ * `where` filter no longer matched.
+ * @param e the caught value
+ */
+export function isP2025(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false
+  const err = e as { code?: string; cause?: { kind?: string } }
+  return err.code === "P2025" || err.cause?.kind === "RecordNotFound"
+}
+
 // Reject a P2034 (Serializable transaction conflict) error — surfaced by the
 // last-admin recount transactions when a concurrent write aborts the
 // isolation level's read. @prisma/adapter-pg sometimes surfaces the same

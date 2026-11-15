@@ -1,4 +1,5 @@
-import { escapeHtml, formatMonthLabel } from "@/lib/venueUsage"
+import { escapeHtml } from "@/lib/escapeHtml"
+import { formatMonthLabel } from "@/lib/venueUsage"
 
 /**
  * Absolute link to the venue bookings page for a month (base from AUTH_URL).
