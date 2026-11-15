@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { FollowUpCard } from "@/components/pastoral/FollowUpCard"
 import { PersonCard } from "@/components/people/PersonCard"
 import { PersonMobileList } from "@/components/people/PersonMobileList"
 import { ArchiveFamilyButton } from "@/components/families/ArchiveFamilyButton"
@@ -429,6 +430,8 @@ export default async function FamilyDetailPage(props: Readonly<{ params: Promise
       <FamilyInfoCard family={displayFamily} />
 
       <MembersSection familyId={family.id} people={displayFamily.people} userCanEdit={userCanEdit} />
+
+      {userCanEdit && <FollowUpCard target={{ familyId: family.id }} role={session?.user?.role} />}
 
       {userCanSeeGiving && (
         <GivingHistoryCard

@@ -4,7 +4,7 @@ import {
   CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, Warehouse, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  CalendarCheck, Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText,
+  CalendarCheck, Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText, ListTodo, HandHeart,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 import { featureOn, type NavFlags } from "@/components/layout/navGates"
@@ -25,7 +25,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
     pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool,
-    canViewSacraments,
+    canViewSacraments, canPrayerRequests, dueFollowUps,
   } = flags
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
@@ -61,6 +61,10 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/roster", label: "Roster", icon: CalendarCheck, show: isEditor },
         { href: "/attendance", label: "Attendance", icon: ClipboardList, show: isEditor },
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
+        // Pastoral care (#305): follow-ups for editors (assignees see their own; the page
+        // scopes it), prayer requests for ADMIN | PASTOR only.
+        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps },
+        { href: "/prayer-requests", label: "Prayer requests", icon: HandHeart, show: canPrayerRequests },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
         { href: "/memberships", label: "Membership Forms", icon: UserPlus, show: isEditor && on("memberships"), badge: membershipPending },

@@ -12,8 +12,11 @@ import { canBeFollowUpAssignee, canManageFollowUps } from "@/lib/roleGuard"
 /** The signed-in user a pastoral query runs for. */
 export type PastoralViewer = { id: number; role: UserRole | undefined }
 
-/** Revalidated after pastoral mutations; the pages land in #614/#616. */
-export const PASTORAL_PATH = "/pastoral"
+/** Follow-up task list page; revalidated after task mutations. */
+export const FOLLOW_UPS_PATH = "/follow-ups"
+
+/** Prayer request list page; revalidated after prayer request mutations. */
+export const PRAYER_REQUESTS_PATH = "/prayer-requests"
 
 /**
  * Prisma `where` fragment limiting follow-up tasks to those `viewer` may see:

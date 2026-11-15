@@ -11,6 +11,7 @@ import { buildDisplayPerson, groupTransactionsByYear } from "@/lib/personDetailV
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PersonGroupsCard } from "@/components/groups/PersonGroupsCard"
+import { FollowUpCard } from "@/components/pastoral/FollowUpCard"
 import { PersonRosterSection } from "@/components/roster/PersonRosterSection"
 import { Badge } from "@/components/ui/badge"
 import { CLASSIFICATION_BADGE, CLASSIFICATION_LABELS, FAMILY_ROLE_LABELS } from "@/lib/personLabels"
@@ -422,6 +423,8 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
           records={sacramentRows.map((s) => ({ ...s, date: utcYmd(s.date) }))}
         />
       )}
+
+      {userCanEdit && <FollowUpCard target={{ personId: person.id }} role={session?.user?.role} />}
 
       <PersonGroupsCard
         groups={(person.groupMemberships ?? []).map((m) => ({ ...m.group, role: m.role, title: m.title }))}

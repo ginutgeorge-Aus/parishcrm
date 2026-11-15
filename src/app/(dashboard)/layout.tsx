@@ -8,6 +8,7 @@ import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 import { getSession } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
+import { countMyDueFollowUps } from "@/lib/actions/followUp"
 import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -35,7 +36,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   ])
   const role = session?.user?.role
 
-  const [pendingUpdates, verifyPending, membershipPending, venueUsage] = await Promise.all([
+  const [pendingUpdates, verifyPending, membershipPending, venueUsage, dueFollowUps] = await Promise.all([
     canEdit(role) && features.has("familyUpdates") ? countPendingFamilyUpdates() : Promise.resolve(0),
     isAdmin(role)
       ? countUntestedCheckpoints()
@@ -44,6 +45,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       ? countPendingMemberships()
       : Promise.resolve(0),
     canEdit(role) ? isVenueUsageEnabled().catch(() => false) : Promise.resolve(false),
+    canEdit(role) ? countMyDueFollowUps().catch(() => 0) : Promise.resolve(0),
   ])
   return (
     <div className="flex min-h-screen flex-col">
@@ -55,9 +57,9 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       </a>
       <ShellProvider>
         <div className="flex flex-1">
-          <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} features={[...features]} venueUsage={venueUsage} />
+          <Sidebar churchName={churchName} pendingUpdates={pendingUpdates} verifyPending={verifyPending} membershipPending={membershipPending} dueFollowUps={dueFollowUps} features={[...features]} venueUsage={venueUsage} />
           <div id="shell-content" className="flex min-w-0 flex-1 flex-col">
-            <TopBar churchName={churchName} role={role} pendingUpdates={pendingUpdates} membershipPending={membershipPending} features={[...features]} />
+            <TopBar churchName={churchName} role={role} pendingUpdates={pendingUpdates} membershipPending={membershipPending} dueFollowUps={dueFollowUps} features={[...features]} />
             <main id="main-content" className="min-w-0 flex-1 scroll-mt-14 bg-muted p-4 md:p-8">{children}</main>
           </div>
         </div>

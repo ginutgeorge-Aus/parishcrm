@@ -2,7 +2,7 @@ import type { FeatureKey } from "@/lib/features"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 import {
   canAccessAccounting, canBrowseSundaySchool, canEdit, canManageUsers, canViewAccounting, canViewPeople, canViewSacraments,
-  isAdmin, isHeadmaster,
+  isAdmin, isHeadmaster, canManagePrayerRequests,
 } from "@/lib/roleGuard"
 
 // Role/feature gates shared by the sidebar, the top-bar bell and the quick-add
@@ -15,6 +15,8 @@ export type NavFlags = {
   isEditor: boolean
   canUsers: boolean
   canViewPeople: boolean
+  /** Prayer requests link (ADMIN | PASTOR, canManagePrayerRequests). */
+  canPrayerRequests: boolean
   /** Staff Sunday School link (canBrowseSundaySchool). */
   canBrowseSundaySchool: boolean
   /** Sacramental register link (canViewSacraments: ADMIN | PASTOR | OFFICE_ADMIN). */
@@ -26,6 +28,8 @@ export type NavFlags = {
   pendingUpdates: number
   verifyPending: number
   membershipPending: number
+  /** The viewer's own follow-ups due today or earlier (badge on the Follow-ups link). */
+  dueFollowUps?: number
   /** Enabled features; omitted = all on. Off features drop their links. */
   features?: ReadonlySet<FeatureKey>
 }
@@ -41,7 +45,7 @@ export function featureOn(features: ReadonlySet<FeatureKey> | undefined, k: Feat
  */
 export function navFlagsFor(
   role: UserRole | undefined,
-  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending">> = {},
+  counts: Partial<Pick<NavFlags, "pendingUpdates" | "verifyPending" | "membershipPending" | "dueFollowUps">> = {},
   features?: ReadonlySet<FeatureKey>,
   venueUsage = false,
 ): NavFlags {
@@ -52,6 +56,7 @@ export function navFlagsFor(
     isEditor: canEdit(role),
     canUsers: canManageUsers(role),
     canViewPeople: canViewPeople(role),
+    canPrayerRequests: canManagePrayerRequests(role),
     canBrowseSundaySchool: canBrowseSundaySchool(role),
     canViewSacraments: canViewSacraments(role),
     sundaySchoolOnly: isHeadmaster(role),
@@ -59,6 +64,7 @@ export function navFlagsFor(
     pendingUpdates: counts.pendingUpdates ?? 0,
     verifyPending: counts.verifyPending ?? 0,
     membershipPending: counts.membershipPending ?? 0,
+    dueFollowUps: counts.dueFollowUps ?? 0,
     features,
   }
 }
