@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { actorId } from "@/lib/actor"
 import { logger } from "@/lib/logger"
 import { logAudit } from "@/lib/audit"
+import { logAuditGuardedTx, auditTxErrorResult, AuditWriteError, auditWriteFailedResult } from "@/lib/auditGuard"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
 import { revalidatePath } from "next/cache"
@@ -139,7 +140,6 @@ export async function createDgrReceipt(
     }
 
   let created: { id: number } | null = null
-  let receiptNo = ""
   const receipt = await getReceiptSettings()
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -161,12 +161,14 @@ export async function createDgrReceipt(
             createdById: uid,
           },
         })
-        return { row, rNo }
+        // Audit in the same transaction: a failed audit write rolls the receipt back.
+        await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_CREATED", "DgrReceipt", row.id, { receiptNo: rNo, fyEndYear, personId })
+        return { row }
       })
       created = outcome.row
-      receiptNo = outcome.rNo
       break
     } catch (e) {
+      if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "createDgrReceipt")
       if (isP2002(e) && attempt === 0) continue
       logger.error("createDgrReceipt failed", { message: e instanceof Error ? e.message : "unknown" })
       return { error: "Could not create the receipt. Please try again." }
@@ -174,10 +176,11 @@ export async function createDgrReceipt(
   }
   if (!created) return { error: "Could not create the receipt. Please try again." }
 
-  await logAudit(uid, "DGR_RECEIPT_CREATED", "DgrReceipt", created.id, { receiptNo, fyEndYear, personId })
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
+
+const SAVE_BUSY = "Could not save the receipt. Please try again."
 
 /** Update a DGR receipt. ADMIN/PASTOR only. */
 export async function updateDgrReceipt(
@@ -231,13 +234,22 @@ export async function updateDgrReceipt(
       }
   }
 
-  await prisma.dgrReceipt.update({
-    where: { id },
-    // Editing a FAILED receipt clears the failure state so it reads as ready-to-send again.
-    data: { personId, donorName, donorEmail: encrypt(donorEmail), lines, totalAmount, status: "DRAFT", errorMessage: null },
-  })
-
-  await logAudit(uid, "DGR_RECEIPT_UPDATED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+  // Encrypt before the transaction so the row isn't held open for slow work.
+  const encryptedEmail = encrypt(donorEmail)
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.dgrReceipt.update({
+        where: { id },
+        // Editing a FAILED receipt clears the failure state so it reads as ready-to-send again.
+        data: { personId, donorName, donorEmail: encryptedEmail, lines, totalAmount, status: "DRAFT", errorMessage: null },
+      })
+      await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_UPDATED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "updateDgrReceipt", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(LIST_PATH)
   redirect(LIST_PATH)
 }
@@ -255,8 +267,16 @@ export async function deleteDgrReceipt(id: number): Promise<{ error: string } | 
   if (!existing) return { error: "Receipt not found." }
   if (existing.status === "SENT") return { error: "A sent receipt cannot be deleted." }
 
-  await prisma.dgrReceipt.delete({ where: { id } })
-  await logAudit(uid, "DGR_RECEIPT_DELETED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.dgrReceipt.delete({ where: { id } })
+      await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_DELETED", "DgrReceipt", id, { receiptNo: existing.receiptNo })
+    })
+  } catch (e) {
+    const mapped = auditTxErrorResult(e, "deleteDgrReceipt", SAVE_BUSY)
+    if (mapped) return mapped
+    throw e
+  }
   revalidatePath(LIST_PATH)
   return { success: "Receipt deleted." }
 }
@@ -332,11 +352,19 @@ export async function sendDgrReceipt(id: number): Promise<{ error: string } | { 
   } catch {
     // Never log the raw error — SMTP messages can embed the recipient email.
     logger.error("sendDgrReceipt delivery failed", { receiptNo: row.receiptNo })
-    await prisma.dgrReceipt.updateMany({
-      where: { id, status: "SENDING" },
-      data: { status: "FAILED", errorMessage: "Email delivery failed. Please try again." },
-    })
-    await logAudit(uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
+    try {
+      await prisma.$transaction(async (tx) => {
+        const failed = await tx.dgrReceipt.updateMany({
+          where: { id, status: "SENDING" },
+          data: { status: "FAILED", errorMessage: "Email delivery failed. Please try again." },
+        })
+        if (failed.count > 0) await logAuditGuardedTx(tx, uid, "DGR_RECEIPT_FAILED", "DgrReceipt", id, { receiptNo: row.receiptNo })
+      })
+    } catch (e) {
+      const mapped = auditTxErrorResult(e, "sendDgrReceipt", SAVE_BUSY)
+      if (mapped) return mapped
+      throw e
+    }
     revalidatePath(LIST_PATH)
     return { error: "Could not email the receipt. It has been marked failed." }
   }

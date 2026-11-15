@@ -2,12 +2,18 @@ jest.mock("@/lib/featureFlags")
 import { voidInvoice } from "@/lib/actions/invoiceVoid"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
-import { logAudit } from "@/lib/audit"
+import { logAuditTx } from "@/lib/audit"
+import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
-jest.mock("@/lib/prisma", () => ({ prisma: { invoice: { findUnique: jest.fn(), updateMany: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => {
+  // Interactive transactions run their callback against the same mocks (the tx client mirrors prisma).
+  const prisma: Record<string, unknown> = { invoice: { findUnique: jest.fn(), updateMany: jest.fn() } }
+  prisma.$transaction = jest.fn((fn: (tx: unknown) => unknown) => fn(prisma))
+  return { prisma }
+})
 
 const mockAuth = auth as jest.Mock
 beforeEach(() => {
@@ -29,7 +35,11 @@ describe("voidInvoice", () => {
   it("voids a SENT invoice", async () => {
     expect(await voidInvoice(11, " Duplicate ")).toEqual({ success: "INV-0007 voided" })
     expect(prisma.invoice.updateMany).toHaveBeenCalledWith({ where: { id: 11, status: "SENT" }, data: { status: "VOID", voidedAt: expect.any(Date), voidReason: "Duplicate" } })
-    expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_VOIDED", "Invoice", 11, { invoiceNo: "INV-0007" })
+    expect(logAuditTx).toHaveBeenCalledWith(prisma, 1, "INVOICE_VOIDED", "Invoice", 11, { invoiceNo: "INV-0007" })
+  })
+  it("returns AUDIT_FAILED_ERROR when the in-transaction audit write fails", async () => {
+    ;(logAuditTx as jest.Mock).mockRejectedValueOnce(new Error("audit down"))
+    expect(await voidInvoice(11, "x")).toEqual({ error: AUDIT_FAILED_ERROR })
   })
   it("refuses PAID", async () => {
     ;(prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ status: "PAID", invoiceNo: "INV-0007" })
@@ -42,6 +52,6 @@ describe("voidInvoice", () => {
   it("returns CHANGED on a race", async () => {
     ;(prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
     expect(await voidInvoice(11, "x")).toEqual({ error: "This invoice has changed. Reload and try again." })
-    expect(logAudit).not.toHaveBeenCalled()
+    expect(logAuditTx).not.toHaveBeenCalled()
   })
 })
