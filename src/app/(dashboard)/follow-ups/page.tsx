@@ -1,9 +1,9 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { FilterChip } from "@/components/pastoral/FilterChip"
 import { FollowUpList } from "@/components/pastoral/FollowUpList"
 import { listFollowUpTasks } from "@/lib/actions/followUp"
-import { followUpVisibilityWhere } from "@/lib/pastoralAccess"
+import { FOLLOW_UP_LIST_MAX, followUpVisibilityWhere } from "@/lib/pastoralAccess"
 import {
   followUpStatusesFor,
   parseAssigneeFilter,
@@ -13,7 +13,6 @@ import {
 } from "@/lib/pastoralLabels"
 import { listAssignableUsers } from "@/lib/pastoralQueries"
 import { canManageFollowUps } from "@/lib/roleGuard"
-import { cn } from "@/lib/utils"
 
 const STATUS_CHOICES: { value: FollowUpStatusFilter; label: string }[] = [
   { value: "open", label: "Open" },
@@ -43,22 +42,6 @@ function assigneeQuery(assignee: AssigneeFilter): { mine?: boolean; assigneeId?:
   if (assignee === "mine") return { mine: true }
   if (assignee === "unassigned") return { assigneeId: null }
   return typeof assignee === "number" ? { assigneeId: assignee } : {}
-}
-
-/** One filter chip (a link, so it works without JS and is bookmarkable). */
-function Chip({ href, active, children }: Readonly<{ href: string; active: boolean; children: React.ReactNode }>) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "inline-flex min-h-11 items-center rounded-full border px-3 text-sm sm:min-h-0 sm:py-1",
-        active ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
-      )}
-    >
-      {children}
-    </Link>
-  )
 }
 
 /**
@@ -98,22 +81,27 @@ export default async function FollowUpsPage({
       <div className="space-y-2">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Status">
           {STATUS_CHOICES.map((c) => (
-            <Chip key={c.value} href={hrefFor(c.value, assignee)} active={status === c.value}>
+            <FilterChip key={c.value} href={hrefFor(c.value, assignee)} active={status === c.value}>
               {c.label}
-            </Chip>
+            </FilterChip>
           ))}
         </div>
         {manage && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Assignee">
-            <Chip href={hrefFor(status, "all")} active={assignee === "all"}>Everyone</Chip>
-            <Chip href={hrefFor(status, "mine")} active={assignee === "mine"}>Mine</Chip>
-            <Chip href={hrefFor(status, "unassigned")} active={assignee === "unassigned"}>Unassigned</Chip>
+            <FilterChip href={hrefFor(status, "all")} active={assignee === "all"}>Everyone</FilterChip>
+            <FilterChip href={hrefFor(status, "mine")} active={assignee === "mine"}>Mine</FilterChip>
+            <FilterChip href={hrefFor(status, "unassigned")} active={assignee === "unassigned"}>Unassigned</FilterChip>
             {assignees.map((a) => (
-              <Chip key={a.id} href={hrefFor(status, a.id)} active={assignee === a.id}>{a.name}</Chip>
+              <FilterChip key={a.id} href={hrefFor(status, a.id)} active={assignee === a.id}>{a.name}</FilterChip>
             ))}
           </div>
         )}
       </div>
+      {tasks.length >= FOLLOW_UP_LIST_MAX && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Showing the first {FOLLOW_UP_LIST_MAX}. Narrow the filters to see the rest.
+        </p>
+      )}
       <div className="rounded-lg border bg-card p-4">
         <FollowUpList tasks={tasks} canManage={manage} showTarget />
       </div>

@@ -42,7 +42,7 @@ export function PublicPrayerRequestForm() {
           requesterEmail: email || null,
           requesterPhone: phone || null,
           shareConsent: share,
-          hp_field: trap,
+          ppr_hp: trap,
           elapsedMs: Date.now() - openedAt,
         })
         if (res && "error" in res) setError(res.error)
@@ -63,17 +63,21 @@ export function PublicPrayerRequestForm() {
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-lg border bg-card p-4 sm:p-6">
-      {/* Honeypot: hidden from people and assistive tech; a bot fills it. */}
-      <Input
-        type="text"
-        name="hp_field"
-        value={trap}
-        onChange={(e) => setTrap(e.target.value)}
-        tabIndex={-1}
-        autoComplete="off"
-        className="absolute left-[-9999px]"
-        aria-hidden="true"
-      />
+      {/* Honeypot: off-screen, hidden from assistive tech and out of the tab
+          order; a bot fills it. Non-semantic name so password managers and
+          autofill don't match it. */}
+      <div aria-hidden="true" className="absolute left-[-9999px]">
+        <Input
+          type="text"
+          name="ppr_hp"
+          value={trap}
+          onChange={(e) => setTrap(e.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+        />
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="ppr-request">Your prayer request</Label>
         <Textarea id="ppr-request" required rows={6} maxLength={4000} value={request} onChange={(e) => setRequest(e.target.value)} />

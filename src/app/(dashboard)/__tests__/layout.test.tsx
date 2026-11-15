@@ -22,10 +22,12 @@ jest.mock("@/components/layout/TopBar", () => ({ TopBar: () => null }))
 jest.mock("@/components/layout/ShellContext", () => ({ ShellProvider: ({ children }: { children: React.ReactNode }) => children }))
 jest.mock("@/components/SiteFooter", () => ({ SiteFooter: () => null }))
 jest.mock("@/components/auth/IdleTimeout", () => ({ IdleTimeout: () => null }))
+jest.mock("@/lib/pastoralQueries", () => ({ countDueFollowUpsFor: jest.fn().mockResolvedValue(0) }))
 
 import DashboardLayout from "../layout"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
+import { countDueFollowUpsFor } from "@/lib/pastoralQueries"
 
 /** Depth-first search of the element tree for the first element whose props pass `match`. */
 function findProps(tree: unknown, match: (p: Record<string, unknown>) => boolean): Record<string, unknown> | undefined {
@@ -112,5 +114,28 @@ describe("DashboardLayout top bar", () => {
     const top = findProps(tree, (p) => "churchName" in p && !("verifyPending" in p))
     expect(top).toMatchObject({ churchName: "Test Church", role: "ADMIN", pendingUpdates: 3, membershipPending: 5 })
     expect(Array.isArray(top?.features)).toBe(true)
+  })
+})
+
+describe("DashboardLayout due follow-ups", () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it("reuses the layout's session for the count (no second auth read)", async () => {
+    const session = { user: { id: "4", role: "OFFICE_ADMIN" } }
+    mockAuth.mockResolvedValue(session)
+    ;(countDueFollowUpsFor as jest.Mock).mockResolvedValue(3)
+    const props = sidebarProps(await DashboardLayout({ children: null }))
+    expect(countDueFollowUpsFor).toHaveBeenCalledWith(session)
+    expect(mockAuth).toHaveBeenCalledTimes(1)
+    expect(props?.dueFollowUps).toBe(3)
+  })
+
+  it("skips the count for non-editors and shows 0 if it fails", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "4", role: "VIEWER" } })
+    await DashboardLayout({ children: null })
+    expect(countDueFollowUpsFor).not.toHaveBeenCalled()
+    mockAuth.mockResolvedValue({ user: { id: "4", role: "PASTOR" } })
+    ;(countDueFollowUpsFor as jest.Mock).mockRejectedValue(new Error("db down"))
+    expect(sidebarProps(await DashboardLayout({ children: null }))?.dueFollowUps).toBe(0)
   })
 })

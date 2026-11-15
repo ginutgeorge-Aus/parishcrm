@@ -35,8 +35,8 @@ jest.mock("@/lib/crypto", () => ({
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logAuditTx } from "@/lib/audit"
+import { countDueFollowUpsFor } from "@/lib/pastoralQueries"
 import {
-  countMyDueFollowUps,
   createFollowUpTask,
   deleteFollowUpTask,
   getFollowUpTask,
@@ -396,11 +396,10 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
   })
 })
 
-describe("countMyDueFollowUps", () => {
-  it("counts the caller's own open tasks due by today (Sydney)", async () => {
-    as(UserRole.OFFICE_ADMIN, "9")
+describe("countDueFollowUpsFor (dashboard badge)", () => {
+  it("counts the session user's own open tasks due by today (Sydney)", async () => {
     p.followUpTask.count.mockResolvedValue(2)
-    expect(await countMyDueFollowUps()).toBe(2)
+    expect(await countDueFollowUpsFor({ user: { id: "9", role: UserRole.OFFICE_ADMIN } } as never)).toBe(2)
     expect(p.followUpTask.count).toHaveBeenCalledWith({
       where: {
         ...LIVE,
@@ -411,9 +410,9 @@ describe("countMyDueFollowUps", () => {
     })
   })
 
-  it("is 0 for roles that can't hold tasks", async () => {
-    as(UserRole.AUDITOR)
-    expect(await countMyDueFollowUps()).toBe(0)
+  it("is 0 when signed out or for roles that can't hold tasks", async () => {
+    expect(await countDueFollowUpsFor(null)).toBe(0)
+    expect(await countDueFollowUpsFor({ user: { id: "9", role: UserRole.AUDITOR } } as never)).toBe(0)
     expect(p.followUpTask.count).not.toHaveBeenCalled()
   })
 })

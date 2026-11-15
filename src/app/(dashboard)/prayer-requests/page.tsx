@@ -1,12 +1,12 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { FilterChip } from "@/components/pastoral/FilterChip"
 import { PrayerRequestForm } from "@/components/pastoral/PrayerRequestForm"
 import { PrayerRequestList } from "@/components/pastoral/PrayerRequestList"
 import { listPrayerRequests } from "@/lib/actions/prayerRequest"
 import { PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import { canManagePrayerRequests } from "@/lib/roleGuard"
-import { cn } from "@/lib/utils"
 
 const CHOICES = [
   { value: "active", label: "Active", statuses: [PrayerRequestStatus.ACTIVE] },
@@ -40,17 +40,13 @@ export default async function PrayerRequestsPage({
       </p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Status">
         {CHOICES.map((c) => (
-          <Link
+          <FilterChip
             key={c.value}
             href={c.value === "active" ? "/prayer-requests" : `/prayer-requests?status=${c.value}`}
-            aria-current={choice.value === c.value ? "true" : undefined}
-            className={cn(
-              "inline-flex min-h-11 items-center rounded-full border px-3 text-sm sm:min-h-0 sm:py-1",
-              choice.value === c.value ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
-            )}
+            active={choice.value === c.value}
           >
             {c.label}
-          </Link>
+          </FilterChip>
         ))}
       </div>
       <div className="rounded-lg border bg-card p-4">

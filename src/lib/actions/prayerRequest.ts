@@ -325,6 +325,45 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
 }
 
 /**
+ * Withdraw "OK to share" when the requester takes back consent. ADMIN | PASTOR
+ * only. Writes the `shareConsent*` fields only, so it works even when a stored
+ * text field can't be decrypted (it never reads or re-encrypts the text). No
+ * `expectedUpdatedAt`: withdrawal is idempotent and always moves towards
+ * private, so a stale page can't do harm by repeating it.
+ * @param id PrayerRequest.id
+ * @returns `{ success }` (also when already private) or `{ error }`
+ */
+export async function withdrawPrayerShareConsent(id: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
+  const session = await auth()
+  if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
+  if (!isValidPgId(id)) return { error: NOT_FOUND }
+  const actor = actorId(session)
+  // shareConsent in the predicate: only a row still shared is written and
+  // audited, so a repeat click is a no-op.
+  const withdrawn = await prisma.$transaction(async (tx) => {
+    const r = await tx.prayerRequest.updateMany({
+      where: { id, shareConsent: true },
+      data: { shareConsent: false, shareConsentAt: null, shareConsentById: null },
+    })
+    if (r.count === 0) return false
+    await logAuditTx(tx, actor, "PRAYER_REQUEST_UPDATED", "PrayerRequest", id, { fields: [], shareConsent: false })
+    return true
+  })
+  if (!withdrawn) {
+    const exists = await prisma.prayerRequest.findUnique({ where: { id }, select: { id: true } })
+    if (!exists) return { error: NOT_FOUND }
+    // Already private (withdrawn elsewhere): refresh so a stale "OK to share"
+    // badge on this page clears.
+    revalidatePath(PRAYER_REQUESTS_PATH)
+    return { success: "No changes" }
+  }
+  revalidatePath(PRAYER_REQUESTS_PATH)
+  return { success: "Sharing withdrawn" }
+}
+
+/**
  * Set a prayer request's status: ARCHIVED to archive, ACTIVE to restore,
  * ANSWERED to mark it answered. ADMIN | PASTOR only. Only ACTIVE requests
  * appear in the bulletin list.

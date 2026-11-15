@@ -11,8 +11,11 @@ import { featureOn, type NavFlags } from "@/components/layout/navGates"
 
 // `badgeInformational` marks a count that is shown on the link but is not an
 // action item, so it stays out of the collapsed group header's pending total.
+// `attentionHref` is where the top-bar bell links instead of `href`, when the
+// badge counts a narrower list than the page shows (e.g. my due follow-ups).
 export type NavItem = {
   href: string; label: string; icon: React.ElementType; show: boolean; badge?: number; badgeInformational?: boolean
+  attentionHref?: string
 }
 export type NavEntry = NavItem | { subLabel: string; items: NavItem[] }
 // `headless` groups render their links at the top level, with no collapsible
@@ -63,7 +66,7 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         // Pastoral care (#305): follow-ups for editors (assignees see their own; the page
         // scopes it), prayer requests for ADMIN | PASTOR only.
-        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps },
+        { href: "/follow-ups", label: "Follow-ups", icon: ListTodo, show: isEditor, badge: dueFollowUps, attentionHref: "/follow-ups?assignee=mine" },
         { href: "/prayer-requests", label: "Prayer requests", icon: HandHeart, show: canPrayerRequests },
         { href: "/people/clearances", label: "Clearances", icon: BadgeCheck, show: isEditor && on("clearances") },
         { href: "/families/updates", label: "Family Updates", icon: Inbox, show: isEditor && on("familyUpdates"), badge: pendingUpdates },
@@ -142,10 +145,14 @@ export function flattenNavItems(items: NavEntry[]): NavItem[] {
 
 /**
  * Visible links with a pending actionable count (the top-bar bell's list).
- * Informational badges, such as unverified release checks, are left out.
+ * Informational badges, such as unverified release checks, are left out. Each
+ * item's `href` is its `attentionHref` when set, so the bell lands on the list
+ * its count describes.
+ * @param groups the visible nav groups
  */
 export function attentionItems(groups: NavGroup[]): NavItem[] {
   return groups
     .flatMap((g) => flattenNavItems(g.items))
     .filter((i) => i.show && !i.badgeInformational && (i.badge ?? 0) > 0)
+    .map((i) => (i.attentionHref ? { ...i, href: i.attentionHref } : i))
 }

@@ -28,11 +28,16 @@ date come last). Overdue open tasks carry an **Overdue** badge.
 - **Status** chips: *Open* (open and in progress, the default), *Closed* (done and cancelled) and *All*.
 - **Assignee** chips (ADMIN and PASTOR): *Everyone*, *Mine*, *Unassigned*, or one person.
 - Each row has **Start**, **Mark done** or **Reopen**; ADMIN and PASTOR can also **Delete** (with a confirmation).
+- The list shows at most 500 tasks. When it hits that, a note says **Showing the first 500**; use
+  the chips to narrow it.
 
 You add a follow-up from the record it is about. Open a person or a family and use the
 **Follow-ups** card: enter a title, an optional assignee, due date and notes, then press **Add
-follow-up**. The same card lists that record's tasks. Tasks are in-app only; there are no emails. A task assigned to you that is due today or
-earlier adds a count badge to the **Follow-ups** link in the sidebar.
+follow-up**. The same card lists that record's tasks. OFFICE_ADMIN users see the card only on a
+record that has a task assigned to them. Tasks are in-app only; there are no emails. A task
+assigned to you that is due today or earlier adds a count badge to the **Follow-ups** link in the
+sidebar and an entry under the top-bar bell. The bell entry opens your own open tasks
+(`/follow-ups?assignee=mine`).
 
 ## Prayer requests
 
@@ -43,8 +48,8 @@ name and contact the requester gave.
 
 - **Mark answered**, **Archive** and **Restore** move a request between the statuses.
 - **Withdraw sharing** (on an **OK to share** request) makes it private again when the requester
-  changes their mind. If someone else changed the request since you opened the page, you are asked
-  to refresh first.
+  changes their mind. It changes only the sharing choice, so it works even if someone else edited
+  the request since you opened the page.
 - **Add a prayer request** at the bottom records one you were told in person. Tick **OK to share**
   only when the requester agreed.
 
@@ -60,7 +65,8 @@ the request stays private to pastors and admins. The tick is recorded only; noth
 
 To keep spam out, the form has a hidden field that people never see (anything typed there is
 dropped without an error, so a bot cannot tell), refuses a send that the form reports as under
-3 seconds after the page opened (the form sends that time with each submission), and allows 5 submissions per hour from one internet address. Over the limit, the
+3 seconds after the page opened (the form sends that time with each submission; a send without
+it is refused the same way), and allows 5 submissions per hour from one internet address. Over the limit, the
 form says to try again later. If your server does not pass on a trusted client address (see the
 `CLIENT_IP_HEADER` setting), the form refuses every submission rather than sharing one limit
 between all visitors. There is no CAPTCHA yet. A

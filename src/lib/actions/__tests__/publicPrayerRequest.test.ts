@@ -22,6 +22,8 @@ import { logger } from "@/lib/logger"
 import { submitPublicPrayerRequest } from "@/lib/actions/publicPrayerRequest"
 
 const create = (prisma as unknown as { prayerRequest: { create: jest.Mock } }).prayerRequest.create
+/** A human-speed fill time, so the speed check passes. */
+const SLOW = { elapsedMs: 10_000 }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -33,6 +35,7 @@ beforeEach(() => {
 describe("submitPublicPrayerRequest", () => {
   it("creates a private PUBLIC_FORM request with encrypted text and contact", async () => {
     const r = await submitPublicPrayerRequest({
+      ...SLOW,
       request: "  Healing for my mother ",
       requesterName: "Sam",
       requesterEmail: "sam@example.com",
@@ -58,19 +61,19 @@ describe("submitPublicPrayerRequest", () => {
   })
 
   it("name and contact are optional", async () => {
-    await submitPublicPrayerRequest({ request: "Peace" })
+    await submitPublicPrayerRequest({ request: "Peace", ...SLOW })
     expect(create.mock.calls[0][0].data).toMatchObject({ requesterName: null, requesterEmail: null, requesterPhone: null })
   })
 
   it("records consent when ticked", async () => {
-    await submitPublicPrayerRequest({ request: "Thanks", shareConsent: true })
+    await submitPublicPrayerRequest({ request: "Thanks", shareConsent: true, ...SLOW })
     const data = create.mock.calls[0][0].data
     expect(data.shareConsent).toBe(true)
     expect(data.shareConsentAt).toBeInstanceOf(Date)
   })
 
   it("silently drops a filled honeypot: success text, nothing stored, no quota spent", async () => {
-    const r = await submitPublicPrayerRequest({ request: "Buy pills", hp_field: "http://spam" })
+    const r = await submitPublicPrayerRequest({ request: "Buy pills", ppr_hp: "http://spam" })
     expect(r).toEqual({ success: expect.stringContaining("Thank you") })
     expect(create).not.toHaveBeenCalled()
     expect(dbRateLimit).not.toHaveBeenCalled()
@@ -102,6 +105,24 @@ describe("submitPublicPrayerRequest", () => {
     expect(create).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ["missing", {}],
+    ["NaN", { elapsedMs: Number.NaN }],
+    ["Infinity", { elapsedMs: Number.POSITIVE_INFINITY }],
+    ["a string", { elapsedMs: "9999" as unknown as number }],
+  ])("treats a %s elapsedMs as too fast", async (_label, extra) => {
+    expect(await submitPublicPrayerRequest({ request: "No timer", ...extra })).toEqual({
+      error: expect.stringContaining("very quick"),
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(rateLimit).not.toHaveBeenCalled()
+  })
+
+  it.each([null, undefined, "text", 42, []])("rejects a non-object input %p cleanly, no throw", async (input) => {
+    await expect(submitPublicPrayerRequest(input as never)).resolves.toEqual({ error: "Enter your prayer request" })
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it("judges speed by the browser-measured duration, so a browser clock ahead of the server can't block a send", async () => {
     // A browser five minutes ahead: an absolute timestamp would look like it was
     // opened in the future. The duration is what counts.
@@ -119,7 +140,7 @@ describe("submitPublicPrayerRequest", () => {
 
   it("returns an error once the per-IP quota is used", async () => {
     ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
-    const r = await submitPublicPrayerRequest({ request: "Again" })
+    const r = await submitPublicPrayerRequest({ request: "Again", ...SLOW })
     expect(r).toEqual({ error: "Too many submissions. Please try again later." })
     expect(create).not.toHaveBeenCalled()
     expect(dbRateLimit).toHaveBeenCalledWith("prayer:ip:203.0.113.9", 5, 60 * 60 * 1000)
@@ -127,7 +148,7 @@ describe("submitPublicPrayerRequest", () => {
 
   it("returns an error when the in-memory throttle trips, before any DB work", async () => {
     ;(rateLimit as jest.Mock).mockReturnValueOnce(false)
-    const r = await submitPublicPrayerRequest({ request: "Flood" })
+    const r = await submitPublicPrayerRequest({ request: "Flood", ...SLOW })
     expect(r).toEqual({ error: "Too many submissions. Please try again later." })
     expect(dbRateLimit).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
@@ -138,7 +159,7 @@ describe("submitPublicPrayerRequest", () => {
     [{ request: "x".repeat(4001) }, "Request must be 4000 characters or fewer"],
     [{ request: "ok", requesterEmail: "not-an-email" }, "Enter a valid email"],
   ])("rejects invalid input %#", async (input, message) => {
-    expect(await submitPublicPrayerRequest(input)).toEqual({ error: message })
+    expect(await submitPublicPrayerRequest({ ...input, ...SLOW })).toEqual({ error: message })
     expect(create).not.toHaveBeenCalled()
     expect(dbRateLimit).not.toHaveBeenCalled()
   })

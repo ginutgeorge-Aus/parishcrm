@@ -63,12 +63,12 @@ export type PublicPrayerRequestInput = {
   /** The "OK to share" tick. */
   shareConsent?: boolean
   /** Honeypot: hidden from people, so any value means a bot. Named non-semantically so autofill ignores it. */
-  hp_field?: string
+  ppr_hp?: string
   /**
    * Milliseconds the browser measured between opening the form and sending it;
    * a too-quick submit is refused. A duration, not a timestamp, so a browser
    * clock set ahead of the server's can't block a real person. Unsigned, so a
-   * speed bump only.
+   * speed bump only. Missing or non-finite counts as too fast.
    */
   elapsedMs?: number
 }
@@ -78,12 +78,14 @@ export type PublicPrayerRequestInput = {
  * same success text) → trusted-IP check (fail closed) → time-to-submit → in-memory per-IP throttle → validation → per-IP DB
  * quota (5 per hour) → create. Creates a PUBLIC_FORM request, private unless
  * the requester ticked "OK to share".
- * @param input form fields plus the honeypot `hp_field` and `elapsedMs`
+ * @param input form fields plus the honeypot `ppr_hp` and `elapsedMs`
  * @returns `{ success }` or `{ error }`
  */
 export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput): Promise<ActionResultWithSuccess> {
+  // A Server Action is callable with any payload: refuse a non-object cleanly.
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return { error: "Enter your prayer request" }
   // Honeypot: a hidden field only a bot fills. Answer like a success, store nothing.
-  if (typeof input?.hp_field === "string" && input.hp_field.trim().length > 0) return { success: THANKS }
+  if (typeof input.ppr_hp === "string" && input.ppr_hp.trim().length > 0) return { success: THANKS }
 
   const { ip, key: rateKey } = resolveClientIp(await headers())
   // No trusted client IP: every such caller would share one "unknown" bucket, so
@@ -92,7 +94,9 @@ export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput)
     logger.warn("publicPrayerRequest: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For; refusing submission")
     return { error: NO_IP }
   }
-  if (typeof input.elapsedMs === "number" && input.elapsedMs < MIN_FILL_MS) return { error: TOO_FAST }
+  // A missing or non-finite duration counts as too fast: only a script omits it.
+  const elapsed = input.elapsedMs
+  if (typeof elapsed !== "number" || !Number.isFinite(elapsed) || elapsed < MIN_FILL_MS) return { error: TOO_FAST }
   if (!rateLimit(`prayer:pre:${rateKey}`, 30, 60_000)) return { error: TOO_MANY }
 
   const parsed = PublicPrayerSchema.safeParse(input)

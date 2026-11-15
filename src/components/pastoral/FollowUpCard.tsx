@@ -8,8 +8,10 @@ import { FollowUpList } from "./FollowUpList"
 
 /**
  * "Follow-ups" card for a person or family page. Managers (ADMIN | PASTOR) see
- * every task on the target and can add one; an assignee sees only their own
- * (the action scopes the read). Renders nothing for roles that hold no tasks.
+ * every task on the target and can add one. An assignee (OFFICE_ADMIN) sees
+ * only their own tasks (the action scopes the read), so the card shows only
+ * when one of theirs is on this record, never an empty "No follow-ups." on
+ * every page. Renders nothing for roles that hold no tasks.
  * @param target the person or family
  * @param role the viewer's role
  */
@@ -17,10 +19,13 @@ export async function FollowUpCard({
   target,
   role,
 }: Readonly<{ target: { personId: number } | { familyId: number }; role: UserRole | undefined }>) {
-  const res = await listFollowUpTasks(target)
-  if ("error" in res) return null
   const manage = canManageFollowUps(role)
-  const assignees = manage ? await listAssignableUsers() : []
+  const [res, assignees] = await Promise.all([
+    listFollowUpTasks(target),
+    manage ? listAssignableUsers() : Promise.resolve([]),
+  ])
+  if ("error" in res) return null
+  if (!manage && res.tasks.length === 0) return null
   return (
     <Card className="print:hidden">
       <CardHeader>

@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { UserRole } from "@/lib/generated/prisma/enums"
-import { followUpVisibilityWhere, liveFollowUpTarget } from "@/lib/pastoralAccess"
+import { followUpViewerFromSession, followUpVisibilityWhere, liveFollowUpTarget } from "@/lib/pastoralAccess"
 import {
   canBeFollowUpAssignee,
   canManageFollowUps,
@@ -53,5 +53,22 @@ describe("followUpVisibilityWhere", () => {
 it("liveFollowUpTarget hides archived people and families", () => {
   expect(liveFollowUpTarget()).toEqual({
     OR: [{ person: { is: { archivedAt: null } } }, { family: { is: { archivedAt: null } } }],
+  })
+})
+
+describe("followUpViewerFromSession", () => {
+  const s = (role: UserRole, id = "4") => ({ user: { id, role } }) as never
+
+  it("null when signed out or the role may see no tasks", () => {
+    expect(followUpViewerFromSession(null)).toBeNull()
+    expect(followUpViewerFromSession(s(UserRole.VIEWER))).toBeNull()
+  })
+
+  it("managers get every task; an assignee is scoped to their own", () => {
+    expect(followUpViewerFromSession(s(UserRole.PASTOR))).toEqual({ viewer: { id: 4, role: UserRole.PASTOR }, scope: {} })
+    expect(followUpViewerFromSession(s(UserRole.OFFICE_ADMIN))).toEqual({
+      viewer: { id: 4, role: UserRole.OFFICE_ADMIN },
+      scope: { assigneeId: 4 },
+    })
   })
 })

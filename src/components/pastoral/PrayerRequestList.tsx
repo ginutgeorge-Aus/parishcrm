@@ -5,7 +5,7 @@ import { useState, useTransition } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
-import { setPrayerRequestStatus, updatePrayerRequest, type PrayerRequestView } from "@/lib/actions/prayerRequest"
+import { setPrayerRequestStatus, withdrawPrayerShareConsent, type PrayerRequestView } from "@/lib/actions/prayerRequest"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import type { PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import { PRAYER_STATUS_LABEL } from "@/lib/pastoralLabels"
@@ -38,25 +38,15 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
   }
 
   /**
-   * Untick "OK to share" when the requester withdraws consent. Sends the row's
-   * own values back unchanged plus the `updatedAt` it was loaded with, so a
-   * row edited elsewhere since this page loaded answers "changed, refresh"
-   * instead of being overwritten.
-   * @param r the request as loaded on this page
+   * Untick "OK to share" when the requester withdraws consent. Touches the
+   * consent fields only, so it also works on a row whose text can't be read.
+   * @param id PrayerRequest.id
    */
-  function withdrawConsent(r: PrayerRequestView) {
+  function withdrawConsent(id: number) {
     setError(null)
     startTransition(async () => {
       try {
-        const res = await updatePrayerRequest(r.id, {
-          request: r.request,
-          requesterName: r.requesterName,
-          requesterEmail: r.requesterEmail,
-          requesterPhone: r.requesterPhone,
-          personId: r.personId,
-          shareConsent: false,
-          expectedUpdatedAt: r.updatedAt,
-        })
+        const res = await withdrawPrayerShareConsent(id)
         if (res && "error" in res) setError(res.error)
       } catch {
         setError("Something went wrong. Please try again.")
@@ -93,7 +83,7 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
                 </Button>
               ) : null}
               {r.shareConsent && (
-                <Button size="sm" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => withdrawConsent(r)}>
+                <Button size="sm" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => withdrawConsent(r.id)}>
                   Withdraw sharing
                 </Button>
               )}

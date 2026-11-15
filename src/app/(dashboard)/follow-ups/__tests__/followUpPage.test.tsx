@@ -82,4 +82,21 @@ describe("/follow-ups page", () => {
     await run({ status: "all", assignee: "mine" })
     expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: undefined, mine: true })
   })
+
+  it("honours the bell link ?assignee=mine: open tasks, Mine chip active", async () => {
+    as("ADMIN")
+    const { getByRole } = await run({ assignee: "mine" })
+    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["OPEN", "IN_PROGRESS"], mine: true })
+    expect(getByRole("link", { name: "Mine" })).toHaveAttribute("aria-current", "true")
+  })
+
+  it("hints that the list is capped only when the cap is hit", async () => {
+    as("ADMIN")
+    const { queryByText, unmount } = await run()
+    expect(queryByText(/Showing the first/)).toBeNull()
+    unmount()
+    ;(listFollowUpTasks as jest.Mock).mockResolvedValue({ tasks: Array.from({ length: 500 }, (_, i) => ({ id: i + 1, assigneeId: null })) })
+    const { getByRole } = await run()
+    expect(getByRole("status")).toHaveTextContent("Showing the first 500. Narrow the filters to see the rest.")
+  })
 })
