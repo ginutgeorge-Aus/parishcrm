@@ -33,3 +33,10 @@ test("omits pay link and card fee when null", async () => {
   expect(html).not.toContain("Pay online")
   expect(html).toContain("RAF-ABC123")
 })
+
+test.each([null, "", "  \n "])("omits the bank-transfer section and reference when bank details are %p", async (bankDetails) => {
+  const text = await render(<FundraiserReminderEmail {...base} bankDetails={bankDetails} />, { plainText: true })
+  expect(text).not.toContain("bank transfer")
+  expect(text).not.toContain("RAF-ABC123")
+  expect(text).toContain("Pay online")
+})

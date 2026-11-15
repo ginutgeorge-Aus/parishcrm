@@ -63,7 +63,7 @@ export function MergeClient({ families }: Readonly<{ families: Family[] }>) {
         <h3 className="font-semibold text-foreground">Merge complete</h3>
         <p className="text-sm text-muted-foreground">
           {keptSeparate} fundraiser {keptSeparate === 1 ? "entry was" : "entries were"} kept as {keptSeparate === 1 ? "a separate row" : "separate rows"} under
-          the merged family&apos;s name, because {keptSeparate === 1 ? "it" : "they"} could not be combined with the surviving family&apos;s entry (different price, or the combined
+          the merged family&apos;s name, because {keptSeparate === 1 ? "it" : "they"} could not be combined with the surviving family&apos;s entry (different price or delivery choice, or the combined
           amount or quantity would exceed the per-entry limit). Review {keptSeparate === 1 ? "it" : "them"} on
           the event&apos;s fundraiser page.
         </p>

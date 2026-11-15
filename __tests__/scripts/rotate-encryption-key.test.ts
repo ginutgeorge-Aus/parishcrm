@@ -443,6 +443,7 @@ describe("FIELDS map", () => {
     waitlist: ["email"],
     familyUpdateInvite: ["email"],
     checkoutSession: ["payload"],
+    sacramentRecord: ["spouseName", "godparents", "notes"],
     attendee: ["answers"],
   }
   // Registration.customAnswers is appended separately below (kept out of the

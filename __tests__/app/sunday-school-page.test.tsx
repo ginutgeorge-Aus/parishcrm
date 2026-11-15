@@ -71,6 +71,7 @@ describe("/sunday-school", () => {
     expect(html).toContain("3 children")
     expect(html).not.toContain("New class")
     expect(html).not.toContain("Roll over")
+    expect(html).toContain('href="/sunday-school/progress?year=2026"')
     expect(prisma.sundaySchoolClass.count).not.toHaveBeenCalled()
   })
 
@@ -169,6 +170,7 @@ describe("/sunday-school/[id]", () => {
     expect(html).toContain('data-readonly="true"')
     expect(html).not.toContain(">Edit<")
     expect(html).toContain(">View roll<")
+    expect(html).toMatch(/href="\/sunday-school\/\d+\/progress"/)
     expect(html).not.toContain('data-testid="markers"')
     expect(prisma.person.findMany).not.toHaveBeenCalled()
     expect(prisma.sundaySchoolRollMarker.findMany).not.toHaveBeenCalled()

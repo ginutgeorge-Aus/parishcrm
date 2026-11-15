@@ -17,7 +17,7 @@ export type FundraiserReassignCounts = { moved: number; folded: number; unlinked
 export type FundraiserReassignResult = FundraiserReassignCounts & { foldedEntryIds: number[] }
 
 /** The fields the merge rule needs from an entry. */
-export type ReassignRow = { id: number; fundraiserId: number; familyId: number | null; quantity: number; unitPrice: Money }
+export type ReassignRow = { id: number; fundraiserId: number; familyId: number | null; quantity: number; unitPrice: Money; delivery: boolean }
 
 /** One source entry's fate in a merge. */
 export type ReassignStep =
@@ -29,10 +29,10 @@ export type ReassignStep =
  * The merge rule, as a pure function (shared by the merge preview and the
  * merge itself). Per source entry:
  * - target has no entry in that fundraiser: move it (familyId = target);
- * - target has one at the same unit price, and the combined total stays within
+ * - target has one at the same unit price and the same delivery flag, and the combined total stays within
  *   the per-entry cap and the summed quantity within `MAX_ENTRY_QUANTITY` (so
  *   the quantity stays editable): fold it in (quantities summed);
- * - otherwise (different price snapshot, or the sum would exceed either cap): keep
+ * - otherwise (different price snapshot or delivery choice, or the sum would exceed either cap): keep
  *   it as its own row, unlinked, under the source family's name.
  *   (fundraiserId, familyId) is unique, so it cannot be a second linked row.
  * @param rows entries of both families
@@ -48,7 +48,7 @@ export function planFundraiserReassign(rows: ReassignRow[], sourceId: number, ta
     if (!dst) return { kind: "move", src }
     const priceCents = toCents(src.unitPrice)
     const quantity = dst.quantity + src.quantity
-    if (priceCents === toCents(dst.unitPrice) && quantity <= MAX_ENTRY_QUANTITY && quantity * priceCents <= MAX_OWED_CENTS) {
+    if (src.delivery === dst.delivery && priceCents === toCents(dst.unitPrice) && quantity <= MAX_ENTRY_QUANTITY && quantity * priceCents <= MAX_OWED_CENTS) {
       return { kind: "fold", src, dst, quantity }
     }
     return { kind: "unlink", src }
@@ -103,7 +103,7 @@ export async function reassignFundraiserEntriesTx(
   if (locked.length === 0) return { moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] }
   const rows = await tx.fundraiserEntry.findMany({
     where: { id: { in: locked.map((r) => r.id) } },
-    select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true, bankRef: true },
+    select: { id: true, fundraiserId: true, familyId: true, quantity: true, unitPrice: true, delivery: true, bankRef: true },
     orderBy: { id: "asc" },
   })
   const bankRefOf = new Map(rows.map((r) => [r.id, r.bankRef]))

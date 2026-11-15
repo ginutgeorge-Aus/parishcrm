@@ -6,7 +6,10 @@ jest.mock("@/lib/rateLimit", () => ({ rateLimit: jest.fn() }))
 jest.mock("@/lib/fundraiserCheckout", () => {
   class FundraiserNotPayableError extends Error {}
   class FundraiserAmountOutOfRangeError extends Error {}
-  return { createFundraiserCheckoutSession: jest.fn(), FundraiserNotPayableError, FundraiserAmountOutOfRangeError }
+  class FundraiserCheckoutBusyError extends Error {}
+  return {
+    createFundraiserCheckoutSession: jest.fn(), FundraiserNotPayableError, FundraiserAmountOutOfRangeError, FundraiserCheckoutBusyError,
+  }
 })
 jest.mock("@/lib/prisma", () => ({ prisma: { fundraiserEntry: { findUnique: jest.fn() } } }))
 
@@ -15,7 +18,7 @@ import { featureGuard } from "@/lib/featureFlags"
 import { headers } from "next/headers"
 import { stripeConfigured } from "@/lib/stripe"
 import { rateLimit } from "@/lib/rateLimit"
-import { createFundraiserCheckoutSession, FundraiserNotPayableError } from "@/lib/fundraiserCheckout"
+import { createFundraiserCheckoutSession, FundraiserNotPayableError, FundraiserCheckoutBusyError } from "@/lib/fundraiserCheckout"
 import { CurrencyPrecisionError } from "@/lib/stripeAmount"
 import { prisma } from "@/lib/prisma"
 
@@ -117,6 +120,11 @@ it("falls back to the request origin outside production", async () => {
 it("maps FundraiserNotPayableError to 400", async () => {
   mCreate.mockRejectedValue(new FundraiserNotPayableError())
   expect(await startFundraiserCheckout("tok_7")).toMatchObject({ ok: false, status: 400 })
+})
+
+it("maps FundraiserCheckoutBusyError to a retryable 503", async () => {
+  mCreate.mockRejectedValue(new FundraiserCheckoutBusyError())
+  expect(await startFundraiserCheckout("tok_7")).toEqual({ ok: false, status: 503, error: "Payment is busy, try again in a moment" })
 })
 
 it("maps CurrencyPrecisionError to a handled 400", async () => {

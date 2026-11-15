@@ -58,11 +58,11 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
   const entry = await prisma.fundraiserEntry.findUnique({
     where: { publicToken: token },
     select: {
-      quantity: true, unitPrice: true, bankRef: true,
+      quantity: true, unitPrice: true, delivery: true, bankRef: true,
       payments: { select: { amount: true } },
       fundraiser: {
         select: {
-          name: true, unitLabel: true,
+          name: true, unitLabel: true, deliveryPrice: true,
           event: { select: { title: true, onlinePaymentEnabled: true, passCardFee: true } },
         },
       },
@@ -85,6 +85,7 @@ export default async function FundraiserPayPage(props: Readonly<Props>) {
         <h1 className="text-2xl font-bold text-foreground mb-1">{fundraiser.name}</h1>
         <p className="text-sm text-muted-foreground mb-6">
           {entry.quantity} × {fundraiser.unitLabel} at {money(toCents(entry.unitPrice))}
+          {fundraiser.deliveryPrice !== null && (entry.delivery ? " (delivery)" : " (pickup)")}
         </p>
 
         {justPaid && (

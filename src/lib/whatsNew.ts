@@ -20,6 +20,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: "v1.16.0",
+    date: "2026-11-14",
+    highlights: [
+      "Sunday school: see each class's attendance and exam progress for the year, and each child's own record.",
+      "Fundraisers: set separate pickup and delivery prices, and each order picks one.",
+    ],
+  },
+  {
     version: "v1.15.0",
     date: "2026-11-13",
     highlights: [

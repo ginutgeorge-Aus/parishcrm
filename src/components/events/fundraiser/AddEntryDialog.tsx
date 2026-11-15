@@ -134,8 +134,11 @@ function FamilySearch({
  * Families are found with a server-side search, not a full list.
  *
  * @param props.fundraiserId - Fundraiser id.
+ * @param props.hasDelivery - Fundraiser has a delivery price: show the Pickup/Delivery choice.
  */
-export function AddEntryDialog({ fundraiserId }: Readonly<{ fundraiserId: number }>) {
+export function AddEntryDialog({
+  fundraiserId, hasDelivery = false,
+}: Readonly<{ fundraiserId: number; hasDelivery?: boolean }>) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"member" | "outside">("member")
   const [family, setFamily] = useState<FamilyOption | null>(null)
@@ -143,6 +146,7 @@ export function AddEntryDialog({ fundraiserId }: Readonly<{ fundraiserId: number
   const [outsideEmail, setOutsideEmail] = useState("")
   const [outsidePhone, setOutsidePhone] = useState("")
   const [quantity, setQuantity] = useState("1")
+  const [delivery, setDelivery] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
@@ -157,8 +161,8 @@ export function AddEntryDialog({ fundraiserId }: Readonly<{ fundraiserId: number
         res = await addEntry(
           fundraiserId,
           mode === "member"
-            ? { familyId: family?.id, quantity }
-            : { outsideName, outsideEmail, outsidePhone, quantity },
+            ? { familyId: family?.id, quantity, ...(hasDelivery && { delivery }) }
+            : { outsideName, outsideEmail, outsidePhone, quantity, ...(hasDelivery && { delivery }) },
         )
       } catch {
         setError("Could not add the entry. Please try again.")
@@ -166,7 +170,7 @@ export function AddEntryDialog({ fundraiserId }: Readonly<{ fundraiserId: number
       }
       if (res?.error) { setError(res.error); return }
       setOpen(false)
-      setFamily(null); setOutsideName(""); setOutsideEmail(""); setOutsidePhone(""); setQuantity("1")
+      setFamily(null); setOutsideName(""); setOutsideEmail(""); setOutsidePhone(""); setQuantity("1"); setDelivery(false)
     })
   }
 
@@ -205,6 +209,20 @@ export function AddEntryDialog({ fundraiserId }: Readonly<{ fundraiserId: number
             <Label htmlFor="fe-qty">Quantity</Label>
             <Input id="fe-qty" inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
           </div>
+          {hasDelivery && (
+            <div className="space-y-1">
+              <Label htmlFor="fe-delivery">Pickup or delivery</Label>
+              <select
+                id="fe-delivery"
+                className="h-11 md:h-8 any-pointer-coarse:h-11 w-full rounded-lg border border-input bg-background px-2.5 text-base md:text-sm"
+                value={delivery ? "delivery" : "pickup"}
+                onChange={(e) => setDelivery(e.target.value === "delivery")}
+              >
+                <option value="pickup">Pickup</option>
+                <option value="delivery">Delivery</option>
+              </select>
+            </div>
+          )}
           <FormFeedback state={{ error }} />
           <Button type="submit" disabled={pending}>{pending ? "Adding..." : "Add entry"}</Button>
         </form>
