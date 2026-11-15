@@ -29,7 +29,10 @@ import {
   listShareablePrayerRequests,
   setPrayerRequestStatus,
   updatePrayerRequest,
+  withdrawPrayerShareConsent,
 } from "@/lib/actions/prayerRequest"
+import { revalidatePath } from "next/cache"
+import { encrypt, safeDecrypt } from "@/lib/crypto"
 
 const as = (role: UserRole | undefined, id = "1") =>
   (auth as jest.Mock).mockResolvedValue(role ? { user: { id, role } } : null)
@@ -234,6 +237,45 @@ describe("updatePrayerRequest", () => {
   })
 })
 
+describe("withdrawPrayerShareConsent", () => {
+  it.each(NON_MANAGERS)("rejects role %s", async (role) => {
+    as(role)
+    expect(await withdrawPrayerShareConsent(7)).toEqual({ error: "Unauthorized" })
+    expect(p.prayerRequest.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("clears only the consent fields of a shared row and audits it", async () => {
+    expect(await withdrawPrayerShareConsent(7)).toEqual({ success: "Sharing withdrawn" })
+    expect(p.prayerRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, shareConsent: true },
+      data: { shareConsent: false, shareConsentAt: null, shareConsentById: null },
+    })
+    expect(audit).toHaveBeenCalledWith(expect.anything(), 1, "PRAYER_REQUEST_UPDATED", "PrayerRequest", 7, {
+      fields: [],
+      shareConsent: false,
+    })
+    expect(revalidatePath).toHaveBeenCalledWith("/prayer-requests")
+  })
+
+  it("works on a row whose stored text can't be decrypted (never reads the text)", async () => {
+    p.prayerRequest.findUnique.mockResolvedValue(stored({ request: "BROKEN", shareConsent: true }))
+    expect(await withdrawPrayerShareConsent(7)).toEqual({ success: "Sharing withdrawn" })
+    expect(p.prayerRequest.findUnique).not.toHaveBeenCalled()
+    expect(safeDecrypt).not.toHaveBeenCalled()
+    expect(encrypt).not.toHaveBeenCalled()
+  })
+
+  it("is a no-op on a row that is already private, Not found on a missing one", async () => {
+    p.prayerRequest.updateMany.mockResolvedValue({ count: 0 })
+    p.prayerRequest.findUnique.mockResolvedValueOnce({ id: 7 })
+    expect(await withdrawPrayerShareConsent(7)).toEqual({ success: "No changes" })
+    p.prayerRequest.findUnique.mockResolvedValueOnce(null)
+    expect(await withdrawPrayerShareConsent(7)).toEqual({ error: "Not found" })
+    expect(await withdrawPrayerShareConsent(-1)).toEqual({ error: "Not found" })
+    expect(audit).not.toHaveBeenCalled()
+  })
+})
+
 describe("setPrayerRequestStatus / archivePrayerRequest", () => {
   beforeEach(() => p.prayerRequest.findUnique.mockResolvedValue({ status: PrayerRequestStatus.ACTIVE }))
 
@@ -367,6 +409,7 @@ describe("public demo", () => {
     ).toEqual(blocked)
     expect(await setPrayerRequestStatus(7, PrayerRequestStatus.ANSWERED)).toEqual(blocked)
     expect(await archivePrayerRequest(7)).toEqual(blocked)
+    expect(await withdrawPrayerShareConsent(7)).toEqual(blocked)
     expect(auth).not.toHaveBeenCalled()
   })
 })

@@ -9,7 +9,7 @@
 // (canManageFollowUps). Writes are blocked in the public demo (assertNotDemo).
 // title/notes are encrypted at rest; audit
 // rows are written in the same transaction and carry ids/flags only.
-// Notifications are in-app only (countMyDueFollowUps); no email in v1.
+// Notifications are in-app only (countDueFollowUpsFor in pastoralQueries); no email in v1.
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -19,12 +19,13 @@ import { logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { assertNotDemo } from "@/lib/demoMode"
-import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
+import { sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
+  FOLLOW_UP_LIST_MAX,
   FOLLOW_UPS_PATH,
-  followUpVisibilityWhere,
+  followUpViewerFromSession,
   liveFollowUpTarget,
   type PastoralViewer,
 } from "@/lib/pastoralAccess"
@@ -38,8 +39,6 @@ const UNAUTHORIZED = "Unauthorized"
 const NOT_FOUND = "Not found"
 const TITLE_MAX = 200
 const NOTES_MAX = 4000
-/** Hard cap on one list read (DoS bound; the UI pages within it). */
-const LIST_MAX = 500
 const STATUSES = new Set<string>(Object.values(FollowUpStatus))
 
 const pgId = z.number().int().positive().max(2147483647)
@@ -120,14 +119,7 @@ type ViewRow = Prisma.FollowUpTaskGetPayload<{ select: typeof VIEW_SELECT }>
  * scope (wrong role).
  */
 async function currentViewer(): Promise<{ viewer: PastoralViewer; scope: { assigneeId?: number } } | null> {
-  const session = await auth()
-  const role = session?.user?.role
-  // Role check first (DB-free, no id needed), so a wrong-role session never
-  // reaches actorId.
-  if (!session?.user || followUpVisibilityWhere({ id: 0, role }) === null) return null
-  const viewer: PastoralViewer = { id: actorId(session), role }
-  const scope = followUpVisibilityWhere(viewer)
-  return scope ? { viewer, scope } : null
+  return followUpViewerFromSession(await auth())
 }
 
 /**
@@ -420,7 +412,7 @@ export async function listFollowUpTasks(
     where,
     select: VIEW_SELECT,
     orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
-    take: LIST_MAX,
+    take: FOLLOW_UP_LIST_MAX,
   })
   const today = sydneyTodayYMD()
   return { tasks: rows.map((r) => toView(r, today)) }
@@ -441,21 +433,4 @@ export async function getFollowUpTask(id: number): Promise<{ error: string } | {
   })
   if (!row) return { error: NOT_FOUND }
   return { task: toView(row, sydneyTodayYMD()) }
-}
-
-/**
- * In-app notification count: the caller's own open/in-progress tasks due today
- * or earlier (Sydney). 0 for roles that can't hold tasks.
- */
-export async function countMyDueFollowUps(): Promise<number> {
-  const ctx = await currentViewer()
-  if (!ctx) return 0
-  return prisma.followUpTask.count({
-    where: {
-      ...liveFollowUpTarget(),
-      assigneeId: ctx.viewer.id,
-      status: { in: [FollowUpStatus.OPEN, FollowUpStatus.IN_PROGRESS] },
-      dueDate: { lte: sydneyToday() },
-    },
-  })
 }

@@ -187,6 +187,12 @@ describe("pastoral links", () => {
     expect(pendingTotal(groupItems({ ...allTrueFlags, dueFollowUps: 3 }, "Community"))).toBeGreaterThanOrEqual(3)
   })
 
+  it("the bell links due follow-ups to the caller's own list; the sidebar link stays plain", () => {
+    const groups = buildNavGroups(navFlagsFor("OFFICE_ADMIN", { dueFollowUps: 2 }))
+    expect(attentionItems(groups).map((i) => [i.href, i.badge])).toEqual([["/follow-ups?assignee=mine", 2]])
+    expect(links({ ...allTrueFlags, dueFollowUps: 2 }).some((i) => i.href === "/follow-ups")).toBe(true)
+  })
+
   it("Prayer requests shows only for canPrayerRequests", () => {
     expect(links(allTrueFlags).find((i) => i.href === "/prayer-requests")?.show).toBe(true)
     expect(links({ ...allTrueFlags, canPrayerRequests: false }).find((i) => i.href === "/prayer-requests")?.show).toBe(false)

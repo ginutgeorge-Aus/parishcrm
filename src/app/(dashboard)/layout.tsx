@@ -8,7 +8,7 @@ import { REMEMBERED_IDLE_MINUTES } from "@/lib/sessionWindows"
 import { getSession } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEdit, isAdmin } from "@/lib/roleGuard"
-import { countMyDueFollowUps } from "@/lib/actions/followUp"
+import { countDueFollowUpsFor } from "@/lib/pastoralQueries"
 import { countPendingFamilyUpdates, countPendingMemberships } from "@/lib/pendingUpdates"
 import { TEST_CHECKPOINTS } from "@/lib/testCheckpoints"
 import { getChurchSettings } from "@/lib/churchSettings"
@@ -45,7 +45,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       ? countPendingMemberships()
       : Promise.resolve(0),
     canEdit(role) ? isVenueUsageEnabled().catch(() => false) : Promise.resolve(false),
-    canEdit(role) ? countMyDueFollowUps().catch(() => 0) : Promise.resolve(0),
+    canEdit(role) ? countDueFollowUpsFor(session).catch(() => 0) : Promise.resolve(0),
   ])
   return (
     <div className="flex min-h-screen flex-col">
