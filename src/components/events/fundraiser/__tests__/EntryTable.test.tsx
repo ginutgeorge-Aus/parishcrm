@@ -5,6 +5,7 @@ import { updateEntryQuantity, updateEntryDelivery, deleteEntry } from "@/lib/act
 import { EntryTable } from "@/components/events/fundraiser/EntryTable"
 import type { FundraiserRow } from "@/lib/fundraiserQueries"
 
+jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock("@/lib/actions/fundraiser", () => ({
   updateEntryQuantity: jest.fn(),
   updateEntryDelivery: jest.fn(),

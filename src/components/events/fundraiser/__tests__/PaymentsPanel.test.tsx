@@ -1,8 +1,11 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { PaymentsPanel } from "@/components/events/fundraiser/PaymentsPanel"
 import type { FundraiserPaymentItem as PaymentItem } from "@/lib/fundraiserQueries"
+import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 
+const refresh = jest.fn()
+jest.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }))
 jest.mock("@/lib/actions/fundraiser", () => ({ recordPayment: jest.fn(), deletePayment: jest.fn() }))
 
 const payments: PaymentItem[] = [
@@ -19,6 +22,19 @@ function openPanel(remainingCents = 5000, items: PaymentItem[] = payments) {
 beforeEach(() => jest.clearAllMocks())
 
 describe("PaymentsPanel", () => {
+  it("refreshes the list after the already-recorded error, keeping the key", async () => {
+    ;(recordPayment as jest.Mock).mockResolvedValue({ error: ALREADY_RECORDED_ERROR })
+    openPanel()
+    fireEvent.click(screen.getByRole("button", { name: "Record payment" }))
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    fireEvent.click(await screen.findByRole("button", { name: "Record payment" }))
+    await waitFor(() => expect(recordPayment).toHaveBeenCalledTimes(2))
+    const keys = (recordPayment as jest.Mock).mock.calls.map((c) => c[1].submissionKey)
+    expect(keys[0]).toEqual(expect.any(String))
+    expect(keys[0].length).toBeGreaterThan(0)
+    expect(keys[0]).toBe(keys[1])
+  })
+
   it("lists payments, defaults amount to remaining, hides delete for ONLINE", () => {
     openPanel()
     expect(screen.getByText(/CASH · 2026-11-01 · front desk/)).toBeInTheDocument()
