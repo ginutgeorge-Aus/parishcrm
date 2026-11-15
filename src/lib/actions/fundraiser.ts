@@ -1,6 +1,5 @@
 "use server"
 
-import { randomInt } from "node:crypto"
 import { auth } from "@/auth"
 import type { Session } from "next-auth"
 import { CheckoutStatus, FundraiserPaymentMethod } from "@/lib/generated/prisma/enums"
@@ -18,7 +17,7 @@ import { encrypt } from "@/lib/crypto"
 import { entryTotals, FAMILY_SEARCH_LIMIT, FAMILY_SEARCH_MIN, MAX_OWED_CENTS } from "@/lib/fundraiserMath"
 import { generateUniqueBankRef, mintEntryToken, NoFreeBankRefError } from "@/lib/fundraiserEntry"
 import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
-import { serializableWrite } from "@/lib/serializableWrite"
+import { serializableWrite, serializationBackoffMs } from "@/lib/serializableWrite"
 // Value import (isolation-level enum) from the generated client, not @/lib/prisma:
 // tests mock @/lib/prisma as `{ prisma }` and would lose the enum.
 import { Prisma } from "@/lib/generated/prisma/client"
@@ -134,17 +133,6 @@ const SUBMISSION_KEY_RE = /^[A-Za-z0-9_-]{1,100}$/
 const MAX_ADD_ATTEMPTS = 5
 const BUSY = { error: "Busy, please try again" }
 
-/**
- * Jittered exponential delay before retrying a Serializable transaction that
- * lost an SSI conflict (P2034). Spreads out concurrent adds so they do not
- * all collide again on the next attempt.
- *
- * @param attempt - 1-based attempt that just failed.
- * @returns Delay in milliseconds (0 up to just under 25ms * 2^(attempt-1), capped at 200ms).
- */
-function serializationBackoffMs(attempt: number): number {
-  return randomInt(Math.min(200, 25 * 2 ** (attempt - 1)))
-}
 const AUDIT_FAILED = { error: AUDIT_FAILED_ERROR }
 
 /**
