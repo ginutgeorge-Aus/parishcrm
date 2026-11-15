@@ -45,7 +45,7 @@ type EventForSync = {
   location: string | null
   imageUrl: string | null
   isPublished: boolean
-  slug: string
+  slug: string | null
   ticketTypes: { id: number }[]
   images?: { kind: string }[]
   updatedAt: Date
@@ -78,9 +78,10 @@ const SYNC_SELECT = {
  * @param event - the event plus its ticket-type ids (see `EventForSync` select shape).
  * @returns the `WebsiteEventPayload` posted to the webhook receiver.
  *
- * `registerUrl` is set to `<base>/e/<slug>` only when the event has at least one
- * ticket type AND a base URL is resolvable; otherwise it is `null` (no tickets =
- * nothing to register for; no base URL = can't build an absolute link).
+ * `registerUrl` is set to `<base>/e/<slug>` only when the event has a slug, at least
+ * one ticket type AND a resolvable base URL; otherwise it is `null` (no slug = no
+ * public page; no tickets = nothing to register for; no base URL = can't build an
+ * absolute link).
  *
  * Base URL reads `AUTH_URL` first (local dev), then `NEXTAUTH_URL` (prod Container
  * App inline env). Reading only `AUTH_URL` previously left `registerUrl` null in
@@ -93,7 +94,7 @@ export function buildEventPayload(event: EventForSync): WebsiteEventPayload {
   if (event.ticketTypes.length > 0 && !base) {
     logger.warn("[website-sync] AUTH_URL/NEXTAUTH_URL unset — registerUrl will be null", { eventId: event.id })
   }
-  const registerUrl = event.ticketTypes.length > 0 && base ? `${base}/e/${event.slug}` : null
+  const registerUrl = event.slug && event.ticketTypes.length > 0 && base ? `${base}/e/${event.slug}` : null
   return {
     crmId: event.id,
     title: event.title,
@@ -112,7 +113,7 @@ export function buildEventPayload(event: EventForSync): WebsiteEventPayload {
     // route (Task 2) when one exists and a base URL is resolvable.
     imageUrl:
       event.imageUrl ||
-      (base && event.images?.some((i) => i.kind === "BANNER")
+      (base && event.slug && event.images?.some((i) => i.kind === "BANNER")
         ? `${base}/api/events/${event.slug}/image/banner`
         : null),
     revision: event.updatedAt.toISOString(),

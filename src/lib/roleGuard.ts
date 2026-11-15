@@ -185,6 +185,17 @@ export function canBrowseSundaySchool(role: UserRole | undefined): boolean {
 }
 
 /**
+ * Volunteer roster setup: roles, services, slots, and assignments on every
+ * role. ADMIN | PASTOR | OFFICE_ADMIN (= canEdit), kept separate so the rule
+ * can diverge. Group leaders assign only their own group's roles, checked per
+ * group by canEditRosterRole (rosterAccess.ts).
+ * @param role the caller's role
+ */
+export function canManageRoster(role: UserRole | undefined): boolean {
+  return canEdit(role)
+}
+
+/**
  * Create, edit and delete sacramental register entries (#605): ADMIN | PASTOR.
  * @param role the caller's role
  */

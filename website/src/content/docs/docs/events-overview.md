@@ -20,7 +20,7 @@ From the sidebar, staff with edit access go to **Events** (`/events`) and click 
 The form (`/events/new`, and `/events/[id]/edit` for editing) covers:
 
 - **Basics** — title, slug (used in the public URL `/e/<slug>`, lowercase letters/numbers/hyphens
-  only), description, category (worship, youth, fellowship, education, parish, special —
+  only; optional, leave blank for staff-only events with no public page, but required to publish), description, category (worship, youth, fellowship, education, parish, special —
   used as a tag if synced to a public website), location.
 - **Kind** — a **one-off** event has a single date/time (and optional end date); a **recurring**
   event instead has a recurrence pattern (e.g. every Sunday, 2nd/3rd/4th Sunday) plus a display
@@ -82,7 +82,7 @@ one go, for testing an event before it goes live.
 
 ### Data model (`prisma/schema.prisma`)
 
-- `Event` — one row per event; `slug` is unique and is the public URL key. `customQuestions`,
+- `Event` — one row per event; `slug` is nullable and unique when set; it is the public URL key when present (staff-only events have none). `customQuestions`,
   `organizers` (public-facing organiser contact list) and `familyPricingTiers` are stored as
   JSON columns.
 - `TicketType` — belongs to an `Event`; `price` is a `Decimal(10,2)`, `capacity` optional.

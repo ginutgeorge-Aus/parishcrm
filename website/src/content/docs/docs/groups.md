@@ -37,7 +37,11 @@ email, have no email address, or whose address cannot be read.
 - A send that fails cleanly (for example the mail server was unreachable) is retried
   automatically, up to 3 tries, for 7 days after the message was written. A person who is no
   longer eligible when the email goes out (left the group, archived, opted out, or no address) is
-  marked *Failed* and is not retried.
+  marked *Failed* and is not retried. Anyone still *Queued* after 7 days is marked *Failed* if the app never tried to send, or
+  *Unconfirmed* if a send started but never finished.
+- When a send fails, the owner notification address gets one alert per delivery pass, not one
+  per person. A retry of the same message can raise another alert. The alert is sent once
+  without retrying, so it may not arrive while the mail server is down.
 - *Unconfirmed* means the app could not confirm whether the email was delivered: the mail server
   did not give a clear answer, or the app could not record the result afterwards. It may have been
   delivered, so it is never resent automatically. Check with the person before sending again.
