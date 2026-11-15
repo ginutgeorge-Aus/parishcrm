@@ -194,3 +194,20 @@ export function canBrowseSundaySchool(role: UserRole | undefined): boolean {
 export function canManageRoster(role: UserRole | undefined): boolean {
   return canEdit(role)
 }
+
+/**
+ * Create, edit and delete sacramental register entries (#605): ADMIN | PASTOR.
+ * @param role the caller's role
+ */
+export function canEditSacraments(role: UserRole | undefined): boolean {
+  return role === UserRole.ADMIN || role === UserRole.PASTOR
+}
+
+/**
+ * View sacramental register entries and print certificates (#605): editors plus
+ * OFFICE_ADMIN (read-only). Every other role sees nothing.
+ * @param role the caller's role
+ */
+export function canViewSacraments(role: UserRole | undefined): boolean {
+  return canEditSacraments(role) || role === UserRole.OFFICE_ADMIN
+}

@@ -5,6 +5,7 @@ jest.mock("@/lib/demoMode", () => ({ assertNotDemo: jest.fn(() => null), isDemoM
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
 jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(async () => {}), logAuditTx: jest.fn(async () => {}) }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+jest.mock("node:crypto", () => ({ ...jest.requireActual("node:crypto"), randomInt: jest.fn() }))
 jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   decrypt: jest.fn((v: string) => v.replace(/^enc:/, "")),
@@ -17,6 +18,7 @@ jest.mock("@/lib/fundraiserCheckout", () => ({
 import { addEntry, updateEntryQuantity, updateEntryDelivery, deleteEntry, searchFundraiserFamilies } from "@/lib/actions/fundraiser"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { generateUniqueBankRef } from "@/lib/fundraiserEntry"
+import { randomInt } from "node:crypto"
 import { auth } from "@/auth"
 import { logAuditTx } from "@/lib/audit"
 import { encrypt } from "@/lib/crypto"
@@ -121,6 +123,30 @@ describe("addEntry", () => {
     const r = await addEntry(3, { outsideName: "Visitor", quantity: "1" })
     expect(r).toEqual({ error: "Busy, please try again" })
     expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(5)
+  })
+
+  it("a bankRef collision retries with a fresh, distinct reference", async () => {
+    // PK0001 is already committed. Our first create targets PK0002, which a concurrent
+    // add takes just before our insert, so the retry must pick the next free ref (PK0003).
+    const committed = new Set<string>(["PK0001"])
+    prismaMock.fundraiserEntry.findMany.mockImplementation(async () => [...committed].map((bankRef) => ({ bankRef })))
+    prismaMock.fundraiserEntry.findUnique.mockImplementation(async (a: { where: { bankRef?: string } }) =>
+      a.where.bankRef && committed.has(a.where.bankRef) ? { id: 1 } : null,
+    )
+    prismaMock.fundraiserEntry.create
+      .mockImplementationOnce(async () => {
+        committed.add("PK0002") // the concurrent winner takes the next ref before our insert
+        throw p2002()
+      })
+      .mockImplementation(async (a: { data: { bankRef: string } }) => {
+        if (committed.has(a.data.bankRef)) throw p2002()
+        committed.add(a.data.bankRef)
+        return { id: 11 }
+      })
+    expect(await addEntry(3, { outsideName: "Visitor", quantity: "1" })).toBeUndefined()
+    const refs = prismaMock.fundraiserEntry.create.mock.calls.map((c) => c[0].data.bankRef)
+    expect(new Set(refs).size).toBe(refs.length)
+    expect(refs.at(-1)).toBe("PK0003")
   })
 
   it("returns busy (no throw) when no free bank reference is found", async () => {
@@ -237,6 +263,39 @@ describe("addEntry concurrency", () => {
     expect(prismaMock.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" })
     expect(prismaMock.fundraiser.findUnique.mock.invocationCallOrder[0])
       .toBeGreaterThan(prismaMock.$transaction.mock.invocationCallOrder[0])
+  })
+
+  it("a P2034 abort from $transaction is retried after a jittered backoff", async () => {
+    jest.useFakeTimers()
+    jest.mocked(randomInt).mockReturnValue(12 as never)
+    try {
+      prismaMock.$transaction
+        .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
+        .mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prismaMock))
+      const pending = addEntry(3, { familyId: 2, quantity: "1" })
+      await jest.advanceTimersByTimeAsync(0)
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1) // waiting out the backoff
+      await jest.advanceTimersByTimeAsync(11) // just short of the 12ms backoff
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(await pending).toBeUndefined()
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("gives up with BUSY after repeated P2034 aborts", async () => {
+    jest.useFakeTimers()
+    try {
+      prismaMock.$transaction.mockRejectedValue(Object.assign(new Error("conflict"), { code: "P2034" }))
+      const pending = addEntry(3, { familyId: 2, quantity: "1" })
+      await jest.runAllTimersAsync()
+      expect(await pending).toEqual({ error: "Busy, please try again" })
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(5)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it("retries a serialization conflict and snapshots the re-read price", async () => {
