@@ -69,6 +69,7 @@ jest.mock("@/lib/prisma", () => ({
     membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     familyUpdateSubmission: { count: jest.fn() },
     personClearance: { findMany: jest.fn().mockResolvedValue([]) },
+    followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     fundraiserEntry: { findMany: jest.fn() },
     $transaction: jest.fn(),
     $queryRaw: jest.fn().mockResolvedValue([]),
@@ -89,11 +90,13 @@ const familyDeleteTx = jest.fn()
 // deleteFamily's eligibility counts likewise exist only on the tx client.
 const personCountTx = jest.fn()
 const txCountTx = jest.fn()
+const sacramentCountTx = jest.fn()
 // mergeFamilies re-reads the source name under the row lock.
 const familyNameTx = jest.fn()
 beforeEach(() => {
   jest.clearAllMocks()
   familyDeleteTx.mockResolvedValue({})
+  sacramentCountTx.mockResolvedValue(0)
   familyNameTx.mockResolvedValue({ name: "Old" })
   ;(unlinkFundraiserEntriesTx as jest.Mock).mockResolvedValue(0)
   ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] })
@@ -119,12 +122,14 @@ beforeEach(() => {
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
           findUniqueOrThrow: familyNameTx,
           delete: familyDeleteTx,
         },
         personClearance: prisma.personClearance,
+        sacramentRecord: { count: sacramentCountTx },
       })
     }
     return Promise.all(arg as unknown[])
@@ -315,6 +320,24 @@ describe("deleteFamily", () => {
     const r = await deleteFamily(3)
     expect(r).toMatchObject({ error: expect.stringContaining("1 active member(s)") })
     expect(familyDeleteTx).not.toHaveBeenCalled()
+  })
+
+  it("blocks a past-retention delete when a member is named on a sacramental register entry", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.family.findUnique as jest.Mock).mockResolvedValue({
+      id: 3,
+      archivedAt: new Date("2020-01-01T00:00:00.000Z"),
+    })
+    ;txCountTx.mockResolvedValue(0)
+    ;personCountTx.mockResolvedValueOnce(2).mockResolvedValueOnce(0)
+    sacramentCountTx.mockResolvedValue(1)
+    const r = await deleteFamily(3)
+    expect(r).toEqual({ error: expect.stringContaining("1 sacramental register record(s)") })
+    expect(sacramentCountTx).toHaveBeenCalledWith({
+      where: { OR: [{ person: { familyId: 3 } }, { spouse: { familyId: 3 } }] },
+    })
+    expect(familyDeleteTx).not.toHaveBeenCalled()
+    expect(unlinkFundraiserEntriesTx).not.toHaveBeenCalled()
   })
 
   it("permanently deletes a past-retention family with only archived members", async () => {
@@ -702,6 +725,7 @@ describe("previewMerge / mergeFamilies", () => {
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: inviteUpdate },
         familyUpdateSubmission: { updateMany: submissionUpdate },
+        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: familyNameTx, delete: familyDelete },
       })
     )

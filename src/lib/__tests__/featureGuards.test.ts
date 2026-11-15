@@ -363,6 +363,9 @@ const CORE_ACTIONS = new Set([
   // scope) in followUp.test.ts / prayerRequest.test.ts.
   "followUp.ts",
   "prayerRequest.ts",
+  // Sacramental register (#304/#605): core, no feature flag; role gated
+  // (canEditSacraments / canViewSacraments, sacrament.test.ts).
+  "sacrament.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

@@ -21,6 +21,7 @@ jest.mock("@/lib/prisma", () => {
     personClearance: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     auditLog: {
       create: jest.fn(),
     },
@@ -37,6 +38,7 @@ jest.mock("@/lib/prisma", () => {
     person: { ...(prisma.person as object), count: jest.fn() },
     transaction: { count: jest.fn() },
     fundraiserEntry: { findMany: jest.fn().mockResolvedValue([]) },
+    sacramentRecord: { count: jest.fn().mockResolvedValue(0) },
     auditLog: { create: jest.fn(), createMany: jest.fn() },
   }
   family.delete = outsideTx()
