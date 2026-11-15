@@ -15,7 +15,7 @@ jest.mock("@/lib/prisma", () => ({
     $transaction: jest.fn(),
   },
 }))
-jest.mock("@/lib/audit", () => ({ logAudit: jest.fn() }))
+jest.mock("@/lib/audit", () => ({ logAudit: jest.fn(), logAuditTx: jest.fn(), logAuditManyTx: jest.fn() }))
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }))
 jest.mock("@/lib/fundraiserFamilyLink", () => ({
   ...jest.requireActual("@/lib/fundraiserFamilyLink"),
@@ -138,6 +138,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })
@@ -170,6 +171,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })
@@ -202,6 +204,7 @@ describe("mergeFamilies", () => {
         membershipApplication: { updateMany: mockMembershipUpdateMany },
         familyUpdateInvite: { updateMany: mockInviteUpdateMany },
         familyUpdateSubmission: { updateMany: mockSubmissionUpdateMany },
+        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         fundraiserEntry: { count: jest.fn().mockResolvedValue(0) },
         family: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), findUniqueOrThrow: jest.fn().mockResolvedValue({ name: "Old" }), delete: mockFamilyDelete },
       })

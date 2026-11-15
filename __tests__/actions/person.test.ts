@@ -26,6 +26,7 @@ jest.mock("@/lib/prisma", () => ({
     personClearance: {
       findMany: jest.fn(),
     },
+    followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     auditLog: {
       create: jest.fn(),
       createMany: jest.fn(),

@@ -445,6 +445,10 @@ describe("FIELDS map", () => {
     checkoutSession: ["payload"],
     sacramentRecord: ["spouseName", "godparents", "notes"],
     attendee: ["answers"],
+    // Pastoral care (#305): follow-up task text (actions/followUp.ts) and prayer
+    // request text + requester contact (actions/prayerRequest.ts).
+    followUpTask: ["title", "notes"],
+    prayerRequest: ["request", "requesterName", "requesterEmail", "requesterPhone"],
   }
   // Registration.customAnswers is appended separately below (kept out of the
   // literal above so the intent — "registration gained a field" — stays visible

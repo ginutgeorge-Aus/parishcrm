@@ -361,6 +361,10 @@ const CORE_ACTIONS = new Set([
   "groupMessage.ts",
   // Service headcount attendance (#308): core, no feature flag; role gated (attendance.test.ts).
   "attendance.ts",
+  // Pastoral care (#305): core, no feature flag; role gated (ADMIN | PASTOR, assignee
+  // scope) in followUp.test.ts / prayerRequest.test.ts.
+  "followUp.ts",
+  "prayerRequest.ts",
   // Volunteer roster (#622, part of #306): core, no feature flag; role + group-link gated (roster.test.ts).
   "roster.ts",
   // Sacramental register (#304/#605): core, no feature flag; role gated
