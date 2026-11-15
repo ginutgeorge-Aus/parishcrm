@@ -38,22 +38,40 @@ export function serializationBackoffMs(attempt: number): number {
  * @param busy - result returned when every attempt hit a conflict
  * @param gone - result returned when a referenced row stays missing (defaults to `busy`)
  */
-export async function serializableWrite<T>(
+export function serializableWrite<T>(
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
   busy: { error: string },
   gone: { error: string } = busy,
 ): Promise<T | { error: string }> {
-  let fkFailures = 0
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    } catch (e) {
-      if (isP2003(e)) {
-        if (++fkFailures >= 2) return gone
-      } else if (!isP2034(e)) throw e
-      if (attempt >= MAX_TX_ATTEMPTS) return busy
-      // Only an SSI conflict benefits from a pause; an FK retry re-validates against already-committed state.
-      if (!isP2003(e)) await new Promise((resolve) => setTimeout(resolve, serializationBackoffMs(attempt)))
-    }
+  return runAttempt(fn, busy, gone, 1, 0)
+}
+
+/**
+ * One attempt of `serializableWrite`; recurses for the next attempt instead of
+ * looping, so each retry is a fresh call rather than an await inside a loop.
+ * @param fn - the validate-then-write body
+ * @param busy - result when every attempt hit a conflict
+ * @param gone - result when a referenced row stays missing
+ * @param attempt - 1-based attempt number
+ * @param fkFailures - P2003 failures so far
+ */
+async function runAttempt<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  busy: { error: string },
+  gone: { error: string },
+  attempt: number,
+  fkFailures: number,
+): Promise<T | { error: string }> {
+  try {
+    return await prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  } catch (e) {
+    const fk = isP2003(e)
+    if (!fk && !isP2034(e)) throw e
+    const failures = fkFailures + (fk ? 1 : 0)
+    if (fk && failures >= 2) return gone
+    if (attempt >= MAX_TX_ATTEMPTS) return busy
+    // Only an SSI conflict benefits from a pause; an FK retry re-validates against already-committed state.
+    if (!fk) await new Promise((resolve) => setTimeout(resolve, serializationBackoffMs(attempt)))
+    return runAttempt(fn, busy, gone, attempt + 1, failures)
   }
 }
