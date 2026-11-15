@@ -14,6 +14,7 @@ export function isOrganiserAllowedPath(pathname: string): boolean {
 
   // Membership-gated export + print entry points (self-gated downstream).
   if (pathname.startsWith("/api/events/") && pathname.endsWith("/export-csv")) return true
+  if (/^\/api\/event-exports\/\d+\/csv$/.test(pathname)) return true
   if (pathname.startsWith("/events/") && pathname.endsWith("/registrations/print")) return true
   return false
 }

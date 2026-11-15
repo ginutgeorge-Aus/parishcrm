@@ -15,6 +15,7 @@ describe("isOrganiserAllowedPath", () => {
     "/login",
     "/e/summer-fete",
     "/api/events/summer-fete/export-csv",
+    "/api/event-exports/5/csv",
     "/events/42/registrations/print",
   ])("allows %s", (p) => expect(isOrganiserAllowedPath(p)).toBe(true))
 
@@ -35,6 +36,8 @@ describe("isOrganiserAllowedPath", () => {
     "/groups/4",
     "/groups/4/print",
     "/api/groups/4/export-csv",
+    "/api/event-exports/5/csvx",
+    "/api/event-exports/abc/csv",
     "/my-groupsx",
   ])("blocks %s", (p) => expect(isOrganiserAllowedPath(p)).toBe(false))
 })
