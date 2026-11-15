@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { decrypt } from "@/lib/crypto"
 
 /** Why a member will not get the group's email. */
-export type SkipReason = "NO_EMAIL" | "NO_CONSENT" | "BAD_EMAIL"
+export type SkipReason = "NO_EMAIL" | "NO_CONSENT" | "BAD_EMAIL" | "DUPLICATE_EMAIL"
 
 /** A member who will receive the email. Names only: addresses are decrypted at send time. */
 export type RecipientRow = { personId: number; name: string }
@@ -16,19 +16,22 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   NO_EMAIL: "No email address",
   NO_CONSENT: "Opted out of email",
   BAD_EMAIL: "Email address unreadable",
+  DUPLICATE_EMAIL: "Shares an address with another member",
 }
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * True when the stored value decrypts to something address-shaped.
+ * The normalised (trimmed, lower-cased) address when the stored value decrypts to
+ * something address-shaped, else null.
  * @param stored the encrypted `Person.email` value
  */
-function isUsableEmail(stored: string): boolean {
+function usableAddress(stored: string): string | null {
   try {
-    return EMAIL_SHAPE.test(decrypt(stored).trim())
+    const addr = decrypt(stored).trim()
+    return EMAIL_SHAPE.test(addr) ? addr.toLowerCase() : null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -37,6 +40,8 @@ function isUsableEmail(stored: string): boolean {
  * A recipient is an active (not archived) member with an email that decrypts to
  * an address-shaped value and `emailConsent = true`. Consent is checked first, so
  * an opted-out member is reported as opted out even when they have no address.
+ * Members sharing one address (compared case-insensitively) get a single copy: the
+ * first in sort order is a recipient, the rest are skipped as `DUPLICATE_EMAIL`.
  * Never returns or logs an address: the sender decrypts again at delivery time
  * (`Person.email` is encrypted with a random IV, so it cannot be queried).
  * Uncapped on purpose: the display cap `MAX_GROUP_MEMBERS` must never silently drop a recipient.
@@ -51,12 +56,15 @@ export async function selectRecipients(groupId: number): Promise<{ recipients: R
   })
   const recipients: RecipientRow[] = []
   const skipped: SkippedRow[] = []
+  const seen = new Set<string>()
   for (const { person: p } of rows) {
     const row = { personId: p.id, name: `${p.firstName} ${p.lastName}` }
-    if (!p.emailConsent) skipped.push({ ...row, reason: "NO_CONSENT" })
-    else if (!p.email) skipped.push({ ...row, reason: "NO_EMAIL" })
-    else if (!isUsableEmail(p.email)) skipped.push({ ...row, reason: "BAD_EMAIL" })
-    else recipients.push(row)
+    if (!p.emailConsent) { skipped.push({ ...row, reason: "NO_CONSENT" }); continue }
+    if (!p.email) { skipped.push({ ...row, reason: "NO_EMAIL" }); continue }
+    const addr = usableAddress(p.email)
+    if (!addr) skipped.push({ ...row, reason: "BAD_EMAIL" })
+    else if (seen.has(addr)) skipped.push({ ...row, reason: "DUPLICATE_EMAIL" })
+    else { seen.add(addr); recipients.push(row) }
   }
   return { recipients, skipped }
 }

@@ -27,7 +27,9 @@ OFFICE_ADMIN can create and change groups; VIEWER can look but not change anythi
 On a group's page press **Email group** (or, for a linked leader login, the same button on the
 group's page in `/my-groups`). Write a subject and a plain-text message. Before sending, the page
 shows how many members will receive it and lists anyone who will not: members who opted out of
-email, have no email address, or whose address cannot be read.
+email, have no email address, or whose address cannot be read. Members who share one address
+(for example a couple) get a single copy: the first is a recipient and the others are listed as
+sharing an address.
 
 - Each person gets their own email, greeted by first name, signed with the group and church name.
   Addresses are never shown to other recipients and never stored with the message.
