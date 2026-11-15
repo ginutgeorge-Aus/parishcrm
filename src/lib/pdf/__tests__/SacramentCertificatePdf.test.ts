@@ -65,6 +65,18 @@ describe("renderSacramentCertificatePdf", () => {
     await renderSacramentCertificatePdf(BAPTISM, CHURCH)
   })
 
+  it("stays on one page when a newline-stuffed place and a 100-line address exhaust the body", async () => {
+    const place = Array.from({ length: 199 }, () => "x").join("\n")
+    const church = { name: "Example Church", address: Array.from({ length: 100 }, (_, i) => `Line ${i}`).join("\n") }
+    const buf = await renderSacramentCertificatePdf({ ...BAPTISM, place }, church)
+    expect(buf.toString("latin1").match(/\/Type \/Page\b/g)).toHaveLength(1)
+    // The address is flattened to one line in the header.
+    expect(texts.some((t) => t.startsWith("Line 0, Line 1, Line 2"))).toBe(true)
+    // The body ran out of room: the trailing godparents line is not drawn into the footer band.
+    expect(texts).not.toContain("Godparents: Jane Roe")
+    expect(texts).toContain("Register no. BAP-2026-014")
+  })
+
   it("prints both spouses on a marriage certificate and stays on one page", async () => {
     const buf = await renderSacramentCertificatePdf(
       { ...BAPTISM, type: "MARRIAGE", registerNo: "MAR-2026-002", godparents: null, spouseName: "Out Side" },

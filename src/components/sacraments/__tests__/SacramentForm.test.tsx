@@ -28,7 +28,8 @@ describe("SacramentForm", () => {
   it("create: shows the spouse field only for a marriage and posts the person", async () => {
     const action = jest.fn().mockResolvedValue(undefined)
     const { container } = render(<SacramentForm personId={8} action={action} />)
-    expect(screen.queryByLabelText("Spouse name")).toBeNull()
+    expect(screen.queryByLabelText(/spouse is not in the CRM/)).toBeNull()
+    expect(screen.queryByLabelText("Search for the spouse")).toBeNull()
     expect(container.querySelector('input[name="personId"]')).toHaveValue("8")
     await userEvent.selectOptions(screen.getByLabelText("Sacrament"), "MARRIAGE")
     expect(screen.getByLabelText(/spouse is not in the CRM/)).toBeInTheDocument()
@@ -108,5 +109,29 @@ describe("SacramentForm", () => {
     // Stays disabled after a successful create: a double click must not number a second entry.
     expect(screen.getByRole("button", { name: "Add to register" })).toBeDisabled()
     expect(action).toHaveBeenCalledTimes(1)
+  })
+
+  it("a thrown save keeps the draft and shows a form error instead of crashing", async () => {
+    const action = jest.fn().mockRejectedValue(new Error("network"))
+    render(<SacramentForm personId={8} action={action} />)
+    await userEvent.type(screen.getByLabelText("Place"), "St Mark")
+    await userEvent.type(screen.getByLabelText("Date"), "2026-03-01")
+    await userEvent.click(screen.getByRole("button", { name: "Add to register" }))
+    await screen.findByText(/Could not save/)
+    expect(screen.getByLabelText("Place")).toHaveValue("St Mark")
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it("locks the fields while a save is pending", async () => {
+    let finish: (v: { error: string }) => void = () => {}
+    const action = jest.fn().mockReturnValue(new Promise((r) => { finish = r }))
+    render(<SacramentForm personId={8} action={action} />)
+    await userEvent.type(screen.getByLabelText("Place"), "St Mark")
+    await userEvent.type(screen.getByLabelText("Date"), "2026-03-01")
+    await userEvent.click(screen.getByRole("button", { name: "Add to register" }))
+    await waitFor(() => expect(screen.getByLabelText(/Notes/)).toBeDisabled())
+    finish({ error: "stop" })
+    await screen.findByText("stop")
+    expect(screen.getByLabelText(/Notes/)).toBeEnabled()
   })
 })

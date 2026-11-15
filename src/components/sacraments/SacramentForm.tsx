@@ -58,15 +58,23 @@ type Props = Readonly<{
  * submitted text is kept in the action state and used as each field's
  * defaultValue: a failed save keeps what the user typed. A created entry opens
  * on its detail page, and the submit button stays disabled from the moment the
- * create succeeds, so a double click cannot number a second entry.
+ * create succeeds, so a double click cannot number a second entry. Fields are
+ * locked while a save is pending, and a thrown action error becomes a form error.
  */
 export function SacramentForm({ personId, defaultType, record, action }: Props) {
   const router = useRouter()
   const run = async (_prev: Outcome | undefined, formData: FormData): Promise<Outcome> => {
     const values: Record<string, string> = {}
     for (const [k, v] of formData.entries()) if (typeof v === "string") values[k] = v
-    const result = await (action as (prev: undefined, fd: FormData) => Promise<Result>)(undefined, formData)
-    return { result, values }
+    try {
+      const result = await (action as (prev: undefined, fd: FormData) => Promise<Result>)(undefined, formData)
+      return { result, values }
+    } catch {
+      // Network or unexpected server failure: keep the draft and show a message
+      // rather than throwing to the error boundary. Not retried: a create may
+      // have committed before the failure.
+      return { result: { error: "Could not save. Check the register before trying again." }, values }
+    }
   }
   const [state, formAction, isPending] = useActionState(run, undefined)
   const [type, setType] = useState<SacramentType>(record?.type ?? defaultType ?? SacramentType.BAPTISM)
@@ -90,6 +98,9 @@ export function SacramentForm({ personId, defaultType, record, action }: Props) 
       {personId !== undefined && <input type="hidden" name="personId" value={personId} />}
       {record && <input type="hidden" name="updatedAt" value={record.updatedAt} />}
 
+      {/* Locked while saving: edits made mid-save would be lost when React resets
+          the fields to the submitted values. */}
+      <fieldset disabled={isPending} className="space-y-4">
       {record ? (
         <p className="text-sm text-muted-foreground">
           {SACRAMENT_LABEL[record.type]} · {record.registerNo}. The rite and person cannot change; delete and re-enter the
@@ -160,6 +171,7 @@ export function SacramentForm({ personId, defaultType, record, action }: Props) 
         <Label htmlFor="notes">Notes (optional, not printed)</Label>
         <Textarea id="notes" name="notes" defaultValue={val("notes", record?.notes)} maxLength={2000} />
       </div>
+      </fieldset>
 
       <div className="flex gap-3 pt-2">
         <Button type="submit" disabled={isPending || createdId !== null}>

@@ -343,6 +343,9 @@ export default async function PersonDetailPage(props: Readonly<{ params: Promise
       ? prisma.sacramentRecord.findMany({
           where: { OR: [{ personId: person.id }, { spouseId: person.id }] },
           orderBy: [{ date: "asc" }, { id: "asc" }],
+          // Bounded read: a person has a handful of entries (one per rite, plus any
+          // remarriage), so the cap is never reached in practice.
+          take: 50,
           select: { id: true, type: true, registerNo: true, date: true, place: true },
         })
       : Promise.resolve([]),

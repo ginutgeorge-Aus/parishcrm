@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { actorId } from "@/lib/actor"
+import { logAudit } from "@/lib/audit"
 import { canEditSacraments, canViewSacraments } from "@/lib/roleGuard"
 import { getSacramentRecord } from "@/lib/actions/sacrament"
 import { SACRAMENT_LABEL, formatLongYmd } from "@/lib/sacraments"
@@ -28,6 +30,13 @@ export default async function SacramentPage(props: Readonly<{ params: Promise<{ 
   if (id === null) notFound()
   const r = await getSacramentRecord(id)
   if (!r) notFound()
+  // The detail shows decrypted spouse name, godparents and notes: audit the read
+  // (ids only, never the decrypted text), like VIEW_TRANSACTION.
+  void logAudit(actorId(session), "VIEW_SACRAMENT_RECORD", "SacramentRecord", r.id, {
+    registerNo: r.registerNo,
+    type: r.type,
+    personId: r.person.id,
+  })
   const editor = canEditSacraments(session.user.role)
   const personName = `${r.person.firstName} ${r.person.lastName}`
 

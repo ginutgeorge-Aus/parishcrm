@@ -70,4 +70,4 @@ Each certificate download is recorded in the audit log.
 
 ## Privacy and audit
 
-Spouse name, godparents and notes are encrypted in the database, like other personal details. Every add, edit and delete is audited as `SACRAMENT_RECORD_CREATED`, `SACRAMENT_RECORD_UPDATED` or `SACRAMENT_RECORD_DELETED`, and every certificate as `SACRAMENT_CERTIFICATE_PRINTED`. Audit entries carry the register number, rite and ids only, never the encrypted text. See [Privacy and Audit Log](/parishcrm/docs/privacy-and-audit-log/).
+Spouse name, godparents and notes are encrypted in the database, like other personal details. Every add, edit and delete is audited as `SACRAMENT_RECORD_CREATED`, `SACRAMENT_RECORD_UPDATED` or `SACRAMENT_RECORD_DELETED`, every certificate as `SACRAMENT_CERTIFICATE_PRINTED`, and every opening of an entry's detail or edit page as `VIEW_SACRAMENT_RECORD`. Audit entries carry the register number, rite and ids only, never the encrypted text. See [Privacy and Audit Log](/parishcrm/docs/privacy-and-audit-log/).

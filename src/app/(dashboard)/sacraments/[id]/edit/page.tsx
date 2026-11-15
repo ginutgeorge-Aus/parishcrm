@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { actorId } from "@/lib/actor"
+import { logAudit } from "@/lib/audit"
 import { canEditSacraments } from "@/lib/roleGuard"
 import { getSacramentRecord, updateSacramentRecord } from "@/lib/actions/sacrament"
 import { parseRouteId } from "@/lib/validation"
@@ -15,6 +17,13 @@ export default async function EditSacramentPage(props: Readonly<{ params: Promis
   if (id === null) notFound()
   const r = await getSacramentRecord(id)
   if (!r) notFound()
+  // The edit form shows decrypted spouse name, godparents and notes: audit the read
+  // (ids only, never the decrypted text), like VIEW_TRANSACTION.
+  void logAudit(actorId(session), "VIEW_SACRAMENT_RECORD", "SacramentRecord", r.id, {
+    registerNo: r.registerNo,
+    type: r.type,
+    personId: r.person.id,
+  })
 
   return (
     <div className="space-y-4">

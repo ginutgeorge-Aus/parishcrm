@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { searchSacramentPeople, type SacramentPersonHit } from "@/lib/actions/sacrament"
@@ -18,19 +18,26 @@ export function SpousePicker({ onPick }: Readonly<{ onPick: (p: PickedSpouse) =>
   const [hits, setHits] = useState<SacramentPersonHit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Id of the latest search: Enter can start a new search while one is in flight,
+  // so a slower, older response must not overwrite the newer one's results.
+  const latest = useRef(0)
 
-  /** Run the search; a failed call shows a message instead of throwing. */
+  /** Run the search; a failed call shows a message instead of throwing. Stale responses are dropped. */
   async function search() {
     if (!q.trim()) return
+    const reqId = ++latest.current
     setBusy(true)
     setFailed(false)
     try {
-      setHits(await searchSacramentPeople(q))
+      const found = await searchSacramentPeople(q)
+      if (reqId === latest.current) setHits(found)
     } catch {
-      setHits(null)
-      setFailed(true)
+      if (reqId === latest.current) {
+        setHits(null)
+        setFailed(true)
+      }
     } finally {
-      setBusy(false)
+      if (reqId === latest.current) setBusy(false)
     }
   }
 

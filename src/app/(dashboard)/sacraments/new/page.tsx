@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { canEditSacraments } from "@/lib/roleGuard"
@@ -26,11 +26,14 @@ export default async function NewSacramentPage(props: Readonly<Props>) {
   const sp = await props.searchParams
   const personId = parseRouteId(sp.personId)
   const person = personId
-    ? await prisma.person.findUnique({
-        where: { id: personId },
+    ? await prisma.person.findFirst({
+        where: { id: personId, archivedAt: null },
         select: { id: true, firstName: true, lastName: true, family: { select: { name: true } } },
       })
     : null
+  // An archived (or unknown) person has no entry form, matching the archived-row
+  // filter on the name search below.
+  if (personId && !person) notFound()
   const q = sp.q?.trim().slice(0, 80) ?? ""
   const where = person ? null : personNameWhere(q)
   const matches =

@@ -12,6 +12,9 @@ const LETTERHEAD_TOP = 40
 // Cap the banner height so a tall uploaded letterhead can't overflow the page.
 const LETTERHEAD_MAX_H = 110
 const FRAME_INSET = 20
+// Text-header limits (the settings form's own limits: name 200, address 500).
+const HEADER_NAME_MAX = 200
+const HEADER_ADDRESS_MAX = 500
 
 type LetterheadAsset = Awaited<ReturnType<typeof getLetterheadAsset>>
 
@@ -69,7 +72,12 @@ function draw(doc: PDFKit.PDFDocument, r: CertificateSource, church: Certificate
     doc.image(letterhead.bytes, margin, LETTERHEAD_TOP, { fit: [contentW, LETTERHEAD_MAX_H] })
     y = LETTERHEAD_TOP + drawnH + 24
   } else {
-    y = drawTextLetterhead(doc, church.name, church.address, margin, LETTERHEAD_TOP, contentW) + 16
+    // Bound the text header: a multiline or env-supplied address is flattened to
+    // one line and capped, so the header stays a few lines tall and never pushes
+    // the body off the page.
+    const name = church.name.slice(0, HEADER_NAME_MAX)
+    const address = church.address.split(/\s*\n\s*/).filter(Boolean).join(", ").slice(0, HEADER_ADDRESS_MAX)
+    y = drawTextLetterhead(doc, name, address, margin, LETTERHEAD_TOP, contentW) + 16
   }
 
   // Free text (names, place, godparents) is admin/staff entered and can be long,
@@ -87,6 +95,8 @@ function draw(doc: PDFKit.PDFDocument, r: CertificateSource, church: Certificate
   const scale = fitScale(doc, blocks, contentW, bodyBottom - y)
   for (const b of blocks) {
     doc.font(b.font).fontSize(b.size * scale).fillColor(b.color)
+    // Out of room even at MIN_SCALE: stop rather than draw into the footer band.
+    if (bodyBottom - y < doc.currentLineHeight()) break
     doc.text(b.text, margin, y, { ...centre, height: Math.max(0, bodyBottom - y), ellipsis: true })
     y = doc.y + b.gap * scale
   }
