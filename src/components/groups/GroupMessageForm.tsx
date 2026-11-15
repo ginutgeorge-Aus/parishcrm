@@ -13,7 +13,7 @@ import type { ActionResult } from "@/lib/actions/types"
  * Compose form for a group email: subject + plain-text body. The send action
  * redirects to the history page on success, so only errors render here.
  * @param action `sendGroupMessage` bound to the group id
- * @param canSend false when no member can receive (disables the button)
+ * @param canSend false when no member can receive (button is aria-disabled with a visible reason)
  */
 export function GroupMessageForm({
   action,
@@ -35,7 +35,19 @@ export function GroupMessageForm({
         <Textarea id="body" name="body" value={body} onChange={(e) => setBody(e.target.value)} rows={10} maxLength={MAX_MESSAGE_BODY} required />
         <p className="text-xs text-muted-foreground">Plain text. Each person is greeted by first name and the church name is added below.</p>
       </div>
-      <Button type="submit" disabled={isPending || !canSend} className="w-full sm:w-auto">
+      {!canSend && (
+        <p id="send-blocked" className="text-sm text-muted-foreground">
+          No member can receive this email: the group has no active members, or every member is opted out or has no usable email address.
+        </p>
+      )}
+      {/* aria-disabled (not disabled) keeps the button focusable so screen-reader users hear why it is off; the click is blocked below. */}
+      <Button
+        type="submit"
+        aria-disabled={isPending || !canSend}
+        aria-describedby={canSend ? undefined : "send-blocked"}
+        onClick={(e) => { if (isPending || !canSend) e.preventDefault() }}
+        className="w-full sm:w-auto aria-disabled:pointer-events-none aria-disabled:opacity-50"
+      >
         {isPending ? "Sending…" : "Send email"}
       </Button>
     </form>

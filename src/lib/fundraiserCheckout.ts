@@ -248,7 +248,7 @@ async function expireOrRecheck(stripe: Stripe, id: string): Promise<"dead" | "co
  */
 export async function createFundraiserCheckoutSession(
   entry: { id: number; publicToken: string; remainingCents: number },
-  event: { id: number; slug: string; title: string; passCardFee: boolean },
+  event: { id: number; title: string; passCardFee: boolean },
   origin: string,
 ): Promise<{ url: string }> {
   if (entry.remainingCents <= 0) throw new FundraiserNotPayableError()
