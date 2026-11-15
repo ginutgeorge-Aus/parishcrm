@@ -51,6 +51,13 @@ describe("/follow-ups page", () => {
     expect(listAssignableUsers).not.toHaveBeenCalled()
   })
 
+  it("OFFICE_ADMIN ignores a stale ?assignee= (no chips to clear it) and status links drop it", async () => {
+    as("OFFICE_ADMIN")
+    const { getByRole } = await run({ assignee: "12" })
+    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["OPEN", "IN_PROGRESS"] })
+    expect(getByRole("link", { name: "All" })).toHaveAttribute("href", "/follow-ups?status=all")
+  })
+
   it.each(["VIEWER", "AUDITOR", "EVENT_ORGANISER", "TEACHER"])("redirects %s home before reading", async (role) => {
     as(role)
     await expect(run()).rejects.toThrow("REDIRECT:/")

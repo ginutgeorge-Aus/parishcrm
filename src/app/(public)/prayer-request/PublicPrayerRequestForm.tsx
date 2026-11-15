@@ -20,7 +20,8 @@ export function PublicPrayerRequestForm() {
   const [phone, setPhone] = useState("")
   const [share, setShare] = useState(false)
   const [trap, setTrap] = useState("")
-  // When the form opened; the server refuses a submit that follows too quickly.
+  // When the form opened (browser clock); the elapsed time is sent so the server
+  // can refuse a submit that follows too quickly without comparing clocks.
   const [openedAt] = useState(() => Date.now())
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -42,7 +43,7 @@ export function PublicPrayerRequestForm() {
           requesterPhone: phone || null,
           shareConsent: share,
           hp_field: trap,
-          openedAt,
+          elapsedMs: Date.now() - openedAt,
         })
         if (res && "error" in res) setError(res.error)
         else setDone(res && "success" in res ? res.success : "Thank you. Your prayer request has been received.")

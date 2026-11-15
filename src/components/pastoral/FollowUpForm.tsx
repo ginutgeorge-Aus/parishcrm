@@ -64,11 +64,11 @@ export function FollowUpForm({ target, assignees }: Props) {
     <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor="fu-title">Follow-up</Label>
-        <Input id="fu-title" required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Visit after surgery" />
+        <Input id="fu-title" required maxLength={200} disabled={pending} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Visit after surgery" />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="fu-assignee">Assign to</Label>
-        <select id="fu-assignee" className={SELECT_CLASS} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+        <select id="fu-assignee" className={SELECT_CLASS} disabled={pending} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
           <option value="">Unassigned</option>
           {assignees.map((a) => (
             <option key={a.id} value={a.id}>
@@ -79,11 +79,11 @@ export function FollowUpForm({ target, assignees }: Props) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="fu-due">Due date (optional)</Label>
-        <Input id="fu-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <Input id="fu-due" type="date" disabled={pending} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
       <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor="fu-notes">Notes (optional)</Label>
-        <Textarea id="fu-notes" rows={3} maxLength={4000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Textarea id="fu-notes" rows={3} maxLength={4000} disabled={pending} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
         <Button type="submit" disabled={pending || title.trim() === ""} className="min-h-11 sm:min-h-0">

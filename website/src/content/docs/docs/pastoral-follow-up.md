@@ -56,8 +56,8 @@ the request, and optionally a name, email and phone, plus an **OK to share** tic
 the request stays private to pastors and admins. The tick is recorded only; nothing is published.
 
 To keep spam out, the form has a hidden field that people never see (anything typed there is
-dropped without an error, so a bot cannot tell), refuses a send that follows the page opening by
-under 3 seconds, and allows 5 submissions per hour from one internet address. Over the limit, the
+dropped without an error, so a bot cannot tell), refuses a send that the form reports as under
+3 seconds after the page opened (the form sends that time with each submission), and allows 5 submissions per hour from one internet address. Over the limit, the
 form says to try again later. If your server does not pass on a trusted client address (see the
 `CLIENT_IP_HEADER` setting), the form refuses every submission rather than sharing one limit
 between all visitors. There is no CAPTCHA yet. A

@@ -6,11 +6,11 @@ jest.mock("@/lib/actions/followUp", () => ({
   createFollowUpTask: jest.fn(),
   listFollowUpTasks: jest.fn(),
 }))
-jest.mock("@/lib/actions/prayerRequest", () => ({ setPrayerRequestStatus: jest.fn(), createPrayerRequest: jest.fn() }))
+jest.mock("@/lib/actions/prayerRequest", () => ({ setPrayerRequestStatus: jest.fn(), createPrayerRequest: jest.fn(), updatePrayerRequest: jest.fn() }))
 jest.mock("@/lib/pastoralQueries", () => ({ listAssignableUsers: jest.fn().mockResolvedValue([{ id: 5, name: "Pat" }]) }))
 
 import { createFollowUpTask, deleteFollowUpTask, listFollowUpTasks, setFollowUpStatus, type FollowUpTaskView } from "@/lib/actions/followUp"
-import { createPrayerRequest, setPrayerRequestStatus, type PrayerRequestView } from "@/lib/actions/prayerRequest"
+import { createPrayerRequest, setPrayerRequestStatus, updatePrayerRequest, type PrayerRequestView } from "@/lib/actions/prayerRequest"
 import { FollowUpCard } from "../FollowUpCard"
 import { FollowUpForm } from "../FollowUpForm"
 import { FollowUpList } from "../FollowUpList"
@@ -178,6 +178,40 @@ describe("PrayerRequestList", () => {
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Restore" }))
     await waitFor(() => expect(setPrayerRequestStatus).toHaveBeenCalledWith(3, "ACTIVE"))
+  })
+
+  it("Withdraw sharing unticks consent with the loaded updatedAt", async () => {
+    ;(updatePrayerRequest as jest.Mock).mockResolvedValue({ success: "ok" })
+    const loaded = new Date("2026-11-02T03:04:05Z")
+    render(<PrayerRequestList requests={[prayer({ shareConsent: true, personId: 9, requesterPhone: "0400", updatedAt: loaded })]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw sharing" }))
+    await waitFor(() =>
+      expect(updatePrayerRequest).toHaveBeenCalledWith(3, {
+        request: "Healing for my mother",
+        requesterName: "Sam",
+        requesterEmail: null,
+        requesterPhone: "0400",
+        personId: 9,
+        shareConsent: false,
+        expectedUpdatedAt: loaded,
+      }),
+    )
+  })
+
+  it("Withdraw sharing shows a stale-row error and is absent on private rows", async () => {
+    ;(updatePrayerRequest as jest.Mock).mockResolvedValue({ error: "This request changed. Refresh and try again." })
+    const { rerender } = render(<PrayerRequestList requests={[prayer({ shareConsent: true })]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw sharing" }))
+    expect(await screen.findByText("This request changed. Refresh and try again.")).toBeInTheDocument()
+    rerender(<PrayerRequestList requests={[prayer()]} />)
+    expect(screen.queryByRole("button", { name: "Withdraw sharing" })).toBeNull()
+  })
+
+  it("Withdraw sharing surfaces a thrown error", async () => {
+    ;(updatePrayerRequest as jest.Mock).mockRejectedValue(new Error("network"))
+    render(<PrayerRequestList requests={[prayer({ shareConsent: true })]} />)
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw sharing" }))
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument()
   })
 
   it("says so when empty", () => {

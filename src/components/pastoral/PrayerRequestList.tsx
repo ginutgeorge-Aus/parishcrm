@@ -5,15 +5,16 @@ import { useState, useTransition } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { FormFeedback } from "@/components/ui/FormFeedback"
-import { setPrayerRequestStatus, type PrayerRequestView } from "@/lib/actions/prayerRequest"
+import { setPrayerRequestStatus, updatePrayerRequest, type PrayerRequestView } from "@/lib/actions/prayerRequest"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
 import type { PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import { PRAYER_STATUS_LABEL } from "@/lib/pastoralLabels"
 
 /**
- * Prayer requests with Answered / Archive / Restore per row. Rows stack on
- * phones. Requests are private (ADMIN | PASTOR); "OK to share" is shown as a
- * badge so staff see what the requester agreed to.
+ * Prayer requests with Answered / Archive / Restore per row, plus "Withdraw
+ * sharing" on shared rows. Rows stack on phones. Requests are private
+ * (ADMIN | PASTOR); "OK to share" is shown as a badge so staff see what the
+ * requester agreed to.
  */
 export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerRequestView[] }>) {
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +30,33 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
     startTransition(async () => {
       try {
         const res = await setPrayerRequestStatus(id, status)
+        if (res && "error" in res) setError(res.error)
+      } catch {
+        setError("Something went wrong. Please try again.")
+      }
+    })
+  }
+
+  /**
+   * Untick "OK to share" when the requester withdraws consent. Sends the row's
+   * own values back unchanged plus the `updatedAt` it was loaded with, so a
+   * row edited elsewhere since this page loaded answers "changed, refresh"
+   * instead of being overwritten.
+   * @param r the request as loaded on this page
+   */
+  function withdrawConsent(r: PrayerRequestView) {
+    setError(null)
+    startTransition(async () => {
+      try {
+        const res = await updatePrayerRequest(r.id, {
+          request: r.request,
+          requesterName: r.requesterName,
+          requesterEmail: r.requesterEmail,
+          requesterPhone: r.requesterPhone,
+          personId: r.personId,
+          shareConsent: false,
+          expectedUpdatedAt: r.updatedAt,
+        })
         if (res && "error" in res) setError(res.error)
       } catch {
         setError("Something went wrong. Please try again.")
@@ -64,6 +92,11 @@ export function PrayerRequestList({ requests }: Readonly<{ requests: PrayerReque
                   Restore
                 </Button>
               ) : null}
+              {r.shareConsent && (
+                <Button size="sm" variant="outline" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => withdrawConsent(r)}>
+                  Withdraw sharing
+                </Button>
+              )}
               {r.status !== "ARCHIVED" && (
                 <Button size="sm" variant="ghost" disabled={pending} className="min-h-11 sm:min-h-0" onClick={() => setStatus(r.id, "ARCHIVED")}>
                   Archive

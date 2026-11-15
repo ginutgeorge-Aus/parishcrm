@@ -22,7 +22,7 @@ it("sends the request and shows the thank-you", async () => {
       requesterPhone: null,
       shareConsent: true,
       hp_field: "",
-      openedAt: expect.any(Number),
+      elapsedMs: expect.any(Number),
     }),
   )
   expect(await screen.findByRole("status")).toHaveTextContent("Thank you")

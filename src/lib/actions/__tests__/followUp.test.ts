@@ -313,7 +313,7 @@ describe("deleteFollowUpTask", () => {
 })
 
 describe("listFollowUpTasks / getFollowUpTask", () => {
-  it.each([null, { statuses: null }, { statuses: "OPEN" }, { personId: "3" }, { mine: "yes" }])(
+  it.each([null, { statuses: null }, { statuses: "OPEN" }, { personId: "3" }, { mine: "yes" }, { assigneeId: "5" }])(
     "answers an error, not a throw, for malformed filter %j",
     async (bad) => {
       expect(await listFollowUpTasks(bad as never)).toEqual({ error: "Invalid filter" })
@@ -348,6 +348,24 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
       personId: 3,
       assigneeId: 9,
     })
+  })
+
+  it("applies an assignee or unassigned filter in the query (before the row cap)", async () => {
+    await listFollowUpTasks({ assigneeId: 5 })
+    expect(p.followUpTask.findMany.mock.calls[0][0]).toEqual(expect.objectContaining({ where: { ...LIVE, assigneeId: 5 }, take: 500 }))
+    await listFollowUpTasks({ assigneeId: null })
+    expect(p.followUpTask.findMany.mock.calls[1][0].where).toEqual({ ...LIVE, assigneeId: null })
+  })
+
+  it("an out-of-range assignee id matches nothing", async () => {
+    expect(await listFollowUpTasks({ assigneeId: 0 })).toEqual({ tasks: [] })
+    expect(p.followUpTask.findMany).not.toHaveBeenCalled()
+  })
+
+  it("an assignee's own scope beats a caller-supplied assigneeId", async () => {
+    as(UserRole.OFFICE_ADMIN, "9")
+    await listFollowUpTasks({ assigneeId: 5 })
+    expect(p.followUpTask.findMany.mock.calls[0][0].where).toEqual({ ...LIVE, assigneeId: 9 })
   })
 
   it("an all-invalid status filter matches nothing instead of everything", async () => {

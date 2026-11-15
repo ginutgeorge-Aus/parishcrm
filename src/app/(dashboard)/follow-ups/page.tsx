@@ -75,8 +75,10 @@ export default async function FollowUpsPage({
 
   const sp = await searchParams
   const status = parseFollowUpStatusFilter(sp.status)
-  const assignee = parseAssigneeFilter(sp.assignee)
   const manage = canManageFollowUps(role)
+  // Non-managers have no assignee chips and the action scopes them to their own
+  // tasks anyway, so ignore a stale ?assignee= instead of filtering to nothing.
+  const assignee: AssigneeFilter = manage ? parseAssigneeFilter(sp.assignee) : "all"
 
   const [res, assignees] = await Promise.all([
     listFollowUpTasks({ statuses: followUpStatusesFor(status), ...assigneeQuery(assignee) }),

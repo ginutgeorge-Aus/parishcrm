@@ -92,13 +92,28 @@ describe("submitPublicPrayerRequest", () => {
   })
 
   it("refuses a submit that follows the form opening too quickly, accepts a slow one", async () => {
-    expect(await submitPublicPrayerRequest({ request: "Fast", openedAt: Date.now() })).toEqual({
+    expect(await submitPublicPrayerRequest({ request: "Fast", elapsedMs: 500 })).toEqual({
       error: expect.stringContaining("very quick"),
     })
     expect(create).not.toHaveBeenCalled()
-    expect(await submitPublicPrayerRequest({ request: "Slow", openedAt: Date.now() - 10_000 })).toEqual({
+    expect(await submitPublicPrayerRequest({ request: "Slow", elapsedMs: 10_000 })).toEqual({
       success: expect.stringContaining("Thank you"),
     })
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it("judges speed by the browser-measured duration, so a browser clock ahead of the server can't block a send", async () => {
+    // A browser five minutes ahead: an absolute timestamp would look like it was
+    // opened in the future. The duration is what counts.
+    const realNow = Date.now
+    Date.now = () => realNow() - 5 * 60_000
+    try {
+      expect(await submitPublicPrayerRequest({ request: "Skewed", elapsedMs: 10_000 })).toEqual({
+        success: expect.stringContaining("Thank you"),
+      })
+    } finally {
+      Date.now = realNow
+    }
     expect(create).toHaveBeenCalledTimes(1)
   })
 

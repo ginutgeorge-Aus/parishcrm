@@ -64,8 +64,13 @@ export type PublicPrayerRequestInput = {
   shareConsent?: boolean
   /** Honeypot: hidden from people, so any value means a bot. Named non-semantically so autofill ignores it. */
   hp_field?: string
-  /** `Date.now()` when the form was opened; a too-quick submit is refused. Unsigned, so a speed bump only. */
-  openedAt?: number
+  /**
+   * Milliseconds the browser measured between opening the form and sending it;
+   * a too-quick submit is refused. A duration, not a timestamp, so a browser
+   * clock set ahead of the server's can't block a real person. Unsigned, so a
+   * speed bump only.
+   */
+  elapsedMs?: number
 }
 
 /**
@@ -73,7 +78,7 @@ export type PublicPrayerRequestInput = {
  * same success text) → trusted-IP check (fail closed) → time-to-submit → in-memory per-IP throttle → validation → per-IP DB
  * quota (5 per hour) → create. Creates a PUBLIC_FORM request, private unless
  * the requester ticked "OK to share".
- * @param input form fields plus the honeypot `hp_field` and `openedAt`
+ * @param input form fields plus the honeypot `hp_field` and `elapsedMs`
  * @returns `{ success }` or `{ error }`
  */
 export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput): Promise<ActionResultWithSuccess> {
@@ -87,7 +92,7 @@ export async function submitPublicPrayerRequest(input: PublicPrayerRequestInput)
     logger.warn("publicPrayerRequest: no valid client IP from CLIENT_IP_HEADER or X-Forwarded-For; refusing submission")
     return { error: NO_IP }
   }
-  if (typeof input.openedAt === "number" && Date.now() - input.openedAt < MIN_FILL_MS) return { error: TOO_FAST }
+  if (typeof input.elapsedMs === "number" && input.elapsedMs < MIN_FILL_MS) return { error: TOO_FAST }
   if (!rateLimit(`prayer:pre:${rateKey}`, 30, 60_000)) return { error: TOO_MANY }
 
   const parsed = PublicPrayerSchema.safeParse(input)
