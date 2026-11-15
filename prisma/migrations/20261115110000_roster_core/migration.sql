@@ -130,5 +130,5 @@ ALTER TABLE "PersonUnavailability" ADD CONSTRAINT "PersonUnavailability_personId
 ALTER TABLE "RosterRole" ADD CONSTRAINT "RosterRole_defaultCount_check" CHECK ("defaultCount" >= 1);
 ALTER TABLE "RosterSlot" ADD CONSTRAINT "RosterSlot_needed_check" CHECK ("needed" >= 1);
 ALTER TABLE "RosterService" ADD CONSTRAINT "RosterService_times_check" CHECK ("endsAt" > "startsAt");
-ALTER TABLE "RosterService" ADD CONSTRAINT "RosterService_weeklyKey_check" CHECK (("kind" = 'SUNDAY' AND "weeklyKey" = "startsAt") OR ("kind" = 'ADHOC' AND "weeklyKey" IS NULL));
+ALTER TABLE "RosterService" ADD CONSTRAINT "RosterService_weeklyKey_check" CHECK (("kind" = 'SUNDAY' AND "weeklyKey" IS NOT NULL AND "weeklyKey" = "startsAt") OR ("kind" = 'ADHOC' AND "weeklyKey" IS NULL));
 ALTER TABLE "PersonUnavailability" ADD CONSTRAINT "PersonUnavailability_range_check" CHECK ("endDate" >= "startDate");

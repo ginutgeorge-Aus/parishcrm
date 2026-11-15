@@ -136,6 +136,11 @@ describe("createRosterRole", () => {
     p.group.findFirst.mockResolvedValue(null)
     await expect(createRosterRole(undefined, form({ name: "Reader", groupId: "4" }))).resolves.toEqual({ error: "Group not found" })
   })
+  it("refuses a group archived after the pre-check (in-transaction lock)", async () => {
+    p.$queryRaw.mockResolvedValueOnce([])
+    await expect(createRosterRole(undefined, form({ name: "Reader", groupId: "4" }))).resolves.toEqual({ error: "Group not found" })
+    expect(p.rosterRole.create).not.toHaveBeenCalled()
+  })
   it("maps a duplicate name", async () => {
     p.rosterRole.create.mockRejectedValue({ code: "P2002" })
     await expect(createRosterRole(undefined, form({ name: "Reader", groupId: "4" }))).resolves.toEqual({ error: expect.stringContaining("already exists") })
@@ -224,6 +229,11 @@ describe("slots", () => {
     p.rosterSlot.create.mockRejectedValueOnce({ code: "P2002" })
     await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "This service already has that role" })
   })
+  it("addRosterSlot refuses a role or group archived after the pre-check", async () => {
+    p.$queryRaw.mockResolvedValueOnce([])
+    await expect(addRosterSlot(2, 3, 1)).resolves.toEqual({ error: "Roster role not found" })
+    expect(p.rosterSlot.create).not.toHaveBeenCalled()
+  })
   it("addRosterSlot validates the head count", async () => {
     await expect(addRosterSlot(2, 3, 0)).resolves.toEqual({ error: expect.stringContaining("at least 1") })
   })
@@ -296,6 +306,16 @@ describe("assignToRosterSlot", () => {
     expect(p.rosterAssignment.create).toHaveBeenCalledWith({ data: { slotId: 5, serviceId: 2, personId: 7, assignedById: 9 }, select: { id: true } })
     expect(audit).toHaveBeenCalledWith(prisma, 9, "ROSTER_ASSIGNED", "RosterAssignment", 11, { slotId: 5, serviceId: 2, personId: 7 })
   })
+  it("refuses when the role or group is archived after the slot lock", async () => {
+    p.$queryRaw.mockResolvedValueOnce([{ needed: 2 }]).mockResolvedValueOnce([])
+    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "Roster role not found" })
+    expect(p.rosterAssignment.create).not.toHaveBeenCalled()
+  })
+  it("refuses when the person is archived after the slot lock", async () => {
+    p.$queryRaw.mockResolvedValueOnce([{ needed: 2 }]).mockResolvedValueOnce([{ id: 3 }]).mockResolvedValueOnce([])
+    await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: "This person is not a member of the role's group" })
+    expect(p.rosterAssignment.create).not.toHaveBeenCalled()
+  })
   it("refuses a non-member of the role's group", async () => {
     p.groupMember.findFirst.mockResolvedValue(null)
     await expect(assignToRosterSlot(5, 7)).resolves.toEqual({ error: expect.stringContaining("not a member") })
@@ -349,6 +369,17 @@ describe("unassignRosterAssignment", () => {
   it("deletes and audits with the prior status", async () => {
     await unassignRosterAssignment(11)
     expect(audit).toHaveBeenCalledWith(prisma, 9, "ROSTER_UNASSIGNED", "RosterAssignment", 11, { slotId: 5, serviceId: 2, personId: 7, status: "PENDING" })
+  })
+  it("lets only staff clear a DECLINED row, not a group leader", async () => {
+    const declined = { serviceId: 2, slotId: 5, personId: 7, status: "DECLINED", slot: { role: { groupId: 4 } } }
+    as(UserRole.EVENT_ORGANISER)
+    p.groupLeaderAccess.findUnique.mockResolvedValue({ id: 1 })
+    p.rosterAssignment.findUnique.mockResolvedValueOnce(declined)
+    await expect(unassignRosterAssignment(11)).resolves.toEqual({ error: "Unauthorized" })
+    expect(p.rosterAssignment.deleteMany).not.toHaveBeenCalled()
+    as(UserRole.ADMIN)
+    p.rosterAssignment.findUnique.mockResolvedValueOnce(declined)
+    await expect(unassignRosterAssignment(11)).resolves.toEqual({ success: "Person removed from the roster" })
   })
   it("reports a missing assignment", async () => {
     p.rosterAssignment.findUnique.mockResolvedValueOnce(null)

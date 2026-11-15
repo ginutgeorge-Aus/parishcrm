@@ -108,7 +108,8 @@ export default async function OrganiserRegistrationsPage(props: Readonly<Props>)
             <Link href={`/my-events/${eventId}/check-in`}>Check-in</Link>
           </Button>
           <ExportButtons eventId={eventId} slug={event.slug} />
-          <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />
+          {/* Reminder emails link to the public /e/<slug> pay page, so staff-only events skip them. */}
+          {event.slug && <SendPaymentRemindersClient eventId={event.id} eventTitle={event.title} rows={reminderRows} />}
         </div>
       </div>
 

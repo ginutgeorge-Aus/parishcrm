@@ -104,6 +104,7 @@ describe("serviceTimes", () => {
   })
   it("rejects an end at or before the start", () => {
     expect(serviceTimes("2026-12-06", "11:00", "11:00")).toEqual({ error: "End time must be after the start time" })
+    expect(serviceTimes("2026-10-04", "02:30", "04:00")).toEqual({ error: "That time does not exist on this date (clocks change)" })
   })
   it("rejects an impossible date", () => {
     expect(serviceTimes("2026-02-30", "09:00", "10:00")).toEqual({ error: "Enter a valid date and time" })
