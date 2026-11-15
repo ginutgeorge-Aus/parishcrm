@@ -318,7 +318,7 @@ export async function addRosterSlot(serviceId: number, roleId: number, needed: n
   if (!n.success) return { error: n.error.issues[0]?.message ?? "Invalid input" }
   const [service, role] = await Promise.all([
     prisma.rosterService.findUnique({ where: { id: serviceId }, select: { id: true } }),
-    prisma.rosterRole.findFirst({ where: { id: roleId, archivedAt: null }, select: { id: true } }),
+    prisma.rosterRole.findFirst({ where: { id: roleId, archivedAt: null, group: { archivedAt: null } }, select: { id: true } }),
   ])
   if (!service) return { error: SERVICE_GONE }
   if (!role) return { error: ROLE_GONE }

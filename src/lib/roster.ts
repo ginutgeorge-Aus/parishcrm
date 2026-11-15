@@ -6,7 +6,7 @@
 
 import { z } from "zod"
 import { isRealCalendarDate } from "@/lib/validation"
-import { isValidDatetimeLocal, sydneyDatetimeLocalToUTC } from "@/lib/dates"
+import { isValidDatetimeLocal, sydneyDatetimeLocalToUTC, toSydneyDatetimeLocal } from "@/lib/dates"
 import type { RosterAssignmentStatus, RosterServiceKind } from "@/lib/generated/prisma/enums"
 
 /** Why a person cannot take a slot. */
@@ -189,6 +189,10 @@ export function serviceTimes(dateYMD: string, startTime: string, endTime: string
   const startsAt = sydneyDatetimeLocalToUTC(startLocal)
   const endsAt = sydneyDatetimeLocalToUTC(endLocal)
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return { error: "Enter a valid date and time" }
+  // A time inside the spring-forward gap does not exist; the conversion would silently shift it an hour.
+  if (toSydneyDatetimeLocal(startsAt) !== startLocal || toSydneyDatetimeLocal(endsAt) !== endLocal) {
+    return { error: "That time does not exist on this date (clocks change)" }
+  }
   if (endsAt.getTime() <= startsAt.getTime()) return { error: "End time must be after the start time" }
   return { date: new Date(`${dateYMD}T00:00:00.000Z`), startsAt, endsAt }
 }
