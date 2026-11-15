@@ -132,10 +132,13 @@ export async function createRosterRole(_prev: ActionResultWithSuccess, formData:
   const group = await prisma.group.findFirst({ where: { id: parsed.data.groupId, archivedAt: null }, select: { id: true } })
   if (!group) return { error: GROUP_GONE }
   try {
-    await prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx): Promise<{ error: string } | undefined> => {
+      if (!(await lockLiveGroup(tx, parsed.data.groupId))) return { error: GROUP_GONE }
       const row = await tx.rosterRole.create({ data: parsed.data, select: { id: true } })
       await logAuditTx(tx, actorId(g.session), "ROSTER_ROLE_CREATED", "RosterRole", row.id, { groupId: parsed.data.groupId })
+      return undefined
     })
+    if (res) return res
   } catch (e) {
     if (isP2002(e)) return { error: DUPLICATE_ROLE }
     throw e
@@ -323,10 +326,13 @@ export async function addRosterSlot(serviceId: number, roleId: number, needed: n
   if (!service) return { error: SERVICE_GONE }
   if (!role) return { error: ROLE_GONE }
   try {
-    await prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx): Promise<{ error: string } | undefined> => {
+      if (!(await lockLiveRole(tx, roleId))) return { error: ROLE_GONE }
       const row = await tx.rosterSlot.create({ data: { serviceId, roleId, needed: n.data }, select: { id: true } })
       await logAuditTx(tx, actorId(g.session), "ROSTER_SLOT_ADDED", "RosterSlot", row.id, { serviceId, roleId, needed: n.data })
+      return undefined
     })
+    if (res) return res
   } catch (e) {
     if (isP2002(e)) return { error: "This service already has that role" }
     throw e
@@ -397,6 +403,49 @@ async function lockSlot(tx: Prisma.TransactionClient, slotId: number): Promise<{
 }
 
 /**
+ * Take FOR SHARE on a live group row, so a concurrent archive (an UPDATE on
+ * Group) waits for this transaction and cannot slip in between check and write.
+ * @param tx transaction client
+ * @param groupId the group to lock
+ * @returns true when the group exists and is not archived
+ */
+async function lockLiveGroup(tx: Prisma.TransactionClient, groupId: number): Promise<boolean> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ id: number }[]>`
+    SELECT id FROM "Group" WHERE id = ${groupId} AND "archivedAt" IS NULL FOR SHARE`
+  return rows.length > 0
+}
+
+/**
+ * Take FOR SHARE on a live roster role and its live group, so a concurrent
+ * role or group archive waits for this transaction.
+ * @param tx transaction client
+ * @param roleId the role to lock
+ * @returns true when the role and its group both exist and are not archived
+ */
+async function lockLiveRole(tx: Prisma.TransactionClient, roleId: number): Promise<boolean> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ id: number }[]>`
+    SELECT r.id FROM "RosterRole" r JOIN "Group" g ON g.id = r."groupId"
+    WHERE r.id = ${roleId} AND r."archivedAt" IS NULL AND g."archivedAt" IS NULL FOR SHARE`
+  return rows.length > 0
+}
+
+/**
+ * Take FOR SHARE on a live person row, so a concurrent archive waits for this
+ * transaction.
+ * @param tx transaction client
+ * @param personId the person to lock
+ * @returns true when the person exists and is not archived
+ */
+async function lockLivePerson(tx: Prisma.TransactionClient, personId: number): Promise<boolean> {
+  // nosemgrep: crm-no-raw-sql — row lock; Prisma has no locking API
+  const rows = await tx.$queryRaw<{ id: number }[]>`
+    SELECT id FROM "Person" WHERE id = ${personId} AND "archivedAt" IS NULL FOR SHARE`
+  return rows.length > 0
+}
+
+/**
  * Suggest people for a slot: live members of the role's group with no
  * conflict, least recently served in this role first. Names only, never
  * contact details. Staff, or a leader of the role's group.
@@ -453,6 +502,10 @@ export async function assignToRosterSlot(slotId: number, personId: number): Prom
     const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { ok: true }> => {
       const locked = await lockSlot(tx, slotId)
       if (!locked) return { error: SLOT_GONE }
+      // FOR SHARE on role+group and person: a concurrent archive waits for this
+      // transaction, so no assignment lands on an archived role, group or person.
+      if (!(await lockLiveRole(tx, slot.roleId))) return { error: ROLE_GONE }
+      if (!(await lockLivePerson(tx, personId))) return { error: "This person is not a member of the role's group" }
       const member = await tx.groupMember.findFirst({
         where: { groupId: slot.role.groupId, personId, group: { archivedAt: null }, person: { archivedAt: null } },
         select: { id: true },
@@ -490,7 +543,7 @@ export async function assignToRosterSlot(slotId: number, personId: number): Prom
   return { success: "Person rostered" }
 }
 
-/** Remove a person from a slot (any status). Staff, or a leader of the role's group. */
+/** Remove a person from a slot. Staff, or a leader of the role's group; only staff may clear a DECLINED row. */
 export async function unassignRosterAssignment(assignmentId: number): Promise<ActionResultWithSuccess> {
   const g = await assignerSession()
   if ("error" in g) return { error: g.error }
@@ -501,6 +554,9 @@ export async function unassignRosterAssignment(assignmentId: number): Promise<Ac
   })
   if (!row) return { error: ASSIGNMENT_GONE }
   if (!(await mayEditGroupRole(g.session, row.slot.role.groupId))) return { error: UNAUTHORIZED }
+  // A decline keeps the person off this service until staff clear it: a group
+  // leader must not remove it and then re-roster them over their refusal.
+  if (row.status === "DECLINED" && !canManageRoster(g.session?.user?.role)) return { error: UNAUTHORIZED }
   const deleted = await prisma.$transaction(async (tx) => {
     const r = await tx.rosterAssignment.deleteMany({ where: { id: assignmentId } })
     if (r.count > 0) {
