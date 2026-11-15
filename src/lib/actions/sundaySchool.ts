@@ -192,8 +192,10 @@ export async function removeTeacher(classId: number, personId: number): Promise<
 
 /**
  * Enrol (or move) children into a class. One class per child per year is a DB
- * unique (personId, year), so an upsert moves a child already enrolled
- * elsewhere this year. canManageSundaySchool-gated; ids deduped and capped.
+ * unique (personId, year), so a child already enrolled elsewhere this year is
+ * moved: their enrolment is re-pointed and `enrolledAt` restarts, which bounds
+ * what their progress page lists for this class. Re-enrolling a child already
+ * here changes nothing. canManageSundaySchool-gated; ids deduped and capped.
  */
 export async function enrolChildren(classId: number, personIds: number[]): Promise<ActionResultWithSuccess> {
   const g = await editableClass(classId)
@@ -227,6 +229,13 @@ export async function enrolChildren(classId: number, personIds: number[]): Promi
       const people = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM "Person" WHERE id = ANY(${ids}) AND "archivedAt" IS NULL FOR SHARE`
       if (people.length !== ids.length) throw new Error(PERSON_GONE)
+      // A move into this class restarts enrolledAt, so the child's progress page
+      // doesn't list this class's rolls and exams from before they joined.
+      // Re-enrolling a child already here leaves enrolledAt alone.
+      await tx.sundaySchoolEnrolment.updateMany({
+        where: { personId: { in: ids }, year, classId: { not: classId } },
+        data: { classId, enrolledAt: new Date() },
+      })
       for (const personId of ids) {
         await tx.sundaySchoolEnrolment.upsert({
           where: { personId_year: { personId, year } },

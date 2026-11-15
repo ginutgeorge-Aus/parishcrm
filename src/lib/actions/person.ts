@@ -11,7 +11,7 @@ import { canEdit, isAdmin, canSeePastoralNotes } from "@/lib/roleGuard"
 import { encrypt, hmacEmail, hmacMobile } from "@/lib/crypto"
 import { logAudit, logAuditManyTx, logAuditTx } from "@/lib/audit"
 import { blockYearClosers, lockedYearRefs } from "@/lib/sundaySchoolYearLock"
-import { parseOptimisticUpdatedAt, isP2034 } from "@/lib/validation"
+import { parseOptimisticUpdatedAt, isP2003, isP2034 } from "@/lib/validation"
 import { parseMinistryRoles } from "@/lib/ministryRoles"
 
 const PersonSchema = z.object({
@@ -227,8 +227,8 @@ export async function updatePerson(
 }
 
 /**
- * Permanently delete a person (ADMIN only) unless giving/receipt records link
- * to them. Clearances cascade with the person, so each is audited as
+ * Permanently delete a person (ADMIN only) unless giving/receipt or sacramental
+ * register records link to them. Clearances cascade with the person, so each is audited as
  * CLEARANCE_REMOVED (cascade) in the same transaction as the delete.
  * @param id Person.id
  * @param familyId expected family (IDOR guard)
@@ -256,10 +256,13 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
   // with the read.
   const linkedMsg = (n: number) =>
     `Cannot delete — ${n} linked giving/receipt record(s) reference this person. Archive the family instead.`
+  const CONCURRENT_LINK_ERROR =
+    "Cannot delete — a linked record was just added for this person. Archive the family instead."
   const lockedSsMsg = (n: number) =>
     `Cannot delete — ${n} Sunday School record(s) in a locked school year reference this person. Archive the family instead.`
   let linkedCount = 0
   let lockedSsCount = 0
+  let sacramentCount = 0
   // PersonClearance cascades on person delete; its ids/types are captured
   // inside the transaction so the removal can be audited (no decrypted values).
   const actor = actorId(session)
@@ -275,6 +278,10 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
         ])
         const total = txCount + dgrCount + pettyCashCount
         if (total > 0) return total
+        // SacramentRecord person/spouse FKs are Restrict: a register entry is a
+        // permanent church record, so steer to archive instead of a P2003 500.
+        sacramentCount = await tx.sacramentRecord.count({ where: { OR: [{ personId: id }, { spouseId: id }] } })
+        if (sacramentCount > 0) return 0
         // Cascading away teacher/enrolment/attendance rows would rewrite a
         // locked Sunday School year.
         lockedSsCount = await lockedYearRefs(tx, id)
@@ -301,14 +308,20 @@ export async function deletePerson(id: number, familyId: number): Promise<Action
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     )
   } catch (e) {
-    // P2034 = lost to a concurrent giving/receipt write referencing this
-    // person. Surface the same "archive instead" message — the safe outcome, a
-    // referencing row now exists (count unknown from the aborted read).
-    if (isP2034(e)) return { error: linkedMsg(1) }
+    // P2034 = lost to a concurrent write referencing this person; P2003 = a
+    // concurrent SacramentRecord insert hit the Restrict FK. Either way a
+    // referencing row now exists (kind and count unknown from the aborted
+    // read), so surface a neutral "archive instead" message.
+    if (isP2034(e) || isP2003(e)) return { error: CONCURRENT_LINK_ERROR }
     throw e
   }
   if (linkedCount > 0) return { error: linkedMsg(linkedCount) }
   if (lockedSsCount > 0) return { error: lockedSsMsg(lockedSsCount) }
+  if (sacramentCount > 0) {
+    return {
+      error: `Cannot delete — ${sacramentCount} sacramental register record(s) reference this person. Archive the family instead.`,
+    }
+  }
 
   revalidatePath(`/families/${familyId}`)
   redirect(`/families/${familyId}`)

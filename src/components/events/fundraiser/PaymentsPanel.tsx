@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { recordPayment, deletePayment } from "@/lib/actions/fundraiser"
 import { centsToNumber, fmtAUD } from "@/lib/formatting"
 import { sydneyTodayYMD } from "@/lib/dates"
+import { ALREADY_RECORDED_ERROR } from "@/lib/fundraiserErrors"
 import { randomUuid } from "@/lib/randomUuid"
 // Type-only (erased at build), so the server-only query module never reaches the client bundle.
 import type { FundraiserPaymentItem } from "@/lib/fundraiserQueries"
@@ -42,6 +44,7 @@ export function PaymentsPanel({
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
+  const router = useRouter()
 
   /** Reset the form and mint a new submission key when the dialog opens. */
   function onOpenChange(next: boolean) {
@@ -56,14 +59,25 @@ export function PaymentsPanel({
     }
   }
 
-  /** Submit the record-payment form and show any server error. */
+  /** Submit the record-payment form and show any server error (or a generic one if the call throws). */
   function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     start(async () => {
-      const res = await recordPayment(entryId, { amount, method, paidAt, note, submissionKey: key })
-      if (res?.error) setError(res.error)
-      else {
+      let res: Awaited<ReturnType<typeof recordPayment>>
+      try {
+        res = await recordPayment(entryId, { amount, method, paidAt, note, submissionKey: key })
+      } catch {
+        setError("Could not record the payment. Please try again.")
+        return
+      }
+      if (res?.error) {
+        setError(res.error)
+        // The key stays (rotating it would double-record); reload so the already-committed row shows.
+        if (res.error === ALREADY_RECORDED_ERROR) router.refresh()
+      } else {
+        // A retried (idempotent) repeat skips the server revalidate, so reload to show the committed row.
+        router.refresh()
         setKey(randomUuid())
         setAmount("")
         setNote("")
@@ -71,11 +85,17 @@ export function PaymentsPanel({
     })
   }
 
-  /** Delete one payment and show any server error. */
+  /** Delete one payment and show any server error (or a generic one if the call throws). */
   function remove(id: number) {
     setError(null)
     start(async () => {
-      const res = await deletePayment(id)
+      let res: Awaited<ReturnType<typeof deletePayment>>
+      try {
+        res = await deletePayment(id)
+      } catch {
+        setError("Could not delete the payment. Please try again.")
+        return
+      }
       if (res?.error) setError(res.error)
     })
   }

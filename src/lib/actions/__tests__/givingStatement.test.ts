@@ -155,7 +155,7 @@ describe("sendGivingStatements", () => {
 
   it("sends, logs per recipient without the address, and reports a no-email family", async () => {
     const res = await sendGivingStatements(2025, [1, 2])
-    expect(res).toEqual({ sent: 1, failed: 1, skipped: 0, inProgress: 0, errors: [expect.objectContaining({ familyId: 2 })] })
+    expect(res).toEqual({ sent: 1, failed: 1, skipped: 0, inProgress: 0, errors: [expect.objectContaining({ familyId: 2 })], auditFailed: [], remaining: [] })
     expect(mockSend).toHaveBeenCalledTimes(1)
     expect(mockSend.mock.calls[0][0]).toBe("s@x.com")
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_SENT", "Family", 1, { fyStartYear: 2025, totalCents: 1000 })
@@ -165,21 +165,21 @@ describe("sendGivingStatements", () => {
   it("records a failed delivery and continues", async () => {
     mockSend.mockRejectedValueOnce(new Error("smtp to s@x.com"))
     const res = await sendGivingStatements(2025, [1])
-    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Email delivery failed" }] })
+    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Email delivery failed" }], auditFailed: [], remaining: [] })
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025 })
   })
 
   it("skips an already SENT claim as 'skipped' (already sent)", async () => {
     mockClaimCreate.mockRejectedValueOnce({ code: "P2002" })
     mockClaimFind.mockResolvedValue({ key: "k", value: "SENT:1" })
-    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 1, inProgress: 0, errors: [] })
+    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 1, inProgress: 0, errors: [], auditFailed: [], remaining: [] })
     expect(mockSend).not.toHaveBeenCalled()
   })
 
   it.each(["PENDING:1", "UNKNOWN:1"])("skips a %s claim as in progress / unknown, not 'already sent'", async (value) => {
     mockClaimCreate.mockRejectedValueOnce({ code: "P2002" })
     mockClaimFind.mockResolvedValue({ key: "k", value })
-    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 0, inProgress: 1, errors: [] })
+    expect(await sendGivingStatements(2025, [1])).toEqual({ sent: 0, failed: 0, skipped: 0, inProgress: 1, errors: [], auditFailed: [], remaining: [] })
   })
 
   it("reports a missing family, an archived family and a family with no giving", async () => {
@@ -207,8 +207,110 @@ describe("sendGivingStatements", () => {
     mockClaimSwap.mockRejectedValueOnce(new Error("db blip"))
     mockLogAudit.mockRejectedValueOnce(new Error("db blip"))
     const res = await sendGivingStatements(2025, [1, 2])
-    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [] })
+    expect(res).toEqual({ sent: 2, failed: 0, skipped: 0, inProgress: 0, errors: [], auditFailed: [1], remaining: [] })
     expect(mockSend).toHaveBeenCalledTimes(2)
+  })
+
+  it("names families whose audit write was swallowed (logAudit resolves false) instead of reporting them as logged", async () => {
+    mockLogAudit.mockResolvedValueOnce(false)
+    const res = await sendGivingStatements(2025, [1])
+    expect(res).toEqual(expect.objectContaining({ sent: 1, auditFailed: [1] }))
+  })
+
+  it("audits refusals (no consent/email, no giving, archived, missing) as SKIPPED with a reason code", async () => {
+    mockFamilies.mockResolvedValue(
+      new Map([
+        [1, { id: 1, name: "A", archived: false, canEmail: false, emails: [] }],
+        [2, { id: 2, name: "B", archived: true, canEmail: false, emails: ["b@x.com"] }],
+        [3, { id: 3, name: "C", archived: false, canEmail: true, emails: ["c@x.com"] }],
+      ])
+    )
+    mockLoad.mockResolvedValue(new Map([...statements()]))
+    await sendGivingStatements(2025, [1, 2, 3, 4])
+    expect(mockLogAudit.mock.calls.every((c) => c[1] === "GIVING_STATEMENT_SKIPPED")).toBe(true)
+    const reasons = mockLogAudit.mock.calls.map((c) => [c[3], c[4].reason])
+    expect(reasons).toEqual([[1, "no_email_or_consent"], [2, "archived"], [3, "no_giving"], [4, "family_not_found"]])
+    expect(JSON.stringify(mockLogAudit.mock.calls)).not.toContain("@x.com")
+  })
+
+  describe("time bounds", () => {
+    afterEach(() => jest.useRealTimers())
+
+    it("stops starting sends after the time budget and returns the rest as remaining", async () => {
+      mockFamilies.mockResolvedValue(
+        new Map([
+          [1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }],
+          [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
+        ])
+      )
+      const now = jest.spyOn(Date, "now")
+      let t = 1_000_000
+      now.mockImplementation(() => t)
+      mockSend.mockImplementationOnce(async () => {
+        t += 41_000
+      })
+      const res = await sendGivingStatements(2025, [1, 2])
+      now.mockRestore()
+      expect(res).toEqual(expect.objectContaining({ sent: 1, remaining: [2] }))
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not start a send that could overrun the budget with its timeout", async () => {
+      mockFamilies.mockResolvedValue(
+        new Map([
+          [1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }],
+          [2, { id: 2, name: "Jones", archived: false, canEmail: true, emails: ["j@x.com"] }],
+        ])
+      )
+      const now = jest.spyOn(Date, "now")
+      let t = 1_000_000
+      now.mockImplementation(() => t)
+      // 26s elapsed + 20s per-send timeout would end past the 45s budget, so family 2 is deferred.
+      mockSend.mockImplementationOnce(async () => {
+        t += 26_000
+      })
+      const res = await sendGivingStatements(2025, [1, 2])
+      now.mockRestore()
+      expect(res).toEqual(expect.objectContaining({ sent: 1, remaining: [2] }))
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
+    it("times out a hung family reload and names the family", async () => {
+      jest.useFakeTimers()
+      mockFamilies.mockImplementationOnce(() => new Promise(() => undefined))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      const res = await p
+      expect(res).toEqual(expect.objectContaining({ inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("does not start a send when a hung reload finishes after the deadline", async () => {
+      jest.useFakeTimers()
+      let release: (m: Map<number, unknown>) => void = () => undefined
+      mockFamilies.mockImplementationOnce(() => new Promise((r) => { release = r }))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      await p
+      release(new Map([[1, { id: 1, name: "Smith", archived: false, canEmail: true, emails: ["s@x.com"] }]]))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it("reports a send that exceeds the per-send timeout as in progress", async () => {
+      jest.useFakeTimers()
+      mockSend.mockImplementationOnce(() => new Promise(() => undefined))
+      const p = sendGivingStatements(2025, [1])
+      await jest.advanceTimersByTimeAsync(21_000)
+      expect(await p).toEqual(expect.objectContaining({ sent: 0, failed: 0, inProgress: 1, errors: [{ familyId: 1, error: expect.stringMatching(/Timed out/) }] }))
+    })
+  })
+
+  it("reports a family whose reload throws and keeps the batch going", async () => {
+    mockFamilies.mockRejectedValueOnce(new Error("db down"))
+    const res = await sendGivingStatements(2025, [2, 1])
+    expect(res).toEqual(expect.objectContaining({ sent: 1, failed: 1, errors: [{ familyId: 2, error: "Could not prepare the send; try again" }] }))
+    expect(mockSend).toHaveBeenCalledTimes(1)
   })
 
   it("releases the claim when building or rendering fails before the send", async () => {
@@ -242,7 +344,7 @@ describe("sendGivingStatements", () => {
     ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValueOnce(true)
     mockSend.mockRejectedValueOnce(new Error("timeout"))
     const res = await sendGivingStatements(2025, [1])
-    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }] })
+    expect(res).toEqual({ sent: 0, failed: 1, skipped: 0, inProgress: 0, errors: [{ familyId: 1, error: "Delivery status unknown; check before resending" }], auditFailed: [], remaining: [] })
     expect(mockClaimDelete).not.toHaveBeenCalled()
     expect(mockClaimSwap).toHaveBeenCalledWith(expect.objectContaining({ data: { value: expect.stringMatching(/^UNKNOWN:/) } }))
     expect(mockLogAudit).toHaveBeenCalledWith(1, "GIVING_STATEMENT_FAILED", "Family", 1, { fyStartYear: 2025, outcome: "unknown" })
@@ -301,9 +403,11 @@ describe("sendGivingStatements", () => {
     })
   })
 
-  it("rethrows unexpected claim errors", async () => {
+  it("reports an unexpected claim error for that family without sending", async () => {
     mockClaimCreate.mockRejectedValueOnce(new Error("db down"))
-    await expect(sendGivingStatements(2025, [1])).rejects.toThrow("db down")
+    const res = await sendGivingStatements(2025, [1])
+    expect(res).toEqual(expect.objectContaining({ sent: 0, failed: 1, errors: [{ familyId: 1, error: "Could not prepare the send; try again" }] }))
+    expect(mockSend).not.toHaveBeenCalled()
   })
 
   it("returns a clear error when giving cannot be loaded safely", async () => {
@@ -327,6 +431,16 @@ describe("feature guard", () => {
 })
 
 describe("listStatementSendLog", () => {
+  it("maps a SKIPPED row with its reason code", async () => {
+    findLog.mockResolvedValue([
+      { id: 6, action: "GIVING_STATEMENT_SKIPPED", resourceId: 1, metadata: { fyStartYear: 2025, reason: "no_giving" }, createdAt: new Date("2026-07-02"), user: null },
+    ])
+    ;(prisma.family.findMany as jest.Mock).mockResolvedValue([{ id: 1, name: "Smith" }])
+    expect(await listStatementSendLog(2025)).toEqual([
+      { id: 6, familyId: 1, familyName: "Smith", status: "SKIPPED", reason: "no_giving", at: new Date("2026-07-02"), sentBy: "System" },
+    ])
+  })
+
   it("maps audit rows to log rows", async () => {
     findLog.mockResolvedValue([
       { id: 5, action: "GIVING_STATEMENT_FAILED", resourceId: 1, createdAt: new Date("2026-07-01"), user: { name: "Pat" } },
