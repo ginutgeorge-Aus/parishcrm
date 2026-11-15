@@ -384,7 +384,10 @@ test("the sequential retry of contended claims also stops once the time budget i
       .mockRejectedValueOnce(p2034())
       .mockRejectedValueOnce(p2034())
       .mockImplementationOnce(async () => { jest.setSystemTime(Date.now() + 60_000); throw p2034() })
-    const res = await sendFundraiserReminders(3)
+    // serializableWrite sleeps a jittered backoff between P2034 retries: drive the fake clock.
+    const pending = sendFundraiserReminders(3)
+    await jest.runAllTimersAsync()
+    const res = await pending
     expect(res).toEqual({ sent: 0, failed: 0, skippedNoEmail: 0, skippedRecent: 0, deferred: 1 })
     expect(mSend).not.toHaveBeenCalled()
   } finally {
