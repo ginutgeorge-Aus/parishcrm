@@ -24,14 +24,16 @@ import FundraiserPayPage from "../page"
 
 const mFind = prisma.fundraiserEntry.findUnique as jest.Mock
 
-const entry = (paid: string, online = true) => ({
+const entry = (paid: string, online = true, deliveryPrice: string | null = null, delivery = false) => ({
   quantity: 4,
-  unitPrice: "10.00",
+  unitPrice: delivery ? "12.00" : "10.00",
+  delivery,
   bankRef: "FR0001",
   payments: [{ amount: paid }],
   fundraiser: {
     name: "Cake stall",
     unitLabel: "packet",
+    deliveryPrice,
     event: { title: "Feast", onlinePaymentEnabled: online, passCardFee: false },
   },
 })
@@ -95,4 +97,20 @@ it("rate-limited lookups get a notice, not the entry", async () => {
   const text = await renderPage()
   expect(text).toMatch(/too many requests/i)
   expect(mFind).not.toHaveBeenCalled()
+})
+
+it("shows no pickup/delivery text without a delivery price", async () => {
+  mFind.mockResolvedValue(entry("0.00"))
+  const text = await renderPage()
+  expect(text).not.toContain("(pickup)")
+  expect(text).not.toContain("(delivery)")
+})
+
+it("labels pickup and delivery when the fundraiser has a delivery price", async () => {
+  mFind.mockResolvedValue(entry("0.00", true, "12.00", false))
+  expect(await renderPage()).toContain("(pickup)")
+  mFind.mockResolvedValue(entry("0.00", true, "12.00", true))
+  const text = await renderPage()
+  expect(text).toContain("(delivery)")
+  expect(text).toContain("$48.00")
 })

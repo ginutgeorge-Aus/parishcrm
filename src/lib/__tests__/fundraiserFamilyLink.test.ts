@@ -9,7 +9,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 jest.mock("@/lib/audit", () => ({ logAuditTx: jest.fn().mockResolvedValue(undefined) }))
 jest.mock("@/lib/logger", () => ({ logger: { error: jest.fn() } }))
 
-type Row = { id: number; fundraiserId: number; familyId: number | null; quantity: number; unitPrice: string }
+type Row = { id: number; fundraiserId: number; familyId: number | null; quantity: number; unitPrice: string; delivery?: boolean }
 
 /**
  * Minimal transaction-client double for the helpers.
@@ -20,7 +20,7 @@ function makeTx(rows: Row[]) {
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue(rows.map((r) => ({ id: r.id }))),
     fundraiserEntry: {
-      findMany: jest.fn().mockResolvedValue(rows.map((r) => ({ ...r, bankRef: `REF${r.id}`, unitPrice: { toString: () => r.unitPrice } }))),
+      findMany: jest.fn().mockResolvedValue(rows.map((r) => ({ delivery: false, ...r, bankRef: `REF${r.id}`, unitPrice: { toString: () => r.unitPrice } }))),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: rows.length }),
       delete: jest.fn().mockResolvedValue({}),
@@ -89,6 +89,15 @@ describe("reassignFundraiserEntriesTx", () => {
     expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
   })
 
+  it("does not fold a delivery entry into a pickup entry at the same price", async () => {
+    const { tx, client } = makeTx([
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 2, unitPrice: "10.00", delivery: true },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 3, unitPrice: "10.00", delivery: false },
+    ])
+    expect(await reassignFundraiserEntriesTx(client, 1, 2, "Old", 9)).toEqual({ moved: 0, folded: 0, unlinked: 1, foldedEntryIds: [] })
+    expect(tx.fundraiserEntry.delete).not.toHaveBeenCalled()
+  })
+
   it("does not fold when the combined total would exceed the per-entry cap", async () => {
     const { tx, client } = makeTx([
       { id: 10, fundraiserId: 5, familyId: 1, quantity: 600, unitPrice: "1000.00" },
@@ -110,8 +119,8 @@ describe("reassignFundraiserEntriesTx", () => {
 
   it("folds at exactly 9999 combined quantity", () => {
     const steps = planFundraiserReassign([
-      { id: 10, fundraiserId: 5, familyId: 1, quantity: 5000, unitPrice: "1.00" },
-      { id: 20, fundraiserId: 5, familyId: 2, quantity: 4999, unitPrice: "1.00" },
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 5000, unitPrice: "1.00", delivery: false },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 4999, unitPrice: "1.00", delivery: false },
     ], 1, 2)
     expect(steps.map((s) => s.kind)).toEqual(["fold"])
   })
@@ -137,15 +146,23 @@ describe("reassignFundraiserEntriesTx", () => {
 describe("planFundraiserReassign", () => {
   it("is what the preview counts: move / fold / unlink per source entry", () => {
     const rows = [
-      { id: 10, fundraiserId: 5, familyId: 1, quantity: 1, unitPrice: "5.00" },
-      { id: 11, fundraiserId: 6, familyId: 1, quantity: 1, unitPrice: "5.00" },
-      { id: 12, fundraiserId: 7, familyId: 1, quantity: 1, unitPrice: "5.00" },
-      { id: 20, fundraiserId: 6, familyId: 2, quantity: 1, unitPrice: "5" },
-      { id: 21, fundraiserId: 7, familyId: 2, quantity: 1, unitPrice: "6.00" },
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 1, unitPrice: "5.00", delivery: false },
+      { id: 11, fundraiserId: 6, familyId: 1, quantity: 1, unitPrice: "5.00", delivery: false },
+      { id: 12, fundraiserId: 7, familyId: 1, quantity: 1, unitPrice: "5.00", delivery: false },
+      { id: 20, fundraiserId: 6, familyId: 2, quantity: 1, unitPrice: "5", delivery: false },
+      { id: 21, fundraiserId: 7, familyId: 2, quantity: 1, unitPrice: "6.00", delivery: false },
     ]
     const steps = planFundraiserReassign(rows, 1, 2)
     expect(steps.map((s) => [s.src.id, s.kind])).toEqual([[10, "move"], [11, "fold"], [12, "unlink"]])
     expect(countReassignSteps(steps)).toEqual({ moved: 1, folded: 1, unlinked: 1 })
+  })
+
+  it("unlinks instead of folding when the delivery flag differs at the same price", () => {
+    const rows = [
+      { id: 10, fundraiserId: 5, familyId: 1, quantity: 1, unitPrice: "5.00", delivery: true },
+      { id: 20, fundraiserId: 5, familyId: 2, quantity: 1, unitPrice: "5.00", delivery: false },
+    ]
+    expect(planFundraiserReassign(rows, 1, 2).map((s) => s.kind)).toEqual(["unlink"])
   })
 })
 
@@ -159,8 +176,8 @@ describe("unlinkFundraiserEntriesTx", () => {
 
   it("nulls the link, keeps the family name, and audits each entry", async () => {
     const { tx, client } = makeTx([
-      { id: 10, fundraiserId: 5, familyId: 3, quantity: 1, unitPrice: "5.00" },
-      { id: 11, fundraiserId: 6, familyId: 3, quantity: 1, unitPrice: "5.00" },
+      { id: 10, fundraiserId: 5, familyId: 3, quantity: 1, unitPrice: "5.00", delivery: false },
+      { id: 11, fundraiserId: 6, familyId: 3, quantity: 1, unitPrice: "5.00", delivery: false },
     ])
     expect(await unlinkFundraiserEntriesTx(client, 3, "Smith", 9)).toBe(2)
     expect(tx.fundraiserEntry.findMany).toHaveBeenCalledWith({ where: { familyId: 3 }, select: { id: true } })

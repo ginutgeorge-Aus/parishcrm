@@ -144,6 +144,9 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
             <Button variant="outline" asChild>
               <Link href={`/sunday-school/${cls.id}/exams`}>Exams</Link>
             </Button>
+            <Button variant="outline" asChild>
+              <Link href={`/sunday-school/${cls.id}/progress`}>Progress</Link>
+            </Button>
             {editor && (
               <Button variant="outline" asChild>
                 <Link href={`/sunday-school/${cls.id}/edit`}>Edit</Link>

@@ -88,7 +88,8 @@ describe("GivingStatementsClient", () => {
     await user.click(screen.getAllByLabelText("Select Smith")[0])
     await user.click(screen.getByRole("button", { name: /email selected/i }))
     await waitFor(() => expect(screen.getByText(/Stopped early: Unauthorized/)).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (1)" })).toBeInTheDocument())
+    // pending clears a tick after the banner renders, so wait for the label instead of asserting at once.
+    expect(await screen.findByRole("button", { name: "Email selected (1)" })).toBeInTheDocument()
   })
 
   it("shows a generic message when the action throws", async () => {
@@ -110,7 +111,7 @@ describe("GivingStatementsClient", () => {
     await user.click(screen.getByRole("button", { name: /select all unsent/i }))
     await user.click(screen.getByRole("button", { name: /email selected/i }))
     await waitFor(() => expect(screen.getByText(/Sent 200, failed 0\. The send log could not record the outcome for Fam0\..*Stopped early: Something went wrong; .*check the send log before ticking Resend/)).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole("button", { name: "Email selected (1)" })).toBeInTheDocument())
+    expect(await screen.findByRole("button", { name: "Email selected (1)" })).toBeInTheDocument()
   }, 30_000) // renders 201 rows twice (table + cards); slow on small CI runners
 
   it("drops a thrown chunk from the selection on a forced resend so a retry cannot re-send it", async () => {

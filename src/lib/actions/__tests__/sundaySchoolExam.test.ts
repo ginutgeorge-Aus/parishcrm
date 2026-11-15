@@ -211,6 +211,11 @@ describe("createExam / updateExam / archiveExam", () => {
     p.sundaySchoolExam.create.mockRejectedValue(new Error("boom"))
     await expect(createExam(4, undefined, form())).rejects.toThrow("boom")
   })
+  it("update rethrows non-unique errors", async () => {
+    p.sundaySchoolExam.updateMany.mockRejectedValue(new Error("boom"))
+    await expect(updateExam(9, undefined, form())).rejects.toThrow("boom")
+    expect(logAudit).not.toHaveBeenCalled()
+  })
   it("update rejects a duplicate name+date on another exam (excludes itself)", async () => {
     p.sundaySchoolExam.count.mockResolvedValue(1)
     expect(await updateExam(9, undefined, form())).toEqual({ error: "This class already has an exam with that name on that date" })
