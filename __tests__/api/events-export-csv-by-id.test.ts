@@ -11,6 +11,7 @@ import { GET } from "@/app/api/event-exports/[id]/csv/route"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { isEventManager } from "@/lib/eventManager"
+import { featureNotFound } from "@/lib/featureFlags"
 import { NextRequest } from "next/server"
 
 const mockAuth = auth as jest.Mock
@@ -23,6 +24,7 @@ describe("GET /api/event-exports/[id]/csv (slugless events)", () => {
     jest.clearAllMocks()
     mockFindUnique.mockResolvedValue({ id: 5, slug: null, customQuestions: null, registrations: [] })
     ;(isEventManager as jest.Mock).mockResolvedValue(false)
+    ;(featureNotFound as jest.Mock).mockResolvedValue(null)
   })
 
   it("401 when unauthenticated", async () => {
@@ -38,6 +40,12 @@ describe("GET /api/event-exports/[id]/csv (slugless events)", () => {
     expect((await GET(req(), props("abc"))).status).toBe(400)
     expect(mockFindUnique).not.toHaveBeenCalled()
   })
+  it("404 and no event lookup when Events is off", async () => {
+    mockAuth.mockResolvedValue({ user: { role: "ADMIN", id: "1" } })
+    ;(featureNotFound as jest.Mock).mockResolvedValue(new Response(null, { status: 404 }))
+    expect((await GET(req(), props("5"))).status).toBe(404)
+    expect(mockFindUnique).not.toHaveBeenCalled()
+  })
   it("403 for an organiser who does not manage the event", async () => {
     mockAuth.mockResolvedValue({ user: { role: "EVENT_ORGANISER", id: "9" } })
     expect((await GET(req(), props("5"))).status).toBe(403)
@@ -47,6 +55,8 @@ describe("GET /api/event-exports/[id]/csv (slugless events)", () => {
     const res = await GET(req(), props("5"))
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toBe("text/csv")
-    expect(mockFindUnique.mock.calls[0][0].where).toEqual({ id: 5 })
+    // Both the auth stub lookup and the registrations query must key on id.
+    expect(mockFindUnique).toHaveBeenCalledTimes(2)
+    for (const call of mockFindUnique.mock.calls) expect(call[0].where).toEqual({ id: 5 })
   })
 })

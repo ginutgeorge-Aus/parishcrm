@@ -42,9 +42,8 @@ export async function exportEventCsv(req: NextRequest, session: Session & { user
   if (!isEditor && !(await isEventManager(Number.parseInt(session.user.id, 10), eventStub.id))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
-  // Draft events are exportable by editors: this route already requires a
-  // canEdit session and resolves by slug, so the old isPublished 404 blocked
-  // no real enumeration — it only 404'd admins managing their own draft events.
+  // Draft events are exportable: editors and assigned organisers (checked above)
+  // may export an event they manage even before it is published.
   const event = await prisma.event.findUnique({
     where,
     include: {
