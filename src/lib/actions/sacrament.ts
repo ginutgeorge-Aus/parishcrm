@@ -6,7 +6,8 @@ import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
 import { canEditSacraments, canViewSacraments } from "@/lib/roleGuard"
 import { AuditWriteError, auditWriteFailedResult, logAuditGuardedTx } from "@/lib/auditGuard"
-import { decryptOrNull, encryptOrNull } from "@/lib/nullableCrypto"
+import { encrypt } from "@/lib/crypto"
+import { decryptOrNull } from "@/lib/nullableCrypto"
 import { sydneyTodayYMD, utcYmd } from "@/lib/dates"
 import { isP2002, isP2003, isP2034, isValidPgId, parseOptimisticUpdatedAt } from "@/lib/validation"
 import { logger } from "@/lib/logger"
@@ -15,8 +16,10 @@ import type { SacramentType } from "@/lib/generated/prisma/enums"
 import {
   SacramentCreateSchema,
   SacramentFieldsSchema,
+  PERSON_SEARCH_CAP,
   checkSacramentRules,
   formatRegisterNo,
+  personNameWhere,
   ymdToUtcDate,
   type SacramentFields,
 } from "@/lib/sacraments"
@@ -70,9 +73,9 @@ function formFields(formData: FormData): Record<string, string> {
  */
 function encryptedFields(f: SacramentFields) {
   return {
-    spouseName: encryptOrNull(f.spouseName ?? ""),
-    godparents: encryptOrNull(f.godparents ?? ""),
-    notes: encryptOrNull(f.notes ?? ""),
+    spouseName: f.spouseName ? encrypt(f.spouseName) : null,
+    godparents: f.godparents ? encrypt(f.godparents) : null,
+    notes: f.notes ? encrypt(f.notes) : null,
   }
 }
 
@@ -236,6 +239,7 @@ export async function updateSacramentRecord(
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "updateSacramentRecord")
     if (isP2003(e)) return { error: "Spouse not found." }
     if (isP2034(e)) return { error: BUSY_ERROR }
+    logger.error("updateSacramentRecord failed", { name: e instanceof Error ? e.name : typeof e })
     throw e
   }
   if (result && "success" in result) revalidateSacramentPaths([existing.personId, existing.spouseId, f.spouseId])
@@ -275,20 +279,48 @@ export async function deleteSacramentRecord(id: number): Promise<ActionResultWit
   } catch (e) {
     if (e instanceof AuditWriteError) return auditWriteFailedResult(e, "deleteSacramentRecord")
     if (isP2034(e)) return { error: BUSY_ERROR }
+    logger.error("deleteSacramentRecord failed", { name: e instanceof Error ? e.name : typeof e })
     throw e
   }
   revalidateSacramentPaths([existing.personId, existing.spouseId])
   return { success: `${existing.registerNo} deleted.` }
 }
 
+/** One person found by the register's spouse picker. */
+export type SacramentPersonHit = { id: number; name: string; familyName: string }
+
+/**
+ * Search current people by name for the spouse picker (ADMIN | PASTOR, the roles
+ * that can write an entry). Every word must match the first or last name; at
+ * most PERSON_SEARCH_CAP results. Returns an empty list for other roles or a
+ * blank query. Only id and display names are returned.
+ * @param q search text
+ */
+export async function searchSacramentPeople(q: string): Promise<SacramentPersonHit[]> {
+  const session = await auth()
+  if (!canEditSacraments(session?.user?.role)) return []
+  const where = personNameWhere(typeof q === "string" ? q.slice(0, 80) : "")
+  if (!where) return []
+  const rows = await prisma.person.findMany({
+    where,
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    take: PERSON_SEARCH_CAP,
+    select: { id: true, firstName: true, lastName: true, family: { select: { name: true } } },
+  })
+  return rows.map((r) => ({ id: r.id, name: `${r.firstName} ${r.lastName}`, familyName: r.family.name }))
+}
+
 /**
  * Load one register entry, decrypted, for viewing or printing (ADMIN | PASTOR |
- * OFFICE_ADMIN). Returns `{ error }` for other roles and null when not found.
+ * OFFICE_ADMIN). Returns null when the entry is missing or the caller's role may
+ * not view it. The gate stays here, not only on the pages: this is an exported
+ * server action, so it is callable directly. Pages also check the role first, so
+ * a blocked role is redirected instead of shown a 404.
  * @param id SacramentRecord.id
  */
-export async function getSacramentRecord(id: number): Promise<SacramentRecordView | null | { error: string }> {
+export async function getSacramentRecord(id: number): Promise<SacramentRecordView | null> {
   const session = await auth()
-  if (!canViewSacraments(session?.user?.role)) return { error: "Unauthorized" }
+  if (!canViewSacraments(session?.user?.role)) return null
   if (!isValidPgId(id)) return null
   const row = await prisma.sacramentRecord.findUnique({
     where: { id },

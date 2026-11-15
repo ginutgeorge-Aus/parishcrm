@@ -1,5 +1,6 @@
 import { SacramentType } from "@/lib/generated/prisma/enums"
 import {
+  personNameWhere,
   SACRAMENT_PREFIX,
   SacramentCreateSchema,
   SacramentFieldsSchema,
@@ -108,5 +109,27 @@ describe("checkSacramentRules", () => {
   })
   it("rejects marrying oneself", () => {
     expect(checkSacramentRules(SacramentType.MARRIAGE, 1, fields({ spouseId: 1 }), TODAY)).toMatch(/different/)
+  })
+})
+
+describe("personNameWhere", () => {
+  it("returns null for a blank query", () => {
+    expect(personNameWhere("")).toBeNull()
+    expect(personNameWhere("  \t ")).toBeNull()
+  })
+
+  it("ANDs the words, each matching first OR last name, over current people only", () => {
+    const where = personNameWhere("  alex   sam ")
+    expect(where).toEqual({
+      archivedAt: null,
+      AND: [
+        { OR: [{ firstName: { contains: "alex", mode: "insensitive" } }, { lastName: { contains: "alex", mode: "insensitive" } }] },
+        { OR: [{ firstName: { contains: "sam", mode: "insensitive" } }, { lastName: { contains: "sam", mode: "insensitive" } }] },
+      ],
+    })
+  })
+
+  it("uses at most 5 words", () => {
+    expect((personNameWhere("a b c d e f g")?.AND as unknown[]).length).toBe(5)
   })
 })
