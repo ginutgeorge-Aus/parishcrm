@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event"
 
 jest.mock("@/lib/groupRecipients", () => ({
   selectRecipients: jest.fn(),
-  SKIP_REASON_LABELS: { NO_EMAIL: "No email address", NO_CONSENT: "Opted out of email", BAD_EMAIL: "Email address unreadable" },
+  SKIP_REASON_LABELS: { NO_EMAIL: "No email address", NO_CONSENT: "Opted out of email", BAD_EMAIL: "Email address unreadable", DUPLICATE_EMAIL: "Shares an address with another member" },
 }))
 jest.mock("@/lib/groupMessageHistory", () => ({
   loadGroupMessageHistory: jest.fn(),
