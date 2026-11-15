@@ -12,9 +12,9 @@ to the roles below.
 
 | | ADMIN / PASTOR | OFFICE_ADMIN | VIEWER / AUDITOR / EVENT_ORGANISER / Sunday School roles |
 |---|---|---|---|
-| Follow-ups: see every task, add, edit, delete | yes | no | no |
+| Follow-ups: see every task, add, delete | yes | no | no |
 | Follow-ups: see and update tasks assigned to them | yes | yes | no |
-| Prayer requests: list, add, answer, archive | yes | no | no |
+| Prayer requests: list, add, answer, archive, withdraw sharing | yes | no | no |
 
 A follow-up can only be assigned to a login with edit access (ADMIN, PASTOR or OFFICE_ADMIN). An
 assignee sees only their own tasks, and can change a task's status but not its text, due date or
@@ -42,6 +42,9 @@ a member sent it themselves, whether it is **Private** or **OK to share**, the r
 name and contact the requester gave.
 
 - **Mark answered**, **Archive** and **Restore** move a request between the statuses.
+- **Withdraw sharing** (on an **OK to share** request) makes it private again when the requester
+  changes their mind. If someone else changed the request since you opened the page, you are asked
+  to refresh first.
 - **Add a prayer request** at the bottom records one you were told in person. Tick **OK to share**
   only when the requester agreed.
 
