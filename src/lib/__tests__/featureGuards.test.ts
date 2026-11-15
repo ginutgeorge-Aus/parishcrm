@@ -364,6 +364,8 @@ const CORE_ACTIONS = new Set([
   // scope) in followUp.test.ts / prayerRequest.test.ts.
   "followUp.ts",
   "prayerRequest.ts",
+  // Volunteer roster (#622, part of #306): core, no feature flag; role + group-link gated (roster.test.ts).
+  "roster.ts",
   // Sacramental register (#304/#605): core, no feature flag; role gated
   // (canEditSacraments / canViewSacraments, sacrament.test.ts).
   "sacrament.ts",
