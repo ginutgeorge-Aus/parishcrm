@@ -257,7 +257,9 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
   // Consent covers the wording the requester agreed to. A text edit on a shared
   // request withdraws it; staff re-tick "OK to share" in a later save once the
   // requester agrees to the new wording.
-  const consentVoided = existing.shareConsent && data.request !== undefined
+  // Only when this save still carries the consent tick: unticking in the same
+  // save is the staff's own withdrawal, not an automatic void.
+  const consentVoided = existing.shareConsent && data.request !== undefined && d.shareConsent
   const nextShare = consentVoided ? false : d.shareConsent
   const shareChanged = existing.shareConsent !== nextShare
   if (shareChanged) {
@@ -324,14 +326,16 @@ export async function archivePrayerRequest(id: number): Promise<ActionResultWith
 /**
  * All prayer requests with full detail, newest first, capped at 500. ADMIN |
  * PASTOR only.
- * @param statuses only these statuses (default: ACTIVE; empty = none)
+ * @param rawStatuses only these statuses (default: ACTIVE; empty = none; non-array answers `{ error }`)
  */
 export async function listPrayerRequests(
-  statuses: PrayerRequestStatus[] = [PrayerRequestStatus.ACTIVE],
+  rawStatuses: PrayerRequestStatus[] = [PrayerRequestStatus.ACTIVE],
 ): Promise<{ error: string } | { requests: PrayerRequestView[] }> {
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
-  const wanted = statuses.filter((s) => STATUSES.has(s))
+  const parsedStatuses = z.array(z.string()).safeParse(rawStatuses)
+  if (!parsedStatuses.success) return { error: "Invalid filter" }
+  const wanted = parsedStatuses.data.filter((s) => STATUSES.has(s)) as PrayerRequestStatus[]
   // An empty or all-invalid filter matches nothing, never every status.
   if (wanted.length === 0) return { requests: [] }
   const rows = await prisma.prayerRequest.findMany({

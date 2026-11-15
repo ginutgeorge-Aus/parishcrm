@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/auth"
 import { revalidatePath } from "next/cache"
 import { isFeatureOn } from "@/lib/featureFlags"
-import { logAudit } from "@/lib/audit"
+import { logAudit, logAuditManyTx } from "@/lib/audit"
 import { reassignFundraiserEntriesTx, unlinkFundraiserEntriesTx } from "@/lib/fundraiserFamilyLink"
 import { expireOpenFundraiserCheckouts } from "@/lib/fundraiserCheckout"
 import { AuditWriteError, AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
@@ -93,11 +93,13 @@ const txCountTx = jest.fn()
 const sacramentCountTx = jest.fn()
 // mergeFamilies re-reads the source name under the row lock.
 const familyNameTx = jest.fn()
+const followUpFindManyTx = jest.fn()
 beforeEach(() => {
   jest.clearAllMocks()
   familyDeleteTx.mockResolvedValue({})
   sacramentCountTx.mockResolvedValue(0)
   familyNameTx.mockResolvedValue({ name: "Old" })
+  followUpFindManyTx.mockResolvedValue([])
   ;(unlinkFundraiserEntriesTx as jest.Mock).mockResolvedValue(0)
   ;(reassignFundraiserEntriesTx as jest.Mock).mockResolvedValue({ moved: 0, folded: 0, unlinked: 0, foldedEntryIds: [] })
   ;(prisma.fundraiserEntry.findMany as jest.Mock).mockResolvedValue([])
@@ -122,7 +124,7 @@ beforeEach(() => {
         membershipApplication: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateInvite: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         familyUpdateSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-        followUpTask: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        followUpTask: { findMany: followUpFindManyTx, updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         family: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
           findUniqueOrThrow: familyNameTx,
@@ -577,6 +579,17 @@ describe("previewMerge / mergeFamilies", () => {
     expect(logAudit).toHaveBeenCalledWith(1, "FAMILY_MERGED", "Family", 2, {
       sourceId: 1, sourceName: "Old", fundraiserEntries: { moved: 1, folded: 1, unlinked: 1 },
     })
+  })
+
+  it("mergeFamilies audits each re-homed follow-up task in the transaction", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    stubPreview()
+    followUpFindManyTx.mockResolvedValue([{ id: 31 }, { id: 32 }])
+    expect(await mergeFamilies(1, 2)).toMatchObject({ success: true })
+    expect(logAuditManyTx).toHaveBeenCalledWith(expect.anything(), [
+      { userId: 1, action: "FOLLOW_UP_REHOMED", resourceType: "FollowUpTask", resourceId: 31, metadata: { fromFamilyId: 1, toFamilyId: 2, merge: true } },
+      { userId: 1, action: "FOLLOW_UP_REHOMED", resourceType: "FollowUpTask", resourceId: 32, metadata: { fromFamilyId: 1, toFamilyId: 2, merge: true } },
+    ])
   })
 
   it("mergeFamilies expires open card checkouts on every folded-into entry, after commit", async () => {

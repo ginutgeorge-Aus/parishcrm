@@ -514,7 +514,18 @@ export async function mergeFamilies(
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       // FollowUpTask.familyId is onDelete: Cascade: re-home family-level pastoral
       // follow-ups so the delete doesn't silently destroy them.
+      const rehomedTasks = await tx.followUpTask.findMany({ where: { familyId: sourceId }, select: { id: true } })
       await tx.followUpTask.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
+      await logAuditManyTx(
+        tx,
+        rehomedTasks.map((t) => ({
+          userId: actor,
+          action: "FOLLOW_UP_REHOMED",
+          resourceType: "FollowUpTask",
+          resourceId: t.id,
+          metadata: { fromFamilyId: sourceId, toFamilyId: targetId, merge: true },
+        })),
+      )
       // FundraiserEntry.familyId is onDelete: Restrict: re-home the source's
       // entries under the family row locks taken above, so the delete succeeds.
       // Read the name under the row lock taken above, so a rename after the

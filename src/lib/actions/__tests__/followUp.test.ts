@@ -94,6 +94,17 @@ beforeEach(() => {
 describe("createFollowUpTask", () => {
   const valid = { title: " Visit ", notes: "Bring card", personId: 3, assigneeId: 9, dueDate: "2026-11-20" }
 
+  it("maps an FK violation (target deleted mid-flight) to a friendly error", async () => {
+    p.followUpTask.create.mockRejectedValue({ code: "P2003" })
+    expect(await createFollowUpTask(valid)).toEqual({ error: expect.stringContaining("no longer exists") })
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("rethrows unrelated database errors", async () => {
+    p.followUpTask.create.mockRejectedValue(new Error("boom"))
+    await expect(createFollowUpTask(valid)).rejects.toThrow("boom")
+  })
+
   it.each(NON_MANAGERS)("rejects role %s", async (role) => {
     as(role)
     expect(await createFollowUpTask(valid)).toEqual({ error: "Unauthorized" })
@@ -279,7 +290,7 @@ describe("deleteFollowUpTask", () => {
   })
 
   it("deletes and audits ids only", async () => {
-    p.followUpTask.findUnique.mockResolvedValue({ personId: null, familyId: 4 })
+    p.followUpTask.findFirst.mockResolvedValue({ personId: null, familyId: 4 })
     expect(await deleteFollowUpTask(1)).toEqual({ success: "Task deleted" })
     expect(audit).toHaveBeenCalledWith(expect.anything(), 1, "FOLLOW_UP_DELETED", "FollowUpTask", 1, {
       personId: null,
@@ -287,14 +298,29 @@ describe("deleteFollowUpTask", () => {
     })
   })
 
+  it("scopes the read and the delete to live targets (archived target = Not found)", async () => {
+    p.followUpTask.findFirst.mockResolvedValue({ personId: 3, familyId: null })
+    await deleteFollowUpTask(1)
+    expect(p.followUpTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, ...LIVE } }))
+    expect(p.followUpTask.deleteMany).toHaveBeenCalledWith({ where: { id: 1, ...LIVE } })
+  })
+
   it("answers Not found for a missing task", async () => {
-    p.followUpTask.findUnique.mockResolvedValue(null)
+    p.followUpTask.findFirst.mockResolvedValue(null)
     expect(await deleteFollowUpTask(1)).toEqual({ error: "Not found" })
     expect(audit).not.toHaveBeenCalled()
   })
 })
 
 describe("listFollowUpTasks / getFollowUpTask", () => {
+  it.each([null, { statuses: null }, { statuses: "OPEN" }, { personId: "3" }, { mine: "yes" }])(
+    "answers an error, not a throw, for malformed filter %j",
+    async (bad) => {
+      expect(await listFollowUpTasks(bad as never)).toEqual({ error: "Invalid filter" })
+      expect(p.followUpTask.findMany).not.toHaveBeenCalled()
+    },
+  )
+
   it("managers list every live task, decrypted, with an overdue flag", async () => {
     const r = await listFollowUpTasks()
     expect(p.followUpTask.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ...LIVE }, take: 500 }))

@@ -27,7 +27,7 @@ import {
 } from "@/lib/pastoralAccess"
 import { prisma } from "@/lib/prisma"
 import { canBeFollowUpAssignee, canManageFollowUps } from "@/lib/roleGuard"
-import { isValidPgId } from "@/lib/validation"
+import { isP2003, isValidPgId } from "@/lib/validation"
 import { isValidYMD, utcDateToYmd, ymdToUtcDate } from "@/lib/venueUsage"
 import type { ActionResultWithSuccess } from "./types"
 
@@ -199,7 +199,9 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
   if (assigneeError) return { error: assigneeError }
 
   const actor = actorId(session)
-  const id = await prisma.$transaction(async (tx) => {
+  let id: number
+  try {
+    id = await prisma.$transaction(async (tx) => {
     const created = await tx.followUpTask.create({
       data: {
         title: encrypt(d.title),
@@ -218,7 +220,12 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
       assigneeId: d.assigneeId,
     })
     return created.id
-  })
+    })
+  } catch (e) {
+    // The person/family/assignee was deleted between the checks above and the insert.
+    if (isP2003(e)) return { error: "The person, family or assignee no longer exists. Refresh and try again." }
+    throw e
+  }
   revalidateTask(d)
   return { id }
 }
@@ -330,9 +337,12 @@ export async function deleteFollowUpTask(id: number): Promise<ActionResultWithSu
   if (!isValidPgId(id)) return { error: NOT_FOUND }
   const actor = actorId(session)
   const target = await prisma.$transaction(async (tx) => {
-    const row = await tx.followUpTask.findUnique({ where: { id }, select: { personId: true, familyId: true } })
+    const row = await tx.followUpTask.findFirst({
+      where: { id, ...liveFollowUpTarget() },
+      select: { personId: true, familyId: true },
+    })
     if (!row) return null
-    const r = await tx.followUpTask.deleteMany({ where: { id } })
+    const r = await tx.followUpTask.deleteMany({ where: { id, ...liveFollowUpTarget() } })
     if (r.count === 0) return null
     await logAuditTx(tx, actor, "FOLLOW_UP_DELETED", "FollowUpTask", id, row)
     return row
@@ -354,18 +364,29 @@ export type FollowUpListFilter = {
   mine?: boolean
 }
 
+/** Runtime shape of the list filter (server actions receive untrusted input). */
+const ListFilterSchema = z.object({
+  statuses: z.array(z.string()).optional(),
+  personId: z.number().optional(),
+  familyId: z.number().optional(),
+  mine: z.boolean().optional(),
+})
+
 /**
  * Tasks visible to the caller (managers: all; assignees: their own), on live
  * people/families, ordered by due date (undated last) then newest. Capped at
  * 500 rows.
- * @param filter optional status / target / mine filters
+ * @param rawFilter optional status / target / mine filters; malformed input answers `{ error }`
  */
 export async function listFollowUpTasks(
-  filter: FollowUpListFilter = {},
+  rawFilter: FollowUpListFilter = {},
 ): Promise<{ error: string } | { tasks: FollowUpTaskView[] }> {
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
-  const statuses = (filter.statuses ?? []).filter((s) => STATUSES.has(s))
+  const parsedFilter = ListFilterSchema.safeParse(rawFilter)
+  if (!parsedFilter.success) return { error: "Invalid filter" }
+  const filter = parsedFilter.data
+  const statuses = (filter.statuses ?? []).filter((s) => STATUSES.has(s)) as FollowUpStatus[]
   // Asked for statuses but none valid: match nothing, never widen to "all".
   if (filter.statuses && filter.statuses.length > 0 && statuses.length === 0) return { tasks: [] }
   if (filter.personId !== undefined && !isValidPgId(filter.personId)) return { tasks: [] }

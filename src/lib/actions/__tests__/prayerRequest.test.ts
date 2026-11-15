@@ -174,6 +174,13 @@ describe("updatePrayerRequest", () => {
     expect(audit.mock.calls[0][5]).toEqual({ fields: ["request"], shareConsent: false, shareConsentVoided: true })
   })
 
+  it("unticking consent in the same save as a text edit is a plain withdrawal, not a void", async () => {
+    p.prayerRequest.findUnique.mockResolvedValue(stored({ shareConsent: true }))
+    const r = await updatePrayerRequest(7, upd({ request: "New wording", shareConsent: false }))
+    expect(r).toEqual({ success: "Prayer request saved" })
+    expect(audit.mock.calls[0][5]).toEqual({ fields: ["request"], shareConsent: false })
+  })
+
   it("rejects a partial update (omitting a field must not clear it)", async () => {
     expect(await updatePrayerRequest(7, { request: "x" } as Parameters<typeof updatePrayerRequest>[1])).toEqual({
       error: "Missing prayer request fields",
@@ -256,6 +263,11 @@ describe("private reads", () => {
     updatedAt: STAMP,
     person: { firstName: "Sam", lastName: "Demo" },
   }
+
+  it.each([null, "ACTIVE", { length: 1 }])("answers an error, not a throw, for malformed statuses %j", async (bad) => {
+    expect(await listPrayerRequests(bad as never)).toEqual({ error: "Invalid filter" })
+    expect(p.prayerRequest.findMany).not.toHaveBeenCalled()
+  })
 
   it.each(NON_MANAGERS)("rejects role %s", async (role) => {
     as(role)
