@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 // staff-only events); the print page route is keyed by integer id.
 type Props = { eventId: number; slug: string | null }
 
+/** Registration export links: CSV (slug-keyed when a slug exists, else id-keyed) and print/PDF (id-keyed). */
 export function ExportButtons({ eventId, slug }: Readonly<Props>) {
   return (
     <div className="flex gap-2">

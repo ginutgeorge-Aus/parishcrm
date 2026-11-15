@@ -32,9 +32,9 @@ const CLAIM_PREFIX = "giving-statement-claim:"
 const CLAIM_STALE_MS = 15 * 60 * 1000
 // Wall-clock cap for one bulk run, so a server action stays inside typical proxy timeouts (~60s). A send
 // starts only when it can finish (reload + render + email, capped by SEND_TIMEOUT_MS) inside this budget.
-const TIME_BUDGET_MS = 45_000
+const TIME_BUDGET_MS = 40_000
 // One family's reload + render + email may not take longer than this; it is then reported as delivery unknown.
-const SEND_TIMEOUT_MS = 20_000
+const SEND_TIMEOUT_MS = 15_000
 const TIMEOUT_ERROR = "Timed out; delivery status unknown, check before resending"
 
 type ClaimOutcome =
@@ -261,6 +261,8 @@ type SendOneArgs = {
   force: boolean
   statement: FamilyStatement | undefined
   family: StatementFamily | undefined
+  /** True once the caller's deadline has passed; checked before each step so abandoned work stops early. */
+  isExpired: () => boolean
 }
 
 type SendOneResult =
@@ -287,12 +289,22 @@ async function sendOne(a: SendOneArgs): Promise<SendOneResult> {
   // Claim before sending so concurrent runs can't both email the family. A
   // resend takes over an old claim atomically; it never steals a live one.
   const claimKey = `${CLAIM_PREFIX}${fy}:${id}`
+  if (a.isExpired()) return { status: "skipped", reason: "in_progress" }
   const claim = await acquireClaim(claimKey, a.force)
   if (claim.status !== "acquired") return { status: "skipped", reason: claim.status }
   try {
+    // The caller has given up on this send (timed out). Stop before any mail goes out and free the claim.
+    if (a.isExpired()) {
+      await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
+      return { status: "skipped", reason: "in_progress" }
+    }
     // Built inside the try so a failure here releases the claim instead of leaving it PENDING.
     const model = buildStatementModel(statement, family.name, fy, church)
     const pdf = await renderGivingStatementPdf(model)
+    if (a.isExpired()) {
+      await bestEffort("claim release", id, () => releaseClaim(claimKey, claim))
+      return { status: "skipped", reason: "in_progress" }
+    }
     await sendGivingStatementEmail(to, pdf, {
       churchName: model.churchName,
       churchAbn: model.churchAbn,
@@ -382,7 +394,7 @@ export async function sendGivingStatements(
   const auditFailed: number[] = []
   const remaining: number[] = []
   for (const id of ids) {
-    // Only start a send that can finish inside the budget, so the whole run is bounded (the first id always starts).
+    // Only start a send that can finish inside the budget, so the whole run is bounded (if setup alone eats the budget, every id lands in `remaining` and the client stops with "no progress").
     if (Date.now() - startedAt + SEND_TIMEOUT_MS > TIME_BUDGET_MS) {
       remaining.push(id)
       continue
@@ -398,7 +410,7 @@ export async function sendGivingStatements(
         (async () => {
           const family = (await loadStatementFamilies([id])).get(id)
           if (expired) return { status: "skipped", reason: "in_progress" } as const
-          return sendOne({ id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family })
+          return sendOne({ id, fy, uid, church, force: !skipAlreadySent, statement: statements.get(id), family, isExpired: () => expired })
         })(),
         SEND_TIMEOUT_MS
       )
