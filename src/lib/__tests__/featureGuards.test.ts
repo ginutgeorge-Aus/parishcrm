@@ -105,6 +105,7 @@ const GUARDED_ROUTES: Record<string, string> = {
   "src/app/api/events/[slug]/register/route.ts": "events",
   "src/app/api/events/[slug]/waitlist/route.ts": "events",
   "src/app/api/events/[slug]/export-csv/route.ts": "events",
+  "src/app/api/event-exports/[id]/csv/route.ts": "events",
   "src/app/api/events/[slug]/image/[kind]/route.ts": "events",
   "src/app/api/welcome-letter/preview/route.ts": "welcomeLetter",
   "src/app/api/clearances/export/route.ts": "clearances",
