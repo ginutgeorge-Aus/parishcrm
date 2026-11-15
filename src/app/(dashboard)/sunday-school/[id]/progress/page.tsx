@@ -47,15 +47,15 @@ export default async function ClassProgressPage(props: Readonly<{ params: Promis
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Children ({c.enrolled})</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Students ({c.enrolled})</CardTitle></CardHeader>
         <CardContent>
           {c.students.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No children enrolled.</p>
+            <p className="text-sm text-muted-foreground">No students enrolled.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th scope="col" className="py-2 pr-2 font-medium">Child</th>
+                  <th scope="col" className="py-2 pr-2 font-medium">Student</th>
                   <th scope="col" className="py-2 pr-2 text-right font-medium">Attendance</th>
                   <th scope="col" className="py-2 text-right font-medium">Exams</th>
                 </tr>

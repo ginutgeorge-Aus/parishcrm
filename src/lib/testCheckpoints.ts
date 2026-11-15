@@ -21,6 +21,22 @@ export type TestCheckpoint = {
 
 export const TEST_CHECKPOINTS: TestCheckpoint[] = [
   {
+    id: "v1.16.0-sunday-school-progress",
+    version: "v1.16.0",
+    area: "Sunday School",
+    title: "Class and child progress pages show attendance and exam results",
+    steps:
+      "Open a Sunday school class → Progress → confirm the year overview shows attendance rates and exam averages → open a child → confirm their attendance and exam marks match the roll and exam pages.",
+  },
+  {
+    id: "v1.16.0-fundraiser-delivery-price",
+    version: "v1.16.0",
+    area: "Events",
+    title: "Fundraiser order picks pickup or delivery price",
+    steps:
+      "Open an event fundraiser → set a pickup price and a delivery price → add one pickup and one delivery order → confirm each row uses its own price and the total adds up.",
+  },
+  {
     id: "v1.15.0-event-fundraiser",
     version: "v1.15.0",
     area: "Events",

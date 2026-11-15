@@ -74,13 +74,15 @@ Progress pages show attendance and exam marks together, read-only:
   totals, then one row per enrolled child, in name order.
 - **One child** — press a child's name there. Every roll (present, late, absent or not marked)
   and every exam with their score out of the total. Rolls and exams from before the child was
-  enrolled are left out unless the child has a mark or score on them.
+  enrolled are left out unless the child has a mark or score on them. A child moved from another
+  class counts as enrolled from the day of the move, so the new class's earlier rolls and exams
+  are left out the same way.
 
 **Attendance** is present or late, out of the rolls where the child was marked; a roll where they
 were not marked counts neither way. **Exams** is the average of each score as a percent of that
-exam's total, every result counting the same. Only children still enrolled (and not archived) and
-live exams count, so the class figure is always the total of the rows shown. A dash means there
-is nothing marked yet. A rate shows 100% only when nobody was absent, and 0% only when nobody
+exam's total, every result counting the same, rounded once to a whole percent. Only children
+still enrolled (and not archived) and live exams count, so the class figure is always the total
+of the rows shown. A dash means there is nothing marked yet. A rate shows 100% only when nobody was absent, and 0% only when nobody
 attended. An exam result with a broken score or a zero total isn't averaged; the page says how
 many results were not counted. Children are listed by name, never ranked.
 

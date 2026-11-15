@@ -7,8 +7,9 @@
 //   unmarked child on a roll is not counted either way. 100% only when nothing
 //   is absent and 0% only when nothing is attended (199/200 shows 99%).
 // - Exam average = mean of each result's score/total percent, every result
-//   weighted equally. Scores are Decimal(10,2) strings; the ratio runs on
-//   integer hundredths (BigInt), so no float parsing of the stored values.
+//   weighted equally. Scores are Decimal(10,2) strings; the ratios are summed
+//   as an exact BigInt fraction and rounded once, at the end, so no float
+//   parsing of the stored values and no per-result rounding drift.
 
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums"
 import { MONEY_DECIMAL_RE } from "@/lib/validation"
@@ -24,13 +25,16 @@ export type AttendanceSummary = {
   rate: number | null
 }
 
-/** Exam results count, their summed percent in basis points, and the rounded average percent. */
+/** An exact non-negative fraction (den > 0), kept reduced. */
+type Fraction = { num: bigint; den: bigint }
+
+/** Exam results count, the exact sum of their score/total ratios, and the rounded average percent. */
 export type ExamSummary = {
   results: number
   /** Results not counted because the score or total is not a valid decimal, or the total is 0. */
   skipped: number
-  /** Sum of each result's percent x100 (basis points); kept so summaries can be merged exactly. */
-  totalBp: number
+  /** Exact sum of each result's score/total ratio; kept so summaries can be merged without rounding. */
+  ratioSum: Fraction
   averagePercent: number | null
 }
 
@@ -50,8 +54,11 @@ export type ClassStatsInput = {
   location: string
   /** Children counted (enrolled, not archived). Order is kept in `students`. */
   students: { personId: number; name: string }[]
-  /** Every mark on this class's rolls; rows for children not in `students` are ignored. */
-  attendance: { personId: number; status: AttendanceStatus }[]
+  /**
+   * Marks on this class's rolls; rows for children not in `students` are ignored.
+   * `count` (default 1) lets a loader pass pre-grouped counts instead of one row per mark.
+   */
+  attendance: { personId: number; status: AttendanceStatus; count?: number }[]
   /** The class's live (non-archived) exams with their results. */
   exams: { totalMarks: string; results: { personId: number; score: string }[] }[]
 }
@@ -151,29 +158,56 @@ function hundredths(s: string): bigint | null {
   return BigInt(whole) * BigInt(100) + BigInt(frac.padEnd(2, "0"))
 }
 
+const ZERO: Fraction = { num: BigInt(0), den: BigInt(1) }
+
 /**
- * A score as a percent of its total, x100 (basis points), rounded half up:
- * "7.5" of "50" = 1500 (15.00%). Null when either value is not a valid
- * decimal or the total is 0.
- * @param score the child's score
- * @param totalMarks the exam's total
+ * Greatest common divisor of two non-negative BigInts.
+ * @param a first value
+ * @param b second value
  */
-export function scoreBasisPoints(score: string, totalMarks: string): number | null {
-  const s = hundredths(score)
-  const t = hundredths(totalMarks)
-  if (s === null || t === null || t === BigInt(0)) return null
-  // round(s * 10000 / t) in integers: (2*s*10000 + t) / (2*t)
-  return Number((BigInt(2) * s * BigInt(10000) + t) / (BigInt(2) * t))
+function gcd(a: bigint, b: bigint): bigint {
+  while (b !== BigInt(0)) [a, b] = [b, a % b]
+  return a
 }
 
 /**
- * Build an ExamSummary from summed basis points.
+ * Exact sum of two fractions, reduced so repeated sums stay small.
+ * @param a first fraction
+ * @param b second fraction
+ */
+function addFractions(a: Fraction, b: Fraction): Fraction {
+  const num = a.num * b.den + b.num * a.den
+  const den = a.den * b.den
+  const g = gcd(num, den)
+  return g > BigInt(1) ? { num: num / g, den: den / g } : { num, den }
+}
+
+/**
+ * A score/total ratio as an exact fraction, or null when either value is not
+ * a valid decimal or the total is 0.
+ * @param score the child's score
+ * @param totalMarks the exam's total
+ */
+function scoreRatio(score: string, totalMarks: string): Fraction | null {
+  const s = hundredths(score)
+  const t = hundredths(totalMarks)
+  if (s === null || t === null || t === BigInt(0)) return null
+  return addFractions(ZERO, { num: s, den: t })
+}
+
+/**
+ * Build an ExamSummary from the exact ratio sum; the average is rounded half
+ * up once: round(sum * 100 / results).
  * @param results number of results counted
- * @param totalBp their summed basis points
+ * @param ratioSum exact sum of their score/total ratios
  * @param skipped number of results not counted (invalid score or total)
  */
-function examSummary(results: number, totalBp: number, skipped: number): ExamSummary {
-  return { results, skipped, totalBp, averagePercent: results === 0 ? null : Math.round(totalBp / results / 100) }
+function examSummary(results: number, ratioSum: Fraction, skipped: number): ExamSummary {
+  if (results === 0) return { results, skipped, ratioSum, averagePercent: null }
+  const n = BigInt(results)
+  // round(num * 100 / (den * n)) in integers: (2*num*100 + den*n) / (2*den*n)
+  const avg = (BigInt(200) * ratioSum.num + ratioSum.den * n) / (BigInt(2) * ratioSum.den * n)
+  return { results, skipped, ratioSum, averagePercent: Number(avg) }
 }
 
 /**
@@ -182,17 +216,17 @@ function examSummary(results: number, totalBp: number, skipped: number): ExamSum
  * @param results one score/total pair per result
  */
 export function summariseExams(results: readonly { score: string; totalMarks: string }[]): ExamSummary {
-  let n = 0, bp = 0, skipped = 0
+  let n = 0, sum = ZERO, skipped = 0
   for (const r of results) {
-    const v = scoreBasisPoints(r.score, r.totalMarks)
+    const v = scoreRatio(r.score, r.totalMarks)
     if (v === null) {
       skipped++
       continue
     }
     n++
-    bp += v
+    sum = addFractions(sum, v)
   }
-  return examSummary(n, bp, skipped)
+  return examSummary(n, sum, skipped)
 }
 
 /**
@@ -200,13 +234,13 @@ export function summariseExams(results: readonly { score: string; totalMarks: st
  * @param parts summaries to add up
  */
 export function mergeExams(parts: readonly ExamSummary[]): ExamSummary {
-  let n = 0, bp = 0, skipped = 0
+  let n = 0, sum = ZERO, skipped = 0
   for (const p of parts) {
     n += p.results
-    bp += p.totalBp
+    sum = addFractions(sum, p.ratioSum)
     skipped += p.skipped
   }
-  return examSummary(n, bp, skipped)
+  return examSummary(n, sum, skipped)
 }
 
 /**
@@ -233,20 +267,27 @@ export function formatPercent(p: number | null): string {
  * @param input the class's raw rows
  */
 export function classStats(input: ClassStatsInput): ClassStats {
-  const marks = new Map<number, AttendanceStatus[]>()
+  const marks = new Map<number, { present: number; late: number; absent: number }>()
   const scores = new Map<number, { score: string; totalMarks: string }[]>()
   for (const s of input.students) {
-    marks.set(s.personId, [])
+    marks.set(s.personId, { present: 0, late: 0, absent: 0 })
     scores.set(s.personId, [])
   }
-  for (const a of input.attendance) marks.get(a.personId)?.push(a.status)
+  for (const a of input.attendance) {
+    const c = marks.get(a.personId)
+    if (!c) continue
+    const n = a.count ?? 1
+    if (a.status === "PRESENT") c.present += n
+    else if (a.status === "LATE") c.late += n
+    else if (a.status === "ABSENT") c.absent += n
+  }
   for (const e of input.exams) {
     for (const r of e.results) scores.get(r.personId)?.push({ score: r.score, totalMarks: e.totalMarks })
   }
   const students = input.students.map((s) => ({
     personId: s.personId,
     name: s.name,
-    attendance: summariseAttendance(marks.get(s.personId) ?? []),
+    attendance: withRate(marks.get(s.personId) ?? { present: 0, late: 0, absent: 0 }),
     exams: summariseExams(scores.get(s.personId) ?? []),
   }))
   return {

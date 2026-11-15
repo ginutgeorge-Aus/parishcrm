@@ -47,9 +47,9 @@ describe("logAudit", () => {
     })
   })
 
-  it("swallows errors silently — never throws", async () => {
+  it("swallows errors silently — never throws, but reports the failed write as false", async () => {
     mockCreate.mockRejectedValue(new Error("DB connection lost"))
-    await expect(logAudit(1, "EXPORT_CSV", "Event")).resolves.toBeUndefined()
+    await expect(logAudit(1, "EXPORT_CSV", "Event")).resolves.toBe(false)
   })
 
   it("logs the failure (ids/action only, no PII) so a silent audit outage is observable", async () => {

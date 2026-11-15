@@ -230,9 +230,9 @@ async function expireOrRecheck(stripe: Stripe, id: string): Promise<"dead" | "co
  * refuses is re-checked live: dead → marked EXPIRED, paid → not payable), and
  * a prior staged after the prefetch is retrieved inside the lock. A prior
  * session Stripe says is missing is treated as dead; one that cannot be
- * retrieved for a transient reason (timeout, 5xx), in the prefetch and again
- * under the lock, may still be open or paid, so no new session is opened
- * (FundraiserCheckoutBusyError). Prior rows whose session is dead (expired here,
+ * retrieved for a transient reason (timeout, 5xx) in the prefetch may still be
+ * open or paid, so no new session is opened (FundraiserCheckoutBusyError) and
+ * Stripe is not called again under the lock for it. Prior rows whose session is dead (expired here,
  * already expired, or missing in Stripe) are marked EXPIRED in the same
  * transaction, so `deleteEntry` is not blocked by them until the sweep.
  * @param entry entry id, public token and the caller's remaining (cents)
@@ -288,8 +288,11 @@ export async function createFundraiserCheckoutSession(
         const live = await Promise.all(
           priors.map((p) => {
             const pre = prefetched.get(p.stripeSessionId)
-            // A transient prefetch failure is re-checked under the lock.
-            return pre && (pre.session !== null || pre.gone) ? pre : retrievePrior(stripe, p.stripeSessionId)
+            // Known state from the prefetch is reused. A transient prefetch
+            // failure is unknown state: busy (retryable 503), not a second
+            // Stripe call for the same prior under the lock (a hang would hit the tx timeout, 500).
+            // Only a prior with no prefetch entry (staged after it) is retrieved here.
+            return pre ?? retrievePrior(stripe, p.stripeSessionId)
           }),
         )
         // Unknown state (transient Stripe failure): it may be open or already
