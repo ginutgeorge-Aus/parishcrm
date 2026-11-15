@@ -15,6 +15,34 @@ import { rateLimit } from "@/lib/rateLimit"
 export type EventKey = { slug: string } | { id: number }
 
 /**
+ * Validate the Prisma Json `customQuestions` shape at the export boundary
+ * (AUDIT-068): malformed entries are dropped instead of crashing or emitting garbage.
+ * @param raw the event's customQuestions column value
+ * @returns well-formed questions with a defaulted scope
+ */
+export function parseExportQuestions(raw: unknown): { id: string; label: string; type: string | undefined; scope: "attendee" | "order" }[] {
+  const rawQuestions: unknown[] = Array.isArray(raw) ? raw : []
+  return rawQuestions
+    .filter(
+      (q): q is { id: string; label: string } =>
+        !!q &&
+        typeof q === "object" &&
+        typeof (q as { id?: unknown }).id === "string" &&
+        typeof (q as { label?: unknown }).label === "string"
+    )
+    .map((q) => {
+      const t = (q as { type?: unknown }).type
+      const s = (q as { scope?: unknown }).scope
+      return {
+        id: q.id,
+        label: q.label,
+        type: typeof t === "string" ? t : undefined,
+        scope: s === "attendee" || s === "order" ? (s as "attendee" | "order") : ("order" as const),
+      }
+    })
+}
+
+/**
  * Registrations CSV for one event: editors, or an assigned organiser. Shared by the
  * slug-keyed and id-keyed routes, which each authenticate, role-check and apply the
  * Events feature gate (`featureNotFound`) BEFORE calling this. Rate-limited per user.
@@ -59,25 +87,7 @@ export async function exportEventCsv(req: NextRequest, session: Session & { user
   // customQuestions/customAnswers are Prisma Json — a bare cast (/AUDIT-068)
   // trusts the column shape; a malformed value (object instead of array, missing
   // fields) crashes `.map` or emits garbage. Validate the shape at the boundary.
-  const rawQuestions = Array.isArray(event.customQuestions) ? event.customQuestions : []
-  const questions = rawQuestions
-    .filter(
-      (q): q is { id: string; label: string } =>
-        !!q &&
-        typeof q === "object" &&
-        typeof (q as { id?: unknown }).id === "string" &&
-        typeof (q as { label?: unknown }).label === "string"
-    )
-    .map((q) => {
-      const t = (q as { type?: unknown }).type
-      const s = (q as { scope?: unknown }).scope
-      return {
-        id: q.id,
-        label: q.label,
-        type: typeof t === "string" ? t : undefined,
-        scope: s === "attendee" || s === "order" ? (s as "attendee" | "order") : ("order" as const),
-      }
-    })
+  const questions = parseExportQuestions(event.customQuestions)
 
   const csv = generateCsv(
     event.registrations.map(r => ({
