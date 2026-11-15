@@ -15,6 +15,7 @@ import { auth } from "@/auth"
 import { logAudit, logAuditTx } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 import { AUDIT_FAILED_ERROR } from "@/lib/auditGuard"
+import { Prisma } from "@/lib/generated/prisma/client"
 
 type Row = { entryId: number; stripePaymentRef: string | null; amount: string; method?: string; paidAt?: Date; note?: string | null }
 
@@ -44,9 +45,14 @@ beforeEach(() => {
     id: 11, quantity: 3, unitPrice: "10.00", fundraiser: { eventId: 7 },
     payments: rows.map((r) => ({ amount: r.amount })),
   }))
-  prismaMock.fundraiserPayment.findUnique.mockImplementation(async (a: { where: { stripePaymentRef: string } }) =>
-    rows.find((r) => r.stripePaymentRef === a.where.stripePaymentRef) ?? null,
-  )
+  // Honour `select` and return a real Decimal amount, like Prisma does.
+  prismaMock.fundraiserPayment.findUnique.mockImplementation(async (a: { where: { stripePaymentRef: string }; select?: Record<string, boolean> }) => {
+    const row = rows.find((r) => r.stripePaymentRef === a.where.stripePaymentRef)
+    if (!row) return null
+    const full: Record<string, unknown> = { ...row, amount: new Prisma.Decimal(row.amount) }
+    if (!a.select) return full
+    return Object.fromEntries(Object.keys(a.select).filter((k) => a.select?.[k]).map((k) => [k, full[k]]))
+  })
   prismaMock.fundraiserPayment.create.mockImplementation(async (a: { data: Row }) => {
     if (rows.some((r) => r.stripePaymentRef === a.data.stripePaymentRef)) {
       throw Object.assign(new Error("unique"), { code: "P2002" })
@@ -110,6 +116,13 @@ describe("recordPayment", () => {
     rows.push({ entryId: 11, stripePaymentRef: "manual:k-1", amount: "5.00", method: "CASH", paidAt: new Date("2026-11-01T00:00:00.000Z") })
     prismaMock.fundraiserPayment.findUnique.mockResolvedValueOnce(null)
     expect((await recordPayment(11, { ...input, amount: "6.00" }))?.error).toMatch(/already recorded/)
+  })
+
+  it("repeat lookups select only the fields repeatOf compares", async () => {
+    expect(await recordPayment(11, input)).toBeUndefined()
+    expect(await recordPayment(11, input)).toBeUndefined()
+    const select = prismaMock.fundraiserPayment.findUnique.mock.calls[0][0].select
+    expect(select).toEqual({ entryId: true, amount: true, method: true, paidAt: true, note: true })
   })
 
   it("rejects a submissionKey already used on another entry", async () => {

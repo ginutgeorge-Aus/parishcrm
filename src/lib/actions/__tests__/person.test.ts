@@ -250,6 +250,17 @@ describe("deletePerson", () => {
     expect(personDeleteTx).not.toHaveBeenCalled()
   })
 
+  it("maps a concurrent register insert (P2003 Restrict FK) to the archive-instead error", async () => {
+    ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
+    ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
+    ;(prisma.$transaction as jest.Mock).mockRejectedValue({ code: "P2003" })
+    const r = await deletePerson(3, 5)
+    expect(r).toEqual({
+      error: "Cannot delete — a linked record was just added for this person. Archive the family instead.",
+    })
+    expect(personDeleteTx).not.toHaveBeenCalled()
+  })
+
   it("allows deletion when no linked records exist", async () => {
     ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role: "ADMIN" } })
     ;(prisma.person.findUnique as jest.Mock).mockResolvedValue({ familyId: 5 })
