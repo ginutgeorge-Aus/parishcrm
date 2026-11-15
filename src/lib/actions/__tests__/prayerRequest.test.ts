@@ -269,9 +269,13 @@ describe("withdrawPrayerShareConsent", () => {
     p.prayerRequest.updateMany.mockResolvedValue({ count: 0 })
     p.prayerRequest.findUnique.mockResolvedValueOnce({ id: 7 })
     expect(await withdrawPrayerShareConsent(7)).toEqual({ success: "No changes" })
+    // Still refreshes, so a stale "OK to share" badge on the page clears.
+    expect(revalidatePath).toHaveBeenCalledWith("/prayer-requests")
+    ;(revalidatePath as jest.Mock).mockClear()
     p.prayerRequest.findUnique.mockResolvedValueOnce(null)
     expect(await withdrawPrayerShareConsent(7)).toEqual({ error: "Not found" })
     expect(await withdrawPrayerShareConsent(-1)).toEqual({ error: "Not found" })
+    expect(revalidatePath).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
   })
 })

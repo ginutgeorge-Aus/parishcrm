@@ -353,7 +353,11 @@ export async function withdrawPrayerShareConsent(id: number): Promise<ActionResu
   })
   if (!withdrawn) {
     const exists = await prisma.prayerRequest.findUnique({ where: { id }, select: { id: true } })
-    return exists ? { success: "No changes" } : { error: NOT_FOUND }
+    if (!exists) return { error: NOT_FOUND }
+    // Already private (withdrawn elsewhere): refresh so a stale "OK to share"
+    // badge on this page clears.
+    revalidatePath(PRAYER_REQUESTS_PATH)
+    return { success: "No changes" }
   }
   revalidatePath(PRAYER_REQUESTS_PATH)
   return { success: "Sharing withdrawn" }
