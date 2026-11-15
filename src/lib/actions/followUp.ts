@@ -2,12 +2,14 @@
 
 // Pastoral follow-up tasks (#305, #613). Visibility (PO decision #611): ADMIN +
 // PASTOR see and manage every task; an assignee (an editor: ADMIN | PASTOR | OFFICE_ADMIN)
-// sees only tasks assigned to them and may change only their status. Every
-// query and write merges followUpVisibilityWhere into its `where`, so a by-id
+// sees only tasks assigned to them and may change only their status. Reads and
+// the status change merge followUpVisibilityWhere into their `where`, so a by-id
 // call for a task the caller can't see matches no row and answers "Not found"
-// (IDOR guard, no existence leak). title/notes are encrypted at rest; audit
+// (IDOR guard, no existence leak); create/edit/delete are manager-only
+// (canManageFollowUps). Writes are blocked in the public demo (assertNotDemo).
+// title/notes are encrypted at rest; audit
 // rows are written in the same transaction and carry ids/flags only.
-// In-app due count for the sidebar badge (countMyDueFollowUps); no email in v1.
+// Notifications are in-app only (countMyDueFollowUps); no email in v1.
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -16,6 +18,7 @@ import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
+import { assertNotDemo } from "@/lib/demoMode"
 import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -27,7 +30,7 @@ import {
 } from "@/lib/pastoralAccess"
 import { prisma } from "@/lib/prisma"
 import { canBeFollowUpAssignee, canManageFollowUps } from "@/lib/roleGuard"
-import { isValidPgId } from "@/lib/validation"
+import { isP2003, isValidPgId } from "@/lib/validation"
 import { isValidYMD, utcDateToYmd, ymdToUtcDate } from "@/lib/venueUsage"
 import type { ActionResultWithSuccess } from "./types"
 
@@ -182,6 +185,8 @@ function revalidateTask(target: { personId: number | null; familyId: number | nu
  * @returns the new task id, or `{ error }`
  */
 export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ error: string } | { id: number }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   const parsed = CreateSchema.safeParse(input)
@@ -199,7 +204,9 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
   if (assigneeError) return { error: assigneeError }
 
   const actor = actorId(session)
-  const id = await prisma.$transaction(async (tx) => {
+  let id: number
+  try {
+    id = await prisma.$transaction(async (tx) => {
     const created = await tx.followUpTask.create({
       data: {
         title: encrypt(d.title),
@@ -218,7 +225,12 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
       assigneeId: d.assigneeId,
     })
     return created.id
-  })
+    })
+  } catch (e) {
+    // The person/family/assignee was deleted between the checks above and the insert.
+    if (isP2003(e)) return { error: "The person, family or assignee no longer exists. Refresh and try again." }
+    throw e
+  }
   revalidateTask(d)
   return { id }
 }
@@ -231,10 +243,12 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
  * @param input title, notes, assigneeId, dueDate
  */
 export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
-  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input)) {
+  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input && (input as Record<string, unknown>)[k] !== undefined)) {
     return { error: "Missing task fields" }
   }
   const parsed = TaskFields.safeParse(input)
@@ -243,7 +257,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
 
   const existing = await prisma.followUpTask.findFirst({
     where: { id, ...liveFollowUpTarget() },
-    select: { title: true, notes: true, assigneeId: true, dueDate: true, personId: true, familyId: true },
+    select: { title: true, notes: true, assigneeId: true, dueDate: true, personId: true, familyId: true, updatedAt: true },
   })
   if (!existing) return { error: NOT_FOUND }
   const oldTitle = safeDecrypt(existing.title)
@@ -266,7 +280,9 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
 
   const actor = actorId(session)
   const updated = await prisma.$transaction(async (tx) => {
-    const r = await tx.followUpTask.updateMany({ where: { id, ...liveFollowUpTarget() }, data })
+    // updatedAt in the predicate: a concurrent edit since the read makes this
+    // save stale instead of overwriting it.
+    const r = await tx.followUpTask.updateMany({ where: { id, updatedAt: existing.updatedAt, ...liveFollowUpTarget() }, data })
     if (r.count === 0) return false
     await logAuditTx(tx, actor, "FOLLOW_UP_UPDATED", "FollowUpTask", id, {
       fields: Object.keys(data),
@@ -274,7 +290,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
     })
     return true
   })
-  if (!updated) return { error: NOT_FOUND }
+  if (!updated) return { error: "This task changed. Refresh and try again." }
   revalidateTask(existing)
   return { success: "Task saved" }
 }
@@ -288,6 +304,8 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
  * @param status target status
  */
 export async function setFollowUpStatus(id: number, status: FollowUpStatus): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
   if (!isValidPgId(id) || !STATUSES.has(status)) return { error: NOT_FOUND }
@@ -323,14 +341,19 @@ export async function setFollowUpStatus(id: number, status: FollowUpStatus): Pro
  * @param id FollowUpTask.id
  */
 export async function deleteFollowUpTask(id: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
   const actor = actorId(session)
   const target = await prisma.$transaction(async (tx) => {
-    const row = await tx.followUpTask.findUnique({ where: { id }, select: { personId: true, familyId: true } })
+    const row = await tx.followUpTask.findFirst({
+      where: { id, ...liveFollowUpTarget() },
+      select: { personId: true, familyId: true },
+    })
     if (!row) return null
-    const r = await tx.followUpTask.deleteMany({ where: { id } })
+    const r = await tx.followUpTask.deleteMany({ where: { id, ...liveFollowUpTarget() } })
     if (r.count === 0) return null
     await logAuditTx(tx, actor, "FOLLOW_UP_DELETED", "FollowUpTask", id, row)
     return row
@@ -354,18 +377,30 @@ export type FollowUpListFilter = {
   assigneeId?: number | null
 }
 
+/** Runtime shape of the list filter (server actions receive untrusted input). */
+const ListFilterSchema = z.object({
+  statuses: z.array(z.string()).optional(),
+  personId: z.number().optional(),
+  familyId: z.number().optional(),
+  mine: z.boolean().optional(),
+  assigneeId: z.number().nullable().optional(),
+})
+
 /**
  * Tasks visible to the caller (managers: all; assignees: their own), on live
  * people/families, ordered by due date (undated last) then newest. Capped at
  * 500 rows.
- * @param filter optional status / target / mine / assignee filters
+ * @param rawFilter optional status / target / mine / assignee filters; malformed input answers `{ error }`
  */
 export async function listFollowUpTasks(
-  filter: FollowUpListFilter = {},
+  rawFilter: FollowUpListFilter = {},
 ): Promise<{ error: string } | { tasks: FollowUpTaskView[] }> {
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
-  const statuses = (filter.statuses ?? []).filter((s) => STATUSES.has(s))
+  const parsedFilter = ListFilterSchema.safeParse(rawFilter)
+  if (!parsedFilter.success) return { error: "Invalid filter" }
+  const filter = parsedFilter.data
+  const statuses = (filter.statuses ?? []).filter((s) => STATUSES.has(s)) as FollowUpStatus[]
   // Asked for statuses but none valid: match nothing, never widen to "all".
   if (filter.statuses && filter.statuses.length > 0 && statuses.length === 0) return { tasks: [] }
   if (filter.personId !== undefined && !isValidPgId(filter.personId)) return { tasks: [] }

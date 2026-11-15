@@ -9,7 +9,8 @@
 // details. Staff-entered in this slice (source STAFF); the model also takes
 // PUBLIC_FORM for the later public intake form (#702). The request text and
 // requester contact are encrypted at rest; audit rows are written in the same
-// transaction and carry ids/flags only.
+// transaction and carry ids/flags only. Writes are blocked in the public demo
+// (assertNotDemo).
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -18,6 +19,7 @@ import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
+import { assertNotDemo } from "@/lib/demoMode"
 import { PrayerRequestSource, PrayerRequestStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { PRAYER_REQUESTS_PATH } from "@/lib/pastoralAccess"
@@ -68,6 +70,9 @@ export type PrayerRequestInput = z.input<typeof PrayerSchema>
 /**
  * Update input. Full replace: every key is required (null clears it), so a
  * caller that forgets a field can't silently wipe requester details.
+ * `expectedUpdatedAt` is the `updatedAt` the caller's form was loaded with: a
+ * save from a form older than the stored row is rejected, so a stale form can't
+ * re-tick "OK to share" after another manager withdrew consent.
  */
 export type PrayerRequestUpdate = {
   request: string
@@ -76,8 +81,29 @@ export type PrayerRequestUpdate = {
   requesterPhone: string | null
   personId: number | null
   shareConsent: boolean
+  expectedUpdatedAt: Date | string
 }
-const UPDATE_KEYS = ["request", "requesterName", "requesterEmail", "requesterPhone", "personId", "shareConsent"] as const
+const UPDATE_KEYS = [
+  "request",
+  "requesterName",
+  "requesterEmail",
+  "requesterPhone",
+  "personId",
+  "shareConsent",
+  "expectedUpdatedAt",
+] as const
+const STALE = "This request changed. Refresh and try again."
+
+/**
+ * Epoch ms of the caller's `expectedUpdatedAt` (Date or ISO string), or NaN
+ * when it is missing or not a valid timestamp.
+ * @param v untrusted revision from the client
+ */
+function revisionMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime()
+  if (typeof v === "string" && v.length <= 40) return new Date(v).getTime()
+  return Number.NaN
+}
 
 /** A decrypted prayer request for the pastoral (private) views. */
 export type PrayerRequestView = {
@@ -164,6 +190,8 @@ async function checkPerson(personId: number | null): Promise<string | null> {
  * @returns the new id, or `{ error }`
  */
 export async function createPrayerRequest(input: PrayerRequestInput): Promise<{ error: string } | { id: number }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
   const parsed = PrayerSchema.safeParse(input)
@@ -208,12 +236,16 @@ export async function createPrayerRequest(input: PrayerRequestInput): Promise<{ 
  * @param input same fields as create
  */
 export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
-  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input)) {
+  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input && (input as Record<string, unknown>)[k] !== undefined)) {
     return { error: "Missing prayer request fields" }
   }
+  const expectedMs = revisionMs((input as Record<string, unknown>).expectedUpdatedAt)
+  if (!Number.isFinite(expectedMs)) return { error: "Missing prayer request fields" }
   const parsed = PrayerSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const d = parsed.data
@@ -231,6 +263,9 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
     },
   })
   if (!existing) return { error: NOT_FOUND }
+  // The caller's form predates the stored row: reject before comparing, so its
+  // old values (consent above all) never replace a newer save.
+  if (existing.updatedAt.getTime() !== expectedMs) return { error: STALE }
 
   const data: Prisma.PrayerRequestUncheckedUpdateManyInput = {}
   const textFields = [
@@ -257,7 +292,9 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
   // Consent covers the wording the requester agreed to. A text edit on a shared
   // request withdraws it; staff re-tick "OK to share" in a later save once the
   // requester agrees to the new wording.
-  const consentVoided = existing.shareConsent && data.request !== undefined
+  // Only when this save still carries the consent tick: unticking in the same
+  // save is the staff's own withdrawal, not an automatic void.
+  const consentVoided = existing.shareConsent && data.request !== undefined && d.shareConsent
   const nextShare = consentVoided ? false : d.shareConsent
   const shareChanged = existing.shareConsent !== nextShare
   if (shareChanged) {
@@ -279,7 +316,7 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
     })
     return true
   })
-  if (!updated) return { error: "This request changed. Refresh and try again." }
+  if (!updated) return { error: STALE }
   revalidatePath(PRAYER_REQUESTS_PATH)
   if (consentVoided) {
     return { success: "Saved. The wording changed, so it is private again: tick OK to share once the requester agrees." }
@@ -295,6 +332,8 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
  * @param status target status
  */
 export async function setPrayerRequestStatus(id: number, status: PrayerRequestStatus): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id) || !STATUSES.has(status)) return { error: NOT_FOUND }
@@ -324,14 +363,16 @@ export async function archivePrayerRequest(id: number): Promise<ActionResultWith
 /**
  * All prayer requests with full detail, newest first, capped at 500. ADMIN |
  * PASTOR only.
- * @param statuses only these statuses (default: ACTIVE; empty = none)
+ * @param rawStatuses only these statuses (default: ACTIVE; empty = none; non-array answers `{ error }`)
  */
 export async function listPrayerRequests(
-  statuses: PrayerRequestStatus[] = [PrayerRequestStatus.ACTIVE],
+  rawStatuses: PrayerRequestStatus[] = [PrayerRequestStatus.ACTIVE],
 ): Promise<{ error: string } | { requests: PrayerRequestView[] }> {
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
-  const wanted = statuses.filter((s) => STATUSES.has(s))
+  const parsedStatuses = z.array(z.string()).safeParse(rawStatuses)
+  if (!parsedStatuses.success) return { error: "Invalid filter" }
+  const wanted = parsedStatuses.data.filter((s) => STATUSES.has(s)) as PrayerRequestStatus[]
   // An empty or all-invalid filter matches nothing, never every status.
   if (wanted.length === 0) return { requests: [] }
   const rows = await prisma.prayerRequest.findMany({
@@ -357,8 +398,7 @@ export async function getPrayerRequest(id: number): Promise<{ error: string } | 
 }
 
 /**
- * Not used by any page yet (no bulletin list ships; the consent flag is only
- * recorded). Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
+ * Bulletin list: ACTIVE requests marked "OK to share", newest first, capped at
  * 500. Editors (ADMIN | PASTOR | OFFICE_ADMIN). Returns the request text and
  * date only — the requester's name and contact never leave the private views.
  */

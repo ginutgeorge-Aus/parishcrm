@@ -7,6 +7,8 @@ describe("redactPagePath", () => {
     ["/family/update/s3cr3tTok", "/family/update/[token]"],
     ["/e/carols/crew/s3cr3tTok", "/e/carols/crew/[token]"],
     ["/venue/abc?x=1", "/venue/[token]?x=1"],
+    ["/api/roster/feed/s3cr3tTok", "/api/roster/feed/[token]"],
+    ["/api/roster/feed/s3cr3tTok.ics", "/api/roster/feed/[token]"],
   ])("redacts %s", (input, expected) => {
     expect(redactPagePath(input)).toBe(expected)
   })

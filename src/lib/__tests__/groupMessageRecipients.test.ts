@@ -39,6 +39,21 @@ describe("selectRecipients", () => {
     ])
   })
 
+  it("sends one copy per address: later members sharing it are skipped as duplicates", async () => {
+    findMany.mockResolvedValue([
+      member(1, "enc:Shared@Example.com"),
+      member(2, "enc: shared@example.com "), // same address, different case/whitespace
+      member(3, "enc:other@example.com"),
+      member(4, "enc:shared@example.com", false), // opted out stays NO_CONSENT, not DUPLICATE
+    ])
+    const r = await selectRecipients(7)
+    expect(r.recipients.map((x) => x.personId)).toEqual([1, 3])
+    expect(r.skipped).toEqual([
+      { personId: 2, name: "F2 L2", reason: "DUPLICATE_EMAIL" },
+      { personId: 4, name: "F4 L4", reason: "NO_CONSENT" },
+    ])
+  })
+
   it("never exposes an address in its result", async () => {
     findMany.mockResolvedValue([member(1, "enc:a@example.com")])
     expect(JSON.stringify(await selectRecipients(7))).not.toContain("a@example.com")

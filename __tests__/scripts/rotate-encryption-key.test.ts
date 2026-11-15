@@ -443,6 +443,7 @@ describe("FIELDS map", () => {
     waitlist: ["email"],
     familyUpdateInvite: ["email"],
     checkoutSession: ["payload"],
+    sacramentRecord: ["spouseName", "godparents", "notes"],
     attendee: ["answers"],
     // Pastoral care (#305): follow-up task text (actions/followUp.ts) and prayer
     // request text + requester contact (actions/prayerRequest.ts).

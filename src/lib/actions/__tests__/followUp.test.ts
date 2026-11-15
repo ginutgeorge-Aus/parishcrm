@@ -94,6 +94,17 @@ beforeEach(() => {
 describe("createFollowUpTask", () => {
   const valid = { title: " Visit ", notes: "Bring card", personId: 3, assigneeId: 9, dueDate: "2026-11-20" }
 
+  it("maps an FK violation (target deleted mid-flight) to a friendly error", async () => {
+    p.followUpTask.create.mockRejectedValue({ code: "P2003" })
+    expect(await createFollowUpTask(valid)).toEqual({ error: expect.stringContaining("no longer exists") })
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("rethrows unrelated database errors", async () => {
+    p.followUpTask.create.mockRejectedValue(new Error("boom"))
+    await expect(createFollowUpTask(valid)).rejects.toThrow("boom")
+  })
+
   it.each(NON_MANAGERS)("rejects role %s", async (role) => {
     as(role)
     expect(await createFollowUpTask(valid)).toEqual({ error: "Unauthorized" })
@@ -279,7 +290,7 @@ describe("deleteFollowUpTask", () => {
   })
 
   it("deletes and audits ids only", async () => {
-    p.followUpTask.findUnique.mockResolvedValue({ personId: null, familyId: 4 })
+    p.followUpTask.findFirst.mockResolvedValue({ personId: null, familyId: 4 })
     expect(await deleteFollowUpTask(1)).toEqual({ success: "Task deleted" })
     expect(audit).toHaveBeenCalledWith(expect.anything(), 1, "FOLLOW_UP_DELETED", "FollowUpTask", 1, {
       personId: null,
@@ -287,14 +298,29 @@ describe("deleteFollowUpTask", () => {
     })
   })
 
+  it("scopes the read and the delete to live targets (archived target = Not found)", async () => {
+    p.followUpTask.findFirst.mockResolvedValue({ personId: 3, familyId: null })
+    await deleteFollowUpTask(1)
+    expect(p.followUpTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, ...LIVE } }))
+    expect(p.followUpTask.deleteMany).toHaveBeenCalledWith({ where: { id: 1, ...LIVE } })
+  })
+
   it("answers Not found for a missing task", async () => {
-    p.followUpTask.findUnique.mockResolvedValue(null)
+    p.followUpTask.findFirst.mockResolvedValue(null)
     expect(await deleteFollowUpTask(1)).toEqual({ error: "Not found" })
     expect(audit).not.toHaveBeenCalled()
   })
 })
 
 describe("listFollowUpTasks / getFollowUpTask", () => {
+  it.each([null, { statuses: null }, { statuses: "OPEN" }, { personId: "3" }, { mine: "yes" }])(
+    "answers an error, not a throw, for malformed filter %j",
+    async (bad) => {
+      expect(await listFollowUpTasks(bad as never)).toEqual({ error: "Invalid filter" })
+      expect(p.followUpTask.findMany).not.toHaveBeenCalled()
+    },
+  )
+
   it("managers list every live task, decrypted, with an overdue flag", async () => {
     const r = await listFollowUpTasks()
     expect(p.followUpTask.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ...LIVE }, take: 500 }))
@@ -322,24 +348,6 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
       personId: 3,
       assigneeId: 9,
     })
-  })
-
-  it("assignee and unassigned filters go into the where, before the row cap", async () => {
-    await listFollowUpTasks({ assigneeId: 12 })
-    expect(p.followUpTask.findMany.mock.calls[0][0]).toMatchObject({ where: { ...LIVE, assigneeId: 12 }, take: 500 })
-    await listFollowUpTasks({ assigneeId: null })
-    expect(p.followUpTask.findMany.mock.calls[1][0].where).toEqual({ ...LIVE, assigneeId: null })
-  })
-
-  it("an assignee's scope beats an assigneeId filter for someone else", async () => {
-    as(UserRole.OFFICE_ADMIN, "9")
-    await listFollowUpTasks({ assigneeId: 12 })
-    expect(p.followUpTask.findMany.mock.calls[0][0].where).toEqual({ ...LIVE, assigneeId: 9 })
-  })
-
-  it("an invalid assigneeId matches nothing", async () => {
-    expect(await listFollowUpTasks({ assigneeId: -4 })).toEqual({ tasks: [] })
-    expect(p.followUpTask.findMany).not.toHaveBeenCalled()
   })
 
   it("an all-invalid status filter matches nothing instead of everything", async () => {
@@ -389,5 +397,22 @@ describe("countMyDueFollowUps", () => {
     as(UserRole.AUDITOR)
     expect(await countMyDueFollowUps()).toBe(0)
     expect(p.followUpTask.count).not.toHaveBeenCalled()
+  })
+})
+
+describe("public demo", () => {
+  afterEach(() => {
+    delete process.env.DEMO_MODE
+  })
+
+  it("blocks every write before auth", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(auth as jest.Mock).mockClear()
+    const blocked = { error: "Disabled in the live demo" }
+    expect(await createFollowUpTask({ title: "x", personId: 3 })).toEqual(blocked)
+    expect(await updateFollowUpTask(1, { title: "x", notes: null, assigneeId: null, dueDate: null })).toEqual(blocked)
+    expect(await setFollowUpStatus(1, FollowUpStatus.DONE)).toEqual(blocked)
+    expect(await deleteFollowUpTask(1)).toEqual(blocked)
+    expect(auth).not.toHaveBeenCalled()
   })
 })

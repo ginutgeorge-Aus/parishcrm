@@ -27,7 +27,9 @@ OFFICE_ADMIN can create and change groups; VIEWER can look but not change anythi
 On a group's page press **Email group** (or, for a linked leader login, the same button on the
 group's page in `/my-groups`). Write a subject and a plain-text message. Before sending, the page
 shows how many members will receive it and lists anyone who will not: members who opted out of
-email, have no email address, or whose address cannot be read.
+email, have no email address, or whose address cannot be read. Members who share one address
+(for example a couple) get a single copy: the first is a recipient and the others are listed as
+sharing an address.
 
 - Each person gets their own email, greeted by first name, signed with the group and church name.
   Addresses are never shown to other recipients and never stored with the message.
@@ -37,7 +39,11 @@ email, have no email address, or whose address cannot be read.
 - A send that fails cleanly (for example the mail server was unreachable) is retried
   automatically, up to 3 tries, for 7 days after the message was written. A person who is no
   longer eligible when the email goes out (left the group, archived, opted out, or no address) is
-  marked *Failed* and is not retried.
+  marked *Failed* and is not retried. Anyone still *Queued* after 7 days is marked *Failed* if the app never tried to send, or
+  *Unconfirmed* if a send started but never finished.
+- When a send fails, the owner notification address gets one alert per delivery pass, not one
+  per person. A retry of the same message can raise another alert. The alert is sent once
+  without retrying, so it may not arrive while the mail server is down.
 - *Unconfirmed* means the app could not confirm whether the email was delivered: the mail server
   did not give a clear answer, or the app could not record the result afterwards. It may have been
   delivered, so it is never resent automatically. Check with the person before sending again.

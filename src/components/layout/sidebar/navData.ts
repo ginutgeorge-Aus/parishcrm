@@ -1,10 +1,10 @@
 import {
   Users, User, UserCog, LayoutDashboard, Upload,
-  BookOpen, ArrowLeftRight, Landmark, PiggyBank, BarChart2,
+  BookOpen, BookCheck, ArrowLeftRight, Landmark, PiggyBank, BarChart2,
   CalendarDays, Wallet, ReceiptText, Settings2, BadgeCheck, Send, History,
   SlidersHorizontal, ListChecks, Cake, HandCoins, Inbox, MonitorSmartphone,
   MessagesSquare, HelpCircle, Warehouse, ClipboardCheck, UserPlus, MailPlus, Heart, School, FileText, Building2,
-  Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText, ListTodo, HandHeart,
+  CalendarCheck, Church, Calculator, Settings, UsersRound, ClipboardList, TrendingUp, ScrollText, ListTodo, HandHeart,
 } from "lucide-react"
 import type { FeatureKey } from "@/lib/features"
 import { featureOn, type NavFlags } from "@/components/layout/navGates"
@@ -24,7 +24,8 @@ export type NavGroup = { label: string; items: NavEntry[]; headless?: boolean; i
 export function buildNavGroups(flags: NavFlags): NavGroup[] {
   const {
     isAccounting, isAccountingViewer, isAdmin, isEditor, canUsers, canViewPeople,
-    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool, canPrayerRequests, dueFollowUps,
+    pendingUpdates, verifyPending, membershipPending, features, venueUsage, sundaySchoolOnly, canBrowseSundaySchool,
+    canViewSacraments, canPrayerRequests, dueFollowUps,
   } = flags
   const on = (k: FeatureKey) => featureOn(features, k)
   const acct = on("accounting")
@@ -50,10 +51,14 @@ export function buildNavGroups(flags: NavFlags): NavGroup[] {
         { href: "/people/birthdays", label: "Birthdays", icon: Cake, show: canViewPeople && on("celebrations") },
         { href: "/people/anniversaries", label: "Anniversaries", icon: Heart, show: canViewPeople && on("celebrations") },
         { href: "/sunday-school", label: "Sunday School", icon: School, show: canBrowseSundaySchool && on("sundaySchool") },
+        // Sacramental register (#304): core, no feature flag; ADMIN | PASTOR | OFFICE_ADMIN.
+        { href: "/sacraments", label: "Sacraments", icon: BookCheck, show: canViewSacraments },
         // Groups (#303): same audience as canViewGroups (= canViewPeople).
         { href: "/groups", label: "Groups", icon: UsersRound, show: canViewPeople },
         // Service headcount (#308): editors (= canEditAttendance) get the entry page,
         // everyone with canViewAttendance (editors + VIEWER) the trends. AUDITOR/EVENT_ORGANISER neither.
+        // Volunteer roster (#623): staff only (canManageRoster = canEdit = isEditor).
+        { href: "/roster", label: "Roster", icon: CalendarCheck, show: isEditor },
         { href: "/attendance", label: "Attendance", icon: ClipboardList, show: isEditor },
         { href: "/attendance/trends", label: "Attendance trends", icon: TrendingUp, show: canViewPeople },
         // Pastoral care (#305): follow-ups for editors (assignees see their own; the page

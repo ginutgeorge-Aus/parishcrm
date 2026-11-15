@@ -34,6 +34,8 @@ const PATH_TOKEN_PATTERNS: { gate: string; re: RegExp }[] = [
   { gate: "/crew/", re: /(\/e\/[^/?#]+\/crew\/)[^/?#]+/g },
   // Venue calendar feed/view bearer-token route: /venue/<token>.
   { gate: "/venue/", re: /(\/venue\/)[^/?#]+/g },
+  // Personal roster calendar feed: /api/roster/feed/<token>[.ics].
+  { gate: "/api/roster/feed/", re: /(\/api\/roster\/feed\/)[^/?#]+/g },
 ]
 
 function stripQueryStrings(attributes: Record<string, unknown>): void {

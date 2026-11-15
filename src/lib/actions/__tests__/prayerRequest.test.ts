@@ -120,6 +120,7 @@ describe("updatePrayerRequest", () => {
       requesterPhone: null,
       personId: null,
       shareConsent: false,
+      expectedUpdatedAt: STAMP.toISOString(),
       ...over,
     }) as Parameters<typeof updatePrayerRequest>[1]
 
@@ -174,6 +175,13 @@ describe("updatePrayerRequest", () => {
     expect(audit.mock.calls[0][5]).toEqual({ fields: ["request"], shareConsent: false, shareConsentVoided: true })
   })
 
+  it("unticking consent in the same save as a text edit is a plain withdrawal, not a void", async () => {
+    p.prayerRequest.findUnique.mockResolvedValue(stored({ shareConsent: true }))
+    const r = await updatePrayerRequest(7, upd({ request: "New wording", shareConsent: false }))
+    expect(r).toEqual({ success: "Prayer request saved" })
+    expect(audit.mock.calls[0][5]).toEqual({ fields: ["request"], shareConsent: false })
+  })
+
   it("rejects a partial update (omitting a field must not clear it)", async () => {
     expect(await updatePrayerRequest(7, { request: "x" } as Parameters<typeof updatePrayerRequest>[1])).toEqual({
       error: "Missing prayer request fields",
@@ -192,6 +200,24 @@ describe("updatePrayerRequest", () => {
     p.prayerRequest.updateMany.mockResolvedValue({ count: 0 })
     expect(await updatePrayerRequest(7, upd({ request: "Other" }))).toEqual({ error: expect.stringContaining("changed") })
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("rejects a save from a form older than the stored row (no stale consent re-tick)", async () => {
+    // Another manager withdrew consent after this form loaded: the row is newer.
+    p.prayerRequest.findUnique.mockResolvedValue(stored({ shareConsent: false, updatedAt: new Date("2026-11-02T00:00:00Z") }))
+    expect(await updatePrayerRequest(7, upd({ shareConsent: true }))).toEqual({ error: expect.stringContaining("changed") })
+    expect(p.prayerRequest.updateMany).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("rejects a missing or malformed form revision", async () => {
+    expect(await updatePrayerRequest(7, upd({ expectedUpdatedAt: "not a date" }))).toEqual({ error: "Missing prayer request fields" })
+    expect(await updatePrayerRequest(7, upd({ expectedUpdatedAt: 5 }))).toEqual({ error: "Missing prayer request fields" })
+    expect(p.prayerRequest.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("accepts a Date revision equal to the stored updatedAt", async () => {
+    expect(await updatePrayerRequest(7, upd({ expectedUpdatedAt: STAMP, request: "New" }))).toEqual({ success: "Prayer request saved" })
   })
 
   it("never overwrites unreadable text with its placeholder", async () => {
@@ -257,6 +283,11 @@ describe("private reads", () => {
     person: { firstName: "Sam", lastName: "Demo" },
   }
 
+  it.each([null, "ACTIVE", { length: 1 }])("answers an error, not a throw, for malformed statuses %j", async (bad) => {
+    expect(await listPrayerRequests(bad as never)).toEqual({ error: "Invalid filter" })
+    expect(p.prayerRequest.findMany).not.toHaveBeenCalled()
+  })
+
   it.each(NON_MANAGERS)("rejects role %s", async (role) => {
     as(role)
     expect(await listPrayerRequests()).toEqual({ error: "Unauthorized" })
@@ -310,5 +341,32 @@ describe("listShareablePrayerRequests", () => {
       orderBy: { createdAt: "desc" },
       take: 500,
     })
+  })
+})
+
+describe("public demo", () => {
+  afterEach(() => {
+    delete process.env.DEMO_MODE
+  })
+
+  it("blocks every write before auth", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(auth as jest.Mock).mockClear()
+    const blocked = { error: "Disabled in the live demo" }
+    expect(await createPrayerRequest({ request: "x" })).toEqual(blocked)
+    expect(
+      await updatePrayerRequest(7, {
+        request: "x",
+        requesterName: null,
+        requesterEmail: null,
+        requesterPhone: null,
+        personId: null,
+        shareConsent: false,
+        expectedUpdatedAt: STAMP,
+      }),
+    ).toEqual(blocked)
+    expect(await setPrayerRequestStatus(7, PrayerRequestStatus.ANSWERED)).toEqual(blocked)
+    expect(await archivePrayerRequest(7)).toEqual(blocked)
+    expect(auth).not.toHaveBeenCalled()
   })
 })

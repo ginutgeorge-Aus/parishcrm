@@ -18,6 +18,7 @@ const allTrueFlags = {
   canViewPeople: true,
   canPrayerRequests: true,
   canBrowseSundaySchool: true,
+  canViewSacraments: true,
   pendingUpdates: 0,
   verifyPending: 0,
   membershipPending: 0,
@@ -154,7 +155,7 @@ describe("navFlagsFor / featureOn / attentionItems (#366)", () => {
     expect(navFlagsFor("OFFICE_ADMIN")).toMatchObject({
       isEditor: true, isAccounting: false, isAccountingViewer: true, isAdmin: false, pendingUpdates: 0,
     })
-    expect(navFlagsFor(undefined)).toMatchObject({ isEditor: false, canViewPeople: false, canBrowseSundaySchool: false })
+    expect(navFlagsFor(undefined)).toMatchObject({ isEditor: false, canViewPeople: false, canBrowseSundaySchool: false, canViewSacraments: false })
     expect(navFlagsFor("TEACHER").canBrowseSundaySchool).toBe(false)
     expect(navFlagsFor("VIEWER").canBrowseSundaySchool).toBe(true)
   })

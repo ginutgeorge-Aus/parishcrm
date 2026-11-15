@@ -87,6 +87,8 @@ model Person {
   dgrReceipts             DgrReceipt[]
   celebrationSends        CelebrationSend[]
   clearances              PersonClearance[]
+  sacramentRecords        SacramentRecord[]        @relation("SacramentPerson")
+  sacramentSpouseRecords  SacramentRecord[]        @relation("SacramentSpouse")
   sundaySchoolTeaching    SundaySchoolTeacher[]
   sundaySchoolEnrolments  SundaySchoolEnrolment[]
   sundaySchoolAttendance  SundaySchoolAttendance[]
@@ -96,6 +98,9 @@ model Person {
   invoices                Invoice[]
   followUpTasks           FollowUpTask[]
   prayerRequests          PrayerRequest[]
+  rosterAssignments       RosterAssignment[]
+  unavailability          PersonUnavailability[]
+  rosterFeedToken         RosterFeedToken?
 
   @@unique([familyId, firstName, lastName], name: "familyId_firstName_lastName")
   @@index([archivedAt])
@@ -596,7 +601,7 @@ model Event {
   recursLabel           String? // recurring only: display label e.g. "2nd Sun"
   startTime             String? // recurring only: display time e.g. "5:00 PM"
   location              String?
-  slug                  String            @unique
+  slug                  String?           @unique // null = staff-only event, no public /e/ page; required to publish
   // Volunteer view: null = disabled. When set, a CSPRNG token that
   // opens the read-only public status page /e/[slug]/crew/[token]. Regenerating
   // mints a new value so a leaked link 404s. @unique so findUnique can resolve it.
@@ -1645,6 +1650,7 @@ model Group {
   members      GroupMember[]
   leaderAccess GroupLeaderAccess[]
   messages     GroupMessage[]
+  rosterRoles  RosterRole[]
 
   @@index([category])
 }
@@ -1796,4 +1802,178 @@ model PrayerRequest {
 
   @@index([status, shareConsent, createdAt])
   @@index([personId])
+}
+
+// ─── Volunteer roster (#306, #620) ─────────────────────────────────────────
+// Services (weekly Sunday + ad-hoc) → slots (one per role per service) →
+// assignments (one person, PENDING/CONFIRMED/DECLINED). A role's pool is the
+// live members of its Group. Rules (conflicts, suggestions) live in
+// src/lib/roster.ts; edit access in src/lib/rosterAccess.ts.
+
+enum RosterServiceKind {
+  SUNDAY
+  ADHOC
+}
+
+enum RosterAssignmentStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+}
+
+/// A role volunteers fill at services (reader, usher, altar server). Eligible people are the live
+/// members of `group`. Archive-only, so past assignments keep their role.
+model RosterRole {
+  id           Int          @id @default(autoincrement())
+  name         String       @unique
+  groupId      Int
+  /// People a new service needs in this role, copied into RosterSlot.needed when slots are created.
+  defaultCount Int          @default(1)
+  archivedAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  group        Group        @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  slots        RosterSlot[]
+
+  @@index([groupId])
+}
+
+/// One service to staff: a weekly Sunday service or a one-off (feast day, special liturgy).
+/// `date` is the Sydney calendar date at UTC midnight (unavailability and reminders match on it);
+/// `startsAt`/`endsAt` are the real UTC instants of the Sydney wall-clock times (.ics feed).
+model RosterService {
+  id        Int               @id @default(autoincrement())
+  kind      RosterServiceKind
+  title     String
+  date      DateTime          @db.Date
+  startsAt  DateTime
+  endsAt    DateTime
+  location  String            @default("")
+  /// = startsAt for a SUNDAY service, null for ADHOC (nulls never collide), so re-running the weekly
+  /// generator never duplicates a Sunday while two one-offs may share a start time.
+  weeklyKey DateTime?         @unique
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  slots     RosterSlot[]
+
+  @@index([date])
+}
+
+/// A role at one service and how many people it needs.
+model RosterSlot {
+  id          Int                @id @default(autoincrement())
+  serviceId   Int
+  roleId      Int
+  needed      Int                @default(1)
+  createdAt   DateTime           @default(now())
+  service     RosterService      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  role        RosterRole         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignments RosterAssignment[]
+
+  @@unique([serviceId, roleId])
+  /// Target of RosterAssignment's composite FK, so an assignment's serviceId always matches its slot.
+  @@unique([id, serviceId])
+  @@index([roleId])
+}
+
+/// One person rostered into a slot. `serviceId` is denormalised from the slot (the composite FK keeps
+/// it in step) so `@@unique([serviceId, personId])` stops double-booking a person at one service,
+/// race-safe. A DECLINED row keeps the person off that service until staff remove it. `status` and
+/// `respondedAt` are set by the signed confirm link (#625/#626); the id is the token's assignmentId
+/// and the .ics UID (#627). Reminder (#629): `reminderClaimedAt` is a recoverable send lease,
+/// `reminderSentAt` is set only after the send succeeds (same pattern as Event.reminderSentAt).
+model RosterAssignment {
+  id                Int                    @id @default(autoincrement())
+  slotId            Int
+  serviceId         Int
+  personId          Int
+  status            RosterAssignmentStatus @default(PENDING)
+  respondedAt       DateTime?
+  reminderClaimedAt DateTime?
+  reminderSentAt    DateTime?
+  /// Plain column (no FK), like ServiceHeadcount.createdById: user deletion must not touch history.
+  assignedById      Int?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  slot              RosterSlot             @relation(fields: [slotId, serviceId], references: [id, serviceId], onDelete: Cascade)
+  person            Person                 @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, personId])
+  @@index([slotId])
+  @@index([personId])
+  @@index([status, reminderSentAt])
+}
+
+/// A date range a person cannot serve: inclusive Sydney calendar dates stored at UTC midnight.
+model PersonUnavailability {
+  id        Int      @id @default(autoincrement())
+  personId  Int
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  createdAt DateTime @default(now())
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, endDate])
+}
+
+// Sacramental register (#304, decisions in #605). One row per rite received by a
+// CRM person. Register numbers are per sacrament per year (`BAP-2026-014`),
+// allocated from SacramentCounter inside the create transaction, so a deleted
+// entry's number is never reused. `year` is the rite date's calendar year and is
+// fixed once numbered. People outside the CRM (spouse from another parish,
+// godparents, minister) are free-text; a CRM spouse is linked by id. Person and
+// spouse FKs are Restrict: a register entry is a permanent church record, so
+// deletePerson blocks and steers to archive. Actions: src/lib/actions/sacrament.ts.
+enum SacramentType {
+  BAPTISM
+  CONFIRMATION
+  MARRIAGE
+  FIRST_COMMUNION
+}
+
+model SacramentRecord {
+  id           Int           @id @default(autoincrement())
+  type         SacramentType
+  year         Int
+  seq          Int
+  registerNo   String        @unique
+  personId     Int
+  person       Person        @relation("SacramentPerson", fields: [personId], references: [id], onDelete: Restrict)
+  date         DateTime      @db.Date
+  place        String
+  ministerName String?
+  // Marriage only: a CRM spouse (spouseId) or a free-text name (spouseName).
+  spouseId     Int?
+  spouse       Person?       @relation("SacramentSpouse", fields: [spouseId], references: [id], onDelete: Restrict)
+  spouseName   String? // encrypted at rest
+  godparents   String? // encrypted at rest (free-text sponsor names)
+  notes        String? // encrypted at rest
+  createdById  Int?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([type, year, seq])
+  @@index([personId])
+  @@index([spouseId])
+  @@index([type, date])
+}
+
+// Last register sequence issued per sacrament per year. Incremented atomically
+// (upsert + increment) in the same transaction as the SacramentRecord insert.
+model SacramentCounter {
+  type    SacramentType
+  year    Int
+  lastSeq Int           @default(0)
+
+  @@id([type, year])
+}
+
+/// A person's calendar-feed secret (#628). Only the SHA-256 hash is stored, so a database read cannot
+/// reveal a working link. Rotating replaces the row's hash (the old link stops working at once).
+model RosterFeedToken {
+  id        Int      @id @default(autoincrement())
+  personId  Int      @unique
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
 }

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event"
 
 jest.mock("@/lib/groupRecipients", () => ({
   selectRecipients: jest.fn(),
-  SKIP_REASON_LABELS: { NO_EMAIL: "No email address", NO_CONSENT: "Opted out of email", BAD_EMAIL: "Email address unreadable" },
+  SKIP_REASON_LABELS: { NO_EMAIL: "No email address", NO_CONSENT: "Opted out of email", BAD_EMAIL: "Email address unreadable", DUPLICATE_EMAIL: "Shares an address with another member" },
 }))
 jest.mock("@/lib/groupMessageHistory", () => ({
   loadGroupMessageHistory: jest.fn(),
@@ -32,9 +32,17 @@ describe("GroupMessageForm", () => {
     expect(screen.getByLabelText("Message")).toHaveValue("Body text")
   })
 
-  it("disables send when nobody can receive", () => {
-    render(<GroupMessageForm action={jest.fn()} canSend={false} />)
-    expect(screen.getByRole("button", { name: "Send email" })).toBeDisabled()
+  it("aria-disables send with a visible reason when nobody can receive, and blocks the click", async () => {
+    const action = jest.fn()
+    render(<GroupMessageForm action={action} canSend={false} />)
+    const btn = screen.getByRole("button", { name: "Send email" })
+    expect(btn).toHaveAttribute("aria-disabled", "true")
+    expect(btn).not.toBeDisabled()
+    expect(btn).toHaveAccessibleDescription(/every member is opted out or has no usable email address/)
+    await userEvent.type(screen.getByLabelText("Subject"), "Hello")
+    await userEvent.type(screen.getByLabelText("Message"), "Body")
+    await userEvent.click(btn)
+    expect(action).not.toHaveBeenCalled()
   })
 })
 

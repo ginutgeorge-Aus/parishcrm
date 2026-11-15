@@ -249,6 +249,18 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       if (activeMemberCount > 0) {
         return { error: `Cannot delete — ${activeMemberCount} active member(s) in this family. Archive it instead.` }
       }
+      // SacramentRecord person/spouse FKs are Restrict: a register entry is a
+      // permanent church record, so a member named on one blocks the cascade.
+      // Say so, rather than fall into the generic P2003 backstop below.
+      const memberFilter = { familyId: id }
+      const sacramentCount = await tx.sacramentRecord.count({
+        where: { OR: [{ person: memberFilter }, { spouse: memberFilter }] },
+      })
+      if (sacramentCount > 0) {
+        return {
+          error: `Cannot delete — ${sacramentCount} sacramental register record(s) name a member of this family. Keep it archived instead.`,
+        }
+      }
 
       // Clearances cascade with the members (family -> person -> clearance), so
       // capture them under the member locks and audit each as CLEARANCE_REMOVED
@@ -256,6 +268,12 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
       const removedClearances = await tx.personClearance.findMany({
         where: { person: { familyId: id } },
         select: { id: true, type: true, personId: true },
+      })
+      // FollowUpTask rows cascade too (family-level and per member): capture ids
+      // so each removal is audited as FOLLOW_UP_DELETED (cascade) below.
+      const removedTasks = await tx.followUpTask.findMany({
+        where: { OR: [{ familyId: id }, { person: { familyId: id } }] },
+        select: { id: true },
       })
       // FundraiserEntry.familyId is onDelete: Restrict. Keep the entries (and
       // their payments) for the fundraiser ledger: unlink them, keeping the
@@ -272,6 +290,16 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
           resourceType: "Person",
           resourceId: c.personId,
           metadata: { type: c.type, clearanceId: c.id, cascade: true },
+        })),
+      )
+      await logAuditManyTx(
+        tx,
+        removedTasks.map((t) => ({
+          userId: actor,
+          action: "FOLLOW_UP_DELETED",
+          resourceType: "FollowUpTask",
+          resourceId: t.id,
+          metadata: { cascade: true, familyId: id },
         })),
       )
       return null
@@ -484,6 +512,20 @@ export async function mergeFamilies(
       // history is moved here.
       await tx.familyUpdateInvite.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
+      // FollowUpTask.familyId is onDelete: Cascade: re-home family-level pastoral
+      // follow-ups so the delete doesn't silently destroy them.
+      const rehomedTasks = await tx.followUpTask.findMany({ where: { familyId: sourceId }, select: { id: true } })
+      await tx.followUpTask.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
+      await logAuditManyTx(
+        tx,
+        rehomedTasks.map((t) => ({
+          userId: actor,
+          action: "FOLLOW_UP_REHOMED",
+          resourceType: "FollowUpTask",
+          resourceId: t.id,
+          metadata: { fromFamilyId: sourceId, toFamilyId: targetId, merge: true },
+        })),
+      )
       // FundraiserEntry.familyId is onDelete: Restrict: re-home the source's
       // entries under the family row locks taken above, so the delete succeeds.
       // Read the name under the row lock taken above, so a rename after the

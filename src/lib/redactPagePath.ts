@@ -5,6 +5,7 @@ const TOKEN_ROUTES: RegExp[] = [
   /^(\/venue\/)[^/?#]+/,
   /^(\/family\/update\/)[^/?#]+/,
   /^(\/e\/[^/?#]+\/crew\/)[^/?#]+/,
+  /^(\/api\/roster\/feed\/)[^/?#]+/,
 ]
 
 /**
