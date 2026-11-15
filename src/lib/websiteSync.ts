@@ -78,9 +78,10 @@ const SYNC_SELECT = {
  * @param event - the event plus its ticket-type ids (see `EventForSync` select shape).
  * @returns the `WebsiteEventPayload` posted to the webhook receiver.
  *
- * `registerUrl` is set to `<base>/e/<slug>` only when the event has at least one
- * ticket type AND a base URL is resolvable; otherwise it is `null` (no tickets =
- * nothing to register for; no base URL = can't build an absolute link).
+ * `registerUrl` is set to `<base>/e/<slug>` only when the event has a slug, at least
+ * one ticket type AND a resolvable base URL; otherwise it is `null` (no slug = no
+ * public page; no tickets = nothing to register for; no base URL = can't build an
+ * absolute link).
  *
  * Base URL reads `AUTH_URL` first (local dev), then `NEXTAUTH_URL` (prod Container
  * App inline env). Reading only `AUTH_URL` previously left `registerUrl` null in

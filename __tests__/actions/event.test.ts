@@ -1392,7 +1392,7 @@ describe("optional event slug", () => {
     ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, slug: null })
     const result = await publishEvent(1, true)
     expect(result).toEqual({ error: "Set a slug before publishing" })
-    expect(prisma.event.update).not.toHaveBeenCalled()
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 
   it("unpublishing a slugless event skips the public-page revalidate", async () => {
