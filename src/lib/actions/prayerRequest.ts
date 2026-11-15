@@ -211,7 +211,7 @@ export async function updatePrayerRequest(id: number, input: PrayerRequestUpdate
   const session = await auth()
   if (!canManagePrayerRequests(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
-  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input)) {
+  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input && (input as Record<string, unknown>)[k] !== undefined)) {
     return { error: "Missing prayer request fields" }
   }
   const parsed = PrayerSchema.safeParse(input)

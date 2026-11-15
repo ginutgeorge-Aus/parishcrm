@@ -234,7 +234,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
-  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input)) {
+  if (typeof input !== "object" || input === null || !UPDATE_KEYS.every((k) => k in input && (input as Record<string, unknown>)[k] !== undefined)) {
     return { error: "Missing task fields" }
   }
   const parsed = TaskFields.safeParse(input)
@@ -243,7 +243,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
 
   const existing = await prisma.followUpTask.findFirst({
     where: { id, ...liveFollowUpTarget() },
-    select: { title: true, notes: true, assigneeId: true, dueDate: true, personId: true, familyId: true },
+    select: { title: true, notes: true, assigneeId: true, dueDate: true, personId: true, familyId: true, updatedAt: true },
   })
   if (!existing) return { error: NOT_FOUND }
   const oldTitle = safeDecrypt(existing.title)
@@ -266,7 +266,9 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
 
   const actor = actorId(session)
   const updated = await prisma.$transaction(async (tx) => {
-    const r = await tx.followUpTask.updateMany({ where: { id, ...liveFollowUpTarget() }, data })
+    // updatedAt in the predicate: a concurrent edit since the read makes this
+    // save stale instead of overwriting it.
+    const r = await tx.followUpTask.updateMany({ where: { id, updatedAt: existing.updatedAt, ...liveFollowUpTarget() }, data })
     if (r.count === 0) return false
     await logAuditTx(tx, actor, "FOLLOW_UP_UPDATED", "FollowUpTask", id, {
       fields: Object.keys(data),
@@ -274,7 +276,7 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
     })
     return true
   })
-  if (!updated) return { error: NOT_FOUND }
+  if (!updated) return { error: "This task changed. Refresh and try again." }
   revalidateTask(existing)
   return { success: "Task saved" }
 }

@@ -1,9 +1,9 @@
 // Visibility rules for pastoral follow-up tasks (#305, PO decision #611): a
 // task is visible to ADMIN + PASTOR (the pastoral-notes circle) and to its
-// assignee. Pure and DB-free so actions, pages and tests share one rule. Every
-// read AND write in src/lib/actions/followUp.ts merges followUpVisibilityWhere
-// into its Prisma `where`, so a by-id call for someone else's task matches no
-// row (IDOR guard) instead of relying on a separate check.
+// assignee. Pure and DB-free so actions, pages and tests share one rule. Reads
+// and the assignee's status change (setFollowUpStatus) merge followUpVisibilityWhere
+// into their Prisma `where`, so a by-id call for someone else's task matches no
+// row (IDOR guard). Create/edit/delete are manager-only (canManageFollowUps).
 
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { UserRole } from "@/lib/generated/prisma/enums"

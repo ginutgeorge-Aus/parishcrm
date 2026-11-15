@@ -257,6 +257,12 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
         where: { person: { familyId: id } },
         select: { id: true, type: true, personId: true },
       })
+      // FollowUpTask rows cascade too (family-level and per member): capture ids
+      // so each removal is audited as FOLLOW_UP_DELETED (cascade) below.
+      const removedTasks = await tx.followUpTask.findMany({
+        where: { OR: [{ familyId: id }, { person: { familyId: id } }] },
+        select: { id: true },
+      })
       // FundraiserEntry.familyId is onDelete: Restrict. Keep the entries (and
       // their payments) for the fundraiser ledger: unlink them, keeping the
       // family's name. addEntry share-locks the family row, so none can be
@@ -272,6 +278,16 @@ export async function deleteFamily(id: number): Promise<ActionResult> {
           resourceType: "Person",
           resourceId: c.personId,
           metadata: { type: c.type, clearanceId: c.id, cascade: true },
+        })),
+      )
+      await logAuditManyTx(
+        tx,
+        removedTasks.map((t) => ({
+          userId: actor,
+          action: "FOLLOW_UP_DELETED",
+          resourceType: "FollowUpTask",
+          resourceId: t.id,
+          metadata: { cascade: true, familyId: id },
         })),
       )
       return null
@@ -484,6 +500,9 @@ export async function mergeFamilies(
       // history is moved here.
       await tx.familyUpdateInvite.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       await tx.familyUpdateSubmission.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
+      // FollowUpTask.familyId is onDelete: Cascade: re-home family-level pastoral
+      // follow-ups so the delete doesn't silently destroy them.
+      await tx.followUpTask.updateMany({ where: { familyId: sourceId }, data: { familyId: targetId } })
       // FundraiserEntry.familyId is onDelete: Restrict: re-home the source's
       // entries under the family row locks taken above, so the delete succeeds.
       // Read the name under the row lock taken above, so a rename after the
