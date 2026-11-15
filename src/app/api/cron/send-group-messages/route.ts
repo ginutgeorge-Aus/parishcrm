@@ -20,5 +20,10 @@ export async function POST(req: Request) {
   if (!bearerOk(req.headers.get("authorization"), secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  return NextResponse.json(await runGroupMessageSweep(new Date()))
+  try {
+    return NextResponse.json(await runGroupMessageSweep(new Date()))
+  } catch (err) {
+    console.error(`[send-group-messages] sweep failed: ${err instanceof Error ? err.name : "error"}`)
+    return NextResponse.json({ error: "Sweep failed" }, { status: 500 })
+  }
 }

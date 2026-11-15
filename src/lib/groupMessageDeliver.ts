@@ -133,11 +133,11 @@ type MailablePerson = {
  * @param recipientId GroupMessageRecipient id
  * @param person the recipient's person row (batch-loaded per chunk), or undefined when it no longer exists
  * @param ctx message-level context
- * @param onError receives the send error (for the pass's single owner alert)
+ * @param onError receives the send error and whether it was ambiguous (for the pass's single owner alert)
  * @returns the outcome, or "SKIPPED" when the person is no longer mailable
  */
 async function sendClaimed(
-  recipientId: number, person: MailablePerson | undefined, ctx: MessageCtx, onError: (err: unknown) => void,
+  recipientId: number, person: MailablePerson | undefined, ctx: MessageCtx, onError: (err: unknown, ambiguous: boolean) => void,
 ): Promise<Status | "SKIPPED"> {
   let to: string | null = null
   try {
@@ -154,8 +154,9 @@ async function sendClaimed(
   try {
     await sendEmail(to, ctx.subject, textToHtml(text), text, undefined, { alertOwner: false })
   } catch (err) {
-    onError(err)
-    const status: Status = isAmbiguousDeliveryError(err) ? "UNKNOWN" : "FAILED"
+    const ambiguous = isAmbiguousDeliveryError(err)
+    onError(err, ambiguous)
+    const status: Status = ambiguous ? "UNKNOWN" : "FAILED"
     await resolveGroupRecipient(recipientId, status)
     return status
   }
@@ -220,7 +221,13 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   })
   const staleBefore = new Date(Date.now() - GROUP_MESSAGE_LEASE_MS)
   let firstSendError: unknown
-  const onError = (err: unknown) => { firstSendError ??= err }
+  // Set at send time (before the status write), so an ambiguous error keeps its "check before resending" warning even if the write then fails.
+  let sawAmbiguous = false
+  const onError = (err: unknown, ambiguous: boolean) => {
+    firstSendError ??= err
+    if (ambiguous) sawAmbiguous = true
+  }
+  let crossed = false
   let thrown: { reason: unknown } | undefined
   for (let i = 0; i < open.length; i += SEND_CONCURRENCY) {
     const chunk = open.slice(i, i + SEND_CONCURRENCY)
@@ -250,15 +257,17 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
       else counts.failed++
       // Only a real send failure counts toward the streak (a skipped, no-longer-mailable person is not an SMTP problem).
       streak = outcome === "FAILED" ? streak + 1 : outcome === "SKIPPED" ? streak : 0
+      // Record the crossing here: a later SENT in the same chunk resets the streak before the post-chunk check.
+      if (streak >= MAX_CONSECUTIVE_FAILURES) crossed = true
     }
     // A DB error (claim or terminal write) stops the pass only after its siblings settled and were tallied.
     if (thrown) break
-    if (streak >= MAX_CONSECUTIVE_FAILURES) { counts.aborted = true; break }
+    if (crossed) { counts.aborted = true; break }
   }
   if (firstSendError !== undefined) {
     // One alert per pass, never per recipient. Counts only, never an address.
     const summary = `Group email "${ctx.subject}" (${ctx.groupName}): ${counts.failed} failed, ${counts.unknown} unknown${counts.aborted ? ", pass stopped early" : ""}`
-    await alertOwnerEmailFailure(summary, firstSendError, counts.unknown > 0)
+    await alertOwnerEmailFailure(summary, firstSendError, sawAmbiguous || counts.unknown > 0)
   }
   if (thrown) throw thrown.reason
   return counts

@@ -31,4 +31,12 @@ describe("POST /api/cron/send-group-messages", () => {
     expect(await res.json()).toMatchObject({ sent: 2, messages: 1 })
     expect(runGroupMessageSweep).toHaveBeenCalledWith(expect.any(Date))
   })
+  it("500 with a tagged log when the sweep throws", async () => {
+    process.env.CRON_SECRET = "s"
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    ;(runGroupMessageSweep as jest.Mock).mockRejectedValue(new Error("boom"))
+    expect((await POST(req("Bearer s"))).status).toBe(500)
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("[send-group-messages]"))
+    spy.mockRestore()
+  })
 })

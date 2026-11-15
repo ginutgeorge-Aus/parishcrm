@@ -206,6 +206,26 @@ describe("deliverGroupMessage", () => {
     expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
   })
 
+  it("keeps the ambiguous flag when the send error is ambiguous but the status write then fails", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([{ id: 1, personId: 1 }])
+    ;(isAmbiguousDeliveryError as jest.Mock).mockReturnValue(true)
+    send.mockRejectedValue(new Error("timeout"))
+    p.groupMessageRecipient.update.mockRejectedValue(new Error("db down"))
+    await expect(deliverGroupMessage(1)).rejects.toThrow("db down")
+    expect((alertOwnerEmailFailure as jest.Mock).mock.calls[0][2]).toBe(true)
+  })
+
+  it("aborts when the failure streak crosses the threshold mid-chunk, even if later sends in that chunk succeed", async () => {
+    p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => ({ id: i, personId: i })))
+    const fail = new Error("x")
+    // chunk 1: SENT, FAILED, FAILED; chunk 2: FAILED, SENT, SENT (streak hits 3 then resets to 0)
+    send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(fail).mockRejectedValueOnce(fail)
+      .mockRejectedValueOnce(fail).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+    const c = await deliverGroupMessage(1)
+    expect(send).toHaveBeenCalledTimes(6)
+    expect(c).toMatchObject({ sent: 3, failed: 3, aborted: true })
+  })
+
   it("a person-lookup error in a later chunk still raises the pass alert, then rethrows", async () => {
     p.groupMessageRecipient.findMany.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, personId: i })))
     send.mockRejectedValueOnce(new Error("connect refused")).mockResolvedValue(undefined)
