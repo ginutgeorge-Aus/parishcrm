@@ -120,4 +120,17 @@ describe("PersonRosterCard", () => {
     expect(await screen.findByText("Unauthorized")).toBeInTheDocument()
     expect(screen.queryByDisplayValue(/api\/roster\/feed/)).not.toBeInTheDocument()
   })
+
+  it("keeps a new calendar link when a date save rejects", async () => {
+    f.rotateRosterFeedToken.mockResolvedValueOnce({ url: "https://app.example.com/api/roster/feed/tok" })
+    u.addPersonUnavailability.mockRejectedValueOnce(new Error("db down"))
+    render(<PersonRosterCard personId={7} rows={[]} hasFeed />)
+    await userEvent.click(screen.getByRole("button", { name: "Create new link" }))
+    expect(await screen.findByDisplayValue("https://app.example.com/api/roster/feed/tok")).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("From"), "2026-12-20")
+    await userEvent.click(screen.getByRole("button", { name: "Add" }))
+    expect(await screen.findByText("Could not save. Please try again.")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("https://app.example.com/api/roster/feed/tok")).toBeInTheDocument()
+    expect(refresh).toHaveBeenCalledTimes(1) // the link rotation only, not the failed save
+  })
 })

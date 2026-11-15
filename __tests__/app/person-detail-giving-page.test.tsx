@@ -28,6 +28,10 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/components/people/DeletePersonButton", () => ({
   DeletePersonButton: () => null,
 }))
+// Async server component (own DB reads); renderToStaticMarkup cannot render it.
+jest.mock("@/components/roster/PersonRosterSection", () => ({
+  PersonRosterSection: () => null,
+}))
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"

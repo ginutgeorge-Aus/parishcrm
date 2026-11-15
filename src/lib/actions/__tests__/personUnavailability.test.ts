@@ -119,6 +119,8 @@ describe("addPersonUnavailability", () => {
     expect(p.rosterAssignment.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ personId: 7, status: { not: "DECLINED" } }),
     }))
+    // Clashes are read after the Person row lock, so a concurrent assignment cannot slip past the warning.
+    expect(p.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(p.rosterAssignment.findMany.mock.invocationCallOrder[0])
   })
 })
 

@@ -21,9 +21,15 @@ export function PersonRosterCard({
   const router = useRouter()
   const [state, formAction, pending] = useActionState<ActionResultWithSuccess, FormData>(
     async (prev, fd) => {
-      const r = await addPersonUnavailability(personId, prev, fd)
-      if (r && "success" in r) router.refresh()
-      return r
+      // Catch a rejected save: an escaped rejection hits the error boundary and
+      // drops this card's state, including a just-created calendar link.
+      try {
+        const r = await addPersonUnavailability(personId, prev, fd)
+        if (r && "success" in r) router.refresh()
+        return r
+      } catch {
+        return { error: "Could not save. Please try again." }
+      }
     },
     undefined,
   )

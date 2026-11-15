@@ -30,6 +30,9 @@ const MAX_ROWS_PER_PERSON = 100
 /** Most conflicting services named in the warning text. */
 const MAX_WARNED = 5
 
+/** A non-declined assignment on a covered date, as read for the warning text. */
+type Clash = { slot: { service: { title: string; date: Date } } }
+
 type Guard = { error: string } | { session: Session | null }
 
 /** Demo block and coarse role check (DB-free): runs before any lookup so a VIEWER learns nothing about which ids exist. */
@@ -79,23 +82,27 @@ export async function addPersonUnavailability(
   const startDate = new Date(`${from}T00:00:00.000Z`)
   const endDate = new Date(`${to}T00:00:00.000Z`)
 
-  const clashes = await prisma.rosterAssignment.findMany({
-    where: { personId, status: { not: "DECLINED" }, slot: { service: { date: { gte: startDate, lte: endDate } } } },
-    select: { slot: { select: { service: { select: { title: true, date: true } } } } },
-    orderBy: { slot: { service: { date: "asc" } } },
-  })
   // Count (only ranges still current, so old ones never block new ones) and create under one lock.
-  const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { ok: true }> => {
+  const result = await prisma.$transaction(async (tx): Promise<{ error: string } | { ok: true; clashes: Clash[] }> => {
     if (!(await lockPerson(tx, personId))) return { error: PERSON_GONE }
+    // Read clashes under the Person lock: assignToRosterSlot holds FOR SHARE on
+    // the same row, so a concurrent assignment is either committed (and seen
+    // here) or waits and then sees this range.
+    const clashes = await tx.rosterAssignment.findMany({
+      where: { personId, status: { not: "DECLINED" }, slot: { service: { date: { gte: startDate, lte: endDate } } } },
+      select: { slot: { select: { service: { select: { title: true, date: true } } } } },
+      orderBy: { slot: { service: { date: "asc" } } },
+    })
     const current = await tx.personUnavailability.count({ where: { personId, endDate: { gte: sydneyToday() } } })
     if (current >= MAX_ROWS_PER_PERSON) {
       return { error: `At most ${MAX_ROWS_PER_PERSON} current unavailable ranges per person; remove some first` }
     }
     const row = await tx.personUnavailability.create({ data: { personId, startDate, endDate }, select: { id: true } })
     await logAuditTx(tx, actorId(g.session), "ROSTER_UNAVAILABLE_ADDED", "PersonUnavailability", row.id, { personId, from, to })
-    return { ok: true }
+    return { ok: true, clashes }
   })
   if ("error" in result) return result
+  const { clashes } = result
   revalidatePath(`/people/${personId}`)
   revalidatePath("/roster")
 
