@@ -1,6 +1,7 @@
 import { DEFAULT_CHURCH_NAME } from "@/lib/settingsConstants"
 import { getSettingsSnapshot, invalidateSettingsSnapshot, MAINTENANCE_SETTING_KEY, settingsGeneration } from "@/lib/settingsSnapshot"
 import { APP_LOCALE, APP_TIMEZONE } from "@/lib/appConfig"
+import { escapeHtml } from "@/lib/escapeHtml"
 
 export type MaintenanceState = {
   enabled: boolean
@@ -65,14 +66,6 @@ export function isMaintenanceBypassPath(pathname: string): boolean {
 // Escape the five HTML-significant chars. CHURCH_NAME and the admin-set state
 // message are interpolated into the page below; without escaping either could
 // inject markup/script into the served HTML (/, Stored XSS).
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-}
 
 export function renderMaintenanceHtml(
   state: MaintenanceState,

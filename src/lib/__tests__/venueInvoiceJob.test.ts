@@ -132,10 +132,20 @@ it("approved but no longer complete: reminder lists the gap, no invoice", async 
   expect((sendEmail as jest.Mock).mock.calls[0][3]).toContain("Sunday, 4 October")
 })
 
-it("already sent manually (SUCCESS, not autoSent): releases the claim and does nothing", async () => {
+it("already sent manually (SUCCESS, not autoSent): closes the month with reminderSentAt and sends nothing (OSS-318)", async () => {
   findUnique().mockResolvedValue({ id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: false })
   expect(await runVenueInvoiceJob(OPEN)).toEqual(ZERO)
   expect(sendEmail).not.toHaveBeenCalled()
+  expect(deliverInvoiceRequest).not.toHaveBeenCalled()
+  expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderSentAt: expect.any(Date) })
+})
+
+it("already sent manually: releases the claim when reminderSentAt cannot be written", async () => {
+  findUnique().mockResolvedValue({ id: 3, status: "SUCCESS", approvedAt: new Date(), autoSent: false })
+  updateMany()
+    .mockResolvedValueOnce({ count: 1 }) // the month claim
+    .mockRejectedValueOnce(new Error("db")).mockRejectedValueOnce(new Error("db")).mockRejectedValueOnce(new Error("db"))
+  expect(await runVenueInvoiceJob(OPEN)).toEqual(ZERO)
   expect(updateMany().mock.calls.at(-1)[0].data).toEqual({ reminderClaimedAt: null })
 })
 

@@ -2,7 +2,7 @@
 import {
   parseTimeToMinutes, isValidTime, validateTimeRange, durationHours, formatHours, formatTime12,
   formatUsageDate, isValidYMD, ymdToUtcDate, utcDateToYmd, isValidMonth, monthRange, previousMonth,
-  formatMonthLabel, nextSundayYMD, escapeHtml, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
+  formatMonthLabel, nextSundayYMD, formatUsageLine, totalHours, buildRequestEmail, confirmedOnly, defaultStatusForDate,
   parseCcList, MAX_CC_ADDRESSES, MAX_CC_LIST_LENGTH, normaliseCcList, ccAddresses, ccAddressesWithDropped,
   sundaysInMonth, addMonths, monthCompleteness, describeIncomplete,
   buildBookingRequestEmail, buildCancellationEmail, renderVenueEmail,
@@ -181,12 +181,6 @@ describe("booking status", () => {
     expect(text).not.toContain("20 September")
     expect(text).toContain("Total: 3.5 hours")
     expect(html).not.toContain("13 September")
-  })
-})
-
-describe("escapeHtml", () => {
-  it("escapes the five special characters", () => {
-    expect(escapeHtml(`<a href="x">&'</a>`)).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;")
   })
 })
 

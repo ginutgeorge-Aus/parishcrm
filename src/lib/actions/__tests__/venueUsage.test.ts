@@ -153,6 +153,29 @@ describe("usage row CRUD", () => {
     expect(logAuditTx).toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5, expect.any(Object))
   })
 
+  it("writes a timing change conditionally and refuses when a booking request claimed the row meanwhile (OSS-318)", async () => {
+    asRole("PASTOR")
+    const unclaimed = { id: 5, date: new Date("2099-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null }
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed)
+    expect(await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "18:00", endTime: "21:00", status: "REQUESTED" })).toEqual({ success: "Booking updated" })
+    expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 5, bookingRequestedAt: null, venueNotifiedAt: null })
+
+    ;(prisma.venueUsage.update as jest.Mock).mockClear()
+    ;(logAuditTx as jest.Mock).mockClear()
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce(unclaimed)
+    ;(prisma.venueUsage.update as jest.Mock).mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }))
+    const r = await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "18:00", endTime: "21:00", status: "REQUESTED" })
+    expect(r).toEqual({ error: expect.stringContaining("booking request for this date was just sent") })
+    expect(logAuditTx).not.toHaveBeenCalledWith(prisma, 7, "VENUE_USAGE_UPDATED", "VenueUsage", 5, expect.anything())
+  })
+
+  it("does not add the unclaimed guard to a status-only change", async () => {
+    asRole("PASTOR")
+    ;(prisma.venueUsage.findUnique as jest.Mock).mockResolvedValueOnce({ id: 5, date: new Date("2099-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED", venueNotifiedAt: null, bookingRequestedAt: null })
+    await updateVenueUsage(5, { ...validInput, date: "2099-09-06", startTime: "17:00", endTime: "20:30", status: "CONFIRMED" })
+    expect((prisma.venueUsage.update as jest.Mock).mock.calls[0][0].where).toEqual({ id: 5 })
+  })
+
   describe("date and times lock once the venue knows the row", () => {
     const base = { id: 5, date: new Date("2099-09-06T00:00:00Z"), startTime: "17:00", endTime: "20:30", status: "REQUESTED" }
     const fut = { ...validInput, date: "2099-09-06" }
