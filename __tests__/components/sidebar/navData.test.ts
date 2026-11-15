@@ -189,7 +189,7 @@ describe("pastoral links", () => {
 
   it("the bell links due follow-ups to the caller's own list; the sidebar link stays plain", () => {
     const groups = buildNavGroups(navFlagsFor("OFFICE_ADMIN", { dueFollowUps: 2 }))
-    expect(attentionItems(groups).map((i) => [i.href, i.badge])).toEqual([["/follow-ups?assignee=mine", 2]])
+    expect(attentionItems(groups).map((i) => [i.href, i.badge])).toEqual([["/follow-ups?assignee=mine&due=1", 2]])
     expect(links({ ...allTrueFlags, dueFollowUps: 2 }).some((i) => i.href === "/follow-ups")).toBe(true)
   })
 

@@ -19,7 +19,7 @@ import { logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
 import { assertNotDemo } from "@/lib/demoMode"
-import { sydneyTodayYMD } from "@/lib/dates"
+import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import {
@@ -367,10 +367,13 @@ export type FollowUpListFilter = {
   mine?: boolean
   /** Only tasks assigned to this login; `null` = only unassigned tasks. Applied before the row cap. */
   assigneeId?: number | null
+  /** Only tasks dated today (Sydney) or earlier; undated and future tasks are left out. Matches the bell count. */
+  due?: boolean
 }
 
 /** Runtime shape of the list filter (server actions receive untrusted input). */
 const ListFilterSchema = z.object({
+  due: z.boolean().optional(),
   statuses: z.array(z.string()).optional(),
   personId: z.number().optional(),
   familyId: z.number().optional(),
@@ -381,12 +384,12 @@ const ListFilterSchema = z.object({
 /**
  * Tasks visible to the caller (managers: all; assignees: their own), on live
  * people/families, ordered by due date (undated last) then newest. Capped at
- * 500 rows.
- * @param rawFilter optional status / target / mine / assignee filters; malformed input answers `{ error }`
+ * 500 rows; `truncated` is true only when more rows matched than were returned.
+ * @param rawFilter optional status / target / mine / assignee / due filters; malformed input answers `{ error }`
  */
 export async function listFollowUpTasks(
   rawFilter: FollowUpListFilter = {},
-): Promise<{ error: string } | { tasks: FollowUpTaskView[] }> {
+): Promise<{ error: string } | { tasks: FollowUpTaskView[]; truncated?: boolean }> {
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
   const parsedFilter = ListFilterSchema.safeParse(rawFilter)
@@ -405,6 +408,7 @@ export async function listFollowUpTasks(
     ...(filter.familyId !== undefined ? { familyId: filter.familyId } : {}),
     ...(filter.assigneeId !== undefined ? { assigneeId: filter.assigneeId } : {}),
     ...(filter.mine ? { assigneeId: ctx.viewer.id } : {}),
+    ...(filter.due ? { dueDate: { lte: sydneyToday() } } : {}),
     // Last, so the visibility scope always wins over a caller-supplied filter.
     ...ctx.scope,
   }
@@ -412,10 +416,12 @@ export async function listFollowUpTasks(
     where,
     select: VIEW_SELECT,
     orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
-    take: FOLLOW_UP_LIST_MAX,
+    // One extra row tells us whether the cap actually dropped anything.
+    take: FOLLOW_UP_LIST_MAX + 1,
   })
+  const truncated = rows.length > FOLLOW_UP_LIST_MAX
   const today = sydneyTodayYMD()
-  return { tasks: rows.map((r) => toView(r, today)) }
+  return { tasks: rows.slice(0, FOLLOW_UP_LIST_MAX).map((r) => toView(r, today)), truncated }
 }
 
 /**

@@ -323,8 +323,9 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
 
   it("managers list every live task, decrypted, with an overdue flag", async () => {
     const r = await listFollowUpTasks()
-    expect(p.followUpTask.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ...LIVE }, take: 500 }))
+    expect(p.followUpTask.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ...LIVE }, take: 501 }))
     expect(r).toEqual({
+      truncated: false,
       tasks: [
         expect.objectContaining({
           id: 1,
@@ -352,9 +353,25 @@ describe("listFollowUpTasks / getFollowUpTask", () => {
 
   it("applies an assignee or unassigned filter in the query (before the row cap)", async () => {
     await listFollowUpTasks({ assigneeId: 5 })
-    expect(p.followUpTask.findMany.mock.calls[0][0]).toEqual(expect.objectContaining({ where: { ...LIVE, assigneeId: 5 }, take: 500 }))
+    expect(p.followUpTask.findMany.mock.calls[0][0]).toEqual(expect.objectContaining({ where: { ...LIVE, assigneeId: 5 }, take: 501 }))
     await listFollowUpTasks({ assigneeId: null })
     expect(p.followUpTask.findMany.mock.calls[1][0].where).toEqual({ ...LIVE, assigneeId: null })
+  })
+
+  it("flags truncation only when more than the cap matched, and returns exactly the cap", async () => {
+    p.followUpTask.findMany.mockResolvedValue(Array.from({ length: 500 }, (_, i) => row({ id: i + 1 })))
+    const exact = (await listFollowUpTasks()) as { tasks: unknown[]; truncated: boolean }
+    expect(exact.tasks).toHaveLength(500)
+    expect(exact.truncated).toBe(false)
+    p.followUpTask.findMany.mockResolvedValue(Array.from({ length: 501 }, (_, i) => row({ id: i + 1 })))
+    const over = (await listFollowUpTasks()) as { tasks: unknown[]; truncated: boolean }
+    expect(over.tasks).toHaveLength(500)
+    expect(over.truncated).toBe(true)
+  })
+
+  it("the due filter keeps only tasks dated today or earlier, matching the bell count", async () => {
+    await listFollowUpTasks({ due: true })
+    expect(p.followUpTask.findMany.mock.calls[0][0].where).toEqual({ ...LIVE, dueDate: { lte: expect.any(Date) } })
   })
 
   it("an out-of-range assignee id matches nothing", async () => {

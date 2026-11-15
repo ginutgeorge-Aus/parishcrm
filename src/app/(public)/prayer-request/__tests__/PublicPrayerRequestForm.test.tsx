@@ -9,7 +9,7 @@ beforeEach(() => jest.clearAllMocks())
 
 it("sends the request and shows the thank-you", async () => {
   ;(submitPublicPrayerRequest as jest.Mock).mockResolvedValue({ success: "Thank you. Your prayer request has been received." })
-  render(<PublicPrayerRequestForm />)
+  render(<PublicPrayerRequestForm formToken="signed-token" />)
   expect(screen.getByRole("button", { name: "Send prayer request" })).toBeDisabled()
   fireEvent.change(screen.getByLabelText("Your prayer request"), { target: { value: "Peace for our family" } })
   fireEvent.click(screen.getByRole("checkbox"))
@@ -22,7 +22,7 @@ it("sends the request and shows the thank-you", async () => {
       requesterPhone: null,
       shareConsent: true,
       ppr_hp: "",
-      elapsedMs: expect.any(Number),
+      formToken: "signed-token",
     }),
   )
   expect(await screen.findByRole("status")).toHaveTextContent("Thank you")
@@ -30,7 +30,7 @@ it("sends the request and shows the thank-you", async () => {
 
 it("shows a rate-limit error and keeps the form", async () => {
   ;(submitPublicPrayerRequest as jest.Mock).mockResolvedValue({ error: "Too many submissions. Please try again later." })
-  render(<PublicPrayerRequestForm />)
+  render(<PublicPrayerRequestForm formToken="signed-token" />)
   fireEvent.change(screen.getByLabelText("Your prayer request"), { target: { value: "Again" } })
   fireEvent.click(screen.getByRole("button", { name: "Send prayer request" }))
   expect(await screen.findByRole("alert")).toHaveTextContent("Too many submissions")
@@ -39,7 +39,7 @@ it("shows a rate-limit error and keeps the form", async () => {
 
 it("has a hidden honeypot field that is sent along when filled", async () => {
   ;(submitPublicPrayerRequest as jest.Mock).mockResolvedValue({ success: "Thank you." })
-  const { container } = render(<PublicPrayerRequestForm />)
+  const { container } = render(<PublicPrayerRequestForm formToken="signed-token" />)
   const trap = container.querySelector('input[name="ppr_hp"]') as HTMLInputElement
   expect(trap.parentElement).toHaveAttribute("aria-hidden", "true")
   expect(trap).toHaveAttribute("tabindex", "-1")

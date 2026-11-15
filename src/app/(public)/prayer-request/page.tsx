@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { getChurchSettings } from "@/lib/churchSettings"
+import { issueFormToken } from "@/lib/formToken"
 import { PublicPrayerRequestForm } from "./PublicPrayerRequestForm"
 
 export const metadata: Metadata = {
@@ -7,9 +8,13 @@ export const metadata: Metadata = {
   robots: { index: false },
 }
 
+// Never prerender: the signed timing token must be issued per request.
+export const dynamic = "force-dynamic"
+
 /** Public prayer request page: anyone can send a request to the pastors. */
 export default async function PrayerRequestPage() {
   const { name } = await getChurchSettings()
+  const formToken = issueFormToken(new Date().getTime())
   return (
     <div className="mx-auto max-w-xl space-y-4 px-4 py-8">
       <h1 className="text-2xl font-bold text-foreground">Prayer request</h1>
@@ -17,7 +22,7 @@ export default async function PrayerRequestPage() {
         Share a prayer request with the pastors of {name}. It is private unless you tick the box to share it. Giving your
         name and contact details is optional.
       </p>
-      <PublicPrayerRequestForm />
+      <PublicPrayerRequestForm formToken={formToken} />
     </div>
   )
 }

@@ -90,12 +90,24 @@ describe("/follow-ups page", () => {
     expect(getByRole("link", { name: "Mine" })).toHaveAttribute("aria-current", "true")
   })
 
-  it("hints that the list is capped only when the cap is hit", async () => {
+  it("honours the bell link ?due=1: passes due, keeps it on chip links, chip toggles it off", async () => {
     as("ADMIN")
+    const { getByRole } = await run({ assignee: "mine", due: "1" })
+    expect(listFollowUpTasks).toHaveBeenCalledWith({ statuses: ["OPEN", "IN_PROGRESS"], mine: true, due: true })
+    expect(getByRole("link", { name: "All" })).toHaveAttribute("href", "/follow-ups?status=all&assignee=mine&due=1")
+    const chip = getByRole("link", { name: "Due today or earlier" })
+    expect(chip).toHaveAttribute("aria-current", "true")
+    expect(chip).toHaveAttribute("href", "/follow-ups?assignee=mine")
+  })
+
+  it("hints that the list is capped only when rows were dropped", async () => {
+    as("ADMIN")
+    const rows = Array.from({ length: 500 }, (_, i) => ({ id: i + 1, assigneeId: null }))
+    ;(listFollowUpTasks as jest.Mock).mockResolvedValue({ tasks: rows, truncated: false })
     const { queryByText, unmount } = await run()
     expect(queryByText(/Showing the first/)).toBeNull()
     unmount()
-    ;(listFollowUpTasks as jest.Mock).mockResolvedValue({ tasks: Array.from({ length: 500 }, (_, i) => ({ id: i + 1, assigneeId: null })) })
+    ;(listFollowUpTasks as jest.Mock).mockResolvedValue({ tasks: rows, truncated: true })
     const { getByRole } = await run()
     expect(getByRole("status")).toHaveTextContent("Showing the first 500. Narrow the filters to see the rest.")
   })
