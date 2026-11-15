@@ -145,6 +145,7 @@ const EXEMPT_API_ROUTES: Record<string, string> = {
   "src/app/api/people/export/route.ts": "core: people CSV export (admin only)",
   "src/app/api/people/[id]/export/route.ts": "core: single person data export (admin only)",
   "src/app/api/groups/[id]/export-csv/route.ts": "core: group member CSV (canViewGroups), groups has no feature flag",
+  "src/app/api/roster/feed/[token]/route.ts": "core: personal roster .ics feed (secret token), roster has no feature flag",
 }
 
 /**
@@ -370,6 +371,9 @@ const CORE_ACTIONS = new Set([
   // Sacramental register (#304/#605): core, no feature flag; role gated
   // (canEditSacraments / canViewSacraments, sacrament.test.ts).
   "sacrament.ts",
+  // Roster unavailability + calendar feed link (#624, #628): core, no feature flag; role gated (personUnavailability.test.ts, rosterFeed.test.ts).
+  "personUnavailability.ts",
+  "rosterFeed.ts",
 ])
 
 it("every Server Action file is classified (feature-owned, mixed, or core)", () => {

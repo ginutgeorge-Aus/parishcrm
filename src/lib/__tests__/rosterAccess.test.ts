@@ -1,10 +1,10 @@
 /** @jest-environment node */
 import { UserRole } from "@/lib/generated/prisma/enums"
 
-jest.mock("@/lib/prisma", () => ({ prisma: { groupLeaderAccess: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { groupLeaderAccess: { findUnique: jest.fn(), findFirst: jest.fn() } } }))
 
 import { prisma } from "@/lib/prisma"
-import { canEditRosterRole } from "@/lib/rosterAccess"
+import { canEditPersonUnavailability, canEditRosterRole } from "@/lib/rosterAccess"
 import { canManageRoster } from "@/lib/roleGuard"
 
 const findUnique = (prisma as unknown as { groupLeaderAccess: { findUnique: jest.Mock } }).groupLeaderAccess.findUnique
@@ -33,6 +33,27 @@ describe("canEditRosterRole", () => {
     findUnique.mockResolvedValue({ id: 1 })
     for (const role of [UserRole.VIEWER, UserRole.AUDITOR, UserRole.TEACHER, undefined]) {
       await expect(canEditRosterRole(9, 4, role)).resolves.toBe(false)
+    }
+  })
+})
+
+describe("canEditPersonUnavailability", () => {
+  const findFirst = (prisma as unknown as { groupLeaderAccess: { findFirst: jest.Mock } }).groupLeaderAccess.findFirst
+  beforeEach(() => findFirst.mockReset().mockResolvedValue(null))
+
+  it("lets staff edit anyone without a DB lookup", async () => {
+    await expect(canEditPersonUnavailability(9, 7, UserRole.PASTOR)).resolves.toBe(true)
+    expect(findFirst).not.toHaveBeenCalled()
+  })
+  it("lets an organiser edit only people in a live group they lead", async () => {
+    await expect(canEditPersonUnavailability(9, 7, UserRole.EVENT_ORGANISER)).resolves.toBe(false)
+    findFirst.mockResolvedValue({ id: 1 })
+    await expect(canEditPersonUnavailability(9, 7, UserRole.EVENT_ORGANISER)).resolves.toBe(true)
+  })
+  it("ignores a stale leader row on any other role", async () => {
+    findFirst.mockResolvedValue({ id: 1 })
+    for (const role of [UserRole.VIEWER, UserRole.AUDITOR, UserRole.TEACHER, undefined]) {
+      await expect(canEditPersonUnavailability(9, 7, role)).resolves.toBe(false)
     }
   })
 })
