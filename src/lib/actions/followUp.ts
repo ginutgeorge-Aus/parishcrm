@@ -2,10 +2,12 @@
 
 // Pastoral follow-up tasks (#305, #613). Visibility (PO decision #611): ADMIN +
 // PASTOR see and manage every task; an assignee (an editor: ADMIN | PASTOR | OFFICE_ADMIN)
-// sees only tasks assigned to them and may change only their status. Every
-// query and write merges followUpVisibilityWhere into its `where`, so a by-id
+// sees only tasks assigned to them and may change only their status. Reads and
+// the status change merge followUpVisibilityWhere into their `where`, so a by-id
 // call for a task the caller can't see matches no row and answers "Not found"
-// (IDOR guard, no existence leak). title/notes are encrypted at rest; audit
+// (IDOR guard, no existence leak); create/edit/delete are manager-only
+// (canManageFollowUps). Writes are blocked in the public demo (assertNotDemo).
+// title/notes are encrypted at rest; audit
 // rows are written in the same transaction and carry ids/flags only.
 // Notifications are in-app only (countMyDueFollowUps); no email in v1.
 
@@ -16,6 +18,7 @@ import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
 import { encrypt, safeDecrypt } from "@/lib/crypto"
 import { DECRYPTION_ERROR_PLACEHOLDER as DECRYPTION_ERROR } from "@/lib/cryptoCore"
+import { assertNotDemo } from "@/lib/demoMode"
 import { sydneyToday, sydneyTodayYMD } from "@/lib/dates"
 import { FollowUpStatus } from "@/lib/generated/prisma/enums"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -182,6 +185,8 @@ function revalidateTask(target: { personId: number | null; familyId: number | nu
  * @returns the new task id, or `{ error }`
  */
 export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ error: string } | { id: number }> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   const parsed = CreateSchema.safeParse(input)
@@ -238,6 +243,8 @@ export async function createFollowUpTask(input: FollowUpTaskInput): Promise<{ er
  * @param input title, notes, assigneeId, dueDate
  */
 export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }
@@ -297,6 +304,8 @@ export async function updateFollowUpTask(id: number, input: FollowUpTaskUpdate):
  * @param status target status
  */
 export async function setFollowUpStatus(id: number, status: FollowUpStatus): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const ctx = await currentViewer()
   if (!ctx) return { error: UNAUTHORIZED }
   if (!isValidPgId(id) || !STATUSES.has(status)) return { error: NOT_FOUND }
@@ -332,6 +341,8 @@ export async function setFollowUpStatus(id: number, status: FollowUpStatus): Pro
  * @param id FollowUpTask.id
  */
 export async function deleteFollowUpTask(id: number): Promise<ActionResultWithSuccess> {
+  const demo = assertNotDemo()
+  if (demo) return demo
   const session = await auth()
   if (!canManageFollowUps(session?.user?.role)) return { error: UNAUTHORIZED }
   if (!isValidPgId(id)) return { error: NOT_FOUND }

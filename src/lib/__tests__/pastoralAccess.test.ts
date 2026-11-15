@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { UserRole } from "@/lib/generated/prisma/enums"
 import { followUpVisibilityWhere, liveFollowUpTarget } from "@/lib/pastoralAccess"
 import {

@@ -399,3 +399,20 @@ describe("countMyDueFollowUps", () => {
     expect(p.followUpTask.count).not.toHaveBeenCalled()
   })
 })
+
+describe("public demo", () => {
+  afterEach(() => {
+    delete process.env.DEMO_MODE
+  })
+
+  it("blocks every write before auth", async () => {
+    process.env.DEMO_MODE = "true"
+    ;(auth as jest.Mock).mockClear()
+    const blocked = { error: "Disabled in the live demo" }
+    expect(await createFollowUpTask({ title: "x", personId: 3 })).toEqual(blocked)
+    expect(await updateFollowUpTask(1, { title: "x", notes: null, assigneeId: null, dueDate: null })).toEqual(blocked)
+    expect(await setFollowUpStatus(1, FollowUpStatus.DONE)).toEqual(blocked)
+    expect(await deleteFollowUpTask(1)).toEqual(blocked)
+    expect(auth).not.toHaveBeenCalled()
+  })
+})
