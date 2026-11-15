@@ -3,9 +3,10 @@ import "server-only"
 /**
  * Stateless, signed form token for public-form bot protection.
  *
- * The public event registration form has no auth and only an in-process IP
- * rate limit (single-replica). This adds a timing trap: the server issues an
- * HMAC-signed timestamp when it renders the form, and the register route
+ * The public event registration and waitlist forms and the family-update form
+ * have no auth (or only a link token) and an in-process IP rate limit
+ * (single-replica). This adds a timing trap: the server issues an
+ * HMAC-signed timestamp when it renders the form, and the submit handler
  * rejects submissions that arrive implausibly fast (bots) or with a missing /
  * forged / stale token. Combined with the honeypot field in RegistrationForm,
  * it raises the cost of scripted spam without a CAPTCHA or external service.

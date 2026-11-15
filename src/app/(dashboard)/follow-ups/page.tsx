@@ -2,8 +2,9 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { FilterChip } from "@/components/pastoral/FilterChip"
 import { FollowUpList } from "@/components/pastoral/FollowUpList"
+import { FollowUpTruncationNotice } from "@/components/pastoral/FollowUpTruncationNotice"
 import { listFollowUpTasks } from "@/lib/actions/followUp"
-import { FOLLOW_UP_LIST_MAX, followUpVisibilityWhere } from "@/lib/pastoralAccess"
+import { followUpVisibilityWhere } from "@/lib/pastoralAccess"
 import {
   followUpStatusesFor,
   parseAssigneeFilter,
@@ -103,11 +104,7 @@ export default async function FollowUpsPage({
           </div>
         )}
       </div>
-      {res.truncated && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Showing the first {FOLLOW_UP_LIST_MAX}. Narrow the filters to see the rest.
-        </p>
-      )}
+      <FollowUpTruncationNotice truncated={res.truncated} />
       <div className="rounded-lg border bg-card p-4">
         <FollowUpList tasks={tasks} canManage={manage} showTarget />
       </div>

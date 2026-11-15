@@ -5,6 +5,7 @@ import { listAssignableUsers } from "@/lib/pastoralQueries"
 import type { UserRole } from "@/lib/generated/prisma/enums"
 import { FollowUpForm } from "./FollowUpForm"
 import { FollowUpList } from "./FollowUpList"
+import { FollowUpTruncationNotice } from "./FollowUpTruncationNotice"
 
 /**
  * "Follow-ups" card for a person or family page. Managers (ADMIN | PASTOR) see
@@ -32,12 +33,8 @@ export async function FollowUpCard({
         <CardTitle className="text-base">Follow-ups</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <FollowUpTruncationNotice truncated={res.truncated} />
         <FollowUpList tasks={res.tasks} canManage={manage} />
-        {res.truncated && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Showing the first {res.tasks.length} follow-ups.
-          </p>
-        )}
         {manage && <FollowUpForm target={target} assignees={assignees} />}
       </CardContent>
     </Card>

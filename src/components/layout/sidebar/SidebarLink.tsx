@@ -3,6 +3,14 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { NavItem } from "@/components/layout/sidebar/navData"
 
+/**
+ * One sidebar link with an optional count badge. With a badge, an item that
+ * has an `attentionHref` links there (the narrower list the badge counts).
+ * @param item the nav item
+ * @param active whether this item is the current page
+ * @param collapsed icon-rail mode
+ * @param onNavigate called on click (closes the mobile drawer)
+ */
 export function SidebarLink({
   item,
   active,
@@ -17,12 +25,15 @@ export function SidebarLink({
   const { href, label, icon: Icon, badge, badgeInformational } = item
   // Amber means "needs action"; informational counts get a neutral tone so a
   // long-lived one (unverified release checks) doesn't read as an alert.
+  // A badge that counts a narrower list than the page (e.g. my due follow-ups)
+  // links to that narrower view; active-state matching still uses `href`.
+  const linkHref = badge && item.attentionHref ? item.attentionHref : href
   const dotTone = badgeInformational ? "bg-muted-foreground" : "bg-warning"
   const pillTone = badgeInformational ? "bg-muted text-muted-foreground" : "bg-warning text-warning-foreground"
 
   const link = (
     <Link
-      href={href}
+      href={linkHref}
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? (badge ? `${label} (${badge})` : label) : undefined}
       onClick={onNavigate}
