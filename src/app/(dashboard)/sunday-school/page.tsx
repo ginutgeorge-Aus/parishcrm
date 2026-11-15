@@ -12,10 +12,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { RolloverButton } from "@/components/sunday-school/RolloverButton"
 import { FormFeedback } from "@/components/ui/FormFeedback"
 
-type Props = { searchParams: Promise<{ year?: string; rolled?: string }> }
+type Props = { searchParams: Promise<{ year?: string; rolled?: string; imported?: string }> }
 
 /** Exact shape of rolloverYear's success message — anything else in `?rolled=` is ignored. */
 const ROLLED = /^Created \d+ classes for \d{4}; moved \d+ child(?:ren)?; \d+ need placing by hand$/
+
+/** Exact shape of commitEnrolmentImport's success message. */
+const IMPORTED = /^Enrolled \d+, moved \d+, unchanged \d+$/
 
 /**
  * The roll-over summary passed by RolloverButton, or null when absent or not
@@ -36,6 +39,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
   // A rolled-over year is closed: no new classes or second rollover.
   const editor = canManageSundaySchool(session.user.role) && !locked
   const rolled = rolledSummary(sp.rolled)
+  const imported = sp.imported && IMPORTED.test(sp.imported) ? sp.imported : null
 
   const classes = await prisma.sundaySchoolClass.findMany({
     where: { year, archivedAt: null },
@@ -80,6 +84,7 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
       </div>
 
       {rolled && <FormFeedback state={{ success: rolled }} />}
+      {imported && <FormFeedback state={{ success: `Import done: ${imported}` }} />}
 
       {locked && (
         <div className="space-y-2">
@@ -95,6 +100,11 @@ export default async function SundaySchoolPage(props: Readonly<Props>) {
           <Button asChild>
             <Link href={`/sunday-school/new?year=${year}`}>New class</Link>
           </Button>
+          {classes.length > 0 && (
+            <Button variant="outline" asChild className="min-h-11 sm:min-h-0">
+              <Link href={`/sunday-school/import?year=${year}`}>Import enrolments (CSV)</Link>
+            </Button>
+          )}
           {canRollover && <RolloverButton fromYear={year} classCount={classes.length} />}
           {/* Admin re-lock of an open past year (editor is already false when locked). */}
           {isAdmin(session.user.role) && classes.length > 0 && year < currentSchoolYear() && (

@@ -147,6 +147,9 @@ export default async function ClassPage(props: Readonly<{ params: Promise<{ id: 
             <Button variant="outline" asChild>
               <Link href={`/sunday-school/${cls.id}/progress`}>Progress</Link>
             </Button>
+            <Button variant="outline" asChild>
+              <a href={`/api/sunday-school/${cls.id}/roster`} download>Export roster (CSV)</a>
+            </Button>
             {editor && (
               <Button variant="outline" asChild>
                 <Link href={`/sunday-school/${cls.id}/edit`}>Edit</Link>

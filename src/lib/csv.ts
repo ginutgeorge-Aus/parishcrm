@@ -101,7 +101,7 @@ function consumeUnquotedChar(state: TokenizerState, c: string): void {
 // double-quoted fields (which may contain commas, CR/LF, and "" escaped quotes).
 // Replaces naive line/comma splitting so a quoted address like "12 St, Apt 4"
 // does not shift every subsequent column.
-function parseCsvRecords(content: string): { records: string[][]; error?: string } {
+export function parseCsvRecords(content: string): { records: string[][]; error?: string } {
   const state: TokenizerState = { records: [], record: [], field: "", inQuotes: false, sawField: false }
 
   for (let i = 0; i < content.length; i++) {

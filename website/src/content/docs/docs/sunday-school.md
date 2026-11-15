@@ -19,6 +19,19 @@ VIEWER can look but not change anything. **Teacher** logins only see the classes
 - **Children** — *Add children* lists people not in this class; *Children only* (on by default)
   shows people whose family role is Child. A child can be in one class per year: enrolling a child
   who is already in another class moves them. The child's class also shows on their profile.
+- **Import enrolments (CSV)** — on the class list, *Import enrolments (CSV)* enrols many children at once
+  into the classes of the year you are viewing. Columns: `family_name`, `first_name`, `last_name`,
+  `class_name`, and an optional `location` (only needed when two classes that year share a name).
+  Each student must already be in People: they are matched by family name plus first and last name
+  (ignoring case), the same way the family CSV import identifies a person, and the class by name
+  within the year. *Check file* shows a row-by-row preview (Enrol, Move, Already in class, or Error
+  with the reason). Nothing is written until every row is valid; fix the file and check again.
+  Importing runs in one step and is safe to repeat: students already in their class are left
+  alone, and a student enrolled in another class that year is moved, as with *Add children*. Locked
+  years cannot be imported into. Up to 2000 rows and 1 MB per file. The import is in the audit log.
+- **Export roster (CSV)** — on a class, *Export roster (CSV)* downloads the class's children (student,
+  family, class, level, location, year), the same names the class page shows. Anyone who can open the
+  class page can export it.
 - **Archive** — removing a class archives it; enrolments and attendance history are kept.
 - **Roll over to next year** — on the class list, once per year: copies every active class and its
   still-tagged teachers into next year and moves each child up one level at the same location. Children in the
