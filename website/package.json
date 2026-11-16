@@ -12,7 +12,7 @@
     "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.8",
+    "@astrojs/starlight": "^0.42.10",
     "astro": "^7.4.12",
     "sharp": "^0.35.5",
     "starlight-links-validator": "^0.27.0"
@@ -21,9 +21,9 @@
     "@astrojs/starlight-tailwind": "^5.0.0",
     "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
-    "@lucide/astro": "^1.66.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "playwright": "^1.64.1",
+    "@lucide/astro": "^1.70.0",
+    "@tailwindcss/vite": "^4.3.5",
+    "playwright": "^1.65.0",
     "tailwindcss": "^4.3.3"
   },
   "overrides": {
