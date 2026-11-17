@@ -476,6 +476,9 @@ export function LoginForm({
             >
               {resendLoading ? "Sending…" : "Send email code instead"}
             </button>
+            <p className="text-center text-xs text-muted-foreground">
+              Email codes are unavailable while you still have unused backup codes.
+            </p>
           </form>
         ) : (
           <form onSubmit={handleOtpSubmit} className="space-y-4">
