@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { compare, hash } from "bcryptjs"
+import { compare, hash, hashSync } from "bcryptjs"
 import NextAuth from "next-auth"
 import { dbRateLimit } from "@/lib/dbRateLimit"
 
@@ -125,6 +125,7 @@ const baseUser = {
   lockedUntil: null,
   otpCode: null,
   otpExpiresAt: null,
+  passwordHash: hashSync("correctpassword", 4),
 }
 
 describe("authorizeCredentials", () => {
@@ -367,12 +368,14 @@ describe("authorizeCredentials", () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
       id: 5, name: "Secretary", email: "secretary@example.com",
       role: "VIEWER", failedLoginAttempts: 0, lockedUntil: null,
+      passwordHash: hashSync("correctpassword", 4),
       otpCode: "hashed:654321", otpExpiresAt: validOtpExpiry,
     })
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
     const result = await authorizeCredentials({
       email: "secretary@example.com",
       mode: "otp",
+      password: "correctpassword",
       otp: "654321",
     })
     expect(result).toMatchObject({ role: "VIEWER" })
@@ -464,10 +467,11 @@ describe("authorizeCredentials — email normalisation", () => {
     storedRow({
       id: 5, name: "Secretary", email: "Admin@Example.com",
       role: "VIEWER", failedLoginAttempts: 0, lockedUntil: null,
+      passwordHash: hashSync("correctpassword", 4),
       otpCode: "hashed:654321", otpExpiresAt: validOtpExpiry,
     })
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-    const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", otp: "654321" })
+    const result = await authorizeCredentials({ email: "  admin@EXAMPLE.com ", mode: "otp", password: "correctpassword", otp: "654321" })
     expect(queryRaw).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ id: "5", role: "VIEWER" })
     expect(prisma.user.updateMany).toHaveBeenCalledWith(
@@ -479,7 +483,7 @@ describe("authorizeCredentials — email normalisation", () => {
   })
 
   it("OTP path miss: a single lookup query, no row fetch", async () => {
-    expect(await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", otp: "654321" })).toBeNull()
+    expect(await authorizeCredentials({ email: " Secretary@Example.com ", mode: "otp", password: "correctpassword", otp: "654321" })).toBeNull()
     expect(queryRaw).toHaveBeenCalledTimes(1)
     expect(findUnique).not.toHaveBeenCalled()
   })
@@ -541,22 +545,80 @@ describe("authorizeCredentials — OTP mode", () => {
   beforeEach(() => jest.clearAllMocks())
 
   it("returns null when otp field is missing", async () => {
-    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp" })).toBeNull()
+    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", password: "correctpassword" })).toBeNull()
   })
 
   it("returns null — not throws — when otp is a non-string (e.g. JSON number)", async () => {
-    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", otp: 123456 })).toBeNull()
+    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", password: "correctpassword", otp: 123456 })).toBeNull()
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
   it("returns null when user not found", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
-    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", otp: "123456" })).toBeNull()
+    expect(await authorizeCredentials({ email: "a@b.com", mode: "otp", password: "correctpassword", otp: "123456" })).toBeNull()
+  })
+
+  describe("password proof (AUD-1-01b)", () => {
+    const validOtpUser = () => ({
+      ...baseUser,
+      otpCode: "hashed:123456",
+      otpExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    })
+
+    it("returns null with a valid code and no password, without touching failedOtpAttempts", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
+      expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })).toBeNull()
+      expect(prisma.user.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+      )
+      expect(prisma.user.updateMany).not.toHaveBeenCalled()
+    })
+
+    it("returns null with a valid code and a wrong password, without touching failedOtpAttempts", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
+      ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+      expect(
+        await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "wrong", otp: "123456" }),
+      ).toBeNull()
+      expect(prisma.user.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ failedOtpAttempts: expect.anything() }) }),
+      )
+      expect(prisma.user.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ otpCode: null }) }),
+      )
+    })
+
+    it("counts a wrong password towards the password lock", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
+      ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+      await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "wrong", otp: "123456" })
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { failedLoginAttempts: { increment: 1 } } }),
+      )
+    })
+
+    it("throws AccountLocked for the right password while OTP-locked", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...validOtpUser(),
+        otpLockedUntil: new Date(Date.now() + 10 * 60 * 1000),
+      })
+      await expect(
+        authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" }),
+      ).rejects.toBeInstanceOf(AccountLocked)
+    })
+
+    it("signs in with a valid code and the right password", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
+      ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
+      expect(
+        await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" }),
+      ).toMatchObject({ id: "1" })
+    })
   })
 
   it("returns null when no OTP is stored on user", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...baseUser })
-    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })).toBeNull()
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })).toBeNull()
   })
 
   it("returns null when OTP is expired", async () => {
@@ -565,7 +627,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpCode: "hashed:123456",
       otpExpiresAt: new Date(Date.now() - 1000),
     })
-    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })).toBeNull()
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })).toBeNull()
   })
 
   it("returns null when OTP is wrong", async () => {
@@ -574,7 +636,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpCode: "hashed:123456",
       otpExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
     })
-    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "999999" })).toBeNull()
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "999999" })).toBeNull()
   })
 
   it("validates the submitted code against the stored hash, not plaintext", async () => {
@@ -584,7 +646,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
     })
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-    const result = await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+    const result = await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     expect(result).toMatchObject({ id: "1" })
   })
 
@@ -597,7 +659,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpLockedUntil: new Date(Date.now() + 10 * 60 * 1000),
     })
     await expect(
-      authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+      authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     ).rejects.toBeInstanceOf(AccountLocked)
   })
 
@@ -608,7 +670,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpLockedUntil: new Date(Date.now() + 10 * 60 * 1000),
     })
     await expect(
-      authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+      authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     ).rejects.toBeInstanceOf(AccountLocked)
   })
 
@@ -620,7 +682,7 @@ describe("authorizeCredentials — OTP mode", () => {
       lockedUntil: new Date(Date.now() + 10 * 60 * 1000),
     })
     await expect(
-      authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+      authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     ).rejects.toBeInstanceOf(AccountLocked)
     // Must NOT consume the OTP or mint a session while password-locked
     expect(prisma.user.updateMany).not.toHaveBeenCalled()
@@ -635,7 +697,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpLockedUntil: new Date(Date.now() - 60 * 1000), // previous OTP lock, now expired
     })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedOtpAttempts: 5 })
-    await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "999999" })
+    await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "999999" })
     const lockCall = (prisma.user.updateMany as jest.Mock).mock.calls.find(
       (c) => c[0]?.data?.otpLockedUntil instanceof Date
     )
@@ -656,7 +718,7 @@ describe("authorizeCredentials — OTP mode", () => {
       failedOtpAttempts: 4,
     })
     ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedOtpAttempts: 5 })
-    await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "999999" })
+    await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "999999" })
     const lockCall = (prisma.user.updateMany as jest.Mock).mock.calls.find(
       (c) => c[0]?.data?.otpLockedUntil instanceof Date
     )
@@ -672,7 +734,7 @@ describe("authorizeCredentials — OTP mode", () => {
       otpExpiresAt: validExpiry,
     })
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-    const result = await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+    const result = await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     expect(result).toMatchObject({ id: "1", name: "Admin User", email: "admin@example.com", role: "ADMIN" })
     // consume must be a single conditional updateMany (verify + clear
     // atomically), never a separate findFirst-then-update.
@@ -703,8 +765,8 @@ describe("authorizeCredentials — OTP mode", () => {
     })
 
     const [first, second] = await Promise.all([
-      authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" }),
-      authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" }),
+      authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" }),
+      authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" }),
     ])
 
     const results = [first, second]
@@ -753,14 +815,16 @@ describe("jwtCallback — role refresh", () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
   })
 
-  it("invalidates the session when the account is password-locked", async () => {
+  it("keeps the session when the account is password-locked — a stranger's bad guesses must not sign staff out", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
       role: "ADMIN",
       lockedUntil: new Date(Date.now() + 15 * 60 * 1000),
       otpLockedUntil: null,
+      sessionsValidFrom: null,
     })
     const token = await jwtCallback({ token: { id: "7", role: "ADMIN" } })
-    expect(token).toBeNull()
+    expect(token).not.toBeNull()
+    expect(token?.role).toBe("ADMIN")
   })
 
   it("keeps the session when the account is OTP-locked — OTP lock is login-phase only", async () => {
@@ -1046,7 +1110,7 @@ describe("authorizeCredentials — IP rate limit", () => {
     const { dbRateLimit } = await import("@/lib/dbRateLimit")
     ;(dbRateLimit as jest.Mock).mockResolvedValueOnce(false)
     const result = await authorizeCredentials(
-      { email: "admin@example.com", mode: "otp", otp: "123456" },
+      { email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" },
       reqWithIp("9.9.9.9"),
     )
     expect(result).toBeNull()
@@ -1148,7 +1212,7 @@ describe("OTP-bound device trust grants", () => {
 
   it("issues a short-lived pending device only after remembered OTP success", async () => {
     const now = Date.now()
-    const user = await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456", remember: "true" })
+    const user = await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456", remember: "true" })
     expect(user).toMatchObject({ deviceTrustGrant: "grant1" })
     const { data } = (prisma.trustedDevice.create as jest.Mock).mock.calls[0][0]
     expect(data).toMatchObject({ userId: 1, tokenHash: "grant:hashed_device:random-proof" })
@@ -1158,14 +1222,14 @@ describe("OTP-bound device trust grants", () => {
   })
 
   it("does not issue proof without remember selected", async () => {
-    const user = await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456" })
+    const user = await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" })
     expect(user).not.toHaveProperty("deviceTrustGrant")
     expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
   })
 
   it("does not issue proof when OTP consumption loses a race", async () => {
     ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 })
-    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", otp: "123456", remember: "true" })).toBeNull()
+    expect(await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456", remember: "true" })).toBeNull()
     expect(prisma.trustedDevice.create).not.toHaveBeenCalled()
   })
 
@@ -1546,12 +1610,14 @@ describe("authorizePasskey", () => {
     expect(verifyAuthenticationResponse).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ["password-locked", { lockedUntil: new Date(Date.now() + 60_000) }],
-    ["OTP-locked", { otpLockedUntil: new Date(Date.now() + 60_000) }],
-  ])("keeps a %s account locked", async (_n, over) => {
-    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow(over))
+  it("keeps an OTP-locked account locked", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ otpLockedUntil: new Date(Date.now() + 60_000) }))
     await expect(authorizePasskey(creds())).rejects.toBeInstanceOf(AccountLocked)
+  })
+
+  it("does not refuse a password-locked account — passkey does not use the password", async () => {
+    ;(prisma.passkey.findUnique as jest.Mock).mockResolvedValue(passkeyRow({ lockedUntil: new Date(Date.now() + 60_000) }))
+    await expect(authorizePasskey(creds())).resolves.not.toBeNull()
   })
 
   it("does not reveal a lock to an assertion that fails verification", async () => {

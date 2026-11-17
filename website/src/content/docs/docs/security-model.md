@@ -34,7 +34,7 @@ Edge-runtime-safe (no database driver, no bcrypt) and is what `middleware.ts` us
 validation; `src/auth.ts` is the full Node.js config with database access, used everywhere
 else (Server Components, Server Actions, the credentials provider itself). Middleware can
 only read and validate the JWT — it never touches the database on the hot path, and account-
-state checks (locked, deleted, idle-timeout) happen inside the Node.js `jwtCallback`, which
+state checks (deleted, signed-out, idle-timeout) happen inside the Node.js `jwtCallback`, which
 also runs on every authenticated request via Server Components.
 
 **Authentication gate.** Any request without a valid session is redirected to `/login`,
