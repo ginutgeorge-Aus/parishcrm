@@ -132,3 +132,36 @@ rules:
           # *Session name, or an inline auth() call. Plain receivers like
           # row.user.email (DB reads) stay out (#378).
           regex: ^(.*[.?!])?(session|auth)!?$|^.*Session!?$|^.*\bauth\(\)\)?$
+
+  - id: crm-action-string-param-unchecked
+    languages: [typescript]
+    severity: ERROR
+    paths:
+      include:
+        - src/lib/actions/
+    message: >
+      A server action's `string` parameter reaches a Prisma `where` with no runtime type
+      check. TypeScript types vanish at runtime: a caller can send an object such as
+      `{ not: "" }` and Prisma treats it as a filter, matching rows the caller never owned
+      (AUD-2-01). Add `typeof $ARG !== "string"` (plus a shape regex for tokens) before the
+      query (a shape check such as `if (!isValidMonth($ARG)) return ...` also passes), or
+      parse the argument with zod.
+    patterns:
+      - pattern-inside: |
+          export async function $F(..., $ARG: string, ...) {
+            ...
+          }
+      - pattern-either:
+          - pattern: '$P.$M.findFirst({..., where: {..., $K: $ARG, ...}, ...})'
+          - pattern: '$P.$M.findUnique({..., where: {..., $K: $ARG, ...}, ...})'
+          - pattern: '$P.$M.findMany({..., where: {..., $K: $ARG, ...}, ...})'
+          - pattern: '$P.$M.updateMany({..., where: {..., $K: $ARG, ...}, ...})'
+          - pattern: '$P.$M.deleteMany({..., where: {..., $K: $ARG, ...}, ...})'
+      - pattern-not-inside: |
+          if (<... typeof $ARG !== "string" ...>) { ... }
+          ...
+      - pattern-not-inside: |
+          if (<... typeof $ARG === "string" ...>) { ... }
+      - pattern-not-inside: |
+          if (<... !$FN($ARG) ...>) { return ... }
+          ...
