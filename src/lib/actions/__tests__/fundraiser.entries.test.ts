@@ -132,9 +132,12 @@ describe("addEntry", () => {
       prismaMock.fundraiserEntry.create
         .mockRejectedValueOnce(Object.assign(new Error("conflict"), { code: "P2034" }))
         .mockResolvedValue({ id: 11 })
+      ;(randomInt as jest.Mock).mockReturnValueOnce(10) // known jitter so the wait is observable
       const pending = addEntry(3, { outsideName: "Visitor", quantity: "1" })
-      // First-attempt backoff is jittered within [0, 25ms]; advancing the cap always releases the retry.
-      await jest.advanceTimersByTimeAsync(25)
+      await jest.advanceTimersByTimeAsync(9)
+      expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(1) // still waiting on the backoff
+      expect(jest.getTimerCount()).toBe(1)
+      await jest.advanceTimersByTimeAsync(1)
       expect(await pending).toBeUndefined()
       expect(prismaMock.fundraiserEntry.create).toHaveBeenCalledTimes(2)
       expect(jest.getTimerCount()).toBe(0)
