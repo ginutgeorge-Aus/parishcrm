@@ -4,7 +4,7 @@ import type { Metadata } from "next"
 import { fillRates } from "@/lib/reports/eventAnalytics"
 import { toFloat } from "@/lib/utils"
 import { VolunteerView } from "@/components/events/VolunteerView"
-import { hashToken, isHashedToken } from "@/lib/tokenHash"
+import { tokenLookupCandidates } from "@/lib/tokenHash"
 
 // Always current; never cached or indexed. The token is the only secret, so the
 // page must not be crawled/archived.
@@ -24,7 +24,7 @@ export default async function CrewPage({ params }: Readonly<Props>) {
   // The column holds a SHA-256 digest of the token; the raw token is also accepted until the
   // backfill has hashed legacy rows. A 64-hex URL token is never taken as raw: it would match a stolen digest.
   const event = await prisma.event.findFirst({
-    where: { volunteerToken: { in: isHashedToken(token) ? [hashToken(token)] : [hashToken(token), token] } },
+    where: { volunteerToken: { in: tokenLookupCandidates(token) } },
     select: {
       title: true,
       date: true,

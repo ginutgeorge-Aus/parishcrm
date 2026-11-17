@@ -3,7 +3,15 @@ import { useState, useTransition } from "react"
 import { startExistingRegistrationCheckout } from "@/lib/actions/eventCheckout"
 import { navigateTo } from "@/lib/navigate"
 
-export function PayNowButton({ slug, publicToken, passCardFee }: Readonly<{ slug: string; publicToken: string; passCardFee: boolean }>) {
+/**
+ * "Pay now by card" button for a pending registration on the public success page.
+ * Failures show the server's message plus the church contact email so the attendee has a next step.
+ * @param slug event slug
+ * @param publicToken the registration's opaque public token
+ * @param passCardFee whether a card processing fee applies (shows a note)
+ * @param churchEmail contact address appended to error messages
+ */
+export function PayNowButton({ slug, publicToken, passCardFee, churchEmail }: Readonly<{ slug: string; publicToken: string; passCardFee: boolean; churchEmail?: string }>) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -14,7 +22,8 @@ export function PayNowButton({ slug, publicToken, passCardFee }: Readonly<{ slug
       if (res.ok) {
         navigateTo(res.url)
       } else {
-        setError(res.error)
+        const base = res.error.replace(/\.$/, "")
+        setError(churchEmail ? `${base}. Questions? Contact us at ${churchEmail}` : res.error)
       }
     })
   }

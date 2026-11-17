@@ -19,6 +19,7 @@ import { stripeConfigured } from "@/lib/stripe"
 import { rateLimit } from "@/lib/rateLimit"
 import { createExistingRegistrationCheckoutSession, RegistrationNotPayableError } from "@/lib/stripeCheckout"
 import { prisma } from "@/lib/prisma"
+import { REGISTRATION_LINK_EXPIRED_MESSAGE } from "@/lib/registrationLink"
 
 const mHeaders = headers as jest.Mock
 const mStripe = stripeConfigured as jest.Mock
@@ -61,7 +62,9 @@ it("400s when online payment is disabled for the event", async () => {
 
 it("404s when no matching registration (wrong token / other event)", async () => {
   mReg.mockResolvedValue(null)
-  expect(await startExistingRegistrationCheckout("fete", "REG-000000000000")).toMatchObject({ ok: false, status: 404 })
+  expect(await startExistingRegistrationCheckout("fete", "REG-000000000000")).toEqual({
+    ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE,
+  })
 })
 
 it("400s when the registration is already paid", async () => {
@@ -116,8 +119,9 @@ describe("token and slug shape (public callable, runtime types are caller-contro
 
   it("rejects a non-string slug in both actions", async () => {
     const bad = { contains: "" } as unknown as string
-    expect(await startExistingRegistrationCheckout(bad, "REG-AABBCCDDEEFF")).toMatchObject({ ok: false, status: 404 })
-    expect(await startEventCheckout(bad, {})).toMatchObject({ ok: false, status: 404 })
+    const notFound = { ok: false, status: 404, error: "Event not found" }
+    expect(await startExistingRegistrationCheckout(bad, "REG-AABBCCDDEEFF")).toEqual(notFound)
+    expect(await startEventCheckout(bad, {})).toEqual(notFound)
     expect(mEvent).not.toHaveBeenCalled()
   })
 

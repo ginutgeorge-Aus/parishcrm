@@ -250,10 +250,11 @@ type PaymentStatusBlockProps = Readonly<{
   resolvedRef: string
   isFree: boolean
   churchName: string
+  churchEmail: string
   slug: string
 }>
 
-function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchName, slug }: PaymentStatusBlockProps) {
+function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchName, churchEmail, slug }: PaymentStatusBlockProps) {
   if (registration.paymentStatus === "PAID") {
     // Already paid by card (#Stripe event payments) — the church bank
     // BSB/account is pay-later instructions and must not be shown
@@ -321,7 +322,7 @@ function PaymentStatusBlock({ registration, event, resolvedRef, isFree, churchNa
         </div>
       </div>
       {event.onlinePaymentEnabled && stripeConfigured() && (
-        <PayNowButton slug={slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} />
+        <PayNowButton slug={slug} publicToken={registration.publicToken} passCardFee={event.passCardFee} churchEmail={churchEmail} />
       )}
     </div>
   )
@@ -486,6 +487,7 @@ export default async function SuccessPage(props: Readonly<Props>) {
           resolvedRef={resolvedRef}
           isFree={isFree}
           churchName={churchName}
+          churchEmail={churchEmail}
           slug={params.slug}
         />
 

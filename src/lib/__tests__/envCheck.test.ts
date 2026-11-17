@@ -178,7 +178,33 @@ describe("collectEnvWarnings — Turnstile key pairing", () => {
     expect(collectEnvWarnings().some((w) => w.includes("TURNSTILE"))).toBe(false)
     delete process.env.TURNSTILE_SECRET_KEY
     delete process.env.TURNSTILE_SITE_KEY
-    expect(collectEnvWarnings().some((w) => w.includes("TURNSTILE"))).toBe(false)
+    // Neither set: no key-pairing warning (the AUD-2-03 "no CAPTCHA" one is separate).
+    expect(collectEnvWarnings().some((w) => w.includes("is set but TURNSTILE_SITE_KEY"))).toBe(false)
+  })
+
+  it("AUD-2-03: in production warns when TURNSTILE_SECRET_KEY is unset, not when set or in the demo", () => {
+    const env = process.env as Record<string, string | undefined>
+    const origEnv = { node: env.NODE_ENV, demo: env.DEMO_MODE }
+    try {
+      env.NODE_ENV = "production"
+      delete env.DEMO_MODE
+      delete process.env.TURNSTILE_SECRET_KEY
+      expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(true)
+      env.DEMO_MODE = "true"
+      expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(false)
+      delete env.DEMO_MODE
+      process.env.TURNSTILE_SECRET_KEY = "secret"
+      process.env.TURNSTILE_SITE_KEY = "site"
+      expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(false)
+      env.NODE_ENV = "development"
+      delete process.env.TURNSTILE_SECRET_KEY
+      expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(false)
+    } finally {
+      for (const [k, v] of [["NODE_ENV", origEnv.node], ["DEMO_MODE", origEnv.demo]] as const) {
+        if (v === undefined) delete env[k]
+        else env[k] = v
+      }
+    }
   })
 })
 

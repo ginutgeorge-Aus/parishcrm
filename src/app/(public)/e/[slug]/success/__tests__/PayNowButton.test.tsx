@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { PayNowButton } from "../PayNowButton"
+import { REGISTRATION_LINK_EXPIRED_MESSAGE } from "@/lib/registrationLink"
 
 jest.mock("@/lib/actions/eventCheckout", () => ({ startExistingRegistrationCheckout: jest.fn() }))
 import { startExistingRegistrationCheckout } from "@/lib/actions/eventCheckout"
@@ -34,9 +35,25 @@ it("redirects to the Stripe URL on success", async () => {
   expect(mNavigate).toHaveBeenCalledWith("https://stripe.test/pay")
 })
 
-it("surfaces an error message when the action fails", async () => {
-  mStart.mockResolvedValue({ ok: false, status: 400, error: "Online payment unavailable" })
+it("shows the expiry message with a contact path for an invalid or expired link", async () => {
+  mStart.mockResolvedValue({ ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE })
   render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} />)
   await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
+  const alert = await screen.findByRole("alert")
+  expect(alert).toHaveTextContent(/expired/i)
+  expect(alert).toHaveTextContent(/contact the church office/i)
+})
+
+it("surfaces an error message when the action fails", async () => {
+  mStart.mockResolvedValue({ ok: false, status: 400, error: "Online payment unavailable" })
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@church.test" />)
+  await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
   expect(await screen.findByRole("alert")).toHaveTextContent("Online payment unavailable")
+})
+
+it("adds the church contact email to the error message", async () => {
+  mStart.mockResolvedValue({ ok: false, status: 404, error: "Registration not found" })
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@church.test" />)
+  await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("Registration not found. Questions? Contact us at office@church.test")
 })

@@ -54,9 +54,15 @@ function canonicalizeByTicketTypeId<V>(map: Record<string, V[]> | undefined): Re
   return out
 }
 
+// AUD-2-03: name fields are echoed into confirmation mail under the church's
+// name, so reject link-like content (a relay/phishing vector) and cap length.
+const noLinks = (v: string) => !/:\/\/|www\./i.test(v)
+const NO_LINKS_MSG = "Names cannot contain web addresses"
+const nameField = z.string().min(1).max(60).refine(noLinks, NO_LINKS_MSG)
+
 const BodySchema = z.object({
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
+  firstName: nameField,
+  lastName: nameField,
   email: z.string().email().max(255),
   phone: z.string().max(50).optional(),
   // Per-type quantity bound: unbounded quantities overflow the
@@ -71,7 +77,7 @@ const BodySchema = z.object({
   tickets: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.number().int().min(0).max(100)),
   // One name per ticket unit, keyed by ticketTypeId (string). Bounded like the
   // tickets map; per-name length capped to keep the JSON payload small.
-  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(120)).max(100)).optional(),
+  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(60).refine(noLinks, NO_LINKS_MSG)).max(100)).optional(),
   customAnswers: z.record(
     z.string().max(100),
     z.union([z.string().max(500), z.array(z.string().max(200)).max(50), z.array(z.boolean()).max(50), z.boolean()]),
