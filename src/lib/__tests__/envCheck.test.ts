@@ -178,7 +178,16 @@ describe("collectEnvWarnings — Turnstile key pairing", () => {
     expect(collectEnvWarnings().some((w) => w.includes("TURNSTILE"))).toBe(false)
     delete process.env.TURNSTILE_SECRET_KEY
     delete process.env.TURNSTILE_SITE_KEY
-    expect(collectEnvWarnings().some((w) => w.includes("TURNSTILE"))).toBe(false)
+    // Neither set: no key-pairing warning (the AUD-2-03 "no CAPTCHA" one is separate).
+    expect(collectEnvWarnings().some((w) => w.includes("is set but TURNSTILE_SITE_KEY"))).toBe(false)
+  })
+
+  it("AUD-2-03: warns when TURNSTILE_SECRET_KEY is unset, not when set", () => {
+    delete process.env.TURNSTILE_SECRET_KEY
+    expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(true)
+    process.env.TURNSTILE_SECRET_KEY = "secret"
+    process.env.TURNSTILE_SITE_KEY = "site"
+    expect(collectEnvWarnings().some((w) => w.includes("no CAPTCHA"))).toBe(false)
   })
 })
 

@@ -72,7 +72,8 @@ explicit "registration cancelled" state instead of live booking details.
    closed.
 3. Validates the submitted body with Zod (ticket quantities capped at 100 per type and 100
    attendees total per registration; custom-question maps capped at 50 keys) and rejects any
-   answer to a question the event doesn't actually have.
+   answer to a question the event doesn't actually have. Names are limited to 60 characters
+   and cannot contain web addresses (`://` or `www.`).
 4. Runs three layered bot defences before anything else: a hidden **honeypot** field that a
    script but not a human fills in, a signed **timing token** issued when the page rendered
    (rejects submissions faster than 3 seconds or older than 2 hours), and — only when
@@ -82,10 +83,14 @@ explicit "registration cancelled" state instead of live booking details.
    waiver rule — client-submitted prices are never trusted.
 6. Persists the registration inside a `Serializable` database transaction that re-checks ticket
    capacity against live data (closing the gap between the pre-check above and the actual write)
-   and retries automatically on a concurrent-registration conflict.
+   and retries automatically on a concurrent-registration conflict. One email can hold at most
+   2 unpaid (pending) registrations per event, so a single address cannot hoard seats.
 7. Sends a confirmation email (fire-and-forget; a delivery failure never fails the registration),
    itself rate-limited per recipient email to stop the public endpoint being used as a spam
-   relay.
+   relay. Unpaid public registrations also share two overall mail budgets that survive a
+   restart: 200 confirmation emails per event per hour and 500 per day across the whole app. Over
+   budget, the registration still succeeds but the email is skipped. Paid (card) registrations
+   always get their receipt.
 
 The response never echoes a duplicate registration's public token back to the resubmitting
 caller — only the original submitter (who already has it from their first response/email) can
@@ -115,6 +120,6 @@ not "awaiting payment".
 
 | Var | Effect |
 |-----|--------|
-| `TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY` | Both set → CAPTCHA is enforced on the register/waitlist forms; unset (default) → CAPTCHA step is skipped entirely, only the honeypot + timing token apply |
+| `TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY` | Both set → CAPTCHA is enforced on the register/waitlist forms; unset (default) → CAPTCHA step is skipped entirely, only the honeypot + timing token apply. **Recommended for any public deployment**; a boot warning is logged when it is unset |
 | `AUTH_SECRET` | Signs the anti-bot timing token; must be set (it's already required for login) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Enables the "pay by card" path — see [Card Payments Stripe](/parishcrm/docs/card-payments-stripe/) |

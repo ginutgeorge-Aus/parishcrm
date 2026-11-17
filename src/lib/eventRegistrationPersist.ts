@@ -5,6 +5,7 @@ import { fmtAUD } from "@/lib/formatting"
 import { APP_TIMEZONE, APP_LOCALE } from "@/lib/appConfig"
 import { encrypt } from "@/lib/crypto"
 import { rateLimit } from "@/lib/rateLimit"
+import { dbRateLimit } from "@/lib/dbRateLimit"
 import { sendRegistrationConfirmationEmail } from "@/lib/email"
 import { buildIcs, googleCalendarUrl } from "@/lib/ics"
 import type { Organizer } from "@/lib/eventOrganizers"
@@ -32,7 +33,20 @@ class SoldOutError extends Error {}
 // dangling ticketTypeId and surface as an unhandled FK-constraint error.
 class TicketUnavailableError extends Error {}
 
+// Thrown inside the registration transaction when one email already holds
+// MAX_PENDING_PER_EMAIL unpaid registrations for the event (seat hoarding).
+class TooManyPendingError extends Error {}
+
 const MAX_TX_ATTEMPTS = 3
+
+// AUD-2-03: live unpaid registrations one email may hold per event.
+const MAX_PENDING_PER_EMAIL = 2
+
+// AUD-2-03: confirmation-mail budgets for the public (unpaid) path. Persistent
+// (Postgres) so a restart does not reset them. Over budget → the send is skipped,
+// the registration still succeeds.
+const MAIL_BUDGET_EVENT = { limit: 200, windowMs: 3_600_000 }
+const MAIL_BUDGET_GLOBAL = { limit: 500, windowMs: 86_400_000 }
 
 // Idempotency window. A second registration for the same event + email
 // within this window is treated as an accidental double-submit (double-click,
@@ -75,6 +89,15 @@ async function runRegistrationTxn(
     select: { publicToken: true },
   })
   if (existing) return { publicToken: existing.publicToken, duplicate: true }
+
+  // AUD-2-03 seat hoarding: unpaid registrations count against capacity, so
+  // cap how many one email may hold per event. Paid (Stripe) rows never hit this.
+  if (payment.paymentStatus === "PENDING") {
+    const pending = await tx.registration.count({
+      where: { eventId: event.id, emailHash: emailHashValue, paymentStatus: "PENDING" },
+    })
+    if (pending >= MAX_PENDING_PER_EMAIL) throw new TooManyPendingError()
+  }
 
   for (const c of capacityChecks) {
     // Re-read capacity INSIDE the txn, not the pre-txn snapshot: an admin
@@ -152,6 +175,9 @@ async function runRegistrationTxn(
 function classifyPersistTxnError(e: unknown): { ok: false; status: number; error: string } | "retry" {
   if (e instanceof SoldOutError) {
     return { ok: false, status: 400, error: `${e.message} tickets sold out` }
+  }
+  if (e instanceof TooManyPendingError) {
+    return { ok: false, status: 400, error: "Too many open registrations for this email. Please contact the office." }
   }
   if (e instanceof TicketUnavailableError) {
     return { ok: false, status: 400, error: `${e.message} is no longer available` }
@@ -258,6 +284,45 @@ async function sendRegistrationConfirmation(
   }
 }
 
+/**
+ * AUD-2-03: per-event and global confirmation-mail budgets for the public
+ * (unpaid) path. Paid (Stripe) registrations bypass them: the payer must always
+ * get a receipt. Fails closed: a budget-store error skips the send (registration
+ * still succeeds). Warns once per exhausted window, no PII.
+ * @param eventId event the registration belongs to
+ * @param payment payment fields; only PENDING (public, unpaid) is budgeted
+ * @returns true when the confirmation email may be sent
+ */
+async function withinMailBudgets(eventId: number, payment: PaymentFields): Promise<boolean> {
+  if (payment.paymentStatus !== "PENDING") return true
+  try {
+    const eventOk = await dbRateLimit(`regmail:event:${eventId}`, MAIL_BUDGET_EVENT.limit, MAIL_BUDGET_EVENT.windowMs)
+    if (!eventOk) {
+      warnMailBudgetOnce(`event:${eventId}`)
+      return false
+    }
+    const globalOk = await dbRateLimit("regmail:global", MAIL_BUDGET_GLOBAL.limit, MAIL_BUDGET_GLOBAL.windowMs)
+    if (!globalOk) warnMailBudgetOnce("global")
+    return globalOk
+  } catch (e) {
+    console.error("Registration mail budget check failed:", e instanceof Error ? e.message : String(e))
+    return false
+  }
+}
+
+const warnedBudgets = new Map<string, number>()
+
+/**
+ * Logs a mail-budget-exhausted warning at most once per hour per scope.
+ * @param scope `global` or `event:<id>`; carries no personal data
+ */
+function warnMailBudgetOnce(scope: string): void {
+  const now = Date.now()
+  if (now - (warnedBudgets.get(scope) ?? 0) < 3_600_000) return
+  warnedBudgets.set(scope, now)
+  console.warn(`Registration confirmation mail budget exhausted (${scope}); sends skipped until the window resets`)
+}
+
 // Runs the Serializable txn (idempotency dedupe + authoritative capacity
 // re-check + create) then fires the confirmation email. Email's bank-details
 // block is shown only when paymentStatus === PENDING && totalAmount > 0.
@@ -279,7 +344,7 @@ export async function persistRegistration(
   // so cap confirmation sends per recipient address (5/hr) to stop it being used
   // as a spam relay / mail bomb against a chosen victim. Over the cap → skip the
   // send; the registration still succeeds. (The per-IP cap in the route bounds the POST.)
-  if (rateLimit(`regmail:${priced.emailHash}`, 5, 3_600_000)) {
+  if (rateLimit(`regmail:${priced.emailHash}`, 5, 3_600_000) && (await withinMailBudgets(event.id, payment))) {
     await sendRegistrationConfirmation(event, priced, payment, publicToken)
   }
 
