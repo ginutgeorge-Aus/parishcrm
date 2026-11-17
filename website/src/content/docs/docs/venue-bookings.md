@@ -75,7 +75,7 @@ The **Committee calendar link** box gives a secret link of the form `/venue/<tok
 - It shows the venue name, dates, times and purpose, labelled **Confirmed** or **Pending**. Cancelled dates are hidden.
 - It never shows notes, names or any other CRM data. Search engines are asked not to index it.
 - The page can show 12 months back and 6 months ahead.
-- Any editor can copy the link. An `ADMIN` creates it the first time and can **Reset link** at any time. Resetting makes the old link stop working immediately, so share the new one.
+- Any editor can copy the link. An `ADMIN` creates it the first time and can **Reset link** at any time. The link is stored only as a one-way digest, so it is shown once, right after it is created or reset: copy it then. Afterwards the box only says a link is active. Resetting makes the old link stop working immediately, so share the new one.
 - A wrong or old link, or the feature being switched off, shows "not found".
 
 ## Email wording

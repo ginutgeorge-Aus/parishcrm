@@ -15,7 +15,7 @@ when all they need is visibility, not the ability to check people in or send rem
 
 On an event's registrations page (`/events/[id]/registrations`), editors see a **Volunteer view**
 panel with a **Turn on** button. Turning it on mints a unique link
-(`/e/<slug>/crew/<token>`) and shows a copy button. Turning it off again clears the token, so the
+(`/e/<slug>/crew/<token>`) and shows a copy button. The link is stored only as a one-way digest, so it is shown once: copy it straight away. Later visits to the panel show that the view is on but not the link; **Regenerate** gives a new one. Turning it off again clears the token, so the
 previously-shared link immediately stops working — useful once the event is over or the link was
 shared more widely than intended. **Regenerate** mints a fresh token (invalidating the old link)
 without disabling the feature, for recovering from a link that leaked or was shared too broadly.
@@ -38,8 +38,9 @@ strictly a read-only status board.
 
 `Event.volunteerToken` is a nullable, unique column: `null` means the volunteer view is off. When
 turned on, a fresh 144-bit random token (base64url-encoded, URL-safe) is generated and stored;
-turning it back on later (without ever disabling it) reuses the existing token rather than
-rotating it, so a previously-shared link keeps working across an admin toggling the panel. The
+only its SHA-256 digest is stored, so the panel cannot show an existing link again. Turning the
+view on always mints a fresh token and shows it once. Links shared before this change keep working
+until a one-time backfill hashes them. The
 public page (`/e/[slug]/crew/[token]`) resolves the event purely by looking up this token — the
 token **is** the credential, there is no session or role check — and additionally verifies the
 `slug` in the URL matches the event the token belongs to, so a token can't be relocated under an
