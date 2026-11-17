@@ -255,7 +255,7 @@ export function collectEnvWarnings(): string[] {
 
   // AUD-2-03: without Turnstile the public registration form has only per-IP
   // and per-recipient throttles; recommend the CAPTCHA.
-  if (!process.env.TURNSTILE_SECRET_KEY) {
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true" && !process.env.TURNSTILE_SECRET_KEY) {
     warnings.push("TURNSTILE_SECRET_KEY is not set — public event registration has no CAPTCHA; set it (and TURNSTILE_SITE_KEY) to stop bots using the form to send mail and hold seats")
   }
 

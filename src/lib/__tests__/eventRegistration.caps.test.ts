@@ -200,6 +200,16 @@ describe("AUD-2-03 — PENDING seat hoarding", () => {
     })
   })
 
+  it("does not cap free registrations (they never leave PENDING)", async () => {
+    findUnique.mockResolvedValue(
+      makeEvent({ ticketTypes: [{ id: 1, name: "Free", price: 0, capacity: null, registrationItems: [] }] }),
+    )
+    tx.registration.count.mockResolvedValue(5)
+    const result = await createEventRegistration("fete", makeBody(), "1.2.3.4")
+    expect(result.ok).toBe(true)
+    expect(tx.registration.count).not.toHaveBeenCalled()
+  })
+
   it("allows the second PENDING registration", async () => {
     findUnique.mockResolvedValue(makeEvent())
     tx.registration.count.mockResolvedValue(1)

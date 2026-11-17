@@ -92,7 +92,9 @@ async function runRegistrationTxn(
 
   // AUD-2-03 seat hoarding: unpaid registrations count against capacity, so
   // cap how many one email may hold per event. Paid (Stripe) rows never hit this.
-  if (payment.paymentStatus === "PENDING") {
+  // Free registrations are exempt: they never leave PENDING, so the cap would
+  // lock a shared household email out for good (dedupe + per-IP limits still apply).
+  if (payment.paymentStatus === "PENDING" && totalAmount > 0) {
     const pending = await tx.registration.count({
       where: { eventId: event.id, emailHash: emailHashValue, paymentStatus: "PENDING" },
     })

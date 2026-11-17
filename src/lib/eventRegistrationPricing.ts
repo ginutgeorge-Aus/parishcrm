@@ -77,7 +77,7 @@ const BodySchema = z.object({
   tickets: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.number().int().min(0).max(100)),
   // One name per ticket unit, keyed by ticketTypeId (string). Bounded like the
   // tickets map; per-name length capped to keep the JSON payload small.
-  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(120).refine(noLinks, NO_LINKS_MSG)).max(100)).optional(),
+  attendeeNames: z.record(z.string().regex(/^\d+$/, "Invalid ticket type"), z.array(z.string().max(60).refine(noLinks, NO_LINKS_MSG)).max(100)).optional(),
   customAnswers: z.record(
     z.string().max(100),
     z.union([z.string().max(500), z.array(z.string().max(200)).max(50), z.array(z.boolean()).max(50), z.boolean()]),
