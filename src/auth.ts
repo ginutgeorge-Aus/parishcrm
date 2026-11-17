@@ -273,10 +273,12 @@ export async function authorizePasskey(
     void logAudit(user.id, "USER_LOGIN_FAILED", "User", user.id, { reason: "passkey_invalid" }, ip)
     return null
   }
-  // A password- or OTP-locked account stays locked: the lock is the admin's and
-  // the user's signal that something is wrong with this account. Checked only
-  // after the signature verifies, so a bare credential id can't probe lock state.
-  if ((user.lockedUntil && user.lockedUntil > new Date()) || (user.otpLockedUntil && user.otpLockedUntil > new Date())) {
+  // An OTP-locked account stays locked (repeated bad second-factor guesses).
+  // The password lock is deliberately not checked: a passkey never uses the
+  // password, and an anonymous caller can set that lock with bad guesses.
+  // Checked only after the signature verifies, so a bare credential id can't
+  // probe lock state.
+  if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
     throw new AccountLocked()
   }
 
@@ -380,21 +382,20 @@ export async function authorizeCredentials(
     const otp = credentials.otp.trim()
     if (otp.length !== 6) return null
 
-    const user = await findUserByEmailInsensitive(rawEmail)
+    // Prove the password in this same request (login is stateless, like the
+    // totp step): without it, anyone who knows an email could burn the owner's
+    // OTP guesses and lock them out, and a phished code alone would log in.
+    // A wrong or missing password returns before any OTP counter is touched.
+    // verifyPassword also rejects archived users and throws AccountLocked while
+    // the password lock is active (a locked account can't use the OTP step to
+    // bypass the password lock).
+    if (typeof credentials.password !== "string" || !credentials.password) return null
+    const user = await verifyPassword(rawEmail, credentials.password, ip)
     if (!user) return null
-    // a soft-deleted user must never authenticate. (Its email is also
-    // tombstoned on archive, so this is defence-in-depth.)
-    if (user.archivedAt) return null
 
-    // Check both lockouts BEFORE the expiry check — a locked account must always
+    // OTP lock checked BEFORE the expiry check: a locked account must always
     // surface AccountLocked, not silently fall through once the OTP expires.
-    // Password lockout must also be honoured here — otherwise a
-    // password-locked account (still holding an unexpired OTP from before the
-    // lock) can sign in via the OTP step alone, bypassing the password lock.
-    if (
-      (user.lockedUntil && user.lockedUntil > new Date()) ||
-      (user.otpLockedUntil && user.otpLockedUntil > new Date())
-    ) {
+    if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
       throw new AccountLocked()
     }
 
@@ -587,9 +588,9 @@ async function getIdleMs(): Promise<number> {
 // At sign-in, stamp role/id + issue/activity timestamps from the freshly-
 // authorized user, and drop the email claim (keep PII out of the long-
 // lived token). On every later request, re-query the user and invalidate the
-// session (return null) if the account has since been deleted, is locked
-//, was logged out / force-invalidated, or has been idle past the
-// configured window. Otherwise refresh role + activity timestamp.
+// session (return null) if the account has since been deleted, was logged
+// out / force-invalidated, or has been idle past the configured window. A login
+// lock (`lockedUntil`) is NOT a revocation signal: anonymous bad guesses set it. Otherwise refresh role + activity timestamp.
 export async function jwtCallback({
   token,
   user,
@@ -617,15 +618,11 @@ export async function jwtCallback({
     if (Number.isNaN(userId)) return null
     const dbUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, lockedUntil: true, sessionsValidFrom: true, archivedAt: true },
+      select: { role: true, sessionsValidFrom: true, archivedAt: true },
     })
     if (!dbUser) return null
     // kill a live session the instant its user is soft-deleted.
     if (dbUser.archivedAt) return null
-    const nowDate = new Date()
-    if (dbUser.lockedUntil && dbUser.lockedUntil > nowDate) {
-      return null
-    }
     // a logout / forced invalidation sets sessionsValidFrom; any token
     // issued before that instant is dead even though the JWT has not expired.
     // A token minted before this change carries no loginAt — treat that as

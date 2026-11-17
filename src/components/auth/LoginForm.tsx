@@ -227,7 +227,7 @@ export function LoginForm({
     setLoading(true)
 
     try {
-      const result = await signIn("credentials", { email, otp, mode: "otp", remember: remember ? "true" : "false", redirect: false })
+      const result = await signIn("credentials", { email, password, otp, mode: "otp", remember: remember ? "true" : "false", redirect: false })
 
       if (result?.code === "AccountLocked") {
         setError("Account locked after too many failed attempts. Try again in 15 minutes.")

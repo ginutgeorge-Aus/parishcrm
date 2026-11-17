@@ -75,7 +75,7 @@ backup code. Sign-in goes back to emailed codes.
 until you set it up again.
 
 **If you get locked out:** five wrong passwords, or five wrong verification codes, locks the
-account for 15 minutes. The login screen tells you the account is locked — just wait, or ask
+account for 15 minutes. A lock only blocks new sign-ins: it never signs out a session that is already open. The emailed-code step also re-checks your password, so a code on its own cannot sign anyone in. The login screen tells you the account is locked — just wait, or ask
 an admin to unlock you early from **Users** (see [User-Management](/parishcrm/docs/user-management/)).
 
 **Forgotten password:**
@@ -106,7 +106,7 @@ Edge-safe half of the config used by `middleware.ts` lives in `src/auth.config.t
 `mode: "password"`, once in `mode: "otp"`. On the password step, a correct password causes
 the server to generate, HMAC-hash, and store a 6-digit code (10-minute expiry) and email it —
 then deliberately *reject* the sign-in attempt with a distinguishable error so the client
-knows to show the code-entry screen. The client resubmits with `mode: "otp"` and the code;
+knows to show the code-entry screen. The client resubmits with `mode: "otp"`, the password and the code;
 only a valid, unexpired, unused code completes the sign-in. The code itself is generated with
 rejection-sampling over a CSPRNG so every 6-digit value is equally likely, and it's compared
 using a timing-safe comparison rather than `===`. Consuming an OTP is atomic — a database
