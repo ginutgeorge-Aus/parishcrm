@@ -36,7 +36,14 @@ it("redirects to the Stripe URL on success", async () => {
 
 it("surfaces an error message when the action fails", async () => {
   mStart.mockResolvedValue({ ok: false, status: 400, error: "Online payment unavailable" })
-  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} />)
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@church.test" />)
   await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
   expect(await screen.findByRole("alert")).toHaveTextContent("Online payment unavailable")
+})
+
+it("adds the church contact email to the error message", async () => {
+  mStart.mockResolvedValue({ ok: false, status: 404, error: "Registration not found" })
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} churchEmail="office@church.test" />)
+  await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("Registration not found. Questions? Contact us at office@church.test")
 })
