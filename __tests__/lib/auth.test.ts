@@ -588,6 +588,25 @@ describe("authorizeCredentials — OTP mode", () => {
       )
     })
 
+    it("counts a wrong password towards the password lock", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
+      ;(prisma.user.update as jest.Mock).mockResolvedValue({ failedLoginAttempts: 1 })
+      await authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "wrong", otp: "123456" })
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { failedLoginAttempts: { increment: 1 } } }),
+      )
+    })
+
+    it("throws AccountLocked for the right password while OTP-locked", async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...validOtpUser(),
+        otpLockedUntil: new Date(Date.now() + 10 * 60 * 1000),
+      })
+      await expect(
+        authorizeCredentials({ email: "admin@example.com", mode: "otp", password: "correctpassword", otp: "123456" }),
+      ).rejects.toBeInstanceOf(AccountLocked)
+    })
+
     it("signs in with a valid code and the right password", async () => {
       ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(validOtpUser())
       ;(prisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 })

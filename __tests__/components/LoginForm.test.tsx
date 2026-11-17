@@ -161,6 +161,11 @@ describe("LoginForm — OTP step navigation & resend", () => {
     fireEvent.change(screen.getByLabelText("Verification code"), { target: { value: "123456" } })
     fireEvent.click(screen.getByRole("button", { name: "Verify" }))
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"))
+    // the server rejects mode "otp" without the password (AUD-1-01b)
+    expect(signIn).toHaveBeenLastCalledWith(
+      "credentials",
+      expect.objectContaining({ mode: "otp", otp: "123456", password: expect.any(String) }),
+    )
   })
 
   it("shows the cooldown message when resend returns OtpCooldown", async () => {
