@@ -59,7 +59,7 @@ export class TotpRequired extends CredentialsSignin {
 // Same as TotpRequired, but the user still holds unused backup codes, so the server will refuse the
 // email-code fallback (AUD-1-18). The login form uses the distinct code to hide that button instead
 // of leaving a dead end. Only reachable after the password was verified.
-export class TotpRequiredWithBackup extends TotpRequired {
+class TotpRequiredWithBackup extends TotpRequired {
   code = "TotpRequiredBackup"
 }
 
