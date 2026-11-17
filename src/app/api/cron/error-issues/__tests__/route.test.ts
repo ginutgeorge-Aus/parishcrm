@@ -1,8 +1,11 @@
 /** @jest-environment node */
 // src/app/api/cron/error-issues/__tests__/route.test.ts
-jest.mock("@/lib/errorDigest", () => ({ runErrorDigestLocked: jest.fn() }))
+jest.mock("@/lib/errorDigest", () => ({
+  ...jest.requireActual("@/lib/errorDigest"),
+  runErrorDigestLocked: jest.fn(),
+}))
 import { POST } from "../route"
-import { runErrorDigestLocked } from "@/lib/errorDigest"
+import { DigestStageError, runErrorDigestLocked } from "@/lib/errorDigest"
 
 function req(auth?: string) {
   return new Request("http://x/api/cron/error-issues", {
@@ -31,6 +34,25 @@ describe("POST /api/cron/error-issues", () => {
     expect(await res.json()).toEqual({ filed: 1, skipped: 0, purged: 2 })
     // Manual trigger shares the scheduler's lock but runs even if this week already ran.
     expect(runErrorDigestLocked).toHaveBeenCalledWith(expect.any(Date), { force: true })
+  })
+  it("502 with stage and no error text when the digest throws", async () => {
+    process.env.CRON_SECRET = "s"
+    const err = new DigestStageError("list", new Error("GitHub issue list failed: 401"))
+    ;(runErrorDigestLocked as jest.Mock).mockRejectedValue(err)
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const res = await POST(req("Bearer s"))
+    expect(res.status).toBe(502)
+    expect(await res.json()).toEqual({ error: "digest failed", stage: "list" })
+    spy.mockRestore()
+  })
+  it("502 stage unknown for a plain error, no error text in the body", async () => {
+    process.env.CRON_SECRET = "s"
+    ;(runErrorDigestLocked as jest.Mock).mockRejectedValue(new Error("secret db detail"))
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {})
+    const res = await POST(req("Bearer s"))
+    expect(res.status).toBe(502)
+    expect(JSON.stringify(await res.json())).not.toContain("secret db detail")
+    spy.mockRestore()
   })
   it("409 when another digest run holds the lock", async () => {
     process.env.CRON_SECRET = "s"
