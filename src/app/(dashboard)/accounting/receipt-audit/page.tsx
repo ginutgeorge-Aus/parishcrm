@@ -3,7 +3,7 @@ import Link from "next/link"
 import { auth } from "@/auth"
 import { actorId } from "@/lib/actor"
 import { prisma } from "@/lib/prisma"
-import { canViewAccounting } from "@/lib/roleGuard"
+import { canViewAccounting, canViewPeople } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { safeDecrypt } from "@/lib/crypto"
 import { Badge } from "@/components/ui/badge"
@@ -98,9 +98,11 @@ export default async function ReceiptAuditPage(props: Readonly<Props>) {
     prisma.receiptSend.count({ where }),
   ])
 
+  // AUDITOR sees no member contact details: never decrypt the address for roles without people access.
+  const showContact = canViewPeople(session?.user?.role)
   const sends = sendsRaw.map((s) => ({
     ...s,
-    sentTo: safeDecrypt(s.sentTo),
+    sentTo: showContact ? safeDecrypt(s.sentTo) : "Hidden",
     transaction: {
       ...s.transaction,
       description: safeDecrypt(s.transaction.description),

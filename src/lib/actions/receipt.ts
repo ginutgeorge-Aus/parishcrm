@@ -6,7 +6,7 @@ import { actorId } from "@/lib/actor"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { sendReceiptEmail } from "@/lib/email"
-import { canAccessAccounting, canViewAccounting } from "@/lib/roleGuard"
+import { canAccessAccounting } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { encrypt, decrypt, safeDecrypt } from "@/lib/crypto"
 import { format } from "date-fns"
@@ -337,17 +337,16 @@ export async function sendBatchReceipts(
   return { sent, failed, errors }
 }
 
-/** List giving transactions in a date range for receipting. Accounting viewers only. */
+/** List giving transactions in a date range for receipting. ADMIN/PASTOR only: rows carry decrypted member emails. */
 export async function fetchTransactionsForReceipt(
   from: string,
   to: string,
   accountId?: number
 ): Promise<FetchResult> {
-  // Read path — AUDITOR is allowed (matches the canViewAccounting page guard on
-  // /accounting/receipt-audit). The actual send actions stay canAccessAccounting
-  // (ADMIN/PASTOR). Previously this read used the stricter mutate-guard.
+  // Rows include decrypted member emails, so this matches the send actions and the
+  // /accounting/send-receipts page (ADMIN/PASTOR). AUDITOR gets no member contact details.
   const session = await auth()
-  if (!canViewAccounting(session?.user?.role)) return { error: "Unauthorized" }
+  if (!canAccessAccounting(session?.user?.role)) return { error: "Unauthorized" }
   const off = await featureGuard("receipts")
   if (off) return off
 
@@ -372,7 +371,9 @@ export async function fetchTransactionsForReceipt(
           name: true,
           people: {
             select: { email: true },
-            where: { email: { not: null }, emailConsent: true },
+            where: { archivedAt: null, email: { not: null }, emailConsent: true },
+            // Same deterministic order as loadStatementFamilies: HEAD first, then name, then id.
+            orderBy: [{ role: "asc" }, { firstName: "asc" }, { lastName: "asc" }, { id: "asc" }],
             take: 1,
           },
         },

@@ -534,6 +534,12 @@ describe("email validation", () => {
 })
 
 describe("fetchTransactionsForReceipt", () => {
+  it("blocks AUDITOR (rows carry decrypted member emails)", async () => {
+    mockSession.mockResolvedValue({ user: { role: "AUDITOR", id: "4" } })
+    const result = await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
+    expect(result).toEqual({ error: "Unauthorized" })
+  })
+
   it("blocks VIEWER", async () => {
     mockSession.mockResolvedValue(viewerSession)
     const result = await fetchTransactionsForReceipt("2026-01-01", "2026-12-31")
