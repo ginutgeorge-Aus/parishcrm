@@ -12,6 +12,7 @@ import { featureGuard } from "@/lib/featureFlags"
 import { rateKeyFromHeaders, resolveClientIp } from "@/lib/clientIp"
 import { entryTotals } from "@/lib/fundraiserMath"
 import { trustedBaseUrl } from "@/lib/trustedBaseUrl"
+import { REGISTRATION_TOKEN_RE, registrationLinkWhere } from "@/lib/registrationLink"
 
 // Fundraiser entry public tokens are base64url (mintEntryToken); reject anything else before a DB lookup.
 const FUNDRAISER_TOKEN_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -40,6 +41,8 @@ export async function startEventCheckout(
   }
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
   if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
+  // Runtime type is caller-controlled: an object here would reach Prisma as a filter.
+  if (typeof slug !== "string") return { ok: false, status: 404, error: "Event not found" }
 
   // Shared with createEventRegistration so both flows agree on ticket/capacity
   // data and the include shape can't silently drift between them.
@@ -107,6 +110,10 @@ export async function startExistingRegistrationCheckout(
   }
   // After the throttle; public caller gets the unpublished-event 404, not the admin wording.
   if (await featureGuard("events")) return { ok: false, status: 404, error: "Event not found" }
+  // Runtime types are caller-controlled: reject non-strings and malformed tokens before any DB read.
+  if (typeof slug !== "string" || typeof publicToken !== "string" || !REGISTRATION_TOKEN_RE.test(publicToken)) {
+    return { ok: false, status: 404, error: "Registration not found" }
+  }
 
   const event = await prisma.event.findUnique({
     where: { slug },
@@ -126,7 +133,7 @@ export async function startExistingRegistrationCheckout(
 
   // Event-scoped, opaque-token lookup — never findUnique({id}) (enumeration).
   const registration = await prisma.registration.findFirst({
-    where: { publicToken, eventId: event.id },
+    where: registrationLinkWhere(publicToken, event.id),
     select: {
       id: true, publicToken: true, paymentStatus: true, totalAmount: true,
       items: { select: { ticketTypeId: true, quantity: true, unitPrice: true } },
