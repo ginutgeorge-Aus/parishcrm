@@ -28,7 +28,7 @@ const mEvent = prisma.event.findUnique as jest.Mock
 const mReg = prisma.registration.findFirst as jest.Mock
 
 function evt(o = {}) { return { id: 3, slug: "fete", title: "Fete", isPublished: true, onlinePaymentEnabled: true, passCardFee: false, ticketTypes: [{ id: 9, name: "Adult" }], ...o } }
-function reg(o = {}) { return { id: 42, publicToken: "tok-42", paymentStatus: "PENDING", totalAmount: "20.00", items: [{ ticketTypeId: 9, quantity: 1, unitPrice: "20.00" }], ...o } }
+function reg(o = {}) { return { id: 42, publicToken: "REG-AABBCCDDEEFF", paymentStatus: "PENDING", totalAmount: "20.00", items: [{ ticketTypeId: 9, quantity: 1, unitPrice: "20.00" }], ...o } }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -42,49 +42,49 @@ beforeEach(() => {
 })
 
 it("starts checkout for a PENDING registration (event-scoped lookup)", async () => {
-  const res = await startExistingRegistrationCheckout("fete", "tok-42")
+  const res = await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")
   expect(res).toEqual({ ok: true, url: "https://stripe.test/pay" })
   expect(mReg).toHaveBeenCalledWith(expect.objectContaining({
-    where: expect.objectContaining({ publicToken: "tok-42", eventId: 3 }),
+    where: expect.objectContaining({ publicToken: "REG-AABBCCDDEEFF", eventId: 3 }),
   }))
 })
 
 it("400s when Stripe is not configured", async () => {
   mStripe.mockReturnValue(false)
-  expect(await startExistingRegistrationCheckout("fete", "tok-42")).toMatchObject({ ok: false, status: 400 })
+  expect(await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")).toMatchObject({ ok: false, status: 400 })
 })
 
 it("400s when online payment is disabled for the event", async () => {
   mEvent.mockResolvedValue(evt({ onlinePaymentEnabled: false }))
-  expect(await startExistingRegistrationCheckout("fete", "tok-42")).toMatchObject({ ok: false, status: 400 })
+  expect(await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")).toMatchObject({ ok: false, status: 400 })
 })
 
 it("404s when no matching registration (wrong token / other event)", async () => {
   mReg.mockResolvedValue(null)
-  expect(await startExistingRegistrationCheckout("fete", "nope")).toMatchObject({ ok: false, status: 404 })
+  expect(await startExistingRegistrationCheckout("fete", "REG-000000000000")).toMatchObject({ ok: false, status: 404 })
 })
 
 it("400s when the registration is already paid", async () => {
   mReg.mockResolvedValue(reg({ paymentStatus: "PAID" }))
-  const res = await startExistingRegistrationCheckout("fete", "tok-42")
+  const res = await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")
   expect(res).toMatchObject({ ok: false, status: 400 })
   expect(mCreate).not.toHaveBeenCalled()
 })
 
 it("400s a free ($0) registration", async () => {
   mReg.mockResolvedValue(reg({ totalAmount: "0.00" }))
-  expect(await startExistingRegistrationCheckout("fete", "tok-42")).toMatchObject({ ok: false, status: 400 })
+  expect(await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")).toMatchObject({ ok: false, status: 400 })
 })
 
 it("400s when the registration settled or its prior checkout was paid mid-request", async () => {
   mCreate.mockRejectedValue(new RegistrationNotPayableError())
-  expect(await startExistingRegistrationCheckout("fete", "tok-42")).toEqual({
+  expect(await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")).toEqual({
     ok: false, status: 400, error: "This registration is not awaiting payment",
   })
 })
 
 it.each([
-  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "tok-42")],
+  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")],
   ["startEventCheckout", () => startEventCheckout("fete", {})],
 ])("%s returns the public 'Event not found' 404 while Events is off (no admin wording)", async (_name, call) => {
   ;(featureGuard as jest.Mock).mockResolvedValueOnce({ error: "This feature is turned off in Settings → Features." })
@@ -93,11 +93,43 @@ it.each([
 })
 
 it.each([
-  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "tok-42")],
+  ["startExistingRegistrationCheckout", () => startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")],
   ["startEventCheckout", () => startEventCheckout("fete", {})],
 ])("%s rate-limits before the feature read", async (_name, call) => {
   mRate.mockReturnValueOnce(false)
   ;(featureGuard as jest.Mock).mockClear()
   expect(await call()).toMatchObject({ ok: false, status: 429 })
   expect(featureGuard).not.toHaveBeenCalled()
+})
+
+describe("token and slug shape (public callable, runtime types are caller-controlled)", () => {
+  it("rejects a non-string publicToken before any registration lookup", async () => {
+    const res = await startExistingRegistrationCheckout("fete", { not: "" } as unknown as string)
+    expect(res).toMatchObject({ ok: false, status: 404 })
+    expect(mReg).not.toHaveBeenCalled()
+  })
+
+  it.each(["REG-xyz", "reg-aabbccddeeff", "REG-AABBCCDDEEFF'", ""])("rejects malformed token %j", async (t) => {
+    expect(await startExistingRegistrationCheckout("fete", t)).toMatchObject({ ok: false, status: 404 })
+    expect(mReg).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-string slug in both actions", async () => {
+    const bad = { contains: "" } as unknown as string
+    expect(await startExistingRegistrationCheckout(bad, "REG-AABBCCDDEEFF")).toMatchObject({ ok: false, status: 404 })
+    expect(await startEventCheckout(bad, {})).toMatchObject({ ok: false, status: 404 })
+    expect(mEvent).not.toHaveBeenCalled()
+  })
+
+  it("applies the link-expiry filter so an expired link cannot start a checkout", async () => {
+    await startExistingRegistrationCheckout("fete", "REG-AABBCCDDEEFF")
+    const where = mReg.mock.calls[0][0].where
+    const floor = (where.OR[0].createdAt.gte as Date).getTime()
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000
+    expect(Math.abs(Date.now() - thirtyDays - floor)).toBeLessThan(5_000)
+    expect(where.OR).toEqual([
+      { createdAt: { gte: expect.any(Date) } },
+      { paymentReminders: { some: { status: "SUCCESS", sentAt: { gte: expect.any(Date) } } } },
+    ])
+  })
 })

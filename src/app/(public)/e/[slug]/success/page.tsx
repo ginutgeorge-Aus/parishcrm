@@ -11,6 +11,7 @@ import { getChurchSettings } from "@/lib/churchSettings"
 import { computeFamilyWaiver } from "@/lib/eventWaiver"
 import { PayNowButton } from "./PayNowButton"
 import { stripeConfigured } from "@/lib/stripe"
+import { registrationLinkWhere } from "@/lib/registrationLink"
 import type { Organizer } from "@/lib/eventOrganizers"
 import type { Metadata } from "next"
 
@@ -28,13 +29,6 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ ref?: 
 // Single replica → the in-memory limiter is authoritative (see rateLimit.ts).
 const SUCCESS_LOOKUP_LIMIT = 20
 const SUCCESS_LOOKUP_WINDOW_MS = 60_000
-const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
-
-// Earliest createdAt a token lookup will still match. Kept out of the
-// component body so Date.now() doesn't trip the render-purity lint rule.
-function tokenExpiryFloor(): Date {
-  return new Date(Date.now() - TOKEN_TTL_MS)
-}
 
 function RateLimitedNotice({ churchEmail }: Readonly<{ churchEmail: string }>) {
   return (
@@ -405,26 +399,11 @@ export default async function SuccessPage(props: Readonly<Props>) {
 
   // Look up by the opaque CSPRNG token, never the sequential id, so REG-1..N
   // cannot be enumerated; still event-scoped to block cross-event lookups.
-  const linkFloor = tokenExpiryFloor()
   const registration = !resolvedRef
     ? null
     : await prisma.registration.findFirst({
-        where: {
-          publicToken: resolvedRef,
-          eventId: event.id,
-          // Expire the receipt link 30 days after registration so a
-          // leaked/screenshotted link isn't a permanent oracle to the church
-          // bank details — UNLESS a staff payment reminder was sent within the
-          // same window, which re-authorises the link for a fresh 30-day bound
-          // from the send. Without this OR, a reminder to an unpaid registrant
-          // older than 30 days opens "Registration not found" and shows neither
-          // bank details nor the pay-now button. The link still dies 30 days
-          // after the last legitimate reminder, keeping the oracle bounded.
-          OR: [
-            { createdAt: { gte: linkFloor } },
-            { paymentReminders: { some: { status: "SUCCESS", sentAt: { gte: linkFloor } } } },
-          ],
-        },
+        // Link expiry (30 days, re-armed by a staff reminder) lives in registrationLinkWhere, shared with the pay-now action.
+        where: registrationLinkWhere(resolvedRef, event.id),
         // paymentStatus is a plain scalar so it rides along with `include`
         // (not select-based) — used below to gate the bank-transfer block so
         // a card-paid registration doesn't leak "please pay by bank" details.
