@@ -15,6 +15,7 @@ jest.mock("@/lib/crypto", () => ({
   encrypt: jest.fn((v: string) => `enc:${v}`),
   hmacEmail: jest.fn((v: string) => `hash:${v.trim().toLowerCase()}`),
 }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(() => Promise.resolve(true)) }))
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
 }))
@@ -75,7 +76,7 @@ function makePriced(overrides: Partial<PricedRegistration> = {}): PricedRegistra
 }
 
 let tx: {
-  registration: { findFirst: jest.Mock; create: jest.Mock }
+  registration: { findFirst: jest.Mock; create: jest.Mock; count: jest.Mock }
   registrationItem: { aggregate: jest.Mock; create: jest.Mock }
 }
 
@@ -84,6 +85,7 @@ beforeEach(() => {
   tx = {
     registration: {
       findFirst: jest.fn().mockResolvedValue(null),
+      count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-PAID1" }),
     },
     registrationItem: {

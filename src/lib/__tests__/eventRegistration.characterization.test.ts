@@ -25,6 +25,7 @@ jest.mock("@/lib/turnstile", () => ({
 jest.mock("@/lib/rateLimit", () => ({
   rateLimit: jest.fn(() => true),
 }))
+jest.mock("@/lib/dbRateLimit", () => ({ dbRateLimit: jest.fn(() => Promise.resolve(true)) }))
 jest.mock("@/lib/churchSettings", () => ({
   getChurchSettings: jest.fn(async () => ({ name: "Test Church", address: "", abn: "", email: "", website: "" })),
 }))
@@ -62,7 +63,7 @@ const sendConfirmationMock = sendRegistrationConfirmationEmail as jest.Mock
 // callback — matches exactly the delegates the real callback body calls:
 // tx.registration.findFirst/create, tx.registrationItem.aggregate/create.
 let tx: {
-  registration: { findFirst: jest.Mock; create: jest.Mock }
+  registration: { findFirst: jest.Mock; create: jest.Mock; count: jest.Mock }
   registrationItem: { aggregate: jest.Mock; create: jest.Mock }
   ticketType: { findUnique: jest.Mock }
 }
@@ -107,6 +108,7 @@ beforeEach(() => {
     registration: {
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 1, publicToken: "REG-DEFAULT" }),
+      count: jest.fn().mockResolvedValue(0),
     },
     registrationItem: {
       aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }),

@@ -253,6 +253,12 @@ export function collectEnvWarnings(): string[] {
     warnings.push("TURNSTILE_SECRET_KEY is set but TURNSTILE_SITE_KEY is not set — no CAPTCHA widget renders, so public form submissions will fail verification")
   }
 
+  // AUD-2-03: without Turnstile the public registration form has only per-IP
+  // and per-recipient throttles; recommend the CAPTCHA.
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true" && !process.env.TURNSTILE_SECRET_KEY) {
+    warnings.push("TURNSTILE_SECRET_KEY is not set — public event registration has no CAPTCHA; set it (and TURNSTILE_SITE_KEY) to stop bots using the form to send mail and hold seats")
+  }
+
   // Belt-and-suspenders for the/ hard guard above. That guard now
   // fail-closes on any non-loopback host, but keep surfacing the flag on ANY
   // production build too. In the e2e suite this fires by design (harmless — a
