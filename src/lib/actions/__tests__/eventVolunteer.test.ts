@@ -45,13 +45,12 @@ describe("setVolunteerView", () => {
     )
   })
 
-  it("mints a fresh token when re-enabling (only a digest is stored, so the old link cannot be re-shown)", async () => {
+  it("refuses to turn on when already on, so a stale tab cannot kill the live shared link", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "keepme" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "digest" })
     const res = await setVolunteerView(1, true)
-    const token = (res as { token: string }).token
-    expect(token).not.toBe("keepme")
-    expect(prisma.event.update).toHaveBeenCalledWith(expect.objectContaining({ data: { volunteerToken: hashToken(token) } }))
+    expect(res).toEqual({ error: "Volunteer view is already on. Reload the page." })
+    expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("nulls the token when disabling", async () => {

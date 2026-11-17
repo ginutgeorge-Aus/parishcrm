@@ -34,12 +34,14 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
 
   const existing = await prisma.event.findUnique({
     where: { id },
-    select: { id: true },
+    select: { id: true, volunteerToken: true },
   })
   if (!existing) return { error: "Event not found" }
 
-  // Only a digest is stored, so an existing link cannot be shown again: turning the view on always
-  // mints a fresh token and returns it once.
+  // Turning on when it is already on (a stale tab) would replace the live shared link: refuse instead.
+  if (enabled && existing.volunteerToken) return { error: "Volunteer view is already on. Reload the page." }
+  // Only a digest is stored, so an existing link cannot be shown again: turning the view on mints a
+  // fresh token and returns it once.
   const token = enabled ? generateVolunteerToken() : null
   await prisma.event.update({ where: { id }, data: { volunteerToken: token ? hashToken(token) : null } })
   await logAudit(actorId(session), enabled ? "VOLUNTEER_VIEW_ENABLED" : "VOLUNTEER_VIEW_DISABLED", "Event", id)

@@ -25,7 +25,7 @@ const { apply: APPLY, confirmed: CONFIRMED, batchSize: BATCH } = parseScriptArgs
 
 type Delegate = {
   findMany(args: unknown): Promise<Array<Record<string, unknown>>>
-  update(args: unknown): Promise<unknown>
+  updateMany(args: unknown): Promise<unknown>
 }
 
 /**
@@ -48,7 +48,8 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
       const v = row[field]
       if (typeof v === "string" && v.length > 0 && keyIdOf(v) === null) {
         changed++
-        if (APPLY) await delegate.update({ where: { id: row.id }, data: { [field]: encrypt(v) } })
+        // Guarded on the value we read: a concurrent edit matches 0 rows and is never overwritten.
+        if (APPLY) await delegate.updateMany({ where: { id: row.id, [field]: v }, data: { [field]: encrypt(v) } })
       }
     }
     cursor = rows[rows.length - 1].id as number
