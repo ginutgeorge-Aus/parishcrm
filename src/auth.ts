@@ -56,6 +56,13 @@ export class TotpRequired extends CredentialsSignin {
   code = "TotpRequired"
 }
 
+// Same as TotpRequired, but the user still holds unused backup codes, so the server will refuse the
+// email-code fallback (AUD-1-18). The login form uses the distinct code to hide that button instead
+// of leaving a dead end. Only reachable after the password was verified.
+class TotpRequiredWithBackup extends TotpRequired {
+  code = "TotpRequiredBackup"
+}
+
 /**
  * Resolves the request's client IP once per login attempt: `ip` is the validated address for audit
  * logging and OTP/lockout records (CLIENT_IP_HEADER if set, else the rightmost x-forwarded-for
@@ -517,8 +524,9 @@ export async function authorizeCredentials(
   // the recovery route; an admin can also reset the authenticator.
   if (user.totpEnabledAt) {
     const wantsEmail = credentials.emailFallback === "true"
-    const hasBackupCodes = wantsEmail && (await prisma.backupCode.count({ where: { userId: user.id, usedAt: null } })) > 0
-    if (!wantsEmail || hasBackupCodes) throw new TotpRequired()
+    const hasBackupCodes = (await prisma.backupCode.count({ where: { userId: user.id, usedAt: null } })) > 0
+    if (hasBackupCodes) throw new TotpRequiredWithBackup()
+    if (!wantsEmail) throw new TotpRequired()
   }
 
   // Enforce 30-second resend cooldown: otpExpiresAt > now + 9.5 min means OTP was sent < 30s ago

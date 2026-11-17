@@ -68,7 +68,19 @@ describe("LoginForm — authenticator step", () => {
     mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
     fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
     expect(await screen.findByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
     expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
+  })
+
+  it("hides the email-code button and explains why when backup codes exist", async () => {
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequiredBackup", error: "TotpRequiredBackup", ok: false })
+    render(<LoginForm churchName="Demo Church" />)
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "admin@example.com" } })
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+    await screen.findByLabelText("Authenticator code")
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
+    expect(screen.getByText(/Email codes are off while you have unused backup codes/)).toBeInTheDocument()
   })
 
   it("email fallback requests an emailed code and moves to the OTP step", async () => {
