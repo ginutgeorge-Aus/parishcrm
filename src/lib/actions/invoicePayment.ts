@@ -117,7 +117,7 @@ async function createPayment(inv: SentInvoice, date: string, paymentAccountId: n
     return tx.transaction.create({
       data: {
         date: paidAt, type: "INCOME", amount: inv.total.toString(), accountId: inv.accountId, paymentAccountId: pa.id, fundId: inv.fundId,
-        personId: inv.personId, reference: inv.invoiceNo, invoiceId: inv.id,
+        personId: inv.personId, reference: inv.invoiceNo ? encrypt(inv.invoiceNo) : null, invoiceId: inv.id,
         description: encrypt(`Invoice ${inv.invoiceNo} — ${inv.recipientName}`),
       },
     })
@@ -217,7 +217,7 @@ export async function listPaymentCandidates(id: number): Promise<PaymentCandidat
     select: { id: true, date: true, amount: true, reference: true, paymentAccountRel: { select: { name: true } }, account: { select: { name: true } } },
   })
   return rows.map((r) => ({
-    id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference,
+    id: r.id, date: r.date.toISOString().slice(0, 10), amount: r.amount.toString(), reference: r.reference ? safeDecrypt(r.reference) : null,
     paymentAccountName: r.paymentAccountRel?.name ?? null, accountName: r.account.name,
   }))
 }

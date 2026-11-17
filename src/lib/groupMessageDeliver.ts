@@ -212,7 +212,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   })
   if (!msg) return counts
   const { name: churchName } = await getChurchSettings()
-  const ctx: MessageCtx = { groupId: msg.groupId, subject: msg.subject, body: msg.body, groupName: msg.group.name, churchName }
+  const ctx: MessageCtx = { groupId: msg.groupId, subject: msg.subject, body: decrypt(msg.body), groupName: msg.group.name, churchName }
 
   const open = await prisma.groupMessageRecipient.findMany({
     where: { messageId, ...openRecipientWhere(new Date()) },

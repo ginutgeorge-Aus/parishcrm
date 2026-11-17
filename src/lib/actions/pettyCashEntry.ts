@@ -167,7 +167,7 @@ export function receiptMirrorData(
     date: receipt.date, amount: receipt.amount, type: "INCOME", accountId: receipt.accountId,
     isGiving: !!familyId, familyId, personId: giving?.personId ?? null,
     paymentAccountId: cashAccountId ?? null, bankRef: `PC_R_${receipt.id}`,
-    description: encrypt(accountName), reference: sessionTitle, pettyCashReceiptId: receipt.id,
+    description: encrypt(accountName), reference: encrypt(sessionTitle), pettyCashReceiptId: receipt.id,
     fundId: receipt.fundId ?? null,
   }
 }
@@ -181,7 +181,7 @@ export function expenseMirrorData(
   return {
     date: expense.date, amount: expense.amount, type: "EXPENSE", accountId: expense.accountId,
     isGiving: false, paymentAccountId: cashAccountId ?? null, bankRef: `PC_E_${expense.id}`,
-    description: encrypt(accountName), reference: sessionTitle, pettyCashExpenseId: expense.id,
+    description: encrypt(accountName), reference: encrypt(sessionTitle), pettyCashExpenseId: expense.id,
     fundId: expense.fundId ?? null,
   }
 }

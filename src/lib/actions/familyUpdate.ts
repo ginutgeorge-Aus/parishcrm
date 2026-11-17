@@ -355,12 +355,14 @@ export async function rejectFamilyUpdate(submissionId: number, note?: string): P
   // (applying the members) in the window before this write — an unconditional
   // update would then clobber it back to REJECTED. The guarded updateMany matches
   // 0 rows once someone else has moved it off PENDING, mirroring approve.
+  const reviewNote = note?.trim().slice(0, 1000) || null
   const claimed = await prisma.$transaction(async (tx) => {
     const updated = await tx.familyUpdateSubmission.updateMany({
       where: { id: submissionId, status: "PENDING" },
       data: {
         status: "REJECTED",
-        reviewNote: note?.trim().slice(0, 1000) || null,
+        // Free-text reviewer note: encrypted at rest. Nothing reads it back.
+        reviewNote: reviewNote ? encrypt(reviewNote) : null,
         reviewedById: actorId(session),
         reviewedAt: new Date(),
       },

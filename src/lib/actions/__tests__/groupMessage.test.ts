@@ -2,6 +2,7 @@
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
+jest.mock("@/lib/crypto", () => ({ encrypt: jest.fn((v: string) => `enc:${v}`) }))
 jest.mock("@/lib/prisma", () => {
   const m = {
     group: { findFirst: jest.fn() },
@@ -65,7 +66,7 @@ describe("sendGroupMessage", () => {
   it("queues the message + PENDING recipients + audit in one transaction, then drains and redirects", async () => {
     await expect(run()).rejects.toThrow("REDIRECT:/groups/4/messages")
     expect(p.$transaction).toHaveBeenCalledTimes(1)
-    expect(p.groupMessage.create.mock.calls[0][0].data).toEqual({ groupId: 4, sentById: 9, subject: "Hello", body: "Rehearsal at 7" })
+    expect(p.groupMessage.create.mock.calls[0][0].data).toEqual({ groupId: 4, sentById: 9, subject: "Hello", body: "enc:Rehearsal at 7" })
     expect(p.groupMessageRecipient.createMany).toHaveBeenCalledWith({ data: [{ messageId: 70, personId: 1 }, { messageId: 70, personId: 2 }] })
     expect(logAuditTx).toHaveBeenCalledWith(expect.anything(), 9, "GROUP_MESSAGE_SENT", "Group", 4, { messageId: 70, recipients: 2, skipped: 1 })
     expect(deliverGroupMessage).toHaveBeenCalledWith(70)

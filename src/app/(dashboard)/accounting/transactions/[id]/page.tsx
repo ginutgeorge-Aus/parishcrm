@@ -76,6 +76,7 @@ export default async function TransactionDetailPage(props: Readonly<Props>) {
     ...tx,
     description: safeDecrypt(tx.description),
     notes: tx.notes ? safeDecrypt(tx.notes) : tx.notes,
+    reference: tx.reference ? safeDecrypt(tx.reference) : tx.reference,
   }
   const receiptSends = tx.receiptSends.map((rs) => ({ ...rs, sentTo: safeDecrypt(rs.sentTo) }))
   // Attachment filenames are encrypted at rest — decrypt for display.
@@ -102,7 +103,7 @@ export default async function TransactionDetailPage(props: Readonly<Props>) {
       ),
     },
     ...(tx.paymentAccountRel ? [{ label: "Payment Account", value: tx.paymentAccountRel.name }] : []),
-    ...(tx.reference ? [{ label: "Reference", value: tx.reference }] : []),
+    ...(displayTx.reference ? [{ label: "Reference", value: displayTx.reference }] : []),
     ...(tx.family ? [{ label: "Family", value: tx.family.name }] : []),
     ...(tx.person ? [{ label: "Person", value: `${tx.person.firstName} ${tx.person.lastName}` }] : []),
     ...(displayTx.notes ? [{ label: "Notes", value: displayTx.notes }] : []),

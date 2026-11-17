@@ -89,6 +89,7 @@ export default async function EditTransactionPage(
           amount: Number(transaction.amount),
           description: safeDecrypt(transaction.description),
           notes: transaction.notes ? safeDecrypt(transaction.notes) : transaction.notes,
+          reference: transaction.reference ? safeDecrypt(transaction.reference) : transaction.reference,
         }}
         accounts={accountOptions}
         families={families}

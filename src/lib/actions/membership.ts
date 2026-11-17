@@ -228,7 +228,7 @@ function personSeeds(p: MembershipPayload): PersonSeed[] {
 
 // Build a Person create payload, encrypting the at-rest fields (email + blind
 // index, dateOfBirth, mobile, homePhone) exactly as person.ts does. profession /
-// motherParish / maritalStatus are low-sensitivity and stored plaintext.
+// maritalStatus are encrypted at rest (audit AUD-1-17); motherParish stays plaintext.
 function personCreateData(familyId: number, s: PersonSeed) {
   const data: Record<string, unknown> = {
     familyId, firstName: s.firstName, lastName: s.lastName, role: s.role, classification: "MEMBER",
@@ -241,9 +241,9 @@ function personCreateData(familyId: number, s: PersonSeed) {
   // same contract as emailHash above.
   if (s.mobile) { data.mobile = encrypt(s.mobile); data.mobileHash = hmacMobile(s.mobile) }
   if (s.homePhone) data.homePhone = encrypt(s.homePhone)
-  if (s.profession) data.profession = s.profession
+  if (s.profession) data.profession = encrypt(s.profession)
   if (s.motherParish) data.motherParish = s.motherParish
-  if (s.maritalStatus) data.maritalStatus = s.maritalStatus
+  if (s.maritalStatus) data.maritalStatus = encrypt(s.maritalStatus)
   return data
 }
 
@@ -490,10 +490,10 @@ export async function rejectMembershipApplication(id: number, note?: string): Pr
   // other — matches 0 rows if the status already changed.
   const rejected = await prisma.membershipApplication.updateMany({
     where: { id, status: "PENDING" },
-    data: { status: "REJECTED", reviewNote, reviewedById: reviewerId, reviewedAt: new Date() },
+    data: { status: "REJECTED", reviewNote: reviewNote ? encrypt(reviewNote) : null, reviewedById: reviewerId, reviewedAt: new Date() },
   })
   if (rejected.count === 0) return { error: "This application has already been reviewed." }
-  await logAudit(reviewerId, "MEMBERSHIP_REJECTED", "MembershipApplication", id, { note: reviewNote ?? "" })
+  await logAudit(reviewerId, "MEMBERSHIP_REJECTED", "MembershipApplication", id, { hasNote: reviewNote !== null })
   revalidatePath("/memberships")
   return { success: "Application rejected" }
 }

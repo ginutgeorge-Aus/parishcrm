@@ -385,7 +385,7 @@ describe("rejectFamilyUpdate", () => {
     // the write is guarded on status PENDING so it can't clobber a
     // concurrent approval that already moved the row off PENDING.
     expect(prisma.familyUpdateSubmission.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 3, status: "PENDING" }, data: expect.objectContaining({ status: "REJECTED", reviewNote: "Duplicate" }) })
+      expect.objectContaining({ where: { id: 3, status: "PENDING" }, data: expect.objectContaining({ status: "REJECTED", reviewNote: "enc:Duplicate" }) })
     )
     expect(res).toEqual({ success: "Submission rejected" })
   })

@@ -137,7 +137,7 @@ describe("markInvoicePaid — create", () => {
     expect(await markInvoicePaid(11, create)).toEqual({ success: "INV-0007 marked paid" })
     expect(prisma.transaction.create).toHaveBeenCalledWith({ data: {
       date: new Date("2026-10-20"), type: "INCOME", amount: "330.00", accountId: 4, paymentAccountId: 2, fundId: null,
-      personId: null, reference: "INV-0007", invoiceId: 11, description: "enc:Invoice INV-0007 — Example Scouts",
+      personId: null, reference: "enc:INV-0007", invoiceId: 11, description: "enc:Invoice INV-0007 — Example Scouts",
     } })
     expect(logAudit).toHaveBeenCalledWith(1, "INVOICE_PAID", "Invoice", 11, { invoiceNo: "INV-0007", transactionId: 51, mode: "create" })
     expect(sendEmail).toHaveBeenCalledWith("scouts@example.com", "Payment received — invoice INV-0007",

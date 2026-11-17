@@ -166,6 +166,8 @@ export async function createTransaction(
         // notes can carry PII free-text — encrypt at rest. `...rest` spread
         // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
         notes: rest.notes ? encrypt(rest.notes) : null,
+        // reference is a free-text cheque/envelope note — encrypted at rest like notes.
+        reference: rest.reference ? encrypt(rest.reference) : null,
         isGiving,
         familyId,
         personId,
@@ -333,6 +335,8 @@ export async function updateTransaction(
         // notes can carry PII free-text — encrypt at rest. `...rest` spread
         // it in plaintext above; this override re-keys it. Read paths use safeDecrypt.
         notes: rest.notes ? encrypt(rest.notes) : null,
+        // reference is a free-text cheque/envelope note — encrypted at rest like notes.
+        reference: rest.reference ? encrypt(rest.reference) : null,
         isGiving,
         familyId,
         personId,
