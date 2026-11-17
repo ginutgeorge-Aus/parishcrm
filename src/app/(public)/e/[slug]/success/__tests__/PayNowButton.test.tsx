@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { PayNowButton } from "../PayNowButton"
+import { REGISTRATION_LINK_EXPIRED_MESSAGE } from "@/lib/registrationLink"
 
 jest.mock("@/lib/actions/eventCheckout", () => ({ startExistingRegistrationCheckout: jest.fn() }))
 import { startExistingRegistrationCheckout } from "@/lib/actions/eventCheckout"
@@ -32,6 +33,15 @@ it("redirects to the Stripe URL on success", async () => {
   await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
   expect(mStart).toHaveBeenCalledWith("fete", "tok-42")
   expect(mNavigate).toHaveBeenCalledWith("https://stripe.test/pay")
+})
+
+it("shows the expiry message with a contact path for an invalid or expired link", async () => {
+  mStart.mockResolvedValue({ ok: false, status: 404, error: REGISTRATION_LINK_EXPIRED_MESSAGE })
+  render(<PayNowButton slug="fete" publicToken="tok-42" passCardFee={false} />)
+  await userEvent.click(screen.getByRole("button", { name: /pay now by card/i }))
+  const alert = await screen.findByRole("alert")
+  expect(alert).toHaveTextContent(/expired/i)
+  expect(alert).toHaveTextContent(/contact the church office/i)
 })
 
 it("surfaces an error message when the action fails", async () => {

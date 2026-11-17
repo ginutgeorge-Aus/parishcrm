@@ -6,6 +6,20 @@ const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 /** Registration public tokens are minted as "REG-" + 12 hex chars; the upper bound leaves room for a longer token. */
 export const REGISTRATION_TOKEN_RE = /^REG-[0-9A-F]{12,64}$/
 
+/** Shown when a pay-now link is malformed, unknown or past its 30-day window; gives the attendee a way forward. */
+export const REGISTRATION_LINK_EXPIRED_MESSAGE =
+  "This payment link is invalid or has expired. Please contact the church office to get a new link."
+
+/**
+ * Runtime guard for a public event slug argument. TypeScript types vanish at runtime, so a caller
+ * can send an object (e.g. `{ not: "" }`) that Prisma would treat as a filter.
+ * @param slug the untrusted slug argument
+ * @returns true when it is a string
+ */
+export function isSlugArg(slug: unknown): slug is string {
+  return typeof slug === "string"
+}
+
 /**
  * Earliest createdAt / reminder sentAt a token lookup will still match.
  * @returns the cut-off date, 30 days ago
