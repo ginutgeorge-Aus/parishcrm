@@ -41,8 +41,8 @@ type Props = {
   nextSunday: string
   defaultRequestMonth: string
   rows: VenueUsageRowView[]
-  /** Absolute committee-calendar link; null when none exists or the viewer may not see it. */
-  calendarUrl: string | null
+  /** True when a committee calendar link exists. Only a digest is stored, so the URL is shown once, on create/reset. */
+  calendarActive: boolean
   /** True for ADMIN only: may create or reset the calendar link. */
   canResetCalendar: boolean
 }
@@ -93,7 +93,7 @@ function blankForm(nextSunday: string, today: string): FormState {
  * "Request invoice" panels and the committee calendar link box.
  * @param props the selected month, server "today" values, that month's rows and the calendar link state
  */
-export function VenueUsageClient({ month, today, serverNow, nextSunday, defaultRequestMonth, rows, calendarUrl, canResetCalendar }: Readonly<Props>) {
+export function VenueUsageClient({ month, today, serverNow, nextSunday, defaultRequestMonth, rows, calendarActive, canResetCalendar }: Readonly<Props>) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(() => blankForm(nextSunday, today))
   const [formState, setFormState] = useState<{ error?: string; success?: string; warning?: string } | undefined>()
@@ -332,7 +332,7 @@ export function VenueUsageClient({ month, today, serverNow, nextSunday, defaultR
         dataVersion={dataVersion}
         onApproved={() => setApprovalCleared(false)}
       />
-      <CalendarLinkBox url={calendarUrl} canReset={canResetCalendar} />
+      <CalendarLinkBox active={calendarActive} canReset={canResetCalendar} />
     </div>
   )
 }

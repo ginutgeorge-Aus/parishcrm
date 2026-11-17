@@ -37,13 +37,15 @@ it("is blocked in demo mode and when the feature is off", async () => {
   ;(readVenueUsageSettings as jest.Mock).mockResolvedValue({ enabled: false })
   expect(await resetVenueCalendarLink()).toEqual({ error: "Venue usage is not enabled" })
 })
-it("writes a fresh token over any old one, audits without the token, returns the URL", async () => {
+// sha256("NEWTOKEN"): only the digest is stored; the raw token is returned once in the URL.
+const HASHED = "c213e712ecdeaf7e51288b47432e9732b6935bc4d4e988da60231790bc9a855f"
+it("stores only a digest of a fresh token, audits without the token, returns the URL", async () => {
   asRole("ADMIN")
   expect(await resetVenueCalendarLink()).toEqual({ success: "Calendar link reset", url: "https://app.example.com/venue/NEWTOKEN" })
   expect(prisma.appSetting.upsert).toHaveBeenCalledWith({
     where: { key: "venueUsage.calendarToken" },
-    create: { key: "venueUsage.calendarToken", value: "NEWTOKEN" },
-    update: { value: "NEWTOKEN" },
+    create: { key: "venueUsage.calendarToken", value: HASHED },
+    update: { value: HASHED },
   })
   expect(logAudit).toHaveBeenCalledWith(7, "VENUE_CALENDAR_LINK_RESET", "AppSetting", undefined, {})
   expect(JSON.stringify((logAudit as jest.Mock).mock.calls)).not.toContain("NEWTOKEN")

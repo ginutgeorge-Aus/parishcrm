@@ -13,6 +13,7 @@ import { canEdit } from "@/lib/roleGuard"
 import { logAudit } from "@/lib/audit"
 import { isValidPgId, isP2002 } from "@/lib/validation"
 import { generateVolunteerToken } from "@/lib/volunteerToken"
+import { hashToken } from "@/lib/tokenHash"
 import { UserRole } from "@/lib/generated/prisma/enums"
 
 import type { ActionResult } from "./types"
@@ -33,12 +34,14 @@ export async function setVolunteerView(id: number, enabled: boolean): Promise<Vo
 
   const existing = await prisma.event.findUnique({
     where: { id },
-    select: { id: true, volunteerToken: true },
+    select: { id: true },
   })
   if (!existing) return { error: "Event not found" }
 
-  const token = enabled ? (existing.volunteerToken ?? generateVolunteerToken()) : null
-  await prisma.event.update({ where: { id }, data: { volunteerToken: token } })
+  // Only a digest is stored, so an existing link cannot be shown again: turning the view on always
+  // mints a fresh token and returns it once.
+  const token = enabled ? generateVolunteerToken() : null
+  await prisma.event.update({ where: { id }, data: { volunteerToken: token ? hashToken(token) : null } })
   await logAudit(actorId(session), enabled ? "VOLUNTEER_VIEW_ENABLED" : "VOLUNTEER_VIEW_DISABLED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)
   return { token }
@@ -58,7 +61,7 @@ export async function regenerateVolunteerToken(id: number): Promise<VolunteerTok
   if (!existing) return { error: "Event not found" }
 
   const token = generateVolunteerToken()
-  await prisma.event.update({ where: { id }, data: { volunteerToken: token } })
+  await prisma.event.update({ where: { id }, data: { volunteerToken: hashToken(token) } })
   await logAudit(actorId(session), "VOLUNTEER_VIEW_REGENERATED", "Event", id)
   revalidatePath(`/events/${id}/registrations`)
   return { token }

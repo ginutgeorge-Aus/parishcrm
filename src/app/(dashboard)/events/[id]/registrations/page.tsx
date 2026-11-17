@@ -165,7 +165,7 @@ export default async function RegistrationsPage(props: Readonly<Props>) {
       </div>
 
       {canEdit(session.user.role) && event.slug && (
-        <VolunteerViewToggle eventId={eventId} slug={event.slug} initialToken={event.volunteerToken} />
+        <VolunteerViewToggle eventId={eventId} slug={event.slug} initialEnabled={event.volunteerToken !== null} />
       )}
 
       {canEdit(session.user.role) && (

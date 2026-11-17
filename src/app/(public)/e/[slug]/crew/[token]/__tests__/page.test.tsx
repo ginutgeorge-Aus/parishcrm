@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 
-jest.mock("@/lib/prisma", () => ({ prisma: { event: { findUnique: jest.fn() } } }))
+jest.mock("@/lib/prisma", () => ({ prisma: { event: { findFirst: jest.fn() } } }))
 const notFound = jest.fn(() => { throw new Error("NEXT_NOT_FOUND") })
 jest.mock("next/navigation", () => ({ notFound: () => notFound() }))
 
@@ -21,7 +21,7 @@ const event = {
 beforeEach(() => jest.clearAllMocks())
 
 it("renders the view for a valid token+slug", async () => {
-  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(event)
+  ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(event)
   const ui = await CrewPage({ params: Promise.resolve({ slug: "picnic", token: "tok" }) })
   const html = renderToStaticMarkup(ui)
   expect(html).toContain("Picnic")
@@ -30,7 +30,7 @@ it("renders the view for a valid token+slug", async () => {
 })
 
 it("404s when the token matches no event", async () => {
-  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(null)
+  ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(null)
   await expect(
     CrewPage({ params: Promise.resolve({ slug: "picnic", token: "bad" }) }),
   ).rejects.toThrow("NEXT_NOT_FOUND")
@@ -38,8 +38,18 @@ it("404s when the token matches no event", async () => {
 })
 
 it("404s when the slug does not match the token's event", async () => {
-  ;(prisma.event.findUnique as jest.Mock).mockResolvedValue(event)
+  ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(event)
   await expect(
     CrewPage({ params: Promise.resolve({ slug: "wrong-slug", token: "tok" }) }),
   ).rejects.toThrow("NEXT_NOT_FOUND")
+})
+
+it("looks up by digest (and legacy raw token), never raw when the URL token is itself a digest", async () => {
+  const { hashToken } = await import("@/lib/tokenHash")
+  ;(prisma.event.findFirst as jest.Mock).mockResolvedValue(event)
+  await CrewPage({ params: Promise.resolve({ slug: "picnic", token: "tok" }) })
+  expect((prisma.event.findFirst as jest.Mock).mock.calls[0][0].where).toEqual({ volunteerToken: { in: [hashToken("tok"), "tok"] } })
+  const digest = hashToken("tok")
+  await CrewPage({ params: Promise.resolve({ slug: "picnic", token: digest }) })
+  expect((prisma.event.findFirst as jest.Mock).mock.calls[1][0].where).toEqual({ volunteerToken: { in: [hashToken(digest)] } })
 })

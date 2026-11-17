@@ -6,10 +6,32 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 
-type Props = { eventId: number; slug: string; initialToken: string | null }
+function RegenerateButton({ onConfirm }: Readonly<{ onConfirm: () => Promise<{ error: string } | undefined> }>) {
+  return (
+    <DeleteConfirmButton
+              onConfirm={onConfirm}
+              title="Regenerate the link?"
+              description="The old link will stop working."
+              triggerLabel="Regenerate"
+              triggerVariant="outline"
+              triggerSize="sm"
+              confirmLabel="Regenerate"
+              pendingLabel="Regenerating…"
+            />
+  )
+}
 
-export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Props>) {
-  const [token, setToken] = useState<string | null>(initialToken)
+type Props = { eventId: number; slug: string; initialEnabled: boolean }
+
+/**
+ * Volunteer-view switch. Only a digest of the link token is stored, so the link is shown once, right
+ * after it is created or regenerated; afterwards the admin must regenerate to get a new one.
+ * @param props event id, slug, and whether the view is currently on
+ */
+export function VolunteerViewToggle({ eventId, slug, initialEnabled }: Readonly<Props>) {
+  // `token` is only set in this session right after creating/regenerating; `enabled` survives reloads.
+  const [enabled, setEnabled] = useState(initialEnabled)
+  const [token, setToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -33,9 +55,13 @@ export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Pr
     startTransition(async () => {
       setError(null)
       try {
-        const res = await setVolunteerView(eventId, token === null)
+        const res = await setVolunteerView(eventId, !enabled)
         if ("error" in res) setError(res.error)
-        else setToken(res.token)
+        else {
+          setToken(res.token)
+          setEnabled(res.token !== null)
+          setCopied(false)
+        }
       } catch {
         setError("Could not update volunteer view. Please try again.")
       }
@@ -46,6 +72,7 @@ export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Pr
     const res = await regenerateVolunteerToken(eventId)
     if ("error" in res) return res
     setToken(res.token)
+    setEnabled(true)
     setCopied(false)
   }
 
@@ -64,10 +91,19 @@ export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Pr
             Share a no-login link showing fill rate + bookings.
           </p>
         </div>
-        <Button variant={token ? "secondary" : "default"} size="sm" onClick={toggle} disabled={isPending}>
-          {token ? "Turn off" : "Turn on"}
+        <Button variant={enabled ? "secondary" : "default"} size="sm" onClick={toggle} disabled={isPending}>
+          {enabled ? "Turn off" : "Turn on"}
         </Button>
       </div>
+
+      {enabled && !link && (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <p className="flex-1 text-sm text-muted-foreground">
+            The link is active. For security it is shown only when created: regenerate it to get a new one.
+          </p>
+          <RegenerateButton onConfirm={handleRegenerate} />
+        </div>
+      )}
 
       {link && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -81,16 +117,7 @@ export function VolunteerViewToggle({ eventId, slug, initialToken }: Readonly<Pr
             <Button variant="outline" size="sm" onClick={copy}>
               {copied ? "Copied" : "Copy"}
             </Button>
-            <DeleteConfirmButton
-              onConfirm={handleRegenerate}
-              title="Regenerate the link?"
-              description="The old link will stop working."
-              triggerLabel="Regenerate"
-              triggerVariant="outline"
-              triggerSize="sm"
-              confirmLabel="Regenerate"
-              pendingLabel="Regenerating…"
-            />
+            <RegenerateButton onConfirm={handleRegenerate} />
           </div>
         </div>
       )}

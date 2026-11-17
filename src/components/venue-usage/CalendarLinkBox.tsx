@@ -8,11 +8,13 @@ import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { resetVenueCalendarLink } from "@/lib/actions/venueCalendar"
 
 /**
- * Committee calendar link: copy it (any editor), create or reset it (ADMIN). Resetting kills the old link.
- * @param props the absolute link (null when none) and whether the viewer may create/reset
+ * Committee calendar link: create or reset it (ADMIN). Only a digest of the link is stored, so the URL is
+ * shown once, right after it is created; resetting kills the old link and shows a new one.
+ * @param props whether a link exists, and whether the viewer may create/reset
  */
-export function CalendarLinkBox({ url, canReset }: Readonly<{ url: string | null; canReset: boolean }>) {
+export function CalendarLinkBox({ active, canReset }: Readonly<{ active: boolean; canReset: boolean }>) {
   const router = useRouter()
+  const [url, setUrl] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +40,7 @@ export function CalendarLinkBox({ url, canReset }: Readonly<{ url: string | null
     if ("error" in r) return { error: r.error }
     setCopied(false)
     setError(null)
+    setUrl(r.url)
     router.refresh()
     return undefined
   }
@@ -63,22 +66,27 @@ export function CalendarLinkBox({ url, canReset }: Readonly<{ url: string | null
           {copied && <span role="status" className="text-sm text-muted-foreground">Copied</span>}
         </div>
       ) : (
-        <p className="text-sm">No calendar link yet.</p>
+        <p className="text-sm">
+          {active
+            ? "A calendar link is active. For security it is shown only when created: reset it to get a new one."
+            : "No calendar link yet."}
+        </p>
       )}
+      {url && <p className="text-sm text-muted-foreground">Copy it now: this link is not shown again.</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {canReset && (
         <DeleteConfirmButton
-          title={url ? "Reset the calendar link?" : "Create the calendar link?"}
+          title={active ? "Reset the calendar link?" : "Create the calendar link?"}
           description={
-            url
+            active
               ? "The old link will stop working immediately. Share the new link with the committee."
               : "Creates a secret link anyone can use to view the booked dates."
           }
-          triggerLabel={url ? "Reset link" : "Create link"}
+          triggerLabel={active ? "Reset link" : "Create link"}
           triggerVariant="outline"
           triggerSize="default"
           triggerClassName=""
-          confirmLabel={url ? "Reset" : "Create"}
+          confirmLabel={active ? "Reset" : "Create"}
           pendingLabel="Working…"
           onConfirm={reset}
         />

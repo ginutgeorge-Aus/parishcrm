@@ -16,7 +16,6 @@ jest.mock("@/lib/venueUsageSettings", () => ({
 }))
 jest.mock("@/lib/venueCalendarToken", () => ({
   readCalendarToken: jest.fn(),
-  calendarUrl: jest.fn((t: string) => `https://app.example.com/venue/${t}`),
 }))
 jest.mock("@/lib/prisma", () => ({ prisma: { venueUsage: { findMany: jest.fn().mockResolvedValue([]) } } }))
 jest.mock("@/components/venue-usage/VenueUsageClient", () => ({ VenueUsageClient: () => null }))
@@ -27,21 +26,22 @@ beforeEach(() => jest.clearAllMocks())
 async function clientProps(role: string) {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "1", role } })
   const el = await VenueUsagePage({ searchParams: Promise.resolve({}) })
-  const client = (el.props.children as { props: Record<string, unknown> }[]).find((c) => c?.props && "calendarUrl" in c.props)
+  const client = (el.props.children as { props: Record<string, unknown> }[]).find((c) => c?.props && "calendarActive" in c.props)
   return client!.props
 }
 
-it("passes the calendar URL to an editor, and reset only to an ADMIN", async () => {
-  ;(readCalendarToken as jest.Mock).mockResolvedValue("tok")
+it("tells an editor a link is active (never the token), and reset only to an ADMIN", async () => {
+  ;(readCalendarToken as jest.Mock).mockResolvedValue("digest")
   const pastor = await clientProps("PASTOR")
-  expect(pastor.calendarUrl).toBe("https://app.example.com/venue/tok")
+  expect(pastor.calendarActive).toBe(true)
+  expect(JSON.stringify(pastor)).not.toContain("digest")
   expect(pastor.canResetCalendar).toBe(false)
   const admin = await clientProps("ADMIN")
   expect(admin.canResetCalendar).toBe(true)
 })
-it("passes null when no token exists", async () => {
+it("reports inactive when no token exists", async () => {
   ;(readCalendarToken as jest.Mock).mockResolvedValue(null)
-  expect((await clientProps("ADMIN")).calendarUrl).toBeNull()
+  expect((await clientProps("ADMIN")).calendarActive).toBe(false)
 })
 it("redirects a non-editor before reading the token", async () => {
   ;(auth as jest.Mock).mockResolvedValue({ user: { id: "3", role: "VIEWER" } })

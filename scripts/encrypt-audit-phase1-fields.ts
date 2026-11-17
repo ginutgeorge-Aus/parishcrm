@@ -7,13 +7,16 @@ if (!process.env.DATABASE_URL) {
 import { PrismaClient } from "../src/lib/generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { encrypt, keyIdOf } from "../src/lib/cryptoCore"
+import { hashToken, isHashedToken } from "../src/lib/tokenHash"
 import { dbHost, parseScriptArgs, requireConfirmation } from "./lib/script-helpers"
 
 // One-time backfill for audit 2026-11 phase 1 (AUD-1-17): these free-text columns are now
 // encrypted on every write path, but historical rows are still plaintext at rest:
 //   Person.maritalStatus, Person.profession, GroupMessage.body, FamilyUpdateSubmission.reviewNote,
 //   MembershipApplication.reviewNote, Transaction.reference.
-// Idempotent: values already `enc:`-shaped are skipped (keyIdOf !== null). Read paths tolerate
+// Also hashes the share-link secrets (Event.volunteerToken, AppSetting venueUsage.calendarToken) to
+// SHA-256 digests; existing links keep working because lookups hash the URL token. Links can no longer be
+// re-displayed afterwards. Idempotent: values already `enc:`-shaped are skipped (keyIdOf !== null). Read paths tolerate
 // plaintext, so the app works before, during and after the backfill. Dry run by default.
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
@@ -54,6 +57,24 @@ async function backfill(label: string, delegate: Delegate, field: string): Promi
   return changed
 }
 
+/** Replace raw share-link tokens with their SHA-256 digest. Digests are skipped, so re-runs are no-ops. */
+async function hashTokens(): Promise<void> {
+  const events = await prisma.event.findMany({ where: { volunteerToken: { not: null } }, select: { id: true, volunteerToken: true } })
+  let n = 0
+  for (const e of events) {
+    if (e.volunteerToken && !isHashedToken(e.volunteerToken)) {
+      n++
+      if (APPLY) await prisma.event.update({ where: { id: e.id }, data: { volunteerToken: hashToken(e.volunteerToken) } })
+    }
+  }
+  console.log(`event.volunteerToken: ${n} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
+
+  const row = await prisma.appSetting.findUnique({ where: { key: "venueUsage.calendarToken" } })
+  const venue = row?.value && !isHashedToken(row.value) ? 1 : 0
+  if (venue && APPLY) await prisma.appSetting.update({ where: { key: "venueUsage.calendarToken" }, data: { value: hashToken(row!.value) } })
+  console.log(`venueUsage.calendarToken: ${venue} row(s) ${APPLY ? "hashed" : "would be hashed"}`)
+}
+
 async function main() {
   console.log(`Encrypting audit phase 1 fields — ${APPLY ? "APPLY" : "DRY RUN"}`)
   console.log(`Target DB host: ${dbHost(process.env.DATABASE_URL)}`)
@@ -65,6 +86,8 @@ async function main() {
   await backfill("familyUpdateSubmission.reviewNote", prisma.familyUpdateSubmission as unknown as Delegate, "reviewNote")
   await backfill("membershipApplication.reviewNote", prisma.membershipApplication as unknown as Delegate, "reviewNote")
   await backfill("transaction.reference", prisma.transaction as unknown as Delegate, "reference")
+
+  await hashTokens()
 
   console.log(APPLY ? "Done." : "Dry run complete. Re-run with --apply --yes to write.")
   await prisma.$disconnect()

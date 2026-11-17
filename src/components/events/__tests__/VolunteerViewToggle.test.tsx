@@ -17,18 +17,20 @@ import { VolunteerViewToggle } from "@/components/events/VolunteerViewToggle"
 describe("VolunteerViewToggle SSR safety", () => {
   // Regression: reading window.location.origin during render crashes SSR
   // ("window is not defined"), 500-ing the registrations page for editors.
-  it("server-renders with a token without touching window", () => {
+  it("server-renders when enabled without touching window or showing a link", () => {
     const html = renderToStaticMarkup(
-      <VolunteerViewToggle eventId={1} slug="picnic" initialToken="tok123" />,
+      <VolunteerViewToggle eventId={1} slug="picnic" initialEnabled />,
     )
     expect(html).toContain("Volunteer view")
-    // origin is empty on the server → relative link, no window access
-    expect(html).toContain("/e/picnic/crew/tok123")
+    expect(html).toContain("Turn off")
+    // only a digest is stored: the link is never rendered on load
+    expect(html).not.toContain("/crew/")
+    expect(html).toContain("shown only when created")
   })
 
   it("server-renders with no token (link hidden)", () => {
     const html = renderToStaticMarkup(
-      <VolunteerViewToggle eventId={1} slug="picnic" initialToken={null} />,
+      <VolunteerViewToggle eventId={1} slug="picnic" initialEnabled={false} />,
     )
     expect(html).toContain("Turn on")
     expect(html).not.toContain("/crew/")

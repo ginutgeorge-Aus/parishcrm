@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { nowMs, sydneyTodayYMD } from "@/lib/dates"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { isValidMonth, monthRange, nextSundayYMD, previousMonth, utcDateToYmd } from "@/lib/venueUsage"
-import { calendarUrl, readCalendarToken } from "@/lib/venueCalendarToken"
+import { readCalendarToken } from "@/lib/venueCalendarToken"
 import { MAX_ROWS_PER_MONTH } from "@/lib/venueInvoice"
 import { VenueUsageClient } from "@/components/venue-usage/VenueUsageClient"
 
@@ -48,7 +48,7 @@ export default async function VenueUsagePage(
         serverNow={nowMs()}
         nextSunday={nextSundayYMD(today)}
         defaultRequestMonth={previousMonth(today)}
-        calendarUrl={token ? calendarUrl(token) : null}
+        calendarActive={token !== null}
         canResetCalendar={isAdmin(session?.user?.role)}
         rows={rows.map(({ venueNotifiedAt, ...r }) => ({
           ...r,

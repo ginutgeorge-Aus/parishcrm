@@ -10,10 +10,11 @@ import { assertNotDemo } from "@/lib/demoMode"
 import { readVenueUsageSettings } from "@/lib/venueUsageSettings"
 import { VENUE_CALENDAR_TOKEN_KEY } from "@/lib/venueCalendar"
 import { calendarUrl, mintCalendarToken } from "@/lib/venueCalendarToken"
+import { hashToken } from "@/lib/tokenHash"
 
 /**
  * Create or replace the public calendar link (ADMIN only; blocked in demo mode; feature must be on).
- * Replacing the token kills the previously shared link immediately. The token is never logged.
+ * Replacing the token kills the previously shared link immediately. Only a SHA-256 digest is stored and the URL is returned once; it is never logged.
  */
 export async function resetVenueCalendarLink(): Promise<{ success: string; url: string | null } | { error: string }> {
   const demo = assertNotDemo()
@@ -25,8 +26,8 @@ export async function resetVenueCalendarLink(): Promise<{ success: string; url: 
   const token = mintCalendarToken()
   await prisma.appSetting.upsert({
     where: { key: VENUE_CALENDAR_TOKEN_KEY },
-    create: { key: VENUE_CALENDAR_TOKEN_KEY, value: token },
-    update: { value: token },
+    create: { key: VENUE_CALENDAR_TOKEN_KEY, value: hashToken(token) },
+    update: { value: hashToken(token) },
   })
   await logAudit(actorId(session), "VENUE_CALENDAR_LINK_RESET", "AppSetting", undefined, {})
   revalidatePath("/venue-usage")
