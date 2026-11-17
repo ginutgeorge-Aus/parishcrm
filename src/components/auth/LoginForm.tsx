@@ -297,6 +297,7 @@ export function LoginForm({
         lockNow()
       } else if (result?.code === "TotpRequired" || result?.code === "TotpRequiredBackup") {
         // Server refuses the email code while unused backup codes exist (audit AUD-1-18).
+        setEmailFallbackBlocked(true)
         setError("Email codes are turned off for accounts with an authenticator app. Use your app, or a backup code. If you have lost both, ask an administrator to reset your authenticator.")
       } else {
         setError("We couldn't send your verification code. Please try again in a moment.")

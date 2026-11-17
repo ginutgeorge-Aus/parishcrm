@@ -68,6 +68,7 @@ describe("LoginForm — authenticator step", () => {
     mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
     fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
     expect(await screen.findByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Send email code instead" })).not.toBeInTheDocument()
     expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
   })
 
