@@ -160,6 +160,7 @@ export async function GET(req: NextRequest) {
     // notes is unencrypted for manually-keyed rows but encrypted for
     // bank-import rows — safeDecrypt is a no-op on plaintext.
     notes: tx.notes ? safeDecrypt(tx.notes) : tx.notes,
+    reference: tx.reference ? safeDecrypt(tx.reference) : tx.reference,
     paymentAccountName: tx.paymentAccountRel?.name ?? null,
   }))
 

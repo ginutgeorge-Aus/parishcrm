@@ -1,5 +1,6 @@
 import "server-only"
 import { prisma } from "@/lib/prisma"
+import { safeDecrypt } from "@/lib/crypto"
 
 /** Messages per history page (newest first). */
 const HISTORY_PAGE_SIZE = 20
@@ -63,7 +64,7 @@ export async function loadGroupMessageHistory(
       .map((r) => ({ personId: r.person.id, name: `${r.person.firstName} ${r.person.lastName}`, status: r.status }))
     const notSent = Object.entries(counts).reduce((n, [k, c]) => (k === "SENT" ? n : n + c), 0)
     return {
-      id: m.id, subject: m.subject, body: m.body, createdAt: m.createdAt,
+      id: m.id, subject: m.subject, body: safeDecrypt(m.body), createdAt: m.createdAt,
       sentBy: m.sentBy?.name ?? "Removed user",
       recipients,
       moreRecipients: Math.max(0, notSent - recipients.length),

@@ -43,12 +43,14 @@ export const FIELDS: Record<string, string[]> = {
   person: [
     "email", "dateOfBirth", "mobile", "workPhone", "homePhone", "notes",
     "pastoralNotes", "emergencyContactName", "emergencyContactPhone",
+    // audit AUD-1-17 (phase 1): written encrypted in actions/membership.ts personCreateData.
+    "maritalStatus", "profession",
   ],
   // notes: encrypted at write in bankImportConfirm.ts and the manual transaction
   // action. Field name "notes" is also used by petty-cash models, so the
   // coverage guard was already green, but the transaction delegate must list it
   // or transaction.notes ciphertext is never re-keyed.
-  transaction: ["description", "notes"],
+  transaction: ["description", "notes", "reference"],
   receiptSend: ["sentTo"],
   paymentReminderSend: ["sentTo"],
   // Fundraiser: outside-buyer contact and reminder recipient email, both encrypt()ed in actions/fundraiser.ts.
@@ -66,10 +68,12 @@ export const FIELDS: Record<string, string[]> = {
   pettyCashTransfer: ["depositedByName", "notes"],
   // payload is encrypt(JSON.stringify(...)) stored as a string scalar in a Json
   // column; rotateRow skips non-string (legacy plaintext-object) values.
-  familyUpdateSubmission: ["payload"],
+  familyUpdateSubmission: ["payload", "reviewNote"],
   // Entire model was missing — written encrypted in
   // src/lib/actions/membership.ts::submitMembershipApplication.
-  membershipApplication: ["payload", "signature", "email", "mobile"],
+  membershipApplication: ["payload", "signature", "email", "mobile", "reviewNote"],
+  // Group email history body (actions/groupMessage.ts); subject stays plaintext.
+  groupMessage: ["body"],
   // Orphans caught by the coverage guard: donorEmail is encrypted in
   // dgrReceipt.ts; filename in transactionAttachment.ts. Both plain strings that
   // rotate cleanly. TransactionAttachment.data is the encrypted blob — a BYTEA

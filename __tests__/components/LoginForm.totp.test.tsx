@@ -63,6 +63,14 @@ describe("LoginForm — authenticator step", () => {
     expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
   })
 
+  it("email fallback refused while backup codes exist explains why and stays on the authenticator step", async () => {
+    await toTotpStep()
+    mockSignIn.mockResolvedValueOnce({ code: "TotpRequired", error: "TotpRequired", ok: false })
+    fireEvent.click(screen.getByRole("button", { name: "Send email code instead" }))
+    expect(await screen.findByText(/Email codes are turned off for accounts with an authenticator app/)).toBeInTheDocument()
+    expect(screen.getByLabelText("Authenticator code")).toBeInTheDocument()
+  })
+
   it("email fallback requests an emailed code and moves to the OTP step", async () => {
     await toTotpStep()
     mockSignIn.mockResolvedValueOnce({ code: "OtpSent", error: "OtpSent", ok: false })

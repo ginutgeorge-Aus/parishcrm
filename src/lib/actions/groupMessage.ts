@@ -10,6 +10,7 @@ import { after } from "next/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { encrypt } from "@/lib/crypto"
 import { actorId } from "@/lib/actor"
 import { logAuditTx } from "@/lib/audit"
 import { assertNotDemo } from "@/lib/demoMode"
@@ -64,7 +65,7 @@ export async function sendGroupMessage(groupId: number, _prev: ActionResult, for
   try {
     messageId = await prisma.$transaction(async (tx) => {
       const msg = await tx.groupMessage.create({
-        data: { groupId, sentById: userId, subject: parsed.data.subject, body: parsed.data.body },
+        data: { groupId, sentById: userId, subject: parsed.data.subject, body: encrypt(parsed.data.body) },
         select: { id: true },
       })
       await tx.groupMessageRecipient.createMany({ data: recipients.map((r) => ({ messageId: msg.id, personId: r.personId })) })

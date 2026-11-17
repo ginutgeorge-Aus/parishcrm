@@ -408,10 +408,11 @@ describe("FIELDS map", () => {
     person: [
       "email", "dateOfBirth", "mobile", "workPhone", "homePhone", "notes",
       "pastoralNotes", "emergencyContactName", "emergencyContactPhone",
+      "maritalStatus", "profession",
     ],
     // notes added: encrypted at write in bankImportConfirm.ts and the
     // manual transaction action; historical plaintext backfilled separately.
-    transaction: ["description", "notes"],
+    transaction: ["description", "notes", "reference"],
     receiptSend: ["sentTo"],
     // PaymentReminderSend mirrors ReceiptSend: sentTo (recipient email) is PII.
     paymentReminderSend: ["sentTo"],
@@ -421,10 +422,11 @@ describe("FIELDS map", () => {
     pettyCashExpense: ["payee", "description"],
     pettyCashReceipt: ["notes"],
     pettyCashTransfer: ["depositedByName", "notes"],
-    familyUpdateSubmission: ["payload"],
+    familyUpdateSubmission: ["payload", "reviewNote"],
     // MembershipApplication was omitted entirely; written encrypted at
     // src/lib/actions/membership.ts (submitMembershipApplication).
-    membershipApplication: ["payload", "signature", "email", "mobile"],
+    membershipApplication: ["payload", "signature", "email", "mobile", "reviewNote"],
+    groupMessage: ["body"],
     // two more orphans the coverage guard surfaced — donorEmail
     // (dgrReceipt.ts) and filename (transactionAttachment.ts). The attachment
     // blob column `data` (BYTEA) is now re-keyed via the blob path and

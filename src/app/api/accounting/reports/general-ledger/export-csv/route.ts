@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
       // safeDecrypt so one corrupt/legacy ciphertext degrades to a placeholder
       // instead of 500-ing the whole export.
       description: safeDecrypt(t.description),
-      reference: t.reference,
+      reference: t.reference ? safeDecrypt(t.reference) : null,
       type: t.type as "INCOME" | "EXPENSE",
       amount: t.amount,
     })),

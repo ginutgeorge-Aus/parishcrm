@@ -42,9 +42,14 @@ free text — encrypted as a single JSON blob), petty-cash payee/notes, membersh
 payload/signature/contact details, DGR (tax-deductible) receipt donor email, invoice recipient
 email/address and notes, customer contact details and notes, transaction
 attachment filenames and file contents, and child-safety clearance (WWCC / Safe Ministry)
-numbers, document files, filenames and verification notes. A dedicated CI-run test greps every encryption write
+numbers, document files, filenames and verification notes, marital status and profession (from approved
+membership applications), group-message bodies, membership and family-update review notes, and the
+transaction reference. Names, dates and other searchable or sortable fields stay readable by design, and
+the venue calendar and volunteer links are stored as one-way digests, not readable links. A dedicated CI-run test greps every encryption write
 site in the codebase against a maintained list, so a newly-added sensitive field that's
-written without encryption fails the build rather than shipping silently.
+written without encryption fails the build rather than shipping silently. A second test lists every plain
+text column in the schema, so a new column must be either encrypted or added to an explicit "plain on
+purpose" list before the build passes.
 
 **Equality search on encrypted fields — blind indexes.** Because encryption uses a random IV,
 the same plaintext produces different ciphertext every time, so a normal `WHERE email = ...`

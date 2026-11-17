@@ -1,4 +1,5 @@
 jest.mock("@/lib/featureFlags")
+import { hashToken } from "@/lib/tokenHash"
 import { setVolunteerView, regenerateVolunteerToken } from "@/lib/actions/eventAccess"
 
 jest.mock("@/auth", () => ({ auth: jest.fn() }))
@@ -40,15 +41,16 @@ describe("setVolunteerView", () => {
     const token = (res as { token: string | null }).token
     expect(typeof token).toBe("string")
     expect(prisma.event.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 1 }, data: { volunteerToken: token } }),
+      expect.objectContaining({ where: { id: 1 }, data: { volunteerToken: hashToken(token as string) } }),
     )
   })
 
-  it("keeps the existing token when re-enabling", async () => {
+  it("refuses to turn on when already on, so a stale tab cannot kill the live shared link", async () => {
     asRole("ADMIN")
-    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "keepme" })
+    ;(prisma.event.findUnique as jest.Mock).mockResolvedValue({ id: 1, volunteerToken: "digest" })
     const res = await setVolunteerView(1, true)
-    expect(res).toEqual({ token: "keepme" })
+    expect(res).toEqual({ error: "Volunteer view is already on. Reload the page." })
+    expect(prisma.event.update).not.toHaveBeenCalled()
   })
 
   it("nulls the token when disabling", async () => {

@@ -73,7 +73,7 @@ describe("approveMembershipApplication — create", () => {
     const persons = tx.person.createMany.mock.calls[0][0].data
     expect(persons).toHaveLength(3) // HEAD + SPOUSE + 1 CHILD
     const head = persons[0]
-    expect(head).toMatchObject({ firstName: "John", lastName: "Miller", role: "HEAD", gender: "MALE", profession: "Engineer", motherParish: "Grace", maritalStatus: "MARRIED" })
+    expect(head).toMatchObject({ firstName: "John", lastName: "Miller", role: "HEAD", gender: "MALE", profession: "enc:Engineer", motherParish: "Grace", maritalStatus: "enc:MARRIED" })
     expect(head.email).toBe("enc:john@example.com")
     expect(head.emailHash).toBe("hash:john@example.com")
     expect(head.dateOfBirth).toBe("enc:1980-01-02")
@@ -226,7 +226,7 @@ describe("rejectMembershipApplication", () => {
     expect(r).toEqual({ success: "Application rejected" })
     expect((prisma.membershipApplication.updateMany as jest.Mock).mock.calls[0][0]).toMatchObject({
       where: { id: 1, status: "PENDING" },
-      data: { status: "REJECTED", reviewNote: "duplicate", reviewedById: 9 },
+      data: { status: "REJECTED", reviewNote: "enc:duplicate", reviewedById: 9 },
     })
   })
 

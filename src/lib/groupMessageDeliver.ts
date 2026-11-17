@@ -212,7 +212,7 @@ export async function deliverGroupMessage(messageId: number): Promise<DeliverCou
   })
   if (!msg) return counts
   const { name: churchName } = await getChurchSettings()
-  const ctx: MessageCtx = { groupId: msg.groupId, subject: msg.subject, body: msg.body, groupName: msg.group.name, churchName }
+  const ctx: MessageCtx = { groupId: msg.groupId, subject: msg.subject, body: decrypt(msg.body), groupName: msg.group.name, churchName }
 
   const open = await prisma.groupMessageRecipient.findMany({
     where: { messageId, ...openRecipientWhere(new Date()) },
@@ -315,7 +315,14 @@ export async function runGroupMessageSweep(now: Date): Promise<DeliverCounts & {
     take: SWEEP_MESSAGE_LIMIT,
   })
   for (const m of messages) {
-    const c = await deliverGroupMessage(m.id)
+    // One message whose body cannot be decrypted (corrupt, or a retired key) must not starve the rest.
+    let c: Awaited<ReturnType<typeof deliverGroupMessage>>
+    try {
+      c = await deliverGroupMessage(m.id)
+    } catch (err) {
+      logger.error(`[groupMessage] sweep: delivery of message ${m.id} threw — skipped (${err instanceof Error ? err.message : "unknown error"})`)
+      continue
+    }
     total.sent += c.sent; total.failed += c.failed; total.unknown += c.unknown; total.inFlight += c.inFlight
     total.messages++
     if (c.aborted) break

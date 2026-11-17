@@ -510,10 +510,14 @@ export async function authorizeCredentials(
     throw new AccountLocked()
   }
 
-  // Authenticator enrolled → ask for the app code instead of emailing one,
-  // unless the user explicitly chose "Send email code instead".
-  if (user.totpEnabledAt && credentials.emailFallback !== "true") {
-    throw new TotpRequired()
+  // Authenticator enrolled → ask for the app code instead of emailing one. The email fallback
+  // ("Send email code instead") is honoured only when the user has no unused backup codes left:
+  // otherwise a taken-over mailbox would skip the authenticator (audit AUD-1-18). Backup codes are
+  // the recovery route; an admin can also reset the authenticator.
+  if (user.totpEnabledAt) {
+    const wantsEmail = credentials.emailFallback === "true"
+    const hasBackupCodes = wantsEmail && (await prisma.backupCode.count({ where: { userId: user.id, usedAt: null } })) > 0
+    if (!wantsEmail || hasBackupCodes) throw new TotpRequired()
   }
 
   // Enforce 30-second resend cooldown: otpExpiresAt > now + 9.5 min means OTP was sent < 30s ago

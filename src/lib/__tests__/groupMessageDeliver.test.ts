@@ -278,6 +278,14 @@ describe("runGroupMessageSweep", () => {
     expect(r).toEqual({ sent: 2, failed: 0, unknown: 0, inFlight: 0, messages: 2, closed: 2 })
   })
 
+  it("a message whose delivery throws (e.g. undecryptable body) is skipped; later messages still drain", async () => {
+    p.groupMessage.findMany.mockResolvedValue([{ id: 1 }, { id: 2 }])
+    p.groupMessage.findUnique.mockRejectedValueOnce(new Error("Decryption failed: unknown key id"))
+    const r = await runGroupMessageSweep(new Date("2026-11-13T00:00:00Z"))
+    expect(r.messages).toBe(1)
+    expect(r.sent).toBe(1)
+  })
+
   it("past the retry window: never-claimed rows close as FAILED, stale claims as UNKNOWN", async () => {
     p.groupMessage.findMany.mockResolvedValue([])
     const now = new Date("2026-11-13T00:00:00Z")

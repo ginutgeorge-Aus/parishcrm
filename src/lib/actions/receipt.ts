@@ -69,7 +69,7 @@ function buildReceiptData(
     amount: `$${centsToNumber(toCents(tx.amount)).toFixed(2)}`,
     type: tx.type as "INCOME" | "EXPENSE",
     account: `${tx.account.code} — ${tx.account.name}`,
-    reference: tx.reference ?? undefined,
+    reference: tx.reference ? safeDecrypt(tx.reference) : undefined,
     // notes is unencrypted for manually-keyed rows but encrypted for
     // bank-import rows — safeDecrypt is a no-op on plaintext.
     notes: tx.notes ? safeDecrypt(tx.notes) : undefined,

@@ -416,7 +416,7 @@ export async function createTransfer(
             paymentAccountId: cashAccount?.id ?? null,
             bankRef: `PC_T_${transfer.id}`,
             description: encrypt("Transfer to bank"),
-            reference: existing.title,
+            reference: encrypt(existing.title),
             pettyCashTransferId: transfer.id,
           },
         })

@@ -61,7 +61,7 @@ export default async function GeneralLedgerPage(props: Readonly<Props>) {
     shownTxs.map((t) => ({
       date: t.date,
       description: safeDecrypt(t.description),
-      reference: t.reference,
+      reference: t.reference ? safeDecrypt(t.reference) : null,
       type: t.type as "INCOME" | "EXPENSE",
       amount: t.amount,
     })),
