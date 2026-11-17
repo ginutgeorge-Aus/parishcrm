@@ -6,6 +6,29 @@ import { LeaseLostError, runOncePerPeriodLocked } from "@/lib/periodLease"
 const PROD_ERROR_LABEL = "prod-error"
 const marker = (fp: string) => `<!-- fingerprint:${fp} -->`
 
+export type DigestStage = "list" | "create" | "purge"
+
+/**
+ * A digest step failed. Carries only the stage (never the cause) so callers can
+ * surface it without leaking error text; the original error is kept as `cause`.
+ */
+export class DigestStageError extends Error {
+  readonly stage: DigestStage
+  constructor(stage: DigestStage, cause: unknown) {
+    super(`digest failed at ${stage}`, { cause })
+    this.name = "DigestStageError"
+    this.stage = stage
+  }
+}
+
+/**
+ * Files prod-error issues for the last 7 days, then purges old ErrorLog and
+ * RouteViewDaily rows. The purge runs even when a GitHub call fails, so a bad
+ * token can't make the tables grow unbounded; the GitHub failure is rethrown
+ * as a DigestStageError after the purge. LeaseLostError skips everything.
+ * @param now run time
+ * @param leaseHeld returns false once another run has taken over the lease
+ */
 export async function runErrorDigest(
   now: Date = new Date(),
   leaseHeld: () => boolean = () => true,
@@ -20,11 +43,17 @@ export async function runErrorDigest(
     _max: { createdAt: true },
   })
 
-  const open = await listOpenIssuesByLabel(PROD_ERROR_LABEL)
+  let failure: DigestStageError | null = null
+  let open: Awaited<ReturnType<typeof listOpenIssuesByLabel>> = []
+  try {
+    open = await listOpenIssuesByLabel(PROD_ERROR_LABEL)
+  } catch (e) {
+    failure = new DigestStageError("list", e)
+  }
 
   let filed = 0
   let skipped = 0
-  for (const g of groups) {
+  for (const g of failure ? [] : groups) {
     if (open.some((i) => i.body.includes(marker(g.fingerprint)))) {
       skipped++
       continue
@@ -51,23 +80,43 @@ export async function runErrorDigest(
     ].join("\n")
     // Another run took the lease over: stop before filing a duplicate.
     if (!leaseHeld()) throw new LeaseLostError()
-    await createIssue({ title, body, labels: [PROD_ERROR_LABEL] })
+    try {
+      await createIssue({ title, body, labels: [PROD_ERROR_LABEL] })
+    } catch (e) {
+      failure = new DigestStageError("create", e)
+      break
+    }
     filed++
   }
 
-  // Purges are side effects too: don't run them on a lease another run now owns.
-  if (!leaseHeld()) throw new LeaseLostError()
-  const { count: purged } = await prisma.errorLog.deleteMany({
-    where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
-  })
+  // Each purge is independent: one failing must not skip the other.
+  let purged = 0
+  const purges: Array<() => Promise<void>> = [
+    async () => {
+      ;({ count: purged } = await prisma.errorLog.deleteMany({
+        where: { createdAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
+      }))
+    },
+    // Reuse this weekly run to purge the aggregate route-view counter too
+    // ( Phase 3) — no separate scheduler for a bare counter table.
+    async () => {
+      await prisma.routeViewDaily.deleteMany({
+        where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
+      })
+    },
+  ]
+  for (const purge of purges) {
+    // Purges are side effects too: don't run them on a lease another run now owns.
+    if (!leaseHeld()) throw new LeaseLostError()
+    try {
+      await purge()
+    } catch (e) {
+      // Report the earlier GitHub failure first; it is the actionable one.
+      failure ??= new DigestStageError("purge", e)
+    }
+  }
 
-  // Reuse this weekly run to purge the aggregate route-view counter too
-  // ( Phase 3) — no separate scheduler for a bare counter table.
-  if (!leaseHeld()) throw new LeaseLostError()
-  await prisma.routeViewDaily.deleteMany({
-    where: { date: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
-  })
-
+  if (failure) throw failure
   return { filed, skipped, purged }
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { bearerOk } from "@/lib/cronAuth"
-import { runErrorDigestLocked } from "@/lib/errorDigest"
+import { DigestStageError, runErrorDigestLocked } from "@/lib/errorDigest"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,7 +16,16 @@ export async function POST(req: Request) {
   }
   // Same lock as the in-app scheduler (no overlapping runs → no duplicate
   // issues), but `force` so a manual trigger still runs after this week's digest.
-  const result = await runErrorDigestLocked(new Date(), { force: true })
+  let result: Awaited<ReturnType<typeof runErrorDigestLocked>>
+  try {
+    result = await runErrorDigestLocked(new Date(), { force: true })
+  } catch (e) {
+    const stage = e instanceof DigestStageError ? e.stage : "unknown"
+    const cause = e instanceof DigestStageError ? e.cause : e
+    // console.error, not logger.error: logger persists to ErrorLog, which the digest reads.
+    console.error(`[error-issues] digest failed at stage=${stage}: ${cause instanceof Error ? cause.message : "unknown"}`)
+    return NextResponse.json({ error: "digest failed", stage }, { status: 502 })
+  }
   if (result === "locked") return NextResponse.json({ error: "Another digest run is in progress" }, { status: 409 })
   return NextResponse.json(result)
 }

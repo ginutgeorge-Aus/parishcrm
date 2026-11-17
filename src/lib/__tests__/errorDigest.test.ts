@@ -13,7 +13,7 @@ jest.mock("@/lib/github", () => ({
 }))
 import { prisma } from "@/lib/prisma"
 import { createIssue, listOpenIssuesByLabel } from "@/lib/github"
-import { runErrorDigest, runErrorDigestLocked, runErrorDigestOncePerWeek } from "@/lib/errorDigest"
+import { DigestStageError, runErrorDigest, runErrorDigestLocked, runErrorDigestOncePerWeek } from "@/lib/errorDigest"
 import { LeaseLostError } from "@/lib/periodLease"
 
 const groupBy = prisma.errorLog.groupBy as jest.Mock
@@ -38,6 +38,42 @@ describe("runErrorDigest", () => {
     expect((createIssue as jest.Mock).mock.calls[0][0].body).toContain("<!-- fingerprint:abc123 -->")
     expect(r.filed).toBe(1)
     expect(r.purged).toBe(3)
+  })
+
+  it("purges old ErrorLog rows even when listOpenIssuesByLabel rejects", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockRejectedValue(new Error("GitHub issue list failed: 401"))
+    await expect(runErrorDigest(new Date())).rejects.toMatchObject({ name: "DigestStageError", stage: "list" })
+    expect(deleteMany).toHaveBeenCalledTimes(1)
+    expect(prisma.routeViewDaily.deleteMany).toHaveBeenCalledTimes(1)
+    expect(createIssue).not.toHaveBeenCalled()
+  })
+
+  it("purges even when createIssue rejects, and reports stage create", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockRejectedValue(new Error("GitHub issue creation failed: 500"))
+    await expect(runErrorDigest(new Date())).rejects.toMatchObject({ name: "DigestStageError", stage: "create" })
+    expect(deleteMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("still purges routeViewDaily when the errorLog purge fails", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    deleteMany.mockRejectedValue(new Error("timeout"))
+    await expect(runErrorDigest(new Date())).rejects.toMatchObject({ stage: "purge" })
+    expect(prisma.routeViewDaily.deleteMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("DigestStageError message carries the stage, not the cause text", () => {
+    const e = new DigestStageError("list", new Error("token abc"))
+    expect(e.message).toBe("digest failed at list")
+    expect((e.cause as Error).message).toBe("token abc")
+  })
+
+  it("reports stage purge when only the purge fails", async () => {
+    ;(listOpenIssuesByLabel as jest.Mock).mockResolvedValue([])
+    ;(createIssue as jest.Mock).mockResolvedValue({ number: 99 })
+    deleteMany.mockRejectedValue(new Error("db down"))
+    await expect(runErrorDigest(new Date())).rejects.toMatchObject({ name: "DigestStageError", stage: "purge" })
   })
 
   it("stops filing once its lease is lost", async () => {
