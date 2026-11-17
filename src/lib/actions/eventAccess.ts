@@ -22,8 +22,11 @@ import { featureGuard } from "@/lib/featureFlags"
 export type VolunteerTokenResult = { error: string } | { token: string | null }
 
 /**
- * Enable → mint a token if none yet (idempotent: re-enabling keeps the link). Disable → null the
- * token so the shared link 404s. canEdit-gated.
+ * Enable → mint a fresh token and return it once (only a digest is stored); NOT idempotent: it errors
+ * when a token already exists, so a stale tab cannot replace a live link. Disable → null the token so
+ * the shared link 404s. canEdit-gated.
+ * @param id event id
+ * @param enabled true to turn the volunteer view on, false to turn it off
  */
 export async function setVolunteerView(id: number, enabled: boolean): Promise<VolunteerTokenResult> {
   const session = await auth()

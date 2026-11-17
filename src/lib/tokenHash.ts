@@ -26,8 +26,9 @@ export function isHashedToken(stored: string): boolean {
  */
 export function storedTokenMatches(provided: string, stored: string): boolean {
   if (!provided || !stored) return false
-  const expected = createHash("sha256").update(isHashedToken(stored) ? stored.toLowerCase() : hashToken(stored)).digest()
-  const actual = createHash("sha256").update(hashToken(provided)).digest()
+  // Both sides are 64-hex digests, so the buffers are equal length and can be compared directly.
+  const expected = Buffer.from(isHashedToken(stored) ? stored.toLowerCase() : hashToken(stored), "hex")
+  const actual = Buffer.from(hashToken(provided), "hex")
   return timingSafeEqual(actual, expected)
 }
 

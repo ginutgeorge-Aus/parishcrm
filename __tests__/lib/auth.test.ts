@@ -30,7 +30,7 @@ jest.mock("@/lib/prisma", () => ({
     appSetting: {
       findUnique: jest.fn(),
     },
-    backupCode: { count: jest.fn().mockResolvedValue(0) },
+    backupCode: { findFirst: jest.fn().mockResolvedValue(null) },
     passkey: {
       findUnique: jest.fn(),
       updateMany: jest.fn(),
@@ -1299,17 +1299,17 @@ describe("authorizeCredentials — TOTP", () => {
 
   it("emailFallback=true issues the email OTP only when no unused backup codes remain", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue(null)
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
     ).rejects.toBeInstanceOf(OtpSent)
-    expect(prisma.backupCode.count).toHaveBeenCalledWith({ where: { userId: 1, usedAt: null } })
+    expect(prisma.backupCode.findFirst).toHaveBeenCalledWith({ where: { userId: 1, usedAt: null }, select: { id: true } })
     expect(sendOtpEmail).toHaveBeenCalled()
   })
 
   it("emailFallback=true is refused (TotpRequired, no email) while unused backup codes exist (AUD-1-18)", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(3)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue({ id: "b1" })
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password", emailFallback: "true" }),
     ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
@@ -1318,7 +1318,7 @@ describe("authorizeCredentials — TOTP", () => {
 
   it("password step signals unused backup codes with the TotpRequiredBackup code", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(2)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue({ id: "b1" })
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
     ).rejects.toMatchObject({ code: "TotpRequiredBackup" })
@@ -1326,7 +1326,7 @@ describe("authorizeCredentials — TOTP", () => {
 
   it("password step uses the plain TotpRequired code when no backup codes remain", async () => {
     ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(await totpUser())
-    ;(prisma.backupCode.count as jest.Mock).mockResolvedValue(0)
+    ;(prisma.backupCode.findFirst as jest.Mock).mockResolvedValue(null)
     await expect(
       authorizeCredentials({ email: "admin@example.com", password: "correctpassword", mode: "password" }),
     ).rejects.toMatchObject({ code: "TotpRequired" })
