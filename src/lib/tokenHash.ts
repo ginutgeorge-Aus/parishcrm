@@ -31,7 +31,8 @@ export function storedTokenMatches(provided: string, stored: string): boolean {
 /**
  * Stored values a URL token may match in a DB lookup: its digest, plus the raw token for legacy rows
  * not yet backfilled. A 64-hex URL token is never taken as raw: it would match a stolen digest.
- * Single source of the "digest or legacy raw" rule (sunset the raw branch once the backfill is confirmed).
+ * Used for DB lookups (crew page); `storedTokenMatches` applies the same rule to an already-fetched value.
+ * Sunset both raw branches together once the backfill is confirmed on every deployment.
  * @param token the raw token from the URL
  */
 export function tokenLookupCandidates(token: string): string[] {

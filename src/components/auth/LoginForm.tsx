@@ -475,11 +475,7 @@ export function LoginForm({
               className="inline-flex items-center justify-center min-h-11 w-full text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
               {resendLoading ? "Sending…" : "Send email code instead"}
-            </button>
-            <p className="text-center text-xs text-muted-foreground">
-              Email codes are unavailable while you still have unused backup codes.
-            </p>
-          </form>
+            </button>          </form>
         ) : (
           <form onSubmit={handleOtpSubmit} className="space-y-4">
             <button
