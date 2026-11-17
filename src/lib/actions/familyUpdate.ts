@@ -361,7 +361,7 @@ export async function rejectFamilyUpdate(submissionId: number, note?: string): P
       where: { id: submissionId, status: "PENDING" },
       data: {
         status: "REJECTED",
-        // Free-text reviewer note: encrypted at rest. Nothing reads it back.
+        // Free-text reviewer note: encrypted at rest. Read it back via readReviewNote (src/lib/reviewNote.ts).
         reviewNote: reviewNote ? encrypt(reviewNote) : null,
         reviewedById: actorId(session),
         reviewedAt: new Date(),

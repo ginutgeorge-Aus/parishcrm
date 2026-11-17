@@ -22,7 +22,19 @@ export function isHashedToken(stored: string): boolean {
  */
 export function storedTokenMatches(provided: string, stored: string): boolean {
   if (!provided || !stored) return false
-  const expected = createHash("sha256").update(isHashedToken(stored) ? stored : hashToken(stored)).digest()
-  const actual = createHash("sha256").update(hashToken(provided)).digest()
+  // Both sides are 64-char hex digests, so equal lengths and a direct constant-time compare is safe.
+  const expected = Buffer.from(isHashedToken(stored) ? stored : hashToken(stored))
+  const actual = Buffer.from(hashToken(provided))
   return timingSafeEqual(actual, expected)
+}
+
+/**
+ * Stored values a URL token may match in a DB lookup: its digest, plus the raw token for legacy rows
+ * not yet backfilled. A 64-hex URL token is never taken as raw: it would match a stolen digest.
+ * Used for DB lookups (crew page); `storedTokenMatches` applies the same rule to an already-fetched value.
+ * Sunset both raw branches together once the backfill is confirmed on every deployment.
+ * @param token the raw token from the URL
+ */
+export function tokenLookupCandidates(token: string): string[] {
+  return isHashedToken(token) ? [hashToken(token)] : [hashToken(token), token]
 }
